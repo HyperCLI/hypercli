@@ -508,7 +508,11 @@ function ChatPageContent() {
         {/* Sidebar Header */}
         <div className="p-4 border-b border-[var(--color-border)]">
           <div className="flex items-center justify-between mb-4">
-            <h1 className="text-lg font-bold text-[var(--color-primary)]">COMPUTE3 CHAT</h1>
+            <h1 className="text-lg font-bold">
+              <span className="text-white">Hyper</span>
+              <span className="text-[var(--color-primary)]">CLI</span>
+              <span className="text-[var(--text-tertiary)] ml-2">Chat</span>
+            </h1>
             <button
               onClick={toggleTheme}
               className="p-2 rounded-lg hover:bg-[var(--color-border)] transition-colors"

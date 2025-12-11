@@ -61,6 +61,15 @@
   --sidebar-ring: #38d39f;
 }
 
+/* Chat-specific color aliases (used in page.tsx) */
+:root {
+  --color-bg: var(--background);
+  --color-bg-secondary: var(--surface-low);
+  --color-text: var(--foreground);
+  --color-border: var(--border);
+  --color-primary: var(--primary);
+}
+
 @theme inline {
   --color-background: var(--background);
   --color-foreground: var(--foreground);

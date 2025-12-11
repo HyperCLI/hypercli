@@ -354,32 +354,32 @@ export default function DashboardPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-900 text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex items-center justify-between mb-8">
-            <h1 className="text-4xl font-bold text-gray-900">
+            <h1 className="text-4xl font-bold text-white">
               Console Dashboard
             </h1>
             <div className="flex items-center gap-3">
               <button
                 onClick={() => router.push('/keys')}
-                className="border border-gray-300 text-gray-700 font-semibold py-2 px-6 rounded-lg hover:bg-gray-50 transition-colors"
+                className="border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-6 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
               >
                 API Keys
               </button>
               <button
                 onClick={() => router.push('/job')}
-                className="btn-primary text-white font-semibold py-2 px-6 rounded-lg"
+                className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
               >
                 Launch GPU
               </button>
@@ -388,36 +388,36 @@ export default function DashboardPage() {
 
           {/* User Profile Section */}
           <div className="mb-8">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">User Profile</h2>
+            <h2 className="text-2xl font-bold text-white mb-6">User Profile</h2>
 
-            {profileLoading && <div className="text-gray-600">Loading profile...</div>}
-            {profileError && <div className="text-red-600">Error: {profileError}</div>}
+            {profileLoading && <div className="text-[#9BA0A2]">Loading profile...</div>}
+            {profileError && <div className="text-[#D05F5F]">Error: {profileError}</div>}
 
             {userProfile && (
               <>
                 {/* Name Field */}
                 <div className="mb-4 flex items-center gap-3">
-                  <label className="text-sm font-semibold text-gray-500 w-24">Name:</label>
+                  <label className="text-sm font-semibold text-[#6E7375] w-24">Name:</label>
                   {isEditing.name ? (
                     <div className="flex items-center gap-2 flex-1">
                       <input
                         type="text"
                         value={editValues.name}
                         onChange={(e) => setEditValues(prev => ({ ...prev, name: e.target.value }))}
-                        className="border border-gray-300 rounded px-3 py-1 flex-1 max-w-md"
+                        className="bg-[#161819] border border-[#2A2D2F] rounded px-3 py-1 flex-1 max-w-md text-white focus:border-[#38D39F] focus:outline-none"
                         disabled={isSaving}
                       />
-                      <button onClick={() => handleSave('name')} disabled={isSaving} className="text-green-600 hover:text-green-800 font-semibold px-3">
+                      <button onClick={() => handleSave('name')} disabled={isSaving} className="text-[#38D39F] hover:text-[#45E4AE] font-semibold px-3">
                         Save
                       </button>
-                      <button onClick={() => handleCancel('name')} disabled={isSaving} className="text-gray-600 hover:text-gray-800 font-semibold px-3">
+                      <button onClick={() => handleCancel('name')} disabled={isSaving} className="text-[#9BA0A2] hover:text-white font-semibold px-3">
                         Cancel
                       </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1">
-                      <span className="text-gray-900">{userProfile.name || "(not set)"}</span>
-                      <button onClick={() => handleEdit('name')} className="text-blue-600 hover:text-blue-800" title="Edit name">
+                      <span className="text-white">{userProfile.name || "(not set)"}</span>
+                      <button onClick={() => handleEdit('name')} className="text-[#38D39F] hover:text-[#45E4AE]" title="Edit name">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                         </svg>
@@ -428,32 +428,32 @@ export default function DashboardPage() {
 
                 {/* Email Field */}
                 <div className="mb-4 flex items-center gap-3">
-                  <label className="text-sm font-semibold text-gray-500 w-24">Email:</label>
+                  <label className="text-sm font-semibold text-[#6E7375] w-24">Email:</label>
                   {isEditing.email ? (
                     <div className="flex items-center gap-2 flex-1">
                       <input
                         type="email"
                         value={editValues.email}
                         onChange={(e) => setEditValues(prev => ({ ...prev, email: e.target.value }))}
-                        className="border border-gray-300 rounded px-3 py-1 flex-1 max-w-md"
+                        className="bg-[#161819] border border-[#2A2D2F] rounded px-3 py-1 flex-1 max-w-md text-white focus:border-[#38D39F] focus:outline-none"
                         disabled={isSaving}
                       />
-                      <button onClick={() => handleSave('email')} disabled={isSaving} className="text-green-600 hover:text-green-800 font-semibold px-3">
+                      <button onClick={() => handleSave('email')} disabled={isSaving} className="text-[#38D39F] hover:text-[#45E4AE] font-semibold px-3">
                         Save
                       </button>
-                      <button onClick={() => handleCancel('email')} disabled={isSaving} className="text-gray-600 hover:text-gray-800 font-semibold px-3">
+                      <button onClick={() => handleCancel('email')} disabled={isSaving} className="text-[#9BA0A2] hover:text-white font-semibold px-3">
                         Cancel
                       </button>
                     </div>
                   ) : (
                     <div className="flex items-center gap-2 flex-1">
-                      <span className="text-gray-900">{userProfile.email || "(not set)"}</span>
+                      <span className="text-white">{userProfile.email || "(not set)"}</span>
                       {userProfile.email && (
-                        <span className={`text-xs px-2 py-1 rounded ${userProfile.email_verified ? 'bg-green-100 text-green-800' : 'bg-yellow-100 text-yellow-800'}`}>
+                        <span className={`text-xs px-2 py-1 rounded ${userProfile.email_verified ? 'bg-[#38D39F]/20 text-[#38D39F]' : 'bg-[#E0A85F]/20 text-[#E0A85F]'}`}>
                           {userProfile.email_verified ? 'Verified' : 'Not Verified'}
                         </span>
                       )}
-                      <button onClick={() => handleEdit('email')} className="text-blue-600 hover:text-blue-800" title="Edit email">
+                      <button onClick={() => handleEdit('email')} className="text-[#38D39F] hover:text-[#45E4AE]" title="Edit email">
                         <svg xmlns="http://www.w3.org/2000/svg" className="h-4 w-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                           <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15.232 5.232l3.536 3.536m-2.036-5.036a2.5 2.5 0 113.536 3.536L6.5 21.036H3v-3.572L16.732 3.732z" />
                         </svg>
@@ -464,21 +464,21 @@ export default function DashboardPage() {
 
                 {/* User ID (read-only) */}
                 <div className="mb-4 flex items-center gap-3">
-                  <label className="text-sm font-semibold text-gray-500 w-24">User ID:</label>
-                  <span className="text-gray-600 text-sm font-mono">{userProfile.user_id}</span>
+                  <label className="text-sm font-semibold text-[#6E7375] w-24">User ID:</label>
+                  <span className="text-[#9BA0A2] text-sm font-mono">{userProfile.user_id}</span>
                 </div>
 
                 {/* User Type (read-only) */}
                 {userProfile.user_type && (
                   <div className="flex items-center gap-3">
-                    <label className="text-sm font-semibold text-gray-500 w-24">Account:</label>
+                    <label className="text-sm font-semibold text-[#6E7375] w-24">Account:</label>
                     <span
                       className={`px-3 py-1 rounded-full text-xs font-semibold ${
                         userProfile.user_type === 'paid'
-                          ? 'bg-green-100 text-green-800'
+                          ? 'bg-[#38D39F]/20 text-[#38D39F]'
                           : userProfile.user_type === 'rewards'
-                          ? 'bg-orange-100 text-orange-800'
-                          : 'bg-gray-100 text-gray-800'
+                          ? 'bg-[#E0A85F]/20 text-[#E0A85F]'
+                          : 'bg-[#161819] text-[#9BA0A2]'
                       }`}
                     >
                       {userProfile.user_type.charAt(0).toUpperCase() + userProfile.user_type.slice(1)}
@@ -493,28 +493,28 @@ export default function DashboardPage() {
           {balance && (
             <>
               <div className="flex items-center justify-between mb-6">
-                <h2 className="text-2xl font-bold text-gray-900">Balance</h2>
+                <h2 className="text-2xl font-bold text-white">Balance</h2>
                 <button
                   onClick={() => setShowTopUpModal(true)}
-                  className="btn-primary text-white font-semibold py-2 px-6 rounded-lg"
+                  className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
                 >
                   Top Up
                 </button>
               </div>
               <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                <div className="card bg-white p-6 rounded-lg shadow">
-                  <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                  <h3 className="text-xs font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                     Available Balance
                   </h3>
-                  <p className="text-2xl font-bold text-gray-900">${balance.balance}</p>
+                  <p className="text-2xl font-bold text-white">${balance.balance}</p>
                 </div>
 
                 {transactions.some(tx => tx.rewards) && (
-                  <div className="card bg-white p-6 rounded-lg shadow">
-                    <h3 className="text-xs font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                  <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                    <h3 className="text-xs font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                       Rewards Balance
                     </h3>
-                    <p className="text-2xl font-bold text-gray-900">${balance.rewards_balance}</p>
+                    <p className="text-2xl font-bold text-white">${balance.rewards_balance}</p>
                   </div>
                 )}
               </div>
@@ -523,41 +523,41 @@ export default function DashboardPage() {
 
           {/* Transaction History */}
           <div className="mt-12">
-            <h2 className="text-2xl font-bold text-gray-900 mb-6">
+            <h2 className="text-2xl font-bold text-white mb-6">
               Transaction History
             </h2>
-            <div className="bg-white rounded-lg shadow overflow-hidden">
+            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-hidden">
               {txLoading ? (
-                <div className="p-8 text-center text-gray-600">Loading transactions...</div>
+                <div className="p-8 text-center text-[#9BA0A2]">Loading transactions...</div>
               ) : transactions.length === 0 ? (
-                <div className="p-8 text-center text-gray-600">No transactions yet</div>
+                <div className="p-8 text-center text-[#9BA0A2]">No transactions yet</div>
               ) : (
-                <table className="min-w-full divide-y divide-gray-200">
-                  <thead className="bg-gray-50">
+                <table className="min-w-full divide-y divide-[#2A2D2F]">
+                  <thead className="bg-[#0B0D0E]">
                     <tr>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-24">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-24">
                         Status
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-32">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-32">
                         ID
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-28">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-28">
                         Type
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                         Details
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                         Amount
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                         Date
                       </th>
-                      <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                      <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       </th>
                     </tr>
                   </thead>
-                  <tbody className="bg-white divide-y divide-gray-200">
+                  <tbody className="bg-[#161819] divide-y divide-[#2A2D2F]">
                     {transactions.map((tx) => {
                       if (tx.transaction_type === 'job') {
                         return (
@@ -605,26 +605,26 @@ export default function DashboardPage() {
 
               {/* Pagination */}
               {!txLoading && transactions.length > 0 && (
-                <div className="bg-white px-6 py-3 flex items-center justify-between border-t border-gray-200">
-                  <div className="text-sm text-gray-600">
-                    <span className="font-medium text-gray-900">{(currentPage - 1) * pageSize + 1}</span>
+                <div className="bg-[#0B0D0E] px-6 py-3 flex items-center justify-between border-t border-[#2A2D2F]">
+                  <div className="text-sm text-[#9BA0A2]">
+                    <span className="font-medium text-white">{(currentPage - 1) * pageSize + 1}</span>
                     {' - '}
-                    <span className="font-medium text-gray-900">{Math.min(currentPage * pageSize, totalTxCount)}</span>
+                    <span className="font-medium text-white">{Math.min(currentPage * pageSize, totalTxCount)}</span>
                     {' of '}
-                    <span className="font-medium text-gray-900">{totalTxCount}</span>
+                    <span className="font-medium text-white">{totalTxCount}</span>
                   </div>
                   <div className="flex gap-2">
                     <button
                       onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                       disabled={currentPage === 1}
-                      className="px-3 py-1.5 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       Previous
                     </button>
                     <button
                       onClick={() => setCurrentPage(p => p + 1)}
                       disabled={currentPage * pageSize >= totalTxCount}
-                      className="px-3 py-1.5 border border-gray-300 rounded text-sm font-medium text-gray-700 hover:bg-gray-50 disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                      className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                     >
                       Next
                     </button>
