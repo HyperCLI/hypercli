@@ -40,13 +40,13 @@ export default function DistributedTraining() {
 
   return (
     <>
-    <section className="py-20 sm:py-28 bg-gradient-to-br from-gray-900 to-gray-800 text-white overflow-hidden">
+    <section className="py-20 sm:py-28 bg-background-secondary text-foreground overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center">
           <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter animate-on-scroll">
             Distributed Training at Scale
           </h2>
-          <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-300 animate-on-scroll" style={{ transitionDelay: "100ms" }}>
+          <p className="mt-4 max-w-2xl mx-auto text-lg text-text-secondary animate-on-scroll" style={{ transitionDelay: "100ms" }}>
             Train on 8x to 512x GPU clusters. Scale from fine-tuning to foundation model training.
           </p>
         </div>
@@ -55,75 +55,75 @@ export default function DistributedTraining() {
           {clusters.map((cluster, index) => (
             <div
               key={index}
-              className="relative bg-white/5 backdrop-blur-sm rounded-2xl p-6 border border-white/10 card animate-on-scroll hover:bg-white/10 transition-all duration-300"
+              className="relative bg-card/50 backdrop-blur-sm rounded-2xl p-6 border border-border card animate-on-scroll hover:border-primary/30 transition-all duration-300"
               style={{ transitionDelay: `${cluster.delay}ms` }}
             >
-              <div className="text-5xl font-black bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] bg-clip-text text-transparent mb-2">
+              <div className="text-5xl font-black text-primary mb-2">
                 {cluster.size}
               </div>
-              <p className="text-gray-300">{cluster.description}</p>
+              <p className="text-text-secondary">{cluster.description}</p>
             </div>
           ))}
         </div>
 
-        <div className="mt-16 bg-white/5 backdrop-blur-sm rounded-2xl p-8 border border-white/10 animate-on-scroll" style={{ transitionDelay: "400ms" }}>
+        <div className="mt-16 bg-card/50 backdrop-blur-sm rounded-2xl p-8 border border-border animate-on-scroll" style={{ transitionDelay: "400ms" }}>
           <div className="flex flex-col md:flex-row items-center justify-between gap-6">
             <div className="flex-1">
               <h3 className="text-2xl md:text-3xl font-bold mb-3">
-                Up to <span className="text-[var(--color-primary)]">512x B200</span> Clusters
+                Up to <span className="text-primary">512x B200</span> Clusters
               </h3>
-              <p className="text-gray-300 text-lg">
+              <p className="text-text-secondary text-lg">
                 Need massive compute for foundation model training? We can provision up to 512 B200 GPUs with high-speed interconnects.
               </p>
             </div>
             <div className="flex flex-col gap-3">
               <button
                 onClick={() => openModal("distributed-training-quote")}
-                className="btn-primary text-white font-semibold py-3 px-8 rounded-lg text-lg whitespace-nowrap text-center"
+                className="bg-primary hover:bg-primary-hover text-primary-foreground font-semibold py-3 px-8 rounded-lg text-lg whitespace-nowrap text-center transition-colors glow-primary"
               >
                 Ask for Quote
               </button>
-              <p className="text-sm text-gray-400 text-center">Custom configurations available</p>
+              <p className="text-sm text-muted-foreground text-center">Custom configurations available</p>
             </div>
           </div>
         </div>
 
         <div className="mt-12 grid md:grid-cols-3 gap-6">
           <div className="text-center animate-on-scroll" style={{ transitionDelay: "500ms" }}>
-            <div className="h-12 w-12 mx-auto mb-4 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center">
+            <div className="h-12 w-12 mx-auto mb-4 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path d="M13 10V3L4 14h7v7l9-11h-7z" />
               </svg>
             </div>
             <h4 className="text-lg font-semibold mb-2">High-Speed Interconnects</h4>
-            <p className="text-gray-400">InfiniBand & NVLink for maximum throughput</p>
+            <p className="text-muted-foreground">InfiniBand & NVLink for maximum throughput</p>
           </div>
 
           <div className="text-center animate-on-scroll" style={{ transitionDelay: "600ms" }}>
-            <div className="h-12 w-12 mx-auto mb-4 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center">
+            <div className="h-12 w-12 mx-auto mb-4 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path d="M12 2L2 7l10 5 10-5-10-5zM2 17l10 5 10-5M2 12l10 5 10-5" />
               </svg>
             </div>
             <h4 className="text-lg font-semibold mb-2">Flexible Frameworks</h4>
-            <p className="text-gray-400">DeepSpeed, PyTorch FSDP, Megatron-LM</p>
+            <p className="text-muted-foreground">DeepSpeed, PyTorch FSDP, Megatron-LM</p>
           </div>
 
           <div className="text-center animate-on-scroll" style={{ transitionDelay: "700ms" }}>
-            <div className="h-12 w-12 mx-auto mb-4 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center">
+            <div className="h-12 w-12 mx-auto mb-4 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
               <svg className="h-6 w-6" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                 <path strokeLinecap="round" strokeLinejoin="round" d="M9 12.75L11.25 15 15 9.75m-3-7.036A11.959 11.959 0 013.598 6 11.99 11.99 0 003 9.749c0 5.592 3.824 10.29 9 11.622 5.176-1.332 9-6.03 9-11.622 0-1.31-.21-2.571-.598-3.751h-.152c-3.196 0-6.1-1.248-8.25-3.286zm0 13.036h.008v.008h-.008v-.008z" />
               </svg>
             </div>
             <h4 className="text-lg font-semibold mb-2">Checkpointing & Monitoring</h4>
-            <p className="text-gray-400">Built-in fault tolerance and observability</p>
+            <p className="text-muted-foreground">Built-in fault tolerance and observability</p>
           </div>
         </div>
 
         <div className="mt-12 text-center animate-on-scroll" style={{ transitionDelay: "800ms" }}>
           <button
             onClick={() => openModal("distributed-training-ready")}
-            className="inline-flex items-center gap-2 btn-secondary font-semibold py-3 px-8 rounded-lg text-lg bg-white text-gray-900 hover:bg-gray-100"
+            className="inline-flex items-center gap-2 border border-border-medium bg-transparent text-foreground hover:bg-surface-low hover:border-primary/40 font-semibold py-3 px-8 rounded-lg text-lg transition-colors"
           >
             Ready to Train Your Model?
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

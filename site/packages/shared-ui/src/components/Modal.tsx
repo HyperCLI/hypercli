@@ -33,14 +33,14 @@ export default function Modal({ isOpen, onClose, title, children, maxWidth = "md
       }}
     >
       <div
-        className={`bg-white rounded-2xl shadow-2xl ${maxWidthClass} w-full max-h-[90vh] overflow-y-auto`}
+        className={`bg-card rounded-2xl shadow-2xl border border-border ${maxWidthClass} w-full max-h-[90vh] overflow-y-auto`}
       >
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
+            <h2 className="text-2xl font-bold text-foreground">{title}</h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-muted-foreground hover:text-foreground transition-colors"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

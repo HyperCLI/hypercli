@@ -25,7 +25,7 @@ export default function FinalCTA() {
   }, []);
 
   return (
-    <section className="py-32 bg-gradient-to-br from-[var(--color-primary)] via-[var(--color-secondary)] to-orange-600 relative overflow-hidden">
+    <section className="py-32 bg-primary relative overflow-hidden">
       {/* Pattern Background */}
       <div className="absolute inset-0 opacity-10">
         <div
@@ -54,7 +54,7 @@ export default function FinalCTA() {
           >
             <a
               href={NAV_URLS.console}
-              className="bg-white text-gray-900 font-semibold py-3 px-8 rounded-lg text-lg hover:bg-gray-100 transition transform hover:scale-105"
+              className="bg-background text-foreground font-semibold py-3 px-8 rounded-lg text-lg hover:bg-surface-low transition transform hover:scale-105"
             >
               Start Free Trial
             </a>

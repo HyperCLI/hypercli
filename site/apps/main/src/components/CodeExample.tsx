@@ -63,21 +63,21 @@ c3 train axolotl \\
   }, []);
 
   return (
-    <section id="code" className="py-20 sm:py-28 bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)]">
+    <section id="code" className="py-20 sm:py-28 bg-background">
       <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center">
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-gray-900 animate-on-scroll">
-            One Command. <span className="text-[var(--color-primary)]">&lt;3 Seconds.</span>
+          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-foreground animate-on-scroll">
+            One Command. <span className="text-primary">&lt;3 Seconds.</span>
           </h2>
-          <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-600 animate-on-scroll" style={{ transitionDelay: "100ms" }}>
+          <p className="mt-4 max-w-2xl mx-auto text-lg text-text-secondary animate-on-scroll" style={{ transitionDelay: "100ms" }}>
             Deploy any workload with our CLI. From inference to training, boots in under 3 seconds.
           </p>
         </div>
-        <div className="mt-12 animate-on-scroll code-block-glow" style={{ transitionDelay: "200ms" }}>
-          <div className="relative bg-gray-900/80 backdrop-blur-sm rounded-xl p-1 border border-white/10">
+        <div className="mt-12 animate-on-scroll glow-primary-lg" style={{ transitionDelay: "200ms" }}>
+          <div className="relative bg-surface-low/80 backdrop-blur-sm rounded-xl p-1 border border-primary/20">
             <button
               onClick={handleCopy}
-              className="absolute top-4 right-4 bg-gray-700/50 hover:bg-gray-600 text-gray-300 font-mono text-xs py-1 px-2 rounded-md transition"
+              className="absolute top-4 right-4 bg-surface-high/50 hover:bg-surface-high text-text-secondary font-mono text-xs py-1 px-2 rounded-md transition"
             >
               {copied ? "Copied!" : "Copy"}
             </button>

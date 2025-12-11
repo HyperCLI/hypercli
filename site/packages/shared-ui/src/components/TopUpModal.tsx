@@ -201,14 +201,14 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
 
   return (
     <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-2xl max-w-md w-full">
+      <div className="bg-card border border-border rounded-2xl shadow-2xl max-w-md w-full">
         <div className="p-6">
           <div className="flex items-center justify-between mb-6">
-            <h2 className="text-2xl font-bold text-gray-900">Top Up Balance</h2>
+            <h2 className="text-2xl font-bold text-foreground">Top Up Balance</h2>
             <button
               onClick={handleClose}
               disabled={isProcessing}
-              className="text-gray-400 hover:text-gray-600 transition-colors disabled:opacity-50"
+              className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -218,20 +218,20 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
 
           {success ? (
             <div className="text-center py-8">
-              <div className="w-16 h-16 bg-green-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                <svg className="w-8 h-8 text-green-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <div className="w-16 h-16 bg-success/20 rounded-full flex items-center justify-center mx-auto mb-4">
+                <svg className="w-8 h-8 text-success" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                   <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
                 </svg>
               </div>
-              <h3 className="text-lg font-semibold text-gray-900 mb-2">Payment Successful!</h3>
-              <p className="text-gray-600">Your balance will be updated shortly.</p>
+              <h3 className="text-lg font-semibold text-foreground mb-2">Payment Successful!</h3>
+              <p className="text-muted-foreground">Your balance will be updated shortly.</p>
             </div>
           ) : (
             <form onSubmit={handleSubmit}>
               {/* Wallet Notice */}
-              <div className="mb-4 p-3 bg-blue-50 border border-blue-200 rounded-lg text-sm text-blue-800">
+              <div className="mb-4 p-3 bg-primary/10 border border-primary/20 rounded-lg text-sm text-foreground">
                 <div className="flex items-start">
-                  <svg className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0" fill="currentColor" viewBox="0 0 20 20">
+                  <svg className="w-5 h-5 mr-2 mt-0.5 flex-shrink-0 text-primary" fill="currentColor" viewBox="0 0 20 20">
                     <path fillRule="evenodd" d="M18 10a8 8 0 11-16 0 8 8 0 0116 0zm-7-4a1 1 0 11-2 0 1 1 0 012 0zM9 9a1 1 0 000 2v3a1 1 0 001 1h1a1 1 0 100-2v-3a1 1 0 00-1-1H9z" clipRule="evenodd" />
                   </svg>
                   <div>
@@ -242,7 +242,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
 
               {/* Payment Method Selection */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">Payment Method</label>
+                <label className="block text-sm font-semibold text-foreground mb-3">Payment Method</label>
                 <div className="grid grid-cols-2 gap-3">
                   <button
                     type="button"
@@ -250,12 +250,12 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                     disabled={isProcessing}
                     className={`p-4 rounded-lg border-2 transition-all ${
                       paymentMethod === "crypto"
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300"
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:border-border-medium"
                     } disabled:opacity-50`}
                   >
-                    <div className="font-semibold text-gray-900">Crypto</div>
-                    <div className="text-xs text-gray-500 mt-1">USDC</div>
+                    <div className="font-semibold text-foreground">Crypto</div>
+                    <div className="text-xs text-muted-foreground mt-1">USDC</div>
                   </button>
                   <button
                     type="button"
@@ -263,19 +263,19 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                     disabled={isProcessing}
                     className={`p-4 rounded-lg border-2 transition-all ${
                       paymentMethod === "card"
-                        ? "border-blue-600 bg-blue-50"
-                        : "border-gray-200 hover:border-gray-300"
+                        ? "border-primary bg-primary/10"
+                        : "border-border hover:border-border-medium"
                     } disabled:opacity-50`}
                   >
-                    <div className="font-semibold text-gray-900">Credit Card</div>
-                    <div className="text-xs text-gray-500 mt-1">Stripe</div>
+                    <div className="font-semibold text-foreground">Credit Card</div>
+                    <div className="text-xs text-muted-foreground mt-1">Stripe</div>
                   </button>
                 </div>
               </div>
 
               {/* Amount Slider */}
               <div className="mb-6">
-                <label className="block text-sm font-semibold text-gray-700 mb-3">
+                <label className="block text-sm font-semibold text-foreground mb-3">
                   Amount: ${amount.toFixed(2)}
                 </label>
                 <input
@@ -286,9 +286,9 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                   value={amount}
                   onChange={(e) => setAmount(parseFloat(e.target.value))}
                   disabled={isProcessing}
-                  className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer slider"
+                  className="w-full h-2 bg-surface-low rounded-lg appearance-none cursor-pointer slider accent-primary"
                 />
-                <div className="flex justify-between text-xs text-gray-500 mt-2">
+                <div className="flex justify-between text-xs text-muted-foreground mt-2">
                   <span>${minAmount}</span>
                   <span>${maxAmount}</span>
                 </div>
@@ -297,7 +297,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
 
               {/* Error Message */}
               {error && (
-                <div className="mb-4 p-3 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                <div className="mb-4 p-3 bg-destructive/10 border border-destructive/20 rounded-lg text-destructive text-sm">
                   {error}
                 </div>
               )}
@@ -306,7 +306,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
               <button
                 type="submit"
                 disabled={isProcessing}
-                className="w-full btn-primary text-white font-semibold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed"
+                className="w-full bg-primary hover:bg-primary-hover text-primary-foreground font-semibold py-3 px-6 rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors glow-primary"
               >
                 {isProcessing ? "Processing..." : `Pay $${amount.toFixed(2)}`}
               </button>

@@ -188,27 +188,27 @@ export default function GPUFleet() {
 
   return (
     <>
-    <section className="py-20 sm:py-28 bg-[var(--color-bg-light)] overflow-hidden">
+    <section className="py-20 sm:py-28 bg-background-secondary overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center">
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-gray-900 animate-on-scroll">
+          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-foreground animate-on-scroll">
             World-Class GPU Fleet
           </h2>
-          <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-600 animate-on-scroll" style={{ transitionDelay: "100ms" }}>
+          <p className="mt-4 max-w-2xl mx-auto text-lg text-text-secondary animate-on-scroll" style={{ transitionDelay: "100ms" }}>
             From cost-effective L4s to cutting-edge B300s. Choose the right GPU for your workload.
           </p>
         </div>
 
         {loading ? (
-          <div className="mt-16 text-center text-gray-500">Loading GPUs...</div>
+          <div className="mt-16 text-center text-muted-foreground">Loading GPUs...</div>
         ) : gpus.length === 0 ? (
-          <div className="mt-16 text-center text-gray-500">No GPUs available</div>
+          <div className="mt-16 text-center text-muted-foreground">No GPUs available</div>
         ) : (
           <div className="mt-16 grid grid-cols-2 md:grid-cols-4 gap-4 md:gap-6">
             {gpus.map((gpu, index) => (
               <div
                 key={gpu.key}
-                className="relative bg-white rounded-2xl p-6 shadow-sm card animate-on-scroll group hover:shadow-xl transition-shadow duration-300"
+                className="relative bg-card border border-border rounded-2xl p-6 card animate-on-scroll group hover:border-primary/30 transition-all duration-300"
                 style={{ transitionDelay: `${index * 50}ms` }}
               >
                 <div className={`absolute inset-0 bg-gradient-to-br ${tierColors[gpu.tier]} opacity-0 group-hover:opacity-5 rounded-2xl transition-opacity duration-300`}></div>
@@ -220,36 +220,36 @@ export default function GPUFleet() {
                     </div>
                   </div>
 
-                  <h3 className="text-2xl md:text-3xl font-black text-gray-900 mb-1">
+                  <h3 className="text-2xl md:text-3xl font-black text-foreground mb-1">
                     {gpu.name}
                   </h3>
 
-                  <p className="text-lg text-gray-600 font-semibold">
+                  <p className="text-lg text-text-secondary font-semibold">
                     {gpu.memory}
                   </p>
 
                   {(gpu.interruptible || gpu.onDemand) && (
                     <div className="mt-3">
-                      <p className="text-xs text-gray-500">starting at</p>
-                      <p className="text-xl font-bold text-[var(--color-primary)]">
+                      <p className="text-xs text-muted-foreground">starting at</p>
+                      <p className="text-xl font-bold text-primary">
                         ${(gpu.interruptible || gpu.onDemand)?.toFixed(2)}
-                        <span className="text-xs text-gray-500 font-normal">/hr</span>
+                        <span className="text-xs text-muted-foreground font-normal">/hr</span>
                       </p>
                     </div>
                   )}
 
                   {gpu.regions.length > 0 && (
                     <div className="mt-3">
-                      <p className="text-xs text-gray-500 mb-1">Available in</p>
+                      <p className="text-xs text-muted-foreground mb-1">Available in</p>
                       <div className="flex flex-wrap gap-1">
                         {gpu.regions.map((region) => (
                           <span
                             key={region}
-                            className="inline-flex items-center gap-1 text-xs bg-gray-100 px-2 py-1 rounded"
+                            className="inline-flex items-center gap-1 text-xs bg-surface-low px-2 py-1 rounded"
                             title={getRegionName(region)}
                           >
                             <span>{getRegionFlag(region)}</span>
-                            <span className="text-gray-600">{region.toUpperCase()}</span>
+                            <span className="text-text-secondary">{region.toUpperCase()}</span>
                           </span>
                         ))}
                       </div>
@@ -264,7 +264,7 @@ export default function GPUFleet() {
         <div className="mt-12 text-center animate-on-scroll" style={{ transitionDelay: "400ms" }}>
           <a
             href={NAV_URLS.gpus}
-            className="inline-flex items-center gap-2 btn-secondary font-semibold py-3 px-8 rounded-lg text-lg"
+            className="inline-flex items-center gap-2 border border-border-medium bg-transparent text-foreground hover:bg-surface-low hover:border-primary/40 font-semibold py-3 px-8 rounded-lg text-lg transition-colors"
           >
             Explore our GPUs
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

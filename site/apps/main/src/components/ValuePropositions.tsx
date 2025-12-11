@@ -80,13 +80,13 @@ export default function ValuePropositions() {
   }, []);
 
   return (
-    <section id="features" className="py-20 sm:py-28 bg-[var(--color-bg-light)]">
+    <section id="features" className="py-20 sm:py-28 bg-background-secondary">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center">
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-gray-900 animate-on-scroll">
-            Why <span className="text-[var(--color-primary)]">Compute</span>
+          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-foreground animate-on-scroll">
+            Why <span className="text-primary">Compute</span>
           </h2>
-          <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-600 animate-on-scroll" style={{ transitionDelay: "100ms" }}>
+          <p className="mt-4 max-w-2xl mx-auto text-lg text-text-secondary animate-on-scroll" style={{ transitionDelay: "100ms" }}>
             The fastest, most flexible GPU infrastructure for AI workloads
           </p>
         </div>
@@ -94,20 +94,20 @@ export default function ValuePropositions() {
           {values.map((value, index) => (
             <div
               key={index}
-              className="bg-white p-6 rounded-2xl shadow-sm card animate-on-scroll"
+              className="bg-card border border-border p-6 rounded-2xl card animate-on-scroll hover:border-primary/30 transition-colors"
               style={{ transitionDelay: `${value.delay}ms` }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center flex-shrink-0">
+                <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center flex-shrink-0">
                   {value.icon}
                 </div>
-                <h3 className="text-xl font-bold text-gray-900">{value.title}</h3>
+                <h3 className="text-xl font-bold text-foreground">{value.title}</h3>
               </div>
-              <p className="text-gray-600 mb-4">{value.description}</p>
-              <ul className="space-y-2 text-sm text-gray-600">
+              <p className="text-text-secondary mb-4">{value.description}</p>
+              <ul className="space-y-2 text-sm text-text-secondary">
                 {value.features.map((feature, featureIndex) => (
                   <li key={featureIndex} className="flex items-start gap-2">
-                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[var(--color-primary)] flex-shrink-0"></span>
+                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary flex-shrink-0"></span>
                     {feature}
                   </li>
                 ))}

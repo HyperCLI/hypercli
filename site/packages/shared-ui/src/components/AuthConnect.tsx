@@ -177,7 +177,7 @@ export function AuthConnect() {
     <div>
       <button
         onClick={() => handleLogin()}
-        className="px-6 py-2.5 bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] text-white rounded-full font-semibold transition-all hover:scale-105 hover:shadow-lg hover:shadow-orange-500/30"
+        className="px-6 py-2.5 bg-primary text-primary-foreground rounded-full font-semibold transition-all hover:scale-105 hover:bg-primary-hover hover:shadow-lg hover:shadow-primary/30"
       >
         Login
       </button>

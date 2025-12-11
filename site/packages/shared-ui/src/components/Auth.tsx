@@ -5,12 +5,12 @@ import { Suspense, useEffect, useState } from "react"
 import { useTurnkey } from "@turnkey/react-wallet-kit"
 import { cookieUtils } from "../utils/cookies"
 
-// Common loading component - using main site colors
+// Common loading component - using design system colors
 const LoadingCard = ({ message }: { message: string }) => (
   <div className="w-full max-w-md mx-auto">
-    <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 text-center shadow-lg">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)] mx-auto mb-4"></div>
-      <p className="text-gray-900">{message}</p>
+    <div className="bg-card border border-border rounded-2xl p-8 text-center shadow-lg">
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+      <p className="text-foreground">{message}</p>
     </div>
   </div>
 )
@@ -184,14 +184,14 @@ function AuthContent() {
     // Turnkey modal is shown via handleLogin() in the useEffect
     return (
       <div className="w-full max-w-md mx-auto">
-        <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 text-center shadow-lg">
+        <div className="bg-card border border-border rounded-2xl p-8 text-center shadow-lg">
           <div className="flex justify-center mb-4">
             <img src="/favicon.svg" alt="HyperCLI" className="h-16 w-16" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          <h2 className="text-2xl font-bold text-foreground mb-2">
             Welcome to HyperCLI
           </h2>
-          <p className="text-gray-600 text-sm mb-6">
+          <p className="text-muted-foreground text-sm mb-6">
             Sign in to access your account
           </p>
           <button
@@ -211,7 +211,7 @@ function AuthContent() {
                 }
               }
             }}
-            className="btn-primary w-full h-12 px-4 py-2 text-white font-medium rounded-lg"
+            className="bg-primary hover:bg-primary-hover text-primary-foreground w-full h-12 px-4 py-2 font-medium rounded-lg transition-colors glow-primary"
           >
             Open Login
           </button>
@@ -224,26 +224,26 @@ function AuthContent() {
     // User is already logged in - show options to go to dashboard or logout
     return (
       <div className="w-full max-w-md mx-auto">
-        <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 text-center shadow-lg">
+        <div className="bg-card border border-border rounded-2xl p-8 text-center shadow-lg">
           <div className="flex justify-center mb-4">
             <img src="/favicon.svg" alt="HyperCLI" className="h-16 w-16" />
           </div>
-          <h2 className="text-2xl font-bold text-gray-900 mb-2">
+          <h2 className="text-2xl font-bold text-foreground mb-2">
             You're Already Logged In
           </h2>
-          <p className="text-gray-600 text-sm mb-6">
+          <p className="text-muted-foreground text-sm mb-6">
             You're currently authenticated with HyperCLI.
           </p>
           <div className="space-y-3">
             <button
               onClick={() => router.push('/dashboard')}
-              className="btn-primary w-full h-12 px-4 py-2 text-white font-medium rounded-lg"
+              className="bg-primary hover:bg-primary-hover text-primary-foreground w-full h-12 px-4 py-2 font-medium rounded-lg transition-colors glow-primary"
             >
               Go to Dashboard
             </button>
             <button
               onClick={handleLogout}
-              className="btn-secondary w-full h-12 px-4 py-2 text-gray-900 font-medium rounded-lg"
+              className="border border-border-medium bg-transparent text-foreground hover:bg-surface-low hover:border-primary/40 w-full h-12 px-4 py-2 font-medium rounded-lg transition-colors"
             >
               Logout
             </button>

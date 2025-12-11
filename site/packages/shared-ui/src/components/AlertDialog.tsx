@@ -47,13 +47,13 @@ export default function AlertDialog({
   const getIconColor = () => {
     switch (type) {
       case "error":
-        return "text-red-600";
+        return "text-destructive";
       case "warning":
-        return "text-[#ff6b35]";
+        return "text-warning";
       case "success":
-        return "text-green-600";
+        return "text-success";
       default:
-        return "text-[#ff6b35]";
+        return "text-primary";
     }
   };
 
@@ -89,13 +89,13 @@ export default function AlertDialog({
   const getButtonColor = () => {
     switch (type) {
       case "error":
-        return "bg-red-600 hover:bg-red-700";
+        return "bg-destructive hover:bg-destructive/90";
       case "warning":
-        return "bg-[#ff6b35] hover:bg-[#e55a2b]";
+        return "bg-warning hover:bg-warning/90 text-background";
       case "success":
-        return "bg-green-600 hover:bg-green-700";
+        return "bg-success hover:bg-success/90 text-background";
       default:
-        return "bg-[#ff6b35] hover:bg-[#e55a2b]";
+        return "bg-primary hover:bg-primary-hover text-primary-foreground";
     }
   };
 
@@ -106,7 +106,7 @@ export default function AlertDialog({
           <div className={`flex-shrink-0 ${getIconColor()}`}>
             {getIcon()}
           </div>
-          <p className="text-gray-700 text-sm leading-relaxed">{message}</p>
+          <p className="text-foreground text-sm leading-relaxed">{message}</p>
         </div>
 
         <div className="flex gap-3 justify-end pt-2">
@@ -114,7 +114,7 @@ export default function AlertDialog({
             <button
               onClick={onClose}
               disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-gray-700 bg-white border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50 disabled:cursor-not-allowed"
+              className="px-4 py-2 text-sm font-medium text-foreground bg-surface-low border border-border rounded-lg hover:bg-surface-high disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {cancelText}
             </button>
@@ -122,7 +122,7 @@ export default function AlertDialog({
           <button
             onClick={handleConfirm}
             disabled={isLoading}
-            className={`px-4 py-2 text-sm font-medium text-white rounded-lg disabled:opacity-50 disabled:cursor-not-allowed ${getButtonColor()}`}
+            className={`px-4 py-2 text-sm font-medium rounded-lg disabled:opacity-50 disabled:cursor-not-allowed transition-colors ${getButtonColor()}`}
           >
             {isLoading ? "Processing..." : confirmText}
           </button>

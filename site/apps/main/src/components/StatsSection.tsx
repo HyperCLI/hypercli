@@ -48,7 +48,7 @@ export default function StatsSection() {
   }, []);
 
   return (
-    <section className="py-24 bg-white">
+    <section className="py-24 bg-background">
       <div className="max-w-7xl mx-auto px-6">
         <div className="grid md:grid-cols-3 gap-12">
           {stats.map((stat, index) => (
@@ -57,10 +57,10 @@ export default function StatsSection() {
               className="text-center animate-on-scroll"
               style={{ transitionDelay: `${stat.delay}ms` }}
             >
-              <div className="text-5xl md:text-6xl font-black bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] bg-clip-text text-transparent mb-2">
+              <div className="text-5xl md:text-6xl font-black text-primary mb-2">
                 {stat.value}
               </div>
-              <p className="text-xl text-gray-600 font-semibold">{stat.label}</p>
+              <p className="text-xl text-text-secondary font-semibold">{stat.label}</p>
             </div>
           ))}
         </div>

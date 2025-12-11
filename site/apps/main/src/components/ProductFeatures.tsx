@@ -111,13 +111,13 @@ export default function ProductFeatures() {
 
   return (
     <>
-    <section id="product" className="py-20 sm:py-28 bg-white overflow-hidden">
+    <section id="product" className="py-20 sm:py-28 bg-background overflow-hidden">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
         <div className="text-center">
-          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-gray-900 animate-on-scroll">
-            GPU Workloads in <span className="text-[var(--color-primary)]">&lt; 3 Seconds</span>
+          <h2 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-foreground animate-on-scroll">
+            GPU Workloads in <span className="text-primary">&lt; 3 Seconds</span>
           </h2>
-          <p className="mt-4 max-w-2xl mx-auto text-lg text-gray-600 animate-on-scroll" style={{ transitionDelay: "100ms" }}>
+          <p className="mt-4 max-w-2xl mx-auto text-lg text-text-secondary animate-on-scroll" style={{ transitionDelay: "100ms" }}>
             Deploy any AI workload with secure, per-second billing. Your API keys, your GPU.
           </p>
         </div>
@@ -126,20 +126,20 @@ export default function ProductFeatures() {
           {features.map((feature, index) => (
             <div
               key={index}
-              className="bg-white border border-gray-200 p-6 rounded-2xl shadow-sm card animate-on-scroll"
+              className="bg-card border border-border p-6 rounded-2xl card animate-on-scroll hover:border-primary/30 transition-colors"
               style={{ transitionDelay: `${feature.delay}ms` }}
             >
               <div className="flex items-center gap-3 mb-4">
-                <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center">
+                <div className="h-11 w-11 rounded-xl bg-primary/10 text-primary flex items-center justify-center">
                   {feature.icon}
                 </div>
-                <h3 className="text-xl font-semibold">{feature.title}</h3>
+                <h3 className="text-xl font-semibold text-foreground">{feature.title}</h3>
               </div>
-              <p className="text-gray-600 mb-4">{feature.description}</p>
-              <ul className="space-y-2 text-sm text-gray-600">
+              <p className="text-text-secondary mb-4">{feature.description}</p>
+              <ul className="space-y-2 text-sm text-text-secondary">
                 {feature.features.map((item, itemIndex) => (
                   <li key={itemIndex} className="flex items-start gap-2">
-                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-[var(--color-primary)]"></span>
+                    <span className="mt-1.5 h-1.5 w-1.5 rounded-full bg-primary"></span>
                     {item}
                   </li>
                 ))}
@@ -151,7 +151,7 @@ export default function ProductFeatures() {
         <div className="mt-12 text-center animate-on-scroll" style={{ transitionDelay: "300ms" }}>
           <a
             href={NAV_URLS.launch}
-            className="inline-flex items-center gap-2 btn-primary text-white font-semibold py-3 px-8 rounded-lg text-lg"
+            className="inline-flex items-center gap-2 bg-primary hover:bg-primary-hover text-primary-foreground font-semibold py-3 px-8 rounded-lg text-lg transition-colors glow-primary"
           >
             Ready to Launch a Workload?
             <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
