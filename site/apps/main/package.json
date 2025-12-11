@@ -1,5 +1,5 @@
 {
-  "name": "@hypercli/main-site",
+  "name": "@hypercli/main",
   "version": "0.1.0",
   "private": true,
   "scripts": {
