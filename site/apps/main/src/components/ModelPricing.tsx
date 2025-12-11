@@ -46,9 +46,9 @@ export default function ModelPricing() {
     const fetchData = async () => {
       try {
         const [modelsRes, pricingRes, groupsRes] = await Promise.all([
-          fetch("https://api.hypercli.dev/llm/models"),
-          fetch("https://api.hypercli.dev/llm/pricing"),
-          fetch("https://api.hypercli.dev/llm/groups"),
+          fetch("https://api.compute3.ai/llm/models"),
+          fetch("https://api.compute3.ai/llm/pricing"),
+          fetch("https://api.compute3.ai/llm/groups"),
         ]);
 
         const modelsData: Record<string, ModelInfo> = await modelsRes.json();
@@ -71,7 +71,6 @@ export default function ModelPricing() {
           pricing: pricingData[id],
         }));
 
-        // Sort: hosted first, then by name
         modelArray.sort((a, b) => {
           if (a.hosted && !b.hosted) return -1;
           if (!a.hosted && b.hosted) return 1;
@@ -101,8 +100,8 @@ export default function ModelPricing() {
   if (loading) {
     return (
       <div className="py-20 text-center">
-        <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-[var(--color-primary)] border-r-transparent"></div>
-        <p className="mt-4 text-gray-600">Loading models...</p>
+        <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-[#38D39F] border-r-transparent"></div>
+        <p className="mt-4 text-[#9BA0A2]">Loading models...</p>
       </div>
     );
   }
@@ -110,20 +109,20 @@ export default function ModelPricing() {
   if (error) {
     return (
       <div className="py-20 text-center">
-        <p className="text-red-600">{error}</p>
+        <p className="text-red-500">{error}</p>
       </div>
     );
   }
 
   return (
     <>
-      <section className="py-4 sm:py-6">
+      <section className="py-4 sm:py-6 bg-[#0B0D0E]">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
           {/* Filter Tabs */}
           <div className="flex justify-center gap-3 mb-8">
             {[
               { key: "all", label: "All Models" },
-              { key: "hosted", label: "C3 Hosted" },
+              { key: "hosted", label: "HyperCLI Hosted" },
               { key: "external", label: "External" },
             ].map(({ key, label }) => (
               <button
@@ -131,8 +130,8 @@ export default function ModelPricing() {
                 onClick={() => setFilter(key as typeof filter)}
                 className={`px-6 py-2 rounded-full font-semibold transition-all ${
                   filter === key
-                    ? "bg-gradient-to-r from-[var(--color-primary)] to-[var(--color-secondary)] text-white shadow-md"
-                    : "bg-gray-100 text-gray-700 hover:bg-gray-200"
+                    ? "bg-[#38D39F] text-[#0B0D0E] shadow-[0_0_20px_rgba(56,211,159,0.3)]"
+                    : "bg-[#161819] text-[#9BA0A2] hover:bg-[#1D1F21] hover:text-white border border-[#2A2D2F]"
                 }`}
               >
                 {label}
@@ -142,37 +141,37 @@ export default function ModelPricing() {
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Model List */}
-            <div className="lg:col-span-1 bg-white border border-gray-200 rounded-2xl overflow-hidden">
+            <div className="lg:col-span-1 bg-[#161819] border border-[#2A2D2F] rounded-2xl overflow-hidden">
               <div className="max-h-[600px] overflow-y-auto">
                 {filteredModels.map((model) => (
                   <button
                     key={model.id}
                     onClick={() => setSelectedModel(model)}
-                    className={`w-full text-left px-4 py-3 border-b border-gray-100 hover:bg-gray-50 transition-colors ${
-                      selectedModel?.id === model.id ? "bg-blue-50 border-l-4 border-l-[var(--color-primary)]" : ""
+                    className={`w-full text-left px-4 py-3 border-b border-[#2A2D2F] hover:bg-[#1D1F21] transition-colors ${
+                      selectedModel?.id === model.id ? "bg-[#1D1F21] border-l-4 border-l-[#38D39F]" : ""
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-gray-900 text-sm">{model.id}</span>
+                      <span className="font-semibold text-white text-sm">{model.id}</span>
                       <div className="flex gap-1">
                         {model.free && (
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-green-100 text-green-800">
+                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-[#38D39F]/20 text-[#38D39F]">
                             FREE
                           </span>
                         )}
                         {model.hosted && !model.free && (
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-blue-100 text-blue-800">
-                            C3
+                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-[#38D39F]/10 text-[#38D39F]/80 border border-[#38D39F]/20">
+                            HOSTED
                           </span>
                         )}
                         {!model.hosted && (
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-gray-100 text-gray-600">
+                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-[#1D1F21] text-[#6E7375] border border-[#2A2D2F]">
                             EXT
                           </span>
                         )}
                       </div>
                     </div>
-                    <p className="text-xs text-gray-500 truncate mt-1">{model.name}</p>
+                    <p className="text-xs text-[#6E7375] truncate mt-1">{model.name}</p>
                   </button>
                 ))}
               </div>
@@ -181,69 +180,67 @@ export default function ModelPricing() {
             {/* Model Details */}
             <div className="lg:col-span-2">
               {selectedModel ? (
-                <div className="bg-white border border-gray-200 rounded-2xl p-8">
+                <div className="bg-[#161819] border border-[#2A2D2F] rounded-2xl p-8">
                   <div className="flex items-start justify-between mb-6">
                     <div>
-                      <h3 className="text-2xl font-bold text-gray-900">{selectedModel.name}</h3>
-                      <p className="text-sm font-mono text-gray-500 mt-1">{selectedModel.id}</p>
+                      <h3 className="text-2xl font-bold text-white">{selectedModel.name}</h3>
+                      <p className="text-sm font-mono text-[#6E7375] mt-1">{selectedModel.id}</p>
                     </div>
                     <div className="flex gap-2">
                       {selectedModel.free && (
-                        <span className="px-3 py-1 text-sm font-semibold rounded-full bg-green-100 text-green-800">
+                        <span className="px-3 py-1 text-sm font-semibold rounded-full bg-[#38D39F]/20 text-[#38D39F]">
                           Free Tier
                         </span>
                       )}
                       <span
                         className={`px-3 py-1 text-sm font-semibold rounded-full ${
                           selectedModel.hosted
-                            ? "bg-blue-100 text-blue-800"
-                            : "bg-gray-100 text-gray-600"
+                            ? "bg-[#38D39F]/10 text-[#38D39F] border border-[#38D39F]/20"
+                            : "bg-[#1D1F21] text-[#6E7375] border border-[#2A2D2F]"
                         }`}
                       >
-                        {selectedModel.hosted ? "C3 Hosted" : "External"}
+                        {selectedModel.hosted ? "HyperCLI Hosted" : "External"}
                       </span>
                     </div>
                   </div>
 
-                  <p className="text-gray-600 mb-8 leading-relaxed">{selectedModel.description}</p>
+                  <p className="text-[#9BA0A2] mb-8 leading-relaxed">{selectedModel.description}</p>
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
-                    <div className="bg-gray-50 rounded-xl p-4">
-                      <p className="text-sm text-gray-500 mb-1">Context Length</p>
-                      <p className="text-2xl font-bold text-gray-900">
+                    <div className="bg-[#0B0D0E] rounded-xl p-4 border border-[#2A2D2F]">
+                      <p className="text-sm text-[#6E7375] mb-1">Context Length</p>
+                      <p className="text-2xl font-bold text-white">
                         {(selectedModel.context_length / 1000).toLocaleString()}K
-                        <span className="text-sm font-normal text-gray-500 ml-1">tokens</span>
+                        <span className="text-sm font-normal text-[#6E7375] ml-1">tokens</span>
                       </p>
                     </div>
 
                     {selectedModel.pricing && (
-                      <>
-                        <div className="bg-gray-50 rounded-xl p-4">
-                          <p className="text-sm text-gray-500 mb-1">Max Output Tokens</p>
-                          <p className="text-2xl font-bold text-gray-900">
-                            {(selectedModel.pricing.max_tokens / 1000).toLocaleString()}K
-                          </p>
-                        </div>
-                      </>
+                      <div className="bg-[#0B0D0E] rounded-xl p-4 border border-[#2A2D2F]">
+                        <p className="text-sm text-[#6E7375] mb-1">Max Output Tokens</p>
+                        <p className="text-2xl font-bold text-white">
+                          {(selectedModel.pricing.max_tokens / 1000).toLocaleString()}K
+                        </p>
+                      </div>
                     )}
                   </div>
 
                   {selectedModel.pricing && (
-                    <div className="border-t border-gray-200 pt-6">
-                      <h4 className="text-lg font-semibold text-gray-900 mb-4">Pricing</h4>
+                    <div className="border-t border-[#2A2D2F] pt-6">
+                      <h4 className="text-lg font-semibold text-white mb-4">Pricing</h4>
                       <div className="grid grid-cols-2 gap-4">
-                        <div className="bg-gradient-to-br from-blue-50 to-blue-100 rounded-xl p-4">
-                          <p className="text-sm text-blue-600 mb-1">Input</p>
-                          <p className="text-2xl font-bold text-blue-900">
+                        <div className="bg-[#0B0D0E] rounded-xl p-4 border border-[#2A2D2F]">
+                          <p className="text-sm text-[#38D39F] mb-1">Input</p>
+                          <p className="text-2xl font-bold text-white">
                             ${selectedModel.pricing.input_price_per_1m}
-                            <span className="text-sm font-normal text-blue-600 ml-1">/1M tokens</span>
+                            <span className="text-sm font-normal text-[#6E7375] ml-1">/1M tokens</span>
                           </p>
                         </div>
-                        <div className="bg-gradient-to-br from-purple-50 to-purple-100 rounded-xl p-4">
-                          <p className="text-sm text-purple-600 mb-1">Output</p>
-                          <p className="text-2xl font-bold text-purple-900">
+                        <div className="bg-[#0B0D0E] rounded-xl p-4 border border-[#2A2D2F]">
+                          <p className="text-sm text-[#38D39F] mb-1">Output</p>
+                          <p className="text-2xl font-bold text-white">
                             ${selectedModel.pricing.output_price_per_1m}
-                            <span className="text-sm font-normal text-purple-600 ml-1">/1M tokens</span>
+                            <span className="text-sm font-normal text-[#6E7375] ml-1">/1M tokens</span>
                           </p>
                         </div>
                       </div>
@@ -251,7 +248,7 @@ export default function ModelPricing() {
                   )}
                 </div>
               ) : (
-                <div className="bg-white border border-gray-200 rounded-2xl p-8 text-center text-gray-500">
+                <div className="bg-[#161819] border border-[#2A2D2F] rounded-2xl p-8 text-center text-[#6E7375]">
                   Select a model to view details
                 </div>
               )}
@@ -260,15 +257,15 @@ export default function ModelPricing() {
 
           {/* CTA */}
           <div className="mt-16 text-center">
-            <h3 className="text-3xl font-bold text-gray-900 mb-4">
+            <h3 className="text-3xl font-bold text-white mb-4">
               Ready to Access Every Model?
             </h3>
-            <p className="text-lg text-gray-600 mb-6 max-w-2xl mx-auto">
+            <p className="text-lg text-[#9BA0A2] mb-6 max-w-2xl mx-auto">
               Drop-in API replacement. Compatible with OpenAI SDK. Hosted on B200 GPUs.
             </p>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 btn-primary text-white font-semibold py-3 px-8 rounded-lg text-lg"
+              className="inline-flex items-center gap-2 bg-[#38D39F] text-[#0B0D0E] font-semibold py-3 px-8 rounded-lg text-lg hover:bg-[#45E4AE] transition-colors shadow-[0_0_30px_rgba(56,211,159,0.3)]"
             >
               Get API Access
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
