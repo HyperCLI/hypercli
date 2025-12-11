@@ -1,17 +1,17 @@
 import type { Metadata } from "next";
-import { Plus_Jakarta_Sans } from "next/font/google";
+import { Inter } from "next/font/google";
 import "./globals.css";
-import { Navigation } from "@/components/Navigation";
+import { Providers } from "@hypercli/shared-ui";
 
-const plusJakartaSans = Plus_Jakarta_Sans({
+const inter = Inter({
   subsets: ["latin"],
   display: "swap",
-  variable: "--font-plus-jakarta",
+  variable: "--font-inter",
 });
 
 export const metadata: Metadata = {
   title: "HyperCLI Console",
-  description: "Manage your AI deployments and infrastructure",
+  description: "Manage your AI infrastructure",
 };
 
 export default function RootLayout({
@@ -20,12 +20,15 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${plusJakartaSans.variable} font-sans antialiased`}>
-        <Navigation />
-        <main className="min-h-screen bg-background pt-16">
+    <html lang="en" className="scroll-smooth">
+      <head>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+        <script src="https://unpkg.com/twemoji@14.0.2/dist/twemoji.min.js" crossOrigin="anonymous"></script>
+      </head>
+      <body className={`${inter.variable} font-sans antialiased overflow-x-hidden`}>
+        <Providers>
           {children}
-        </main>
+        </Providers>
       </body>
     </html>
   );

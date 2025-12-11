@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
+import { Providers } from "@hypercli/shared-ui";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -19,9 +20,14 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en">
-      <body className={`${plusJakartaSans.variable} font-sans antialiased`}>
-        {children}
+    <html lang="en" className="scroll-smooth">
+      <head>
+        <link rel="icon" href="/favicon.svg" type="image/svg+xml" />
+      </head>
+      <body className={`${plusJakartaSans.variable} font-sans antialiased overflow-x-hidden`}>
+        <Providers>
+          {children}
+        </Providers>
       </body>
     </html>
   );

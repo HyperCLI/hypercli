@@ -53,3 +53,27 @@ export {
   SelectTrigger,
   SelectValue,
 } from './components/ui/select';
+
+// App Components
+export { default as Header } from './components/Header';
+export { default as Footer } from './components/Footer';
+export { default as ContactModal } from './components/ContactModal';
+export { default as Modal } from './components/Modal';
+export { default as AlertDialog } from './components/AlertDialog';
+export { default as Auth } from './components/Auth';
+export { Providers } from './components/Providers';
+export { AuthConnect } from './components/AuthConnect';
+export { AuthProvider, useAuth } from './providers/AuthProvider';
+export { WalletProvider, useWallet } from './contexts/WalletContext';
+export { RainbowKitProvider } from './providers/RainbowKitProvider';
+export { WalletAuth } from './components/WalletAuth';
+export { TopUpModal } from './components/TopUpModal';
+
+// Utils
+export { cookieUtils } from './utils/cookies';
+export { debugLog } from './utils/debug';
+export { toStripeCents, toUsdcUnits, fromStripeCents, fromUsdcUnits } from './utils/currency';
+export { formatDateTime, formatDateTimeShort, formatDate, formatRelativeTime, getUserTimezone, getTimezoneAbbr } from './utils/datetime';
+export { getBadgeClass } from './utils/badges';
+export { GPU_INFO, REGION_INFO, getGPUDisplayName, getGPUVram, getGPUArch, getRegionName, getRegionFlag } from './utils/gpu';
+export { NAV_URLS } from './utils/navigation';

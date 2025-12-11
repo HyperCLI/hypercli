@@ -1,93 +1,72 @@
-import { Card, CardHeader, CardTitle, CardContent, Badge } from "@hypercli/shared-ui";
-import { Activity, Cpu, Zap, Clock } from "lucide-react";
-import { RecentDeployments } from "@/components/RecentDeployments";
-import { QuickActions } from "@/components/QuickActions";
+"use client";
 
-const stats = [
-  {
-    title: "Active Deployments",
-    value: "12",
-    change: "+2 from last week",
-    icon: Activity,
-    trend: "up",
-  },
-  {
-    title: "GPU Hours Used",
-    value: "847",
-    change: "This month",
-    icon: Cpu,
-    trend: "neutral",
-  },
-  {
-    title: "API Requests",
-    value: "1.2M",
-    change: "+18% from last month",
-    icon: Zap,
-    trend: "up",
-  },
-  {
-    title: "Avg Response Time",
-    value: "45ms",
-    change: "-12% from last month",
-    icon: Clock,
-    trend: "down",
-  },
-];
+import { WalletAuth, useAuth } from "@hypercli/shared-ui";
+import { useRouter } from "next/navigation";
+import { useEffect } from "react";
 
-export default function DashboardPage() {
+export default function ConsolePage() {
+  const { isLoading, isAuthenticated, error, flowState } = useAuth();
+  const router = useRouter();
+
+  // Redirect to dashboard if authenticated
+  useEffect(() => {
+    if (!isLoading && isAuthenticated) {
+      router.push('/dashboard');
+    }
+  }, [isLoading, isAuthenticated, router]);
+
+  // Show error state
+  if (flowState === 'error' && error) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-gray-50 to-[var(--gradient-start)] p-4">
+        <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 text-center shadow-lg max-w-md">
+          <div className="text-red-500 mb-4">
+            <svg className="w-12 h-12 mx-auto" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+            </svg>
+          </div>
+          <h2 className="text-xl font-bold text-gray-900 mb-2">Login Failed</h2>
+          <p className="text-gray-600 mb-4">{error}</p>
+          <button
+            onClick={() => window.location.reload()}
+            className="btn-primary text-white font-semibold py-2 px-6 rounded-lg"
+          >
+            Try Again
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  // Show loading or auth - using main site colors
+  if (isLoading || !isAuthenticated) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-gray-50 to-[var(--gradient-start)] p-4">
+        {isLoading ? (
+          <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 text-center shadow-lg max-w-md">
+            <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)] mx-auto mb-4"></div>
+            <p className="text-gray-900">Loading...</p>
+          </div>
+        ) : (
+          <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 shadow-lg">
+            <WalletAuth
+              showTitle={true}
+              title="Welcome to HyperCLI Console"
+              description="Please sign in to continue"
+              onAuthSuccess={() => window.location.reload()}
+            />
+          </div>
+        )}
+      </div>
+    );
+  }
+
+  // Show loading while redirecting
   return (
-    <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-8">
-      {/* Header */}
-      <div className="mb-8">
-        <h1 className="text-2xl font-bold text-foreground">Dashboard</h1>
-        <p className="text-muted-foreground mt-1">
-          Monitor your deployments and infrastructure
-        </p>
-      </div>
-
-      {/* Stats Grid */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
-        {stats.map((stat) => (
-          <Card key={stat.title} className="hover:border-primary/30 transition-colors">
-            <CardHeader className="flex flex-row items-center justify-between pb-2">
-              <CardTitle className="text-sm font-medium text-muted-foreground">
-                {stat.title}
-              </CardTitle>
-              <stat.icon className="h-4 w-4 text-muted-foreground" />
-            </CardHeader>
-            <CardContent>
-              <div className="text-2xl font-bold text-foreground">{stat.value}</div>
-              <p className="text-xs text-muted-foreground mt-1">
-                <Badge
-                  variant={
-                    stat.trend === "up"
-                      ? "success"
-                      : stat.trend === "down"
-                      ? "destructive"
-                      : "secondary"
-                  }
-                  className="mr-2"
-                >
-                  {stat.trend === "up" ? "↑" : stat.trend === "down" ? "↓" : "→"}
-                </Badge>
-                {stat.change}
-              </p>
-            </CardContent>
-          </Card>
-        ))}
-      </div>
-
-      {/* Main Content */}
-      <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
-        {/* Recent Deployments */}
-        <div className="lg:col-span-2">
-          <RecentDeployments />
-        </div>
-
-        {/* Quick Actions */}
-        <div>
-          <QuickActions />
-        </div>
+    <div className="min-h-screen flex items-center justify-center bg-gradient-to-br from-white via-gray-50 to-[var(--gradient-start)] p-4">
+      <div className="glassmorphism bg-white/95 border border-gray-200 rounded-2xl p-8 text-center shadow-lg max-w-md">
+        <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[var(--color-primary)] mx-auto mb-4"></div>
+        <p className="text-gray-900">Redirecting to dashboard...</p>
       </div>
     </div>
   );
