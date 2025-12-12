@@ -183,7 +183,13 @@ function ChatPageContent() {
           if (savedModel && chatModels.find((m: Model) => m.id === savedModel)) {
             setSelectedModel(savedModel);
           } else {
-            setSelectedModel(chatModels[0].id);
+            // Use default model from env, or fall back to first model
+            const defaultModel = process.env.NEXT_PUBLIC_DEFAULT_MODEL;
+            if (defaultModel && chatModels.find((m: Model) => m.id === defaultModel)) {
+              setSelectedModel(defaultModel);
+            } else {
+              setSelectedModel(chatModels[0].id);
+            }
           }
         }
       } catch (error) {

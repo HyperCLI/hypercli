@@ -29,6 +29,9 @@
   # LLM API URL for chat completions
   NEXT_PUBLIC_LLM_API_URL = "https://api.compute3.ai/v1"
 
+  # Default model for chat
+  NEXT_PUBLIC_DEFAULT_MODEL = "minimax-m2"
+
   # Auth/API Backend
   NEXT_PUBLIC_AUTH_BACKEND = "https://api.compute3.ai/api"
   NEXT_PUBLIC_API_BASE = "https://api.compute3.ai/api"
