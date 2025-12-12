@@ -13,34 +13,52 @@ import {
 
 export default function Home() {
   return (
-    <div className="min-h-screen bg-[#0B0D0E] overflow-x-hidden">
+    <div className="h-screen bg-[#0B0D0E] overflow-x-hidden overflow-y-auto snap-y snap-mandatory">
       <Header />
-      <main className="pt-16">
+      <main>
         {/* Hero Section */}
-        <HeroSection />
+        <section className="snap-start">
+          <HeroSection />
+        </section>
 
         {/* Instant Deployment / PLG Features */}
-        <InstantDeploymentSection />
+        <section className="snap-start">
+          <InstantDeploymentSection />
+        </section>
 
         {/* What HyperCLI Is */}
-        <WhatIsHyperCLISection />
+        <section className="snap-start">
+          <WhatIsHyperCLISection />
+        </section>
 
         {/* Why Hyper Is So Fast */}
-        <WhyFastSection />
+        <section className="snap-start">
+          <WhyFastSection />
+        </section>
 
         {/* Templates & Deployment Blueprints */}
-        <TemplatesSection />
+        <section className="snap-start">
+          <TemplatesSection />
+        </section>
 
         {/* Playground CTA */}
-        <PlaygroundCTASection />
+        <section className="snap-start">
+          <PlaygroundCTASection />
+        </section>
 
         {/* Pricing Teaser */}
-        <PricingSection />
+        <section className="snap-start">
+          <PricingSection />
+        </section>
 
         {/* Enterprise Solutions */}
-        <EnterpriseTeaserSection />
+        <section className="snap-start">
+          <EnterpriseTeaserSection />
+        </section>
       </main>
-      <Footer />
+      <section className="snap-start">
+        <Footer />
+      </section>
     </div>
   );
 }

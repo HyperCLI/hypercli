@@ -76,15 +76,15 @@ export function TemplatesSection() {
         {/* Grain texture */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')]" />
         
-        <motion.div 
-          className="max-w-7xl w-full flex justify-end"
+        <motion.div
+          className="max-w-7xl w-full flex justify-center"
           style={{ y: chapterY, opacity: chapterOpacity, scale: chapterScale }}
         >
           <div className="inline-block">
-            <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-white leading-[0.9] tracking-[-0.05em] font-bold text-right">
+            <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-white leading-[0.9] tracking-[-0.05em] font-bold text-center">
               Templates & Blueprints
             </h2>
-            <motion.div 
+            <motion.div
               className="h-2 bg-[#38D39F] mt-12 w-full"
               initial={{ width: 0 }}
               whileInView={{ width: '100%' }}
