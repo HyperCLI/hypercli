@@ -67,12 +67,21 @@ function ChatPageContent() {
   // Balance
   const [balance, setBalance] = useState<Balance | null>(null);
 
-  // Free user = not authenticated
-  const isFreeUser = !isAuthenticated;
+  // Track if user logged in via wallet (not just free tier)
+  const [isWalletUser, setIsWalletUser] = useState(false);
+
+  // Check login type from localStorage
+  useEffect(() => {
+    const loginType = localStorage.getItem("hypercli_login_type");
+    setIsWalletUser(loginType === "wallet");
+  }, [isAuthenticated]);
+
+  // Free user = authenticated but not via wallet
+  const isFreeUser = isAuthenticated && !isWalletUser;
 
   // Load theme from localStorage
   useEffect(() => {
-    const savedTheme = localStorage.getItem("c3_chat_theme") as "light" | "dark" | null;
+    const savedTheme = localStorage.getItem("hypercli_chat_theme") as "light" | "dark" | null;
     if (savedTheme) {
       setTheme(savedTheme);
     } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
@@ -83,12 +92,12 @@ function ChatPageContent() {
   // Apply theme
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("c3_chat_theme", theme);
+    localStorage.setItem("hypercli_chat_theme", theme);
   }, [theme]);
 
   // Load chats from localStorage
   useEffect(() => {
-    const storedChats = localStorage.getItem("c3_chats");
+    const storedChats = localStorage.getItem("hypercli_chats");
     if (storedChats) {
       const parsedChats = JSON.parse(storedChats) as Chat[];
       setChats(parsedChats);
@@ -102,7 +111,7 @@ function ChatPageContent() {
   // Save chats to localStorage
   useEffect(() => {
     if (chats.length > 0) {
-      localStorage.setItem("c3_chats", JSON.stringify(chats));
+      localStorage.setItem("hypercli_chats", JSON.stringify(chats));
     }
   }, [chats]);
 
@@ -122,6 +131,8 @@ function ChatPageContent() {
         const data = await response.json();
         // Store JWT token in cookie
         document.cookie = `auth_token=${data.token}; path=/; max-age=${data.expires_in}; SameSite=Lax`;
+        // Mark as free user (not wallet)
+        localStorage.setItem("hypercli_login_type", "free");
         // Reload to trigger auth
         window.location.reload();
       } catch (e) {
@@ -163,7 +174,7 @@ function ChatPageContent() {
         setModels(chatModels);
 
         if (chatModels.length > 0) {
-          const savedModel = localStorage.getItem("c3_chat_model");
+          const savedModel = localStorage.getItem("hypercli_chat_model");
           if (savedModel && chatModels.find((m: Model) => m.id === savedModel)) {
             setSelectedModel(savedModel);
           } else {
@@ -238,7 +249,7 @@ function ChatPageContent() {
     }
 
     // Store message for later
-    localStorage.setItem("c3_pending_chat_message", decodedMessage);
+    localStorage.setItem("hypercli_pending_chat_message", decodedMessage);
 
     // If not authenticated, create a free user
     if (!isAuthenticated) {
@@ -254,13 +265,15 @@ function ChatPageContent() {
           const data = await response.json();
           // Store JWT token in cookie
           document.cookie = `auth_token=${data.token}; path=/; max-age=${data.expires_in}; SameSite=Lax`;
+          // Mark as free user (not wallet)
+          localStorage.setItem("hypercli_login_type", "free");
           // Clear URL param and reload to trigger auth
           router.replace("/");
           window.location.reload();
         } catch (e) {
           console.error("Failed to create free user:", e);
           // Fall back to showing login
-          localStorage.removeItem("c3_pending_chat_message");
+          localStorage.removeItem("hypercli_pending_chat_message");
         }
       };
       createFreeUser();
@@ -274,9 +287,9 @@ function ChatPageContent() {
   useEffect(() => {
     if (!isAuthenticated || loadingModels || !selectedModel || initialMessageSent) return;
 
-    const pendingMsg = localStorage.getItem("c3_pending_chat_message");
+    const pendingMsg = localStorage.getItem("hypercli_pending_chat_message");
     if (pendingMsg) {
-      localStorage.removeItem("c3_pending_chat_message");
+      localStorage.removeItem("hypercli_pending_chat_message");
       setInitialMessageSent(true);
       setPendingMessage(pendingMsg);
     }
@@ -284,7 +297,7 @@ function ChatPageContent() {
 
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId);
-    localStorage.setItem("c3_chat_model", modelId);
+    localStorage.setItem("hypercli_chat_model", modelId);
   };
 
   const toggleTheme = () => {
@@ -327,7 +340,7 @@ function ChatPageContent() {
     }
 
     if (updatedChats.length === 0) {
-      localStorage.removeItem("c3_chats");
+      localStorage.removeItem("hypercli_chats");
     }
   };
 
@@ -466,8 +479,9 @@ function ChatPageContent() {
   const handleLogout = async () => {
     // Clear auth cookie
     cookieUtils.remove("auth_token");
-    // Clear chat storage
-    localStorage.removeItem("c3_chats");
+    // Clear login type and chat storage
+    localStorage.removeItem("hypercli_login_type");
+    localStorage.removeItem("hypercli_chats");
     // Call Turnkey logout
     if (logout) {
       await logout();
@@ -570,6 +584,8 @@ function ChatPageContent() {
               title="Connect Wallet"
               description="Sign in with your wallet to save your chat history and top up your account"
               onAuthSuccess={() => {
+                // Mark as wallet user (not free tier)
+                localStorage.setItem("hypercli_login_type", "wallet");
                 setShowLoginModal(false);
                 window.location.reload();
               }}
