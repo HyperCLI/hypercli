@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
 import { useAuth, WalletAuth, cookieUtils, TopUpModal } from "@hypercli/shared-ui";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { useRouter, useSearchParams } from "next/navigation";
-import { ChatSidebar, ChatWindow, ChatInput, ChatHeader } from "../components";
+import { ChatSidebar, ChatWindow, ChatHeader, ChatInput } from "../components";
 
 // Bot API types
 interface Message {

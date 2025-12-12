@@ -24,6 +24,8 @@ export const NAV_URLS = {
   gpus: IS_MAIN_SITE ? '/gpus' : `${MAIN_SITE_URL}/gpus`,
   playground: IS_MAIN_SITE ? '/playground' : `${MAIN_SITE_URL}/playground`,
   docs: 'https://docs.hypercli.com',
+  partner: IS_MAIN_SITE ? '/partner' : `${MAIN_SITE_URL}/partner`,
+
 
   // Console pages
   console: `${CONSOLE_URL}/dashboard`,

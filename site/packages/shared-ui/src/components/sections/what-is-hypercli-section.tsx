@@ -82,7 +82,7 @@ export function WhatIsHyperCLISection() {
         >
           <div className="inline-block">
             <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-white leading-[0.9] tracking-[-0.05em] font-bold">
-              What HyperCLI Is
+              Why HyperCLI?
             </h2>
             <motion.div
               className="h-2 bg-[#38D39F] mt-12 w-full"

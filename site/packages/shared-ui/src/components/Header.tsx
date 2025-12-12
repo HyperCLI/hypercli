@@ -90,6 +90,10 @@ export default function Header() {
             <a href={NAV_URLS.launch} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
               Launch
             </a>
+            <a href={NAV_URLS.partner} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+              Partners
+            </a>
+
             <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
               Docs
             </a>
