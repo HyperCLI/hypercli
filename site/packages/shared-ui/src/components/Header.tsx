@@ -51,6 +51,7 @@ export default function Header() {
   }, []);
 
   return (
+    <>
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-[#0B0D0E]/80 backdrop-blur-lg border-b border-[#2A2D2F] ${
         scrolled ? "shadow-md" : ""
@@ -214,35 +215,37 @@ export default function Header() {
         </div>
       </div>
 
-      <ContactModal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} source="header-talk-to-sales" />
-
-      {/* Login Modal */}
-      {isLoginModalOpen && (
-        <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-          <div className="bg-[#161819] border border-[#2A2D2F] rounded-2xl shadow-2xl p-8 max-w-md w-full relative">
-            {/* Close button */}
-            <button
-              onClick={() => setIsLoginModalOpen(false)}
-              className="absolute top-4 right-4 text-[#6E7375] hover:text-white transition-colors"
-            >
-              <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
-                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
-              </svg>
-            </button>
-
-            {/* WalletAuth component */}
-            <WalletAuth
-              showTitle={true}
-              title="Sign In"
-              description="Choose how you want to sign in"
-              onAuthSuccess={() => {
-                setIsLoginModalOpen(false);
-                window.location.reload();
-              }}
-            />
-          </div>
-        </div>
-      )}
     </header>
+
+    <ContactModal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} source="header-talk-to-sales" />
+
+    {/* Login Modal - Outside header to avoid backdrop-blur stacking context issues */}
+    {isLoginModalOpen && (
+      <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+        <div className="bg-[#161819] border border-[#2A2D2F] rounded-2xl shadow-2xl p-8 max-w-md w-full relative">
+          {/* Close button */}
+          <button
+            onClick={() => setIsLoginModalOpen(false)}
+            className="absolute top-4 right-4 text-[#6E7375] hover:text-white transition-colors"
+          >
+            <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+            </svg>
+          </button>
+
+          {/* WalletAuth component */}
+          <WalletAuth
+            showTitle={true}
+            title="Sign In"
+            description="Choose how you want to sign in"
+            onAuthSuccess={() => {
+              setIsLoginModalOpen(false);
+              window.location.reload();
+            }}
+          />
+        </div>
+      </div>
+    )}
+    </>
   );
 }

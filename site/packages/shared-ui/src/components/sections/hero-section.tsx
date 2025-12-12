@@ -38,7 +38,8 @@ export function HeroSection() {
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const response = await fetch("https://api.hypercli.com/llm/models");
+        const apiBase = process.env.NEXT_PUBLIC_LLM_API_URL?.replace('/v1', '') || 'https://api.hypercli.com';
+        const response = await fetch(`${apiBase}/llm/models`);
         const data = await response.json();
         const modelList = Object.entries(data)
           .filter(([key]) => !key.toLowerCase().includes("embed"))

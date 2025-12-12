@@ -45,10 +45,11 @@ export default function ModelPricing() {
   useEffect(() => {
     const fetchData = async () => {
       try {
+        const apiBase = process.env.NEXT_PUBLIC_LLM_API_URL?.replace('/v1', '') || 'https://api.hypercli.com';
         const [modelsRes, pricingRes, groupsRes] = await Promise.all([
-          fetch("https://api.compute3.ai/llm/models"),
-          fetch("https://api.compute3.ai/llm/pricing"),
-          fetch("https://api.compute3.ai/llm/groups"),
+          fetch(`${apiBase}/llm/models`),
+          fetch(`${apiBase}/llm/pricing`),
+          fetch(`${apiBase}/llm/groups`),
         ]);
 
         const modelsData: Record<string, ModelInfo> = await modelsRes.json();

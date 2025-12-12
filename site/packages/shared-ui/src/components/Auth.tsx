@@ -243,7 +243,7 @@ function AuthContent() {
             </button>
             <button
               onClick={handleLogout}
-              className="border border-border-medium bg-transparent text-foreground hover:bg-surface-low hover:border-primary/40 w-full h-12 px-4 py-2 font-medium rounded-lg transition-colors"
+              className="border border-primary bg-transparent text-primary hover:bg-primary/10 w-full h-12 px-4 py-2 font-medium rounded-lg transition-colors"
             >
               Logout
             </button>

@@ -63,28 +63,12 @@ function ChatPageContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
-  const [isFreeUser, setIsFreeUser] = useState(false);
 
   // Balance
   const [balance, setBalance] = useState<Balance | null>(null);
 
-  // Check if user is a free/guest user by decoding JWT
-  useEffect(() => {
-    const authToken = document.cookie
-      .split("; ")
-      .find((row) => row.startsWith("auth_token="))
-      ?.split("=")[1];
-
-    if (authToken) {
-      try {
-        // Decode JWT payload (base64)
-        const payload = JSON.parse(atob(authToken.split(".")[1]));
-        setIsFreeUser(payload.login_type === "free");
-      } catch {
-        setIsFreeUser(false);
-      }
-    }
-  }, [isAuthenticated]);
+  // Free user = not authenticated
+  const isFreeUser = !isAuthenticated;
 
   // Load theme from localStorage
   useEffect(() => {
