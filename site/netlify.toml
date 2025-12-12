@@ -20,6 +20,9 @@
   NEXT_PUBLIC_CONSOLE_URL = "https://console.hypercli.dev"
   NEXT_PUBLIC_CHAT_URL = "https://chat.hypercli.dev"
 
+  # Domain for GPU instance subdomains
+  NEXT_PUBLIC_DOMAIN = "hypercli.com"
+
   # Instances API - always use production for full instance catalog
   NEXT_PUBLIC_INSTANCES_API_URL = "https://api.compute3.ai/instances"
 
