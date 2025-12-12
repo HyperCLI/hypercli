@@ -305,7 +305,7 @@ export default function JobDetailPage() {
           // JWT tokens typically expire in 48 hours (2 days)
           const daysUntilExpiry = 2;
 
-          // Extract subdomain from hostname (e.g., "fluffy-cat" from "fluffy-cat.hypercli.dev")
+          // Extract subdomain from hostname (e.g., "fluffy-cat" from "fluffy-cat.hypercli.com")
           // Auth service expects cookie named "{subdomain}-token"
           const subdomain = data.hostname.split('.')[0];
           const cookieName = `${subdomain}-token`;

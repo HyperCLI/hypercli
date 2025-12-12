@@ -12,13 +12,13 @@
   NEXT_PUBLIC_AUTH_DEBUG = "false"
 
   # Cookie domain for cross-subdomain authentication
-  NEXT_PUBLIC_COOKIE_DOMAIN = ".hypercli.dev"
+  NEXT_PUBLIC_COOKIE_DOMAIN = ".hypercli.com"
   NEXT_PUBLIC_COOKIE_VALIDITY = "15"
 
   # Site URLs
-  NEXT_PUBLIC_MAIN_SITE_URL = "https://hypercli.dev"
-  NEXT_PUBLIC_CONSOLE_URL = "https://console.hypercli.dev"
-  NEXT_PUBLIC_CHAT_URL = "https://chat.hypercli.dev"
+  NEXT_PUBLIC_MAIN_SITE_URL = "https://hypercli.com"
+  NEXT_PUBLIC_CONSOLE_URL = "https://console.hypercli.com"
+  NEXT_PUBLIC_CHAT_URL = "https://chat.hypercli.com"
 
   # Domain for GPU instance subdomains
   NEXT_PUBLIC_DOMAIN = "hypercli.com"
