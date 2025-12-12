@@ -14,9 +14,9 @@ export function InstantDeploymentSection() {
     offset: ["start end", "end start"]
   });
 
-  const chapterY = useTransform(scrollYProgress, [0, 0.3, 0.7, 1], [100, 0, 0, -100]);
-  const chapterOpacity = useTransform(scrollYProgress, [0, 0.2, 0.5, 0.7], [0, 1, 1, 0]);
-  const contentY = useTransform(scrollYProgress, [0.3, 0.5], [50, 0]);
+  const chapterY = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [30, 0, 0, -30]);
+  const chapterOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 0.85], [0, 1, 1, 0]);
+  const contentY = useTransform(scrollYProgress, [0.3, 0.5], [20, 0]);
 
   const items = [
     { icon: Zap, title: 'Deploy LLMs, diffusion, audio, TTS/STT', description: 'Any model architecture, any framework' },

@@ -41,9 +41,9 @@ export function WhyFastSection() {
     offset: ["start end", "end start"]
   });
 
-  const chapterY = useTransform(scrollYProgress, [0, 0.3, 0.7, 1], [100, 0, 0, -100]);
-  const chapterOpacity = useTransform(scrollYProgress, [0, 0.2, 0.5, 0.7], [0, 1, 1, 0]);
-  const chapterScale = useTransform(scrollYProgress, [0, 0.3], [1.05, 1]);
+  const chapterY = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [30, 0, 0, -30]);
+  const chapterOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 0.85], [0, 1, 1, 0]);
+  const chapterScale = useTransform(scrollYProgress, [0, 0.2], [1.02, 1]);
 
   return (
     <>

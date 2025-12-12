@@ -380,23 +380,23 @@ export default function JobsPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-900 text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-4xl font-bold text-gray-900">Jobs</h1>
+            <h1 className="text-4xl font-bold text-white">Jobs</h1>
             <button
               onClick={() => router.push('/job')}
-              className="btn-primary text-white font-semibold py-2 px-6 rounded-lg"
+              className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
             >
               Launch GPU
             </button>
@@ -408,10 +408,10 @@ export default function JobsPage() {
               <button
                 key={state}
                 onClick={() => setStateFilter(state)}
-                className={`px-4 py-2 rounded-lg font-semibold text-sm ${
+                className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
                   stateFilter === state
-                    ? 'btn-primary text-white'
-                    : 'btn-secondary'
+                    ? 'bg-[#38D39F] text-[#0B0D0E]'
+                    : 'border border-[#2A2D2F] text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F]'
                 }`}
               >
                 {state.charAt(0).toUpperCase() + state.slice(1)}
@@ -419,22 +419,22 @@ export default function JobsPage() {
             ))}
           </div>
 
-          {loading && <div className="text-gray-600">Loading jobs...</div>}
-          {error && <div className="text-red-600 mb-4">Error: {error}</div>}
+          {loading && <div className="text-[#9BA0A2]">Loading jobs...</div>}
+          {error && <div className="text-[#D05F5F] mb-4">Error: {error}</div>}
 
           {!loading && !error && jobs.length === 0 && (
-            <div className="bg-white p-8 rounded-lg shadow text-center">
-              <p className="text-gray-600 mb-4">You don't have any jobs yet.</p>
+            <div className="bg-[#161819] border border-[#2A2D2F] p-8 rounded-lg text-center">
+              <p className="text-[#9BA0A2] mb-4">You don't have any jobs yet.</p>
             </div>
           )}
 
           {!loading && jobs.length > 0 && (
-            <div className="bg-white rounded-lg shadow overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-x-auto">
+              <table className="min-w-full divide-y divide-[#2A2D2F]">
+                <thead className="bg-[#0B0D0E]">
                   <tr>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 w-24"
+                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-24"
                       onClick={() => handleSort('state')}
                     >
                       <div className="flex items-center gap-1">
@@ -445,7 +445,7 @@ export default function JobsPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 w-32"
+                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-32"
                       onClick={() => handleSort('job_id')}
                     >
                       <div className="flex items-center gap-1">
@@ -456,7 +456,7 @@ export default function JobsPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 w-28"
+                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-28"
                       onClick={() => handleSort('gpu')}
                     >
                       <div className="flex items-center gap-1">
@@ -466,11 +466,11 @@ export default function JobsPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-24">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-24">
                       Region
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 w-64"
+                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-64"
                       onClick={() => handleSort('hostname')}
                     >
                       <div className="flex items-center gap-1">
@@ -481,7 +481,7 @@ export default function JobsPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100"
+                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21]"
                       onClick={() => handleSort('price_per_hour')}
                     >
                       <div className="flex items-center gap-1">
@@ -491,11 +491,11 @@ export default function JobsPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider w-20">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-20">
                       Cost
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider cursor-pointer hover:bg-gray-100 w-20"
+                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-20"
                       onClick={() => handleSort('created_at')}
                     >
                       <div className="flex items-center gap-1">
@@ -507,11 +507,11 @@ export default function JobsPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-[#161819] divide-y divide-[#2A2D2F]">
                   {sortedJobs.map((job) => (
                     <React.Fragment key={job.job_id}>
                     <tr
-                      className="hover:bg-gray-50 cursor-pointer"
+                      className="hover:bg-[#1D1F21] cursor-pointer"
                       onClick={(e) => {
                         // Ctrl/Cmd+click opens in new tab
                         if (e.ctrlKey || e.metaKey) {
@@ -527,19 +527,19 @@ export default function JobsPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap w-32">
-                        <span className="font-mono text-sm text-gray-900">
+                        <span className="font-mono text-sm text-white">
                           {job.job_id.substring(0, 8)}...
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap w-28">
-                        <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-gray-100 text-gray-800 border-gray-200">
+                        <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-[#0B0D0E] text-[#D4D6D7] border-[#2A2D2F]">
                           {job.gpu_count}x {job.gpu_type}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap w-24 text-sm">
                         <span className="inline-flex items-center gap-1" title={getRegionName(job.region)}>
                           <span className="text-lg">{getRegionFlag(job.region)}</span>
-                          <span className="text-gray-700">{job.region}</span>
+                          <span className="text-[#D4D6D7]">{job.region}</span>
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm font-mono w-64">
@@ -550,7 +550,7 @@ export default function JobsPage() {
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-blue-600 hover:text-blue-700 hover:underline truncate"
+                              className="inline-flex items-center gap-1 text-[#38D39F] hover:text-[#45E4AE] hover:underline truncate"
                             >
                               <span className="truncate">{job.hostname}</span>
                               <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -558,73 +558,73 @@ export default function JobsPage() {
                               </svg>
                             </a>
                           ) : (
-                            <span className="text-gray-600 truncate block">{job.hostname}</span>
+                            <span className="text-[#9BA0A2] truncate block">{job.hostname}</span>
                           )
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-[#6E7375]">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-900">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
                         ${job.price_per_hour.toFixed(6)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm w-20">
                         {jobTransactions[job.job_id] ? (
                           <span className={
                             jobTransactions[job.job_id].status.toLowerCase() === 'pending'
-                              ? 'text-gray-500 italic'
+                              ? 'text-[#9BA0A2] italic'
                               : job.state === 'failed' || job.state === 'canceled'
-                              ? 'line-through text-gray-400'
-                              : ''
+                              ? 'line-through text-[#6E7375]'
+                              : 'text-white'
                           }>
                             <AmountDisplay amountUsd={jobTransactions[job.job_id].amount_usd} />
                           </span>
                         ) : (
-                          <span className="text-gray-400">-</span>
+                          <span className="text-[#6E7375]">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500 w-20">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2] w-20">
                         {formatDateTime(job.created_at)}
                       </td>
                     </tr>
                     {/* Expandable Details Row */}
                     {expandedJobId === job.job_id && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 bg-white">
+                        <td colSpan={8} className="px-6 py-4 bg-[#0B0D0E]">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                 Job ID
                               </h3>
-                              <p className="font-mono text-sm text-gray-900">{job.job_id}</p>
+                              <p className="font-mono text-sm text-white">{job.job_id}</p>
                             </div>
 
                             <div>
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                 GPU Configuration
                               </h3>
-                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-gray-100 text-gray-800 border-gray-200">
+                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-[#161819] text-[#D4D6D7] border-[#2A2D2F]">
                                 {job.gpu_count}x {job.gpu_type}
                               </span>
                             </div>
 
                             <div>
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                 Price
                               </h3>
-                              <p className="text-gray-900">${job.price_per_hour.toFixed(2)}/hour</p>
+                              <p className="text-white">${job.price_per_hour.toFixed(2)}/hour</p>
                             </div>
 
                             <div>
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                 {(job.state === 'queued' || job.state === 'assigned') ? 'Reserved Amount' : 'Total Cost'}
                               </h3>
                               {expandedJobTx ? (
                                 <p className={
                                   job.state === 'queued' || job.state === 'assigned'
-                                    ? 'text-gray-500 italic'
+                                    ? 'text-[#9BA0A2] italic'
                                     : job.state === 'failed' || job.state === 'canceled'
-                                    ? 'line-through text-gray-400'
-                                    : ''
+                                    ? 'line-through text-[#6E7375]'
+                                    : 'text-white'
                                 }>
                                   <AmountDisplay amountUsd={expandedJobTx.amount_usd} />
                                   {(job.state === 'queued' || job.state === 'assigned') && (
@@ -632,13 +632,13 @@ export default function JobsPage() {
                                   )}
                                 </p>
                               ) : (
-                                <p className="text-gray-400 text-sm">Loading...</p>
+                                <p className="text-[#6E7375] text-sm">Loading...</p>
                               )}
                             </div>
 
                             {job.hostname && (
                               <div>
-                                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                   Hostname
                                 </h3>
                                 {job.ports?.lb ? (
@@ -648,7 +648,7 @@ export default function JobsPage() {
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       onClick={(e) => e.stopPropagation()}
-                                      className="font-mono text-sm text-blue-600 hover:text-blue-700 hover:underline"
+                                      className="font-mono text-sm text-[#38D39F] hover:text-[#45E4AE] hover:underline"
                                     >
                                       {job.hostname}
                                     </a>
@@ -657,7 +657,7 @@ export default function JobsPage() {
                                         e.stopPropagation();
                                         window.open(`https://${job.hostname}`, '_blank');
                                       }}
-                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-blue-100 text-blue-700 rounded hover:bg-blue-200"
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-[#38D39F]/20 text-[#38D39F] rounded hover:bg-[#38D39F]/30"
                                       title="Open in new tab"
                                     >
                                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -667,50 +667,50 @@ export default function JobsPage() {
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="font-mono text-sm text-gray-900">{job.hostname}</p>
+                                  <p className="font-mono text-sm text-white">{job.hostname}</p>
                                 )}
                               </div>
                             )}
 
                             {job.assigned_to && (
                               <div>
-                                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                   Assigned To
                                 </h3>
-                                <p className="font-mono text-sm text-gray-900">{job.assigned_to}</p>
+                                <p className="font-mono text-sm text-white">{job.assigned_to}</p>
                               </div>
                             )}
 
                             {job.started_at && (
                               <div>
-                                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                   Started At
                                 </h3>
-                                <p className="text-gray-900">{formatDateTime(job.started_at)}</p>
+                                <p className="text-white">{formatDateTime(job.started_at)}</p>
                               </div>
                             )}
 
                             {getJobDuration(job) !== null && (
                               <div>
-                                <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                   Duration
                                 </h3>
-                                <p className="text-gray-900">{formatSecondsHumanReadable(getJobDuration(job)!)}</p>
+                                <p className="text-white">{formatSecondsHumanReadable(getJobDuration(job)!)}</p>
                               </div>
                             )}
 
                             <div>
-                              <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                                 Docker Image
                               </h3>
-                              <p className="font-mono text-sm text-gray-900 truncate" title={job.docker_image}>{job.docker_image}</p>
+                              <p className="font-mono text-sm text-white truncate" title={job.docker_image}>{job.docker_image}</p>
                             </div>
                           </div>
-                          <div className="flex gap-3 mt-4 pt-4 border-t border-gray-200">
+                          <div className="flex gap-3 mt-4 pt-4 border-t border-[#2A2D2F]">
                             <a
                               href={`/job/${job.job_id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="btn-primary text-white font-semibold py-2 px-4 rounded-lg"
+                              className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors"
                             >
                               View Job
                             </a>
@@ -719,7 +719,7 @@ export default function JobsPage() {
                                 e.stopPropagation();
                                 handleCloneJob(job);
                               }}
-                              className="btn-secondary font-semibold py-2 px-4 rounded-lg"
+                              className="border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
                             >
                               Clone Job
                             </button>
@@ -729,7 +729,7 @@ export default function JobsPage() {
                                   e.stopPropagation();
                                   handleCancelJob(job.job_id, job.state);
                                 }}
-                                className="btn-secondary text-red-600 font-semibold py-2 px-4 rounded-lg hover:bg-red-50"
+                                className="border border-[#2A2D2F] text-[#D05F5F] font-semibold py-2 px-4 rounded-lg hover:bg-[#D05F5F]/10 hover:border-[#D05F5F] transition-colors"
                               >
                                 Cancel Job
                               </button>

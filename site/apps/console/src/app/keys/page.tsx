@@ -214,37 +214,37 @@ export default function ApiKeysPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-900 text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex justify-between items-center mb-8">
-            <h1 className="text-4xl font-bold text-gray-900">API Keys</h1>
+            <h1 className="text-4xl font-bold text-white">API Keys</h1>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="btn-primary text-white font-semibold py-2 px-6 rounded-lg"
+              className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
             >
               Create New Key
             </button>
           </div>
 
-          {loading && <div className="text-gray-600">Loading API keys...</div>}
-          {error && <div className="text-red-600 mb-4">Error: {error}</div>}
+          {loading && <div className="text-[#9BA0A2]">Loading API keys...</div>}
+          {error && <div className="text-[#D05F5F] mb-4">Error: {error}</div>}
 
           {!loading && !error && apiKeys.length === 0 && (
-            <div className="bg-white p-8 rounded-lg shadow text-center">
-              <p className="text-gray-600 mb-4">You don't have any API keys yet.</p>
+            <div className="bg-[#161819] border border-[#2A2D2F] p-8 rounded-lg text-center">
+              <p className="text-[#9BA0A2] mb-4">You don't have any API keys yet.</p>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="btn-primary text-white font-semibold py-2 px-6 rounded-lg"
+                className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
               >
                 Create Your First API Key
               </button>
@@ -252,60 +252,60 @@ export default function ApiKeysPage() {
           )}
 
           {!loading && apiKeys.length > 0 && (
-            <div className="bg-white rounded-lg shadow overflow-hidden">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
+            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-hidden">
+              <table className="min-w-full divide-y divide-[#2A2D2F]">
+                <thead className="bg-[#0B0D0E]">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       Name
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       Key
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       Created
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       Last Used
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-gray-600 uppercase tracking-wider">
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
+                <tbody className="bg-[#161819] divide-y divide-[#2A2D2F]">
                   {apiKeys.map((key) => (
-                    <tr key={key.key_id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
+                    <tr key={key.key_id} className="hover:bg-[#1D1F21]">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
                         {key.name}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-gray-600">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-[#9BA0A2]">
                         {key.api_key_preview}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded ${key.is_active ? 'bg-green-100 text-green-800' : 'bg-gray-100 text-gray-800'}`}>
+                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded ${key.is_active ? 'bg-[#38D39F]/20 text-[#38D39F]' : 'bg-[#161819] text-[#6E7375]'}`}>
                           {key.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2]">
                         {formatDateTime(key.created_at)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2]">
                         {formatDateTime(key.last_used_at)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         {key.is_active ? (
                           <button
                             onClick={() => handleDeactivateKey(key.key_id)}
-                            className="text-red-600 hover:text-red-900"
+                            className="text-[#D05F5F] hover:text-[#D05F5F]/80"
                           >
                             Deactivate
                           </button>
                         ) : (
-                          <span className="text-gray-400 italic">Deactivated</span>
+                          <span className="text-[#6E7375] italic">Deactivated</span>
                         )}
                       </td>
                     </tr>
@@ -332,7 +332,7 @@ export default function ApiKeysPage() {
         >
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-[#D4D6D7] mb-2">
                 Key Name
               </label>
               <input
@@ -340,7 +340,7 @@ export default function ApiKeysPage() {
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
                 placeholder="e.g., Production Server"
-                className="w-full border border-gray-300 rounded-lg px-4 py-2"
+                className="w-full border border-[#2A2D2F] rounded-lg px-4 py-2 bg-[#161819] text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                 disabled={creating}
               />
             </div>
@@ -348,7 +348,7 @@ export default function ApiKeysPage() {
               <button
                 onClick={handleCreateKey}
                 disabled={creating}
-                className="flex-1 btn-primary text-white font-semibold py-2 px-4 rounded-lg disabled:opacity-50"
+                className="flex-1 bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors disabled:opacity-50"
               >
                 {creating ? 'Creating...' : 'Create Key'}
               </button>
@@ -358,7 +358,7 @@ export default function ApiKeysPage() {
                   setNewKeyName("");
                 }}
                 disabled={creating}
-                className="flex-1 btn-secondary font-semibold py-2 px-4 rounded-lg"
+                className="flex-1 border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
               >
                 Cancel
               </button>
@@ -376,13 +376,13 @@ export default function ApiKeysPage() {
           maxWidth="2xl"
         >
           <div className="space-y-6">
-            <div className="bg-yellow-50 border-l-4 border-yellow-400 p-4">
-              <p className="text-sm text-yellow-700">
+            <div className="bg-[#E0A85F]/10 border-l-4 border-[#E0A85F] p-4 rounded">
+              <p className="text-sm text-[#E0A85F]">
                 <strong>Important:</strong> Make sure to copy your API key now. You won't be able to see it again!
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-2">
+              <label className="block text-sm font-medium text-[#D4D6D7] mb-2">
                 Your API Key
               </label>
               <div className="flex gap-2">
@@ -390,11 +390,11 @@ export default function ApiKeysPage() {
                   type="text"
                   value={createdKey.api_key}
                   readOnly
-                  className="flex-1 font-mono text-sm border border-gray-300 rounded-lg px-4 py-2 bg-gray-50"
+                  className="flex-1 font-mono text-sm border border-[#2A2D2F] rounded-lg px-4 py-2 bg-[#0B0D0E] text-white"
                 />
                 <button
                   onClick={() => copyToClipboard(createdKey.api_key)}
-                  className="btn-primary text-white font-semibold py-2 px-4 rounded-lg"
+                  className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors"
                 >
                   {copiedKey ? 'Copied!' : 'Copy'}
                 </button>
@@ -402,7 +402,7 @@ export default function ApiKeysPage() {
             </div>
             <button
               onClick={() => setCreatedKey(null)}
-              className="w-full btn-secondary font-semibold py-2 px-4 rounded-lg"
+              className="w-full border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
             >
               Done
             </button>

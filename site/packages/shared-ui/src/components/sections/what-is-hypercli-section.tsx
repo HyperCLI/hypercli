@@ -48,18 +48,18 @@ export function WhatIsHyperCLISection() {
 
   const chapterY = useTransform(
     scrollYProgress,
-    [0, 0.3, 0.7, 1],
-    [100, 0, 0, -100],
+    [0, 0.2, 0.8, 1],
+    [30, 0, 0, -30],
   );
   const chapterOpacity = useTransform(
     scrollYProgress,
-    [0, 0.2, 0.5, 0.7],
+    [0, 0.15, 0.6, 0.85],
     [0, 1, 1, 0],
   );
   const chapterScale = useTransform(
     scrollYProgress,
-    [0, 0.3],
-    [0.9, 1],
+    [0, 0.2],
+    [0.98, 1],
   );
 
   return (
@@ -139,16 +139,13 @@ export function WhatIsHyperCLISection() {
               {features.map((feature, index) => (
                 <motion.div
                   key={index}
-                  className="group flex items-center gap-5 hover:translate-x-2 transition-transform duration-300"
+                  className="group flex items-center gap-5"
                   initial={{ opacity: 0, x: -30 }}
-                  animate={
-                    isContentInView
-                      ? { opacity: 1, x: 0 }
-                      : { opacity: 0, x: -30 }
-                  }
+                  whileInView={{ opacity: 1, x: 0 }}
+                  viewport={{ once: true, margin: "-50px" }}
                   transition={{
                     duration: 0.5,
-                    delay: 0.3 + index * 0.08,
+                    delay: index * 0.08,
                     ease: [0.22, 1, 0.36, 1],
                   }}
                   whileHover={{ x: 8 }}

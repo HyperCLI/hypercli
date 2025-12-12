@@ -602,24 +602,24 @@ export default function LaunchPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gray-900 text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
+        <div className="text-white text-xl">Loading...</div>
       </div>
     );
   }
 
   if (loadingState === 'error') {
     return (
-      <div className="min-h-screen flex flex-col overflow-x-hidden">
+      <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
         <Header />
         <main className="flex-1 pt-20 relative">
           <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            <div className="bg-red-50 border border-red-200 rounded-lg p-6 text-red-700">
+            <div className="bg-[#D05F5F]/10 border border-[#D05F5F]/30 rounded-lg p-6 text-[#D05F5F]">
               <h2 className="text-xl font-bold mb-2">Error Loading Instance Data</h2>
-              <p>Failed to load GPU types and pricing. Please try again later.</p>
+              <p className="text-[#D4D6D7]">Failed to load GPU types and pricing. Please try again later.</p>
               <button
                 onClick={() => window.location.reload()}
-                className="mt-4 btn-primary text-white font-semibold py-2 px-4 rounded-lg"
+                className="mt-4 bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors"
               >
                 Retry
               </button>
@@ -632,54 +632,54 @@ export default function LaunchPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
-          <h1 className="text-4xl font-bold text-gray-900 mb-8">Launch GPU</h1>
+          <h1 className="text-4xl font-bold text-white mb-8">Launch GPU</h1>
 
           <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
             {/* Left Column: GPU Selection */}
             <div className="lg:col-span-2 space-y-6">
               {/* Step 1: Single vs Multi-GPU */}
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">1. Select GPU Mode</h2>
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                <h2 className="text-lg font-bold text-white mb-4">1. Select GPU Mode</h2>
                 <div className="grid grid-cols-2 gap-4">
                   <button
                     onClick={() => setGpuMode('single')}
                     disabled={!isDataReady}
                     className={`p-4 rounded-lg border-2 transition-all text-left ${
                       gpuMode === 'single'
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-[#38D39F] bg-[#38D39F]/10'
+                        : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                     }`}
                   >
-                    <div className="font-semibold text-gray-900">Single GPU</div>
-                    <div className="text-sm text-gray-500">1 GPU for inference, fine-tuning, development</div>
+                    <div className="font-semibold text-white">Single GPU</div>
+                    <div className="text-sm text-[#9BA0A2]">1 GPU for inference, fine-tuning, development</div>
                   </button>
                   <button
                     onClick={() => setGpuMode('multi')}
                     disabled={!isDataReady}
                     className={`p-4 rounded-lg border-2 transition-all text-left ${
                       gpuMode === 'multi'
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-[#38D39F] bg-[#38D39F]/10'
+                        : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                     }`}
                   >
-                    <div className="font-semibold text-gray-900">Multi-GPU</div>
-                    <div className="text-sm text-gray-500">2-8 GPUs for training, large models</div>
+                    <div className="font-semibold text-white">Multi-GPU</div>
+                    <div className="text-sm text-[#9BA0A2]">2-8 GPUs for training, large models</div>
                   </button>
                 </div>
               </div>
 
               {/* Step 2: GPU Type */}
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">2. Select GPU Type</h2>
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                <h2 className="text-lg font-bold text-white mb-4">2. Select GPU Type</h2>
                 {!isDataReady ? (
-                  <div className="text-gray-500">Loading GPUs...</div>
+                  <div className="text-[#9BA0A2]">Loading GPUs...</div>
                 ) : availableGpus.length === 0 ? (
-                  <div className="text-gray-500">No GPUs available for {gpuMode} mode</div>
+                  <div className="text-[#9BA0A2]">No GPUs available for {gpuMode} mode</div>
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {availableGpus.map((gpu) => (
@@ -688,13 +688,13 @@ export default function LaunchPage() {
                         onClick={() => setGpuType(gpu.key)}
                         className={`p-4 rounded-lg border-2 transition-all text-left ${
                           gpuType === gpu.key
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            ? 'border-[#38D39F] bg-[#38D39F]/10'
+                            : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                         }`}
                       >
-                        <div className="font-semibold text-gray-900">{gpu.name}</div>
-                        <div className="text-xs text-gray-500 mt-1">{gpu.description}</div>
-                        <div className="text-sm font-medium text-green-600 mt-2">
+                        <div className="font-semibold text-white">{gpu.name}</div>
+                        <div className="text-xs text-[#9BA0A2] mt-1">{gpu.description}</div>
+                        <div className="text-sm font-medium text-[#38D39F] mt-2">
                           from ${(gpu.interruptible || gpu["on-demand"] || 0).toFixed(2)}/hr
                         </div>
                       </button>
@@ -705,8 +705,8 @@ export default function LaunchPage() {
 
               {/* Step 3: GPU Count (for multi-GPU) */}
               {gpuMode === 'multi' && availableGpuCounts.length > 0 && (
-                <div className="bg-white p-6 rounded-lg shadow">
-                  <h2 className="text-lg font-bold text-gray-900 mb-4">3. Select GPU Count</h2>
+                <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                  <h2 className="text-lg font-bold text-white mb-4">3. Select GPU Count</h2>
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
                     {availableGpuCounts.map((config) => (
                       <button
@@ -714,12 +714,12 @@ export default function LaunchPage() {
                         onClick={() => setGpuCount(config.count)}
                         className={`p-4 rounded-lg border-2 transition-all text-left ${
                           gpuCount === config.count
-                            ? 'border-blue-500 bg-blue-50'
-                            : 'border-gray-200 hover:border-gray-300'
+                            ? 'border-[#38D39F] bg-[#38D39F]/10'
+                            : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                         }`}
                       >
-                        <div className="font-semibold text-gray-900">{config.count}x GPUs</div>
-                        <div className="text-xs text-gray-500 mt-1">
+                        <div className="font-semibold text-white">{config.count}x GPUs</div>
+                        <div className="text-xs text-[#9BA0A2] mt-1">
                           {config.cpu_cores} vCPUs, {config.memory_gb}GB RAM
                         </div>
                       </button>
@@ -729,8 +729,8 @@ export default function LaunchPage() {
               )}
 
               {/* Step 4: Pricing Type */}
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                <h2 className="text-lg font-bold text-white mb-4">
                   {gpuMode === 'multi' ? '4' : '3'}. Select Pricing Type
                 </h2>
                 <div className="grid grid-cols-2 gap-4">
@@ -739,21 +739,21 @@ export default function LaunchPage() {
                     disabled={!pricingAvailability.interruptible}
                     className={`p-4 rounded-lg border-2 transition-all text-left ${
                       interruptible
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-[#38D39F] bg-[#38D39F]/10'
+                        : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                     } ${!pricingAvailability.interruptible ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold text-gray-900">Interruptible (Spot)</span>
+                      <span className="font-semibold text-white">Interruptible (Spot)</span>
                       {interruptible && (
-                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className="w-5 h-5 text-[#38D39F]" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500">Lower cost, may be interrupted if demand is high</p>
+                    <p className="text-xs text-[#9BA0A2]">Lower cost, may be interrupted if demand is high</p>
                     {!pricingAvailability.interruptible && (
-                      <p className="text-xs text-red-500 mt-1">Not available for this configuration</p>
+                      <p className="text-xs text-[#D05F5F] mt-1">Not available for this configuration</p>
                     )}
                   </button>
 
@@ -762,33 +762,33 @@ export default function LaunchPage() {
                     disabled={!pricingAvailability.onDemand}
                     className={`p-4 rounded-lg border-2 transition-all text-left ${
                       !interruptible
-                        ? 'border-blue-500 bg-blue-50'
-                        : 'border-gray-200 hover:border-gray-300'
+                        ? 'border-[#38D39F] bg-[#38D39F]/10'
+                        : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                     } ${!pricingAvailability.onDemand ? 'opacity-50 cursor-not-allowed' : ''}`}
                   >
                     <div className="flex items-center justify-between mb-2">
-                      <span className="font-semibold text-gray-900">On-Demand</span>
+                      <span className="font-semibold text-white">On-Demand</span>
                       {!interruptible && (
-                        <svg className="w-5 h-5 text-blue-500" fill="currentColor" viewBox="0 0 20 20">
+                        <svg className="w-5 h-5 text-[#38D39F]" fill="currentColor" viewBox="0 0 20 20">
                           <path fillRule="evenodd" d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z" clipRule="evenodd" />
                         </svg>
                       )}
                     </div>
-                    <p className="text-xs text-gray-500">Guaranteed to run, no interruptions</p>
+                    <p className="text-xs text-[#9BA0A2]">Guaranteed to run, no interruptions</p>
                     {!pricingAvailability.onDemand && (
-                      <p className="text-xs text-red-500 mt-1">Not available for this configuration</p>
+                      <p className="text-xs text-[#D05F5F] mt-1">Not available for this configuration</p>
                     )}
                   </button>
                 </div>
               </div>
 
               {/* Step 5: Region */}
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                <h2 className="text-lg font-bold text-white mb-4">
                   {gpuMode === 'multi' ? '5' : '4'}. Select Region
                 </h2>
                 {availableRegions.length === 0 ? (
-                  <div className="text-gray-500">No regions available for this configuration</div>
+                  <div className="text-[#9BA0A2]">No regions available for this configuration</div>
                 ) : (
                   <div className="grid grid-cols-2 md:grid-cols-3 gap-3">
                     {availableRegions.map((region) => {
@@ -799,18 +799,18 @@ export default function LaunchPage() {
                           onClick={() => setSelectedRegion(region.code)}
                           className={`p-4 rounded-lg border-2 transition-all text-left ${
                             selectedRegion === region.code
-                              ? 'border-blue-500 bg-blue-50'
-                              : 'border-gray-200 hover:border-gray-300'
+                              ? 'border-[#38D39F] bg-[#38D39F]/10'
+                              : 'border-[#2A2D2F] hover:border-[#38D39F]/50'
                           }`}
                         >
                           <div className="flex items-center gap-2">
                             <span className="text-xl">{getRegionFlag(region.code)}</span>
-                            <span className="font-semibold text-gray-900">
+                            <span className="font-semibold text-white">
                               {region.info?.description || getRegionName(region.code)}
                             </span>
                           </div>
                           {price && (
-                            <div className="text-sm font-medium text-green-600 mt-1">
+                            <div className="text-sm font-medium text-[#38D39F] mt-1">
                               ${price.toFixed(2)}/hr
                             </div>
                           )}
@@ -822,8 +822,8 @@ export default function LaunchPage() {
               </div>
 
               {/* Container Configuration */}
-              <div className="bg-white p-6 rounded-lg shadow">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">Container Configuration</h2>
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                <h2 className="text-lg font-bold text-white mb-4">Container Configuration</h2>
 
                 <div className="space-y-4">
                   <div>
@@ -833,18 +833,18 @@ export default function LaunchPage() {
                           type="radio"
                           checked={containerSource === 'image'}
                           onChange={() => setContainerSource('image')}
-                          className="w-4 h-4 text-blue-600"
+                          className="w-4 h-4 accent-[#38D39F]"
                         />
-                        <span className="text-sm text-gray-700">Docker Image</span>
+                        <span className="text-sm text-[#D4D6D7]">Docker Image</span>
                       </label>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
                           type="radio"
                           checked={containerSource === 'dockerfile'}
                           onChange={() => setContainerSource('dockerfile')}
-                          className="w-4 h-4 text-blue-600"
+                          className="w-4 h-4 accent-[#38D39F]"
                         />
-                        <span className="text-sm text-gray-700">Dockerfile</span>
+                        <span className="text-sm text-[#D4D6D7]">Dockerfile</span>
                       </label>
                       <label className="flex items-center gap-2 cursor-pointer">
                         <input
@@ -860,9 +860,9 @@ export default function LaunchPage() {
                             setHttpsLbEnabled(true);
                             setHttpsLbPort('7860');
                           }}
-                          className="w-4 h-4 text-blue-600"
+                          className="w-4 h-4 accent-[#38D39F]"
                         />
-                        <span className="text-sm text-gray-700">HF Space</span>
+                        <span className="text-sm text-[#D4D6D7]">HF Space</span>
                       </label>
                     </div>
 
@@ -872,7 +872,7 @@ export default function LaunchPage() {
                         value={dockerImage}
                         onChange={(e) => setDockerImage(e.target.value)}
                         placeholder="e.g., nvidia/cuda:12.6.0-runtime-ubuntu22.04"
-                        className="w-full border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                        className="w-full bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                       />
                     )}
                     {containerSource === 'dockerfile' && (
@@ -881,7 +881,7 @@ export default function LaunchPage() {
                         onChange={(e) => setDockerfile(e.target.value)}
                         rows={6}
                         placeholder="FROM nvidia/cuda:12.6.0-runtime-ubuntu22.04&#10;RUN apt-get update && apt-get install -y python3&#10;..."
-                        className="w-full border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                        className="w-full bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                       />
                     )}
                     {containerSource === 'hfspace' && (
@@ -891,11 +891,11 @@ export default function LaunchPage() {
                           value={hfSpace}
                           onChange={(e) => setHfSpace(e.target.value)}
                           placeholder="e.g., FireRedTeam/FireRedTTS2"
-                          className="w-full border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                          className="w-full bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                         />
                         {hfSpace.trim() && (
-                          <p className="mt-2 text-xs text-gray-500">
-                            Resolves to: <code className="bg-gray-100 px-1 rounded">{resolveHfSpaceToImage(hfSpace)}</code>
+                          <p className="mt-2 text-xs text-[#9BA0A2]">
+                            Resolves to: <code className="bg-[#0B0D0E] px-1 rounded text-[#D4D6D7]">{resolveHfSpaceToImage(hfSpace)}</code>
                           </p>
                         )}
                       </div>
@@ -904,13 +904,13 @@ export default function LaunchPage() {
 
                   <div>
                     <div className="flex items-center justify-between mb-2">
-                      <label className="block text-sm font-semibold text-gray-700">
+                      <label className="block text-sm font-semibold text-[#D4D6D7]">
                         Command (Optional)
                       </label>
                       <button
                         type="button"
                         onClick={() => setCommand("nvidia-smi")}
-                        className="text-xs text-blue-600 hover:text-blue-700"
+                        className="text-xs text-[#38D39F] hover:text-[#45E4AE]"
                       >
                         Use nvidia-smi
                       </button>
@@ -920,12 +920,12 @@ export default function LaunchPage() {
                       onChange={(e) => setCommand(e.target.value)}
                       rows={3}
                       placeholder="nvidia-smi"
-                      className="w-full border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                      className="w-full bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                     />
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label className="block text-sm font-semibold text-[#D4D6D7] mb-2">
                       Environment Variables
                     </label>
                     {envVars.map((envVar, index) => (
@@ -939,7 +939,7 @@ export default function LaunchPage() {
                             setEnvVars(updated);
                           }}
                           placeholder="KEY"
-                          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                          className="flex-1 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                         />
                         <input
                           type="text"
@@ -950,12 +950,12 @@ export default function LaunchPage() {
                             setEnvVars(updated);
                           }}
                           placeholder="value"
-                          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                          className="flex-1 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => setEnvVars(envVars.filter((_, i) => i !== index))}
-                          className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                          className="px-3 py-2 bg-[#D05F5F]/10 text-[#D05F5F] rounded-lg hover:bg-[#D05F5F]/20"
                         >
                           ×
                         </button>
@@ -964,14 +964,14 @@ export default function LaunchPage() {
                     <button
                       type="button"
                       onClick={() => setEnvVars([...envVars, {key: "", value: ""}])}
-                      className="text-sm text-blue-600 hover:text-blue-700"
+                      className="text-sm text-[#38D39F] hover:text-[#45E4AE]"
                     >
                       + Add Environment Variable
                     </button>
                   </div>
 
                   <div>
-                    <label className="block text-sm font-semibold text-gray-700 mb-2">
+                    <label className="block text-sm font-semibold text-[#D4D6D7] mb-2">
                       Port Forwarding
                     </label>
                     {ports.map((port, index) => (
@@ -985,9 +985,9 @@ export default function LaunchPage() {
                             setPorts(updated);
                           }}
                           placeholder="Container Port"
-                          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                          className="flex-1 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                         />
-                        <span className="text-gray-500">→</span>
+                        <span className="text-[#6E7375]">→</span>
                         <input
                           type="text"
                           value={port.host}
@@ -997,12 +997,12 @@ export default function LaunchPage() {
                             setPorts(updated);
                           }}
                           placeholder="Host Port"
-                          className="flex-1 border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                          className="flex-1 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                         />
                         <button
                           type="button"
                           onClick={() => setPorts(ports.filter((_, i) => i !== index))}
-                          className="px-3 py-2 bg-red-100 text-red-700 rounded-lg hover:bg-red-200"
+                          className="px-3 py-2 bg-[#D05F5F]/10 text-[#D05F5F] rounded-lg hover:bg-[#D05F5F]/20"
                         >
                           ×
                         </button>
@@ -1011,7 +1011,7 @@ export default function LaunchPage() {
                     <button
                       type="button"
                       onClick={() => setPorts([...ports, {container: "", host: ""}])}
-                      className="text-sm text-blue-600 hover:text-blue-700"
+                      className="text-sm text-[#38D39F] hover:text-[#45E4AE]"
                     >
                       + Add Port Mapping
                     </button>
@@ -1023,9 +1023,9 @@ export default function LaunchPage() {
                         type="checkbox"
                         checked={httpsLbEnabled}
                         onChange={(e) => setHttpsLbEnabled(e.target.checked)}
-                        className="w-4 h-4 text-blue-600"
+                        className="w-4 h-4 accent-[#38D39F]"
                       />
-                      <span className="text-sm font-semibold text-gray-700">Enable HTTPS Load Balancer</span>
+                      <span className="text-sm font-semibold text-[#D4D6D7]">Enable HTTPS Load Balancer</span>
                     </label>
                     {httpsLbEnabled && (
                       <div className="ml-6 space-y-2">
@@ -1034,16 +1034,16 @@ export default function LaunchPage() {
                           value={httpsLbPort}
                           onChange={(e) => setHttpsLbPort(e.target.value)}
                           placeholder="Container Port (e.g., 8188)"
-                          className="w-full border border-gray-300 rounded-lg px-4 py-2 font-mono text-sm"
+                          className="w-full bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-4 py-2 font-mono text-sm text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
                         />
                         <label className="flex items-center gap-2 cursor-pointer">
                           <input
                             type="checkbox"
                             checked={httpsLbAuth}
                             onChange={(e) => setHttpsLbAuth(e.target.checked)}
-                            className="w-4 h-4 text-blue-600"
+                            className="w-4 h-4 accent-[#38D39F]"
                           />
-                          <span className="text-sm text-gray-700">Require authentication cookie</span>
+                          <span className="text-sm text-[#D4D6D7]">Require authentication cookie</span>
                         </label>
                       </div>
                     )}
@@ -1055,13 +1055,13 @@ export default function LaunchPage() {
 
             {/* Right Column: Summary & Launch */}
             <div className="lg:col-span-1">
-              <div className="bg-white p-6 rounded-lg shadow sticky top-24">
-                <h2 className="text-lg font-bold text-gray-900 mb-4">Summary</h2>
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg sticky top-24">
+                <h2 className="text-lg font-bold text-white mb-4">Summary</h2>
 
                 <div className="space-y-3 mb-6">
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">GPU</span>
-                    <span className="font-medium text-gray-900">
+                    <span className="text-[#9BA0A2]">GPU</span>
+                    <span className="font-medium text-white">
                       {gpuType ? `${gpuCount}x ${getGPUDisplayName(gpuType)}` : '-'}
                     </span>
                   </div>
@@ -1069,47 +1069,47 @@ export default function LaunchPage() {
                   {selectedConfig && (
                     <>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">vCPUs</span>
-                        <span className="font-medium text-gray-900">{selectedConfig.cpu_cores}</span>
+                        <span className="text-[#9BA0A2]">vCPUs</span>
+                        <span className="font-medium text-white">{selectedConfig.cpu_cores}</span>
                       </div>
                       <div className="flex justify-between text-sm">
-                        <span className="text-gray-500">RAM</span>
-                        <span className="font-medium text-gray-900">{selectedConfig.memory_gb} GB</span>
+                        <span className="text-[#9BA0A2]">RAM</span>
+                        <span className="font-medium text-white">{selectedConfig.memory_gb} GB</span>
                       </div>
                       {selectedConfig.storage_gb > 0 && (
                         <div className="flex justify-between text-sm">
-                          <span className="text-gray-500">Storage</span>
-                          <span className="font-medium text-gray-900">{selectedConfig.storage_gb} GB</span>
+                          <span className="text-[#9BA0A2]">Storage</span>
+                          <span className="font-medium text-white">{selectedConfig.storage_gb} GB</span>
                         </div>
                       )}
                     </>
                   )}
 
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Region</span>
-                    <span className="font-medium text-gray-900">
+                    <span className="text-[#9BA0A2]">Region</span>
+                    <span className="font-medium text-white">
                       {selectedRegion ? `${getRegionFlag(selectedRegion)} ${getRegionName(selectedRegion)}` : '-'}
                     </span>
                   </div>
 
                   <div className="flex justify-between text-sm">
-                    <span className="text-gray-500">Pricing</span>
-                    <span className="font-medium text-gray-900">
+                    <span className="text-[#9BA0A2]">Pricing</span>
+                    <span className="font-medium text-white">
                       {interruptible ? 'Interruptible' : 'On-Demand'}
                     </span>
                   </div>
 
-                  <div className="border-t pt-3 mt-3">
+                  <div className="border-t border-[#2A2D2F] pt-3 mt-3">
                     <div className="flex justify-between text-sm">
-                      <span className="text-gray-500">Price</span>
-                      <span className="font-bold text-lg text-gray-900">
+                      <span className="text-[#9BA0A2]">Price</span>
+                      <span className="font-bold text-lg text-white">
                         {currentPrice ? `$${currentPrice.toFixed(2)}/hr` : '-'}
                       </span>
                     </div>
                     {estimatedCost !== null && (
                       <div className="flex justify-between text-sm mt-1">
-                        <span className="text-gray-500">Est. Cost</span>
-                        <span className="font-medium text-green-600">${estimatedCost.toFixed(2)}</span>
+                        <span className="text-[#9BA0A2]">Est. Cost</span>
+                        <span className="font-medium text-[#38D39F]">${estimatedCost.toFixed(2)}</span>
                       </div>
                     )}
                   </div>
@@ -1117,7 +1117,7 @@ export default function LaunchPage() {
 
                 {/* Runtime Budget in Summary */}
                 <div className="mb-4">
-                  <label className="block text-sm font-medium text-gray-500 mb-2">Runtime Budget</label>
+                  <label className="block text-sm font-medium text-[#9BA0A2] mb-2">Runtime Budget</label>
                   <div className="space-y-2">
                     <input
                       type="range"
@@ -1126,7 +1126,7 @@ export default function LaunchPage() {
                       step="60"
                       value={runtime}
                       onChange={(e) => setRuntime(parseInt(e.target.value))}
-                      className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                      className="w-full h-2 bg-[#2A2D2F] rounded-lg appearance-none cursor-pointer accent-[#38D39F]"
                     />
                     <div className="flex gap-2 items-center">
                       <input
@@ -1147,9 +1147,9 @@ export default function LaunchPage() {
                           if (runtime < 60) setRuntime(60);
                         }}
                         placeholder="sec"
-                        className="w-20 border border-gray-300 rounded-lg px-2 py-1 text-sm"
+                        className="w-20 bg-[#0B0D0E] border border-[#2A2D2F] rounded-lg px-2 py-1 text-sm text-white focus:border-[#38D39F] focus:outline-none"
                       />
-                      <span className="text-xs text-gray-500">sec</span>
+                      <span className="text-xs text-[#9BA0A2]">sec</span>
                     </div>
                     <div className="flex gap-1">
                       {[600, 1800, 3600, 7200].map((preset) => (
@@ -1157,7 +1157,7 @@ export default function LaunchPage() {
                           key={preset}
                           type="button"
                           onClick={() => setRuntime(preset)}
-                          className={`flex-1 px-2 py-1 text-xs rounded ${runtime === preset ? 'bg-blue-100 text-blue-700' : 'bg-gray-100 text-gray-600 hover:bg-gray-200'}`}
+                          className={`flex-1 px-2 py-1 text-xs rounded ${runtime === preset ? 'bg-[#38D39F]/20 text-[#38D39F]' : 'bg-[#0B0D0E] text-[#9BA0A2] hover:bg-[#1D1F21]'}`}
                         >
                           {preset >= 3600 ? `${preset / 3600}h` : `${preset / 60}m`}
                         </button>
@@ -1167,7 +1167,7 @@ export default function LaunchPage() {
                 </div>
 
                 {error && (
-                  <div className="p-3 mb-4 bg-red-50 border border-red-200 rounded-lg text-red-700 text-sm">
+                  <div className="p-3 mb-4 bg-[#D05F5F]/10 border border-[#D05F5F]/30 rounded-lg text-[#D05F5F] text-sm">
                     {error}
                   </div>
                 )}
@@ -1175,7 +1175,7 @@ export default function LaunchPage() {
                 <button
                   onClick={createJob}
                   disabled={isCreating || !gpuType || !selectedRegion || !currentPrice}
-                  className="w-full btn-primary text-white font-semibold py-3 px-6 rounded-lg disabled:opacity-50"
+                  className="w-full bg-[#38D39F] text-[#0B0D0E] font-semibold py-3 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCreating ? 'Launching...' : 'Launch GPU'}
                 </button>
