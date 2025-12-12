@@ -1,13 +1,13 @@
 import * as React from "react";
 
-import { cn } from "../../utils/cn";
+import { cn } from "./utils";
 
 function Card({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <div
       data-slot="card"
       className={cn(
-        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border border-border",
+        "bg-card text-card-foreground flex flex-col gap-6 rounded-xl border",
         className,
       )}
       {...props}
@@ -32,7 +32,7 @@ function CardTitle({ className, ...props }: React.ComponentProps<"div">) {
   return (
     <h4
       data-slot="card-title"
-      className={cn("leading-none text-foreground", className)}
+      className={cn("leading-none", className)}
       {...props}
     />
   );

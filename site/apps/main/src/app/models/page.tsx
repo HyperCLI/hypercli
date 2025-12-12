@@ -1,13 +1,12 @@
 "use client";
 
-import { Navbar } from "@/components/Navbar";
-import { Footer } from "@/components/Footer";
+import { Header, Footer } from "@hypercli/shared-ui";
 import ModelPricing from "@/components/ModelPricing";
 
 export default function ModelsPage() {
   return (
     <div className="min-h-screen bg-[#0B0D0E]">
-      <Navbar />
+      <Header />
       <main className="pt-16">
         {/* Hero Section */}
         <div className="relative py-20 sm:py-28 overflow-hidden">
