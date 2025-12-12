@@ -4,7 +4,7 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 4000",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start --port 4000",
     "lint": "eslint",
     "clean": "rm -rf .next"
@@ -14,23 +14,23 @@
     "@turnkey/react-wallet-kit": "^1.5.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "framer-motion": "^11.18.0",
-    "lucide-react": "^0.487.0",
-    "next": "^15.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0",
+    "lucide-react": "*",
+    "next": "*",
+    "react": "*",
+    "react-dom": "*",
     "react-syntax-highlighter": "^16.0.0",
     "reveal.js": "^5.2.1"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
+    "@tailwindcss/postcss": "*",
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
     "@types/reveal.js": "^5.2.1",
-    "eslint": "^9",
-    "eslint-config-next": "^15.1.0",
+    "eslint": "*",
+    "eslint-config-next": "*",
     "null-loader": "^4.0.1",
-    "tailwindcss": "^4.1.17",
-    "typescript": "^5.9.3"
+    "tailwindcss": "*",
+    "typescript": "*"
   }
 }

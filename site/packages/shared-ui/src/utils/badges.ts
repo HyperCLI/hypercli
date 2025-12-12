@@ -1,5 +1,6 @@
 /**
  * Common badge styling utilities for consistent status/state display
+ * Uses muted, dark-theme friendly colors
  */
 
 /**
@@ -10,32 +11,55 @@ export const getBadgeClass = (status: string): string => {
   const normalizedStatus = status.toLowerCase();
 
   switch (normalizedStatus) {
-    // Success states
+    // Success states - muted green
     case 'succeeded':
     case 'completed':
-      return 'bg-green-100 text-green-800 border-green-200';
+      return 'bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30';
 
-    // Warning/pending states
+    // Warning/pending states - muted amber/yellow
     case 'pending':
     case 'queued':
-      return 'bg-yellow-100 text-yellow-800 border-yellow-200';
+      return 'bg-[#E0A85F]/10 text-[#E0A85F] border-[#E0A85F]/30';
 
-    // Info/in-progress states
+    // Info/in-progress states - muted blue
     case 'assigned':
     case 'running':
-      return 'bg-blue-100 text-blue-800 border-blue-200';
+      return 'bg-[#5B9BD5]/10 text-[#5B9BD5] border-[#5B9BD5]/30';
 
-    // Error/failure states
+    // Error/failure states - muted red
     case 'failed':
     case 'canceled':
-      return 'bg-red-100 text-red-800 border-red-200';
+      return 'bg-[#D05F5F]/10 text-[#D05F5F] border-[#D05F5F]/30';
 
-    // Terminated/stopped states
+    // Terminated/stopped states - muted gray
     case 'terminated':
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
 
-    // Default
+    // Default - muted gray
     default:
-      return 'bg-gray-100 text-gray-800 border-gray-200';
+      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+  }
+};
+
+/**
+ * Get muted badge class for type/category badges (job, llm, rewards, etc.)
+ */
+export const getTypeBadgeClass = (type: string): string => {
+  const normalizedType = type.toLowerCase();
+
+  switch (normalizedType) {
+    case 'job':
+      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+    case 'llm':
+      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+    case 'top_up':
+    case 'topup':
+      return 'bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30';
+    case 'rewards':
+      return 'bg-[#E0A85F]/10 text-[#E0A85F] border-[#E0A85F]/30';
+    case 'invoice':
+      return 'bg-[#5B9BD5]/10 text-[#5B9BD5] border-[#5B9BD5]/30';
+    default:
+      return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
   }
 };

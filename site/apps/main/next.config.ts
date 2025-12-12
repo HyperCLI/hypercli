@@ -28,8 +28,19 @@ const nextConfig: NextConfig = {
     ],
   },
   env: {
-    // This app IS the main site
     NEXT_PUBLIC_IS_MAIN_SITE: "true",
+  },
+  // Empty turbopack config to acknowledge we know about it
+  turbopack: {},
+  // Exclude test files from being bundled
+  webpack: (config) => {
+    config.module = config.module || {};
+    config.module.rules = config.module.rules || [];
+    config.module.rules.push({
+      test: /node_modules[\/\\](thread-stream|pino)[\/\\]test/,
+      loader: 'null-loader',
+    });
+    return config;
   },
 };
 

@@ -74,6 +74,6 @@ export { cookieUtils } from './utils/cookies';
 export { debugLog } from './utils/debug';
 export { toStripeCents, toUsdcUnits, fromStripeCents, fromUsdcUnits } from './utils/currency';
 export { formatDateTime, formatDateTimeShort, formatDate, formatRelativeTime, getUserTimezone, getTimezoneAbbr } from './utils/datetime';
-export { getBadgeClass } from './utils/badges';
+export { getBadgeClass, getTypeBadgeClass } from './utils/badges';
 export { GPU_INFO, REGION_INFO, getGPUDisplayName, getGPUVram, getGPUArch, getRegionName, getRegionFlag } from './utils/gpu';
 export { NAV_URLS } from './utils/navigation';

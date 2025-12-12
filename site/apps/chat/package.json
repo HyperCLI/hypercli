@@ -4,28 +4,28 @@
   "private": true,
   "scripts": {
     "dev": "next dev --port 4002",
-    "build": "next build",
+    "build": "next build --webpack",
     "start": "next start --port 4002",
     "lint": "eslint",
     "clean": "rm -rf .next"
   },
   "dependencies": {
     "@hypercli/shared-ui": "*",
-    "lucide-react": "^0.487.0",
+    "lucide-react": "*",
     "marked": "^17.0.0",
-    "next": "^15.1.0",
-    "react": "^19.0.0",
-    "react-dom": "^19.0.0"
+    "next": "*",
+    "react": "*",
+    "react-dom": "*"
   },
   "devDependencies": {
-    "@tailwindcss/postcss": "^4",
-    "@types/node": "^22",
-    "@types/react": "^19",
-    "@types/react-dom": "^19",
-    "eslint": "^9",
-    "eslint-config-next": "^15.1.0",
+    "@tailwindcss/postcss": "*",
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "eslint": "*",
+    "eslint-config-next": "*",
     "null-loader": "^4.0.1",
-    "tailwindcss": "^4.1.17",
-    "typescript": "^5.9.3"
+    "tailwindcss": "*",
+    "typescript": "*"
   }
 }

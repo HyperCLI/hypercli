@@ -20,8 +20,19 @@ for (const envVar of requiredEnvVars) {
 const nextConfig: NextConfig = {
   transpilePackages: ["@hypercli/shared-ui"],
   env: {
-    // This app is NOT the main site (it's the chat subdomain)
     NEXT_PUBLIC_IS_MAIN_SITE: "false",
+  },
+  // Empty turbopack config to acknowledge we know about it
+  turbopack: {},
+  // Exclude test files from being bundled
+  webpack: (config) => {
+    config.module = config.module || {};
+    config.module.rules = config.module.rules || [];
+    config.module.rules.push({
+      test: /node_modules[\/\\](thread-stream|pino)[\/\\]test/,
+      loader: 'null-loader',
+    });
+    return config;
   },
 };
 
