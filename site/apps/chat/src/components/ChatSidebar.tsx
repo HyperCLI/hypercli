@@ -4,11 +4,11 @@ import { cn, Button, Separator } from "@hypercli/shared-ui";
 import { Plus, MessageSquare, Settings, Cpu, Trash2, Moon, Sun, LogOut } from "lucide-react";
 import Link from "next/link";
 
-interface Chat {
+interface Thread {
   id: string;
-  title: string;
-  messages: { role: "user" | "assistant"; content: string }[];
-  timestamp: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Model {
@@ -21,16 +21,17 @@ interface Balance {
 }
 
 interface ChatSidebarProps {
-  chats: Chat[];
-  currentChatId: string | null;
+  threads: Thread[];
+  currentThreadId: string | null;
   models: Model[];
   selectedModel: string;
   loadingModels: boolean;
+  loadingThreads: boolean;
   balance: Balance | null;
   theme: "light" | "dark";
-  onSelectChat: (chatId: string) => void;
-  onDeleteChat: (chatId: string, e: React.MouseEvent) => void;
-  onNewChat: () => void;
+  onSelectThread: (threadId: string) => void;
+  onDeleteThread: (threadId: string, e: React.MouseEvent) => void;
+  onNewThread: () => void;
   onSelectModel: (modelId: string) => void;
   onToggleTheme: () => void;
   onTopUp: () => void;
@@ -38,16 +39,17 @@ interface ChatSidebarProps {
 }
 
 export function ChatSidebar({
-  chats,
-  currentChatId,
+  threads,
+  currentThreadId,
   models,
   selectedModel,
   loadingModels,
+  loadingThreads,
   balance,
   theme,
-  onSelectChat,
-  onDeleteChat,
-  onNewChat,
+  onSelectThread,
+  onDeleteThread,
+  onNewThread,
   onSelectModel,
   onToggleTheme,
   onTopUp,
@@ -71,7 +73,7 @@ export function ChatSidebar({
 
       {/* New Chat Button */}
       <div className="p-3">
-        <Button onClick={onNewChat} className="w-full justify-start gap-2" size="sm">
+        <Button onClick={onNewThread} className="w-full justify-start gap-2" size="sm">
           <Plus className="h-4 w-4" />
           New Chat
         </Button>
@@ -118,24 +120,26 @@ export function ChatSidebar({
           Recent
         </h3>
         <div className="space-y-1">
-          {chats.length === 0 ? (
+          {loadingThreads ? (
+            <div className="px-2 py-1.5 text-sm text-muted-foreground">Loading...</div>
+          ) : threads.length === 0 ? (
             <div className="px-2 py-1.5 text-sm text-muted-foreground">No conversations yet</div>
           ) : (
-            chats.map((chat) => (
+            threads.map((thread) => (
               <button
-                key={chat.id}
-                onClick={() => onSelectChat(chat.id)}
+                key={thread.id}
+                onClick={() => onSelectThread(thread.id)}
                 className={cn(
                   "group w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
-                  currentChatId === chat.id
+                  currentThreadId === thread.id
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-surface-high"
                 )}
               >
                 <MessageSquare className="h-4 w-4 flex-shrink-0" />
-                <span className="flex-1 text-left truncate">{chat.title || "New Chat"}</span>
+                <span className="flex-1 text-left truncate">{thread.title || "New Chat"}</span>
                 <button
-                  onClick={(e) => onDeleteChat(chat.id, e)}
+                  onClick={(e) => onDeleteThread(thread.id, e)}
                   className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive transition-all"
                 >
                   <Trash2 className="w-3 h-3" />

@@ -32,6 +32,9 @@
   # LLM API URL for chat completions
   NEXT_PUBLIC_LLM_API_URL = "https://api.hypercli.com/v1"
 
+  # Bot API URL for thread-based chat
+  NEXT_PUBLIC_BOT_API_URL = "https://api.hypercli.com/bot/api"
+
   # Default model for chat
   NEXT_PUBLIC_DEFAULT_MODEL = "minimax-m2"
 

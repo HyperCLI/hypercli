@@ -6,16 +6,21 @@ import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { useRouter, useSearchParams } from "next/navigation";
 import { ChatSidebar, ChatWindow, ChatInput, ChatHeader } from "../components";
 
+// Bot API types
 interface Message {
+  id: string;
+  thread_id: string;
   role: "user" | "assistant";
   content: string;
+  model?: string;
+  created_at: string;
 }
 
-interface Chat {
+interface Thread {
   id: string;
-  title: string;
-  messages: Message[];
-  timestamp: number;
+  title: string | null;
+  created_at: string;
+  updated_at: string;
 }
 
 interface Model {
@@ -47,10 +52,11 @@ function ChatPageContent() {
   // Theme
   const [theme, setTheme] = useState<"light" | "dark">("dark");
 
-  // Chats
-  const [chats, setChats] = useState<Chat[]>([]);
-  const [currentChatId, setCurrentChatId] = useState<string | null>(null);
+  // Threads (from bot API)
+  const [threads, setThreads] = useState<Thread[]>([]);
+  const [currentThreadId, setCurrentThreadId] = useState<string | null>(null);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [loadingThreads, setLoadingThreads] = useState(true);
 
   // Models
   const [models, setModels] = useState<Model[]>([]);
@@ -95,25 +101,35 @@ function ChatPageContent() {
     localStorage.setItem("hypercli_chat_theme", theme);
   }, [theme]);
 
-  // Load chats from localStorage
-  useEffect(() => {
-    const storedChats = localStorage.getItem("hypercli_chats");
-    if (storedChats) {
-      const parsedChats = JSON.parse(storedChats) as Chat[];
-      setChats(parsedChats);
-      if (parsedChats.length > 0) {
-        setCurrentChatId(parsedChats[0].id);
-        setMessages(parsedChats[0].messages);
+  // Fetch threads from bot API
+  const fetchThreads = async () => {
+    try {
+      const authToken = cookieUtils.get("auth_token");
+      if (!authToken) {
+        setLoadingThreads(false);
+        return;
       }
-    }
-  }, []);
 
-  // Save chats to localStorage
-  useEffect(() => {
-    if (chats.length > 0) {
-      localStorage.setItem("hypercli_chats", JSON.stringify(chats));
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/threads`, {
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+
+      if (!response.ok) throw new Error("Failed to fetch threads");
+
+      const data = await response.json();
+      setThreads(data);
+    } catch (error) {
+      console.error("Failed to fetch threads:", error);
+    } finally {
+      setLoadingThreads(false);
     }
-  }, [chats]);
+  };
+
+  useEffect(() => {
+    if (isAuthenticated) {
+      fetchThreads();
+    }
+  }, [isAuthenticated]);
 
   // Auto-create free user if not authenticated
   useEffect(() => {
@@ -129,8 +145,8 @@ function ChatPageContent() {
         if (!response.ok) throw new Error("Failed to create free user");
 
         const data = await response.json();
-        // Store JWT token in cookie
-        document.cookie = `auth_token=${data.token}; path=/; max-age=${data.expires_in}; SameSite=Lax`;
+        // Store JWT token in cookie (uses cookieUtils for proper domain handling)
+        cookieUtils.setWithMaxAge("auth_token", data.token, data.expires_in);
         // Mark as free user (not wallet)
         localStorage.setItem("hypercli_login_type", "free");
         // Reload to trigger auth
@@ -147,10 +163,7 @@ function ChatPageContent() {
   useEffect(() => {
     const fetchModels = async () => {
       try {
-        const authToken = document.cookie
-          .split("; ")
-          .find((row) => row.startsWith("auth_token="))
-          ?.split("=")[1];
+        const authToken = cookieUtils.get("auth_token");
 
         if (!authToken) {
           setLoadingModels(false);
@@ -202,10 +215,7 @@ function ChatPageContent() {
   // Fetch balance
   const fetchBalance = async () => {
     try {
-      const authToken = document.cookie
-        .split("; ")
-        .find((row) => row.startsWith("auth_token="))
-        ?.split("=")[1];
+      const authToken = cookieUtils.get("auth_token");
 
       if (!authToken) return;
 
@@ -263,8 +273,8 @@ function ChatPageContent() {
           if (!response.ok) throw new Error("Failed to create free user");
 
           const data = await response.json();
-          // Store JWT token in cookie
-          document.cookie = `auth_token=${data.token}; path=/; max-age=${data.expires_in}; SameSite=Lax`;
+          // Store JWT token in cookie (uses cookieUtils for proper domain handling)
+          cookieUtils.setWithMaxAge("auth_token", data.token, data.expires_in);
           // Mark as free user (not wallet)
           localStorage.setItem("hypercli_login_type", "free");
           // Clear URL param and reload to trigger auth
@@ -304,43 +314,59 @@ function ChatPageContent() {
     setTheme((prev) => (prev === "light" ? "dark" : "light"));
   };
 
-  const startNewChat = () => {
-    const newChat: Chat = {
-      id: crypto.randomUUID(),
-      title: "New Chat",
-      messages: [],
-      timestamp: Date.now(),
-    };
-    setChats((prev) => [newChat, ...prev]);
-    setCurrentChatId(newChat.id);
+  const startNewThread = () => {
+    // Just clear current thread - a new one will be created on first message
+    setCurrentThreadId(null);
     setMessages([]);
   };
 
-  const selectChat = (chatId: string) => {
-    const chat = chats.find((c) => c.id === chatId);
-    if (chat) {
-      setCurrentChatId(chatId);
-      setMessages(chat.messages);
+  const selectThread = async (threadId: string) => {
+    setCurrentThreadId(threadId);
+    setMessages([]); // Clear while loading
+
+    try {
+      const authToken = cookieUtils.get("auth_token");
+      if (!authToken) return;
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}/messages`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
+      );
+
+      if (!response.ok) throw new Error("Failed to fetch messages");
+
+      const data = await response.json();
+      setMessages(data);
+    } catch (error) {
+      console.error("Failed to fetch messages:", error);
     }
   };
 
-  const deleteChat = (chatId: string, e: React.MouseEvent) => {
+  const deleteThread = async (threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
-    const updatedChats = chats.filter((c) => c.id !== chatId);
-    setChats(updatedChats);
 
-    if (currentChatId === chatId) {
-      if (updatedChats.length > 0) {
-        setCurrentChatId(updatedChats[0].id);
-        setMessages(updatedChats[0].messages);
-      } else {
-        setCurrentChatId(null);
+    try {
+      const authToken = cookieUtils.get("auth_token");
+      if (!authToken) return;
+
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}`,
+        {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${authToken}` },
+        }
+      );
+
+      if (!response.ok) throw new Error("Failed to delete thread");
+
+      setThreads((prev) => prev.filter((t) => t.id !== threadId));
+
+      if (currentThreadId === threadId) {
+        setCurrentThreadId(null);
         setMessages([]);
       }
-    }
-
-    if (updatedChats.length === 0) {
-      localStorage.removeItem("hypercli_chats");
+    } catch (error) {
+      console.error("Failed to delete thread:", error);
     }
   };
 
@@ -352,53 +378,71 @@ function ChatPageContent() {
       setPendingMessage("");
     }
 
-    // Create chat if needed
-    let chatId = currentChatId;
-    if (!chatId) {
-      chatId = crypto.randomUUID();
-      const newChat: Chat = {
-        id: chatId,
-        title: userMessage.substring(0, 30),
-        messages: [],
-        timestamp: Date.now(),
-      };
-      setChats((prev) => [newChat, ...prev]);
-      setCurrentChatId(chatId);
-    }
+    const authToken = cookieUtils.get("auth_token");
+    if (!authToken) return;
 
-    // Add user message
-    const updatedMessages: Message[] = [...messages, { role: "user", content: userMessage }];
-    setMessages(updatedMessages);
     setIsStreaming(true);
 
-    // Add empty assistant message
-    setMessages((prev) => [...prev, { role: "assistant", content: "" }]);
+    // Add optimistic user message (will be replaced with real one from API)
+    const tempUserMsg: Message = {
+      id: "temp-user",
+      thread_id: currentThreadId || "",
+      role: "user",
+      content: userMessage,
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempUserMsg]);
+
+    // Add empty assistant message for streaming
+    const tempAssistantMsg: Message = {
+      id: "temp-assistant",
+      thread_id: currentThreadId || "",
+      role: "assistant",
+      content: "",
+      created_at: new Date().toISOString(),
+    };
+    setMessages((prev) => [...prev, tempAssistantMsg]);
 
     try {
-      const authToken = document.cookie
-        .split("; ")
-        .find((row) => row.startsWith("auth_token="))
-        ?.split("=")[1];
+      // Create thread if needed
+      let threadId = currentThreadId;
+      if (!threadId) {
+        const createRes = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/threads`, {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({ title: userMessage.substring(0, 50) }),
+        });
 
-      if (!authToken) throw new Error("No auth token");
+        if (!createRes.ok) throw new Error("Failed to create thread");
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_LLM_API_URL}/chat/completions`, {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          Authorization: `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({
-          model: selectedModel,
-          messages: updatedMessages,
-          temperature: 0.7,
-          stream: true,
-        }),
-      });
+        const newThread: Thread = await createRes.json();
+        threadId = newThread.id;
+        setCurrentThreadId(threadId);
+        setThreads((prev) => [newThread, ...prev]);
+      }
+
+      // Stream message via bot API
+      const response = await fetch(
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}/messages/stream`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            content: userMessage,
+            model: selectedModel,
+          }),
+        }
+      );
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.message || `Error ${response.status}`);
+        throw new Error(errorData.detail || `Error ${response.status}`);
       }
 
       const reader = response.body?.getReader();
@@ -413,59 +457,55 @@ function ChatPageContent() {
         if (done) break;
 
         buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n");
+        const lines = buffer.split("\n\n");
         buffer = lines.pop() || "";
 
-        for (const line of lines) {
-          if (line.trim() === "" || !line.startsWith("data: ")) continue;
+        for (const chunk of lines) {
+          if (!chunk.trim()) continue;
 
-          const data = line.slice(6);
-          if (data === "[DONE]") break;
+          // Parse SSE format
+          const eventMatch = chunk.match(/^event:\s*(.+)$/m);
+          const dataMatch = chunk.match(/^data:\s*(.*)$/m);
 
-          try {
-            const parsed = JSON.parse(data);
-            const content = parsed.choices?.[0]?.delta?.content;
-            if (content) {
-              fullResponse += content;
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1] = {
-                  role: "assistant",
-                  content: fullResponse,
-                };
-                return newMessages;
-              });
-            }
-          } catch {
-            // Skip invalid JSON
+          if (eventMatch?.[1] === "done") {
+            // Stream complete, refresh messages from server
+            break;
+          }
+
+          if (dataMatch) {
+            const content = dataMatch[1];
+            fullResponse += content;
+            setMessages((prev) => {
+              const newMessages = [...prev];
+              newMessages[newMessages.length - 1] = {
+                ...newMessages[newMessages.length - 1],
+                content: fullResponse,
+              };
+              return newMessages;
+            });
           }
         }
       }
 
-      // Update chat in state
-      const finalMessages: Message[] = [
-        ...updatedMessages,
-        { role: "assistant", content: fullResponse },
-      ];
-
-      setChats((prev) =>
-        prev.map((chat) =>
-          chat.id === chatId
-            ? {
-                ...chat,
-                messages: finalMessages,
-                title: chat.title === "New Chat" ? userMessage.substring(0, 30) : chat.title,
-              }
-            : chat
-        )
+      // Refresh messages from server to get real IDs
+      const messagesRes = await fetch(
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}/messages`,
+        { headers: { Authorization: `Bearer ${authToken}` } }
       );
+      if (messagesRes.ok) {
+        const serverMessages = await messagesRes.json();
+        setMessages(serverMessages);
+      }
+
+      // Refresh threads to update titles
+      fetchThreads();
     } catch (error) {
       console.error("Chat error:", error);
       const errorMessage = error instanceof Error ? error.message : "Failed to send message";
       setMessages((prev) => {
         const newMessages = [...prev];
         newMessages[newMessages.length - 1] = {
-          role: "assistant",
+          ...newMessages[newMessages.length - 1],
           content: `Error: ${errorMessage}`,
         };
         return newMessages;
@@ -479,9 +519,8 @@ function ChatPageContent() {
   const handleLogout = async () => {
     // Clear auth cookie
     cookieUtils.remove("auth_token");
-    // Clear login type and chat storage
+    // Clear login type
     localStorage.removeItem("hypercli_login_type");
-    localStorage.removeItem("hypercli_chats");
     // Call Turnkey logout
     if (logout) {
       await logout();
@@ -516,16 +555,17 @@ function ChatPageContent() {
         } transition-all duration-300 flex-shrink-0 overflow-hidden`}
       >
         <ChatSidebar
-          chats={chats}
-          currentChatId={currentChatId}
+          threads={threads}
+          currentThreadId={currentThreadId}
+          loadingThreads={loadingThreads}
           models={models}
           selectedModel={selectedModel}
           loadingModels={loadingModels}
           balance={balance}
           theme={theme}
-          onSelectChat={selectChat}
-          onDeleteChat={deleteChat}
-          onNewChat={startNewChat}
+          onSelectThread={selectThread}
+          onDeleteThread={deleteThread}
+          onNewThread={startNewThread}
           onSelectModel={handleModelChange}
           onToggleTheme={toggleTheme}
           onTopUp={() => setShowTopUpModal(true)}
