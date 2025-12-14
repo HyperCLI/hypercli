@@ -6,7 +6,7 @@
   package = "@netlify/plugin-nextjs"
 
 [build.environment]
-  NODE_VERSION = "20"
+  NODE_VERSION = "22"
 
   # Disable debug in production
   NEXT_PUBLIC_AUTH_DEBUG = "false"
@@ -56,12 +56,3 @@
 
   # Payment Configuration - LIVE
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_51SSWmjQcZcim9HgToGFTGl2i2ujksoZxVxl6Hnsy9Py2cxo9IWZY0852aiFcKEe2rrcozuYkf1UUhDKJuoyRCeS600gouzMj9F"
-
-# Security headers
-[[headers]]
-  for = "/*"
-  [headers.values]
-    X-Frame-Options = "DENY"
-    X-Content-Type-Options = "nosniff"
-    Referrer-Policy = "strict-origin-when-cross-origin"
-    Permissions-Policy = "camera=(), microphone=(), geolocation=()"
