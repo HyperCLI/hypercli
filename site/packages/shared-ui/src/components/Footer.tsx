@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { NAV_URLS } from "../utils/navigation";
 
 export default function Footer() {
   return (
@@ -43,9 +44,9 @@ export default function Footer() {
               <h3 className="text-white mb-4">Product</h3>
               <ul className="space-y-3">
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
-                    Deployments
-                  </Link>
+                    <Link href={NAV_URLS.home} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                      Deployments
+                    </Link>
                 </li>
                 <li>
                   <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
@@ -53,7 +54,7 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                  <Link href={NAV_URLS.docs} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     API Reference
                   </Link>
                 </li>
@@ -69,7 +70,7 @@ export default function Footer() {
               <h3 className="text-white mb-4">Company</h3>
               <ul className="space-y-3">
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                  <Link href={NAV_URLS.home} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     About
                   </Link>
                 </li>
@@ -84,7 +85,7 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                  <Link href={NAV_URLS.home} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     Contact
                   </Link>
                 </li>
@@ -95,7 +96,7 @@ export default function Footer() {
               <h3 className="text-white mb-4">Resources</h3>
               <ul className="space-y-3">
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                  <Link href={NAV_URLS.docs} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     Documentation
                   </Link>
                 </li>
@@ -121,12 +122,12 @@ export default function Footer() {
               <h3 className="text-white mb-4">Legal</h3>
               <ul className="space-y-3">
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                  <Link href={NAV_URLS.home} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     Privacy
                   </Link>
                 </li>
                 <li>
-                  <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                  <Link href={NAV_URLS.home} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     Terms
                   </Link>
                 </li>
@@ -145,9 +146,12 @@ export default function Footer() {
             <Link href="#" className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
               Privacy Policy
             </Link>
-            <Link href="#" className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
-              Terms of Service
-            </Link>
+              <Link href={NAV_URLS.enterprise} className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
+                Enterprise
+              </Link>
+              <Link href="#" className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
+                Terms of Service
+              </Link>
           </div>
         </div>
       </div>
