@@ -25,6 +25,7 @@ export const NAV_URLS = {
   playground: IS_MAIN_SITE ? '/playground' : `${MAIN_SITE_URL}/playground`,
   docs: 'https://docs.hypercli.com',
   partner: IS_MAIN_SITE ? '/partner' : `${MAIN_SITE_URL}/partner`,
+  enterprise: IS_MAIN_SITE ? '/enterprise' : `${MAIN_SITE_URL}/enterprise`,
 
 
   // Console pages

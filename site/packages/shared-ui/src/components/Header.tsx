@@ -8,6 +8,15 @@ import { WalletAuth } from "./WalletAuth";
 import { useAuth } from "../providers/AuthProvider";
 import { cookieUtils } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
+import { useRef } from "react";
+import {
+  NavigationMenu,
+  NavigationMenuList,
+  NavigationMenuItem,
+  NavigationMenuTrigger,
+  NavigationMenuContent,
+  NavigationMenuLink,
+} from "./ui/navigation-menu";
 
 export default function Header() {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -50,6 +59,8 @@ export default function Header() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  const productRef = useRef<HTMLDivElement | null>(null);
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-[#0B0D0E]/80 backdrop-blur-lg border-b border-[#2A2D2F] ${
@@ -74,23 +85,32 @@ export default function Header() {
             <a href={NAV_URLS.chat} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
               Chat
             </a>
-            <a href={NAV_URLS.console} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              Console
-            </a>
-            <a href={NAV_URLS.gpus} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              GPUs
-            </a>
-            <a href={NAV_URLS.models} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              Models
-            </a>
-            <a href={NAV_URLS.playground} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              Playground
-            </a>
-            <a href={NAV_URLS.launch} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              Launch
-            </a>
+
+            {/* Product dropdown grouping console/playground/models/gpus/launch (Radix) */}
+            <NavigationMenu data-slot="header-product" viewport={false} className="!flex-none">
+              <NavigationMenuList>
+                <NavigationMenuItem>
+                  <NavigationMenuTrigger className="text-sm text-[#D4D6D7] hover:text-white transition-colors">Product</NavigationMenuTrigger>
+                  <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
+                    <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg p-2 shadow-lg w-56">
+                      <nav className="flex flex-col">
+                        <NavigationMenuLink href={NAV_URLS.console} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Console</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.playground} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Playground</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.models} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Models</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.gpus} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">GPUs</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.launch} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Launch</NavigationMenuLink>
+                      </nav>
+                    </div>
+                  </NavigationMenuContent>
+                </NavigationMenuItem>
+              </NavigationMenuList>
+            </NavigationMenu>
+
             <a href={NAV_URLS.partner} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
               Partners
+            </a>
+            <a href={NAV_URLS.enterprise} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+              Enterprise
             </a>
 
             <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
@@ -191,6 +211,13 @@ export default function Header() {
             onClick={() => setMobileMenuOpen(false)}
           >
             Docs
+          </a>
+          <a
+            href={NAV_URLS.enterprise}
+            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Enterprise
           </a>
           <button
             onClick={openContactModal}
