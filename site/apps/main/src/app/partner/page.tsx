@@ -1,12 +1,27 @@
 "use client";
 
+import { useState } from "react";
 import { ArrowRight } from "lucide-react";
 import { motion } from "framer-motion";
-import { Header } from "@hypercli/shared-ui";
+import { Header, PartnerFormModal } from "@hypercli/shared-ui";
 
 export default function PartnerPage() {
+  const [isModalOpen, setIsModalOpen] = useState(false);
+
   return (
     <div className="bg-[#0B0D0E] min-h-screen overflow-x-hidden">
+      {/* Hidden form for Netlify to detect at build time */}
+      <form name="partner-inquiry" data-netlify="true" netlify-honeypot="bot-field" hidden>
+        <input type="hidden" name="form-name" value="partner-inquiry" />
+        <input name="bot-field" />
+        <input name="name" />
+        <input name="email" />
+        <input name="company" />
+        <input name="role" />
+        <input name="companySize" />
+        <textarea name="message" />
+      </form>
+
       <Header />
       <main className="pt-16">
         {/* Hero Section */}
@@ -26,7 +41,10 @@ export default function PartnerPage() {
               infrastructure. No engineering. Just profit.
             </p>
 
-            <button className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2">
+            <button
+              onClick={() => setIsModalOpen(true)}
+              className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
+            >
               Become a Partner
               <ArrowRight className="w-5 h-5" />
             </button>
@@ -363,6 +381,7 @@ export default function PartnerPage() {
             </h2>
 
             <motion.button
+              onClick={() => setIsModalOpen(true)}
               className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
               initial={{ opacity: 0, scale: 0.95 }}
               whileInView={{ opacity: 1, scale: 1 }}
@@ -377,6 +396,8 @@ export default function PartnerPage() {
           </motion.div>
         </div>
       </section>
+
+      <PartnerFormModal isOpen={isModalOpen} onClose={() => setIsModalOpen(false)} />
     </div>
   );
-};
+}

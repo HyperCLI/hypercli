@@ -265,6 +265,7 @@ export { EnterpriseTeaserSection } from './components/sections/enterprise-teaser
 export { default as Header } from './components/Header';
 export { default as Footer } from './components/Footer';
 export { default as ContactModal } from './components/ContactModal';
+export { default as PartnerFormModal } from './components/PartnerFormModal';
 export { default as Modal } from './components/Modal';
 export { default as AlertDialog } from './components/AlertDialog';
 export { default as Auth } from './components/Auth';
