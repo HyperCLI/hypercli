@@ -32,7 +32,7 @@ export function PlaygroundCTASection() {
           className="text-center"
           style={{ y: chapterY, opacity: chapterOpacity, scale: chapterScale }}
         >
-          <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-[#0B0D0E] leading-[0.9] tracking-[-0.05em] font-bold">
+          <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] !text-[#0B0D0E] leading-[0.9] tracking-[-0.05em] font-bold">
             Playground
           </h2>
         </motion.div>
