@@ -26,6 +26,8 @@ export const NAV_URLS = {
   docs: 'https://docs.hypercli.com',
   partner: IS_MAIN_SITE ? '/partner' : `${MAIN_SITE_URL}/partner`,
   enterprise: IS_MAIN_SITE ? '/enterprise' : `${MAIN_SITE_URL}/enterprise`,
+  // Architecture & Security page
+  architecture: IS_MAIN_SITE ? '/architecture' : `${MAIN_SITE_URL}/architecture`,
 
 
   // Console pages
