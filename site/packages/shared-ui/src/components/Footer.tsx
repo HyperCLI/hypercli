@@ -85,6 +85,11 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
+                  <Link href={NAV_URLS.architecture} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                    Architecture and Security
+                  </Link>
+                </li>
+                <li>
                   <Link href={NAV_URLS.home} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     Contact
                   </Link>
