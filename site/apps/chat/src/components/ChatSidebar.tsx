@@ -126,11 +126,19 @@ export function ChatSidebar({
             <div className="px-2 py-1.5 text-sm text-muted-foreground">No conversations yet</div>
           ) : (
             threads.map((thread) => (
-              <button
+              <div
                 key={thread.id}
+                role="button"
+                tabIndex={0}
                 onClick={() => onSelectThread(thread.id)}
+                onKeyDown={(e) => {
+                  if (e.key === "Enter" || e.key === " ") {
+                    e.preventDefault();
+                    onSelectThread(thread.id);
+                  }
+                }}
                 className={cn(
-                  "group w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors",
+                  "group w-full flex items-center gap-2 px-2 py-1.5 rounded-md text-sm transition-colors cursor-pointer",
                   currentThreadId === thread.id
                     ? "bg-primary/10 text-primary"
                     : "text-muted-foreground hover:text-foreground hover:bg-surface-high"
@@ -144,7 +152,7 @@ export function ChatSidebar({
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
-              </button>
+              </div>
             ))
           )}
         </div>

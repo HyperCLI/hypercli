@@ -8,11 +8,9 @@ import { ChatSidebar, ChatWindow, ChatInput, ChatHeader } from "../components";
 
 // Bot API types
 interface Message {
-  id: string;
-  thread_id: string;
+  id: number | string; // API returns number, temp messages use string
   role: "user" | "assistant";
   content: string;
-  model?: string;
   created_at: string;
 }
 
@@ -117,7 +115,7 @@ function ChatPageContent() {
       if (!response.ok) throw new Error("Failed to fetch threads");
 
       const data = await response.json();
-      setThreads(data);
+      setThreads(data.threads || []);
     } catch (error) {
       console.error("Failed to fetch threads:", error);
     } finally {
@@ -336,7 +334,7 @@ function ChatPageContent() {
       if (!response.ok) throw new Error("Failed to fetch messages");
 
       const data = await response.json();
-      setMessages(data);
+      setMessages(data.messages || []);
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     }
@@ -386,7 +384,6 @@ function ChatPageContent() {
     // Add optimistic user message (will be replaced with real one from API)
     const tempUserMsg: Message = {
       id: "temp-user",
-      thread_id: currentThreadId || "",
       role: "user",
       content: userMessage,
       created_at: new Date().toISOString(),
@@ -396,7 +393,6 @@ function ChatPageContent() {
     // Add empty assistant message for streaming
     const tempAssistantMsg: Message = {
       id: "temp-assistant",
-      thread_id: currentThreadId || "",
       role: "assistant",
       content: "",
       created_at: new Date().toISOString(),
@@ -494,7 +490,7 @@ function ChatPageContent() {
       );
       if (messagesRes.ok) {
         const serverMessages = await messagesRes.json();
-        setMessages(serverMessages);
+        setMessages(serverMessages.messages || []);
       }
 
       // Refresh threads to update titles

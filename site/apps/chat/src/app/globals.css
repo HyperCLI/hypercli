@@ -323,3 +323,24 @@ code {
   border-radius: 0.25rem;
   font-size: 0.875em;
 }
+
+/* Markdown content - override prose image styling */
+.markdown-content.prose img {
+  display: inline !important;
+  height: 1.2em !important;
+  width: auto !important;
+  max-width: none !important;
+  vertical-align: text-bottom;
+  margin: 0 !important;
+}
+
+/* Allow explicit large images (with explicit dimensions or from URLs) */
+.markdown-content.prose img[width],
+.markdown-content.prose img[height],
+.markdown-content.prose img[src^="http"],
+.markdown-content.prose img[src^="https"] {
+  display: block !important;
+  height: auto !important;
+  max-width: 100% !important;
+  margin: 1rem 0 !important;
+}
