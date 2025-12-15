@@ -15,6 +15,7 @@ import {
   useScroll,
   useTransform,
   useInView,
+  useSpring,
 } from "framer-motion";
 import { useRef } from "react";
 
@@ -41,9 +42,15 @@ export function WhatIsHyperCLISection() {
     margin: "-50px",
   });
 
-  const { scrollYProgress } = useScroll({
+  const { scrollYProgress: rawScrollYProgress } = useScroll({
     target: sectionRef,
     offset: ["start end", "end start"],
+  });
+
+  const scrollYProgress = useSpring(rawScrollYProgress, {
+    stiffness: 90,
+    damping: 24,
+    mass: 0.35,
   });
 
   const chapterY = useTransform(
@@ -54,7 +61,7 @@ export function WhatIsHyperCLISection() {
   const chapterOpacity = useTransform(
     scrollYProgress,
     [0, 0.15, 0.6, 0.85],
-    [0, 1, 1, 0],
+    [0.12, 1, 1, 0.12],
   );
   const chapterScale = useTransform(
     scrollYProgress,

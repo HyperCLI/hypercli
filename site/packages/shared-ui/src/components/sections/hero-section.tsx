@@ -1,15 +1,21 @@
 "use client";
 
 import { Send } from 'lucide-react';
-import { motion, useScroll, useTransform } from 'framer-motion';
+import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
 import { useState, useEffect, useRef } from 'react';
 import { NAV_URLS } from '../../utils/navigation';
 
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null);
-  const { scrollYProgress } = useScroll({
+  const { scrollYProgress: rawScrollYProgress } = useScroll({
     target: sectionRef,
     offset: ["start start", "end start"]
+  });
+
+  const scrollYProgress = useSpring(rawScrollYProgress, {
+    stiffness: 90,
+    damping: 24,
+    mass: 0.35,
   });
 
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);

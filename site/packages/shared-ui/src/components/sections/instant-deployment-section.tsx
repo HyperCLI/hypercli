@@ -1,7 +1,7 @@
 "use client";
 
 import { Zap, Rocket, Globe, Radio, Server } from 'lucide-react';
-import { motion, useScroll, useTransform, useInView } from 'framer-motion';
+import { motion, useScroll, useTransform, useInView, useSpring } from 'framer-motion';
 import { useRef } from 'react';
 
 export function InstantDeploymentSection() {
@@ -9,14 +9,20 @@ export function InstantDeploymentSection() {
   const contentRef = useRef<HTMLDivElement>(null);
   const isInView = useInView(contentRef, { once: true, margin: "-100px" });
   
-  const { scrollYProgress } = useScroll({
+  const { scrollYProgress: rawScrollYProgress } = useScroll({
     target: sectionRef,
     offset: ["start end", "end start"]
   });
 
+  const scrollYProgress = useSpring(rawScrollYProgress, {
+    stiffness: 90,
+    damping: 24,
+    mass: 0.35,
+  });
+
   const chapterY = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [30, 0, 0, -30]);
-  const chapterOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 0.85], [0, 1, 1, 0]);
-  const contentY = useTransform(scrollYProgress, [0.3, 0.5], [20, 0]);
+  const chapterOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 0.85], [0.1, 1, 1, 0.1]);
+  const contentY = useTransform(scrollYProgress, [0.25, 0.55], [24, 0]);
 
   const items = [
     { icon: Zap, title: 'Deploy LLMs, diffusion, audio, TTS/STT', description: 'Any model architecture, any framework' },

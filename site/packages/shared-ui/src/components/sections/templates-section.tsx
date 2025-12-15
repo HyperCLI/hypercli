@@ -1,7 +1,7 @@
 "use client";
 
 import { Database, MessageSquare, Image, Code, Video, Users, FileCode, Network, Layers, ArrowRight } from 'lucide-react';
-import { motion, useScroll, useTransform, useInView } from 'framer-motion';
+import { motion, useScroll, useTransform, useInView, useSpring } from 'framer-motion';
 import { useRef } from 'react';
 
 export function TemplatesSection() {
@@ -57,14 +57,20 @@ export function TemplatesSection() {
   const contentRef = useRef<HTMLDivElement>(null);
   const isInView = useInView(contentRef, { once: true, margin: "-100px" });
   
-  const { scrollYProgress } = useScroll({
+  const { scrollYProgress: rawScrollYProgress } = useScroll({
     target: sectionRef,
     offset: ["start end", "end start"]
   });
 
+  const scrollYProgress = useSpring(rawScrollYProgress, {
+    stiffness: 90,
+    damping: 24,
+    mass: 0.35,
+  });
+
   const chapterY = useTransform(scrollYProgress, [0, 0.2, 0.8, 1], [30, 0, 0, -30]);
-  const chapterOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 0.85], [0, 1, 1, 0]);
-  const chapterScale = useTransform(scrollYProgress, [0, 0.2], [0.98, 1]);
+  const chapterOpacity = useTransform(scrollYProgress, [0, 0.15, 0.6, 0.85], [0.12, 1, 1, 0.12]);
+  const chapterScale = useTransform(scrollYProgress, [0, 0.2], [0.99, 1]);
 
   return (
     <>
