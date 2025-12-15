@@ -91,7 +91,7 @@ export default function Header() {
             <NavigationMenu data-slot="header-product" viewport={false} className="!flex-none">
               <NavigationMenuList>
                 <NavigationMenuItem>
-                    <NavigationMenuTrigger className="text-sm !text-[#D6D6D7] hover:text-white transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-[#38D39F]/30 data-[state=open]:!text-[#D6D6D7] data-[state=open]:!bg-transparent data-[state=open]:hover:!text-[#D6D6D7]">Product</NavigationMenuTrigger>
+                    <NavigationMenuTrigger className="text-sm !text-[#D6D6D7] hover:text-white transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-[#38D39F]/30 data-[state=open]:!text-[#D6D6D7] data-[state=open]:!bg-transparent data-[state=open]:hover:!text-[#D6D6D7]">Platform</NavigationMenuTrigger>
                   <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
                     <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg p-2 shadow-lg w-56">
                       <nav className="flex flex-col">
