@@ -1055,8 +1055,8 @@ export default function LaunchPage() {
             </div>
 
             {/* Right Column: Summary & Launch */}
-            <div className="lg:col-span-1">
-              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg sticky top-24">
+            <div className="lg:col-span-1 lg:self-start">
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg lg:sticky lg:top-24">
                 <h2 className="text-lg font-bold text-white mb-4">Summary</h2>
 
                 <div className="space-y-3 mb-6">
