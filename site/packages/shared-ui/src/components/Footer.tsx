@@ -39,7 +39,7 @@ export default function Footer() {
               </Link>
             </div>
           </div>
-          <div className="mt-12 grid grid-cols-2 gap-8 md:grid-cols-4 xl:mt-0 xl:col-span-3">
+          <div className="mt-12 grid grid-cols-2 gap-8 md:grid-cols-3 lg:grid-cols-5 xl:mt-0 xl:col-span-3">
             <div>
               <h3 className="text-white mb-4">Product</h3>
               <ul className="space-y-3">
@@ -118,6 +118,27 @@ export default function Footer() {
                 <li>
                   <Link href="#" className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
                     Status
+                  </Link>
+                </li>
+              </ul>
+            </div>
+
+            <div>
+              <h3 className="text-white mb-4">Solutions</h3>
+              <ul className="space-y-3">
+                <li>
+                  <Link href={NAV_URLS.enterprise} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                    Enterprise
+                  </Link>
+                </li>
+                <li>
+                  <Link href={NAV_URLS.dataCenter} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                    Data Center
+                  </Link>
+                </li>
+                <li>
+                  <Link href={NAV_URLS.partner} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                    Partners
                   </Link>
                 </li>
               </ul>
