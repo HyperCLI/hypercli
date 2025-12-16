@@ -3,6 +3,7 @@
 import { Check, ArrowRight } from 'lucide-react';
 import { motion, useScroll, useTransform, useInView, useSpring } from 'framer-motion';
 import { useRef } from 'react';
+import Link from 'next/link';
 
 export function PricingSection() {
   const features = [
@@ -122,17 +123,19 @@ export function PricingSection() {
               animate={isInView ? { opacity: 1, scale: 1 } : { opacity: 0, scale: 0.9 }}
               transition={{ duration: 0.6, delay: 0.8, ease: [0.22, 1, 0.36, 1] }}
             >
-              <motion.button 
-                className="group px-10 py-5 bg-[#38D39F] text-[#0B0D0E] rounded-xl hover:bg-[#45E4AE] transition-all duration-300 flex items-center gap-3 text-lg font-medium shadow-[0_0_30px_rgba(56,211,159,0.25)]"
-                whileHover={{ 
-                  scale: 1.05,
-                  boxShadow: '0 0 50px rgba(56,211,159,0.35)'
-                }}
-                whileTap={{ scale: 0.98 }}
-              >
-                See Pricing
-                <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
-              </motion.button>
+              <Link href="/gpus">
+                <motion.button 
+                  className="group px-10 py-5 bg-[#38D39F] text-[#0B0D0E] rounded-xl hover:bg-[#45E4AE] transition-all duration-300 flex items-center gap-3 text-lg font-medium shadow-[0_0_30px_rgba(56,211,159,0.25)]"
+                  whileHover={{ 
+                    scale: 1.05,
+                    boxShadow: '0 0 50px rgba(56,211,159,0.35)'
+                  }}
+                  whileTap={{ scale: 0.98 }}
+                >
+                  See Pricing
+                  <ArrowRight className="w-6 h-6 group-hover:translate-x-1 transition-transform" />
+                </motion.button>
+              </Link>
             </motion.div>
           </div>
         </div>
