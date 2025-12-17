@@ -49,6 +49,9 @@ export default function JobsPage() {
   const { isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
+  const [totalJobsCount, setTotalJobsCount] = useState(0);
+  const [currentPage, setCurrentPage] = useState(1);
+  const [pageSize] = useState(20);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [stateFilter, setStateFilter] = useState<string>("all");
@@ -81,7 +84,7 @@ export default function JobsPage() {
     if (isAuthenticated) {
       fetchJobs();
     }
-  }, [isAuthenticated, stateFilter]);
+  }, [isAuthenticated, stateFilter, currentPage]);
 
   // Auto-refresh jobs every 30 seconds (silent refresh)
   useEffect(() => {
@@ -113,9 +116,10 @@ export default function JobsPage() {
         return;
       }
 
-      const url = stateFilter === "all"
-        ? `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs`
-        : `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs?state=${stateFilter}`;
+      let url = `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs?page=${currentPage}&page_size=${pageSize}`;
+      if (stateFilter !== "all") {
+        url += `&state=${stateFilter}`;
+      }
 
       const response = await fetch(url, {
         method: 'GET',
@@ -127,7 +131,9 @@ export default function JobsPage() {
 
       if (response.ok) {
         const jobsData = await response.json();
-        setJobs(jobsData);
+        // Handle both array (legacy) and paginated response
+        setJobs(Array.isArray(jobsData) ? jobsData : jobsData.jobs || []);
+        setTotalJobsCount(Array.isArray(jobsData) ? jobsData.length : jobsData.total_count || 0);
 
         // Fetch transactions for all jobs
         const txResponse = await fetch(
@@ -407,7 +413,10 @@ export default function JobsPage() {
             {['all', 'queued', 'running', 'succeeded', 'terminated', 'failed'].map((state) => (
               <button
                 key={state}
-                onClick={() => setStateFilter(state)}
+                onClick={() => {
+                  setStateFilter(state);
+                  setCurrentPage(1);
+                }}
                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
                   stateFilter === state
                     ? 'bg-[#38D39F] text-[#0B0D0E]'
@@ -742,6 +751,33 @@ export default function JobsPage() {
                   ))}
                 </tbody>
               </table>
+
+              {/* Pagination */}
+              <div className="bg-[#161819] px-6 py-3 flex items-center justify-between border-t border-[#2A2D2F]">
+                <div className="text-sm text-[#9BA0A2]">
+                  <span className="font-medium text-white">{(currentPage - 1) * pageSize + 1}</span>
+                  {' - '}
+                  <span className="font-medium text-white">{Math.min(currentPage * pageSize, totalJobsCount)}</span>
+                  {' of '}
+                  <span className="font-medium text-white">{totalJobsCount}</span>
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
+                    disabled={currentPage === 1}
+                    className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#1D1F21] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Previous
+                  </button>
+                  <button
+                    onClick={() => setCurrentPage(p => p + 1)}
+                    disabled={currentPage * pageSize >= totalJobsCount}
+                    className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#1D1F21] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                  >
+                    Next
+                  </button>
+                </div>
+              </div>
             </div>
           )}
         </div>
