@@ -47,13 +47,13 @@ export default function AlertDialog({
   const getIconColor = () => {
     switch (type) {
       case "error":
-        return "text-destructive";
+        return "text-[#d05f5f]";
       case "warning":
-        return "text-warning";
+        return "text-[#e0a85f]";
       case "success":
-        return "text-success";
+        return "text-[#3ad8a0]";
       default:
-        return "text-primary";
+        return "text-[#38d39f]";
     }
   };
 
@@ -89,13 +89,13 @@ export default function AlertDialog({
   const getButtonColor = () => {
     switch (type) {
       case "error":
-        return "bg-destructive hover:bg-destructive/90";
+        return "bg-[#d05f5f] hover:bg-[#c04f4f] text-white";
       case "warning":
-        return "bg-warning hover:bg-warning/90 text-background";
+        return "bg-[#e0a85f] hover:bg-[#d09850] text-[#0b0d0e]";
       case "success":
-        return "bg-success hover:bg-success/90 text-background";
+        return "bg-[#3ad8a0] hover:bg-[#2dc890] text-[#0b0d0e]";
       default:
-        return "bg-primary hover:bg-primary-hover text-primary-foreground";
+        return "bg-[#38d39f] hover:bg-[#45e4ae] text-[#0b0d0e]";
     }
   };
 
@@ -114,7 +114,7 @@ export default function AlertDialog({
             <button
               onClick={onClose}
               disabled={isLoading}
-              className="px-4 py-2 text-sm font-medium text-foreground bg-surface-low border border-border rounded-lg hover:bg-surface-high disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+              className="px-4 py-2 text-sm font-medium text-white bg-[#1d1f21] border border-[#2a2d2f] rounded-lg hover:bg-[#2a2d2f] disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
             >
               {cancelText}
             </button>

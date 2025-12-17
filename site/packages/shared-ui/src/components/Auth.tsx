@@ -5,11 +5,11 @@ import { Suspense, useEffect, useState } from "react"
 import { useTurnkey } from "@turnkey/react-wallet-kit"
 import { cookieUtils } from "../utils/cookies"
 
-// Common loading component - using design system colors
+// Common loading component - using brand colors
 const LoadingCard = ({ message }: { message: string }) => (
   <div className="w-full max-w-md mx-auto">
     <div className="bg-card border border-border rounded-2xl p-8 text-center shadow-lg">
-      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-primary mx-auto mb-4"></div>
+      <div className="animate-spin rounded-full h-8 w-8 border-b-2 border-[#38d39f] mx-auto mb-4"></div>
       <p className="text-foreground">{message}</p>
     </div>
   </div>
