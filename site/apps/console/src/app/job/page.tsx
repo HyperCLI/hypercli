@@ -640,7 +640,7 @@ export default function LaunchPage() {
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <h1 className="text-4xl font-bold text-white mb-8">Launch GPU</h1>
 
-          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8">
+          <div className="grid grid-cols-1 lg:grid-cols-3 gap-8 lg:items-start">
             {/* Left Column: GPU Selection */}
             <div className="lg:col-span-2 space-y-6">
               {/* Step 1: Single vs Multi-GPU */}
@@ -1055,8 +1055,8 @@ export default function LaunchPage() {
             </div>
 
             {/* Right Column: Summary & Launch */}
-            <div className="lg:col-span-1">
-              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg lg:sticky lg:top-24 lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
+            <div className="lg:col-span-1 lg:sticky lg:top-24">
+              <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg lg:max-h-[calc(100vh-6rem)] lg:overflow-y-auto">
                 <h2 className="text-lg font-bold text-white mb-4">Summary</h2>
 
                 <div className="space-y-3 mb-6">
