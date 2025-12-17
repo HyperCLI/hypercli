@@ -288,6 +288,43 @@ export default function JobsPage() {
     return Math.max(0, Math.floor(completedTime - startedTime));
   };
 
+  // Calculate cost from job data when transaction data is not available
+  const getJobCost = (job: Job): { amount: number; isEstimate: boolean; isPending: boolean } => {
+    const parseTimestamp = (ts: string | number | null): number | null => {
+      if (!ts) return null;
+      return typeof ts === 'number' ? ts : new Date(ts).getTime() / 1000;
+    };
+
+    const startedAt = parseTimestamp(job.started_at);
+    const completedAt = parseTimestamp(job.completed_at);
+
+    // For queued/pending jobs, show reserved amount
+    if (job.state === 'queued' || job.state === 'assigned' || job.state === 'pending') {
+      return { amount: job.runtime * job.price_per_second, isEstimate: false, isPending: true };
+    }
+
+    // For running jobs, calculate current cost
+    if (job.state === 'running' && startedAt) {
+      const now = Date.now() / 1000;
+      const duration = now - startedAt;
+      return { amount: duration * job.price_per_second, isEstimate: true, isPending: false };
+    }
+
+    // For completed/terminated/failed jobs with timestamps
+    if (startedAt && completedAt) {
+      const duration = completedAt - startedAt;
+      return { amount: duration * job.price_per_second, isEstimate: false, isPending: false };
+    }
+
+    // For failed jobs that never started
+    if (job.state === 'failed' && !startedAt) {
+      return { amount: 0, isEstimate: false, isPending: false };
+    }
+
+    // Fallback: use runtime as estimate
+    return { amount: job.runtime * job.price_per_second, isEstimate: true, isPending: false };
+  };
+
   const handleJobExpand = async (jobId: string) => {
     if (expandedJobId === jobId) {
       setExpandedJobId(null);
@@ -580,15 +617,27 @@ export default function JobsPage() {
                         {jobTransactions[job.job_id] ? (
                           <span className={
                             jobTransactions[job.job_id].status.toLowerCase() === 'pending'
-                              ? 'text-[#9BA0A2] italic'
+                              ? 'text-[#D4D6D7] italic'
                               : job.state === 'failed' || job.state === 'canceled'
-                              ? 'line-through text-[#6E7375]'
+                              ? 'line-through text-[#9BA0A2]'
                               : 'text-white'
                           }>
                             <AmountDisplay amountUsd={jobTransactions[job.job_id].amount_usd} />
                           </span>
                         ) : (
-                          <span className="text-[#6E7375]">-</span>
+                          (() => {
+                            // Calculate cost from job data when transaction not available
+                            const { amount, isEstimate, isPending } = getJobCost(job);
+                            return (
+                              <span className={
+                                isPending ? 'text-[#D4D6D7] italic' :
+                                job.state === 'failed' || job.state === 'canceled' ? 'line-through text-[#9BA0A2]' :
+                                'text-white'
+                              }>
+                                ${amount.toFixed(2)}{isEstimate && job.state === 'running' ? '+' : ''}
+                              </span>
+                            );
+                          })()
                         )}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2] w-20">
@@ -630,9 +679,9 @@ export default function JobsPage() {
                               {expandedJobTx ? (
                                 <p className={
                                   job.state === 'queued' || job.state === 'assigned'
-                                    ? 'text-[#9BA0A2] italic'
+                                    ? 'text-[#D4D6D7] italic'
                                     : job.state === 'failed' || job.state === 'canceled'
-                                    ? 'line-through text-[#6E7375]'
+                                    ? 'line-through text-[#9BA0A2]'
                                     : 'text-white'
                                 }>
                                   <AmountDisplay amountUsd={expandedJobTx.amount_usd} />
@@ -641,7 +690,20 @@ export default function JobsPage() {
                                   )}
                                 </p>
                               ) : (
-                                <p className="text-[#6E7375] text-sm">Loading...</p>
+                                (() => {
+                                  const { amount, isEstimate, isPending } = getJobCost(job);
+                                  return (
+                                    <p className={
+                                      isPending ? 'text-[#D4D6D7] italic' :
+                                      job.state === 'failed' || job.state === 'canceled' ? 'line-through text-[#9BA0A2]' :
+                                      'text-white'
+                                    }>
+                                      ${amount.toFixed(2)}{isEstimate && job.state === 'running' ? '+' : ''}
+                                      {isPending && <span className="text-xs ml-1">(pending)</span>}
+                                      {isEstimate && job.state === 'running' && <span className="text-xs ml-1">(running)</span>}
+                                    </p>
+                                  );
+                                })()
                               )}
                             </div>
 
