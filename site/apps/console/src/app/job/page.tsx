@@ -633,7 +633,9 @@ export default function LaunchPage() {
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
+    
+    <div className="min-h-screen flex flex-col bg-[#0B0D0E]">
+      {/* Removed overflow-x hidden */}
       <Header />
 
       <main className="flex-1 pt-20 relative">
