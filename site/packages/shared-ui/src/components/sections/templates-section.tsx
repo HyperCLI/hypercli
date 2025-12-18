@@ -184,13 +184,14 @@ export function TemplatesSection() {
             animate={isInView ? { opacity: 1 } : { opacity: 0 }}
             transition={{ duration: 0.6, delay: 0.8 }}
           >
-            <motion.button 
+            <motion.a 
+              href="/playground/comfyui"
               className="text-lg text-[#38D39F] hover:text-[#45E4AE] transition-colors inline-flex items-center gap-3 group"
               whileHover={{ x: 4 }}
             >
               Browse Blueprints
               <ArrowRight className="w-5 h-5 group-hover:translate-x-1 transition-transform" />
-            </motion.button>
+            </motion.a>
           </motion.div>
         </div>
       </section>

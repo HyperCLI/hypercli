@@ -2,7 +2,7 @@
 
 import { Header, Footer } from "@hypercli/shared-ui";
 import Link from "next/link";
-import ParticleCanvas from "@/components/ParticleCanvas";
+import { motion } from "framer-motion";
 
 const playgrounds = [
   {
@@ -22,54 +22,65 @@ const playgrounds = [
 
 export default function PlaygroundIndex() {
   return (
-    <>
+    <div className="bg-[#0B0D0E] min-h-screen">
       <Header />
-      <main className="min-h-screen bg-white">
+      <main>
         {/* Hero Section */}
-        <div className="relative py-20 sm:py-28 bg-gradient-to-br from-white via-gray-50 to-[var(--gradient-start)] overflow-hidden">
-          <ParticleCanvas />
-          <div className="relative z-20 max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 text-center">
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-gray-900 mb-4">
+        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E]">
+          <motion.div 
+            className="max-w-5xl mx-auto"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl text-white mb-8 leading-[1.1] tracking-tight">
               Playground
             </h1>
-            <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-2xl text-[#9BA0A2] leading-relaxed max-w-2xl">
               Ready-to-run templates and workflows. Pick one, customize it, and run on GPU.
             </p>
-          </div>
-        </div>
+          </motion.div>
+        </section>
 
         {/* Playground tiles */}
-        <section className="py-16 bg-white">
-          <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="pt-20 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+          <div className="max-w-5xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
-              {playgrounds.map((pg) => (
-                <Link
+              {playgrounds.map((pg, index) => (
+                <motion.div
                   key={pg.id}
-                  href={pg.href}
-                  className="group block bg-white border border-gray-200 p-6 rounded-2xl shadow-sm card"
+                  initial={{ opacity: 0, y: 20 }}
+                  whileInView={{ opacity: 1, y: 0 }}
+                  viewport={{ once: true }}
+                  transition={{ duration: 0.5, delay: index * 0.1 }}
                 >
-                  <div className="flex items-center gap-3 mb-4">
-                    <div className="h-11 w-11 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center">
-                      {pg.icon}
+                  <Link
+                    href={pg.href}
+                    className="group block bg-[#161819]/40 border border-[#2A2D2F]/50 p-8 rounded-lg hover:bg-[#161819]/60 transition-colors"
+                  >
+                    <div className="flex items-center gap-3 mb-4">
+                      <div className="h-11 w-11 rounded-lg bg-[#38D39F]/10 text-[#38D39F] flex items-center justify-center">
+                        {pg.icon}
+                      </div>
+                      <h2 className="text-2xl font-semibold text-white group-hover:text-[#38D39F] transition-colors">
+                        {pg.title}
+                      </h2>
                     </div>
-                    <h2 className="text-xl font-semibold text-gray-900 group-hover:text-[var(--color-primary)] transition-colors">
-                      {pg.title}
-                    </h2>
-                  </div>
-                  <p className="text-gray-600 mb-4">{pg.description}</p>
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm text-gray-500">{pg.count} templates</span>
-                    <span className="text-[var(--color-primary)] text-sm font-medium group-hover:translate-x-1 transition-transform">
-                      Browse &rarr;
-                    </span>
-                  </div>
-                </Link>
+                    <p className="text-[#9BA0A2] mb-6 leading-relaxed">{pg.description}</p>
+                    <div className="flex items-center justify-between">
+                      <span className="text-sm text-[#6B7075]">{pg.count} templates</span>
+                      <span className="text-[#38D39F] text-sm font-medium group-hover:translate-x-1 transition-transform">
+                        Browse →
+                      </span>
+                    </div>
+                  </Link>
+                </motion.div>
               ))}
             </div>
           </div>
         </section>
       </main>
       <Footer />
-    </>
+    </div>
   );
 }

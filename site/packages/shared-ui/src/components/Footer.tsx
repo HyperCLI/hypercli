@@ -7,10 +7,7 @@ export default function Footer() {
       <div className="max-w-[1400px] mx-auto py-12 px-4 sm:px-6 lg:py-16 lg:px-8">
         <div className="xl:grid xl:grid-cols-4 xl:gap-8">
           <div className="space-y-8 xl:col-span-1">
-            <Link href="/" className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
-              <div className="w-8 h-8 bg-[#38D39F] rounded-md flex items-center justify-center">
-                <span className="text-[#0B0D0E] text-lg font-semibold">H</span>
-              </div>
+            <Link href="/" className="hover:opacity-80 transition-opacity">
               <span className="text-xl font-semibold">
                 <span className="text-white">Hyper</span>
                 <span className="text-[#38D39F]">CLI</span>

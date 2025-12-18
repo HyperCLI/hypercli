@@ -2,8 +2,8 @@
 
 import { Header, Footer } from "@hypercli/shared-ui";
 import Link from "next/link";
+import { motion } from "framer-motion";
 import templatesIndex from "@/content/comfyui/index.json";
-import ParticleCanvas from "@/components/ParticleCanvas";
 
 type Template = {
   template_id: string;
@@ -20,9 +20,9 @@ function TemplateCard({ template }: { template: Template }) {
   return (
     <Link
       href={`/playground/comfyui/${template.template_id}`}
-      className="group block bg-white border border-gray-200 rounded-2xl overflow-hidden shadow-sm card"
+      className="group block bg-[#161819]/40 border border-[#2A2D2F]/50 rounded-lg overflow-hidden hover:bg-[#161819]/60 transition-colors"
     >
-      <div className="aspect-square bg-gray-100 relative overflow-hidden">
+      <div className="aspect-square bg-[#0B0D0E] relative overflow-hidden">
         {/* Animated webp auto-plays and loops natively in img tags */}
         <img
           src={`/comfyui/${template.template_id}/thumbnail.webp`}
@@ -31,22 +31,22 @@ function TemplateCard({ template }: { template: Template }) {
         />
         {/* Play indicator for video templates */}
         {isVideo && (
-          <div className="absolute bottom-2 left-2 bg-black/60 backdrop-blur-sm p-1.5 rounded-full">
-            <svg className="h-3 w-3 text-white" viewBox="0 0 24 24" fill="currentColor">
+          <div className="absolute bottom-2 left-2 bg-[#38D39F]/20 backdrop-blur-sm p-1.5 rounded-full border border-[#38D39F]/30">
+            <svg className="h-3 w-3 text-[#38D39F]" viewBox="0 0 24 24" fill="currentColor">
               <polygon points="5 3 19 12 5 21 5 3" />
             </svg>
           </div>
         )}
-        <div className="absolute top-2 right-2 bg-white/90 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-medium text-gray-700 shadow-sm">
+        <div className="absolute top-2 right-2 bg-[#161819]/80 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-medium text-[#9BA0A2] border border-[#2A2D2F]/50">
           {template.output_type}
         </div>
       </div>
       <div className="p-3">
-        <h3 className="font-semibold text-gray-900 group-hover:text-[var(--color-primary)] transition-colors text-sm leading-tight">
+        <h3 className="font-semibold text-white group-hover:text-[#38D39F] transition-colors text-sm leading-tight">
           {template.title}
         </h3>
         {template.description && (
-          <p className="text-xs text-gray-500 mt-1 line-clamp-2">
+          <p className="text-xs text-[#9BA0A2] mt-1 line-clamp-2">
             {template.description}
           </p>
         )}
@@ -58,11 +58,11 @@ function TemplateCard({ template }: { template: Template }) {
 function SectionHeader({ icon, title, count }: { icon: React.ReactNode; title: string; count: number }) {
   return (
     <div className="flex items-center gap-3 mb-6">
-      <div className="h-10 w-10 rounded-xl bg-gradient-to-br from-[var(--gradient-start)] to-[var(--gradient-end)] text-[var(--color-primary)] flex items-center justify-center">
+      <div className="h-10 w-10 rounded-lg bg-[#38D39F]/10 text-[#38D39F] flex items-center justify-center">
         {icon}
       </div>
-      <h2 className="text-2xl font-bold text-gray-900">{title}</h2>
-      <span className="text-sm font-medium text-gray-500 bg-gray-100 px-2 py-1 rounded-full">{count}</span>
+      <h2 className="text-2xl font-bold text-white">{title}</h2>
+      <span className="text-sm font-medium text-[#9BA0A2] bg-[#161819]/40 px-2 py-1 rounded-full border border-[#2A2D2F]/50">{count}</span>
     </div>
   );
 }
@@ -77,33 +77,37 @@ export default function ComfyUIPlayground() {
   const otherTemplates = templates.filter(t => !["video", "image", "3D"].includes(t.output_type));
 
   return (
-    <>
+    <div className="bg-[#0B0D0E] min-h-screen">
       <Header />
-      <main className="min-h-screen bg-white">
+      <main>
         {/* Hero Section */}
-        <div className="relative py-20 sm:py-28 bg-gradient-to-br from-white via-gray-50 to-[var(--gradient-start)] overflow-hidden">
-          <ParticleCanvas />
-          <div className="relative z-20 max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 text-center">
+        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E]">
+          <motion.div 
+            className="max-w-5xl mx-auto"
+            initial={{ opacity: 0, y: 20 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.6 }}
+          >
             <nav className="mb-6 text-sm">
-              <Link href="/playground" className="text-gray-500 hover:text-[var(--color-primary)] hover:underline transition-colors">
+              <Link href="/playground" className="text-[#9BA0A2] hover:text-[#38D39F] hover:underline transition-colors">
                 Playground
               </Link>
-              <span className="text-gray-400 mx-2">/</span>
-              <span className="text-gray-900 font-medium">ComfyUI Templates</span>
+              <span className="text-[#6B7075] mx-2">/</span>
+              <span className="text-white font-medium">ComfyUI Templates</span>
             </nav>
-            <h1 className="text-4xl md:text-5xl font-extrabold tracking-tighter text-gray-900 mb-4">
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl text-white mb-8 leading-[1.1] tracking-tight">
               ComfyUI Templates
             </h1>
-            <p className="text-lg md:text-xl text-gray-600 max-w-2xl mx-auto">
+            <p className="text-2xl text-[#9BA0A2] leading-relaxed max-w-2xl">
               Production-ready workflows for video generation, image creation, and more.
               Run on HyperCLI GPUs with a single command.
             </p>
-          </div>
-        </div>
+          </motion.div>
+        </section>
 
         {/* Templates Sections */}
-        <section className="py-16 bg-white">
-          <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
+        <section className="pt-20 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+          <div className="max-w-5xl mx-auto">
             {/* Video Templates */}
             {videoTemplates.length > 0 && (
               <div className="mb-16">
@@ -190,6 +194,6 @@ export default function ComfyUIPlayground() {
         </section>
       </main>
       <Footer />
-    </>
+    </div>
   );
 }

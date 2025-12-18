@@ -85,6 +85,7 @@ export function PlaygroundCTASection() {
             transition={{ duration: 0.6, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
           >
             <motion.button 
+              onClick={() => window.location.href = '/playground'}
               className="group px-10 py-5 bg-[#38D39F] text-[#0B0D0E] rounded-xl hover:bg-[#45E4AE] transition-all flex items-center gap-3 shadow-[0_0_40px_rgba(56,211,159,0.3)] text-lg font-medium mx-auto"
               whileHover={{ 
                 scale: 1.05, 

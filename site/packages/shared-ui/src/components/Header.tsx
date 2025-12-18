@@ -71,10 +71,7 @@ export default function Header() {
       <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
         <nav className="flex items-center justify-between h-16">
           {/* Logo */}
-          <Link href={NAV_URLS.home} className="flex items-center space-x-2 hover:opacity-80 transition-opacity">
-            <div className="w-8 h-8 bg-[#38D39F] rounded-md flex items-center justify-center">
-              <span className="text-[#0B0D0E] text-lg font-semibold">H</span>
-            </div>
+          <Link href={NAV_URLS.home} className="hover:opacity-80 transition-opacity">
             <span className="text-xl font-semibold">
               <span className="text-white">Hyper</span>
               <span className="text-[#38D39F]">CLI</span>
@@ -107,12 +104,23 @@ export default function Header() {
               </NavigationMenuList>
             </NavigationMenu>
 
-            <a href={NAV_URLS.partner} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              Partners
-            </a>
-            <a href={NAV_URLS.enterprise} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
-              Enterprise
-            </a>
+            {/* Solutions dropdown grouping partners/enterprise/data-center (Radix) */}
+            <NavigationMenu data-slot="header-solutions" viewport={false} className="!flex-none">
+              <NavigationMenuList>
+                <NavigationMenuItem>
+                    <NavigationMenuTrigger className="text-sm !text-[#D6D6D7] hover:text-white transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-[#38D39F]/30 data-[state=open]:!text-[#D6D6D7] data-[state=open]:!bg-transparent data-[state=open]:hover:!text-[#D6D6D7]">Solutions</NavigationMenuTrigger>
+                  <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
+                    <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg p-2 shadow-lg w-56">
+                      <nav className="flex flex-col">
+                        <NavigationMenuLink href={NAV_URLS.partner} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Partners</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.enterprise} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Enterprise</NavigationMenuLink>
+                        <NavigationMenuLink href="/data-center" className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Data Center</NavigationMenuLink>
+                      </nav>
+                    </div>
+                  </NavigationMenuContent>
+                </NavigationMenuItem>
+              </NavigationMenuList>
+            </NavigationMenu>
 
             <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
               Docs
@@ -214,11 +222,25 @@ export default function Header() {
             Docs
           </a>
           <a
+            href={NAV_URLS.partner}
+            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Partners
+          </a>
+          <a
             href={NAV_URLS.enterprise}
             className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
             onClick={() => setMobileMenuOpen(false)}
           >
             Enterprise
+          </a>
+          <a
+            href="/data-center"
+            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            onClick={() => setMobileMenuOpen(false)}
+          >
+            Data Center
           </a>
           <button
             onClick={openContactModal}

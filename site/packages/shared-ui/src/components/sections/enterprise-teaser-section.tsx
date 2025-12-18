@@ -1,8 +1,12 @@
 "use client";
 
+import { useState } from 'react';
 import { Server, Handshake, Building2, Shield, ArrowRight } from 'lucide-react';
+import ContactModal from '../ContactModal';
 
 export function EnterpriseTeaserSection() {
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+
   const teasers = [
     {
       icon: Server,
@@ -12,7 +16,11 @@ export function EnterpriseTeaserSection() {
       code: 'hypercli attach-gpu',
       note: 'Perfect for internal IT teams and GPU-rich organizations.',
       cta: 'Learn more',
-      href: '#'
+      href: '#',
+      onClick: (e: React.MouseEvent) => {
+        e.preventDefault();
+        setIsContactModalOpen(true);
+      }
     },
     {
       icon: Handshake,
@@ -21,7 +29,7 @@ export function EnterpriseTeaserSection() {
       description: 'For consultancies, VARs, and MSPs:',
       features: ['Partner margins', 'Services expansion', 'Co-selling support', 'Multi-client management'],
       cta: 'Partner with HyperCLI',
-      href: '/partners'
+      href: '/partner'
     },
     {
       icon: Building2,
@@ -29,7 +37,7 @@ export function EnterpriseTeaserSection() {
       subtitle: 'Turn idle GPUs into revenue with one command.',
       description: 'No commitments. No SLAs. No marketplace overhead. Just run the HyperCLI agent and start earning on enterprise workloads.',
       cta: 'For Data Centers',
-      href: '/datacenter'
+      href: '/data-center'
     },
     {
       icon: Shield,
@@ -62,6 +70,7 @@ export function EnterpriseTeaserSection() {
             <a
               key={index}
               href={teaser.href}
+              onClick={teaser.onClick}
               className="group relative flex flex-col bg-[#161819]/80 backdrop-blur-sm border border-[#2A2D2F] rounded-2xl p-8 hover:border-[#38D39F]/40 hover:bg-[#1D1F21]/80 transition-all duration-300 h-full"
             >
               {/* Icon & Title Row */}
@@ -119,6 +128,8 @@ export function EnterpriseTeaserSection() {
           ))}
         </div>
       </div>
+
+      <ContactModal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} source="bring-your-own-gpu" />
     </section>
   );
 }
