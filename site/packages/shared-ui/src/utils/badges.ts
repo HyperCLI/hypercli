@@ -52,6 +52,8 @@ export const getTypeBadgeClass = (type: string): string => {
       return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
     case 'llm':
       return 'bg-[#6E7375]/10 text-[#9BA0A2] border-[#6E7375]/30';
+    case 'render':
+      return 'bg-[#A855F7]/10 text-[#A855F7] border-[#A855F7]/30';
     case 'top_up':
     case 'topup':
       return 'bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30';
