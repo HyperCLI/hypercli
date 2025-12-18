@@ -1,10 +1,13 @@
 "use client";
 
+import { useState } from 'react';
 import { ArrowRight } from 'lucide-react';
 import { motion } from 'framer-motion';
-import { Header, Footer } from "@hypercli/shared-ui";
+import { Header, Footer, ContactModal } from "@hypercli/shared-ui";
 
 export default function DataCenterPage() {
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+
   return (
     <div className="min-h-screen bg-[#0B0D0E] overflow-x-hidden">
       <Header />
@@ -25,11 +28,17 @@ export default function DataCenterPage() {
           </p>
 
           <div className="flex gap-4">
-            <button className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2">
+            <button 
+              onClick={() => setIsContactModalOpen(true)}
+              className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
+            >
               Get the Data Center Deck
               <ArrowRight className="w-5 h-5" />
             </button>
-            <button className="px-8 py-4 bg-[#161819]/40 text-white rounded-lg hover:bg-[#161819]/60 transition-colors border border-[#2A2D2F]/50">
+            <button 
+              onClick={() => setIsContactModalOpen(true)}
+              className="px-8 py-4 bg-[#161819]/40 text-white rounded-lg hover:bg-[#161819]/60 transition-colors border border-[#2A2D2F]/50"
+            >
               Talk to Infrastructure Partnerships
             </button>
           </div>
@@ -478,6 +487,7 @@ export default function DataCenterPage() {
             
             <div className="flex gap-4">
               <motion.button 
+                onClick={() => setIsContactModalOpen(true)}
                 className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
                 initial={{ opacity: 0, scale: 0.95 }}
                 whileInView={{ opacity: 1, scale: 1 }}
@@ -490,6 +500,7 @@ export default function DataCenterPage() {
                 <ArrowRight className="w-5 h-5" />
               </motion.button>
               <motion.button 
+                onClick={() => setIsContactModalOpen(true)}
                 className="px-8 py-4 bg-[#161819]/40 text-white rounded-lg hover:bg-[#161819]/60 transition-colors border border-[#2A2D2F]/50"
                 initial={{ opacity: 0, scale: 0.95 }}
                 whileInView={{ opacity: 1, scale: 1 }}
@@ -506,6 +517,12 @@ export default function DataCenterPage() {
       </section>
 
       <Footer />
+      
+      <ContactModal
+        isOpen={isContactModalOpen}
+        onClose={() => setIsContactModalOpen(false)}
+        source="data-center"
+      />
     </div>
   );
 }
