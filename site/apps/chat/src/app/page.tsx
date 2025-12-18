@@ -108,14 +108,15 @@ function ChatPageContent() {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/threads`, {
+      const response = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats`, {
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
       if (!response.ok) throw new Error("Failed to fetch threads");
 
       const data = await response.json();
-      setThreads(data.threads || []);
+      // API returns flat array of chats
+      setThreads(Array.isArray(data) ? data : data.chats || []);
     } catch (error) {
       console.error("Failed to fetch threads:", error);
     } finally {
@@ -128,6 +129,27 @@ function ChatPageContent() {
       fetchThreads();
     }
   }, [isAuthenticated]);
+
+  // Load chat from URL path (/chat/{id}) or sessionStorage
+  useEffect(() => {
+    if (!isAuthenticated || loadingThreads) return;
+
+    // Check URL path for chat ID (handles direct navigation to /chat/{id})
+    const pathMatch = window.location.pathname.match(/^\/chat\/([^/]+)/);
+    const chatIdFromUrl = pathMatch?.[1];
+
+    // Also check sessionStorage (for redirects from /chat/[id] route)
+    const chatIdFromStorage = sessionStorage.getItem("hypercli_load_chat_id");
+    if (chatIdFromStorage) {
+      sessionStorage.removeItem("hypercli_load_chat_id");
+    }
+
+    const chatIdToLoad = chatIdFromUrl || chatIdFromStorage;
+    if (chatIdToLoad && chatIdToLoad !== currentThreadId) {
+      // Select the thread and update URL if not already there
+      selectThread(chatIdToLoad, !chatIdFromUrl);
+    }
+  }, [isAuthenticated, loadingThreads]);
 
   // Auto-create free user if not authenticated
   useEffect(() => {
@@ -316,25 +338,33 @@ function ChatPageContent() {
     // Just clear current thread - a new one will be created on first message
     setCurrentThreadId(null);
     setMessages([]);
+    // Go to root URL for new chat
+    router.push("/", { scroll: false });
   };
 
-  const selectThread = async (threadId: string) => {
+  const selectThread = async (threadId: string, updateUrl = true) => {
     setCurrentThreadId(threadId);
     setMessages([]); // Clear while loading
+
+    // Update URL to /chat/{id}
+    if (updateUrl) {
+      router.push(`/chat/${threadId}`, { scroll: false });
+    }
 
     try {
       const authToken = cookieUtils.get("auth_token");
       if (!authToken) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}/messages`,
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`,
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
 
       if (!response.ok) throw new Error("Failed to fetch messages");
 
       const data = await response.json();
-      setMessages(data.messages || []);
+      // API returns flat array of messages
+      setMessages(Array.isArray(data) ? data : data.messages || []);
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     }
@@ -348,7 +378,7 @@ function ChatPageContent() {
       if (!authToken) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}`,
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}`,
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${authToken}` },
@@ -362,6 +392,7 @@ function ChatPageContent() {
       if (currentThreadId === threadId) {
         setCurrentThreadId(null);
         setMessages([]);
+        router.push("/", { scroll: false });
       }
     } catch (error) {
       console.error("Failed to delete thread:", error);
@@ -403,7 +434,7 @@ function ChatPageContent() {
       // Create thread if needed
       let threadId = currentThreadId;
       if (!threadId) {
-        const createRes = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/threads`, {
+        const createRes = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats`, {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -418,11 +449,13 @@ function ChatPageContent() {
         threadId = newThread.id;
         setCurrentThreadId(threadId);
         setThreads((prev) => [newThread, ...prev]);
+        // Update URL to /chat/{id}
+        router.push(`/chat/${threadId}`, { scroll: false });
       }
 
-      // Stream message via bot API
+      // Send message via POST (returns message IDs)
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}/messages/stream`,
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`,
         {
           method: "POST",
           headers: {
@@ -441,56 +474,68 @@ function ChatPageContent() {
         throw new Error(errorData.detail || `Error ${response.status}`);
       }
 
-      const reader = response.body?.getReader();
-      if (!reader) throw new Error("No response body");
+      const { assistant_message_id } = await response.json();
 
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let fullResponse = "";
+      // Connect to WebSocket for streaming
+      const wsUrl = process.env.NEXT_PUBLIC_BOT_API_URL?.replace(/^http/, "ws");
+      const ws = new WebSocket(`${wsUrl}/chats/${threadId}/stream?token=${authToken}`);
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
+      await new Promise<void>((resolve, reject) => {
+        ws.onopen = () => {
+          ws.send(JSON.stringify({ type: "subscribe", message_id: assistant_message_id }));
+        };
 
-        buffer += decoder.decode(value, { stream: true });
-        const lines = buffer.split("\n\n");
-        buffer = lines.pop() || "";
+        ws.onmessage = (event) => {
+          try {
+            const data = JSON.parse(event.data);
 
-        for (const chunk of lines) {
-          if (!chunk.trim()) continue;
-
-          // Parse SSE format
-          const eventMatch = chunk.match(/^event:\s*(.+)$/m);
-          const dataMatch = chunk.match(/^data:\s*(.*)$/m);
-
-          if (eventMatch?.[1] === "done") {
-            // Stream complete, refresh messages from server
-            break;
+            if (data.type === "state" || data.type === "token") {
+              setMessages((prev) => {
+                const newMessages = [...prev];
+                newMessages[newMessages.length - 1] = {
+                  ...newMessages[newMessages.length - 1],
+                  content: data.content || "",
+                };
+                return newMessages;
+              });
+            } else if (data.type === "done") {
+              setMessages((prev) => {
+                const newMessages = [...prev];
+                newMessages[newMessages.length - 1] = {
+                  ...newMessages[newMessages.length - 1],
+                  content: data.content || "",
+                };
+                return newMessages;
+              });
+              ws.close();
+              resolve();
+            } else if (data.type === "error") {
+              ws.close();
+              reject(new Error(data.error));
+            }
+          } catch (err) {
+            console.error("Failed to parse WebSocket message:", err);
           }
+        };
 
-          if (dataMatch) {
-            const content = dataMatch[1];
-            fullResponse += content;
-            setMessages((prev) => {
-              const newMessages = [...prev];
-              newMessages[newMessages.length - 1] = {
-                ...newMessages[newMessages.length - 1],
-                content: fullResponse,
-              };
-              return newMessages;
-            });
-          }
-        }
-      }
+        ws.onerror = () => {
+          reject(new Error("WebSocket connection failed"));
+        };
+
+        ws.onclose = () => {
+          resolve();
+        };
+      });
 
       // Refresh messages from server to get real IDs
       const messagesRes = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/threads/${threadId}/messages`,
+        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`,
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
       if (messagesRes.ok) {
         const serverMessages = await messagesRes.json();
-        setMessages(serverMessages.messages || []);
+        // API returns flat array of messages
+        setMessages(Array.isArray(serverMessages) ? serverMessages : serverMessages.messages || []);
       }
 
       // Refresh threads to update titles
