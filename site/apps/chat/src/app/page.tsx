@@ -1,9 +1,9 @@
 "use client";
 
-import React, { useState, useEffect, Suspense } from "react";
+import React, { useState, useEffect, useRef, useCallback, Suspense } from "react";
 import { useAuth, WalletAuth, cookieUtils, TopUpModal } from "@hypercli/shared-ui";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
-import { useRouter, useSearchParams } from "next/navigation";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { ChatSidebar, ChatWindow, ChatHeader, ChatInput } from "../components";
 
 // Bot API types
@@ -45,6 +45,7 @@ function ChatPageContent() {
   const { logout } = useTurnkey();
   const router = useRouter();
   const searchParams = useSearchParams();
+  const pathname = usePathname();
   const [initialMessageSent, setInitialMessageSent] = useState(false);
 
   // Theme
@@ -73,6 +74,18 @@ function ChatPageContent() {
 
   // Track if user logged in via wallet (not just free tier)
   const [isWalletUser, setIsWalletUser] = useState(false);
+
+  // Persistent WebSocket connection
+  const wsRef = useRef<WebSocket | null>(null);
+  const wsReconnectTimeoutRef = useRef<NodeJS.Timeout | null>(null);
+  const [wsConnected, setWsConnected] = useState(false);
+  const pendingSubscribeRef = useRef<{ messageId: number; resolve: () => void; reject: (err: Error) => void } | null>(null);
+  const currentThreadIdRef = useRef<string | null>(null);
+
+  // Keep ref in sync with state for use in WebSocket callbacks
+  useEffect(() => {
+    currentThreadIdRef.current = currentThreadId;
+  }, [currentThreadId]);
 
   // Check login type from localStorage
   useEffect(() => {
@@ -135,7 +148,7 @@ function ChatPageContent() {
     if (!isAuthenticated || loadingThreads) return;
 
     // Check URL path for chat ID (handles direct navigation to /chat/{id})
-    const pathMatch = window.location.pathname.match(/^\/chat\/([^/]+)/);
+    const pathMatch = pathname.match(/^\/chat\/([^/]+)/);
     const chatIdFromUrl = pathMatch?.[1];
 
     // Also check sessionStorage (for redirects from /chat/[id] route)
@@ -146,10 +159,13 @@ function ChatPageContent() {
 
     const chatIdToLoad = chatIdFromUrl || chatIdFromStorage;
     if (chatIdToLoad && chatIdToLoad !== currentThreadId) {
+      // Check if this is a handover (has pending auto-send message)
+      // If so, skip fetching messages - handleSendMessage will manage them
+      const hasPendingAutoSend = !!sessionStorage.getItem("hypercli_autosend_message");
       // Select the thread and update URL if not already there
-      selectThread(chatIdToLoad, !chatIdFromUrl);
+      selectThread(chatIdToLoad, !chatIdFromUrl, hasPendingAutoSend);
     }
-  }, [isAuthenticated, loadingThreads]);
+  }, [isAuthenticated, loadingThreads, pathname]);
 
   // Auto-create free user if not authenticated
   useEffect(() => {
@@ -262,7 +278,161 @@ function ChatPageContent() {
     }
   }, [isAuthenticated]);
 
+  // Persistent WebSocket connection management
+  const connectWebSocket = useCallback(() => {
+    const authToken = cookieUtils.get("auth_token");
+    if (!authToken || wsRef.current?.readyState === WebSocket.OPEN) return;
+
+    // Clear any pending reconnect
+    if (wsReconnectTimeoutRef.current) {
+      clearTimeout(wsReconnectTimeoutRef.current);
+      wsReconnectTimeoutRef.current = null;
+    }
+
+    const wsUrl = process.env.NEXT_PUBLIC_BOT_API_URL?.replace(/^http/, "ws");
+    const ws = new WebSocket(`${wsUrl}/stream?token=${authToken}`);
+
+    ws.onopen = () => {
+      console.log("[WS] Connected to stream");
+      setWsConnected(true);
+    };
+
+    ws.onmessage = (event) => {
+      try {
+        const data = JSON.parse(event.data);
+
+        if (data.type === "state" || data.type === "token") {
+          // Update the last assistant message with streamed content
+          setMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              newMessages[newMessages.length - 1] = {
+                ...lastMsg,
+                content: data.content || "",
+              };
+            }
+            return newMessages;
+          });
+
+          // Resolve pending subscribe if this is the initial state
+          if (data.type === "state" && pendingSubscribeRef.current) {
+            pendingSubscribeRef.current.resolve();
+            pendingSubscribeRef.current = null;
+          }
+        } else if (data.type === "done") {
+          setMessages((prev) => {
+            if (prev.length === 0) return prev;
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              newMessages[newMessages.length - 1] = {
+                ...lastMsg,
+                content: data.content || "",
+              };
+            }
+            return newMessages;
+          });
+          setIsStreaming(false);
+
+          // Refresh messages and threads after streaming completes
+          const authToken = cookieUtils.get("auth_token");
+          const threadId = currentThreadIdRef.current;
+          if (authToken && threadId) {
+            // Refresh messages to get real IDs
+            fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`, {
+              headers: { Authorization: `Bearer ${authToken}` },
+            })
+              .then((res) => res.json())
+              .then((serverMessages) => {
+                setMessages(Array.isArray(serverMessages) ? serverMessages : serverMessages.messages || []);
+              })
+              .catch((err) => console.error("Failed to refresh messages:", err));
+
+            // Refresh threads to update titles
+            fetchThreads();
+
+            // Refresh balance
+            fetchBalance();
+          }
+        } else if (data.type === "error") {
+          console.error("[WS] Stream error:", data.error);
+          if (pendingSubscribeRef.current) {
+            pendingSubscribeRef.current.reject(new Error(data.error));
+            pendingSubscribeRef.current = null;
+          }
+          setIsStreaming(false);
+        } else if (data.type === "pong") {
+          // Heartbeat response
+        }
+      } catch (err) {
+        console.error("[WS] Failed to parse message:", err);
+      }
+    };
+
+    ws.onerror = (error) => {
+      console.error("[WS] Connection error:", error);
+      setWsConnected(false);
+    };
+
+    ws.onclose = () => {
+      console.log("[WS] Connection closed, scheduling reconnect");
+      setWsConnected(false);
+      wsRef.current = null;
+
+      // Reconnect after 2 seconds
+      wsReconnectTimeoutRef.current = setTimeout(() => {
+        if (isAuthenticated) {
+          connectWebSocket();
+        }
+      }, 2000);
+    };
+
+    wsRef.current = ws;
+  }, [isAuthenticated]);
+
+  // Connect WebSocket when authenticated
+  useEffect(() => {
+    if (isAuthenticated) {
+      connectWebSocket();
+    }
+
+    return () => {
+      // Cleanup on unmount
+      if (wsReconnectTimeoutRef.current) {
+        clearTimeout(wsReconnectTimeoutRef.current);
+      }
+      if (wsRef.current) {
+        wsRef.current.close();
+        wsRef.current = null;
+      }
+    };
+  }, [isAuthenticated, connectWebSocket]);
+
+  // Subscribe to a message stream
+  const subscribeToMessage = useCallback((messageId: number): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+        reject(new Error("WebSocket not connected"));
+        return;
+      }
+
+      pendingSubscribeRef.current = { messageId, resolve, reject };
+      wsRef.current.send(JSON.stringify({ type: "subscribe", message_id: messageId }));
+
+      // Timeout after 10 seconds
+      setTimeout(() => {
+        if (pendingSubscribeRef.current?.messageId === messageId) {
+          pendingSubscribeRef.current.reject(new Error("Subscribe timeout"));
+          pendingSubscribeRef.current = null;
+        }
+      }, 10000);
+    });
+  }, []);
+
   // Handle initial message from URL param - auto-create free user if needed
+  // For /chat/<id>?message=, this will auto-send after navigation completes
   useEffect(() => {
     if (initialMessageSent || isLoading) return;
 
@@ -278,42 +448,53 @@ function ChatPageContent() {
       return;
     }
 
-    // Store message for later
-    localStorage.setItem("hypercli_pending_chat_message", decodedMessage);
+    // Check if we're on a specific chat page (handover from new chat creation)
+    const pathMatch = pathname.match(/^\/chat\/([^/]+)/);
+    const isOnChatPage = !!pathMatch;
 
-    // If not authenticated, create a free user
-    if (!isAuthenticated) {
-      const createFreeUser = async () => {
-        try {
-          const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/free`, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-          });
-
-          if (!response.ok) throw new Error("Failed to create free user");
-
-          const data = await response.json();
-          // Store JWT token in cookie (uses cookieUtils for proper domain handling)
-          cookieUtils.setWithMaxAge("auth_token", data.token, data.expires_in);
-          // Mark as free user (not wallet)
-          localStorage.setItem("hypercli_login_type", "free");
-          // Clear URL param and reload to trigger auth
-          router.replace("/");
-          window.location.reload();
-        } catch (e) {
-          console.error("Failed to create free user:", e);
-          // Fall back to showing login
-          localStorage.removeItem("hypercli_pending_chat_message");
-        }
-      };
-      createFreeUser();
+    if (isOnChatPage) {
+      // Store for auto-send (will be picked up by the auto-send effect below)
+      sessionStorage.setItem("hypercli_autosend_message", decodedMessage);
+      // Clear URL param but stay on chat page
+      router.replace(pathname, { scroll: false });
     } else {
-      // Already authenticated, clear URL param
-      router.replace("/");
-    }
-  }, [searchParams, initialMessageSent, isLoading, isAuthenticated, router]);
+      // On root page - store for pre-fill (existing behavior)
+      localStorage.setItem("hypercli_pending_chat_message", decodedMessage);
 
-  // Load pending message once authenticated and ready
+      // If not authenticated, create a free user
+      if (!isAuthenticated) {
+        const createFreeUser = async () => {
+          try {
+            const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/free`, {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+            });
+
+            if (!response.ok) throw new Error("Failed to create free user");
+
+            const data = await response.json();
+            // Store JWT token in cookie (uses cookieUtils for proper domain handling)
+            cookieUtils.setWithMaxAge("auth_token", data.token, data.expires_in);
+            // Mark as free user (not wallet)
+            localStorage.setItem("hypercli_login_type", "free");
+            // Clear URL param and reload to trigger auth
+            router.replace("/");
+            window.location.reload();
+          } catch (e) {
+            console.error("Failed to create free user:", e);
+            // Fall back to showing login
+            localStorage.removeItem("hypercli_pending_chat_message");
+          }
+        };
+        createFreeUser();
+      } else {
+        // Already authenticated, clear URL param
+        router.replace("/");
+      }
+    }
+  }, [searchParams, initialMessageSent, isLoading, isAuthenticated, router, pathname]);
+
+  // Load pending message once authenticated and ready (pre-fill for root page)
   useEffect(() => {
     if (!isAuthenticated || loadingModels || !selectedModel || initialMessageSent) return;
 
@@ -324,6 +505,20 @@ function ChatPageContent() {
       setPendingMessage(pendingMsg);
     }
   }, [isAuthenticated, loadingModels, selectedModel, initialMessageSent]);
+
+  // Auto-send message for chat page handover
+  // This fires when we navigate to /chat/<id>?message= and the message is stored in sessionStorage
+  useEffect(() => {
+    if (!isAuthenticated || loadingModels || !selectedModel || isStreaming || !currentThreadId) return;
+
+    const autoSendMsg = sessionStorage.getItem("hypercli_autosend_message");
+    if (autoSendMsg) {
+      sessionStorage.removeItem("hypercli_autosend_message");
+      setInitialMessageSent(true);
+      // Trigger the send with the existing thread
+      handleSendMessage(autoSendMsg);
+    }
+  }, [isAuthenticated, loadingModels, selectedModel, isStreaming, currentThreadId]);
 
   const handleModelChange = (modelId: string) => {
     setSelectedModel(modelId);
@@ -342,14 +537,18 @@ function ChatPageContent() {
     router.push("/", { scroll: false });
   };
 
-  const selectThread = async (threadId: string, updateUrl = true) => {
+  const selectThread = async (threadId: string, updateUrl = true, skipFetch = false) => {
     setCurrentThreadId(threadId);
-    setMessages([]); // Clear while loading
 
     // Update URL to /chat/{id}
     if (updateUrl) {
       router.push(`/chat/${threadId}`, { scroll: false });
     }
+
+    // Skip fetch if we're doing a handover (auto-send will manage messages)
+    if (skipFetch) return;
+
+    setMessages([]); // Clear while loading
 
     try {
       const authToken = cookieUtils.get("auth_token");
@@ -431,7 +630,7 @@ function ChatPageContent() {
     setMessages((prev) => [...prev, tempAssistantMsg]);
 
     try {
-      // Create thread if needed
+      // Create thread if needed - use handover pattern for new chats
       let threadId = currentThreadId;
       if (!threadId) {
         const createRes = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats`, {
@@ -447,10 +646,17 @@ function ChatPageContent() {
 
         const newThread: Thread = await createRes.json();
         threadId = newThread.id;
-        setCurrentThreadId(threadId);
         setThreads((prev) => [newThread, ...prev]);
-        // Update URL to /chat/{id}
-        router.push(`/chat/${threadId}`, { scroll: false });
+
+        // Handover: navigate to chat page with message param
+        // The auto-send effect will pick this up after navigation completes
+        const encodedMessage = btoa(userMessage);
+        router.push(`/chat/${threadId}?message=${encodedMessage}`, { scroll: false });
+
+        // Reset streaming state since the handover will restart it
+        setIsStreaming(false);
+        setMessages([]);
+        return;
       }
 
       // Send message via POST (returns message IDs)
@@ -476,84 +682,45 @@ function ChatPageContent() {
 
       const { assistant_message_id } = await response.json();
 
-      // Connect to WebSocket for streaming
-      const wsUrl = process.env.NEXT_PUBLIC_BOT_API_URL?.replace(/^http/, "ws");
-      const ws = new WebSocket(`${wsUrl}/chats/${threadId}/stream?token=${authToken}`);
-
-      await new Promise<void>((resolve, reject) => {
-        ws.onopen = () => {
-          ws.send(JSON.stringify({ type: "subscribe", message_id: assistant_message_id }));
-        };
-
-        ws.onmessage = (event) => {
-          try {
-            const data = JSON.parse(event.data);
-
-            if (data.type === "state" || data.type === "token") {
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1] = {
-                  ...newMessages[newMessages.length - 1],
-                  content: data.content || "",
-                };
-                return newMessages;
-              });
-            } else if (data.type === "done") {
-              setMessages((prev) => {
-                const newMessages = [...prev];
-                newMessages[newMessages.length - 1] = {
-                  ...newMessages[newMessages.length - 1],
-                  content: data.content || "",
-                };
-                return newMessages;
-              });
-              ws.close();
-              resolve();
-            } else if (data.type === "error") {
-              ws.close();
-              reject(new Error(data.error));
-            }
-          } catch (err) {
-            console.error("Failed to parse WebSocket message:", err);
+      // Subscribe to message stream via persistent WebSocket
+      // The message updates are handled by the global ws.onmessage handler
+      // Streaming will continue in the background, and "done" handler will refresh messages
+      try {
+        await subscribeToMessage(assistant_message_id);
+        // Subscription successful - streaming is now active
+        // The WebSocket "done" handler will:
+        // - Set isStreaming to false
+        // - Refresh messages to get real IDs
+        // - Refresh threads and balance
+      } catch (subscribeError) {
+        console.error("Failed to subscribe to message stream:", subscribeError);
+        // Message was sent but we couldn't subscribe - show error and reset state
+        setMessages((prev) => {
+          const newMessages = [...prev];
+          if (newMessages.length > 0) {
+            newMessages[newMessages.length - 1] = {
+              ...newMessages[newMessages.length - 1],
+              content: "Error: Failed to connect to stream. Please refresh.",
+            };
           }
-        };
-
-        ws.onerror = () => {
-          reject(new Error("WebSocket connection failed"));
-        };
-
-        ws.onclose = () => {
-          resolve();
-        };
-      });
-
-      // Refresh messages from server to get real IDs
-      const messagesRes = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`,
-        { headers: { Authorization: `Bearer ${authToken}` } }
-      );
-      if (messagesRes.ok) {
-        const serverMessages = await messagesRes.json();
-        // API returns flat array of messages
-        setMessages(Array.isArray(serverMessages) ? serverMessages : serverMessages.messages || []);
+          return newMessages;
+        });
+        setIsStreaming(false);
       }
-
-      // Refresh threads to update titles
-      fetchThreads();
     } catch (error) {
       console.error("Chat error:", error);
       const errorMessage = error instanceof Error ? error.message : "Failed to send message";
       setMessages((prev) => {
         const newMessages = [...prev];
-        newMessages[newMessages.length - 1] = {
-          ...newMessages[newMessages.length - 1],
-          content: `Error: ${errorMessage}`,
-        };
+        if (newMessages.length > 0) {
+          newMessages[newMessages.length - 1] = {
+            ...newMessages[newMessages.length - 1],
+            content: `Error: ${errorMessage}`,
+          };
+        }
         return newMessages;
       });
-    } finally {
       setIsStreaming(false);
-      fetchBalance();
     }
   };
 
