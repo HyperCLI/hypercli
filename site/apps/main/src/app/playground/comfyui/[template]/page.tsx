@@ -495,14 +495,19 @@ export default async function TemplatePage({ params }: { params: Promise<{ templ
               
               <div className="relative">
                 <h3 className="text-3xl sm:text-4xl font-bold text-white mb-3 tracking-tight">Ready to run this template?</h3>
-                <p className="text-lg text-[#9BA0A2] mb-8">
-                  Install the HyperCLI CLI and run this template on GPU in seconds.
+                <p className="text-lg text-[#9BA0A2] mb-6">
+                  Install the CLI and run this template on GPU in seconds.
                 </p>
+                <div className="bg-[#0B0D0E] border border-white/10 rounded-xl overflow-hidden mb-8">
+                  <pre className="p-6 text-sm text-[#38D39F] overflow-x-auto leading-relaxed">
+                    <code className="font-mono">pip install c3-cli && c3 comfyui run {templateId}</code>
+                  </pre>
+                </div>
                 <Link
                   href="/docs"
                   className="inline-flex items-center gap-2 px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-xl hover:bg-[#45E4AE] transition-all font-semibold shadow-[0_0_30px_rgba(56,211,159,0.25)]"
                 >
-                  Get Started
+                  View Documentation
                   <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
                     <path fillRule="evenodd" d="M10.293 3.293a1 1 0 011.414 0l6 6a1 1 0 010 1.414l-6 6a1 1 0 01-1.414-1.414L14.586 11H3a1 1 0 110-2h11.586l-4.293-4.293a1 1 0 010-1.414z" clipRule="evenodd" />
                   </svg>
