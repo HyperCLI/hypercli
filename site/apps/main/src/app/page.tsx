@@ -1,5 +1,6 @@
 import {
   HeroSection,
+  TrustedBySection,
   InstantDeploymentSection,
   WhatIsHyperCLISection,
   WhyFastSection,
@@ -19,6 +20,11 @@ export default function Home() {
         {/* Hero Section */}
         <section className="snap-start">
           <HeroSection />
+        </section>
+
+        {/* Trusted By Section */}
+        <section className="snap-start">
+          <TrustedBySection />
         </section>
 
         {/* Instant Deployment / PLG Features */}

@@ -251,6 +251,7 @@ export { useIsMobile } from './components/ui/use-mobile';
 
 // Section Components (from designer)
 export { HeroSection } from './components/sections/hero-section';
+export { TrustedBySection } from './components/sections/trusted-by-section';
 export { Navbar } from './components/sections/navbar';
 export { Footer as FooterSection } from './components/sections/footer';
 export { InstantDeploymentSection } from './components/sections/instant-deployment-section';
