@@ -501,22 +501,34 @@ export default function DashboardPage() {
                   Top Up
                 </button>
               </div>
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
+              <div className="grid grid-cols-1 md:grid-cols-3 gap-6 mb-8">
                 <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
                   <h3 className="text-xs font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
                     Available Balance
                   </h3>
+                  <p className="text-2xl font-bold text-white">${balance.available_balance}</p>
+                  {balance.pending_reservations_units > 0 && (
+                    <p className="text-xs text-[#6E7375] mt-1">
+                      ${balance.pending_reservations} reserved
+                    </p>
+                  )}
+                </div>
+
+                <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                  <h3 className="text-xs font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                    Regular Balance
+                  </h3>
                   <p className="text-2xl font-bold text-white">${balance.balance}</p>
                 </div>
 
-                {transactions.some(tx => tx.rewards) && (
-                  <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
-                    <h3 className="text-xs font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
-                      Rewards Balance
-                    </h3>
-                    <p className="text-2xl font-bold text-white">${balance.rewards_balance}</p>
-                  </div>
-                )}
+                <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg">
+                  <h3 className="text-xs font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                    Rewards Balance
+                  </h3>
+                  <p className={`text-2xl font-bold ${balance.rewards_balance_units < 0 ? 'text-[#D05F5F]' : 'text-white'}`}>
+                    ${balance.rewards_balance}
+                  </p>
+                </div>
               </div>
             </>
           )}
