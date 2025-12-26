@@ -81,6 +81,7 @@ function ChatPageContent() {
   const [wsConnected, setWsConnected] = useState(false);
   const pendingSubscribeRef = useRef<{ messageId: number; resolve: () => void; reject: (err: Error) => void } | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
+  const creatingFreeUserRef = useRef(false);
 
   // Keep ref in sync with state for use in WebSocket callbacks
   useEffect(() => {
@@ -170,6 +171,9 @@ function ChatPageContent() {
   // Auto-create free user if not authenticated
   useEffect(() => {
     if (isLoading || isAuthenticated) return;
+    // Prevent multiple free user creation calls (race condition guard)
+    if (creatingFreeUserRef.current) return;
+    creatingFreeUserRef.current = true;
 
     const createFreeUser = async () => {
       try {
@@ -189,6 +193,7 @@ function ChatPageContent() {
         window.location.reload();
       } catch (e) {
         console.error("Failed to create free user:", e);
+        creatingFreeUserRef.current = false;
       }
     };
 
@@ -463,6 +468,10 @@ function ChatPageContent() {
 
       // If not authenticated, create a free user
       if (!isAuthenticated) {
+        // Prevent multiple free user creation calls (race condition guard)
+        if (creatingFreeUserRef.current) return;
+        creatingFreeUserRef.current = true;
+
         const createFreeUser = async () => {
           try {
             const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/free`, {
@@ -484,6 +493,7 @@ function ChatPageContent() {
             console.error("Failed to create free user:", e);
             // Fall back to showing login
             localStorage.removeItem("hypercli_pending_chat_message");
+            creatingFreeUserRef.current = false;
           }
         };
         createFreeUser();
