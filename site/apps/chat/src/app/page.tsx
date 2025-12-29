@@ -765,12 +765,20 @@ function ChatPageContent() {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden bg-background">
-      {/* Sidebar */}
+    <div className="h-screen flex overflow-hidden bg-background relative">
+      {/* Backdrop */}
+      {sidebarOpen && (
+        <div
+          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 transition-opacity"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+
+      {/* Sidebar Overlay */}
       <div
-        className={`${
-          sidebarOpen ? "w-72" : "w-0"
-        } transition-all duration-300 flex-shrink-0 overflow-hidden`}
+        className={`fixed top-0 left-0 h-full w-72 z-50 transform transition-transform duration-300 ${
+          sidebarOpen ? "translate-x-0" : "-translate-x-full"
+        }`}
       >
         <ChatSidebar
           threads={threads}
@@ -792,7 +800,7 @@ function ChatPageContent() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0">
+      <div className="flex-1 flex flex-col min-w-0 w-full">
         <ChatHeader
           selectedModel={selectedModel}
           loadingModels={loadingModels}
