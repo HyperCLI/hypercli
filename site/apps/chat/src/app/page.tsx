@@ -5,6 +5,7 @@ import { useAuth, WalletAuth, cookieUtils, TopUpModal } from "@hypercli/shared-u
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { ChatSidebar, ChatWindow, ChatHeader, ChatInput } from "../components";
+import { initViewportHeight } from "./viewport-height";
 
 // Bot API types
 interface Message {
@@ -93,6 +94,11 @@ function ChatPageContent() {
     const loginType = localStorage.getItem("hypercli_login_type");
     setIsWalletUser(loginType === "wallet");
   }, [isAuthenticated]);
+
+  // Initialize viewport height handling for mobile
+  useEffect(() => {
+    initViewportHeight();
+  }, []);
 
   // Free user = authenticated but not via wallet
   const isFreeUser = isAuthenticated && !isWalletUser;
@@ -765,7 +771,7 @@ function ChatPageContent() {
   }
 
   return (
-    <div className="h-screen flex overflow-hidden bg-background relative">
+    <div className="flex overflow-hidden bg-background relative" style={{ height: 'var(--app-height)' }}>
       {/* Backdrop */}
       {sidebarOpen && (
         <div
@@ -800,7 +806,7 @@ function ChatPageContent() {
       </div>
 
       {/* Main Chat Area */}
-      <div className="flex-1 flex flex-col min-w-0 w-full">
+      <div className="flex-1 flex flex-col min-w-0 w-full overflow-hidden">
         <ChatHeader
           selectedModel={selectedModel}
           loadingModels={loadingModels}

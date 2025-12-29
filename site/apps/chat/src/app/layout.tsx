@@ -12,6 +12,22 @@ const inter = Inter({
 export const metadata: Metadata = {
   title: "HyperCLI Chat",
   description: "AI Chat powered by HyperCLI",
+  viewport: {
+    width: "device-width",
+    initialScale: 1,
+    maximumScale: 1,
+    userScalable: false,
+    viewportFit: "cover", // For iOS safe area (notch)
+  },
+  themeColor: [
+    { media: "(prefers-color-scheme: light)", color: "#ffffff" },
+    { media: "(prefers-color-scheme: dark)", color: "#0b0d0e" },
+  ],
+  appleWebApp: {
+    capable: true,
+    statusBarStyle: "black-translucent",
+    title: "HyperCLI Chat",
+  },
 };
 
 export default function RootLayout({

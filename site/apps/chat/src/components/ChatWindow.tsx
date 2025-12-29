@@ -57,7 +57,7 @@ export function ChatWindow({ messages, isStreaming = false }: ChatWindowProps) {
   return (
     <div 
       ref={scrollContainerRef}
-      className="flex-1 overflow-y-auto overflow-x-hidden bg-background"
+      className="flex-1 flex-shrink overflow-y-auto overflow-x-hidden bg-background"
     >
       <div className="max-w-4xl mx-auto px-4 sm:px-6 py-6 sm:py-8">
         <div className="space-y-6">
