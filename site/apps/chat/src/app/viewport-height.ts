@@ -1,68 +1,51 @@
-// Mobile viewport height handler
-// Sets CSS custom property for mobile browsers that don't support dvh
+// Mobile viewport height handler with keyboard offset for sticky composer
 export function initViewportHeight() {
   if (typeof window === 'undefined') return;
 
-  const setViewportHeight = () => {
-    // Get the actual viewport height
-    const vh = window.innerHeight;
-    // Set the custom property
-    document.documentElement.style.setProperty('--app-height', `${vh}px`);
-  };
-
-  const setKeyboardHeight = () => {
-    // Use Visual Viewport API to detect keyboard
-    if (window.visualViewport) {
-      const viewportHeight = window.visualViewport.height;
-      const windowHeight = window.innerHeight;
-      
-      // Keyboard height is the difference between window height and viewport height
-      const keyboardHeight = windowHeight - viewportHeight;
-      
-      // Set custom property for keyboard offset
-      document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
-      
-      // Also update the app height to use visual viewport
-      document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
+  const update = () => {
+    // Visual Viewport is the "visible" area not covered by keyboard/address bar
+    const vv = window.visualViewport;
+    if (!vv) {
+      // Fallback for browsers without Visual Viewport API
+      const vh = window.innerHeight;
+      document.documentElement.style.setProperty('--app-height', `${vh}px`);
+      document.documentElement.style.setProperty('--keyboard-offset', '0px');
+      return;
     }
+
+    // Set app height using visual viewport
+    document.documentElement.style.setProperty('--app-height', `${vv.height}px`);
+
+    // Calculate how much the visual viewport bottom is above the layout viewport bottom
+    // When keyboard opens, vv.height shrinks, and this becomes positive
+    const offset = Math.max(0, window.innerHeight - (vv.height + vv.offsetTop));
+    
+    // Set the keyboard offset as a CSS variable
+    document.documentElement.style.setProperty('--keyboard-offset', `${offset}px`);
   };
 
   // Set on load
-  setViewportHeight();
-  setKeyboardHeight();
+  update();
 
-  // Update on resize (when keyboard shows/hides or orientation changes)
-  let resizeTimer: NodeJS.Timeout;
-  window.addEventListener('resize', () => {
-    clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(() => {
-      setViewportHeight();
-      setKeyboardHeight();
-    }, 100);
-  });
-
-  // Handle orientation change separately for better mobile support
-  window.addEventListener('orientationchange', () => {
-    setTimeout(() => {
-      setViewportHeight();
-      setKeyboardHeight();
-    }, 100);
-  });
-
-  // Visual Viewport API for keyboard handling (best for mobile)
-  if (window.visualViewport) {
-    // This fires when keyboard shows/hides
-    window.visualViewport.addEventListener('resize', setKeyboardHeight);
-    window.visualViewport.addEventListener('scroll', setKeyboardHeight);
+  // Visual Viewport API listeners (handles keyboard show/hide)
+  const vv = window.visualViewport;
+  if (vv) {
+    vv.addEventListener('resize', update);
+    vv.addEventListener('scroll', update); // handles iOS toolbar changes
   }
 
-  // iOS Safari specific: update when scrolling starts (keyboard dismiss)
+  // Fallback resize listener
+  window.addEventListener('resize', update);
+
+  // Handle orientation change
+  window.addEventListener('orientationchange', () => {
+    setTimeout(update, 100);
+  });
+
+  // iOS Safari specific: update when scrolling
   let scrollTimer: NodeJS.Timeout;
   window.addEventListener('scroll', () => {
     clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(() => {
-      setViewportHeight();
-      setKeyboardHeight();
-    }, 100);
+    scrollTimer = setTimeout(update, 100);
   }, { passive: true });
 }

@@ -806,13 +806,7 @@ function ChatPageContent() {
       </div>
 
       {/* Main Chat Area */}
-      <div 
-        className="flex-1 flex flex-col min-w-0 w-full overflow-hidden"
-        style={{
-          // Adjust height when keyboard is visible to prevent content from being hidden
-          height: 'calc(var(--app-height) + var(--keyboard-height))',
-        }}
-      >
+      <div className="flex-1 flex flex-col min-w-0 w-full overflow-hidden">
         <ChatHeader
           selectedModel={selectedModel}
           loadingModels={loadingModels}
