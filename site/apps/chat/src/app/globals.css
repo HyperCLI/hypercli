@@ -63,6 +63,7 @@
   /* Mobile viewport height - accounts for browser UI */
   --app-height: 100vh;
   --app-height: 100dvh; /* Dynamic viewport height (modern browsers) */
+  --keyboard-height: 0px; /* Updated by JS when keyboard shows */
 }
 
 /* Chat-specific color aliases (used in page.tsx) */
@@ -349,6 +350,17 @@ h1, h2, h3, h4, h5, h6 {
   /* Better spacing for mobile interactions */
   .chat-message {
     margin-bottom: 1rem;
+  }
+  
+  /* Smooth keyboard animation on mobile */
+  body {
+    transition: padding-bottom 0.2s ease-out;
+  }
+  
+  /* Ensure input stays in view when keyboard appears */
+  input:focus, textarea:focus {
+    /* Scroll into view on iOS */
+    scroll-margin-bottom: 100px;
   }
 }
 

@@ -10,30 +10,59 @@ export function initViewportHeight() {
     document.documentElement.style.setProperty('--app-height', `${vh}px`);
   };
 
+  const setKeyboardHeight = () => {
+    // Use Visual Viewport API to detect keyboard
+    if (window.visualViewport) {
+      const viewportHeight = window.visualViewport.height;
+      const windowHeight = window.innerHeight;
+      
+      // Keyboard height is the difference between window height and viewport height
+      const keyboardHeight = windowHeight - viewportHeight;
+      
+      // Set custom property for keyboard offset
+      document.documentElement.style.setProperty('--keyboard-height', `${keyboardHeight}px`);
+      
+      // Also update the app height to use visual viewport
+      document.documentElement.style.setProperty('--app-height', `${viewportHeight}px`);
+    }
+  };
+
   // Set on load
   setViewportHeight();
+  setKeyboardHeight();
 
   // Update on resize (when keyboard shows/hides or orientation changes)
   let resizeTimer: NodeJS.Timeout;
   window.addEventListener('resize', () => {
     clearTimeout(resizeTimer);
-    resizeTimer = setTimeout(setViewportHeight, 100);
+    resizeTimer = setTimeout(() => {
+      setViewportHeight();
+      setKeyboardHeight();
+    }, 100);
   });
 
   // Handle orientation change separately for better mobile support
   window.addEventListener('orientationchange', () => {
-    setTimeout(setViewportHeight, 100);
+    setTimeout(() => {
+      setViewportHeight();
+      setKeyboardHeight();
+    }, 100);
   });
+
+  // Visual Viewport API for keyboard handling (best for mobile)
+  if (window.visualViewport) {
+    // This fires when keyboard shows/hides
+    window.visualViewport.addEventListener('resize', setKeyboardHeight);
+    window.visualViewport.addEventListener('scroll', setKeyboardHeight);
+  }
 
   // iOS Safari specific: update when scrolling starts (keyboard dismiss)
   let scrollTimer: NodeJS.Timeout;
   window.addEventListener('scroll', () => {
     clearTimeout(scrollTimer);
-    scrollTimer = setTimeout(setViewportHeight, 100);
+    scrollTimer = setTimeout(() => {
+      setViewportHeight();
+      setKeyboardHeight();
+    }, 100);
   }, { passive: true });
-
-  // Visual viewport API for better mobile keyboard handling (if supported)
-  if (window.visualViewport) {
-    window.visualViewport.addEventListener('resize', setViewportHeight);
-  }
 }

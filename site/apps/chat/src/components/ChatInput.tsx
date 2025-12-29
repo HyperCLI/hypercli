@@ -54,8 +54,27 @@ export function ChatInput({
     }
   };
 
+  const handleFocus = () => {
+    // Scroll input into view when keyboard appears (mobile)
+    // Small delay to ensure keyboard is shown
+    setTimeout(() => {
+      textareaRef.current?.scrollIntoView({ 
+        behavior: 'smooth', 
+        block: 'nearest',
+        inline: 'nearest'
+      });
+    }, 300);
+  };
+
   return (
-    <div className="border-t border-border p-4 flex-shrink-0 bg-background">
+    <div 
+      className="border-t border-border p-4 flex-shrink-0 bg-background"
+      style={{
+        // Position above keyboard on mobile
+        transform: 'translateY(calc(-1 * var(--keyboard-height)))',
+        transition: 'transform 0.2s ease-out',
+      }}
+    >
       <form
         onSubmit={handleSubmit}
         className="max-w-3xl mx-auto flex items-end gap-3"
@@ -65,6 +84,7 @@ export function ChatInput({
           value={input}
           onChange={(e) => setInput(e.target.value)}
           onKeyDown={handleKeyDown}
+          onFocus={handleFocus}
           placeholder={placeholder}
           disabled={disabled}
           rows={1}
