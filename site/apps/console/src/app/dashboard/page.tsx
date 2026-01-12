@@ -28,6 +28,12 @@ interface Balance {
   rewards_balance_units: number;
   total_balance: string;
   total_balance_units: number;
+  // Available balance properties - shows balance minus pending reservations
+  available_balance: string;
+  available_balance_units: number;
+  // Pending reservations - funds temporarily held for active jobs
+  pending_reservations: string;
+  pending_reservations_units: number;
   currency: string;
   decimals: number;
 }
