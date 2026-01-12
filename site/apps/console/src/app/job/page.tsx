@@ -82,7 +82,7 @@ const DEFAULTS = {
   dockerImage: 'nvidia/cuda:12.6.0-runtime-ubuntu22.04',
   hfSpace: '',
   dockerfile: '',
-  command: '/bin/sh -c "sleep 5 && nvidia-smi && sleep 600"',
+  command: '', // Empty by default - no command sent unless user specifies
   envVars: [] as {key: string, value: string}[],
   ports: [] as {container: string, host: string}[],
   httpsLbEnabled: false,
