@@ -1,0 +1,76 @@
+---
+title: "Flux Inpaint"
+description: "Fill missing parts of images using Flux inpainting."
+template_id: "flux_fill_inpaint_example"
+bundle: "media-image"
+output_type: "image"
+thumbnail: "/comfyui/flux_fill_inpaint_example/thumbnail.webp"
+tags: ["Image to Image", "Inpainting", "Image"]
+tutorial_url: "https://docs.comfy.org/tutorials/flux/flux-1-fill-dev"
+date: "2025-03-01"
+models: []
+---
+
+# Flux Inpaint
+
+![thumbnail](/comfyui/flux_fill_inpaint_example/thumbnail.webp)
+
+## About
+
+**For Local User**
+[Tutorial](https://docs.comfy.org/tutorials/flux/flux-1-fill-dev)
+
+Guide: [Subgraph](https://docs.comfy.org/interface/features/subgraph)
+
+## Report issue
+
+Note: please update ComfyUI first ([guide](https://docs.comfy.org/zh-CN/installation/update_comfyui)) and prepare required models. Desktop/Cloud ship stable builds; nightly-supported models may not be included yet, please wait for the next stable release.
+
+- Cannot run / runtime errors: [ComfyUI/issues](https://github.com/comfyanonymous/ComfyUI/issues)
+- UI / frontend issues: [ComfyUI_frontend/issues](https://github.com/Comfy-Org/ComfyUI_frontend/issues)
+- Workflow issues: [workflow_templates/issues](https://github.com/Comfy-Org/workflow_templates/issues)
+
+
+## Model links
+
+**text_encoders**
+
+- [clip_l.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/clip_l.safetensors)
+- [t5xxl_fp16.safetensors](https://huggingface.co/comfyanonymous/flux_text_encoders/resolve/main/t5xxl_fp16.safetensors)
+
+**diffusion_models**
+
+- [flux1-fill-dev.safetensors](https://huggingface.co/Comfy-Org/flux1-dev/resolve/main/split_files/diffusion_models/flux1-fill-dev.safetensors)
+
+**vae**
+
+- [ae.safetensors](https://huggingface.co/Comfy-Org/Lumina_Image_2.0_Repackaged/resolve/main/split_files/vae/ae.safetensors)
+
+
+Model Storage Location
+
+```
+📂 ComfyUI/
+├── 📂 models/
+│   ├── 📂 text_encoders/
+│   │      ├── clip_l.safetensors
+│   │      └── t5xxl_fp16.safetensors
+│   ├── 📂 diffusion_models/
+│   │      └── flux1-fill-dev.safetensors
+│   └── 📂 vae/
+│          └── ae.safetensors
+```
+
+## Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `filename_prefix` | string | `ComfyUI` | Output filename prefix |
+
+## Usage
+
+```bash
+c3 comfyui run flux_fill_inpaint_example \
+  --prompt "your prompt here" \
+  --output my_output
+```
