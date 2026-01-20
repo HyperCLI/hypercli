@@ -3,6 +3,7 @@
 import { useTurnkey } from "@turnkey/react-wallet-kit"
 import { createContext, ReactNode, useContext, useEffect, useState } from "react"
 import { cookieUtils } from "../utils/cookies"
+import { getAuthBackendUrl } from "../utils/api"
 
 // Debug logging helper - only logs in development
 const DEBUG = process.env.NEXT_PUBLIC_AUTH_DEBUG === 'true'
@@ -102,7 +103,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
         switch (flowState) {
           case 'verifying':
             debugLog('Logging in with Turnkey session...')
-            const loginRes = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/login`, {
+            const loginRes = await fetch(getAuthBackendUrl("/auth/login"), {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
               body: JSON.stringify({ token: session.token }),

@@ -4,6 +4,7 @@ import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 import { useTurnkey } from "@turnkey/react-wallet-kit"
 import { cookieUtils } from "../utils/cookies"
+import { getAuthBackendUrl } from "../utils/api"
 
 // Common loading component - using brand colors
 const LoadingCard = ({ message }: { message: string }) => (
@@ -93,7 +94,7 @@ function AuthContent() {
           // Login with Turnkey session and get JWT token
           if (session?.token) {
             try {
-              const loginRes = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/login`, {
+              const loginRes = await fetch(getAuthBackendUrl("/auth/login"), {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
                 body: JSON.stringify({ token: session.token }),

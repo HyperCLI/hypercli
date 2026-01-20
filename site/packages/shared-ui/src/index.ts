@@ -280,6 +280,7 @@ export { TopUpModal } from './components/TopUpModal';
 
 // Utils
 export { cookieUtils } from './utils/cookies';
+export { getAuthBackendUrl, getBotApiUrl, getBotWsBase, getLlmApiUrl, withCorsProxy } from './utils/api';
 export { debugLog } from './utils/debug';
 export { toStripeCents, toUsdcUnits, fromStripeCents, fromUsdcUnits } from './utils/currency';
 export { formatDateTime, formatDateTimeShort, formatDate, formatRelativeTime, getUserTimezone, getTimezoneAbbr } from './utils/datetime';

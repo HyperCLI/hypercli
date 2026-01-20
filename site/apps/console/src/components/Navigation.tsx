@@ -10,7 +10,10 @@ import {
   Settings,
   CreditCard,
   HelpCircle,
+  Moon,
+  Sun,
 } from "lucide-react";
+import { useState, useEffect } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -22,6 +25,43 @@ const navItems = [
 
 export function Navigation() {
   const pathname = usePathname();
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
+
+  // Load and apply theme
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute("data-theme", savedTheme);
+      document.body.setAttribute("data-theme", savedTheme);
+    } else {
+      document.documentElement.setAttribute("data-theme", "dark");
+      document.body.setAttribute("data-theme", "dark");
+    }
+
+    // Listen for theme changes from other tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "hypercli_theme" && e.newValue) {
+        const newTheme = e.newValue as "light" | "dark";
+        setTheme(newTheme);
+        document.documentElement.setAttribute("data-theme", newTheme);
+        document.body.setAttribute("data-theme", newTheme);
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const newTheme = prev === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      document.body.setAttribute("data-theme", newTheme);
+      localStorage.setItem("hypercli_theme", newTheme);
+      return newTheme;
+    });
+  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-lg border-b border-border">
@@ -39,7 +79,15 @@ export function Navigation() {
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-1">
-            {navItems.map((item) => {
+            {navIte
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="text-muted-foreground hover:text-foreground"
+            >
+              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </Button>
+            <Buttonms.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link

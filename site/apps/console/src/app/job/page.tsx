@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { Header, Footer, useAuth, getGPUDisplayName, getRegionFlag, getRegionName } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 
 interface GPUInfo {
@@ -577,7 +577,7 @@ export default function LaunchPage() {
         jobSpec.hf_space = hfSpace.trim();
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs`, {
+      const response = await fetch(getAuthBackendUrl("/jobs"), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,

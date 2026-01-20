@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Header, Footer, useAuth, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, TopUpModal, AlertDialog, formatDateTime, getAuthBackendUrl } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
@@ -122,7 +122,7 @@ export default function DashboardPage() {
 
       console.log('🔍 Fetching user profile...');
       console.log('Auth token:', authToken ? 'Found' : 'Missing');
-      console.log('Backend URL:', process.env.NEXT_PUBLIC_AUTH_BACKEND);
+      console.log('Backend URL:', getAuthBackendUrl());
 
       if (!authToken) {
         setProfileError('No auth token found');
@@ -130,7 +130,7 @@ export default function DashboardPage() {
         return;
       }
 
-      const url = `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/user`;
+      const url = getAuthBackendUrl("/user");
       console.log('Fetching from:', url);
 
       const response = await fetch(url, {
@@ -180,7 +180,7 @@ export default function DashboardPage() {
 
       if (!authToken) return;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/user`, {
+      const response = await fetch(getAuthBackendUrl("/user"), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -224,7 +224,7 @@ export default function DashboardPage() {
 
       if (!authToken) return;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/balance`, {
+      const response = await fetch(getAuthBackendUrl("/balance"), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -252,7 +252,7 @@ export default function DashboardPage() {
       if (!authToken) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/tx?page=${currentPage}&page_size=${pageSize}`,
+        getAuthBackendUrl(`/tx?page=${currentPage}&page_size=${pageSize}`),
         {
           method: 'GET',
           headers: {
@@ -323,7 +323,7 @@ export default function DashboardPage() {
       if (!authToken) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/tx?page=${currentPage}&page_size=${pageSize}`,
+        getAuthBackendUrl(`/tx?page=${currentPage}&page_size=${pageSize}`),
         {
           method: 'GET',
           headers: {

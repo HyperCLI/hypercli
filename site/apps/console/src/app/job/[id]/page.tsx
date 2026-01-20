@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getRegionFlag } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getRegionFlag, getAuthBackendUrl } from "@hypercli/shared-ui";
 import { useRouter, useParams } from "next/navigation";
 
 interface Job {
@@ -261,7 +261,7 @@ export default function JobDetailPage() {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}`, {
+      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
@@ -292,7 +292,7 @@ export default function JobDetailPage() {
       const authToken = getAuthToken();
       if (!authToken) return;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}/token`, {
+      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}/token`), {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
@@ -325,7 +325,7 @@ export default function JobDetailPage() {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}/logs`, {
+      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}/logs`), {
         headers: {
           'Authorization': `Bearer ${authToken}`,
           'Content-Type': 'application/json'
@@ -354,7 +354,7 @@ export default function JobDetailPage() {
         const authToken = getAuthToken();
         if (!authToken) return;
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}`, {
+        const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
           headers: {
             'Authorization': `Bearer ${authToken}`,
             'Content-Type': 'application/json'
@@ -467,7 +467,7 @@ export default function JobDetailPage() {
             return;
           }
 
-          const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}`, {
+          const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
             method: 'DELETE',
             headers: {
               'Authorization': `Bearer ${authToken}`,
@@ -548,7 +548,7 @@ export default function JobDetailPage() {
       const authToken = getAuthToken();
       if (!authToken) return;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}/metrics`, {
+      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}/metrics`), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -622,7 +622,7 @@ export default function JobDetailPage() {
       // Calculate new total runtime
       const new_runtime = job.runtime + extensionSeconds;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}`, {
+      const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
         method: 'PATCH',
         headers: {
           'Authorization': `Bearer ${authToken}`,

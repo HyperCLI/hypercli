@@ -3,8 +3,9 @@
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";
 
-/* HyperCLI Design System - Dark Theme */
-:root {
+/* HyperCLI Design System - Dark Theme (Default) */
+:root,
+[data-theme="dark"] {
   --font-size: 16px;
   --background: #0b0d0e;
   --background-secondary: #111314;
@@ -59,11 +60,75 @@
   --sidebar-accent-foreground: #fff;
   --sidebar-border: #1f2122;
   --sidebar-ring: #38d39f;
+  --glow-primary: rgba(56, 211, 159, 0.18);
+  --glow-secondary: rgba(69, 228, 174, 0.12);
+  --panel-shadow: 0 16px 40px rgba(5, 7, 8, 0.55);
   
   /* Mobile viewport height - accounts for browser UI */
   --app-height: 100vh;
   --app-height: 100dvh; /* Dynamic viewport height (modern browsers) */
   --keyboard-offset: 0px; /* Updated by JS when keyboard shows */
+}
+
+/* HyperCLI Design System - Light Theme */
+[data-theme="light"] {
+  --font-size: 16px;
+  --background: #fafafa;
+  --background-secondary: #f5f5f5;
+  --surface-low: #ffffff;
+  --surface-high: #f8f8f8;
+  --foreground: #0f1419;
+  --text-secondary: #3d4752;
+  --text-tertiary: #5f6b7a;
+  --text-muted: #8a94a3;
+  --card: #ffffff;
+  --card-foreground: #0f1419;
+  --popover: #ffffff;
+  --popover-foreground: #0f1419;
+  --primary: #2db789;
+  --primary-foreground: #ffffff;
+  --primary-hover: #25a377;
+  --primary-pressed: #1f8f65;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #3d4752;
+  --muted: #f5f5f5;
+  --muted-foreground: #5f6b7a;
+  --accent: #2db789;
+  --accent-foreground: #ffffff;
+  --accent-hover: #25a377;
+  --accent-pressed: #1f8f65;
+  --accent-subtle: #d4f4e8;
+  --destructive: #d94848;
+  --destructive-foreground: #fff;
+  --success: #2db789;
+  --warning: #e0a85f;
+  --error: #d94848;
+  --border: #e5e7eb;
+  --border-medium: #d1d5db;
+  --border-strong: #9ca3af;
+  --input: transparent;
+  --input-background: #ffffff;
+  --switch-background: #f5f5f5;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #2db789;
+  --chart-1: #2db789;
+  --chart-2: #25a377;
+  --chart-3: #1f8f65;
+  --chart-4: #d4f4e8;
+  --chart-5: #38d39f;
+  --radius: 0.5rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f1419;
+  --sidebar-primary: #2db789;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f8f8f8;
+  --sidebar-accent-foreground: #0f1419;
+  --sidebar-border: #e5e7eb;
+  --sidebar-ring: #2db789;
+  --glow-primary: rgba(45, 183, 137, 0.12);
+  --glow-secondary: rgba(45, 183, 137, 0.08);
+  --panel-shadow: 0 16px 40px rgba(15, 20, 25, 0.08);
 }
 
 /* Chat-specific color aliases (used in page.tsx) */
@@ -217,6 +282,82 @@ h1, h2, h3, h4, h5, h6 {
 /* Green glow effect */
 .glow-green {
   box-shadow: 0 0 40px rgba(56, 211, 159, 0.3);
+}
+
+/* Chat layout accents */
+.chat-shell {
+  position: relative;
+  isolation: isolate;
+  background: radial-gradient(1200px 600px at 15% -10%, rgba(56, 211, 159, 0.12), transparent 60%),
+    radial-gradient(900px 520px at 90% 10%, rgba(69, 228, 174, 0.08), transparent 55%),
+    linear-gradient(180deg, rgba(17, 19, 20, 0.9), rgba(11, 13, 14, 0.98));
+}
+
+.chat-shell::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='220' height='220' viewBox='0 0 220 220'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='220' height='220' filter='url(%23n)' opacity='0.05'/%3E%3C/svg%3E")
+    repeat;
+  mix-blend-mode: soft-light;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chat-shell::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: radial-gradient(600px 260px at 50% 0%, rgba(56, 211, 159, 0.08), transparent 70%);
+  pointer-events: none;
+  z-index: 0;
+}
+
+.chat-shell > * {
+  position: relative;
+  z-index: 1;
+}
+
+.chat-glass {
+  background: rgba(15, 17, 18, 0.78);
+  backdrop-filter: blur(18px);
+  -webkit-backdrop-filter: blur(18px);
+  border: 1px solid rgba(255, 255, 255, 0.06);
+  box-shadow: var(--panel-shadow);
+}
+
+.chat-scrollbar::-webkit-scrollbar {
+  width: 10px;
+}
+
+.chat-scrollbar::-webkit-scrollbar-thumb {
+  background: rgba(120, 126, 130, 0.35);
+  border-radius: 999px;
+  border: 2px solid transparent;
+  background-clip: content-box;
+}
+
+.chat-scrollbar::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+@keyframes floatUp {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.animate-fade-up {
+  animation: floatUp 0.4s ease-out both;
+}
+
+.animate-pulse-soft {
+  animation: pulse 2.5s ease-in-out infinite;
 }
 
 /* Subtle green glow */

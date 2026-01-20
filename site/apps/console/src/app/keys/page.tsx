@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, Modal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, Modal, AlertDialog, formatDateTime, getAuthBackendUrl } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 
 interface ApiKey {
@@ -75,7 +75,7 @@ export default function ApiKeysPage() {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/keys`, {
+      const response = await fetch(getAuthBackendUrl("/keys"), {
         method: 'GET',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -121,7 +121,7 @@ export default function ApiKeysPage() {
 
       if (!authToken) return;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/keys`, {
+      const response = await fetch(getAuthBackendUrl("/keys"), {
         method: 'POST',
         headers: {
           'Authorization': `Bearer ${authToken}`,
@@ -174,7 +174,7 @@ export default function ApiKeysPage() {
 
           if (!authToken) return;
 
-          const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/keys/${keyId}`, {
+          const response = await fetch(getAuthBackendUrl(`/keys/${keyId}`), {
             method: 'DELETE',
             headers: {
               'Authorization': `Bearer ${authToken}`,

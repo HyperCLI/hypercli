@@ -3,8 +3,9 @@ import type { AxiosInstance } from "axios"
 import type { WalletClient } from "viem"
 import { withPaymentInterceptor } from "x402-axios"
 import { debugLog } from "../utils/debug"
+import { getAuthBackendUrl } from "../utils/api"
 
-const API_BASE_URL = process.env.NEXT_PUBLIC_AUTH_BACKEND!;
+const API_BASE_URL = getAuthBackendUrl();
 
 // Base axios instance without payment interceptor
 const baseApiClient = axios.create({

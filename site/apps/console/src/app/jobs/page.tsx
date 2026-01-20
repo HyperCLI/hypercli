@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getRegionFlag } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getRegionFlag, getAuthBackendUrl } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import AmountDisplay from "../../components/AmountDisplay";
 
@@ -116,7 +116,7 @@ export default function JobsPage() {
         return;
       }
 
-      let url = `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs?page=${currentPage}&page_size=${pageSize}`;
+      let url = getAuthBackendUrl(`/jobs?page=${currentPage}&page_size=${pageSize}`);
       if (stateFilter !== "all") {
         url += `&state=${stateFilter}`;
       }
@@ -137,7 +137,7 @@ export default function JobsPage() {
 
         // Fetch transactions for all jobs
         const txResponse = await fetch(
-          `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/tx?page_size=100`,
+          getAuthBackendUrl("/tx?page_size=100"),
           {
             headers: {
               'Authorization': `Bearer ${authToken}`,
@@ -203,7 +203,7 @@ export default function JobsPage() {
 
           if (!authToken) return;
 
-          const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/jobs/${jobId}`, {
+          const response = await fetch(getAuthBackendUrl(`/jobs/${jobId}`), {
             method: 'DELETE',
             headers: {
               'Authorization': `Bearer ${authToken}`,
@@ -348,7 +348,7 @@ export default function JobsPage() {
 
       // Fetch transactions and find the one for this job
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/tx?job_id=${jobId}`,
+        getAuthBackendUrl(`/tx?job_id=${jobId}`),
         {
           headers: {
             'Authorization': `Bearer ${authToken}`,

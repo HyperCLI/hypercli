@@ -8,10 +8,11 @@
     "packages/*"
   ],
   "scripts": {
-    "dev": "turbo run dev",
+    "dev": "start /B node cors-anywhere.js && turbo run dev",
     "build": "turbo run build",
     "lint": "turbo run lint",
-    "clean": "turbo run clean && rm -rf node_modules"
+    "clean": "turbo run clean && rm -rf node_modules",
+    "cors-proxy": "node cors-anywhere.js"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4",
@@ -26,6 +27,8 @@
     "@types/node": "^22",
     "@types/react": "^19",
     "@types/react-dom": "^19",
+    "concurrently": "^9.2.1",
+    "cors-anywhere": "^0.4.4",
     "eslint": "^9",
     "eslint-config-next": "^16",
     "pino-pretty": "^13.1.3",

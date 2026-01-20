@@ -4,6 +4,7 @@ import { useState, useEffect } from "react"
 import { useWallet } from "../contexts/WalletContext"
 import { x402Api, updateX402Client } from "../services/x402Api"
 import { debugLog } from "../utils/debug"
+import { getAuthBackendUrl } from "../utils/api"
 import { toUsdcUnits } from "../utils/currency"
 
 interface TopUpModalProps {
@@ -155,7 +156,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
       // Create Stripe checkout session
       // Send dollar amount - backend converts to cents
       debugLog("💳 Creating Stripe checkout session for $" + amount)
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/stripe/top_up`, {
+      const response = await fetch(getAuthBackendUrl("/stripe/top_up"), {
         method: "POST",
         headers: {
           "Content-Type": "application/json",

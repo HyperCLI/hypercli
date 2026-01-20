@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, formatDateTime, getBadgeClass, getAuthBackendUrl } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
@@ -68,7 +68,7 @@ export default function HistoryPage() {
         return;
       }
 
-      let url = `${process.env.NEXT_PUBLIC_AUTH_BACKEND}/tx?page=${currentPage}&page_size=${pageSize}`;
+      let url = getAuthBackendUrl(`/tx?page=${currentPage}&page_size=${pageSize}`);
       if (typeFilter !== "all") {
         url += `&transaction_type=${typeFilter}`;
       }

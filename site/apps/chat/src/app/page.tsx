@@ -1,17 +1,47 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, Suspense } from "react";
-import { useAuth, WalletAuth, cookieUtils, TopUpModal } from "@hypercli/shared-ui";
+import { useAuth, WalletAuth, cookieUtils, TopUpModal, getAuthBackendUrl, getBotApiUrl, getBotWsBase, getLlmApiUrl } from "@hypercli/shared-ui";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { ChatSidebar, ChatWindow, ChatHeader, ChatInput } from "../components";
 import { initViewportHeight } from "./viewport-height";
 
 // Bot API types
+interface SelectionOption {
+  id: string;
+  label: string;
+  description?: string | null;
+}
+
+interface RenderMeta {
+  render_id: string;
+  state?: string | null;
+  template?: string | null;
+  gpu_type?: string | null;
+  result_url?: string | null;
+  error?: string | null;
+  render_type?: string | null;
+}
+
+interface MessageMeta {
+  options?: SelectionOption[];
+  tool_call?: {
+    id?: string;
+    name?: string;
+    arguments?: Record<string, unknown>;
+  };
+  render?: RenderMeta;
+}
+
 interface Message {
   id: number | string; // API returns number, temp messages use string
   role: "user" | "assistant";
   content: string;
+  type?: string;
+  meta?: MessageMeta | null;
+  status?: string;
+  error?: string | null;
   created_at: string;
 }
 
@@ -41,6 +71,59 @@ interface Balance {
   decimals: number;
 }
 
+interface RenderNotification {
+  id: number;
+  render_id: string;
+  status: string;
+  result_url?: string | null;
+  error?: string | null;
+  created_at: string;
+}
+
+const normalizeRenderPayload = (payload: any): RenderMeta | null => {
+  if (!payload || typeof payload !== "object") return null;
+  const renderId = payload.render_id || payload.id || payload.renderId;
+  if (!renderId || typeof renderId !== "string") return null;
+
+  return {
+    render_id: renderId,
+    state: payload.state || payload.status || null,
+    template: payload.template || payload.meta?.template || payload.params?.template || null,
+    gpu_type: payload.gpu_type || payload.params?.gpu_type || null,
+    result_url: payload.result_url || null,
+    error: payload.error || null,
+    render_type: payload.type || payload.render_type || null,
+  };
+};
+
+const extractRenderMetaFromResult = (result: unknown): RenderMeta | null => {
+  if (!result) return null;
+
+  if (typeof result === "object") {
+    return normalizeRenderPayload(result);
+  }
+
+  if (typeof result !== "string") return null;
+  const trimmed = result.trim();
+  if (!trimmed) return null;
+
+  let jsonCandidate = trimmed;
+  if (!(trimmed.startsWith("{") && trimmed.endsWith("}"))) {
+    const start = trimmed.indexOf("{");
+    const end = trimmed.lastIndexOf("}");
+    if (start !== -1 && end > start) {
+      jsonCandidate = trimmed.slice(start, end + 1);
+    }
+  }
+
+  try {
+    const payload = JSON.parse(jsonCandidate);
+    return normalizeRenderPayload(payload);
+  } catch {
+    return null;
+  }
+};
+
 function ChatPageContent() {
   const { isLoading, isAuthenticated } = useAuth();
   const { logout } = useTurnkey();
@@ -66,6 +149,7 @@ function ChatPageContent() {
   // UI State
   const [pendingMessage, setPendingMessage] = useState("");
   const [isStreaming, setIsStreaming] = useState(false);
+  const [selectionStatus, setSelectionStatus] = useState<Record<string, "pending" | "complete">>({});
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
@@ -83,10 +167,17 @@ function ChatPageContent() {
   const pendingSubscribeRef = useRef<{ messageId: number; resolve: () => void; reject: (err: Error) => void } | null>(null);
   const currentThreadIdRef = useRef<string | null>(null);
   const creatingFreeUserRef = useRef(false);
+  const renderPollersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
+  const renderPollAttemptsRef = useRef<Record<string, number>>({});
+  const renderNotificationPollerRef = useRef<NodeJS.Timeout | null>(null);
 
   // Keep ref in sync with state for use in WebSocket callbacks
   useEffect(() => {
     currentThreadIdRef.current = currentThreadId;
+  }, [currentThreadId]);
+
+  useEffect(() => {
+    setSelectionStatus({});
   }, [currentThreadId]);
 
   // Check login type from localStorage
@@ -105,18 +196,39 @@ function ChatPageContent() {
 
   // Load theme from localStorage
   useEffect(() => {
-    const savedTheme = localStorage.getItem("hypercli_chat_theme") as "light" | "dark" | null;
+    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
     if (savedTheme) {
       setTheme(savedTheme);
+      document.documentElement.setAttribute("data-theme", savedTheme);
+      document.body.setAttribute("data-theme", savedTheme);
     } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
       setTheme("dark");
+      document.documentElement.setAttribute("data-theme", "dark");
+      document.body.setAttribute("data-theme", "dark");
+    } else {
+      document.documentElement.setAttribute("data-theme", "dark");
+      document.body.setAttribute("data-theme", "dark");
     }
+
+    // Listen for theme changes from other tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "hypercli_theme" && e.newValue) {
+        const newTheme = e.newValue as "light" | "dark";
+        setTheme(newTheme);
+        document.documentElement.setAttribute("data-theme", newTheme);
+        document.body.setAttribute("data-theme", newTheme);
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   // Apply theme
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
-    localStorage.setItem("hypercli_chat_theme", theme);
+    document.body.setAttribute("data-theme", theme);
+    localStorage.setItem("hypercli_theme", theme);
   }, [theme]);
 
   // Fetch threads from bot API
@@ -128,7 +240,7 @@ function ChatPageContent() {
         return;
       }
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats`, {
+      const response = await fetch(getBotApiUrl("/chats"), {
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
@@ -183,7 +295,7 @@ function ChatPageContent() {
 
     const createFreeUser = async () => {
       try {
-        const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/free`, {
+        const response = await fetch(getAuthBackendUrl("/auth/free"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
         });
@@ -217,7 +329,7 @@ function ChatPageContent() {
           return;
         }
 
-        const response = await fetch(`${process.env.NEXT_PUBLIC_LLM_API_URL}/models`, {
+        const response = await fetch(getLlmApiUrl("/models"), {
           headers: {
             Authorization: `Bearer ${authToken}`,
           },
@@ -266,7 +378,7 @@ function ChatPageContent() {
 
       if (!authToken) return;
 
-      const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/balance`, {
+      const response = await fetch(getAuthBackendUrl("/balance"), {
         method: "GET",
         headers: {
           Authorization: `Bearer ${authToken}`,
@@ -300,8 +412,9 @@ function ChatPageContent() {
       wsReconnectTimeoutRef.current = null;
     }
 
-    const wsUrl = process.env.NEXT_PUBLIC_BOT_API_URL?.replace(/^http/, "ws");
-    const ws = new WebSocket(`${wsUrl}/stream?token=${authToken}`);
+    const wsBase = getBotWsBase();
+    if (!wsBase) return;
+    const ws = new WebSocket(`${wsBase}/stream?token=${authToken}`);
 
     ws.onopen = () => {
       console.log("[WS] Connected to stream");
@@ -332,6 +445,60 @@ function ChatPageContent() {
             pendingSubscribeRef.current.resolve();
             pendingSubscribeRef.current = null;
           }
+        } else if (data.type === "tool_result") {
+          const renderMeta = extractRenderMetaFromResult(data.result);
+          if (renderMeta) {
+            setMessages((prev) => {
+              const newMessages = [...prev];
+              for (let i = newMessages.length - 1; i >= 0; i -= 1) {
+                if (newMessages[i].role === "assistant") {
+                  newMessages[i] = {
+                    ...newMessages[i],
+                    meta: {
+                      ...newMessages[i].meta,
+                      render: renderMeta,
+                    },
+                  };
+                  return newMessages;
+                }
+              }
+              return [
+                ...newMessages,
+                {
+                  id: `render-${renderMeta.render_id}`,
+                  role: "assistant",
+                  content: "",
+                  type: "render",
+                  meta: { render: renderMeta },
+                  created_at: new Date().toISOString(),
+                },
+              ];
+            });
+          }
+        } else if (data.type === "selection") {
+          setIsStreaming(false);
+          setMessages((prev) => {
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg?.role === "assistant" && !lastMsg.content && !lastMsg.meta?.render) {
+              newMessages.pop();
+            }
+            if (newMessages.some((msg) => msg.id === data.message_id)) {
+              return newMessages;
+            }
+            return [
+              ...newMessages,
+              {
+                id: data.message_id,
+                role: "assistant",
+                content: data.content || "",
+                type: "selection",
+                meta: { options: data.options || [] },
+                status: "complete",
+                created_at: new Date().toISOString(),
+              },
+            ];
+          });
         } else if (data.type === "done") {
           setMessages((prev) => {
             if (prev.length === 0) return prev;
@@ -352,7 +519,7 @@ function ChatPageContent() {
           const threadId = currentThreadIdRef.current;
           if (authToken && threadId) {
             // Refresh messages to get real IDs
-            fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`, {
+            fetch(getBotApiUrl(`/chats/${threadId}/messages`), {
               headers: { Authorization: `Bearer ${authToken}` },
             })
               .then((res) => res.json())
@@ -383,12 +550,17 @@ function ChatPageContent() {
     };
 
     ws.onerror = (error) => {
-      console.error("[WS] Connection error:", error);
+      console.error("[WS] Connection error:", { url: ws.url, error });
       setWsConnected(false);
     };
 
-    ws.onclose = () => {
-      console.log("[WS] Connection closed, scheduling reconnect");
+    ws.onclose = (event) => {
+      console.log("[WS] Connection closed, scheduling reconnect", {
+        url: ws.url,
+        code: event.code,
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
       setWsConnected(false);
       wsRef.current = null;
 
@@ -402,6 +574,159 @@ function ChatPageContent() {
 
     wsRef.current = ws;
   }, [isAuthenticated]);
+
+  const waitForWebSocketOpen = useCallback((): Promise<void> => {
+    return new Promise((resolve, reject) => {
+      if (wsRef.current?.readyState === WebSocket.OPEN) {
+        resolve();
+        return;
+      }
+
+      connectWebSocket();
+
+      const startTime = Date.now();
+      const interval = setInterval(() => {
+        if (wsRef.current?.readyState === WebSocket.OPEN) {
+          clearInterval(interval);
+          resolve();
+          return;
+        }
+
+        if (Date.now() - startTime > 5000) {
+          clearInterval(interval);
+          reject(new Error("WebSocket not connected"));
+        }
+      }, 100);
+    });
+  }, [connectWebSocket]);
+
+  const updateRenderMeta = useCallback((renderId: string, patch: Partial<RenderMeta>) => {
+    setMessages((prev) =>
+      prev.map((msg) => {
+        if (msg.meta?.render?.render_id !== renderId) return msg;
+        return {
+          ...msg,
+          meta: {
+            ...msg.meta,
+            render: {
+              ...msg.meta.render,
+              ...patch,
+            },
+          },
+        };
+      }),
+    );
+  }, []);
+
+  const upsertRenderFromNotification = useCallback((notification: RenderNotification) => {
+    setMessages((prev) => {
+      const nextState = notification.status || "queued";
+      const renderId = notification.render_id;
+      const existingIndex = prev.findIndex((msg) => msg.meta?.render?.render_id === renderId);
+      const renderPatch: RenderMeta = {
+        render_id: renderId,
+        state: nextState,
+        result_url: notification.result_url || null,
+        error: notification.error || null,
+      };
+
+      if (existingIndex !== -1) {
+        const existing = prev[existingIndex];
+        const updated = {
+          ...existing,
+          meta: {
+            ...existing.meta,
+            render: {
+              ...existing.meta?.render,
+              ...renderPatch,
+            },
+          },
+        };
+        const next = [...prev];
+        next[existingIndex] = updated;
+        return next;
+      }
+
+      return [
+        ...prev,
+        {
+          id: `render-${renderId}`,
+          role: "assistant",
+          content: "",
+          type: "render",
+          meta: { render: renderPatch },
+          created_at: new Date().toISOString(),
+        },
+      ];
+    });
+  }, []);
+
+  const stopRenderPolling = useCallback((renderId: string) => {
+    const interval = renderPollersRef.current.get(renderId);
+    if (interval) {
+      clearInterval(interval);
+      renderPollersRef.current.delete(renderId);
+    }
+    delete renderPollAttemptsRef.current[renderId];
+  }, []);
+
+  const startRenderPolling = useCallback(
+    (renderId: string) => {
+      if (!isAuthenticated || renderPollersRef.current.has(renderId)) return;
+
+      const poll = async () => {
+        const authToken = cookieUtils.get("auth_token");
+        if (!authToken) {
+          stopRenderPolling(renderId);
+          return;
+        }
+
+        try {
+          const response = await fetch(getBotApiUrl(`/renders/${renderId}`), {
+            headers: { Authorization: `Bearer ${authToken}` },
+          });
+
+          if (!response.ok) {
+            if (response.status === 404 || response.status === 401) {
+              const attempts = (renderPollAttemptsRef.current[renderId] || 0) + 1;
+              renderPollAttemptsRef.current[renderId] = attempts;
+              if (attempts >= 3) {
+                stopRenderPolling(renderId);
+              }
+            }
+            return;
+          }
+
+          const data = await response.json();
+          if (data && typeof data === "object") {
+            const nextState = data.status || data.state || null;
+            updateRenderMeta(renderId, {
+              state: nextState,
+              result_url: data.result_url || null,
+              error: data.error || null,
+              template: data.template || undefined,
+            });
+
+            if (nextState && ["success", "failed", "cancelled"].includes(nextState)) {
+              stopRenderPolling(renderId);
+            }
+          }
+        } catch (error) {
+          const attempts = (renderPollAttemptsRef.current[renderId] || 0) + 1;
+          renderPollAttemptsRef.current[renderId] = attempts;
+          if (attempts >= 3) {
+            stopRenderPolling(renderId);
+          }
+          console.error("Failed to poll render status:", error);
+        }
+      };
+
+      const interval = setInterval(poll, 4000);
+      renderPollersRef.current.set(renderId, interval);
+      void poll();
+    },
+    [isAuthenticated, stopRenderPolling, updateRenderMeta],
+  );
 
   // Connect WebSocket when authenticated
   useEffect(() => {
@@ -421,26 +746,105 @@ function ChatPageContent() {
     };
   }, [isAuthenticated, connectWebSocket]);
 
-  // Subscribe to a message stream
-  const subscribeToMessage = useCallback((messageId: number): Promise<void> => {
-    return new Promise((resolve, reject) => {
-      if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
-        reject(new Error("WebSocket not connected"));
-        return;
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    for (const msg of messages) {
+      const renderId = msg.meta?.render?.render_id;
+      const state = msg.meta?.render?.state;
+      if (!renderId) continue;
+      if (state && ["success", "failed", "cancelled"].includes(state)) {
+        stopRenderPolling(renderId);
+        continue;
       }
+      startRenderPolling(renderId);
+    }
+  }, [messages, isAuthenticated, startRenderPolling, stopRenderPolling]);
 
-      pendingSubscribeRef.current = { messageId, resolve, reject };
-      wsRef.current.send(JSON.stringify({ type: "subscribe", message_id: messageId }));
-
-      // Timeout after 10 seconds
-      setTimeout(() => {
-        if (pendingSubscribeRef.current?.messageId === messageId) {
-          pendingSubscribeRef.current.reject(new Error("Subscribe timeout"));
-          pendingSubscribeRef.current = null;
-        }
-      }, 10000);
-    });
+  useEffect(() => {
+    return () => {
+      for (const [, interval] of renderPollersRef.current) {
+        clearInterval(interval);
+      }
+      renderPollersRef.current.clear();
+    };
   }, []);
+
+  useEffect(() => {
+    if (!isAuthenticated) return;
+
+    const pollNotifications = async () => {
+      const authToken = cookieUtils.get("auth_token");
+      if (!authToken) return;
+
+      try {
+        const response = await fetch(getBotApiUrl("/renders/notifications"), {
+          headers: { Authorization: `Bearer ${authToken}` },
+        });
+
+        if (!response.ok) return;
+
+        const notifications = await response.json();
+        if (!Array.isArray(notifications) || notifications.length === 0) return;
+
+        const ids: number[] = [];
+        for (const notification of notifications as RenderNotification[]) {
+          if (!notification?.render_id) continue;
+          ids.push(notification.id);
+          upsertRenderFromNotification(notification);
+        }
+
+        if (ids.length > 0) {
+          await fetch(getBotApiUrl("/renders/notifications/read"), {
+            method: "POST",
+            headers: {
+              Authorization: `Bearer ${authToken}`,
+              "Content-Type": "application/json",
+            },
+            body: JSON.stringify(ids),
+          });
+        }
+      } catch (error) {
+        console.error("Failed to poll render notifications:", error);
+      }
+    };
+
+    renderNotificationPollerRef.current = setInterval(pollNotifications, 5000);
+    void pollNotifications();
+
+    return () => {
+      if (renderNotificationPollerRef.current) {
+        clearInterval(renderNotificationPollerRef.current);
+        renderNotificationPollerRef.current = null;
+      }
+    };
+  }, [isAuthenticated, upsertRenderFromNotification]);
+
+  // Subscribe to a message stream
+  const subscribeToMessage = useCallback(
+    async (messageId: number): Promise<void> => {
+      await waitForWebSocketOpen();
+
+      return new Promise((resolve, reject) => {
+        if (!wsRef.current || wsRef.current.readyState !== WebSocket.OPEN) {
+          reject(new Error("WebSocket not connected"));
+          return;
+        }
+
+        pendingSubscribeRef.current = { messageId, resolve, reject };
+        wsRef.current.send(JSON.stringify({ type: "subscribe", message_id: messageId }));
+
+        // Timeout after 10 seconds
+        setTimeout(() => {
+          if (pendingSubscribeRef.current?.messageId === messageId) {
+            pendingSubscribeRef.current.reject(new Error("Subscribe timeout"));
+            pendingSubscribeRef.current = null;
+          }
+        }, 10000);
+      });
+    },
+    [waitForWebSocketOpen],
+  );
 
   // Handle initial message from URL param - auto-create free user if needed
   // For /chat/<id>?message=, this will auto-send after navigation completes
@@ -480,7 +884,7 @@ function ChatPageContent() {
 
         const createFreeUser = async () => {
           try {
-            const response = await fetch(`${process.env.NEXT_PUBLIC_AUTH_BACKEND}/auth/free`, {
+            const response = await fetch(getAuthBackendUrl("/auth/free"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
             });
@@ -542,7 +946,11 @@ function ChatPageContent() {
   };
 
   const toggleTheme = () => {
-    setTheme((prev) => (prev === "light" ? "dark" : "light"));
+    setTheme((prev) => {
+      const newTheme = prev === "light" ? "dark" : "light";
+      console.log("Toggling theme from", prev, "to", newTheme);
+      return newTheme;
+    });
   };
 
   const startNewThread = () => {
@@ -553,25 +961,17 @@ function ChatPageContent() {
     router.push("/", { scroll: false });
   };
 
-  const selectThread = async (threadId: string, updateUrl = true, skipFetch = false) => {
-    setCurrentThreadId(threadId);
-
-    // Update URL to /chat/{id}
-    if (updateUrl) {
-      router.push(`/chat/${threadId}`, { scroll: false });
+  const fetchThreadMessages = async (threadId: string, clearFirst = false) => {
+    if (clearFirst) {
+      setMessages([]);
     }
-
-    // Skip fetch if we're doing a handover (auto-send will manage messages)
-    if (skipFetch) return;
-
-    setMessages([]); // Clear while loading
 
     try {
       const authToken = cookieUtils.get("auth_token");
       if (!authToken) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`,
+        getBotApiUrl(`/chats/${threadId}/messages`),
         { headers: { Authorization: `Bearer ${authToken}` } }
       );
 
@@ -585,6 +985,19 @@ function ChatPageContent() {
     }
   };
 
+  const selectThread = async (threadId: string, updateUrl = true, skipFetch = false) => {
+    setCurrentThreadId(threadId);
+
+    // Update URL to /chat/{id}
+    if (updateUrl) {
+      router.push(`/chat/${threadId}`, { scroll: false });
+    }
+
+    // Skip fetch if we're doing a handover (auto-send will manage messages)
+    if (skipFetch) return;
+    fetchThreadMessages(threadId, true);
+  };
+
   const deleteThread = async (threadId: string, e: React.MouseEvent) => {
     e.stopPropagation();
 
@@ -593,7 +1006,7 @@ function ChatPageContent() {
       if (!authToken) return;
 
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}`,
+        getBotApiUrl(`/chats/${threadId}`),
         {
           method: "DELETE",
           headers: { Authorization: `Bearer ${authToken}` },
@@ -632,6 +1045,7 @@ function ChatPageContent() {
       id: "temp-user",
       role: "user",
       content: userMessage,
+      type: "text",
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUserMsg]);
@@ -641,6 +1055,7 @@ function ChatPageContent() {
       id: "temp-assistant",
       role: "assistant",
       content: "",
+      type: "text",
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempAssistantMsg]);
@@ -649,7 +1064,7 @@ function ChatPageContent() {
       // Create thread if needed - use handover pattern for new chats
       let threadId = currentThreadId;
       if (!threadId) {
-        const createRes = await fetch(`${process.env.NEXT_PUBLIC_BOT_API_URL}/chats`, {
+        const createRes = await fetch(getBotApiUrl("/chats"), {
           method: "POST",
           headers: {
             "Content-Type": "application/json",
@@ -677,7 +1092,7 @@ function ChatPageContent() {
 
       // Send message via POST (returns message IDs)
       const response = await fetch(
-        `${process.env.NEXT_PUBLIC_BOT_API_URL}/chats/${threadId}/messages`,
+        getBotApiUrl(`/chats/${threadId}/messages`),
         {
           method: "POST",
           headers: {
@@ -740,6 +1155,62 @@ function ChatPageContent() {
     }
   };
 
+  const handleSelection = async (messageId: number, option: SelectionOption) => {
+    if (!currentThreadId) return;
+    const authToken = cookieUtils.get("auth_token");
+    if (!authToken) return;
+
+    const selectionKey = String(messageId);
+    setSelectionStatus((prev) => ({ ...prev, [selectionKey]: "pending" }));
+
+    try {
+      const response = await fetch(
+        getBotApiUrl(`/chats/${currentThreadId}/selection`),
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+            Authorization: `Bearer ${authToken}`,
+          },
+          body: JSON.stringify({
+            message_id: messageId,
+            selected_id: option.id,
+          }),
+        }
+      );
+
+      if (!response.ok) {
+        const errorData = await response.json().catch(() => ({}));
+        throw new Error(errorData.detail || "Failed to submit selection");
+      }
+
+      setSelectionStatus((prev) => ({ ...prev, [selectionKey]: "complete" }));
+
+      const responseMessage: Message = {
+        id: `selection-response-${messageId}-${Date.now()}`,
+        role: "user",
+        content: option.label,
+        type: "selection_response",
+        created_at: new Date().toISOString(),
+      };
+      setMessages((prev) => [...prev, responseMessage]);
+
+      setTimeout(() => {
+        const activeThreadId = currentThreadIdRef.current;
+        if (activeThreadId) {
+          fetchThreadMessages(activeThreadId);
+        }
+      }, 2000);
+    } catch (error) {
+      console.error("Selection error:", error);
+      setSelectionStatus((prev) => {
+        const next = { ...prev };
+        delete next[selectionKey];
+        return next;
+      });
+    }
+  };
+
   const handleLogout = async () => {
     // Clear auth cookie
     cookieUtils.remove("auth_token");
@@ -771,39 +1242,38 @@ function ChatPageContent() {
   }
 
   return (
-    <div className="flex overflow-hidden bg-background relative" style={{ height: 'var(--app-height)' }}>
-      {/* Backdrop */}
+    <div className="flex overflow-hidden bg-background relative chat-shell" style={{ height: 'var(--app-height)' }}>
+      {/* Backdrop (mobile only) */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 bg-black/50 backdrop-blur-sm z-40 transition-opacity"
+          className="fixed inset-0 bg-black/60 backdrop-blur-sm z-40 transition-opacity md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
       {/* Sidebar Overlay */}
-      <div
-        className={`fixed top-0 left-0 h-full w-72 z-50 transform transition-transform duration-300 ${
-          sidebarOpen ? "translate-x-0" : "-translate-x-full"
-        }`}
-      >
-        <ChatSidebar
-          threads={threads}
-          currentThreadId={currentThreadId}
-          loadingThreads={loadingThreads}
-          models={models}
-          selectedModel={selectedModel}
-          loadingModels={loadingModels}
-          balance={balance}
-          theme={theme}
-          onSelectThread={selectThread}
-          onDeleteThread={deleteThread}
-          onNewThread={startNewThread}
-          onSelectModel={handleModelChange}
-          onToggleTheme={toggleTheme}
-          onTopUp={() => setShowTopUpModal(true)}
-          onLogout={handleLogout}
-        />
-      </div>
+      {sidebarOpen && (
+        <div className="fixed md:relative top-0 left-0 h-full w-72 z-50 flex-shrink-0">
+          <ChatSidebar
+            threads={threads}
+            currentThreadId={currentThreadId}
+            loadingThreads={loadingThreads}
+            models={models}
+            selectedModel={selectedModel}
+            loadingModels={loadingModels}
+            balance={balance}
+            theme={theme}
+            onSelectThread={selectThread}
+            onDeleteThread={deleteThread}
+            onNewThread={startNewThread}
+            onSelectModel={handleModelChange}
+            onToggleTheme={toggleTheme}
+            onTopUp={() => setShowTopUpModal(true)}
+            onLogout={handleLogout}
+            onHideSidebar={() => setSidebarOpen(false)}
+          />
+        </div>
+      )}
 
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0 w-full overflow-hidden">
@@ -811,11 +1281,17 @@ function ChatPageContent() {
           selectedModel={selectedModel}
           loadingModels={loadingModels}
           isFreeUser={isFreeUser}
+          sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onShowLogin={() => setShowLoginModal(true)}
         />
 
-        <ChatWindow messages={messages} isStreaming={isStreaming} />
+        <ChatWindow
+          messages={messages}
+          isStreaming={isStreaming}
+          onSelectOption={handleSelection}
+          selectionStatus={selectionStatus}
+        />
 
         <ChatInput
           onSendMessage={handleSendMessage}
