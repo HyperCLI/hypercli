@@ -9,6 +9,7 @@ import { useAuth } from "../providers/AuthProvider";
 import { cookieUtils } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
 import { useRef } from "react";
+import { Moon, Sun } from "lucide-react";
 import {
   NavigationMenu,
   NavigationMenuList,
@@ -23,6 +24,7 @@ export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
+  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const { logout } = useTurnkey();
   const { isAuthenticated } = useAuth();
 
@@ -51,6 +53,42 @@ export default function Header() {
     window.location.href = '/';
   };
 
+  // Load and apply theme
+  useEffect(() => {
+    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
+    if (savedTheme) {
+      setTheme(savedTheme);
+      document.documentElement.setAttribute("data-theme", savedTheme);
+      document.body.setAttribute("data-theme", savedTheme);
+    } else {
+      document.documentElement.setAttribute("data-theme", "dark");
+      document.body.setAttribute("data-theme", "dark");
+    }
+
+    // Listen for theme changes from other tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "hypercli_theme" && e.newValue) {
+        const newTheme = e.newValue as "light" | "dark";
+        setTheme(newTheme);
+        document.documentElement.setAttribute("data-theme", newTheme);
+        document.body.setAttribute("data-theme", newTheme);
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
+  }, []);
+
+  const toggleTheme = () => {
+    setTheme((prev) => {
+      const newTheme = prev === "light" ? "dark" : "light";
+      document.documentElement.setAttribute("data-theme", newTheme);
+      document.body.setAttribute("data-theme", newTheme);
+      localStorage.setItem("hypercli_theme", newTheme);
+      return newTheme;
+    });
+  };
+
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 10);
@@ -64,7 +102,7 @@ export default function Header() {
   return (
     <>
     <header
-      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-[#0B0D0E]/80 backdrop-blur-lg border-b border-[#2A2D2F] ${
+      className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 bg-background/80 backdrop-blur-lg border-b border-border ${
         scrolled ? "shadow-md" : ""
       }`}
     >
@@ -73,14 +111,14 @@ export default function Header() {
           {/* Logo */}
           <Link href={NAV_URLS.home} className="hover:opacity-80 transition-opacity">
             <span className="text-xl font-semibold">
-              <span className="text-white">Hyper</span>
-              <span className="text-[#38D39F]">CLI</span>
+              <span className="text-foreground">Hyper</span>
+              <span className="text-primary">CLI</span>
             </span>
           </Link>
 
           {/* Desktop Nav Links */}
           <div className="hidden md:!flex items-center space-x-6">
-            <a href={NAV_URLS.chat} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+            <a href={NAV_URLS.chat} className="text-sm text-text-secondary hover:text-foreground transition-colors">
               Chat
             </a>
 
@@ -88,15 +126,15 @@ export default function Header() {
             <NavigationMenu data-slot="header-product" viewport={false} className="!flex-none">
               <NavigationMenuList>
                 <NavigationMenuItem>
-                    <NavigationMenuTrigger className="text-sm !text-[#D6D6D7] hover:text-white transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-[#38D39F]/30 data-[state=open]:!text-[#D6D6D7] data-[state=open]:!bg-transparent data-[state=open]:hover:!text-[#D6D6D7]">Platform</NavigationMenuTrigger>
+                    <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">Platform</NavigationMenuTrigger>
                   <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
-                    <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg p-2 shadow-lg w-56">
+                    <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
                       <nav className="flex flex-col">
-                        <NavigationMenuLink href={NAV_URLS.console} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Console</NavigationMenuLink>
-                        <NavigationMenuLink href={NAV_URLS.playground} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Playground</NavigationMenuLink>
-                        <NavigationMenuLink href={NAV_URLS.models} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Models</NavigationMenuLink>
-                        <NavigationMenuLink href={NAV_URLS.gpus} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">GPUs</NavigationMenuLink>
-                        <NavigationMenuLink href={NAV_URLS.launch} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Launch</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.console} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Console</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.playground} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Playground</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.models} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Models</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.gpus} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">GPUs</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.launch} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Launch</NavigationMenuLink>
                       </nav>
                     </div>
                   </NavigationMenuContent>
@@ -108,13 +146,13 @@ export default function Header() {
             <NavigationMenu data-slot="header-solutions" viewport={false} className="!flex-none">
               <NavigationMenuList>
                 <NavigationMenuItem>
-                    <NavigationMenuTrigger className="text-sm !text-[#D6D6D7] hover:text-white transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-[#38D39F]/30 data-[state=open]:!text-[#D6D6D7] data-[state=open]:!bg-transparent data-[state=open]:hover:!text-[#D6D6D7]">Solutions</NavigationMenuTrigger>
+                    <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">Solutions</NavigationMenuTrigger>
                   <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
-                    <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg p-2 shadow-lg w-56">
+                    <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
                       <nav className="flex flex-col">
-                        <NavigationMenuLink href={NAV_URLS.partner} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Partners</NavigationMenuLink>
-                        <NavigationMenuLink href={NAV_URLS.enterprise} className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Enterprise</NavigationMenuLink>
-                        <NavigationMenuLink href="/data-center" className="block px-3 py-2 text-sm text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21] rounded-md">Data Center</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.partner} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Partners</NavigationMenuLink>
+                        <NavigationMenuLink href={NAV_URLS.enterprise} className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Enterprise</NavigationMenuLink>
+                        <NavigationMenuLink href="/data-center" className="block px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-high rounded-md">Data Center</NavigationMenuLink>
                       </nav>
                     </div>
                   </NavigationMenuContent>
@@ -122,22 +160,29 @@ export default function Header() {
               </NavigationMenuList>
             </NavigationMenu>
 
-            <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+            <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-text-secondary hover:text-foreground transition-colors">
               Docs
             </a>
-            <button onClick={openContactModal} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+            <button onClick={openContactModal} className="text-sm text-text-secondary hover:text-foreground transition-colors">
               Contact
             </button>
           </div>
 
           {/* Desktop CTAs - Only show on medium screens and up */}
           <div className="hidden md:!flex items-center space-x-3">
+            <button
+              onClick={toggleTheme}
+              className="p-2 text-text-secondary hover:text-foreground transition-colors"
+              aria-label="Toggle theme"
+            >
+              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </button>
             {isAuthenticated ? (
-              <button onClick={handleLogoutClick} className="px-4 py-2 text-sm text-[#D4D6D7] hover:text-white transition-colors">
+              <button onClick={handleLogoutClick} className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors">
                 Logout
               </button>
             ) : (
-              <button onClick={openLoginModal} className="px-5 py-2 text-sm bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors font-medium">
+              <button onClick={openLoginModal} className="px-5 py-2 text-sm bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors font-medium">
                 Login
               </button>
             )}
@@ -147,7 +192,7 @@ export default function Header() {
           <div className="block md:!hidden">
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="text-white hover:text-[#38D39F] focus:outline-none"
+              className="text-foreground hover:text-primary focus:outline-none"
               aria-label="Toggle mobile menu"
             >
               <svg className="h-6 w-6" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -165,42 +210,42 @@ export default function Header() {
 
       {/* Mobile Menu - Only show on small screens when hamburger is clicked */}
       <div
-        className={`bg-[#161819] border-t border-[#2A2D2F] md:!hidden ${
+        className={`bg-surface-low border-t border-border md:!hidden ${
           mobileMenuOpen ? "block" : "hidden"
         }`}
       >
         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
           <a
             href={NAV_URLS.chat}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Chat
           </a>
           <a
             href={NAV_URLS.console}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Console
           </a>
           <a
             href={NAV_URLS.gpus}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             GPUs
           </a>
           <a
             href={NAV_URLS.models}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Models
           </a>
           <a
             href={NAV_URLS.playground}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Playground

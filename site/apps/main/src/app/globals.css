@@ -3,8 +3,9 @@
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";
 
-/* HyperCLI Design System - Dark Theme */
-:root {
+/* HyperCLI Design System - Dark Theme (Default) */
+:root,
+[data-theme="dark"] {
   --font-size: 16px;
   --background: #0b0d0e;
   --background-secondary: #111314;
@@ -59,6 +60,64 @@
   --sidebar-accent-foreground: #fff;
   --sidebar-border: #1f2122;
   --sidebar-ring: #38d39f;
+}
+
+/* HyperCLI Design System - Light Theme */
+[data-theme="light"] {
+  --font-size: 16px;
+  --background: #fafafa;
+  --background-secondary: #f5f5f5;
+  --surface-low: #ffffff;
+  --surface-high: #f8f8f8;
+  --foreground: #0f1419;
+  --text-secondary: #3d4752;
+  --text-tertiary: #5f6b7a;
+  --text-muted: #8a94a3;
+  --card: #ffffff;
+  --card-foreground: #0f1419;
+  --popover: #ffffff;
+  --popover-foreground: #0f1419;
+  --primary: #2db789;
+  --primary-foreground: #ffffff;
+  --primary-hover: #25a377;
+  --primary-pressed: #1f8f65;
+  --secondary: #f5f5f5;
+  --secondary-foreground: #3d4752;
+  --muted: #f5f5f5;
+  --muted-foreground: #5f6b7a;
+  --accent: #2db789;
+  --accent-foreground: #ffffff;
+  --accent-hover: #25a377;
+  --accent-pressed: #1f8f65;
+  --accent-subtle: #d4f4e8;
+  --destructive: #d94848;
+  --destructive-foreground: #fff;
+  --success: #2db789;
+  --warning: #e0a85f;
+  --error: #d94848;
+  --border: #e5e7eb;
+  --border-medium: #d1d5db;
+  --border-strong: #9ca3af;
+  --input: transparent;
+  --input-background: #ffffff;
+  --switch-background: #f5f5f5;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: #2db789;
+  --chart-1: #2db789;
+  --chart-2: #25a377;
+  --chart-3: #1f8f65;
+  --chart-4: #d4f4e8;
+  --chart-5: #38d39f;
+  --radius: 0.5rem;
+  --sidebar: #ffffff;
+  --sidebar-foreground: #0f1419;
+  --sidebar-primary: #2db789;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #f8f8f8;
+  --sidebar-accent-foreground: #0f1419;
+  --sidebar-border: #e5e7eb;
+  --sidebar-ring: #2db789;
 }
 
 @theme inline {

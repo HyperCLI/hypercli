@@ -196,23 +196,39 @@ function ChatPageContent() {
 
   // Load theme from localStorage
   useEffect(() => {
-    const savedTheme = localStorage.getItem("hypercli_chat_theme") as "light" | "dark" | null;
+    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
     if (savedTheme) {
       setTheme(savedTheme);
       document.documentElement.setAttribute("data-theme", savedTheme);
+      document.body.setAttribute("data-theme", savedTheme);
     } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
       setTheme("dark");
       document.documentElement.setAttribute("data-theme", "dark");
+      document.body.setAttribute("data-theme", "dark");
     } else {
       document.documentElement.setAttribute("data-theme", "dark");
+      document.body.setAttribute("data-theme", "dark");
     }
+
+    // Listen for theme changes from other tabs
+    const handleStorageChange = (e: StorageEvent) => {
+      if (e.key === "hypercli_theme" && e.newValue) {
+        const newTheme = e.newValue as "light" | "dark";
+        setTheme(newTheme);
+        document.documentElement.setAttribute("data-theme", newTheme);
+        document.body.setAttribute("data-theme", newTheme);
+      }
+    };
+
+    window.addEventListener("storage", handleStorageChange);
+    return () => window.removeEventListener("storage", handleStorageChange);
   }, []);
 
   // Apply theme
   useEffect(() => {
     document.documentElement.setAttribute("data-theme", theme);
     document.body.setAttribute("data-theme", theme);
-    localStorage.setItem("hypercli_chat_theme", theme);
+    localStorage.setItem("hypercli_theme", theme);
   }, [theme]);
 
   // Fetch threads from bot API
