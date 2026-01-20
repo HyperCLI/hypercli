@@ -9,8 +9,8 @@ interface AmountDisplayProps {
 export default function AmountDisplay({ amountUsd, className = '' }: AmountDisplayProps) {
   const amount = parseFloat(amountUsd);
   const isPositive = amount >= 0;
-  // Dark theme colors: green for credits, white for charges
-  const colorClass = isPositive ? 'text-[#38D39F]' : 'text-white';
+  // Theme-aware colors: green for credits, foreground for charges
+  const colorClass = isPositive ? 'text-primary' : 'text-foreground';
   const absAmount = amountUsd.replace('-', '');
 
   return (

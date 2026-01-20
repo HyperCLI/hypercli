@@ -151,20 +151,20 @@ export default function HistoryPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-4xl font-bold text-white">Transaction History</h1>
+            <h1 className="text-4xl font-bold text-foreground">Transaction History</h1>
           </div>
 
           {/* Type Filter */}
@@ -175,8 +175,8 @@ export default function HistoryPage() {
                 onClick={() => handleFilterChange(type)}
                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
                   typeFilter === type
-                    ? 'bg-[#38D39F] text-[#0B0D0E]'
-                    : 'border border-[#2A2D2F] text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F]'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-border text-foreground hover:bg-surface-low hover:border-primary'
                 }`}
               >
                 {type === 'top_up' ? 'Top Up' : type === 'llm' ? 'LLM' : type.charAt(0).toUpperCase() + type.slice(1)}
@@ -184,22 +184,22 @@ export default function HistoryPage() {
             ))}
           </div>
 
-          {loading && <div className="text-[#9BA0A2]">Loading transactions...</div>}
-          {error && <div className="text-[#D05F5F] mb-4">Error: {typeof error === 'string' ? error : JSON.stringify(error)}</div>}
+          {loading && <div className="text-muted-foreground">Loading transactions...</div>}
+          {error && <div className="text-error mb-4">Error: {typeof error === 'string' ? error : JSON.stringify(error)}</div>}
 
           {!loading && !error && transactions.length === 0 && (
-            <div className="bg-[#161819] border border-[#2A2D2F] p-8 rounded-lg text-center">
-              <p className="text-[#9BA0A2] mb-4">No transactions found.</p>
+            <div className="bg-surface-low border border-border p-8 rounded-lg text-center">
+              <p className="text-muted-foreground mb-4">No transactions found.</p>
             </div>
           )}
 
           {!loading && transactions.length > 0 && (
-            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-x-auto">
-              <table className="min-w-full divide-y divide-[#2A2D2F]">
-                <thead className="bg-[#0B0D0E]">
+            <div className="bg-surface-low border border-border rounded-lg overflow-x-auto">
+              <table className="min-w-full divide-y divide-border">
+                <thead className="bg-background">
                   <tr>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-24"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-24"
                       onClick={() => handleSort('status')}
                     >
                       <div className="flex items-center gap-1">
@@ -210,7 +210,7 @@ export default function HistoryPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-32"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-32"
                       onClick={() => handleSort('id')}
                     >
                       <div className="flex items-center gap-1">
@@ -221,7 +221,7 @@ export default function HistoryPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-28"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-28"
                       onClick={() => handleSort('type')}
                     >
                       <div className="flex items-center gap-1">
@@ -231,11 +231,11 @@ export default function HistoryPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Details
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21]"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium"
                       onClick={() => handleSort('amount')}
                     >
                       <div className="flex items-center gap-1">
@@ -246,7 +246,7 @@ export default function HistoryPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21]"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium"
                       onClick={() => handleSort('created_at')}
                     >
                       <div className="flex items-center gap-1">
@@ -256,11 +256,11 @@ export default function HistoryPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-[#161819] divide-y divide-[#2A2D2F]">
+                <tbody className="bg-surface-low divide-y divide-border">
                   {sortedTransactions.map((tx) => {
                     if (tx.transaction_type === 'job') {
                       return (
@@ -314,26 +314,26 @@ export default function HistoryPage() {
               </table>
 
               {/* Pagination */}
-              <div className="bg-[#0B0D0E] px-6 py-3 flex items-center justify-between border-t border-[#2A2D2F]">
-                <div className="text-sm text-[#9BA0A2]">
-                  <span className="font-medium text-white">{(currentPage - 1) * pageSize + 1}</span>
+              <div className="bg-background px-6 py-3 flex items-center justify-between border-t border-border">
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">{(currentPage - 1) * pageSize + 1}</span>
                   {' - '}
-                  <span className="font-medium text-white">{Math.min(currentPage * pageSize, totalTxCount)}</span>
+                  <span className="font-medium text-foreground">{Math.min(currentPage * pageSize, totalTxCount)}</span>
                   {' of '}
-                  <span className="font-medium text-white">{totalTxCount}</span>
+                  <span className="font-medium text-foreground">{totalTxCount}</span>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1.5 border border-border rounded text-sm font-medium text-foreground hover:bg-surface-low hover:border-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Previous
                   </button>
                   <button
                     onClick={() => setCurrentPage(p => p + 1)}
                     disabled={currentPage * pageSize >= totalTxCount}
-                    className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1.5 border border-border rounded text-sm font-medium text-foreground hover:bg-surface-low hover:border-primary disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Next
                   </button>

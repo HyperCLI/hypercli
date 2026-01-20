@@ -214,37 +214,37 @@ export default function ApiKeysPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex justify-between items-center mb-8">
-            <h1 className="text-4xl font-bold text-white">API Keys</h1>
+            <h1 className="text-4xl font-bold text-foreground">API Keys</h1>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
+              className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
             >
               Create New Key
             </button>
           </div>
 
-          {loading && <div className="text-[#9BA0A2]">Loading API keys...</div>}
-          {error && <div className="text-[#D05F5F] mb-4">Error: {error}</div>}
+          {loading && <div className="text-muted-foreground">Loading API keys...</div>}
+          {error && <div className="text-error mb-4">Error: {error}</div>}
 
           {!loading && !error && apiKeys.length === 0 && (
-            <div className="bg-[#161819] border border-[#2A2D2F] p-8 rounded-lg text-center">
-              <p className="text-[#9BA0A2] mb-4">You don't have any API keys yet.</p>
+            <div className="bg-surface-low border border-border p-8 rounded-lg text-center">
+              <p className="text-muted-foreground mb-4">You don't have any API keys yet.</p>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
+                className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
               >
                 Create Your First API Key
               </button>
@@ -252,60 +252,60 @@ export default function ApiKeysPage() {
           )}
 
           {!loading && apiKeys.length > 0 && (
-            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-hidden">
-              <table className="min-w-full divide-y divide-[#2A2D2F]">
-                <thead className="bg-[#0B0D0E]">
+            <div className="bg-surface-low border border-border rounded-lg overflow-hidden">
+              <table className="min-w-full divide-y divide-border">
+                <thead className="bg-background">
                   <tr>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Name
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Key
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Status
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Created
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Last Used
                     </th>
-                    <th className="px-6 py-3 text-right text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                    <th className="px-6 py-3 text-right text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                       Actions
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-[#161819] divide-y divide-[#2A2D2F]">
+                <tbody className="bg-surface-low divide-y divide-border">
                   {apiKeys.map((key) => (
-                    <tr key={key.key_id} className="hover:bg-[#1D1F21]">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-white">
+                    <tr key={key.key_id} className="hover:bg-surface-medium">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-foreground">
                         {key.name}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-[#9BA0A2]">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm font-mono text-muted-foreground">
                         {key.api_key_preview}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap">
-                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded ${key.is_active ? 'bg-[#38D39F]/20 text-[#38D39F]' : 'bg-[#161819] text-[#6E7375]'}`}>
+                        <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded ${key.is_active ? 'bg-primary/20 text-primary' : 'bg-surface-low text-tertiary-foreground'}`}>
                           {key.is_active ? 'Active' : 'Inactive'}
                         </span>
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2]">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                         {formatDateTime(key.created_at)}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2]">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
                         {formatDateTime(key.last_used_at)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
                         {key.is_active ? (
                           <button
                             onClick={() => handleDeactivateKey(key.key_id)}
-                            className="text-[#D05F5F] hover:text-[#D05F5F]/80"
+                            className="text-error hover:text-error/80"
                           >
                             Deactivate
                           </button>
                         ) : (
-                          <span className="text-[#6E7375] italic">Deactivated</span>
+                          <span className="text-tertiary-foreground italic">Deactivated</span>
                         )}
                       </td>
                     </tr>
@@ -332,7 +332,7 @@ export default function ApiKeysPage() {
         >
           <div className="space-y-6">
             <div>
-              <label className="block text-sm font-medium text-[#D4D6D7] mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Key Name
               </label>
               <input
@@ -340,7 +340,7 @@ export default function ApiKeysPage() {
                 value={newKeyName}
                 onChange={(e) => setNewKeyName(e.target.value)}
                 placeholder="e.g., Production Server"
-                className="w-full border border-[#2A2D2F] rounded-lg px-4 py-2 bg-[#161819] text-white placeholder-[#6E7375] focus:border-[#38D39F] focus:outline-none"
+                className="w-full border border-border rounded-lg px-4 py-2 bg-surface-low text-foreground placeholder-tertiary-foreground focus:border-primary focus:outline-none"
                 disabled={creating}
               />
             </div>
@@ -348,7 +348,7 @@ export default function ApiKeysPage() {
               <button
                 onClick={handleCreateKey}
                 disabled={creating}
-                className="flex-1 bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors disabled:opacity-50"
+                className="flex-1 bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50"
               >
                 {creating ? 'Creating...' : 'Create Key'}
               </button>
@@ -358,7 +358,7 @@ export default function ApiKeysPage() {
                   setNewKeyName("");
                 }}
                 disabled={creating}
-                className="flex-1 border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+                className="flex-1 border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
               >
                 Cancel
               </button>
@@ -376,13 +376,13 @@ export default function ApiKeysPage() {
           maxWidth="2xl"
         >
           <div className="space-y-6">
-            <div className="bg-[#E0A85F]/10 border-l-4 border-[#E0A85F] p-4 rounded">
-              <p className="text-sm text-[#E0A85F]">
+            <div className="bg-warning/10 border-l-4 border-warning p-4 rounded">
+              <p className="text-sm text-warning">
                 <strong>Important:</strong> Make sure to copy your API key now. You won't be able to see it again!
               </p>
             </div>
             <div>
-              <label className="block text-sm font-medium text-[#D4D6D7] mb-2">
+              <label className="block text-sm font-medium text-foreground mb-2">
                 Your API Key
               </label>
               <div className="flex gap-2">
@@ -390,11 +390,11 @@ export default function ApiKeysPage() {
                   type="text"
                   value={createdKey.api_key}
                   readOnly
-                  className="flex-1 font-mono text-sm border border-[#2A2D2F] rounded-lg px-4 py-2 bg-[#0B0D0E] text-white"
+                  className="flex-1 font-mono text-sm border border-border rounded-lg px-4 py-2 bg-background text-foreground"
                 />
                 <button
                   onClick={() => copyToClipboard(createdKey.api_key)}
-                  className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors"
+                  className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors"
                 >
                   {copiedKey ? 'Copied!' : 'Copy'}
                 </button>
@@ -402,7 +402,7 @@ export default function ApiKeysPage() {
             </div>
             <button
               onClick={() => setCreatedKey(null)}
-              className="w-full border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+              className="w-full border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
             >
               Done
             </button>

@@ -32,7 +32,7 @@ export default function InvoiceTransactionRow({ tx, isExpanded, onToggle }: Invo
     <React.Fragment>
       <tr
         onClick={onToggle}
-        className="cursor-pointer hover:bg-[#1C1F21] transition-colors"
+        className="cursor-pointer hover:bg-surface-low transition-colors"
       >
         <td className="px-6 py-4 whitespace-nowrap w-24">
           <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(tx.status)}`}>
@@ -40,7 +40,7 @@ export default function InvoiceTransactionRow({ tx, isExpanded, onToggle }: Invo
           </span>
         </td>
         <td className="px-6 py-4 whitespace-nowrap w-32">
-          <span className="font-mono text-sm text-[#9BA0A2]">
+          <span className="font-mono text-sm text-muted-foreground">
             {meta.invoice_id || tx.id.slice(0, 8) + '...'}
           </span>
         </td>
@@ -65,12 +65,12 @@ export default function InvoiceTransactionRow({ tx, isExpanded, onToggle }: Invo
         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
           <AmountDisplay amountUsd={tx.amount_usd} />
         </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2]">
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
           {formatDateTime(tx.created_at)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
           <svg
-            className={`w-5 h-5 text-[#6E7375] transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-tertiary-foreground transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -81,35 +81,35 @@ export default function InvoiceTransactionRow({ tx, isExpanded, onToggle }: Invo
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={7} className="px-6 py-4 bg-[#0B0D0E]">
+          <td colSpan={7} className="px-6 py-4 bg-background">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Transaction ID
                 </h3>
-                <p className="font-mono text-sm text-[#D4D6D7]">{tx.id}</p>
+                <p className="font-mono text-sm text-foreground">{tx.id}</p>
               </div>
 
               {meta.invoice_id && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Invoice ID
                   </h3>
-                  <p className="font-mono text-sm text-[#D4D6D7]">{meta.invoice_id}</p>
+                  <p className="font-mono text-sm text-foreground">{meta.invoice_id}</p>
                 </div>
               )}
 
               {meta.invoice_uuid && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Invoice UUID
                   </h3>
-                  <p className="font-mono text-sm text-[#D4D6D7]">{meta.invoice_uuid}</p>
+                  <p className="font-mono text-sm text-foreground">{meta.invoice_uuid}</p>
                 </div>
               )}
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Status
                 </h3>
                 <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(tx.status)}`}>
@@ -118,7 +118,7 @@ export default function InvoiceTransactionRow({ tx, isExpanded, onToggle }: Invo
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Amount
                 </h3>
                 <AmountDisplay amountUsd={tx.amount_usd} className="font-semibold" />
@@ -126,44 +126,44 @@ export default function InvoiceTransactionRow({ tx, isExpanded, onToggle }: Invo
 
               {meta.invoice_amount_usd && meta.invoice_amount_usd !== tx.amount_usd && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Invoice Amount
                   </h3>
-                  <p className="text-[#D4D6D7]">${meta.invoice_amount_usd}</p>
+                  <p className="text-foreground">${meta.invoice_amount_usd}</p>
                 </div>
               )}
 
               {meta.payment_method && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Payment Method
                   </h3>
-                  <p className="text-[#D4D6D7]">{meta.payment_method}</p>
+                  <p className="text-foreground">{meta.payment_method}</p>
                 </div>
               )}
 
               {meta.reference && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Reference
                   </h3>
-                  <p className="font-mono text-sm text-[#D4D6D7]">{meta.reference}</p>
+                  <p className="font-mono text-sm text-foreground">{meta.reference}</p>
                 </div>
               )}
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Created At
                 </h3>
-                <p className="text-[#D4D6D7]">{formatDateTime(tx.created_at)}</p>
+                <p className="text-foreground">{formatDateTime(tx.created_at)}</p>
               </div>
 
               {tx.updated_at && tx.updated_at !== tx.created_at && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Updated At
                   </h3>
-                  <p className="text-[#D4D6D7]">{formatDateTime(tx.updated_at)}</p>
+                  <p className="text-foreground">{formatDateTime(tx.updated_at)}</p>
                 </div>
               )}
             </div>

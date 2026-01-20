@@ -2,7 +2,14 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { cn, Button } from "@hypercli/shared-ui";
+import { 
+  cn, 
+  Button,
+  initializeTheme,
+  toggleTheme as toggleThemeUtil,
+  subscribeToThemeChanges,
+  type Theme
+} from "@hypercli/shared-ui";
 import {
   LayoutDashboard,
   Rocket,
@@ -29,38 +36,20 @@ export function Navigation() {
 
   // Load and apply theme
   useEffect(() => {
-    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.setAttribute("data-theme", savedTheme);
-      document.body.setAttribute("data-theme", savedTheme);
-    } else {
-      document.documentElement.setAttribute("data-theme", "dark");
-      document.body.setAttribute("data-theme", "dark");
-    }
+    const currentTheme = initializeTheme();
+    setTheme(currentTheme);
 
-    // Listen for theme changes from other tabs
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "hypercli_theme" && e.newValue) {
-        const newTheme = e.newValue as "light" | "dark";
-        setTheme(newTheme);
-        document.documentElement.setAttribute("data-theme", newTheme);
-        document.body.setAttribute("data-theme", newTheme);
-      }
-    };
+    // Subscribe to theme changes from other tabs/apps
+    const unsubscribe = subscribeToThemeChanges((newTheme) => {
+      setTheme(newTheme);
+    });
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    return unsubscribe;
   }, []);
 
   const toggleTheme = () => {
-    setTheme((prev) => {
-      const newTheme = prev === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", newTheme);
-      document.body.setAttribute("data-theme", newTheme);
-      localStorage.setItem("hypercli_theme", newTheme);
-      return newTheme;
-    });
+    const newTheme = toggleThemeUtil();
+    setTheme(newTheme);
   };
 
   return (
@@ -69,7 +58,7 @@ export function Navigation() {
         <div className="flex justify-between h-16 items-center">
           {/* Logo */}
           <div className="flex-shrink-0">
-            <Link href="/" className="text-xl font-bold text-foreground">
+            <Link href="/" className="text-xl font-bold text-foreground cursor-pointer">
               Hyper<span className="text-primary">CLI</span>
               <span className="ml-2 text-sm font-normal text-muted-foreground">
                 Console
@@ -79,22 +68,14 @@ export function Navigation() {
 
           {/* Navigation Links */}
           <div className="hidden md:flex items-center space-x-1">
-            {navIte
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              className="text-muted-foreground hover:text-foreground"
-            >
-              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-            </Button>
-            <Buttonms.map((item) => {
+            {navItems.map((item) => {
               const isActive = pathname === item.href;
               return (
                 <Link
                   key={item.href}
                   href={item.href}
                   className={cn(
-                    "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors",
+                    "flex items-center gap-2 px-3 py-2 rounded-md text-sm font-medium transition-colors cursor-pointer",
                     isActive
                       ? "bg-primary/10 text-primary"
                       : "text-muted-foreground hover:text-foreground hover:bg-surface-low"
@@ -109,10 +90,18 @@ export function Navigation() {
 
           {/* Right side */}
           <div className="flex items-center space-x-4">
-            <Button variant="ghost" size="icon" className="text-muted-foreground">
+            <Button
+              variant="ghost"
+              size="icon"
+              onClick={toggleTheme}
+              className="text-muted-foreground hover:text-foreground cursor-pointer"
+            >
+              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
+            </Button>
+            <Button variant="ghost" size="icon" className="text-muted-foreground cursor-pointer">
               <HelpCircle className="h-5 w-5" />
             </Button>
-            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center">
+            <div className="h-8 w-8 rounded-full bg-primary/20 flex items-center justify-center cursor-pointer">
               <span className="text-sm font-medium text-primary">U</span>
             </div>
           </div>

@@ -425,23 +425,23 @@ export default function JobsPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">
       <Header />
 
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex justify-between items-center mb-4">
-            <h1 className="text-4xl font-bold text-white">Jobs</h1>
+            <h1 className="text-4xl font-bold text-foreground">Jobs</h1>
             <button
               onClick={() => router.push('/job')}
-              className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
+              className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
             >
               Launch GPU
             </button>
@@ -458,8 +458,8 @@ export default function JobsPage() {
                 }}
                 className={`px-4 py-2 rounded-lg font-semibold text-sm transition-colors ${
                   stateFilter === state
-                    ? 'bg-[#38D39F] text-[#0B0D0E]'
-                    : 'border border-[#2A2D2F] text-[#D4D6D7] hover:bg-[#161819] hover:border-[#38D39F]'
+                    ? 'bg-primary text-primary-foreground'
+                    : 'border border-border text-foreground hover:bg-surface-low hover:border-primary'
                 }`}
               >
                 {state.charAt(0).toUpperCase() + state.slice(1)}
@@ -467,22 +467,22 @@ export default function JobsPage() {
             ))}
           </div>
 
-          {loading && <div className="text-[#9BA0A2]">Loading jobs...</div>}
-          {error && <div className="text-[#D05F5F] mb-4">Error: {error}</div>}
+          {loading && <div className="text-muted-foreground">Loading jobs...</div>}
+          {error && <div className="text-error mb-4">Error: {error}</div>}
 
           {!loading && !error && jobs.length === 0 && (
-            <div className="bg-[#161819] border border-[#2A2D2F] p-8 rounded-lg text-center">
-              <p className="text-[#9BA0A2] mb-4">You don't have any jobs yet.</p>
+            <div className="bg-surface-low border border-border p-8 rounded-lg text-center">
+              <p className="text-muted-foreground mb-4">You don't have any jobs yet.</p>
             </div>
           )}
 
           {!loading && jobs.length > 0 && (
-            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-x-auto">
-              <table className="min-w-full divide-y divide-[#2A2D2F]">
-                <thead className="bg-[#0B0D0E]">
+            <div className="bg-surface-low border border-border rounded-lg overflow-x-auto">
+              <table className="min-w-full divide-y divide-border">
+                <thead className="bg-background">
                   <tr>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-24"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-24"
                       onClick={() => handleSort('state')}
                     >
                       <div className="flex items-center gap-1">
@@ -493,7 +493,7 @@ export default function JobsPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-32"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-32"
                       onClick={() => handleSort('job_id')}
                     >
                       <div className="flex items-center gap-1">
@@ -504,7 +504,7 @@ export default function JobsPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-28"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-28"
                       onClick={() => handleSort('gpu')}
                     >
                       <div className="flex items-center gap-1">
@@ -514,11 +514,11 @@ export default function JobsPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-24">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-24">
                       Region
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-64"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-64"
                       onClick={() => handleSort('hostname')}
                     >
                       <div className="flex items-center gap-1">
@@ -529,7 +529,7 @@ export default function JobsPage() {
                       </div>
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21]"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium"
                       onClick={() => handleSort('price_per_hour')}
                     >
                       <div className="flex items-center gap-1">
@@ -539,11 +539,11 @@ export default function JobsPage() {
                         )}
                       </div>
                     </th>
-                    <th className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider w-20">
+                    <th className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider w-20">
                       Cost
                     </th>
                     <th
-                      className="px-6 py-3 text-left text-xs font-semibold text-[#6E7375] uppercase tracking-wider cursor-pointer hover:bg-[#1D1F21] w-20"
+                      className="px-6 py-3 text-left text-xs font-semibold text-tertiary-foreground uppercase tracking-wider cursor-pointer hover:bg-surface-medium w-20"
                       onClick={() => handleSort('created_at')}
                     >
                       <div className="flex items-center gap-1">
@@ -555,11 +555,11 @@ export default function JobsPage() {
                     </th>
                   </tr>
                 </thead>
-                <tbody className="bg-[#161819] divide-y divide-[#2A2D2F]">
+                <tbody className="bg-surface-low divide-y divide-border">
                   {sortedJobs.map((job) => (
                     <React.Fragment key={job.job_id}>
                     <tr
-                      className="hover:bg-[#1D1F21] cursor-pointer"
+                      className="hover:bg-surface-medium cursor-pointer"
                       onClick={(e) => {
                         // Ctrl/Cmd+click opens in new tab
                         if (e.ctrlKey || e.metaKey) {
@@ -575,19 +575,19 @@ export default function JobsPage() {
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap w-32">
-                        <span className="font-mono text-sm text-white">
+                        <span className="font-mono text-sm text-foreground">
                           {job.job_id.substring(0, 8)}...
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap w-28">
-                        <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-[#0B0D0E] text-[#D4D6D7] border-[#2A2D2F]">
+                        <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-background text-foreground border-border">
                           {job.gpu_count}x {job.gpu_type}
                         </span>
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap w-24 text-sm">
                         <span className="inline-flex items-center gap-1" title={getRegionName(job.region)}>
                           <span className="text-lg">{getRegionFlag(job.region)}</span>
-                          <span className="text-[#D4D6D7]">{job.region}</span>
+                          <span className="text-foreground">{job.region}</span>
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm font-mono w-64">
@@ -598,7 +598,7 @@ export default function JobsPage() {
                               target="_blank"
                               rel="noopener noreferrer"
                               onClick={(e) => e.stopPropagation()}
-                              className="inline-flex items-center gap-1 text-[#38D39F] hover:text-[#45E4AE] hover:underline truncate"
+                              className="inline-flex items-center gap-1 text-primary hover:text-primary-hover hover:underline truncate"
                             >
                               <span className="truncate">{job.hostname}</span>
                               <svg className="w-3 h-3 flex-shrink-0" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -606,23 +606,23 @@ export default function JobsPage() {
                               </svg>
                             </a>
                           ) : (
-                            <span className="text-[#9BA0A2] truncate block">{job.hostname}</span>
+                            <span className="text-muted-foreground truncate block">{job.hostname}</span>
                           )
                         ) : (
-                          <span className="text-[#6E7375]">-</span>
+                          <span className="text-tertiary-foreground">-</span>
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-white">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-foreground">
                         ${job.price_per_hour.toFixed(6)}
                       </td>
                       <td className="px-6 py-4 whitespace-nowrap text-sm w-20">
                         {jobTransactions[job.job_id] ? (
                           <span className={
                             jobTransactions[job.job_id].status.toLowerCase() === 'pending'
-                              ? 'text-[#D4D6D7] italic'
+                              ? 'text-foreground italic'
                               : job.state === 'failed' || job.state === 'canceled'
-                              ? 'line-through text-[#9BA0A2]'
-                              : 'text-white'
+                              ? 'line-through text-muted-foreground'
+                              : 'text-foreground'
                           }>
                             <AmountDisplay amountUsd={jobTransactions[job.job_id].amount_usd} />
                           </span>
@@ -632,9 +632,9 @@ export default function JobsPage() {
                             const { amount, isEstimate, isPending } = getJobCost(job);
                             return (
                               <span className={
-                                isPending ? 'text-[#D4D6D7] italic' :
-                                job.state === 'failed' || job.state === 'canceled' ? 'line-through text-[#9BA0A2]' :
-                                'text-white'
+                                isPending ? 'text-foreground italic' :
+                                job.state === 'failed' || job.state === 'canceled' ? 'line-through text-muted-foreground' :
+                                'text-foreground'
                               }>
                                 ${amount.toFixed(2)}{isEstimate && job.state === 'running' ? '+' : ''}
                               </span>
@@ -642,49 +642,49 @@ export default function JobsPage() {
                           })()
                         )}
                       </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2] w-20">
+                      <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground w-20">
                         {formatDateTime(job.created_at)}
                       </td>
                     </tr>
                     {/* Expandable Details Row */}
                     {expandedJobId === job.job_id && (
                       <tr>
-                        <td colSpan={8} className="px-6 py-4 bg-[#0B0D0E]">
+                        <td colSpan={8} className="px-6 py-4 bg-background">
                           <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
                             <div>
-                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                 Job ID
                               </h3>
-                              <p className="font-mono text-sm text-white">{job.job_id}</p>
+                              <p className="font-mono text-sm text-foreground">{job.job_id}</p>
                             </div>
 
                             <div>
-                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                 GPU Configuration
                               </h3>
-                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-[#161819] text-[#D4D6D7] border-[#2A2D2F]">
+                              <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-surface-low text-foreground border-border">
                                 {job.gpu_count}x {job.gpu_type}
                               </span>
                             </div>
 
                             <div>
-                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                 Price
                               </h3>
-                              <p className="text-white">${job.price_per_hour.toFixed(2)}/hour</p>
+                              <p className="text-foreground">${job.price_per_hour.toFixed(2)}/hour</p>
                             </div>
 
                             <div>
-                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                 {(job.state === 'queued' || job.state === 'assigned') ? 'Reserved Amount' : 'Total Cost'}
                               </h3>
                               {expandedJobTx ? (
                                 <p className={
                                   job.state === 'queued' || job.state === 'assigned'
-                                    ? 'text-[#D4D6D7] italic'
+                                    ? 'text-foreground italic'
                                     : job.state === 'failed' || job.state === 'canceled'
-                                    ? 'line-through text-[#9BA0A2]'
-                                    : 'text-white'
+                                    ? 'line-through text-muted-foreground'
+                                    : 'text-foreground'
                                 }>
                                   <AmountDisplay amountUsd={expandedJobTx.amount_usd} />
                                   {(job.state === 'queued' || job.state === 'assigned') && (
@@ -696,9 +696,9 @@ export default function JobsPage() {
                                   const { amount, isEstimate, isPending } = getJobCost(job);
                                   return (
                                     <p className={
-                                      isPending ? 'text-[#D4D6D7] italic' :
-                                      job.state === 'failed' || job.state === 'canceled' ? 'line-through text-[#9BA0A2]' :
-                                      'text-white'
+                                      isPending ? 'text-foreground italic' :
+                                      job.state === 'failed' || job.state === 'canceled' ? 'line-through text-muted-foreground' :
+                                      'text-foreground'
                                     }>
                                       ${amount.toFixed(2)}{isEstimate && job.state === 'running' ? '+' : ''}
                                       {isPending && <span className="text-xs ml-1">(pending)</span>}
@@ -711,7 +711,7 @@ export default function JobsPage() {
 
                             {job.hostname && (
                               <div>
-                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                   Hostname
                                 </h3>
                                 {job.ports?.lb ? (
@@ -721,7 +721,7 @@ export default function JobsPage() {
                                       target="_blank"
                                       rel="noopener noreferrer"
                                       onClick={(e) => e.stopPropagation()}
-                                      className="font-mono text-sm text-[#38D39F] hover:text-[#45E4AE] hover:underline"
+                                      className="font-mono text-sm text-primary hover:text-primary-hover hover:underline"
                                     >
                                       {job.hostname}
                                     </a>
@@ -730,7 +730,7 @@ export default function JobsPage() {
                                         e.stopPropagation();
                                         window.open(`https://${job.hostname}`, '_blank');
                                       }}
-                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-[#38D39F]/20 text-[#38D39F] rounded hover:bg-[#38D39F]/30"
+                                      className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-primary/20 text-primary rounded hover:bg-primary/30"
                                       title="Open in new tab"
                                     >
                                       <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -740,50 +740,50 @@ export default function JobsPage() {
                                     </button>
                                   </div>
                                 ) : (
-                                  <p className="font-mono text-sm text-white">{job.hostname}</p>
+                                  <p className="font-mono text-sm text-foreground">{job.hostname}</p>
                                 )}
                               </div>
                             )}
 
                             {job.assigned_to && (
                               <div>
-                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                   Assigned To
                                 </h3>
-                                <p className="font-mono text-sm text-white">{job.assigned_to}</p>
+                                <p className="font-mono text-sm text-foreground">{job.assigned_to}</p>
                               </div>
                             )}
 
                             {job.started_at && (
                               <div>
-                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                   Started At
                                 </h3>
-                                <p className="text-white">{formatDateTime(job.started_at)}</p>
+                                <p className="text-foreground">{formatDateTime(job.started_at)}</p>
                               </div>
                             )}
 
                             {getJobDuration(job) !== null && (
                               <div>
-                                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                   Duration
                                 </h3>
-                                <p className="text-white">{formatSecondsHumanReadable(getJobDuration(job)!)}</p>
+                                <p className="text-foreground">{formatSecondsHumanReadable(getJobDuration(job)!)}</p>
                               </div>
                             )}
 
                             <div>
-                              <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                              <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                                 Docker Image
                               </h3>
-                              <p className="font-mono text-sm text-white truncate" title={job.docker_image}>{job.docker_image}</p>
+                              <p className="font-mono text-sm text-foreground truncate" title={job.docker_image}>{job.docker_image}</p>
                             </div>
                           </div>
-                          <div className="flex gap-3 mt-4 pt-4 border-t border-[#2A2D2F]">
+                          <div className="flex gap-3 mt-4 pt-4 border-t border-border">
                             <a
                               href={`/job/${job.job_id}`}
                               onClick={(e) => e.stopPropagation()}
-                              className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors"
+                              className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors"
                             >
                               View Job
                             </a>
@@ -792,7 +792,7 @@ export default function JobsPage() {
                                 e.stopPropagation();
                                 handleCloneJob(job);
                               }}
-                              className="border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+                              className="border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
                             >
                               Clone Job
                             </button>
@@ -802,7 +802,7 @@ export default function JobsPage() {
                                   e.stopPropagation();
                                   handleCancelJob(job.job_id, job.state);
                                 }}
-                                className="border border-[#2A2D2F] text-[#D05F5F] font-semibold py-2 px-4 rounded-lg hover:bg-[#D05F5F]/10 hover:border-[#D05F5F] transition-colors"
+                                className="border border-border text-error font-semibold py-2 px-4 rounded-lg hover:bg-error/10 hover:border-error transition-colors"
                               >
                                 Cancel Job
                               </button>
@@ -817,26 +817,26 @@ export default function JobsPage() {
               </table>
 
               {/* Pagination */}
-              <div className="bg-[#161819] px-6 py-3 flex items-center justify-between border-t border-[#2A2D2F]">
-                <div className="text-sm text-[#9BA0A2]">
-                  <span className="font-medium text-white">{(currentPage - 1) * pageSize + 1}</span>
+              <div className="bg-surface-low px-6 py-3 flex items-center justify-between border-t border-border">
+                <div className="text-sm text-muted-foreground">
+                  <span className="font-medium text-foreground">{(currentPage - 1) * pageSize + 1}</span>
                   {' - '}
-                  <span className="font-medium text-white">{Math.min(currentPage * pageSize, totalJobsCount)}</span>
+                  <span className="font-medium text-foreground">{Math.min(currentPage * pageSize, totalJobsCount)}</span>
                   {' of '}
-                  <span className="font-medium text-white">{totalJobsCount}</span>
+                  <span className="font-medium text-foreground">{totalJobsCount}</span>
                 </div>
                 <div className="flex gap-2">
                   <button
                     onClick={() => setCurrentPage(p => Math.max(1, p - 1))}
                     disabled={currentPage === 1}
-                    className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#1D1F21] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1.5 border border-border rounded text-sm font-medium text-foreground hover:bg-surface-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Previous
                   </button>
                   <button
                     onClick={() => setCurrentPage(p => p + 1)}
                     disabled={currentPage * pageSize >= totalJobsCount}
-                    className="px-3 py-1.5 border border-[#2A2D2F] rounded text-sm font-medium text-[#D4D6D7] hover:bg-[#1D1F21] disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
+                    className="px-3 py-1.5 border border-border rounded text-sm font-medium text-foreground hover:bg-surface-medium disabled:opacity-40 disabled:cursor-not-allowed transition-colors"
                   >
                     Next
                   </button>

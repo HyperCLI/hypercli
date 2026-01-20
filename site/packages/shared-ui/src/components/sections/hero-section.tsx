@@ -138,7 +138,7 @@ export function HeroSection() {
   return (
     <section 
       ref={sectionRef}
-      className="relative min-h-screen flex items-center px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] overflow-hidden"
+      className="relative min-h-screen flex items-center px-4 sm:px-6 lg:px-8 bg-background overflow-hidden"
     >
       {/* Subtle grain texture overlay */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')]" />
@@ -170,10 +170,10 @@ export function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h1 className="text-[40px] sm:text-[48px] md:text-[56px] lg:text-[64px] xl:text-[64px] text-white mb-12 leading-[0.95] tracking-[-0.03em] font-bold max-w-5xl mx-auto text-center">
+          <h1 className="text-[40px] sm:text-[48px] md:text-[56px] lg:text-[64px] xl:text-[64px] text-foreground mb-12 leading-[0.95] tracking-[-0.03em] font-bold max-w-5xl mx-auto text-center">
             Deploy AI models in 30 seconds.
             <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#D4D6D7] via-[#9BA0A2] to-[#6E7375] text-[36px]">
+            <span className="text-transparent bg-clip-text bg-gradient-to-r from-text-secondary via-text-tertiary to-text-muted text-[36px]">
               No GPUs. No Kubernetes. No infrastructure.
             </span>
           </h1>
@@ -181,7 +181,7 @@ export function HeroSection() {
 
         {/* Subheadline */}
         <motion.p 
-          className="text-xl text-[#9BA0A2] max-w-2xl mx-auto mb-16 leading-relaxed text-center"
+          className="text-xl text-secondary-foreground max-w-2xl mx-auto mb-16 leading-relaxed text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
@@ -199,10 +199,10 @@ export function HeroSection() {
           {/* Glow effect behind code block */}
           <div className="absolute inset-0 bg-[#38D39F]/10 blur-[80px] rounded-full scale-110" />
 
-          <div className="relative bg-[#161819]/80 backdrop-blur-sm border border-[#38D39F]/20 rounded-2xl p-8 text-left shadow-[0_0_80px_rgba(56,211,159,0.15)]">
+          <div className="relative bg-surface-low/80 backdrop-blur-sm border border-primary/20 rounded-2xl p-8 text-left shadow-[0_0_80px_rgba(56,211,159,0.15)]">
             <div className="font-mono text-base space-y-3">
-              <div className="text-[#9BA0A2]">$ pip install <span className="text-[#38D39F]">hypercli</span></div>
-              <div className="text-[#9BA0A2]">$ <span className="text-[#38D39F]">hypercli</span> deploy minimax-m2</div>
+              <div className="text-muted-foreground">$ pip install <span className="text-primary">hypercli</span></div>
+              <div className="text-muted-foreground">$ <span className="text-primary">hypercli</span> deploy minimax-m2</div>
             </div>
           </div>
         </motion.div>
@@ -214,13 +214,13 @@ export function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h3 className="text-lg font-medium text-white mb-4 text-center">
-            Talk to our <span className="text-[#38D39F]">AI chat</span>
+          <h3 className="text-lg font-medium text-foreground mb-4 text-center">
+            Talk to our <span className="text-primary">AI chat</span>
           </h3>
-          <form onSubmit={handleChatSubmit} className="flex gap-2 bg-[#161819]/80 backdrop-blur-sm p-2 rounded-xl border border-[#2A2D2F] focus-within:border-[#38D39F]/40 focus-within:shadow-[0_0_30px_rgba(56,211,159,0.1)] transition-all duration-300">
+          <form onSubmit={handleChatSubmit} className="flex gap-2 bg-surface-low/80 backdrop-blur-sm p-2 rounded-xl border border-border-medium focus-within:border-primary/40 focus-within:shadow-[0_0_30px_rgba(56,211,159,0.1)] transition-all duration-300">
             <input
               type="text"
-              className="flex-1 bg-transparent border-none text-white text-base px-4 py-3 outline-none placeholder:text-[#38D39F]/60"
+              className="flex-1 bg-transparent border-none text-foreground text-base px-4 py-3 outline-none placeholder:text-primary/60"
               placeholder={animationState !== "LOADING" ? placeholderText : "Loading models..."}
               value={chatInput}
               onChange={(e) => setChatInput(e.target.value)}
@@ -240,7 +240,7 @@ export function HeroSection() {
             <button
               type="submit"
               disabled={!chatInput.trim()}
-              className="px-4 py-2 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center"
+              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center"
             >
               <Send className="w-5 h-5" />
             </button>

@@ -52,7 +52,7 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
     <React.Fragment>
       <tr
         onClick={onToggle}
-        className="cursor-pointer hover:bg-[#1C1F21] transition-colors"
+        className="cursor-pointer hover:bg-surface-low transition-colors"
       >
         <td className="px-6 py-4 whitespace-nowrap w-24">
           <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(tx.status)}`}>
@@ -60,7 +60,7 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
           </span>
         </td>
         <td className="px-6 py-4 whitespace-nowrap w-32">
-          <span className="font-mono text-sm text-[#9BA0A2]">
+          <span className="font-mono text-sm text-muted-foreground">
             {tx.job_id ? tx.job_id.slice(0, 8) : tx.id.slice(0, 8)}...
           </span>
         </td>
@@ -82,18 +82,18 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
               {meta.gpu_count || 1}x {meta.gpu_type}
             </span>
           ) : (
-            <span className="text-sm text-[#6E7375]">-</span>
+            <span className="text-sm text-tertiary-foreground">-</span>
           )}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
           <AmountDisplay amountUsd={tx.amount_usd} />
         </td>
-        <td className="px-6 py-4 whitespace-nowrap text-sm text-[#9BA0A2]">
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
           {formatDateTime(tx.created_at)}
         </td>
         <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
           <svg
-            className={`w-5 h-5 text-[#6E7375] transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            className={`w-5 h-5 text-tertiary-foreground transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
             fill="none"
             stroke="currentColor"
             viewBox="0 0 24 24"
@@ -104,20 +104,20 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
       </tr>
       {isExpanded && (
         <tr>
-          <td colSpan={7} className="px-6 py-4 bg-[#0B0D0E]">
+          <td colSpan={7} className="px-6 py-4 bg-background">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               {tx.job_id && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Job ID
                   </h3>
-                  <p className="font-mono text-sm text-[#D4D6D7]">{tx.job_id}</p>
+                  <p className="font-mono text-sm text-foreground">{tx.job_id}</p>
                 </div>
               )}
 
               {meta.job_state && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Job State
                   </h3>
                   <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(meta.job_state)}`}>
@@ -128,7 +128,7 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
 
               {meta.gpu_type && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     GPU Configuration
                   </h3>
                   <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('job')}`}>
@@ -139,19 +139,19 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
 
               {meta.price_per_hour !== undefined && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Price
                   </h3>
-                  <p className="text-[#D4D6D7]">${meta.price_per_hour.toFixed(2)}/hour</p>
+                  <p className="text-foreground">${meta.price_per_hour.toFixed(2)}/hour</p>
                 </div>
               )}
 
               {meta.runtime_seconds !== undefined && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Runtime
                   </h3>
-                  <p className="text-[#D4D6D7]">
+                  <p className="text-foreground">
                     {meta.runtime_seconds >= 3600
                       ? `${(meta.runtime_seconds / 3600).toFixed(2)} hours`
                       : meta.runtime_seconds >= 60
@@ -162,20 +162,20 @@ export default function JobTransactionRow({ tx, isExpanded, onToggle }: JobTrans
               )}
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   {tx.status === 'pending' ? 'Reserved Amount' : 'Total Cost'}
                 </h3>
-                <p className={tx.status === 'pending' ? 'text-[#9BA0A2] italic' : ''}>
-                  <AmountDisplay amountUsd={tx.amount_usd} className={tx.status === 'pending' ? 'text-[#9BA0A2]' : ''} />
+                <p className={tx.status === 'pending' ? 'text-muted-foreground italic' : ''}>
+                  <AmountDisplay amountUsd={tx.amount_usd} className={tx.status === 'pending' ? 'text-muted-foreground' : ''} />
                   {tx.status === 'pending' && <span className="text-xs ml-1">(pending)</span>}
                 </p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Created At
                 </h3>
-                <p className="text-[#D4D6D7]">{formatDateTime(tx.created_at)}</p>
+                <p className="text-foreground">{formatDateTime(tx.created_at)}</p>
               </div>
             </div>
             {tx.job_id && (

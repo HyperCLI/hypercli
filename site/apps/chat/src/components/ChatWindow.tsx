@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useEffect } from "react";
+import { useRef, useEffect, useState } from "react";
 import { cn, Button } from "@hypercli/shared-ui";
 import { User, Bot } from "lucide-react";
 import { marked } from "marked";
@@ -36,7 +36,7 @@ interface Message {
   role: "user" | "assistant";
   content: string;
   type?: string;
-  meta?: MessageMeta;
+  meta?: MessageMeta | null;
 }
 
 interface ChatWindowProps {
@@ -138,6 +138,9 @@ function parseRenderFromText(content: string): { render: RenderMeta; remainingTe
   return { render, remainingText: "" };
 }
 
+// Export for use in parent components
+export { parseRenderFromText };
+
 function getRenderStatusStyles(status: string | null | undefined) {
   const normalized = (status || "queued").toLowerCase();
   if (normalized === "completed" || normalized === "success") {
@@ -146,10 +149,25 @@ function getRenderStatusStyles(status: string | null | undefined) {
   if (normalized === "failed" || normalized === "error") {
     return "border-destructive/40 text-destructive bg-destructive/10";
   }
-  if (normalized === "running") {
+  if (normalized === "running" || normalized === "processing") {
     return "border-primary/40 text-primary bg-primary/10";
   }
+  if (normalized === "pending" || normalized === "queued") {
+    return "border-yellow-500/40 text-yellow-500 bg-yellow-500/10";
+  }
   return "border-border text-text-tertiary bg-surface-high/40";
+}
+
+function LoadingSpinner() {
+  return (
+    <div className="flex items-center gap-2">
+      <div className="relative w-4 h-4">
+        <div className="absolute inset-0 border-2 border-primary/20 rounded-full"></div>
+        <div className="absolute inset-0 border-2 border-primary border-t-transparent rounded-full animate-spin"></div>
+      </div>
+      <span className="text-xs text-text-tertiary">Working on it...</span>
+    </div>
+  );
 }
 
 function RenderCard({ render }: { render: RenderMeta }) {
@@ -157,15 +175,91 @@ function RenderCard({ render }: { render: RenderMeta }) {
   const shortId = render.render_id.slice(0, 8);
   const hasMedia = Boolean(render.result_url);
   const isVideo = Boolean(render.result_url && /\.(mp4|webm|mov|avi)(\?|$)/i.test(render.result_url));
+  const isLoading = status === "queued" || status === "pending" || status === "running" || status === "processing" || !render.state;
+  const [elapsedTime, setElapsedTime] = useState(0);
+  
+  // Track elapsed time for loading renders
+  useEffect(() => {
+    if (!isLoading) return;
+    
+    const startTime = Date.now();
+    const interval = setInterval(() => {
+      setElapsedTime(Math.floor((Date.now() - startTime) / 1000));
+    }, 1000);
+    
+    return () => clearInterval(interval);
+  }, [isLoading]);
+  
+  const getProgressMessageWithTime = (): string => {
+    const normalized = status;
+    const templateName = render.template || "image";
+    
+    if (normalized === "queued" || normalized === "pending") {
+      if (elapsedTime < 3) return "Initializing render queue...";
+      if (elapsedTime < 10) return "Allocating GPU resources...";
+      return `Waiting in queue (${elapsedTime}s)...`;
+    }
+    
+    if (normalized === "running" || normalized === "processing") {
+      if (elapsedTime < 5) return `Starting ${templateName} generation...`;
+      if (elapsedTime < 15) return `Rendering ${templateName}... (${elapsedTime}s)`;
+      if (elapsedTime < 30) return `Processing ${templateName}... Almost there (${elapsedTime}s)`;
+      return `Still working on ${templateName}... (${elapsedTime}s)`;
+    }
+    
+    if (normalized === "completed" || normalized === "success") {
+      return "Render complete";
+    }
+    if (normalized === "failed" || normalized === "error") {
+      return "Render failed";
+    }
+    return "Processing...";
+  };
+  
+  const progressMessage = getProgressMessageWithTime();
+  const isComplete = status === "success" || status === "completed" || status === "complete";
+  const isFailed = status === "failed" || status === "error";
 
   return (
-    <div className="rounded-2xl border border-border/60 bg-surface-low/70 p-4 space-y-3 shadow-md shadow-black/20">
+    <div className={cn(
+      "rounded-2xl border border-border/60 bg-surface-low/70 p-4 space-y-3 shadow-md shadow-black/20 transition-all",
+      isLoading && "ring-2 ring-primary/20 animate-pulse"
+    )}>
       <div className="flex items-center justify-between gap-3">
         <div className="text-sm font-semibold text-foreground">Render</div>
         <span className={cn("text-xs font-medium px-2 py-1 rounded-full border", getRenderStatusStyles(status))}>
           {status}
         </span>
       </div>
+      
+      {/* Progress message with loading indicator */}
+      {isLoading && (
+        <div className="flex items-center justify-between gap-3 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2.5">
+          <span className="text-sm text-foreground font-medium">{progressMessage}</span>
+          <LoadingSpinner />
+        </div>
+      )}
+      
+      {/* Success message */}
+      {isComplete && (
+        <div className="flex items-center gap-3 bg-success/5 border border-success/20 rounded-xl px-3 py-2.5">
+          <svg className="w-5 h-5 text-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
+          </svg>
+          <span className="text-sm text-success font-medium">Render completed successfully!</span>
+        </div>
+      )}
+      
+      {/* Error message */}
+      {isFailed && !render.error && (
+        <div className="flex items-center gap-3 bg-destructive/5 border border-destructive/20 rounded-xl px-3 py-2.5">
+          <svg className="w-5 h-5 text-destructive flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          <span className="text-sm text-destructive font-medium">Render failed</span>
+        </div>
+      )}
+      
       <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
         <div className="text-text-tertiary">
           <span className="text-text-muted">Template</span>
@@ -180,6 +274,22 @@ function RenderCard({ render }: { render: RenderMeta }) {
           <div className="text-foreground text-sm font-mono">{shortId}</div>
         </div>
       </div>
+      
+      {/* Loading skeleton for media placeholder */}
+      {isLoading && !hasMedia && (
+        <div className="overflow-hidden rounded-xl border border-border/60 bg-surface-high/40">
+          <div className="w-full h-48 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-3">
+              <div className="relative w-12 h-12">
+                <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
+                <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
+              </div>
+              <span className="text-sm text-text-tertiary">Rendering...</span>
+            </div>
+          </div>
+        </div>
+      )}
+      
       {hasMedia && render.result_url && (
         <div className="overflow-hidden rounded-xl border border-border/60 bg-background">
           {isVideo ? (
@@ -226,7 +336,9 @@ export function ChatWindow({
   }, [messages]);
 
   const renderMarkdown = (content: string) => {
-    const html = marked.parse(content) as string;
+    // Remove empty code blocks before rendering
+    const cleanedContent = content.replace(/```\s*```/g, '').replace(/`\s*`/g, '');
+    const html = marked.parse(cleanedContent) as string;
     return { __html: html };
   };
 
@@ -380,8 +492,8 @@ export function ChatWindow({
                             [&_img]:!inline [&_img]:!h-[1em] [&_img]:!w-[1em] [&_img]:!max-h-[1em] [&_img]:!max-w-[1em] [&_img]:!m-0 [&_img]:!align-[-0.1em]"
                           dangerouslySetInnerHTML={renderMarkdown(remainingText)}
                         />
-                      ) : (
-                        // Typing indicator
+                      ) : !render && (
+                        // Typing indicator - only show if there's no render card
                         <div className="flex items-center gap-1.5 py-2 px-1">
                           <div className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1s" }} />
                           <div className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: "200ms", animationDuration: "1s" }} />

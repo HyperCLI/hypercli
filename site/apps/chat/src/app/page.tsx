@@ -1,10 +1,23 @@
 "use client";
 
 import React, { useState, useEffect, useRef, useCallback, Suspense } from "react";
-import { useAuth, WalletAuth, cookieUtils, TopUpModal, getAuthBackendUrl, getBotApiUrl, getBotWsBase, getLlmApiUrl } from "@hypercli/shared-ui";
+import { 
+  useAuth, 
+  WalletAuth, 
+  cookieUtils, 
+  TopUpModal, 
+  getAuthBackendUrl, 
+  getBotApiUrl, 
+  getBotWsBase, 
+  getLlmApiUrl,
+  initializeTheme,
+  toggleTheme as toggleThemeUtil,
+  subscribeToThemeChanges,
+  type Theme
+} from "@hypercli/shared-ui";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { ChatSidebar, ChatWindow, ChatHeader, ChatInput } from "../components";
+import { ChatSidebar, ChatWindow, ChatHeader, ChatInput, parseRenderFromText } from "../components";
 import { initViewportHeight } from "./viewport-height";
 
 // Bot API types
@@ -87,7 +100,7 @@ const normalizeRenderPayload = (payload: any): RenderMeta | null => {
 
   return {
     render_id: renderId,
-    state: payload.state || payload.status || null,
+    state: payload.state || payload.status || "queued",
     template: payload.template || payload.meta?.template || payload.params?.template || null,
     gpu_type: payload.gpu_type || payload.params?.gpu_type || null,
     result_url: payload.result_url || null,
@@ -194,42 +207,18 @@ function ChatPageContent() {
   // Free user = authenticated but not via wallet
   const isFreeUser = isAuthenticated && !isWalletUser;
 
-  // Load theme from localStorage
+  // Load theme and subscribe to changes
   useEffect(() => {
-    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.setAttribute("data-theme", savedTheme);
-      document.body.setAttribute("data-theme", savedTheme);
-    } else if (window.matchMedia("(prefers-color-scheme: dark)").matches) {
-      setTheme("dark");
-      document.documentElement.setAttribute("data-theme", "dark");
-      document.body.setAttribute("data-theme", "dark");
-    } else {
-      document.documentElement.setAttribute("data-theme", "dark");
-      document.body.setAttribute("data-theme", "dark");
-    }
+    const currentTheme = initializeTheme();
+    setTheme(currentTheme);
 
-    // Listen for theme changes from other tabs
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "hypercli_theme" && e.newValue) {
-        const newTheme = e.newValue as "light" | "dark";
-        setTheme(newTheme);
-        document.documentElement.setAttribute("data-theme", newTheme);
-        document.body.setAttribute("data-theme", newTheme);
-      }
-    };
+    // Subscribe to theme changes from other tabs/apps
+    const unsubscribe = subscribeToThemeChanges((newTheme) => {
+      setTheme(newTheme);
+    });
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    return unsubscribe;
   }, []);
-
-  // Apply theme
-  useEffect(() => {
-    document.documentElement.setAttribute("data-theme", theme);
-    document.body.setAttribute("data-theme", theme);
-    localStorage.setItem("hypercli_theme", theme);
-  }, [theme]);
 
   // Fetch threads from bot API
   const fetchThreads = async () => {
@@ -449,21 +438,39 @@ function ChatPageContent() {
           const renderMeta = extractRenderMetaFromResult(data.result);
           if (renderMeta) {
             setMessages((prev) => {
-              const newMessages = [...prev];
-              for (let i = newMessages.length - 1; i >= 0; i -= 1) {
-                if (newMessages[i].role === "assistant") {
-                  newMessages[i] = {
-                    ...newMessages[i],
-                    meta: {
-                      ...newMessages[i].meta,
-                      render: renderMeta,
-                    },
-                  };
-                  return newMessages;
-                }
+              // Check if there's a pending selection (user hasn't clicked "run" yet)
+              const hasPendingSelection = prev.some(
+                msg => msg.type === "selection" && msg.role === "assistant"
+              );
+              
+              // If there's a pending selection, don't create the render yet
+              // It will be created after the user confirms
+              if (hasPendingSelection) {
+                console.log('[WebSocket] Render received but selection pending, skipping for now');
+                return prev;
               }
+              
+              // Check if this render already exists
+              const existingRenderIndex = prev.findIndex(
+                msg => msg.meta?.render?.render_id === renderMeta.render_id
+              );
+              
+              if (existingRenderIndex !== -1) {
+                // Update existing render
+                const newMessages = [...prev];
+                newMessages[existingRenderIndex] = {
+                  ...newMessages[existingRenderIndex],
+                  meta: {
+                    ...newMessages[existingRenderIndex].meta,
+                    render: renderMeta,
+                  },
+                };
+                return newMessages;
+              }
+              
+              // Create new render message at the end
               return [
-                ...newMessages,
+                ...prev,
                 {
                   id: `render-${renderMeta.render_id}`,
                   role: "assistant",
@@ -550,26 +557,36 @@ function ChatPageContent() {
     };
 
     ws.onerror = (error) => {
-      console.error("[WS] Connection error:", { url: ws.url, error });
+      // Only log errors if we're in a connected state (not during normal close/reconnect)
+      if (wsRef.current === ws) {
+        console.error("[WS] Connection error:", error.type);
+      }
       setWsConnected(false);
     };
 
     ws.onclose = (event) => {
-      console.log("[WS] Connection closed, scheduling reconnect", {
-        url: ws.url,
-        code: event.code,
-        reason: event.reason,
-        wasClean: event.wasClean,
-      });
+      // Only log if it wasn't a clean close or if there was an error
+      if (!event.wasClean && event.code !== 1000) {
+        console.log("[WS] Connection closed unexpectedly", {
+          code: event.code,
+          reason: event.reason || "No reason provided",
+        });
+      }
       setWsConnected(false);
-      wsRef.current = null;
+      
+      // Only clear if this is still the current websocket
+      if (wsRef.current === ws) {
+        wsRef.current = null;
+      }
 
-      // Reconnect after 2 seconds
-      wsReconnectTimeoutRef.current = setTimeout(() => {
-        if (isAuthenticated) {
-          connectWebSocket();
-        }
-      }, 2000);
+      // Reconnect after 2 seconds only if authenticated and not manually closed
+      if (event.code !== 1000) {
+        wsReconnectTimeoutRef.current = setTimeout(() => {
+          if (isAuthenticated) {
+            connectWebSocket();
+          }
+        }, 2000);
+      }
     };
 
     wsRef.current = ws;
@@ -604,6 +621,22 @@ function ChatPageContent() {
     setMessages((prev) =>
       prev.map((msg) => {
         if (msg.meta?.render?.render_id !== renderId) return msg;
+        
+        // Log status change for user feedback
+        const oldState = msg.meta?.render?.state;
+        const newState = patch.state;
+        if (oldState !== newState && newState) {
+          const statusMessages: Record<string, string> = {
+            queued: "Render queued in the system",
+            running: "Render is now processing",
+            processing: "Render in progress",
+            success: "Render completed successfully",
+            failed: "Render failed",
+          };
+          const message = statusMessages[newState.toLowerCase()] || `Status: ${newState}`;
+          console.log(`[Render ${renderId.slice(0, 8)}] ${message}`);
+        }
+        
         return {
           ...msg,
           meta: {
@@ -687,42 +720,75 @@ function ChatPageContent() {
           });
 
           if (!response.ok) {
-            if (response.status === 404 || response.status === 401) {
+            if (response.status === 404) {
+              // 404 might mean render not ready yet, allow more retries
               const attempts = (renderPollAttemptsRef.current[renderId] || 0) + 1;
               renderPollAttemptsRef.current[renderId] = attempts;
-              if (attempts >= 3) {
+              console.log(`[Polling] Render ${renderId.slice(0, 8)} not found (${attempts}/10)`);
+              if (attempts >= 10) {
+                console.warn(`[Polling] Render ${renderId.slice(0, 8)} not found after 10 attempts, marking as not found`);
+                // Update render to show it wasn't found
+                updateRenderMeta(renderId, {
+                  state: "failed",
+                  error: "Render not found in system. It may have been cancelled or expired.",
+                });
                 stopRenderPolling(renderId);
               }
+            } else if (response.status === 401) {
+              // Auth error, stop polling
+              console.error(`[Polling] Auth error for render ${renderId.slice(0, 8)}`);
+              stopRenderPolling(renderId);
             }
             return;
           }
 
+          // Reset attempt counter on successful response
+          renderPollAttemptsRef.current[renderId] = 0;
+
           const data = await response.json();
+          console.log(`[Polling] Render ${renderId.slice(0, 8)} response:`, data);
           if (data && typeof data === "object") {
             const nextState = data.status || data.state || null;
-            updateRenderMeta(renderId, {
+            const patch: Partial<RenderMeta> = {
               state: nextState,
               result_url: data.result_url || null,
               error: data.error || null,
-              template: data.template || undefined,
-            });
+            };
+            
+            // Only update template if it exists in the response
+            if (data.template) {
+              patch.template = data.template;
+            }
+            
+            // Also check for template in other possible locations
+            if (!patch.template && data.params?.template) {
+              patch.template = data.params.template;
+            }
+            if (!patch.template && data.meta?.template) {
+              patch.template = data.meta.template;
+            }
+            
+            updateRenderMeta(renderId, patch);
 
-            if (nextState && ["success", "failed", "cancelled"].includes(nextState)) {
+            if (nextState && ["success", "completed", "complete", "failed", "cancelled"].includes(nextState.toLowerCase())) {
+              console.log(`[Polling] Render ${renderId.slice(0, 8)} finished with status: ${nextState}`);
               stopRenderPolling(renderId);
             }
           }
         } catch (error) {
           const attempts = (renderPollAttemptsRef.current[renderId] || 0) + 1;
           renderPollAttemptsRef.current[renderId] = attempts;
-          if (attempts >= 3) {
+          console.error(`[Polling] Error polling render ${renderId.slice(0, 8)} (${attempts}/5):`, error);
+          if (attempts >= 5) {
+            console.error(`[Polling] Too many errors for render ${renderId.slice(0, 8)}, stopping`);
             stopRenderPolling(renderId);
           }
-          console.error("Failed to poll render status:", error);
         }
       };
 
       const interval = setInterval(poll, 4000);
       renderPollersRef.current.set(renderId, interval);
+      console.log(`[Polling] Started polling for render ${renderId.slice(0, 8)}`);
       void poll();
     },
     [isAuthenticated, stopRenderPolling, updateRenderMeta],
@@ -746,6 +812,35 @@ function ChatPageContent() {
     };
   }, [isAuthenticated, connectWebSocket]);
 
+  // Parse renders from message text content and store in meta
+  useEffect(() => {
+    setMessages((prev) => {
+      let updated = false;
+      const newMessages = prev.map((msg) => {
+        // Skip if already has render in meta or not assistant message
+        if (msg.role !== "assistant" || msg.meta?.render) return msg;
+        
+        // Try to parse render from content
+        const parsed = parseRenderFromText(msg.content);
+        if (parsed?.render) {
+          console.log(`[Parsing] Found render ${parsed.render.render_id.slice(0, 8)} in message text`);
+          updated = true;
+          return {
+            ...msg,
+            meta: {
+              ...msg.meta,
+              render: parsed.render,
+            },
+          };
+        }
+        
+        return msg;
+      });
+      
+      return updated ? newMessages : prev;
+    });
+  }, [messages.length]); // Only run when message count changes
+
   useEffect(() => {
     if (!isAuthenticated) return;
 
@@ -753,10 +848,12 @@ function ChatPageContent() {
       const renderId = msg.meta?.render?.render_id;
       const state = msg.meta?.render?.state;
       if (!renderId) continue;
-      if (state && ["success", "failed", "cancelled"].includes(state)) {
+      
+      if (state && ["success", "completed", "complete", "failed", "cancelled", "error"].includes(state.toLowerCase())) {
         stopRenderPolling(renderId);
         continue;
       }
+      
       startRenderPolling(renderId);
     }
   }, [messages, isAuthenticated, startRenderPolling, stopRenderPolling]);
@@ -946,11 +1043,8 @@ function ChatPageContent() {
   };
 
   const toggleTheme = () => {
-    setTheme((prev) => {
-      const newTheme = prev === "light" ? "dark" : "light";
-      console.log("Toggling theme from", prev, "to", newTheme);
-      return newTheme;
-    });
+    const newTheme = toggleThemeUtil();
+    setTheme(newTheme);
   };
 
   const startNewThread = () => {
@@ -978,8 +1072,46 @@ function ChatPageContent() {
       if (!response.ok) throw new Error("Failed to fetch messages");
 
       const data = await response.json();
-      // API returns flat array of messages
-      setMessages(Array.isArray(data) ? data : data.messages || []);
+      const serverMessages = Array.isArray(data) ? data : data.messages || [];
+      
+      // Merge with existing messages to preserve and update render states
+      setMessages((prev) => {
+        // If clearFirst was true, we already cleared, so just use server messages
+        if (clearFirst) return serverMessages;
+        
+        // Build a map of existing renders by render_id
+        const existingRenderStates = new Map<string, RenderMeta>();
+        prev.forEach(msg => {
+          const renderId = msg.meta?.render?.render_id;
+          if (renderId && msg.meta?.render) {
+            existingRenderStates.set(renderId, msg.meta.render);
+          }
+        });
+        
+        // Update server messages with any existing render states we have
+        const updatedServerMessages = serverMessages.map((serverMsg: Message) => {
+          const serverRenderId = serverMsg.meta?.render?.render_id;
+          if (serverRenderId && existingRenderStates.has(serverRenderId)) {
+            const existingRenderState = existingRenderStates.get(serverRenderId)!;
+            // Keep the server's data but preserve template and other fields if server doesn't have them
+            return {
+              ...serverMsg,
+              meta: {
+                ...serverMsg.meta,
+                render: {
+                  ...existingRenderState,
+                  ...serverMsg.meta?.render,
+                  // Preserve template if server doesn't provide it
+                  template: serverMsg.meta?.render?.template || existingRenderState.template,
+                },
+              },
+            };
+          }
+          return serverMsg;
+        });
+        
+        return updatedServerMessages;
+      });
     } catch (error) {
       console.error("Failed to fetch messages:", error);
     }
@@ -1346,14 +1478,22 @@ function ChatPageContent() {
 }
 
 export default function ChatPage() {
+  const [mounted, setMounted] = useState(false);
+
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  if (!mounted) {
+    return (
+      <div className="h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading...</div>
+      </div>
+    );
+  }
+
   return (
-    <Suspense
-      fallback={
-        <div className="h-screen flex items-center justify-center bg-background">
-          <div className="text-foreground text-xl">Loading...</div>
-        </div>
-      }
-    >
+    <Suspense fallback={null}>
       <ChatPageContent />
     </Suspense>
   );

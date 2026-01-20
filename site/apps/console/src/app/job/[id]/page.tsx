@@ -668,24 +668,24 @@ export default function JobDetailPage() {
 
   if (isLoading || !isAuthenticated) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
-        <div className="text-white text-xl">Loading...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading...</div>
       </div>
     );
   }
 
   if (error) {
     return (
-      <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
+      <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">
         <Header />
         <main className="flex-1 pt-20 relative">
           <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
-            <div className="bg-[#D05F5F]/10 border border-[#D05F5F]/30 rounded-lg p-6 text-[#D05F5F]">
+            <div className="bg-error/10 border border-error/30 rounded-lg p-6 text-error">
               <h2 className="text-xl font-bold mb-2">Error</h2>
               <p>{error}</p>
               <button
                 onClick={() => router.push('/jobs')}
-                className="mt-4 border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+                className="mt-4 border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
               >
                 Back to Jobs
               </button>
@@ -699,14 +699,14 @@ export default function JobDetailPage() {
 
   if (jobLoading || !job) {
     return (
-      <div className="min-h-screen flex items-center justify-center bg-[#0B0D0E]">
-        <div className="text-white text-xl">Loading job details...</div>
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading job details...</div>
       </div>
     );
   }
 
   return (
-    <div className="min-h-screen flex flex-col overflow-x-hidden bg-[#0B0D0E]">
+    <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">
       <style jsx>{`
         .terminal-scrollbar::-webkit-scrollbar {
           width: 8px;
@@ -727,17 +727,17 @@ export default function JobDetailPage() {
       <main className="flex-1 pt-20 relative">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12">
           <div className="flex items-center justify-between mb-8">
-            <h1 className="text-4xl font-bold text-white">Job Details</h1>
+            <h1 className="text-4xl font-bold text-foreground">Job Details</h1>
             <div className="flex gap-3">
               <button
                 onClick={handleCloneJob}
-                className="border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+                className="border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
               >
                 Clone Job
               </button>
               <button
                 onClick={() => router.push('/jobs')}
-                className="border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+                className="border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
               >
                 Back to Jobs
               </button>
@@ -746,24 +746,24 @@ export default function JobDetailPage() {
 
           {/* HTTPS Load Balancer Access Banner */}
           {job.hostname && job.ports?.lb && (
-            <div className="bg-[#38D39F]/10 border border-[#38D39F]/30 rounded-lg p-4 mb-6">
+            <div className="bg-primary/10 border border-primary/30 rounded-lg p-4 mb-6">
               <div className="flex items-center justify-between">
                 <div className="flex items-center gap-3">
-                  <svg className="w-5 h-5 text-[#38D39F]" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                  <svg className="w-5 h-5 text-primary" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M13 10V3L4 14h7v7l9-11h-7z" />
                   </svg>
                   <div>
                     <div className="flex items-center gap-2">
-                      <h3 className="text-sm font-semibold text-[#38D39F]">HTTPS Load Balancer Active</h3>
+                      <h3 className="text-sm font-semibold text-primary">HTTPS Load Balancer Active</h3>
                       {job.auth ? (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-[#38D39F]/20 text-[#38D39F] rounded-full border border-[#38D39F]/50">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-primary/20 text-primary rounded-full border border-primary/50">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 15v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2zm10-10V7a4 4 0 00-8 0v4h8z" />
                           </svg>
                           Cookie Required
                         </span>
                       ) : (
-                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-[#E0A85F]/20 text-[#E0A85F] rounded-full border border-[#E0A85F]/50">
+                        <span className="inline-flex items-center gap-1 px-2 py-0.5 text-xs font-medium bg-warning/20 text-warning rounded-full border border-warning/50">
                           <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M8 11V7a4 4 0 118 0m-4 8v2m-6 4h12a2 2 0 002-2v-6a2 2 0 00-2-2H6a2 2 0 00-2 2v6a2 2 0 002 2z" />
                           </svg>
@@ -771,14 +771,14 @@ export default function JobDetailPage() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-[#9BA0A2]">Container port {job.ports.lb} is accessible via HTTPS</p>
+                    <p className="text-xs text-muted-foreground">Container port {job.ports.lb} is accessible via HTTPS</p>
                   </div>
                 </div>
                 <a
                   href={`https://${job.hostname}`}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center gap-2 px-4 py-2 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] font-semibold text-sm transition-colors"
+                  className="inline-flex items-center gap-2 px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover font-semibold text-sm transition-colors"
                 >
                   <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                     <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10 6H6a2 2 0 00-2 2v10a2 2 0 002 2h10a2 2 0 002-2v-4M14 4h6m0 0v6m0-6L10 14" />
@@ -790,17 +790,17 @@ export default function JobDetailPage() {
           )}
 
           {/* Job Details Card */}
-          <div className="bg-[#161819] border border-[#2A2D2F] p-6 rounded-lg mb-6">
+          <div className="bg-surface-low border border-border p-6 rounded-lg mb-6">
             <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Job ID
                 </h3>
-                <p className="font-mono text-sm text-white">{job.job_id}</p>
+                <p className="font-mono text-sm text-foreground">{job.job_id}</p>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   State
                 </h3>
                 <span className={`px-3 py-1 inline-flex text-xs leading-5 font-semibold rounded-full border ${getBadgeClass(job.state)}`}>
@@ -809,24 +809,24 @@ export default function JobDetailPage() {
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   GPU Configuration
                 </h3>
-                <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-[#0B0D0E] text-[#D4D6D7] border-[#2A2D2F]">
+                <span className="px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border bg-background text-foreground border-border">
                   {job.gpu_count}x {job.gpu_type}
                 </span>
               </div>
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Price
                 </h3>
-                <p className="text-white">${job.price_per_hour.toFixed(2)}/hour</p>
+                <p className="text-foreground">${job.price_per_hour.toFixed(2)}/hour</p>
               </div>
 
               {job.hostname ? (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Hostname
                   </h3>
                   {job.ports?.lb ? (
@@ -835,13 +835,13 @@ export default function JobDetailPage() {
                         href={`https://${job.hostname}`}
                         target="_blank"
                         rel="noopener noreferrer"
-                        className="font-mono text-sm text-[#38D39F] hover:text-[#45E4AE] hover:underline"
+                        className="font-mono text-sm text-primary hover:text-primary-hover hover:underline"
                       >
                         {job.hostname}
                       </a>
                       <button
                         onClick={() => window.open(`https://${job.hostname}`, '_blank')}
-                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-[#38D39F]/20 text-[#38D39F] rounded hover:bg-[#38D39F]/30"
+                        className="inline-flex items-center gap-1 px-2 py-1 text-xs bg-primary/20 text-primary rounded hover:bg-primary/30"
                         title="Open in new tab"
                       >
                         <svg className="w-3 h-3" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -851,77 +851,77 @@ export default function JobDetailPage() {
                       </button>
                     </div>
                   ) : (
-                    <p className="font-mono text-sm text-white">{job.hostname}</p>
+                    <p className="font-mono text-sm text-foreground">{job.hostname}</p>
                   )}
                 </div>
               ) : (
                 !job.started_at && (
                   <div>
-                    <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                    <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                       Created At
                     </h3>
-                    <p className="text-white">{formatDateTime(job.created_at)}</p>
+                    <p className="text-foreground">{formatDateTime(job.created_at)}</p>
                   </div>
                 )
               )}
 
               <div>
-                <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                   Region
                 </h3>
                 <div className="flex items-center gap-2">
                   <span className="text-2xl">{getRegionFlag(job.region)}</span>
-                  <span className="text-white">{getRegionName(job.region)}</span>
+                  <span className="text-foreground">{getRegionName(job.region)}</span>
                 </div>
               </div>
 
               {job.runtime && !job.started_at && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Runtime Budget
                   </h3>
-                  <p className="text-white">{formatSecondsHumanReadable(job.runtime)}</p>
+                  <p className="text-foreground">{formatSecondsHumanReadable(job.runtime)}</p>
                 </div>
               )}
 
               {job.runtime && job.price_per_hour && !job.started_at && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Estimated Cost
                   </h3>
-                  <p className="text-white">${(job.price_per_hour * job.runtime / 3600).toFixed(2)}</p>
+                  <p className="text-foreground">${(job.price_per_hour * job.runtime / 3600).toFixed(2)}</p>
                 </div>
               )}
 
               {job.assigned_to && (
                 <div className="md:col-span-2">
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Assigned To
                   </h3>
-                  <p className="font-mono text-sm text-white">{job.assigned_to}</p>
+                  <p className="font-mono text-sm text-foreground">{job.assigned_to}</p>
                 </div>
               )}
 
               {job.started_at && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Started At
                   </h3>
-                  <p className="text-white">{formatDateTime(job.started_at)}</p>
+                  <p className="text-foreground">{formatDateTime(job.started_at)}</p>
                 </div>
               )}
 
               {timeRemaining !== null && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Time Remaining
                   </h3>
                   <div className="flex items-center gap-2">
-                    <p className={`${timeRemaining < 300 ? 'text-[#D05F5F]' : timeRemaining < 900 ? 'text-[#E0A85F]' : 'text-[#38D39F]'}`}>
+                    <p className={`${timeRemaining < 300 ? 'text-error' : timeRemaining < 900 ? 'text-warning' : 'text-primary'}`}>
                       {formatTimeRemaining(timeRemaining)}
                     </p>
                     {timeRemaining < 300 && (
-                      <svg className="w-4 h-4 text-[#D05F5F] animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <svg className="w-4 h-4 text-error animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                         <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
                       </svg>
                     )}
@@ -931,19 +931,19 @@ export default function JobDetailPage() {
 
               {job.completed_at && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Completed At
                   </h3>
-                  <p className="text-white">{formatDateTime(job.completed_at)}</p>
+                  <p className="text-foreground">{formatDateTime(job.completed_at)}</p>
                 </div>
               )}
 
               {job.started_at && job.completed_at && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#6E7375] uppercase tracking-wider mb-2">
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
                     Duration
                   </h3>
-                  <p className="text-white">
+                  <p className="text-foreground">
                     {(() => {
                       const startedTime = typeof job.started_at === 'number'
                         ? job.started_at
@@ -962,13 +962,13 @@ export default function JobDetailPage() {
 
           {/* Live Metrics */}
           {metrics && (job.state === 'running' || job.state === 'assigned') && (
-            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg p-6 mb-6">
-              <h2 className="text-xl font-bold text-white mb-6">Live Metrics</h2>
+            <div className="bg-surface-low border border-border rounded-lg p-6 mb-6">
+              <h2 className="text-xl font-bold text-foreground mb-6">Live Metrics</h2>
 
               {/* System Metrics - Full Width */}
               {metrics.system && (
-                <div className="mb-6 pb-6 border-b border-[#2A2D2F]">
-                  <h3 className="text-sm font-semibold text-[#9BA0A2] uppercase tracking-wider mb-4">
+                <div className="mb-6 pb-6 border-b border-border">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
                     System
                   </h3>
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
@@ -976,12 +976,12 @@ export default function JobDetailPage() {
                     {metrics.system.cpu_percent !== undefined && effectiveCpuCores && (
                       <div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className="text-[#9BA0A2]">CPU</span>
-                          <span className="font-medium text-white">
+                          <span className="text-muted-foreground">CPU</span>
+                          <span className="font-medium text-foreground">
                             {(metrics.system.cpu_percent / effectiveCpuCores).toFixed(1)}%
                           </span>
                         </div>
-                        <div className="w-full bg-[#0B0D0E] rounded-full h-2">
+                        <div className="w-full bg-background rounded-full h-2">
                           <div
                             className="bg-purple-500 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${Math.min(metrics.system.cpu_percent / effectiveCpuCores, 100)}%` }}
@@ -994,12 +994,12 @@ export default function JobDetailPage() {
                     {metrics.system.memory_used_mb !== undefined && metrics.system.memory_limit_mb !== undefined && (
                       <div>
                         <div className="flex justify-between text-sm mb-1">
-                          <span className="text-[#9BA0A2]">RAM</span>
-                          <span className="font-medium text-white">
+                          <span className="text-muted-foreground">RAM</span>
+                          <span className="font-medium text-foreground">
                             {(metrics.system.memory_used_mb / 1024).toFixed(1)} / {(metrics.system.memory_limit_mb / 1024).toFixed(1)} GB
                           </span>
                         </div>
-                        <div className="w-full bg-[#0B0D0E] rounded-full h-2">
+                        <div className="w-full bg-background rounded-full h-2">
                           <div
                             className="bg-indigo-500 h-2 rounded-full transition-all duration-300"
                             style={{ width: `${(metrics.system.memory_used_mb / metrics.system.memory_limit_mb * 100).toFixed(1)}%` }}
@@ -1014,7 +1014,7 @@ export default function JobDetailPage() {
               {/* GPU Metrics - Grid */}
               {metrics.gpus && metrics.gpus.length > 0 && (
                 <div>
-                  <h3 className="text-sm font-semibold text-[#9BA0A2] uppercase tracking-wider mb-4">
+                  <h3 className="text-sm font-semibold text-muted-foreground uppercase tracking-wider mb-4">
                     GPUs
                   </h3>
                   <div className={`grid gap-6 ${
@@ -1024,10 +1024,10 @@ export default function JobDetailPage() {
                   }`}>
                     {metrics.gpus.map((gpu: any, idx: number) => (
                       <div key={idx} className="space-y-4">
-                        <div className="flex items-center justify-between text-xs font-semibold text-[#6E7375] uppercase tracking-wider">
+                        <div className="flex items-center justify-between text-xs font-semibold text-tertiary-foreground uppercase tracking-wider">
                           <span>GPU {idx}: {gpu.name}</span>
                           {gpu.power_draw_w !== undefined && (
-                            <span className="text-[#9BA0A2] normal-case">
+                            <span className="text-muted-foreground normal-case">
                               Power: <span className={getPowerColor(gpu.power_draw_w)}>{gpu.power_draw_w.toFixed(1)}W</span>
                             </span>
                           )}
@@ -1038,12 +1038,12 @@ export default function JobDetailPage() {
                           {gpu.utilization_gpu_percent !== undefined && (
                             <div>
                               <div className="flex justify-between text-sm mb-1">
-                                <span className="text-[#9BA0A2]">GPU</span>
-                                <span className="font-medium text-white">{gpu.utilization_gpu_percent}%</span>
+                                <span className="text-muted-foreground">GPU</span>
+                                <span className="font-medium text-foreground">{gpu.utilization_gpu_percent}%</span>
                               </div>
-                              <div className="w-full bg-[#0B0D0E] rounded-full h-2">
+                              <div className="w-full bg-background rounded-full h-2">
                                 <div
-                                  className="bg-[#38D39F] h-2 rounded-full transition-all duration-300"
+                                  className="bg-primary h-2 rounded-full transition-all duration-300"
                                   style={{ width: `${gpu.utilization_gpu_percent}%` }}
                                 ></div>
                               </div>
@@ -1054,14 +1054,14 @@ export default function JobDetailPage() {
                           {gpu.memory_used_mb !== undefined && gpu.memory_total_mb !== undefined && (
                             <div>
                               <div className="flex justify-between text-sm mb-1">
-                                <span className="text-[#9BA0A2]">VRAM</span>
-                                <span className="font-medium text-white">
+                                <span className="text-muted-foreground">VRAM</span>
+                                <span className="font-medium text-foreground">
                                   {(gpu.memory_used_mb / 1024).toFixed(1)} / {(gpu.memory_total_mb / 1024).toFixed(1)} GB
                                 </span>
                               </div>
-                              <div className="w-full bg-[#0B0D0E] rounded-full h-2">
+                              <div className="w-full bg-background rounded-full h-2">
                                 <div
-                                  className="bg-[#45E4AE] h-2 rounded-full transition-all duration-300"
+                                  className="bg-primary-hover h-2 rounded-full transition-all duration-300"
                                   style={{ width: `${(gpu.memory_used_mb / gpu.memory_total_mb * 100).toFixed(1)}%` }}
                                 ></div>
                               </div>
@@ -1078,23 +1078,23 @@ export default function JobDetailPage() {
 
           {/* State-specific content */}
           {job.state === 'queued' && (
-            <div className="bg-[#E0A85F]/10 border border-[#E0A85F]/30 rounded-lg p-6 text-[#E0A85F]">
+            <div className="bg-warning/10 border border-warning/30 rounded-lg p-6 text-warning">
               <h2 className="text-lg font-semibold mb-2">Job has not launched yet</h2>
-              <p className="text-[#D4D6D7]">Waiting for an available instance to run this job...</p>
+              <p className="text-foreground">Waiting for an available instance to run this job...</p>
             </div>
           )}
 
           {job.state === 'canceled' && (
-            <div className="bg-[#D05F5F]/10 border border-[#D05F5F]/30 rounded-lg p-6 text-[#D05F5F]">
+            <div className="bg-error/10 border border-error/30 rounded-lg p-6 text-error">
               <h2 className="text-lg font-semibold mb-2">Job was canceled</h2>
-              <p className="text-[#D4D6D7]">This job was canceled and did not run.</p>
+              <p className="text-foreground">This job was canceled and did not run.</p>
             </div>
           )}
 
           {/* Logs Terminal */}
           {shouldShowTerminal && (
-            <div className="bg-[#161819] border border-[#2A2D2F] rounded-lg overflow-hidden">
-              <div className="bg-[#0B0D0E] px-4 py-2 flex items-center justify-between border-b border-[#2A2D2F]">
+            <div className="bg-surface-low border border-border rounded-lg overflow-hidden">
+              <div className="bg-background px-4 py-2 flex items-center justify-between border-b border-border">
                 <div className="flex items-center gap-2">
                   <span className="text-gray-300 text-sm font-mono">Job Logs</span>
                   {job.state === 'assigned' && (
@@ -1143,13 +1143,13 @@ export default function JobDetailPage() {
             <div className="mt-6 flex gap-3">
               <button
                 onClick={() => setShowExtendModal(true)}
-                className="bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-6 rounded-lg hover:bg-[#45E4AE] transition-colors"
+                className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
               >
                 Extend Runtime
               </button>
               <button
                 onClick={handleCancelJob}
-                className="border border-[#2A2D2F] text-[#D05F5F] font-semibold py-2 px-6 rounded-lg hover:bg-[#D05F5F]/10 hover:border-[#D05F5F] transition-colors"
+                className="border border-border text-error font-semibold py-2 px-6 rounded-lg hover:bg-error/10 hover:border-error transition-colors"
               >
                 Cancel Job
               </button>
@@ -1169,10 +1169,10 @@ export default function JobDetailPage() {
       >
         <div className="space-y-6">
           <div>
-            <p className="text-sm text-[#9BA0A2] mb-4">
+            <p className="text-sm text-muted-foreground mb-4">
               Extend the runtime of this job. You will be charged for the additional time at ${job?.price_per_hour.toFixed(2)}/hour.
             </p>
-            <label className="block text-sm font-medium text-[#D4D6D7] mb-2">
+            <label className="block text-sm font-medium text-foreground mb-2">
               Extension Duration (seconds)
             </label>
             <input
@@ -1181,13 +1181,13 @@ export default function JobDetailPage() {
               max="604800"
               value={extensionSeconds}
               onChange={(e) => setExtensionSeconds(parseInt(e.target.value) || 1)}
-              className="w-full border border-[#2A2D2F] rounded-lg px-4 py-2 bg-[#161819] text-white focus:border-[#38D39F] focus:outline-none"
+              className="w-full border border-border rounded-lg px-4 py-2 bg-surface-low text-foreground focus:border-primary focus:outline-none"
               disabled={extending}
             />
-            <p className="text-xs text-[#9BA0A2] mt-1">
+            <p className="text-xs text-muted-foreground mt-1">
               {formatSecondsHumanReadable(extensionSeconds)}
             </p>
-            <p className="text-xs text-[#6E7375] mt-2">
+            <p className="text-xs text-tertiary-foreground mt-2">
               Additional cost: ${((job?.price_per_second || 0) * extensionSeconds).toFixed(2)}
             </p>
           </div>
@@ -1195,14 +1195,14 @@ export default function JobDetailPage() {
             <button
               onClick={handleExtendJob}
               disabled={extending}
-              className="flex-1 bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors disabled:opacity-50"
+              className="flex-1 bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50"
             >
               {extending ? 'Extending...' : 'Extend Job'}
             </button>
             <button
               onClick={() => setShowExtendModal(false)}
               disabled={extending}
-              className="flex-1 border border-[#2A2D2F] text-[#D4D6D7] font-semibold py-2 px-4 rounded-lg hover:bg-[#161819] hover:border-[#38D39F] transition-colors"
+              className="flex-1 border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
             >
               Cancel
             </button>

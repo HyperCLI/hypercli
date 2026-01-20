@@ -8,6 +8,12 @@ import { WalletAuth } from "./WalletAuth";
 import { useAuth } from "../providers/AuthProvider";
 import { cookieUtils } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
+import { 
+  initializeTheme, 
+  toggleTheme as toggleThemeUtil, 
+  subscribeToThemeChanges,
+  type Theme 
+} from "../utils/theme";
 import { useRef } from "react";
 import { Moon, Sun } from "lucide-react";
 import {
@@ -55,38 +61,20 @@ export default function Header() {
 
   // Load and apply theme
   useEffect(() => {
-    const savedTheme = localStorage.getItem("hypercli_theme") as "light" | "dark" | null;
-    if (savedTheme) {
-      setTheme(savedTheme);
-      document.documentElement.setAttribute("data-theme", savedTheme);
-      document.body.setAttribute("data-theme", savedTheme);
-    } else {
-      document.documentElement.setAttribute("data-theme", "dark");
-      document.body.setAttribute("data-theme", "dark");
-    }
+    const currentTheme = initializeTheme();
+    setTheme(currentTheme);
 
-    // Listen for theme changes from other tabs
-    const handleStorageChange = (e: StorageEvent) => {
-      if (e.key === "hypercli_theme" && e.newValue) {
-        const newTheme = e.newValue as "light" | "dark";
-        setTheme(newTheme);
-        document.documentElement.setAttribute("data-theme", newTheme);
-        document.body.setAttribute("data-theme", newTheme);
-      }
-    };
+    // Subscribe to theme changes from other tabs/apps
+    const unsubscribe = subscribeToThemeChanges((newTheme) => {
+      setTheme(newTheme);
+    });
 
-    window.addEventListener("storage", handleStorageChange);
-    return () => window.removeEventListener("storage", handleStorageChange);
+    return unsubscribe;
   }, []);
 
   const toggleTheme = () => {
-    setTheme((prev) => {
-      const newTheme = prev === "light" ? "dark" : "light";
-      document.documentElement.setAttribute("data-theme", newTheme);
-      document.body.setAttribute("data-theme", newTheme);
-      localStorage.setItem("hypercli_theme", newTheme);
-      return newTheme;
-    });
+    const newTheme = toggleThemeUtil();
+    setTheme(newTheme);
   };
 
   useEffect(() => {
@@ -163,7 +151,7 @@ export default function Header() {
             <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-text-secondary hover:text-foreground transition-colors">
               Docs
             </a>
-            <button onClick={openContactModal} className="text-sm text-text-secondary hover:text-foreground transition-colors">
+            <button onClick={openContactModal} className="text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer">
               Contact
             </button>
           </div>
@@ -172,13 +160,13 @@ export default function Header() {
           <div className="hidden md:!flex items-center space-x-3">
             <button
               onClick={toggleTheme}
-              className="p-2 text-text-secondary hover:text-foreground transition-colors"
+              className="p-2 text-text-secondary hover:text-foreground transition-colors cursor-pointer"
               aria-label="Toggle theme"
             >
               {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
             </button>
             {isAuthenticated ? (
-              <button onClick={handleLogoutClick} className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors">
+              <button onClick={handleLogoutClick} className="px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors cursor-pointer">
                 Logout
               </button>
             ) : (
@@ -252,7 +240,7 @@ export default function Header() {
           </a>
           <a
             href={NAV_URLS.launch}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Launch
@@ -261,50 +249,50 @@ export default function Header() {
             href={NAV_URLS.docs}
             target="_blank"
             rel="noopener noreferrer"
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Docs
           </a>
           <a
             href={NAV_URLS.partner}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Partners
           </a>
           <a
             href={NAV_URLS.enterprise}
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Enterprise
           </a>
           <a
             href="/data-center"
-            className="block px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
             Data Center
           </a>
           <button
             onClick={openContactModal}
-            className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-[#D4D6D7] hover:text-white hover:bg-[#1D1F21]"
+            className="block w-full text-left px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
           >
             Contact
           </button>
-          <div className="border-t border-[#2A2D2F] mt-4 pt-4">
+          <div className="border-t border-border-medium mt-4 pt-4">
             {isAuthenticated ? (
               <button
                 onClick={handleLogoutClick}
-                className="block w-full text-center text-[#D4D6D7] hover:text-white font-semibold py-2 px-4 rounded-lg"
+                className="block w-full text-center text-secondary-foreground hover:text-foreground font-semibold py-2 px-4 rounded-lg"
               >
                 Logout
               </button>
             ) : (
               <button
                 onClick={openLoginModal}
-                className="block w-full text-center bg-[#38D39F] text-[#0B0D0E] font-semibold py-2 px-4 rounded-lg hover:bg-[#45E4AE] transition-colors"
+                className="block w-full text-center bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors"
               >
                 Login
               </button>
@@ -320,11 +308,11 @@ export default function Header() {
     {/* Login Modal - Outside header to avoid backdrop-blur stacking context issues */}
     {isLoginModalOpen && (
       <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-        <div className="bg-[#161819] border border-[#2A2D2F] rounded-2xl shadow-2xl p-8 max-w-md w-full relative">
+        <div className="bg-surface-low border border-border-medium rounded-2xl shadow-2xl p-8 max-w-md w-full relative">
           {/* Close button */}
           <button
             onClick={() => setIsLoginModalOpen(false)}
-            className="absolute top-4 right-4 text-[#6E7375] hover:text-white transition-colors"
+            className="absolute top-4 right-4 text-text-muted hover:text-foreground transition-colors"
           >
             <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />

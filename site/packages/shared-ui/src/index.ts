@@ -287,3 +287,12 @@ export { formatDateTime, formatDateTimeShort, formatDate, formatRelativeTime, ge
 export { getBadgeClass, getTypeBadgeClass } from './utils/badges';
 export { GPU_INFO, REGION_INFO, getGPUDisplayName, getGPUVram, getGPUArch, getRegionName, getRegionFlag } from './utils/gpu';
 export { NAV_URLS } from './utils/navigation';
+export { 
+  getTheme, 
+  setTheme, 
+  applyTheme, 
+  initializeTheme, 
+  toggleTheme, 
+  subscribeToThemeChanges,
+  type Theme 
+} from './utils/theme';

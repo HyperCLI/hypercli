@@ -27,7 +27,7 @@ export function Footer({ currentPage, setCurrentPage }: FooterProps) {
   };
 
   return (
-    <footer className="border-t border-[#2A2D2F] bg-[#0B0D0E]">
+    <footer className="border-t border-border-medium bg-background">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-16">
         <div className="grid grid-cols-2 md:grid-cols-4 lg:grid-cols-6 gap-8 mb-12">
           {/* Brand column */}
@@ -36,25 +36,25 @@ export function Footer({ currentPage, setCurrentPage }: FooterProps) {
               onClick={() => setCurrentPage('home')}
               className="flex items-center gap-2 mb-4 hover:opacity-80 transition-opacity"
             >
-              <div className="w-8 h-8 bg-[#38D39F] rounded-md flex items-center justify-center">
-                <span className="text-[#0B0D0E] text-lg font-semibold">H</span>
+              <div className="w-8 h-8 bg-primary rounded-md flex items-center justify-center">
+                <span className="text-primary-foreground text-lg font-semibold">H</span>
               </div>
-              <span className="text-xl text-white font-semibold">HyperCLI</span>
+              <span className="text-xl text-foreground font-semibold">HyperCLI</span>
             </button>
-            <p className="text-[#9BA0A2] text-sm mb-6 max-w-xs">
+            <p className="text-muted-foreground text-sm mb-6 max-w-xs">
               Developer-first AI infrastructure. Deploy models in one command, scale to millions of requests.
             </p>
             
             {/* Social links */}
             <div className="flex items-center gap-4">
-              <a href="#" className="w-9 h-9 rounded-lg bg-[#161819] hover:bg-[#1D1F21] flex items-center justify-center transition-colors">
-                <Github className="w-4 h-4 text-[#9BA0A2]" />
+              <a href="#" className="w-9 h-9 rounded-lg bg-surface-low hover:bg-surface-high flex items-center justify-center transition-colors">
+                <Github className="w-4 h-4 text-muted-foreground" />
               </a>
-              <a href="#" className="w-9 h-9 rounded-lg bg-[#161819] hover:bg-[#1D1F21] flex items-center justify-center transition-colors">
-                <Twitter className="w-4 h-4 text-[#9BA0A2]" />
+              <a href="#" className="w-9 h-9 rounded-lg bg-surface-low hover:bg-surface-high flex items-center justify-center transition-colors">
+                <Twitter className="w-4 h-4 text-muted-foreground" />
               </a>
-              <a href="#" className="w-9 h-9 rounded-lg bg-[#161819] hover:bg-[#1D1F21] flex items-center justify-center transition-colors">
-                <Linkedin className="w-4 h-4 text-[#9BA0A2]" />
+              <a href="#" className="w-9 h-9 rounded-lg bg-surface-low hover:bg-surface-high flex items-center justify-center transition-colors">
+                <Linkedin className="w-4 h-4 text-muted-foreground" />
               </a>
             </div>
           </div>
@@ -62,19 +62,19 @@ export function Footer({ currentPage, setCurrentPage }: FooterProps) {
           {/* Link columns */}
           {Object.entries(footerLinks).map(([category, links]) => (
             <div key={category}>
-              <h3 className="text-white mb-4">{category}</h3>
+              <h3 className="text-foreground mb-4">{category}</h3>
               <ul className="space-y-3">
                 {links.map((link) => (
                   <li key={link.label}>
                     {'page' in link ? (
                       <button 
                         onClick={() => setCurrentPage(link.page)}
-                        className="text-sm text-[#9BA0A2] hover:text-white transition-colors"
+                        className="text-sm text-muted-foreground hover:text-foreground transition-colors"
                       >
                         {link.label}
                       </button>
                     ) : (
-                      <a href={link.href} className="text-sm text-[#9BA0A2] hover:text-white transition-colors">
+                      <a href={link.href} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                         {link.label}
                       </a>
                     )}
@@ -86,26 +86,26 @@ export function Footer({ currentPage, setCurrentPage }: FooterProps) {
         </div>
 
         {/* Bottom bar */}
-        <div className="pt-8 border-t border-[#2A2D2F] flex flex-col md:flex-row justify-between items-center gap-4">
-          <p className="text-sm text-[#6E7375]">
+        <div className="pt-8 border-t border-border-medium flex flex-col md:flex-row justify-between items-center gap-4">
+          <p className="text-sm text-text-muted">
             © 2025 HyperCLI. All rights reserved.
           </p>
           <div className="flex items-center gap-6">
-            <a href="#" className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
+            <a href="#" className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
               Privacy Policy
             </a>
-            <a href="#" className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
+            <a href="#" className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
               Terms of Service
             </a>
-            <a href="#" className="text-sm text-[#6E7375] hover:text-[#9BA0A2] transition-colors">
+            <a href="#" className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
               Cookie Settings
             </a>
           </div>
         </div>
 
         {/* Login link for mobile */}
-        <div className="mt-8 pt-8 border-t border-[#2A2D2F] md:hidden text-center">
-          <a href="#" className="text-[#9BA0A2] hover:text-white transition-colors">
+        <div className="mt-8 pt-8 border-t border-border-medium md:hidden text-center">
+          <a href="#" className="text-muted-foreground hover:text-foreground transition-colors">
             Login →
           </a>
         </div>

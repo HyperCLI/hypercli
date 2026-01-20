@@ -74,7 +74,7 @@ export function WhatIsHyperCLISection() {
       {/* Fullscreen Chapter Transition */}
       <section
         ref={sectionRef}
-        className="relative h-[50vh] flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] overflow-hidden"
+        className="relative h-[50vh] flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-background overflow-hidden"
       >
         {/* Grain texture */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')]" />
@@ -88,11 +88,11 @@ export function WhatIsHyperCLISection() {
           }}
         >
           <div className="inline-block">
-            <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-white leading-[0.9] tracking-[-0.05em] font-bold">
+            <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-foreground leading-[0.9] tracking-[-0.05em] font-bold">
               Why HyperCLI?
             </h2>
             <motion.div
-              className="h-2 bg-[#38D39F] mt-12 w-full"
+              className="h-2 bg-primary mt-12 w-full"
               initial={{ width: 0 }}
               whileInView={{ width: "100%" }}
               transition={{ duration: 0.8, delay: 0.3 }}
@@ -102,7 +102,7 @@ export function WhatIsHyperCLISection() {
       </section>
 
       {/* Section Content */}
-      <section className="relative py-24 px-4 sm:px-6 lg:px-8 overflow-hidden bg-[#0D0F10]">
+      <section className="relative py-24 px-4 sm:px-6 lg:px-8 overflow-hidden bg-background-secondary">
         {/* Grain texture */}
         <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')]" />
 
@@ -130,11 +130,11 @@ export function WhatIsHyperCLISection() {
               ease: [0.22, 1, 0.36, 1],
             }}
           >
-            <h3 className="text-5xl sm:text-6xl text-white mb-8 leading-[1.05] tracking-tight max-w-4xl">
+            <h3 className="text-5xl sm:text-6xl text-foreground mb-8 leading-[1.05] tracking-tight max-w-4xl">
               The universal runtime + orchestration layer for
               modern AI
             </h3>
-            <p className="text-xl text-[#9BA0A2] max-w-2xl leading-relaxed">
+            <p className="text-xl text-muted-foreground max-w-2xl leading-relaxed">
               HyperCLI handles everything under the hood:
             </p>
           </motion.div>
@@ -158,12 +158,12 @@ export function WhatIsHyperCLISection() {
                   whileHover={{ x: 8 }}
                 >
                   <motion.div
-                    className="w-11 h-11 rounded-xl bg-[#38D39F]/6 flex items-center justify-center flex-shrink-0 group-hover:bg-[#38D39F]/12 transition-colors"
+                    className="w-11 h-11 rounded-xl bg-primary/6 flex items-center justify-center flex-shrink-0 group-hover:bg-primary/12 transition-colors"
                     whileHover={{ scale: 1.15 }}
                   >
-                    <feature.icon className="w-6 h-6 text-[#38D39F]" />
+                    <feature.icon className="w-6 h-6 text-primary" />
                   </motion.div>
-                  <p className="text-lg text-[#D4D6D7] group-hover:text-white transition-colors">
+                  <p className="text-lg text-secondary-foreground group-hover:text-foreground transition-colors">
                     {feature.title}
                   </p>
                 </motion.div>
@@ -190,7 +190,7 @@ export function WhatIsHyperCLISection() {
                 }
                 transition={{ duration: 0.5, delay: 0.6 }}
               >
-                <div className="text-lg text-[#9BA0A2] mb-3">
+                <div className="text-lg text-muted-foreground mb-3">
                   You write code
                 </div>
                 <motion.div
@@ -225,7 +225,7 @@ export function WhatIsHyperCLISection() {
                 }
                 transition={{ duration: 0.5, delay: 1.1 }}
               >
-                <div className="text-lg text-[#D4D6D7] mb-3">
+                <div className="text-lg text-secondary-foreground mb-3">
                   HyperCLI runs it anywhere
                 </div>
                 <motion.div
@@ -260,7 +260,7 @@ export function WhatIsHyperCLISection() {
                 }
                 transition={{ duration: 0.5, delay: 1.6 }}
               >
-                <div className="text-xl text-white mb-3">
+                <div className="text-xl text-foreground mb-3">
                   It scales automatically
                 </div>
                 <motion.div
