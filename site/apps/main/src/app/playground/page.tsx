@@ -22,11 +22,11 @@ const playgrounds = [
 
 export default function PlaygroundIndex() {
   return (
-    <div className="bg-[#0B0D0E] min-h-screen">
+    <div className="bg-background min-h-screen">
       <Header />
       <main>
         {/* Hero Section */}
-        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E]">
+        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-background">
           <motion.div 
             className="max-w-5xl mx-auto"
             initial={{ opacity: 0, y: 20 }}
@@ -36,14 +36,14 @@ export default function PlaygroundIndex() {
             <h1 className="text-6xl sm:text-7xl lg:text-8xl text-white mb-8 leading-[1.1] tracking-tight">
               Playground
             </h1>
-            <p className="text-2xl text-[#9BA0A2] leading-relaxed max-w-2xl">
+            <p className="text-2xl text-muted-foreground leading-relaxed max-w-2xl">
               Ready-to-run templates and workflows. Pick one, customize it, and run on GPU.
             </p>
           </motion.div>
         </section>
 
         {/* Playground tiles */}
-        <section className="pt-20 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+        <section className="pt-20 pb-32 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
           <div className="max-w-5xl mx-auto">
             <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
               {playgrounds.map((pg, index) => (
@@ -56,20 +56,20 @@ export default function PlaygroundIndex() {
                 >
                   <Link
                     href={pg.href}
-                    className="group block bg-[#161819]/40 border border-[#2A2D2F]/50 p-8 rounded-lg hover:bg-[#161819]/60 transition-colors"
+                    className="group block bg-surface-low/40 border border-border-medium/50 p-8 rounded-lg hover:bg-surface-low/60 transition-colors"
                   >
                     <div className="flex items-center gap-3 mb-4">
-                      <div className="h-11 w-11 rounded-lg bg-[#38D39F]/10 text-[#38D39F] flex items-center justify-center">
+                      <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                         {pg.icon}
                       </div>
-                      <h2 className="text-2xl font-semibold text-white group-hover:text-[#38D39F] transition-colors">
+                      <h2 className="text-2xl font-semibold text-white group-hover:text-primary transition-colors">
                         {pg.title}
                       </h2>
                     </div>
-                    <p className="text-[#9BA0A2] mb-6 leading-relaxed">{pg.description}</p>
+                    <p className="text-muted-foreground mb-6 leading-relaxed">{pg.description}</p>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-[#6B7075]">{pg.count} templates</span>
-                      <span className="text-[#38D39F] text-sm font-medium group-hover:translate-x-1 transition-transform">
+                      <span className="text-sm text-muted">{pg.count} templates</span>
+                      <span className="text-primary text-sm font-medium group-hover:translate-x-1 transition-transform">
                         Browse →
                       </span>
                     </div>

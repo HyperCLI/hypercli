@@ -9,7 +9,7 @@ export default function PartnerPage() {
   const [isModalOpen, setIsModalOpen] = useState(false);
 
   return (
-    <div className="bg-[#0B0D0E] min-h-screen overflow-x-hidden">
+    <div className="bg-background min-h-screen overflow-x-hidden">
       {/* Hidden form for Netlify to detect at build time */}
       <form name="partner-inquiry" data-netlify="true" netlify-honeypot="bot-field" hidden>
         <input type="hidden" name="form-name" value="partner-inquiry" />
@@ -25,7 +25,7 @@ export default function PartnerPage() {
       <Header />
       <main className="pt-16">
         {/* Hero Section */}
-        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E]">
+        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-background">
           <motion.div
             className="max-w-5xl mx-auto"
             initial={{ opacity: 0, y: 20 }}
@@ -36,14 +36,14 @@ export default function PartnerPage() {
               A New Revenue Layer for AI.
             </h1>
 
-            <p className="text-2xl text-[#9BA0A2] leading-relaxed mb-10 max-w-2xl">
+            <p className="text-2xl text-muted-foreground leading-relaxed mb-10 max-w-2xl">
               Deliver full AI systems to your clients. No
               infrastructure. No engineering. Just profit.
             </p>
 
             <button
               onClick={() => setIsModalOpen(true)}
-              className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
+              className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors flex items-center gap-2 cursor-pointer"
             >
               Become a Partner
               <ArrowRight className="w-5 h-5" />
@@ -52,7 +52,7 @@ export default function PartnerPage() {
         </section>
        </main>
       {/* The Shift */}
-      <section className="pt-32 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-32 pb-32 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -83,12 +83,12 @@ export default function PartnerPage() {
               viewport={{ once: true }}
               transition={{ duration: 0.6, delay: 0.3 }}
             >
-              <p className="text-lg text-[#9BA0A2] mb-4 leading-relaxed">
+              <p className="text-lg text-muted-foreground mb-4 leading-relaxed">
                 Your clients want: LLMs. Agents. RAG pipelines.
                 Media generation. Training.
               </p>
 
-              <p className="text-lg text-[#9BA0A2] mb-10 leading-relaxed">
+              <p className="text-lg text-muted-foreground mb-10 leading-relaxed">
                 But the infrastructure is slow, brittle,
                 complex, and costly.
               </p>
@@ -102,7 +102,7 @@ export default function PartnerPage() {
       </section>
 
       {/* What HyperCLI Enables */}
-      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -134,14 +134,14 @@ export default function PartnerPage() {
               viewport={{ once: true }}
               transition={{ duration: 0.6, delay: 0.3 }}
             >
-              <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed">
+              <p className="text-lg text-muted-foreground mb-5 leading-relaxed">
                 You deliver: Production-ready AI clusters.
                 Inference at scale. Fine-tuning systems.
                 Enterprise search. Agentic workflows. GPU
                 orchestration. On-prem, hybrid, or cloud
                 deployments.
               </p>
-              <p className="text-lg text-[#9BA0A2] leading-relaxed">
+              <p className="text-lg text-muted-foreground leading-relaxed">
                 Without building or operating any of it.
               </p>
             </motion.div>
@@ -150,7 +150,7 @@ export default function PartnerPage() {
       </section>
 
       {/* The Revenue Model */}
-      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -166,57 +166,57 @@ export default function PartnerPage() {
               AI that pays you back. Every month.
             </p>
 
-            <p className="text-lg text-[#9BA0A2] mb-8 leading-relaxed">
+            <p className="text-lg text-muted-foreground mb-8 leading-relaxed">
               Three streams:
             </p>
           </motion.div>
 
           <div className="grid md:grid-cols-3 gap-6 mb-10">
             <motion.div
-              className="p-6 border border-[#2A2D2F]/50 rounded-lg"
+              className="p-6 border border-border-medium/50 rounded-lg"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.1 }}
             >
               <p className="text-xl text-white mb-3">
-                <span className="text-[#38D39F]">1.</span>{" "}
+                <span className="text-primary">1.</span>{" "}
                 Resell Margin
               </p>
-              <p className="text-[#9BA0A2] leading-relaxed">
+              <p className="text-muted-foreground leading-relaxed">
                 20–40% on every HyperCLI deployment.
               </p>
             </motion.div>
 
             <motion.div
-              className="p-6 border border-[#2A2D2F]/50 rounded-lg"
+              className="p-6 border border-border-medium/50 rounded-lg"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.2 }}
             >
               <p className="text-xl text-white mb-3">
-                <span className="text-[#38D39F]">2.</span>{" "}
+                <span className="text-primary">2.</span>{" "}
                 Compute Share
               </p>
-              <p className="text-[#9BA0A2] leading-relaxed">
+              <p className="text-muted-foreground leading-relaxed">
                 A percentage of all GPU usage across your
                 clients.
               </p>
             </motion.div>
 
             <motion.div
-              className="p-6 border border-[#2A2D2F]/50 rounded-lg"
+              className="p-6 border border-border-medium/50 rounded-lg"
               initial={{ opacity: 0, y: 20 }}
               whileInView={{ opacity: 1, y: 0 }}
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.3 }}
             >
               <p className="text-xl text-white mb-3">
-                <span className="text-[#38D39F]">3.</span>{" "}
+                <span className="text-primary">3.</span>{" "}
                 Managed Services
               </p>
-              <p className="text-[#9BA0A2] leading-relaxed">
+              <p className="text-muted-foreground leading-relaxed">
                 Monitoring. Optimization. Governance. Your
                 expertise layered over our runtime.
               </p>
@@ -224,7 +224,7 @@ export default function PartnerPage() {
           </div>
 
           <motion.p
-            className="text-xl text-[#D4D6D7] leading-relaxed"
+            className="text-xl text-secondary-foreground leading-relaxed"
             initial={{ opacity: 0, y: 10 }}
             whileInView={{ opacity: 1, y: 0 }}
             viewport={{ once: true }}
@@ -237,7 +237,7 @@ export default function PartnerPage() {
       </section>
 
       {/* The Platform */}
-      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -268,13 +268,13 @@ export default function PartnerPage() {
               viewport={{ once: true }}
               transition={{ duration: 0.6, delay: 0.3 }}
             >
-              <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed">
+              <p className="text-lg text-muted-foreground mb-5 leading-relaxed">
                 HyperCLI becomes your AI runtime: GPU
                 scheduling. Autoscaling. Distributed execution.
                 Model routing. Container isolation.
                 Observability. Deployment blueprints.
               </p>
-              <p className="text-lg text-[#9BA0A2] leading-relaxed">
+              <p className="text-lg text-muted-foreground leading-relaxed">
                 Delivered through your brand. Powered by our
                 engine.
               </p>
@@ -284,7 +284,7 @@ export default function PartnerPage() {
       </section>
 
       {/* The Console */}
-      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -315,11 +315,11 @@ export default function PartnerPage() {
               viewport={{ once: true }}
               transition={{ duration: 0.6, delay: 0.3 }}
             >
-              <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed">
+              <p className="text-lg text-muted-foreground mb-5 leading-relaxed">
                 One dashboard for: Deployments. Clusters. Model
                 endpoints. Usage. Cost. Policies. Logs.
               </p>
-              <p className="text-lg text-[#9BA0A2] leading-relaxed">
+              <p className="text-lg text-muted-foreground leading-relaxed">
                 You manage outcomes. HyperCLI handles
                 orchestration.
               </p>
@@ -329,7 +329,7 @@ export default function PartnerPage() {
       </section>
 
       {/* GTM Alignment */}
-      <section className="pt-32 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-32 pb-32 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-6xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -352,14 +352,14 @@ export default function PartnerPage() {
               We don't compete with you. We scale you.
             </p>
 
-            <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed max-w-2xl">
+            <p className="text-lg text-muted-foreground mb-5 leading-relaxed max-w-2xl">
               Partners receive: Lead sharing. Co-selling.
               Architecture support. Pilot assistance. Partner
               playbooks. Priority integration. Dedicated
               enablement.
             </p>
 
-            <p className="text-lg text-[#9BA0A2] leading-relaxed max-w-2xl">
+            <p className="text-lg text-muted-foreground leading-relaxed max-w-2xl">
               You own the relationship. We power the
               infrastructure.
             </p>
@@ -368,7 +368,7 @@ export default function PartnerPage() {
       </section>
 
       {/* Final CTA */}
-      <section className="pt-24 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
+      <section className="pt-24 pb-32 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
         <div className="max-w-5xl mx-auto">
           <motion.div
             initial={{ opacity: 0, y: 20 }}
@@ -382,7 +382,7 @@ export default function PartnerPage() {
 
             <motion.button
               onClick={() => setIsModalOpen(true)}
-              className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
+              className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors flex items-center gap-2 cursor-pointer"
               initial={{ opacity: 0, scale: 0.95 }}
               whileInView={{ opacity: 1, scale: 1 }}
               viewport={{ once: true }}

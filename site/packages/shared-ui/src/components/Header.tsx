@@ -31,6 +31,10 @@ export default function Header() {
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
   const [theme, setTheme] = useState<"light" | "dark">("dark");
+  const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
+  const [platformMenuFullyOpen, setPlatformMenuFullyOpen] = useState(false);
+  const [solutionsMenuOpen, setSolutionsMenuOpen] = useState(false);
+  const [solutionsMenuFullyOpen, setSolutionsMenuFullyOpen] = useState(false);
   const { logout } = useTurnkey();
   const { isAuthenticated } = useAuth();
 
@@ -86,6 +90,41 @@ export default function Header() {
   }, []);
 
   const productRef = useRef<HTMLDivElement | null>(null);
+  const platformMenuFullyOpenRef = useRef(false);
+  const solutionsMenuFullyOpenRef = useRef(false);
+
+  // Track menu states
+  useEffect(() => {
+    if (platformMenuOpen) {
+      platformMenuFullyOpenRef.current = false;
+      // Close the other menu
+      if (solutionsMenuOpen) {
+        setSolutionsMenuOpen(false);
+      }
+      const timer = setTimeout(() => {
+        platformMenuFullyOpenRef.current = true;
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      platformMenuFullyOpenRef.current = false;
+    }
+  }, [platformMenuOpen, solutionsMenuOpen]);
+
+  useEffect(() => {
+    if (solutionsMenuOpen) {
+      solutionsMenuFullyOpenRef.current = false;
+      // Close the other menu
+      if (platformMenuOpen) {
+        setPlatformMenuOpen(false);
+      }
+      const timer = setTimeout(() => {
+        solutionsMenuFullyOpenRef.current = true;
+      }, 200);
+      return () => clearTimeout(timer);
+    } else {
+      solutionsMenuFullyOpenRef.current = false;
+    }
+  }, [solutionsMenuOpen, platformMenuOpen]);
 
   return (
     <>
@@ -111,9 +150,24 @@ export default function Header() {
             </a>
 
             {/* Product dropdown grouping console/playground/models/gpus/launch (Radix) */}
-            <NavigationMenu data-slot="header-product" viewport={false} className="!flex-none">
+            <NavigationMenu 
+              data-slot="header-product" 
+              viewport={false} 
+              className="!flex-none" 
+              value={platformMenuOpen ? "platform" : undefined}
+              onValueChange={(value) => {
+                const shouldOpen = value === "platform";
+                if (shouldOpen) {
+                  setPlatformMenuOpen(true);
+                } else if (platformMenuFullyOpenRef.current) {
+                  setPlatformMenuOpen(false);
+                }
+              }}
+              delayDuration={150}
+              skipDelayDuration={0}
+            >
               <NavigationMenuList>
-                <NavigationMenuItem>
+                <NavigationMenuItem value="platform">
                     <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">Platform</NavigationMenuTrigger>
                   <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
                     <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">
@@ -131,9 +185,24 @@ export default function Header() {
             </NavigationMenu>
 
             {/* Solutions dropdown grouping partners/enterprise/data-center (Radix) */}
-            <NavigationMenu data-slot="header-solutions" viewport={false} className="!flex-none">
+            <NavigationMenu 
+              data-slot="header-solutions" 
+              viewport={false} 
+              className="!flex-none" 
+              value={solutionsMenuOpen ? "solutions" : undefined}
+              onValueChange={(value) => {
+                const shouldOpen = value === "solutions";
+                if (shouldOpen) {
+                  setSolutionsMenuOpen(true);
+                } else if (solutionsMenuFullyOpenRef.current) {
+                  setSolutionsMenuOpen(false);
+                }
+              }}
+              delayDuration={150}
+              skipDelayDuration={0}
+            >
               <NavigationMenuList>
-                <NavigationMenuItem>
+                <NavigationMenuItem value="solutions">
                     <NavigationMenuTrigger className="text-sm !text-text-secondary hover:text-foreground transition-colors cursor-pointer !bg-transparent !px-0 !py-0 !h-auto !rounded-none !shadow-none focus-visible:ring-2 focus-visible:ring-primary/30 data-[state=open]:!text-text-secondary data-[state=open]:!bg-transparent data-[state=open]:hover:!text-text-secondary">Solutions</NavigationMenuTrigger>
                   <NavigationMenuContent className="md:w-auto overflow-visible bg-transparent p-0 border-none shadow-none">
                     <div className="bg-surface-low border border-border rounded-lg p-2 shadow-lg w-56">

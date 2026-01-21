@@ -230,7 +230,7 @@ export default function ApiKeysPage() {
             <h1 className="text-4xl font-bold text-foreground">API Keys</h1>
             <button
               onClick={() => setShowCreateModal(true)}
-              className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
+              className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors cursor-pointer"
             >
               Create New Key
             </button>
@@ -244,7 +244,7 @@ export default function ApiKeysPage() {
               <p className="text-muted-foreground mb-4">You don't have any API keys yet.</p>
               <button
                 onClick={() => setShowCreateModal(true)}
-                className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
+                className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors cursor-pointer"
               >
                 Create Your First API Key
               </button>
@@ -300,7 +300,7 @@ export default function ApiKeysPage() {
                         {key.is_active ? (
                           <button
                             onClick={() => handleDeactivateKey(key.key_id)}
-                            className="text-error hover:text-error/80"
+                            className="text-error hover:text-error/80 cursor-pointer"
                           >
                             Deactivate
                           </button>
@@ -348,7 +348,7 @@ export default function ApiKeysPage() {
               <button
                 onClick={handleCreateKey}
                 disabled={creating}
-                className="flex-1 bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50"
+                className="flex-1 bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
               >
                 {creating ? 'Creating...' : 'Create Key'}
               </button>
@@ -358,7 +358,7 @@ export default function ApiKeysPage() {
                   setNewKeyName("");
                 }}
                 disabled={creating}
-                className="flex-1 border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
+                className="flex-1 border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors cursor-pointer"
               >
                 Cancel
               </button>
@@ -394,7 +394,7 @@ export default function ApiKeysPage() {
                 />
                 <button
                   onClick={() => copyToClipboard(createdKey.api_key)}
-                  className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors"
+                  className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors cursor-pointer"
                 >
                   {copiedKey ? 'Copied!' : 'Copy'}
                 </button>
@@ -402,7 +402,7 @@ export default function ApiKeysPage() {
             </div>
             <button
               onClick={() => setCreatedKey(null)}
-              className="w-full border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
+              className="w-full border border-border text-foreground font-semibold py-2 px-4 rounded-lg hover:bg-surface-low hover:border-primary transition-colors cursor-pointer"
             >
               Done
             </button>

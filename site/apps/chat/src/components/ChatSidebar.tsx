@@ -69,7 +69,7 @@ export function ChatSidebar({
           {onHideSidebar && (
             <button
               onClick={onHideSidebar}
-              className="p-2 rounded-xl border border-border/60 hover:bg-surface-high transition-colors text-muted-foreground hover:text-foreground"
+              className="p-2 rounded-xl border border-border/60 hover:bg-surface-high transition-colors text-muted-foreground hover:text-foreground cursor-pointer"
               title="Hide sidebar"
             >
               <PanelLeftClose className="w-4 h-4" />
@@ -77,7 +77,7 @@ export function ChatSidebar({
           )}
           <button
             onClick={onToggleTheme}
-            className="p-2 rounded-xl border border-border/60 hover:bg-surface-high transition-colors text-muted-foreground hover:text-foreground"
+            className="p-2 rounded-xl border border-border/60 hover:bg-surface-high transition-colors text-muted-foreground hover:text-foreground cursor-pointer"
           >
             {theme === "light" ? <Moon className="w-4 h-4" /> : <Sun className="w-4 h-4" />}
           </button>
@@ -110,7 +110,7 @@ export function ChatSidebar({
                 key={model.id}
                 onClick={() => onSelectModel(model.id)}
                 className={cn(
-                  "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors border",
+                  "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors border cursor-pointer",
                   selectedModel === model.id
                     ? "bg-primary/10 text-primary border-primary/40"
                     : "text-muted-foreground hover:text-foreground hover:bg-surface-high/80 border-border/50"
@@ -161,7 +161,7 @@ export function ChatSidebar({
                 <span className="flex-1 text-left truncate">{thread.title || "New Chat"}</span>
                 <button
                   onClick={(e) => onDeleteThread(thread.id, e)}
-                  className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive transition-all"
+                  className="p-1 rounded opacity-0 group-hover:opacity-100 hover:bg-destructive/20 hover:text-destructive transition-all cursor-pointer"
                 >
                   <Trash2 className="w-3 h-3" />
                 </button>
@@ -178,7 +178,7 @@ export function ChatSidebar({
           <div className="p-3 bg-surface-high/80 rounded-xl border border-border/60">
             <div className="flex items-center justify-between mb-1">
               <span className="text-xs text-muted-foreground">Balance</span>
-              <button onClick={onTopUp} className="text-xs font-medium text-primary hover:underline">
+              <button onClick={onTopUp} className="text-xs font-medium text-primary hover:underline cursor-pointer">
                 Top Up
               </button>
             </div>
@@ -191,13 +191,13 @@ export function ChatSidebar({
 
         {/* Settings & Logout */}
         <div className="space-y-1">
-          <button className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-foreground hover:bg-surface-high/80 transition-colors border border-transparent hover:border-border/60">
+          <button className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-muted-foreground hover:text-foreground hover:bg-surface-high/80 transition-colors border border-transparent hover:border-border/60 cursor-pointer">
             <Settings className="h-4 w-4" />
             Settings
           </button>
           <button
             onClick={onLogout}
-            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition-colors border border-transparent hover:border-destructive/30"
+            className="w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm text-destructive hover:bg-destructive/10 transition-colors border border-transparent hover:border-destructive/30 cursor-pointer"
           >
             <LogOut className="h-4 w-4" />
             Logout

@@ -221,7 +221,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
             <button
               onClick={handleClose}
               disabled={isProcessing}
-              className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50"
+              className="text-muted-foreground hover:text-foreground transition-colors disabled:opacity-50 cursor-pointer disabled:cursor-not-allowed"
             >
               <svg className="w-6 h-6" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
@@ -320,7 +320,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                           type="button"
                           onClick={() => setAmount(preset)}
                           disabled={isProcessing || preset < minAmount}
-                          className={`flex-1 py-1.5 text-sm font-medium rounded-md border transition-all ${
+                          className={`flex-1 py-1.5 text-sm font-medium rounded-md border transition-all cursor-pointer ${
                             amount === preset
                               ? "border-primary bg-primary/20 text-primary"
                               : "border-border hover:border-border-medium text-muted-foreground hover:text-foreground"
@@ -333,7 +333,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                         type="button"
                         onClick={() => setShowCustomAmount(true)}
                         disabled={isProcessing}
-                        className="flex-[1.3] py-1.5 text-sm font-medium rounded-md border transition-all border-border hover:border-border-medium text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed text-center"
+                        className="flex-[1.3] py-1.5 text-sm font-medium rounded-md border transition-all border-border hover:border-border-medium text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed text-center cursor-pointer"
                       >
                         Custom
                       </button>
@@ -386,7 +386,7 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                               setCustomAmountInput(preset.toString())
                             }}
                             disabled={isProcessing}
-                            className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-all ${
+                            className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-all cursor-pointer ${
                               amount === preset
                                 ? "border-primary bg-primary/20 text-primary"
                                 : "border-border hover:border-border-medium text-muted-foreground hover:text-foreground"

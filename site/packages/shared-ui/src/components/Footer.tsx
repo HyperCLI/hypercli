@@ -1,7 +1,13 @@
+"use client";
+
 import Link from "next/link";
+import { useState } from "react";
 import { NAV_URLS } from "../utils/navigation";
+import ContactModal from "./ContactModal";
 
 export default function Footer() {
+  const [isContactModalOpen, setIsContactModalOpen] = useState(false);
+
   return (
     <footer className="bg-background border-t border-border-medium">
       <div className="max-w-[1400px] mx-auto py-12 px-4 sm:px-6 lg:py-16 lg:px-8">
@@ -87,9 +93,9 @@ export default function Footer() {
                   </Link>
                 </li>
                 <li>
-                  <Link href={NAV_URLS.home} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <button onClick={() => setIsContactModalOpen(true)} className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                     Contact
-                  </Link>
+                  </button>
                 </li>
               </ul>
             </div>
@@ -178,6 +184,7 @@ export default function Footer() {
           </div>
         </div>
       </div>
+      <ContactModal isOpen={isContactModalOpen} onClose={() => setIsContactModalOpen(false)} source="footer-contact" />
     </footer>
   );
 }

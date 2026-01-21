@@ -652,7 +652,7 @@ export default function LaunchPage() {
                   <button
                     onClick={() => setGpuMode('single')}
                     disabled={!isDataReady}
-                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    className={`p-4 rounded-lg border-2 transition-all text-left cursor-pointer ${
                       gpuMode === 'single'
                         ? 'border-primary bg-primary/10'
                         : 'border-border hover:border-primary/50'
@@ -664,7 +664,7 @@ export default function LaunchPage() {
                   <button
                     onClick={() => setGpuMode('multi')}
                     disabled={!isDataReady}
-                    className={`p-4 rounded-lg border-2 transition-all text-left ${
+                    className={`p-4 rounded-lg border-2 transition-all text-left cursor-pointer ${
                       gpuMode === 'multi'
                         ? 'border-primary bg-primary/10'
                         : 'border-border hover:border-primary/50'
@@ -689,7 +689,7 @@ export default function LaunchPage() {
                       <button
                         key={gpu.key}
                         onClick={() => setGpuType(gpu.key)}
-                        className={`p-4 rounded-lg border-2 transition-all text-left ${
+                        className={`p-4 rounded-lg border-2 transition-all text-left cursor-pointer ${
                           gpuType === gpu.key
                             ? 'border-primary bg-primary/10'
                             : 'border-border hover:border-primary/50'
@@ -715,7 +715,7 @@ export default function LaunchPage() {
                       <button
                         key={config.count}
                         onClick={() => setGpuCount(config.count)}
-                        className={`p-4 rounded-lg border-2 transition-all text-left ${
+                        className={`p-4 rounded-lg border-2 transition-all text-left cursor-pointer ${
                           gpuCount === config.count
                             ? 'border-primary bg-primary/10'
                             : 'border-border hover:border-primary/50'
@@ -744,7 +744,7 @@ export default function LaunchPage() {
                       interruptible
                         ? 'border-primary bg-primary/10'
                         : 'border-border hover:border-primary/50'
-                    } ${!pricingAvailability.interruptible ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${!pricingAvailability.interruptible ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-semibold text-foreground">Interruptible (Spot)</span>
@@ -767,7 +767,7 @@ export default function LaunchPage() {
                       !interruptible
                         ? 'border-primary bg-primary/10'
                         : 'border-border hover:border-primary/50'
-                    } ${!pricingAvailability.onDemand ? 'opacity-50 cursor-not-allowed' : ''}`}
+                    } ${!pricingAvailability.onDemand ? 'opacity-50 cursor-not-allowed' : 'cursor-pointer'}`}
                   >
                     <div className="flex items-center justify-between mb-2">
                       <span className="font-semibold text-foreground">On-Demand</span>
@@ -800,7 +800,7 @@ export default function LaunchPage() {
                         <button
                           key={region.code}
                           onClick={() => setSelectedRegion(region.code)}
-                          className={`p-4 rounded-lg border-2 transition-all text-left ${
+                          className={`p-4 rounded-lg border-2 transition-all text-left cursor-pointer ${
                             selectedRegion === region.code
                               ? 'border-primary bg-primary/10'
                               : 'border-border hover:border-primary/50'
@@ -913,7 +913,7 @@ export default function LaunchPage() {
                       <button
                         type="button"
                         onClick={() => setCommand("nvidia-smi")}
-                        className="text-xs text-primary hover:text-primary-hover"
+                        className="text-xs text-primary hover:text-primary-hover cursor-pointer"
                       >
                         Use nvidia-smi
                       </button>
@@ -958,7 +958,7 @@ export default function LaunchPage() {
                         <button
                           type="button"
                           onClick={() => setEnvVars(envVars.filter((_, i) => i !== index))}
-                          className="px-3 py-2 bg-error/10 text-error rounded-lg hover:bg-error/20"
+                          className="px-3 py-2 bg-error/10 text-error rounded-lg hover:bg-error/20 cursor-pointer"
                         >
                           ×
                         </button>
@@ -967,7 +967,7 @@ export default function LaunchPage() {
                     <button
                       type="button"
                       onClick={() => setEnvVars([...envVars, {key: "", value: ""}])}
-                      className="text-sm text-primary hover:text-primary-hover"
+                      className="text-sm text-primary hover:text-primary-hover cursor-pointer"
                     >
                       + Add Environment Variable
                     </button>
@@ -1005,7 +1005,7 @@ export default function LaunchPage() {
                         <button
                           type="button"
                           onClick={() => setPorts(ports.filter((_, i) => i !== index))}
-                          className="px-3 py-2 bg-error/10 text-error rounded-lg hover:bg-error/20"
+                          className="px-3 py-2 bg-error/10 text-error rounded-lg hover:bg-error/20 cursor-pointer"
                         >
                           ×
                         </button>
@@ -1014,7 +1014,7 @@ export default function LaunchPage() {
                     <button
                       type="button"
                       onClick={() => setPorts([...ports, {container: "", host: ""}])}
-                      className="text-sm text-primary hover:text-primary-hover"
+                      className="text-sm text-primary hover:text-primary-hover cursor-pointer"
                     >
                       + Add Port Mapping
                     </button>
@@ -1160,7 +1160,7 @@ export default function LaunchPage() {
                           key={preset}
                           type="button"
                           onClick={() => setRuntime(preset)}
-                          className={`flex-1 px-2 py-1 text-xs rounded ${runtime === preset ? 'bg-primary/20 text-primary' : 'bg-background text-muted-foreground hover:bg-surface-medium'}`}
+                          className={`flex-1 px-2 py-1 text-xs rounded cursor-pointer ${runtime === preset ? 'bg-primary/20 text-primary' : 'bg-background text-muted-foreground hover:bg-surface-medium'}`}
                         >
                           {preset >= 3600 ? `${preset / 3600}h` : `${preset / 60}m`}
                         </button>
@@ -1178,7 +1178,7 @@ export default function LaunchPage() {
                 <button
                   onClick={createJob}
                   disabled={isCreating || !gpuType || !selectedRegion || !currentPrice}
-                  className="w-full bg-primary text-primary-foreground font-semibold py-3 px-6 rounded-lg hover:bg-primary-hover transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                  className="w-full bg-primary text-primary-foreground font-semibold py-3 px-6 rounded-lg hover:bg-primary-hover transition-colors cursor-pointer disabled:opacity-50 disabled:cursor-not-allowed"
                 >
                   {isCreating ? 'Launching...' : 'Launch GPU'}
                 </button>
