@@ -1,0 +1,190 @@
+"use client";
+
+import React from "react";
+import { formatDateTime, getBadgeClass, getTypeBadgeClass } from "@hypercli/shared-ui";
+import AmountDisplay from "./AmountDisplay";
+
+interface Transaction {
+  id: string;
+  user_id: string;
+  amount: number;
+  amount_usd: string;
+  transaction_type: string;
+  status: string;
+  rewards: boolean;
+  expires_at: string | null;
+  job_id: string | null;
+  meta: any;
+  created_at: string;
+  updated_at: string;
+}
+
+interface RenderTransactionRowProps {
+  tx: Transaction;
+  isExpanded: boolean;
+  onToggle: () => void;
+}
+
+export default function RenderTransactionRow({ tx, isExpanded, onToggle }: RenderTransactionRowProps) {
+  const meta = tx.meta || {};
+
+  return (
+    <React.Fragment>
+      <tr
+        onClick={onToggle}
+        className="cursor-pointer hover:bg-surface-low transition-colors"
+      >
+        <td className="px-6 py-4 whitespace-nowrap w-24">
+          <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(tx.status)}`}>
+            {tx.status.toLowerCase()}
+          </span>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap w-32">
+          <span className="font-mono text-sm text-muted-foreground">
+            {meta.render_id ? meta.render_id.slice(0, 8) : tx.id.slice(0, 8)}...
+          </span>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap w-28">
+          <div className="flex items-center gap-2">
+            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('render')}`}>
+              render
+            </span>
+            {tx.rewards && (
+              <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('rewards')}`}>
+                rewards
+              </span>
+            )}
+          </div>
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap">
+          {meta.gpu_type ? (
+            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('render')}`}>
+              {meta.gpu_count || 1}x {meta.gpu_type}
+            </span>
+          ) : meta.render_type ? (
+            <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('render')}`}>
+              {meta.render_type}
+            </span>
+          ) : (
+            <span className="text-sm text-tertiary-foreground">-</span>
+          )}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm font-medium">
+          <AmountDisplay amountUsd={tx.amount_usd} />
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-sm text-muted-foreground">
+          {formatDateTime(tx.created_at)}
+        </td>
+        <td className="px-6 py-4 whitespace-nowrap text-right text-sm font-medium">
+          <svg
+            className={`w-5 h-5 text-tertiary-foreground transform transition-transform ${isExpanded ? 'rotate-180' : ''}`}
+            fill="none"
+            stroke="currentColor"
+            viewBox="0 0 24 24"
+          >
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M19 9l-7 7-7-7" />
+          </svg>
+        </td>
+      </tr>
+      {isExpanded && (
+        <tr>
+          <td colSpan={7} className="px-6 py-4 bg-background">
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+              {meta.render_id && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Render ID
+                  </h3>
+                  <p className="font-mono text-sm text-foreground">{meta.render_id}</p>
+                </div>
+              )}
+
+              {meta.render_state && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Render State
+                  </h3>
+                  <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getBadgeClass(meta.render_state)}`}>
+                    {meta.render_state.toLowerCase()}
+                  </span>
+                </div>
+              )}
+
+              {meta.gpu_type && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    GPU Configuration
+                  </h3>
+                  <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('render')}`}>
+                    {meta.gpu_count || 1}x {meta.gpu_type}
+                  </span>
+                </div>
+              )}
+
+              {meta.render_type && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Render Type
+                  </h3>
+                  <span className={`px-2 py-1 inline-flex text-xs leading-5 font-semibold rounded border ${getTypeBadgeClass('render')}`}>
+                    {meta.render_type}
+                  </span>
+                </div>
+              )}
+
+              {meta.resolution && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Resolution
+                  </h3>
+                  <p className="text-foreground">{meta.resolution}</p>
+                </div>
+              )}
+
+              {meta.duration_seconds !== undefined && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Duration
+                  </h3>
+                  <p className="text-foreground">
+                    {meta.duration_seconds >= 3600
+                      ? `${(meta.duration_seconds / 3600).toFixed(2)} hours`
+                      : meta.duration_seconds >= 60
+                      ? `${(meta.duration_seconds / 60).toFixed(1)} minutes`
+                      : `${meta.duration_seconds} seconds`}
+                  </p>
+                </div>
+              )}
+
+              {meta.frames !== undefined && (
+                <div>
+                  <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                    Frames
+                  </h3>
+                  <p className="text-foreground">{meta.frames.toLocaleString()}</p>
+                </div>
+              )}
+
+              <div>
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                  {tx.status === 'pending' ? 'Reserved Amount' : 'Total Cost'}
+                </h3>
+                <p className={tx.status === 'pending' ? 'text-foreground italic' : ''}>
+                  <AmountDisplay amountUsd={tx.amount_usd} className={tx.status === 'pending' ? 'text-foreground' : ''} />
+                  {tx.status === 'pending' && <span className="text-xs ml-1">(pending)</span>}
+                </p>
+              </div>
+
+              <div>
+                <h3 className="text-sm font-semibold text-tertiary-foreground uppercase tracking-wider mb-2">
+                  Created At
+                </h3>
+                <p className="text-foreground">{formatDateTime(tx.created_at)}</p>
+              </div>
+            </div>
+          </td>
+        </tr>
+      )}
+    </React.Fragment>
+  );
+}

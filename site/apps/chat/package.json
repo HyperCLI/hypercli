@@ -1,0 +1,31 @@
+{
+  "name": "@hypercli/chat",
+  "version": "0.1.0",
+  "private": true,
+  "scripts": {
+    "dev": "next dev --port 4002",
+    "build": "next build --webpack",
+    "start": "next start --port 4002",
+    "lint": "eslint",
+    "clean": "rm -rf .next"
+  },
+  "dependencies": {
+    "@hypercli/shared-ui": "*",
+    "lucide-react": "*",
+    "marked": "^17.0.0",
+    "next": "*",
+    "react": "*",
+    "react-dom": "*"
+  },
+  "devDependencies": {
+    "@tailwindcss/postcss": "*",
+    "@types/node": "*",
+    "@types/react": "*",
+    "@types/react-dom": "*",
+    "eslint": "*",
+    "eslint-config-next": "*",
+    "null-loader": "^4.0.1",
+    "tailwindcss": "*",
+    "typescript": "*"
+  }
+}
