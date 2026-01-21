@@ -145,7 +145,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.text_to_image("a cat wearing sunglasses")
+            render = client.renders.text_to_image("a cat wearing sunglasses")
         """
         return self._flow("/api/flow/text-to-image", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
@@ -167,7 +167,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.text_to_image_hidream("a mystical forest")
+            render = client.renders.text_to_image_hidream("a mystical forest")
         """
         return self._flow("/api/flow/text-to-image-hidream", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
@@ -189,7 +189,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.text_to_video("a cat walking through a garden")
+            render = client.renders.text_to_video("a cat walking through a garden")
         """
         return self._flow("/api/flow/text-to-video", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
@@ -213,7 +213,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.image_to_video("dancing", "https://example.com/img.png", width=832, height=480)
+            render = client.renders.image_to_video("dancing", "https://example.com/img.png", width=832, height=480)
         """
         return self._flow("/api/flow/image-to-video", prompt=prompt, image_url=image_url, negative=negative, width=width, height=height, notify_url=notify_url)
 
@@ -239,7 +239,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.speaking_video(
+            render = client.renders.speaking_video(
                 "A person talking to camera",
                 "https://example.com/face.png",
                 "https://example.com/speech.mp3"
@@ -269,7 +269,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.speaking_video_wan(
+            render = client.renders.speaking_video_wan(
                 "The person is singing",
                 "https://example.com/face.png",
                 "https://example.com/song.mp3"
@@ -297,7 +297,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.image_to_image(
+            render = client.renders.image_to_image(
                 "Apply the artistic style from the references",
                 [
                     "https://example.com/subject.jpg",
@@ -330,7 +330,7 @@ class Renders:
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = c3.renders.first_last_frame_video(
+            render = client.renders.first_last_frame_video(
                 "smooth transition from day to night",
                 "https://example.com/day.png",
                 "https://example.com/night.png"

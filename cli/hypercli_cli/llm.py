@@ -9,10 +9,10 @@ app = typer.Typer(help="LLM API commands")
 
 
 def get_openai_client() -> OpenAI:
-    """Get OpenAI client configured for C3"""
+    """Get OpenAI client configured for HyperCLI"""
     api_key = get_api_key()
     if not api_key:
-        raise typer.Exit("HYPERCLI_API_KEY not set. Run: c3 configure")
+        raise typer.Exit("HYPERCLI_API_KEY not set. Run: hyper configure")
 
     base_url = get_api_url()
     return OpenAI(api_key=api_key, base_url=f"{base_url}/v1")
@@ -126,7 +126,7 @@ def _interactive_chat(client: OpenAI, model: Optional[str], system: Optional[str
             sys_preview = current_system[:50] + "..." if len(current_system) > 50 else current_system
             console.print(f"[dim]System: {sys_preview}[/]")
 
-    console.print("\n[bold cyan]C3 Chat[/bold cyan]")
+    console.print("\n[bold cyan]HyperCLI Chat[/bold cyan]")
     show_status()
     console.print("[dim]Type /help for commands, /quit to exit[/dim]\n")
 

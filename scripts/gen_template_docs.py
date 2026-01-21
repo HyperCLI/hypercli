@@ -513,7 +513,7 @@ def generate_mdx(info: TemplateInfo, output_dir: Path, public_dir: Path = None, 
     lines.append("## Usage")
     lines.append("")
     lines.append("```bash")
-    cmd = f'c3 comfyui run {info.template_id} \\\n  --prompt "your prompt here" \\\n  --output my_output'
+    cmd = f'hyper comfyui run {info.template_id} \\\n  --prompt "your prompt here" \\\n  --output my_output'
 
     # Add key params with their defaults
     seen_params = set()

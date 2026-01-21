@@ -12,7 +12,7 @@ from rich.panel import Panel
 from rich.layout import Layout
 from rich import box
 
-from hypercli import C3, LogStream, fetch_logs
+from hypercli import HyperCLI, LogStream, fetch_logs
 
 console = Console()
 
@@ -70,7 +70,7 @@ def build_header(job, elapsed: int, metrics) -> Panel:
         mem_pct = (s.memory_used / s.memory_limit * 100) if s.memory_limit else 0
         mem_c = "red" if mem_pct >= 90 else "yellow" if mem_pct >= 70 else "green"
 
-        line = f"[bold]CPU[/]  {bar(cpu_pct, 20, cpu_c)} {cpu_pct:4.0f}%  "
+        line = f"[bold]CPU  [/]  {bar(cpu_pct, 20, cpu_c)} {cpu_pct:4.0f}%  "
         line += f"RAM  {bar(mem_pct, 15, mem_c)} {s.memory_used/1024:.1f}/{s.memory_limit/1024:.1f}GB"
         parts.append(line)
 
@@ -162,9 +162,11 @@ async def _run_job_monitor_async(
     job_id: str,
     status_q: Queue = None,
     stop_on_status_complete: bool = False,
+    cancel_on_exit: bool = False,
 ):
     """Async job monitor - uses SDK LogStream for logs"""
-    client = C3()
+    client = HyperCLI()
+    should_cancel = False
     logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
     log_stream: Optional[LogStream] = None
     log_task: Optional[asyncio.Task] = None
@@ -173,7 +175,8 @@ async def _run_job_monitor_async(
     ws_status = "[dim]● waiting[/]"
     stop_event = asyncio.Event()
 
-    console.print(f"[dim]Ctrl+C to exit[/]\n")
+    exit_msg = "Ctrl+C to exit and cancel job" if cancel_on_exit else "Ctrl+C to exit (job keeps running)"
+    console.print(f"[dim]{exit_msg}[/]\n")
 
     # Wait for job
     job = None
@@ -185,28 +188,15 @@ async def _run_job_monitor_async(
                 await asyncio.sleep(1)
 
     async def stream_logs_task(stream: LogStream):
-        """Background task that streams logs continuously with batching"""
+        """Background task that streams logs continuously"""
         nonlocal ws_status
-        log_batch = []
-        last_flush = asyncio.get_event_loop().time()
-        FLUSH_INTERVAL = 0.05  # Flush every 50ms
 
         try:
             async for line in stream:
                 if stop_event.is_set():
                     break
-                log_batch.append(line)
-
-                # Flush batch periodically
-                now = asyncio.get_event_loop().time()
-                if now - last_flush >= FLUSH_INTERVAL:
-                    logs.extend(log_batch)
-                    log_batch.clear()
-                    last_flush = now
-
-            # Flush remaining
-            if log_batch:
-                logs.extend(log_batch)
+                # Append directly - the deque handles thread safety
+                logs.append(line)
         except Exception:
             pass
         finally:
@@ -226,6 +216,8 @@ async def _run_job_monitor_async(
     async def fetch_job_task():
         """Background task that fetches job state periodically"""
         nonlocal job, log_stream, log_task, ws_status
+        ws_retries = 0
+        initial_logs_fetched = False
         while not stop_event.is_set():
             try:
                 job = await asyncio.to_thread(client.jobs.get, job_id)
@@ -233,21 +225,35 @@ async def _run_job_monitor_async(
                 # Start log stream when job is ready
                 if job.state in ("assigned", "running") and log_stream is None and job.job_key:
                     # Fetch initial logs ONCE
-                    if job.state == "running":
-                        initial = await asyncio.to_thread(fetch_logs, c3, job_id, MAX_LOG_LINES)
+                    if job.state == "running" and not initial_logs_fetched:
+                        initial = await asyncio.to_thread(fetch_logs, client, job_id, MAX_LOG_LINES)
                         for line in initial:
                             logs.append(line)
+                        initial_logs_fetched = True
 
                     # Connect websocket and start streaming task
-                    log_stream = LogStream(
-                        c3, job_id,
+                    temp_stream = LogStream(
+                        client, job_id,
                         job_key=job.job_key,
                         fetch_initial=False,
                         max_buffer=MAX_LOG_LINES,
                     )
-                    await log_stream.connect()
-                    log_task = asyncio.create_task(stream_logs_task(log_stream))
-                    ws_status = "[green]● live[/]"
+                    try:
+                        retry_msg = f" (retry {ws_retries})" if ws_retries > 0 else ""
+                        ws_status = f"[yellow]● connecting{retry_msg}...[/]"
+                        await temp_stream.connect()
+                        log_stream = temp_stream
+                        log_task = asyncio.create_task(stream_logs_task(log_stream))
+                        ws_status = "[green]● live[/]"
+                        ws_retries = 0
+                    except asyncio.TimeoutError:
+                        ws_retries += 1
+                        ws_status = f"[red]● timeout (retry {ws_retries})[/]"
+                        await asyncio.sleep(2)  # Wait before retry
+                    except Exception as e:
+                        ws_retries += 1
+                        ws_status = f"[red]● error (retry {ws_retries})[/]"
+                        await asyncio.sleep(2)  # Wait before retry
             except Exception:
                 pass
             await asyncio.sleep(1)
@@ -288,7 +294,7 @@ async def _run_job_monitor_async(
                     # Job terminated
                     if job and job.state in ("succeeded", "failed", "canceled", "terminated"):
                         # Fetch final logs ONCE
-                        final = await asyncio.to_thread(fetch_logs, c3, job_id, MAX_LOG_LINES)
+                        final = await asyncio.to_thread(fetch_logs, client, job_id, MAX_LOG_LINES)
                         logs.clear()
                         for line in final:
                             logs.append(line)
@@ -309,6 +315,7 @@ async def _run_job_monitor_async(
         console.print(f"\n[bold]Job {job.state}[/]")
 
     except KeyboardInterrupt:
+        should_cancel = cancel_on_exit
         console.print("\n[dim]Stopped[/]")
     finally:
         stop_event.set()
@@ -319,11 +326,20 @@ async def _run_job_monitor_async(
         metrics_task.cancel()
         job_task.cancel()
 
+        if should_cancel and job and job.state in ("queued", "assigned", "running"):
+            console.print("[yellow]Cancelling job...[/]")
+            try:
+                client.jobs.cancel(job_id)
+                console.print("[green]Job cancelled[/]")
+            except Exception as e:
+                console.print(f"[red]Failed to cancel: {e}[/]")
+
 
 def run_job_monitor(
     job_id: str,
     status_q: Queue = None,
     stop_on_status_complete: bool = False,
+    cancel_on_exit: bool = False,
 ):
     """Run the job monitor TUI (sync wrapper).
 
@@ -331,5 +347,6 @@ def run_job_monitor(
         job_id: The job ID to monitor
         status_q: Optional queue receiving JobStatus updates for status pane
         stop_on_status_complete: If True, exit when JobStatus.complete is True
+        cancel_on_exit: If True, cancel the job when exiting via Ctrl+C
     """
-    asyncio.run(_run_job_monitor_async(job_id, status_q, stop_on_status_complete))
+    asyncio.run(_run_job_monitor_async(job_id, status_q, stop_on_status_complete, cancel_on_exit))

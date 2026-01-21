@@ -1,13 +1,13 @@
 """hyper billing commands"""
 import typer
-from hypercli import C3
+from hypercli import HyperCLI
 from .output import output, console, spinner
 
 app = typer.Typer(help="Billing and balance commands")
 
 
-def get_client() -> C3:
-    return C3()
+def get_client() -> HyperCLI:
+    return HyperCLI()
 
 
 @app.command("balance")

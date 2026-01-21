@@ -11,7 +11,7 @@ DEFAULT_WS_URL = "wss://api.hypercli.com"
 WS_LOGS_PATH = "/orchestra/ws/logs"  # WebSocket path for job logs: {WS_URL}{WS_LOGS_PATH}/{job_key}
 
 # GHCR images
-GHCR_IMAGES = "ghcr.io/hypercliai/images"
+GHCR_IMAGES = "ghcr.io/compute3ai/images"
 COMFYUI_IMAGE = f"{GHCR_IMAGES}/comfyui"
 
 

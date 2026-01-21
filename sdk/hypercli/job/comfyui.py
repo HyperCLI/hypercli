@@ -12,7 +12,7 @@ from ..config import COMFYUI_IMAGE
 
 
 if TYPE_CHECKING:
-    from ..client import C3
+    from ..client import HyperCLI
 
 
 # Default object_info for offline workflow conversion (no running instance needed)
@@ -495,6 +495,235 @@ def apply_params(workflow: dict, **params) -> dict:
     return workflow
 
 
+def expand_subgraphs(graph: dict, debug: bool = False) -> dict:
+    """
+    Expand subgraph/group nodes into their constituent nodes.
+
+    ComfyUI supports "workflow components" (group nodes) where a subgraph is
+    collapsed into a single node with a UUID type. These must be expanded
+    before the workflow can be executed.
+
+    Args:
+        graph: Workflow in graph format (may contain subgraph definitions)
+        debug: If True, print debug info
+
+    Returns:
+        New graph with subgraphs expanded (original graph not modified)
+    """
+    import copy
+
+    # Check if there are subgraph definitions
+    subgraphs = {sg["id"]: sg for sg in graph.get("definitions", {}).get("subgraphs", [])}
+    if not subgraphs:
+        return graph  # No subgraphs, return as-is
+
+    # Deep copy to avoid mutating original
+    graph = copy.deepcopy(graph)
+
+    # Find group nodes that reference subgraphs
+    nodes = graph.get("nodes", [])
+    links = graph.get("links", [])
+
+    # Track new nodes and links to add
+    new_nodes = []
+    new_links = []
+    nodes_to_remove = set()
+    links_to_remove = set()
+
+    # Track ID remapping for each expanded subgraph
+    # We prefix subgraph node IDs to avoid conflicts
+    next_node_id = graph.get("last_node_id", 0) + 1
+    next_link_id = graph.get("last_link_id", 0) + 1
+
+    for node in nodes:
+        node_type = str(node.get("type", ""))
+        node_id = node.get("id")
+        mode = node.get("mode", 0)
+
+        if node_type not in subgraphs:
+            continue
+
+        # Skip bypassed/muted group nodes
+        if mode in (2, 4):
+            if debug:
+                print(f"Skipping bypassed group node {node_id}")
+            nodes_to_remove.add(node_id)
+            # Remove links to/from this node
+            for link in links:
+                if link[1] == node_id or link[3] == node_id:
+                    links_to_remove.add(link[0])
+            continue
+
+        if debug:
+            print(f"Expanding group node {node_id} -> subgraph {node_type[:20]}...")
+
+        sg = subgraphs[node_type]
+        sg_nodes = sg.get("nodes", [])
+        sg_links = sg.get("links", [])
+
+        # Build ID mapping: old_sg_node_id -> new_node_id
+        id_map = {}
+        for sg_node in sg_nodes:
+            old_id = sg_node.get("id")
+            id_map[old_id] = next_node_id
+            next_node_id += 1
+
+        # Apply widget values from proxyWidgets
+        proxy_widgets = node.get("properties", {}).get("proxyWidgets", [])
+        widget_values = node.get("widgets_values", [])
+
+        # proxyWidgets format: [[target_node_id, widget_name], ...]
+        # widget_values are in same order as proxyWidgets
+        widget_overrides = {}  # {node_id: {widget_name: value}}
+        for i, (target_id, widget_name) in enumerate(proxy_widgets):
+            if i < len(widget_values):
+                target_id = str(target_id)
+                if target_id not in widget_overrides:
+                    widget_overrides[target_id] = {}
+                widget_overrides[target_id][widget_name] = widget_values[i]
+
+        # Copy subgraph nodes with new IDs and apply widget overrides
+        for sg_node in sg_nodes:
+            old_id = sg_node.get("id")
+            new_node = copy.deepcopy(sg_node)
+            new_node["id"] = id_map[old_id]
+
+            # Apply widget overrides
+            if str(old_id) in widget_overrides:
+                overrides = widget_overrides[str(old_id)]
+                sg_widgets = new_node.get("widgets_values", [])
+
+                # Need to find widget index by name - use input order
+                # For simplicity, just update widgets_values if it's a dict
+                if isinstance(sg_widgets, dict):
+                    sg_widgets.update(overrides)
+                else:
+                    # For list format, we need the node's input spec to map names to indices
+                    # For now, handle common cases
+                    node_type_inner = new_node.get("type", "")
+                    if "text" in overrides and node_type_inner in ("CLIPTextEncode", "CLIPTextEncodeFlux"):
+                        # text is usually first widget
+                        if sg_widgets:
+                            sg_widgets[0] = overrides["text"]
+                        else:
+                            new_node["widgets_values"] = [overrides["text"]]
+
+            new_nodes.append(new_node)
+
+        # Build link ID mapping: old_link_id -> new_link_id
+        link_id_map = {}
+
+        # Copy subgraph links with remapped IDs
+        # Subgraph links can be dicts or arrays
+        for sg_link in sg_links:
+            if isinstance(sg_link, dict):
+                old_link_id = sg_link.get("id")
+                from_node = sg_link.get("origin_id")
+                from_slot = sg_link.get("origin_slot", 0)
+                to_node = sg_link.get("target_id")
+                to_slot = sg_link.get("target_slot", 0)
+                link_type = sg_link.get("type", "")
+            else:
+                # Array format: [link_id, from_node, from_slot, to_node, to_slot, type]
+                old_link_id, from_node, from_slot, to_node, to_slot, link_type = sg_link[:6]
+
+            # Remap node IDs
+            new_from = id_map.get(from_node, from_node)
+            new_to = id_map.get(to_node, to_node)
+
+            new_link = [next_link_id, new_from, from_slot, new_to, to_slot, link_type]
+            link_id_map[old_link_id] = next_link_id
+            next_link_id += 1
+            new_links.append(new_link)
+
+        # Update node input link references using the link ID mapping
+        for new_node in new_nodes:
+            for inp in new_node.get("inputs", []):
+                old_link = inp.get("link")
+                if old_link is not None and old_link in link_id_map:
+                    inp["link"] = link_id_map[old_link]
+
+        # Helper to get link fields from dict or array format
+        def get_link_fields(lnk):
+            if isinstance(lnk, dict):
+                return (lnk.get("id"), lnk.get("origin_id"), lnk.get("origin_slot", 0),
+                        lnk.get("target_id"), lnk.get("target_slot", 0), lnk.get("type", ""))
+            return tuple(lnk[:6])
+
+        # Rewire external connections
+        # Group node inputs -> subgraph input nodes
+        sg_inputs = sg.get("inputs", [])
+        for inp in node.get("inputs", []):
+            link_id = inp.get("link")
+            if link_id is None:
+                continue
+
+            # Find which subgraph input this maps to
+            inp_name = inp.get("name")
+            for sg_inp in sg_inputs:
+                if sg_inp.get("name") == inp_name or sg_inp.get("label") == inp.get("label"):
+                    # Find the internal link that connects to this input
+                    for sg_link_id in sg_inp.get("linkIds", []):
+                        # Find the link in sg_links
+                        for sg_link in sg_links:
+                            lf = get_link_fields(sg_link)
+                            if lf[0] == sg_link_id:
+                                # Redirect external link to the internal target
+                                target_node = id_map.get(lf[3], lf[3])
+                                target_slot = lf[4]
+
+                                # Update the external link's target
+                                for link in links:
+                                    if link[0] == link_id:
+                                        link[3] = target_node
+                                        link[4] = target_slot
+                                        break
+                                break
+                    break
+
+        # Group node outputs -> subgraph output nodes
+        sg_outputs = sg.get("outputs", [])
+        for out_idx, out in enumerate(node.get("outputs", [])):
+            out_links = out.get("links", [])
+            if not out_links:
+                continue
+
+            # Find which subgraph output this maps to
+            for sg_out in sg_outputs:
+                # Match by index or name
+                for sg_link_id in sg_out.get("linkIds", []):
+                    # Find the internal link
+                    for sg_link in sg_links:
+                        lf = get_link_fields(sg_link)
+                        if lf[0] == sg_link_id:
+                            # This internal link's source is the real output
+                            source_node = id_map.get(lf[1], lf[1])
+                            source_slot = lf[2]
+
+                            # Redirect all external links from this output
+                            for ext_link_id in out_links:
+                                for link in links:
+                                    if link[0] == ext_link_id:
+                                        link[1] = source_node
+                                        link[2] = source_slot
+                                        break
+                            break
+                    break
+
+        nodes_to_remove.add(node_id)
+
+    # Apply changes
+    graph["nodes"] = [n for n in nodes if n.get("id") not in nodes_to_remove] + new_nodes
+    graph["links"] = [l for l in links if l[0] not in links_to_remove] + new_links
+    graph["last_node_id"] = next_node_id
+    graph["last_link_id"] = next_link_id
+
+    if debug:
+        print(f"Expanded {len(nodes_to_remove)} group nodes, added {len(new_nodes)} nodes")
+
+    return graph
+
+
 def graph_to_api(graph: dict, object_info: dict = None, debug: bool = False) -> dict:
     """
     Convert ComfyUI graph format (from UI) to API format (for /prompt endpoint).
@@ -507,6 +736,9 @@ def graph_to_api(graph: dict, object_info: dict = None, debug: bool = False) -> 
     Returns:
         Workflow in API format (node IDs as keys)
     """
+    # First, expand any subgraphs/group nodes
+    graph = expand_subgraphs(graph, debug=debug)
+
     if object_info is None:
         object_info = DEFAULT_OBJECT_INFO
     api = {}
@@ -670,8 +902,8 @@ class ComfyUIJob(BaseJob):
 
     COMFYUI_PORT = 8188
 
-    def __init__(self, c3: "C3", job, template: str = None, use_lb: bool = False, use_auth: bool = False):
-        super().__init__(c3, job)
+    def __init__(self, client: "HyperCLI", job, template: str = None, use_lb: bool = False, use_auth: bool = False):
+        super().__init__(client, job)
         self._object_info: dict | None = None
         self._auth_headers: dict | None = None
         self._job_token: str | None = None
@@ -707,16 +939,16 @@ class ComfyUIJob(BaseJob):
         if self.use_auth:
             # Use job-specific token for LB auth
             if not self._job_token:
-                self._job_token = self.c3.jobs.token(self.job_id)
+                self._job_token = self.client.jobs.token(self.job_id)
             return {"Authorization": f"Bearer {self._job_token}"}
         else:
             # Use API key for direct connections
-            return {"Authorization": f"Bearer {self.c3._api_key}"}
+            return {"Authorization": f"Bearer {self.client._api_key}"}
 
     @classmethod
     def create_for_template(
         cls,
-        c3: "C3",
+        client: "HyperCLI",
         template: str,
         gpu_type: str = None,
         gpu_count: int = 1,
@@ -728,7 +960,7 @@ class ComfyUIJob(BaseJob):
         """Create a new ComfyUI job configured for a specific template.
 
         Args:
-            c3: C3 client
+            client: HyperCLI client instance
             template: Template name (passed as COMFYUI_TEMPLATES env var)
             gpu_type: GPU type
             gpu_count: Number of GPUs
@@ -747,7 +979,7 @@ class ComfyUIJob(BaseJob):
             # Direct port exposure (HTTP)
             ports[str(cls.COMFYUI_PORT)] = cls.COMFYUI_PORT
 
-        job = c3.jobs.create(
+        job = client.jobs.create(
             image=cls.DEFAULT_IMAGE,
             gpu_type=gpu_type or cls.DEFAULT_GPU_TYPE,
             gpu_count=gpu_count,
@@ -757,12 +989,12 @@ class ComfyUIJob(BaseJob):
             auth=auth,
             **kwargs,
         )
-        return cls(c3, job, template=template, use_lb=bool(lb), use_auth=auth)
+        return cls(client, job, template=template, use_lb=bool(lb), use_auth=auth)
 
     @classmethod
     def get_instance(
         cls,
-        c3: "C3",
+        client: "HyperCLI",
         instance: str,
         use_lb: bool = False,
         use_auth: bool = False,
@@ -770,17 +1002,17 @@ class ComfyUIJob(BaseJob):
         """Connect to a specific ComfyUI instance by job ID or hostname.
 
         Args:
-            c3: C3 client
+            client: HyperCLI client instance
             instance: Job ID (UUID) or hostname
             use_lb: Whether instance uses HTTPS load balancer
             use_auth: Whether instance uses token auth
         """
         # Check if it looks like a UUID (job ID)
         if "-" in instance and len(instance) > 30:
-            job = c3.jobs.get(instance)
+            job = client.jobs.get(instance)
         else:
             # Assume hostname - search running jobs
-            jobs = c3.jobs.list(state="running")
+            jobs = client.jobs.list(state="running")
             job = None
             for j in jobs:
                 if j.hostname and (j.hostname == instance or j.hostname.startswith(instance)):
@@ -789,12 +1021,12 @@ class ComfyUIJob(BaseJob):
             if not job:
                 raise ValueError(f"No running job found with hostname: {instance}")
 
-        return cls(c3, job, use_lb=use_lb, use_auth=use_auth)
+        return cls(client, job, use_lb=use_lb, use_auth=use_auth)
 
     @classmethod
     def get_or_create_for_template(
         cls,
-        c3: "C3",
+        client: "HyperCLI",
         template: str,
         gpu_type: str = None,
         gpu_count: int = 1,
@@ -810,7 +1042,7 @@ class ComfyUIJob(BaseJob):
         (note: the existing job may have different models loaded).
         """
         if reuse:
-            existing = cls.get_running(c3, image_filter=cls.DEFAULT_IMAGE)
+            existing = cls.get_running(client, image_filter=cls.DEFAULT_IMAGE)
             if existing:
                 existing.template = template
                 # TODO: detect lb/auth from existing job's config
@@ -819,7 +1051,7 @@ class ComfyUIJob(BaseJob):
                 return existing
 
         return cls.create_for_template(
-            c3,
+            client,
             template=template,
             gpu_type=gpu_type,
             gpu_count=gpu_count,

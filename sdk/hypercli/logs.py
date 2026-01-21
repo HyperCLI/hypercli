@@ -9,7 +9,7 @@ import websockets
 from .config import get_ws_url, WS_LOGS_PATH
 
 if TYPE_CHECKING:
-    from .client import C3
+    from .client import HyperCLI
 
 
 # Default limits to prevent memory blowup
@@ -17,11 +17,11 @@ DEFAULT_MAX_INITIAL_LINES = 1000  # Max lines to fetch on initial REST call
 DEFAULT_MAX_BUFFER = 5000  # Max lines to keep in memory buffer
 
 
-def fetch_logs(c3: "C3", job_id: str, tail: int = None) -> list[str]:
+def fetch_logs(client: "HyperCLI", job_id: str, tail: int = None) -> list[str]:
     """Fetch logs via REST API (one-time call).
 
     Args:
-        c3: C3 client
+        client: HyperCLI client instance
         job_id: Job ID
         tail: Only return last N lines (default: all)
 
@@ -29,7 +29,7 @@ def fetch_logs(c3: "C3", job_id: str, tail: int = None) -> list[str]:
         List of log lines
     """
     try:
-        logs = c3.jobs.logs(job_id)
+        logs = client.jobs.logs(job_id)
         if not logs:
             return []
         lines = logs.strip().split("\n")
@@ -44,7 +44,7 @@ class LogStream:
     """Async log streamer - websocket streaming with optional initial fetch.
 
     Usage:
-        stream = LogStream(c3, job)
+        stream = LogStream(client, job)
         await stream.connect()
         async for line in stream:
             print(line)
@@ -59,7 +59,7 @@ class LogStream:
 
     def __init__(
         self,
-        c3: "C3",
+        client: "HyperCLI",
         job_id: str,
         job_key: str = None,
         fetch_initial: bool = True,
@@ -68,14 +68,14 @@ class LogStream:
     ):
         """
         Args:
-            c3: C3 client
+            client: HyperCLI client instance
             job_id: Job ID for REST log fetch
             job_key: Job key for websocket (if None, fetched from job)
             fetch_initial: Whether to fetch existing logs on connect
             max_initial_lines: Max lines to fetch initially (prevents huge fetch)
             max_buffer: Max lines to keep in buffer (oldest dropped)
         """
-        self.c3 = c3
+        self.client = client
         self.job_id = job_id
         self.job_key = job_key
         self.fetch_initial = fetch_initial
@@ -112,21 +112,31 @@ class LogStream:
 
         # Fetch initial logs ONCE (bounded)
         if self.fetch_initial and not self._initial_fetched:
-            initial_lines = fetch_logs(self.c3, self.job_id, tail=self.max_initial_lines)
+            initial_lines = fetch_logs(self.client, self.job_id, tail=self.max_initial_lines)
             for line in initial_lines:
                 self._buffer.append(line)
             self._initial_fetched = True
 
         # Get job_key if not provided
         if not self.job_key:
-            job = self.c3.jobs.get(self.job_id)
+            job = self.client.jobs.get(self.job_id)
             self.job_key = job.job_key
 
-        # Connect websocket
+        # Connect websocket with timeout
         if self.job_key and not self._ws:
             ws_url = get_ws_url()
             full_url = f"{ws_url}{WS_LOGS_PATH}/{self.job_key}"
-            self._ws = await websockets.connect(full_url)
+            self._ws = await asyncio.wait_for(
+                websockets.connect(
+                    full_url,
+                    ping_interval=30,
+                    ping_timeout=20,
+                    close_timeout=5,
+                    max_size=2**20,  # 1MB max message size
+                    compression=None,  # Disable compression for lower latency
+                ),
+                timeout=30,
+            )
             self._connected = True
 
         return initial_lines
@@ -181,7 +191,7 @@ class LogStream:
 
 
 async def stream_logs(
-    c3: "C3",
+    client: "HyperCLI",
     job_id: str,
     on_line: Callable[[str], None],
     until_state: set[str] = None,
@@ -193,7 +203,7 @@ async def stream_logs(
     """Stream logs until job reaches a terminal state.
 
     Args:
-        c3: C3 client
+        client: HyperCLI client instance
         job_id: Job ID to stream logs from
         on_line: Callback for each log line (called immediately, no buffering)
         until_state: States to stop on (default: terminal states)
@@ -211,7 +221,7 @@ async def stream_logs(
     if until_state is None:
         until_state = {"succeeded", "failed", "canceled", "terminated"}
 
-    job = c3.jobs.get(job_id)
+    job = client.jobs.get(job_id)
     initial_fetched = False
     ws = None
 
@@ -219,18 +229,18 @@ async def stream_logs(
         # Wait for job to be assigned/running
         while job.state in ("pending", "queued"):
             await asyncio.sleep(poll_state_interval)
-            job = c3.jobs.get(job_id)
+            job = client.jobs.get(job_id)
 
         # Check for immediate terminal state
         if job.state in until_state:
             if fetch_final:
-                for line in fetch_logs(c3, job_id, tail=max_initial_lines):
+                for line in fetch_logs(client, job_id, tail=max_initial_lines):
                     on_line(line)
             return
 
         # Fetch initial logs ONCE when running (bounded)
         if fetch_initial and job.state == "running" and not initial_fetched:
-            for line in fetch_logs(c3, job_id, tail=max_initial_lines):
+            for line in fetch_logs(client, job_id, tail=max_initial_lines):
                 on_line(line)
             initial_fetched = True
 
@@ -255,7 +265,7 @@ async def stream_logs(
                         continue
                 except asyncio.TimeoutError:
                     # Check job state (NOT polling logs!)
-                    job = c3.jobs.get(job_id)
+                    job = client.jobs.get(job_id)
                     if job.state in until_state:
                         break
                 except websockets.ConnectionClosed:
@@ -265,7 +275,7 @@ async def stream_logs(
         if fetch_final:
             # Small delay to let final logs flush
             await asyncio.sleep(0.5)
-            for line in fetch_logs(c3, job_id, tail=max_initial_lines):
+            for line in fetch_logs(client, job_id, tail=max_initial_lines):
                 on_line(line)
 
     finally:

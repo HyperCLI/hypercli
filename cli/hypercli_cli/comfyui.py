@@ -7,15 +7,15 @@ from typing import Optional
 
 import typer
 
-from hypercli import C3, ComfyUIJob, APIError, apply_params, apply_graph_modes, load_template, graph_to_api
+from hypercli import HyperCLI, ComfyUIJob, APIError, apply_params, apply_graph_modes, load_template, graph_to_api
 from .output import console, error, success, spinner
 from .tui import JobStatus, run_job_monitor
 
 app = typer.Typer(help="Run ComfyUI workflows on GPU")
 
 
-def get_client() -> C3:
-    return C3()
+def get_client() -> HyperCLI:
+    return HyperCLI()
 
 
 def _run_workflow(
@@ -220,14 +220,16 @@ def run(
     gpu_count: int = typer.Option(1, "--count", help="Number of GPUs"),
     interruptible: bool = typer.Option(True, "--interruptible/--on-demand", help="Use interruptible instances"),
     region: Optional[str] = typer.Option(None, "--region", help="Region (e.g., us-east, eu-west, asia-east)"),
+    runtime: int = typer.Option(3600, "--runtime", help="Instance runtime in seconds"),
     output_dir: str = typer.Option(".", "--output-dir", "-d", help="Output directory"),
-    timeout: int = typer.Option(600, "--timeout", "-t", help="Timeout in seconds"),
+    timeout: int = typer.Option(600, "--timeout", "-t", help="Workflow timeout in seconds"),
     num: int = typer.Option(1, "--num", "-N", help="Number of images to generate"),
     new: bool = typer.Option(False, "--new", help="Always launch new instance"),
     instance: Optional[str] = typer.Option(None, "--instance", "-i", help="Connect to job by ID, hostname, or IP"),
-    lb: Optional[int] = typer.Option(None, "--lb", help="Enable HTTPS load balancer on port (e.g., 8188)"),
-    auth: bool = typer.Option(False, "--auth", help="Enable Bearer token auth on load balancer"),
+    lb: int = typer.Option(8188, "--lb", help="HTTPS load balancer port (default: 8188, use 0 to disable)"),
+    auth: bool = typer.Option(True, "--auth/--no-auth", help="Bearer token auth (default: enabled)"),
     stdout: bool = typer.Option(False, "--stdout", help="Output to stdout instead of TUI"),
+    cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
     debug: bool = typer.Option(False, "--debug", help="Debug mode: stdout + verbose errors"),
     workflow_json: bool = typer.Option(False, "--workflow-json", help="Output generated workflow JSON and exit (don't run)"),
     nodes: Optional[str] = typer.Option(None, "--nodes", help="Node-specific params as JSON: '{\"node_id\": {\"image\": \"file.png\"}}'"),
@@ -301,24 +303,28 @@ def run(
 
     # Get or create job
     try:
+        # lb=0 means disabled
+        lb_port = lb if lb else None
+
         if instance:
             # Connect to specific instance by ID, hostname, or IP
             with spinner(f"Connecting to instance {instance}..."):
-                job = ComfyUIJob.get_by_instance(c3, instance)
+                job = ComfyUIJob.get_by_instance(client, instance)
                 job.template = template
-                job.use_lb = lb is not None
+                job.use_lb = lb_port is not None
                 job.use_auth = auth
         else:
             # Get or create job with template env var
             with spinner(f"Getting ComfyUI instance for {template}..."):
                 job = ComfyUIJob.get_or_create_for_template(
-                    c3,
+                    client,
                     template=template,
                     gpu_type=gpu_type,
                     gpu_count=gpu_count,
                     region=region,
+                    runtime=runtime,
                     reuse=not new,
-                    lb=lb,
+                    lb=lb_port,
                     auth=auth,
                     interruptible=interruptible,
                 )
@@ -438,26 +444,39 @@ def run(
             seed_info = f"seed: {iteration_seed}" if iteration_seed else "default seed"
             console.print(f"\n[bold]Image {i+1}/{num}[/bold] ({seed_info})")
 
-        if stdout or debug:
-            # Simple mode without TUI
-            _run_simple(job, template, params, timeout, Path(output_dir), debug=debug)
-        else:
-            # TUI mode with status pane
-            status_q: Queue = Queue()
+        try:
+            if stdout or debug:
+                # Simple mode without TUI
+                _run_simple(job, template, params, timeout, Path(output_dir), debug=debug)
+            else:
+                # TUI mode with status pane
+                status_q: Queue = Queue()
 
-            # Start workflow in background thread
-            workflow_thread = threading.Thread(
-                target=_run_workflow,
-                args=(job, template, params, timeout, Path(output_dir), status_q),
-                daemon=True,
-            )
-            workflow_thread.start()
+                # Start workflow in background thread
+                workflow_thread = threading.Thread(
+                    target=_run_workflow,
+                    args=(job, template, params, timeout, Path(output_dir), status_q),
+                    daemon=True,
+                )
+                workflow_thread.start()
 
-            # Run TUI in main thread
-            run_job_monitor(job.job_id, status_q=status_q, stop_on_status_complete=True)
+                # Run TUI in main thread
+                run_job_monitor(job.job_id, status_q=status_q, stop_on_status_complete=True, cancel_on_exit=cancel_on_exit)
 
-            # Wait for workflow thread to finish
-            workflow_thread.join(timeout=5)
+                # Wait for workflow thread to finish
+                workflow_thread.join(timeout=5)
+        except KeyboardInterrupt:
+            console.print("\n[dim]Interrupted[/dim]")
+            if cancel_on_exit:
+                try:
+                    job.refresh()
+                    if job.job.state in ("queued", "assigned", "running"):
+                        console.print("[yellow]Cancelling job...[/yellow]")
+                        client.jobs.cancel(job.job_id)
+                        console.print("[green]Job cancelled[/green]")
+                except Exception as e:
+                    console.print(f"[red]Failed to cancel: {e}[/red]")
+            raise typer.Exit(1)
 
 
 def _run_simple(job: ComfyUIJob, template: str, params: dict, timeout: int, output_dir: Path, debug: bool = False):
@@ -680,7 +699,7 @@ def status():
     client = get_client()
 
     with spinner("Checking for running jobs..."):
-        job = ComfyUIJob.get_running(c3)
+        job = ComfyUIJob.get_running(client)
 
     if not job:
         console.print("[dim]No running ComfyUI job[/dim]")
@@ -717,10 +736,10 @@ def download(
     # Get job
     if instance:
         with spinner(f"Connecting to {instance}..."):
-            job = ComfyUIJob.get_by_instance(c3, instance)
+            job = ComfyUIJob.get_by_instance(client, instance)
     else:
         with spinner("Finding running job..."):
-            job = ComfyUIJob.get_running(c3)
+            job = ComfyUIJob.get_running(client)
         if not job:
             error("No running ComfyUI job found. Use --instance to specify one.")
             raise typer.Exit(1)
@@ -809,7 +828,7 @@ def stop():
     client = get_client()
 
     with spinner("Finding running job..."):
-        job = ComfyUIJob.get_running(c3)
+        job = ComfyUIJob.get_running(client)
 
     if not job:
         console.print("[dim]No running ComfyUI job[/dim]")

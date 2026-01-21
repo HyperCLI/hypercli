@@ -4,7 +4,7 @@ import httpx
 from typing import TYPE_CHECKING
 
 if TYPE_CHECKING:
-    from ..client import C3
+    from ..client import HyperCLI
     from ..jobs import Job
 
 
@@ -16,8 +16,8 @@ class BaseJob:
     HEALTH_ENDPOINT: str = "/"
     HEALTH_TIMEOUT: float = 5.0
 
-    def __init__(self, c3: "C3", job: "Job"):
-        self.c3 = c3
+    def __init__(self, client: "HyperCLI", job: "Job"):
+        self.client = client
         self.job = job
         self._base_url: str | None = None
 
@@ -39,24 +39,24 @@ class BaseJob:
     @property
     def auth_headers(self) -> dict:
         """Headers for authenticated requests. Override in subclasses for custom auth."""
-        return {"Authorization": f"Bearer {self.c3._api_key}"}
+        return {"Authorization": f"Bearer {self.client._api_key}"}
 
     @classmethod
-    def get_running(cls, c3: "C3", image_filter: str = None) -> "BaseJob | None":
+    def get_running(cls, client: "HyperCLI", image_filter: str = None) -> "BaseJob | None":
         """Find an existing running job, optionally filtering by image"""
-        jobs = c3.jobs.list(state="running")
+        jobs = client.jobs.list(state="running")
         for job in jobs:
             if image_filter and image_filter not in job.docker_image:
                 continue
-            return cls(c3, job)
+            return cls(client, job)
         return None
 
     @classmethod
-    def get_by_instance(cls, c3: "C3", instance: str, state: str = "running") -> "BaseJob":
+    def get_by_instance(cls, client: "HyperCLI", instance: str, state: str = "running") -> "BaseJob":
         """Get a job by ID, hostname, or IP address.
 
         Args:
-            c3: C3 client
+            client: HyperCLI client instance
             instance: Job ID (UUID), hostname (partial match), or IP address
             state: State filter for hostname/IP search (default: running)
 
@@ -68,15 +68,15 @@ class BaseJob:
         """
         from ..jobs import find_job
 
-        job = find_job(c3.jobs, instance, state=state)
+        job = find_job(client.jobs, instance, state=state)
         if not job:
             raise ValueError(f"No job found matching: {instance}")
-        return cls(c3, job)
+        return cls(client, job)
 
     @classmethod
     def create(
         cls,
-        c3: "C3",
+        client: "HyperCLI",
         image: str = None,
         gpu_type: str = None,
         gpu_count: int = 1,
@@ -84,19 +84,19 @@ class BaseJob:
         **kwargs,
     ) -> "BaseJob":
         """Create a new job"""
-        job = c3.jobs.create(
+        job = client.jobs.create(
             image=image or cls.DEFAULT_IMAGE,
             gpu_type=gpu_type or cls.DEFAULT_GPU_TYPE,
             gpu_count=gpu_count,
             runtime=runtime,
             **kwargs,
         )
-        return cls(c3, job)
+        return cls(client, job)
 
     @classmethod
     def get_or_create(
         cls,
-        c3: "C3",
+        client: "HyperCLI",
         image: str = None,
         gpu_type: str = None,
         gpu_count: int = 1,
@@ -106,12 +106,12 @@ class BaseJob:
     ) -> "BaseJob":
         """Get existing running job or create new one"""
         if reuse:
-            existing = cls.get_running(c3, image_filter=image or cls.DEFAULT_IMAGE)
+            existing = cls.get_running(client, image_filter=image or cls.DEFAULT_IMAGE)
             if existing:
                 return existing
 
         return cls.create(
-            c3,
+            client,
             image=image,
             gpu_type=gpu_type,
             gpu_count=gpu_count,
@@ -121,7 +121,7 @@ class BaseJob:
 
     def refresh(self) -> "BaseJob":
         """Refresh job state from API"""
-        self.job = self.c3.jobs.get(self.job_id)
+        self.job = self.client.jobs.get(self.job_id)
         self._base_url = None
         return self
 
@@ -241,9 +241,9 @@ class BaseJob:
 
     def shutdown(self) -> dict:
         """Cancel the job"""
-        return self.c3.jobs.cancel(self.job_id)
+        return self.client.jobs.cancel(self.job_id)
 
     def extend(self, runtime: int) -> "BaseJob":
         """Extend job runtime"""
-        self.job = self.c3.jobs.extend(self.job_id, runtime=runtime)
+        self.job = self.client.jobs.extend(self.job_id, runtime=runtime)
         return self

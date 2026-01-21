@@ -14,18 +14,18 @@ class HyperCLI:
     HyperCLI API Client
 
     Usage:
-        from hypercli import C3
+        from hypercli import HyperCLI
 
-        c3 = C3()  # Uses HYPERCLI_API_KEY from env or ~/.hypercli/config
+        client = HyperCLI()  # Uses HYPERCLI_API_KEY from env or ~/.hypercli/config
         # or
-        c3 = C3(api_key="your_key")
+        client = HyperCLI(api_key="your_key")
 
         # Billing
-        balance = c3.billing.balance()
+        balance = client.billing.balance()
         print(f"Balance: ${balance.total}")
 
         # Jobs
-        job = c3.jobs.create(
+        job = client.jobs.create(
             image="nvidia/cuda:12.0",
             gpu_type="l40s",
             command="python train.py"
@@ -33,7 +33,7 @@ class HyperCLI:
         print(f"Job: {job.job_id}")
 
         # User
-        user = c3.user.get()
+        user = client.user.get()
     """
 
     def __init__(self, api_key: str = None, api_url: str = None):

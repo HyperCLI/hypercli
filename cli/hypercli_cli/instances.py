@@ -1,14 +1,14 @@
 """hyper instances commands"""
 import typer
 from typing import Optional
-from hypercli import C3
+from hypercli import HyperCLI
 from .output import output, console, success, spinner
 
 app = typer.Typer(help="GPU instances - browse and launch")
 
 
-def get_client() -> C3:
-    return C3()
+def get_client() -> HyperCLI:
+    return HyperCLI()
 
 
 @app.command("list")
@@ -140,6 +140,7 @@ def launch(
     env: Optional[list[str]] = typer.Option(None, "--env", "-e", help="Env vars (KEY=VALUE)"),
     port: Optional[list[str]] = typer.Option(None, "--port", "-p", help="Ports (name:port)"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs after creation"),
+    cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Launch a new GPU instance"""
@@ -190,4 +191,4 @@ def launch(
     if follow:
         console.print()
         from .tui.job_monitor import run_job_monitor
-        run_job_monitor(job.job_id)
+        run_job_monitor(job.job_id, cancel_on_exit=cancel_on_exit)

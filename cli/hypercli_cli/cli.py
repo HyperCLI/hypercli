@@ -1,10 +1,10 @@
-"""C3 CLI - Main entry point"""
+"""HyperCLI - Main entry point"""
 import sys
 import typer
 from rich.console import Console
 from rich.prompt import Prompt
 
-from hypercli import C3, APIError, configure
+from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
 from . import billing, comfyui, instances, jobs, llm, renders, user
@@ -49,8 +49,8 @@ def fuzzy_match(input_str: str, options: list[str], threshold: float = 0.5) -> l
     return [opt for opt, _ in matches[:3]]
 
 app = typer.Typer(
-    name="c3",
-    help="HyperCLI CLI - GPU orchestration and LLM API",
+    name="hyper",
+    help="HyperCLI - GPU orchestration and LLM API",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -67,11 +67,11 @@ app.add_typer(user.app, name="user")
 
 @app.command("configure")
 def configure_cmd():
-    """Configure C3 CLI with your API key and API URL"""
+    """Configure HyperCLI with your API key and API URL"""
     import getpass
     from hypercli.config import get_api_key, get_api_url, DEFAULT_API_URL
 
-    console.print("\n[bold cyan]C3 CLI Configuration[/bold cyan]\n")
+    console.print("\n[bold cyan]HyperCLI Configuration[/bold cyan]\n")
 
     # Show current config
     current_key = get_api_key()
@@ -111,7 +111,7 @@ def configure_cmd():
         console.print(f"  API key: {preview}")
     if final_url:
         console.print(f"  API URL: {final_url}")
-    console.print("\nTest your setup with: [cyan]c3 billing balance[/cyan]\n")
+    console.print("\nTest your setup with: [cyan]hyper billing balance[/cyan]\n")
 
 
 @app.callback()
@@ -119,19 +119,19 @@ def main(
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
 ):
     """
-    [bold cyan]C3 CLI[/bold cyan] - HyperCLI GPU orchestration and LLM API
+    [bold cyan]HyperCLI[/bold cyan] - GPU orchestration and LLM API
 
-    Set your API key: [green]c3 configure[/green]
+    Set your API key: [green]hyper configure[/green]
 
     Get started:
-        c3 instances list      Browse available GPUs
-        c3 instances launch    Launch a GPU instance
-        c3 jobs list           View your running jobs
-        c3 llm chat -i         Start a chat
+        hyper instances list      Browse available GPUs
+        hyper instances launch    Launch a GPU instance
+        hyper jobs list           View your running jobs
+        hyper llm chat -i         Start a chat
     """
     if version:
         from . import __version__
-        console.print(f"c3 version {__version__}")
+        console.print(f"hyper version {__version__}")
         raise typer.Exit()
 
 
@@ -167,7 +167,7 @@ def cli():
         # Check for region errors
         if "region" in detail.lower() and "not found" in detail.lower():
             console.print(f"[bold red]Error:[/bold red] {detail}")
-            console.print("\n[dim]Tip: Use 'c3 jobs regions' to see available regions[/dim]")
+            console.print("\n[dim]Tip: Use 'hyper jobs regions' to see available regions[/dim]")
             sys.exit(1)
 
         # Generic API error

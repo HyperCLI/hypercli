@@ -23,7 +23,7 @@ class File:
     filename: str
     content_type: str
     file_size: int
-    url: str  # Internal S3 reference - only valid for use in C3 renders
+    url: str  # Internal S3 reference - only valid for use in HyperCLI renders
     state: str | None = None  # processing, done, failed (for async uploads)
     error: str | None = None  # Error message if state=failed
     created_at: str | None = None
@@ -72,11 +72,11 @@ class Files:
 
         Returns:
             File object with id and internal url for use in render calls.
-            The url is an S3 reference that only works within C3.
+            The url is an S3 reference that only works within HyperCLI.
 
         Example:
-            file = c3.files.upload("./my_image.png")
-            render = c3.renders.image_to_video("dancing", file.url)
+            file = client.files.upload("./my_image.png")
+            render = client.renders.image_to_video("dancing", file.url)
         """
         # Read file
         with open(file_path, "rb") as f:
@@ -106,7 +106,7 @@ class Files:
             File object with id and url for use in render calls
 
         Example:
-            file = c3.files.upload_bytes(image_bytes, "image.png", "image/png")
+            file = client.files.upload_bytes(image_bytes, "image.png", "image/png")
         """
         files = {"file": (filename, content, content_type)}
         data = self._http.post_multipart("/api/files/multi", files=files)
@@ -126,8 +126,8 @@ class Files:
             File object with id and state=processing.
 
         Example:
-            file = c3.files.upload_url("https://example.com/image.png")
-            file = c3.files.wait_ready(file.id)  # Wait for completion
+            file = client.files.upload_url("https://example.com/image.png")
+            file = client.files.wait_ready(file.id)  # Wait for completion
         """
         payload = {"url": url}
         if path:
@@ -159,8 +159,8 @@ class Files:
         Example:
             import base64
             b64_data = base64.b64encode(image_bytes).decode()
-            file = c3.files.upload_b64(b64_data, "image.png", "image/png")
-            file = c3.files.wait_ready(file.id)
+            file = client.files.upload_b64(b64_data, "image.png", "image/png")
+            file = client.files.wait_ready(file.id)
         """
         payload = {"data": data, "filename": filename}
         if content_type:
@@ -216,8 +216,8 @@ class Files:
             ValueError: If file upload failed
 
         Example:
-            file = c3.files.upload_url("https://example.com/image.png")
-            file = c3.files.wait_ready(file.id, timeout=30)
+            file = client.files.upload_url("https://example.com/image.png")
+            file = client.files.wait_ready(file.id, timeout=30)
             print(f"Ready: {file.url}")
         """
         start = time.time()

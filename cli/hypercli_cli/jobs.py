@@ -1,14 +1,14 @@
 """hyper jobs commands"""
 import typer
 from typing import Optional
-from hypercli import C3
+from hypercli import HyperCLI
 from .output import output, console, success, spinner
 
 app = typer.Typer(help="Manage running jobs")
 
 
-def get_client() -> C3:
-    return C3()
+def get_client() -> HyperCLI:
+    return HyperCLI()
 
 
 @app.command("list")
@@ -46,12 +46,13 @@ def get_job(
 def logs(
     job_id: str = typer.Argument(..., help="Job ID"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Stream logs"),
+    cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
 ):
     """Get job logs"""
     client = get_client()
 
     if follow:
-        _follow_job(job_id)
+        _follow_job(job_id, cancel_on_exit=cancel_on_exit)
     else:
         with spinner("Fetching logs..."):
             logs_str = client.jobs.logs(job_id)
@@ -167,10 +168,10 @@ def _make_bar(value: float, max_val: float, warn: float = None, crit: float = No
     return f"[{color}]{bar}[/{color}]"
 
 
-def _follow_job(job_id: str):
+def _follow_job(job_id: str, cancel_on_exit: bool = False):
     """Follow job with TUI"""
     from .tui.job_monitor import run_job_monitor
-    run_job_monitor(job_id)
+    run_job_monitor(job_id, cancel_on_exit=cancel_on_exit)
 
 
 def _watch_metrics(job_id: str):

@@ -2,14 +2,14 @@
 import time
 import typer
 from typing import Optional
-from hypercli import C3
+from hypercli import HyperCLI
 from .output import output, console, success, spinner
 
 app = typer.Typer(help="Manage renders")
 
 
-def get_client() -> C3:
-    return C3()
+def get_client() -> HyperCLI:
+    return HyperCLI()
 
 
 @app.command("list")
@@ -77,7 +77,7 @@ def create_render(
         console.print(f"  State: {render.state}")
 
     if wait:
-        _wait_for_render(c3, render.render_id, fmt)
+        _wait_for_render(client, render.render_id, fmt)
 
 
 @app.command("status")
@@ -90,7 +90,7 @@ def status(
     client = get_client()
 
     if watch:
-        _watch_status(c3, render_id)
+        _watch_status(client, render_id)
     else:
         with spinner("Fetching status..."):
             s = client.renders.status(render_id)
@@ -108,7 +108,7 @@ def cancel(
     success(f"Render {render_id} cancelled")
 
 
-def _wait_for_render(c3: C3, render_id: str, fmt: str, poll_interval: float = 2.0):
+def _wait_for_render(client: HyperCLI, render_id: str, fmt: str, poll_interval: float = 2.0):
     """Wait for render to complete"""
     console.print("Waiting for completion...")
 
@@ -138,7 +138,7 @@ def _wait_for_render(c3: C3, render_id: str, fmt: str, poll_interval: float = 2.
                 console.print(f"  Error: {render.error}")
 
 
-def _watch_status(c3: C3, render_id: str, poll_interval: float = 2.0):
+def _watch_status(client: HyperCLI, render_id: str, poll_interval: float = 2.0):
     """Watch render status live"""
     from rich.live import Live
     from rich.panel import Panel

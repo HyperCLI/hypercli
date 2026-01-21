@@ -8,6 +8,7 @@ from .comfyui import (
     find_nodes,
     load_template,
     graph_to_api,
+    expand_subgraphs,
     DEFAULT_OBJECT_INFO,
 )
 
@@ -20,5 +21,6 @@ __all__ = [
     "find_nodes",
     "load_template",
     "graph_to_api",
+    "expand_subgraphs",
     "DEFAULT_OBJECT_INFO",
 ]
