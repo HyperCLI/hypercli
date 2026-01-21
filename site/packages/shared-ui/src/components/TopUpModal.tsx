@@ -313,14 +313,14 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                     </div>
                     
                     {/* Preset Amount Buttons */}
-                    <div className="flex flex-wrap gap-2 mt-3">
-                      {[10, 20, 50, 75, 100].map((preset) => (
+                    <div className="flex gap-2 mt-3">
+                      {[10, 20, 50, 100].map((preset) => (
                         <button
                           key={preset}
                           type="button"
                           onClick={() => setAmount(preset)}
                           disabled={isProcessing || preset < minAmount}
-                          className={`px-3 py-1.5 text-sm font-medium rounded-md border transition-all ${
+                          className={`flex-1 py-1.5 text-sm font-medium rounded-md border transition-all ${
                             amount === preset
                               ? "border-primary bg-primary/20 text-primary"
                               : "border-border hover:border-border-medium text-muted-foreground hover:text-foreground"
@@ -329,17 +329,13 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
                           ${preset}
                         </button>
                       ))}
-                    </div>
-                    
-                    {/* Custom Amount Link */}
-                    <div className="mt-4 pt-4 border-t border-border">
                       <button
                         type="button"
                         onClick={() => setShowCustomAmount(true)}
                         disabled={isProcessing}
-                        className="text-sm text-primary hover:text-primary-hover transition-colors cursor-pointer"
+                        className="flex-[1.3] py-1.5 text-sm font-medium rounded-md border transition-all border-border hover:border-border-medium text-muted-foreground hover:text-foreground disabled:opacity-50 disabled:cursor-not-allowed text-center"
                       >
-                        Need to top up more than $100?
+                        Custom
                       </button>
                     </div>
                   </>
