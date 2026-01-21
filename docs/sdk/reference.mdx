@@ -1,0 +1,85 @@
+---
+title: Reference
+description: SDK API reference
+---
+
+## C3
+
+Main client class.
+
+```python
+from hypercli import HyperCLI
+
+hyper = HyperCLI(api_key=None, api_url=None)
+```
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `api_key` | str | None | API key (uses env/config if not provided) |
+| `api_url` | str | None | API URL (default: https://api.hypercli.com) |
+
+### Properties
+
+- `client.billing` - Billing API
+- `client.jobs` - Jobs API
+- `client.user` - User API
+- `client.api_url` - Base API URL
+
+## Billing
+
+```python
+client.billing.balance() -> Balance
+client.billing.transactions(limit=50, page=1) -> list[Transaction]
+client.billing.get_transaction(transaction_id) -> Transaction
+```
+
+## Jobs
+
+```python
+client.jobs.create(...) -> Job
+client.jobs.list(state=None) -> list[Job]
+client.jobs.get(job_id) -> Job
+client.jobs.logs(job_id) -> str
+client.jobs.metrics(job_id) -> JobMetrics
+client.jobs.extend(job_id, runtime) -> Job
+client.jobs.cancel(job_id) -> dict
+client.jobs.token(job_id) -> str
+```
+
+## User
+
+```python
+client.user.get() -> User
+```
+
+### User Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `user_id` | str | User ID |
+| `email` | str | Email address |
+| `name` | str | Display name |
+| `is_active` | bool | Account active |
+| `created_at` | str | Created timestamp |
+
+## APIError
+
+Exception raised on API errors.
+
+```python
+from hyper import APIError
+
+try:
+    client.jobs.get("invalid")
+except APIError as e:
+    print(e.status_code)  # HTTP status code
+    print(e.detail)       # Error message
+```
+
+## Configuration
+
+```python
+from hyper import configure
+
+configure(api_key="your_key", api_url=None)  # Saves to ~/.hypercli/config
+```

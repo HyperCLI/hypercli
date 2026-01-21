@@ -1,0 +1,34 @@
+---
+title: Configuration
+description: Configure the HyperCLI CLI
+---
+
+## Interactive Setup
+
+```bash
+hyper configure
+```
+
+This prompts for your API key and saves it to `~/.hypercli/config`.
+
+## Environment Variables
+
+| Variable | Description |
+|----------|-------------|
+| `HYPERCLI_API_KEY` | Your API key |
+| `HYPERCLI_API_URL` | API URL (default: https://api.hypercli.com) |
+
+## Config File
+
+Location: `~/.hypercli/config`
+
+Format:
+```
+HYPERCLI_API_KEY=your_key
+HYPERCLI_API_URL=https://api.hypercli.com
+```
+
+## Priority
+
+1. Environment variables
+2. Config file

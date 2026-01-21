@@ -1,0 +1,108 @@
+---
+title: CLI
+description: hypercli-cli command-line interface
+---
+
+## Install
+
+```bash
+pip install hypercli-cli
+```
+
+## Configure
+
+```bash
+hyper configure
+```
+
+Or set environment variable:
+
+```bash
+export HYPERCLI_API_KEY=your_key
+```
+
+Get your API key at [console.hypercli.com](https://console.hypercli.com).
+
+## Commands
+
+```bash
+hyper --help
+
+# Configuration
+hyper configure              # Set up API key
+
+# Billing
+hyper billing balance        # Check balance
+hyper billing transactions   # List transactions
+
+# GPU Instances
+hyper instances list         # List available GPUs with pricing
+hyper instances gpus         # List GPU types
+hyper instances regions      # List regions
+hyper instances launch       # Launch instance
+
+# Jobs
+hyper jobs list              # List jobs
+hyper jobs create            # Create job
+hyper jobs logs              # Get logs
+hyper jobs metrics           # Get GPU metrics
+hyper jobs cancel            # Cancel job
+
+# ComfyUI
+hyper comfyui templates      # List workflow templates
+hyper comfyui run            # Run ComfyUI workflow
+
+# LLM
+hyper llm models             # List LLM models
+hyper llm chat               # Chat with LLM
+
+# User
+hyper user                   # Get user info
+```
+
+## Output Formats
+
+Most commands support `-o json` for JSON output:
+
+```bash
+hyper billing balance -o json
+hyper jobs list -o json
+hyper instances list -o json
+```
+
+## Quick Examples
+
+### Check Balance
+
+```bash
+hyper billing balance
+```
+
+### Launch GPU Instance
+
+```bash
+# Simple launch
+hyper instances launch nvidia/cuda:12.0 -g l40s
+
+# With command and logs
+hyper instances launch my-image:latest -g h100 -c "python train.py" -f
+```
+
+### Generate Image with ComfyUI
+
+```bash
+hyper comfyui run flux_schnell --prompt "a sunset over mountains" --output sunset
+```
+
+### Chat with LLM
+
+```bash
+hyper llm chat deepseek-v3.1 "Hello!"
+```
+
+## Global Options
+
+| Option | Description |
+|--------|-------------|
+| `--help` | Show help for any command |
+| `-o json` | JSON output (most commands) |
