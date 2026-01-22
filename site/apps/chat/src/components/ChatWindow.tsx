@@ -44,6 +44,7 @@ interface ChatWindowProps {
   isStreaming?: boolean;
   onSelectOption?: (messageId: number, option: SelectionOption) => void;
   selectionStatus?: Record<string, "pending" | "complete">;
+  onSuggestedPromptClick?: (prompt: string) => void;
 }
 
 function normalizeRenderPayload(payload: any): RenderMeta | null {
@@ -326,6 +327,7 @@ export function ChatWindow({
   isStreaming = false,
   onSelectOption,
   selectionStatus,
+  onSuggestedPromptClick,
 }: ChatWindowProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -362,9 +364,13 @@ export function ChatWindow({
               "Spin up a GPU job and explain the cost",
               "Draft a product changelog from commit notes",
             ].map((prompt) => (
-              <div key={prompt} className="rounded-xl border border-border/60 bg-surface-high/60 px-4 py-3 text-sm text-text-secondary">
+              <button
+                key={prompt}
+                onClick={() => onSuggestedPromptClick?.(prompt)}
+                className="rounded-xl border border-border/60 bg-surface-high/60 px-4 py-3 text-sm text-text-secondary hover:bg-surface-high hover:border-border transition-colors cursor-pointer text-left"
+              >
                 {prompt}
-              </div>
+              </button>
             ))}
           </div>
         </div>

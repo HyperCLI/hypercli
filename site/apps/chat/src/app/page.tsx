@@ -204,8 +204,8 @@ function ChatPageContent() {
     initViewportHeight();
   }, []);
 
-  // Free user = authenticated but not via wallet
-  const isFreeUser = isAuthenticated && !isWalletUser;
+  // Show sign-in prompt only when not authenticated
+  const showSignInPrompt = !isAuthenticated;
 
   // Load theme and subscribe to changes
   useEffect(() => {
@@ -246,7 +246,8 @@ function ChatPageContent() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
+    const authToken = cookieUtils.get("auth_token");
+    if (authToken) {
       fetchThreads();
     }
   }, [isAuthenticated]);
@@ -355,7 +356,8 @@ function ChatPageContent() {
       }
     };
 
-    if (isAuthenticated) {
+    const authToken = cookieUtils.get("auth_token");
+    if (authToken) {
       fetchModels();
     }
   }, [isAuthenticated]);
@@ -385,7 +387,8 @@ function ChatPageContent() {
   };
 
   useEffect(() => {
-    if (isAuthenticated) {
+    const authToken = cookieUtils.get("auth_token");
+    if (authToken) {
       fetchBalance();
     }
   }, [isAuthenticated]);
@@ -796,7 +799,8 @@ function ChatPageContent() {
 
   // Connect WebSocket when authenticated
   useEffect(() => {
-    if (isAuthenticated) {
+    const authToken = cookieUtils.get("auth_token");
+    if (authToken) {
       connectWebSocket();
     }
 
@@ -1412,7 +1416,7 @@ function ChatPageContent() {
         <ChatHeader
           selectedModel={selectedModel}
           loadingModels={loadingModels}
-          isFreeUser={isFreeUser}
+          showSignIn={showSignInPrompt}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
           onShowLogin={() => setShowLoginModal(true)}
@@ -1423,6 +1427,7 @@ function ChatPageContent() {
           isStreaming={isStreaming}
           onSelectOption={handleSelection}
           selectionStatus={selectionStatus}
+          onSuggestedPromptClick={(prompt) => setPendingMessage(prompt)}
         />
 
         <ChatInput

@@ -6,7 +6,7 @@ import { PanelLeftOpen, Cpu } from "lucide-react";
 interface ChatHeaderProps {
   selectedModel: string;
   loadingModels: boolean;
-  isFreeUser: boolean;
+  showSignIn: boolean;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
   onShowLogin: () => void;
@@ -15,7 +15,7 @@ interface ChatHeaderProps {
 export function ChatHeader({
   selectedModel,
   loadingModels,
-  isFreeUser,
+  showSignIn,
   sidebarOpen,
   onToggleSidebar,
   onShowLogin,
@@ -49,7 +49,7 @@ export function ChatHeader({
           </div>
         </div>
 
-        {isFreeUser && (
+        {showSignIn && (
           <Button
             variant="outline"
             onClick={onShowLogin}
