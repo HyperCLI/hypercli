@@ -166,6 +166,7 @@ function ChatPageContent() {
   const [sidebarOpen, setSidebarOpen] = useState(true);
   const [showTopUpModal, setShowTopUpModal] = useState(false);
   const [showLoginModal, setShowLoginModal] = useState(false);
+  const autoSelectedThreadRef = useRef(false);
 
   // Balance
   const [balance, setBalance] = useState<Balance | null>(null);
@@ -221,7 +222,7 @@ function ChatPageContent() {
   }, []);
 
   // Fetch threads from bot API
-  const fetchThreads = async () => {
+  const fetchThreads = useCallback(async () => {
     try {
       const authToken = cookieUtils.get("auth_token");
       if (!authToken) {
@@ -233,28 +234,35 @@ function ChatPageContent() {
         headers: { Authorization: `Bearer ${authToken}` },
       });
 
-      if (!response.ok) throw new Error("Failed to fetch threads");
+      if (!response.ok) {
+        const errorText = await response.text();
+        console.error("fetchThreads: Error response", errorText);
+        throw new Error("Failed to fetch threads");
+      }
 
       const data = await response.json();
       // API returns flat array of chats
-      setThreads(Array.isArray(data) ? data : data.chats || []);
+      const threadsData = Array.isArray(data) ? data : data.chats || [];
+      setThreads(threadsData);
     } catch (error) {
       console.error("Failed to fetch threads:", error);
     } finally {
       setLoadingThreads(false);
     }
-  };
+  }, []);
 
+  // Fetch threads when auth token is available (on mount and when auth state changes)
   useEffect(() => {
     const authToken = cookieUtils.get("auth_token");
     if (authToken) {
       fetchThreads();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, fetchThreads]);
 
   // Load chat from URL path (/chat/{id}) or sessionStorage
   useEffect(() => {
-    if (!isAuthenticated || loadingThreads) return;
+    const authToken = cookieUtils.get("auth_token");
+    if (!authToken || loadingThreads) return;
 
     // Check URL path for chat ID (handles direct navigation to /chat/{id})
     const pathMatch = pathname.match(/^\/chat\/([^/]+)/);
@@ -274,7 +282,16 @@ function ChatPageContent() {
       // Select the thread and update URL if not already there
       selectThread(chatIdToLoad, !chatIdFromUrl, hasPendingAutoSend);
     }
-  }, [isAuthenticated, loadingThreads, pathname]);
+  }, [loadingThreads, pathname, currentThreadId]);
+
+  // Auto-select most recent thread when threads load (if no thread is selected)
+  useEffect(() => {
+    if (!loadingThreads && threads.length > 0 && !currentThreadId && (pathname === '/' || pathname === '/chat') && !autoSelectedThreadRef.current) {
+      // Select the most recent thread (first in the list) without updating URL
+      autoSelectedThreadRef.current = true;
+      selectThread(threads[0].id, false, false);
+    }
+  }, [loadingThreads, threads, currentThreadId, pathname]);
 
   // Auto-create free user if not authenticated
   useEffect(() => {
