@@ -12,9 +12,17 @@ export const withCorsProxy = (url: string): string => {
   if (!CORS_PROXY_URL || !isBrowser) return url;
 
   const normalizedProxy = normalizeBase(CORS_PROXY_URL);
+  
+  // If already proxied, return as-is
   if (url.startsWith(normalizedProxy)) return url;
-
-  return `${normalizedProxy}/${url}`;
+  
+  // Only proxy if URL starts with http/https (absolute URL)
+  if (url.startsWith("http://") || url.startsWith("https://")) {
+    return `${normalizedProxy}/${url}`;
+  }
+  
+  // For relative URLs, return as-is
+  return url;
 };
 
 export const getAuthBackendUrl = (path: string = ""): string => {

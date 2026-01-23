@@ -12,7 +12,10 @@
     "build": "turbo run build",
     "lint": "turbo run lint",
     "clean": "turbo run clean && rm -rf node_modules",
-    "cors-proxy": "node cors-anywhere.js"
+    "cors-proxy": "node cors-anywhere.js",
+    "clear-cache": "node scripts/clear-cache.js",
+    "clear-cache:sh": "bash scripts/clear-cache.sh",
+    "clear-cache:bat": "scripts\\clear-cache.bat"
   },
   "dependencies": {
     "@tailwindcss/postcss": "^4",
