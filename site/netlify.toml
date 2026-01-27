@@ -9,7 +9,7 @@
   NODE_VERSION = "22"
   
   # Cache version - increment this to force cache invalidation
-  NEXT_PUBLIC_CACHE_VERSION = "3"
+  NEXT_PUBLIC_CACHE_VERSION = "4"
 
   # Disable debug in production
   NEXT_PUBLIC_AUTH_DEBUG = "false"
