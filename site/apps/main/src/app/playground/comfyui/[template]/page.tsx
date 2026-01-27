@@ -237,7 +237,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ templ
                       href={frontmatter.tutorial_url}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-8 py-4 bg-surface-low border border-white/10 text-white font-semibold rounded-xl hover:bg-surface-high hover:border-white/20 transition-all">
+                      className="inline-flex items-center gap-2 px-8 py-4 bg-surface-low border border-white/10 text-white font-semibold rounded-xl hover:bg-surface-high hover:border-white/20 transition-all"
                     >
                       View Tutorial
                       <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
