@@ -309,6 +309,8 @@ export default function LaunchPage() {
     }
     const runtimeParam = params.get('runtime');
     if (runtimeParam) setRuntime(parseInt(runtimeParam) || 3600);
+    const authParam = params.get('auth');
+    if (authParam === 'true' || authParam === '1') setHttpsLbAuth(true);
   }, []);
 
   // Fetch all API data
