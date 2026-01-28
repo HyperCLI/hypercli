@@ -19,6 +19,8 @@ type Template = {
   models?: { name: string; size: string; type: string }[];
   features?: string[];
   source_repo?: string;
+  https_lb?: boolean;
+  auth?: boolean;
 };
 
 function buildLaunchUrl(template: Template): string {
@@ -31,6 +33,9 @@ function buildLaunchUrl(template: Template): string {
   });
   if (template.env_vars && Object.keys(template.env_vars).length > 0) {
     params.set('env', JSON.stringify(template.env_vars));
+  }
+  if (template.auth) {
+    params.set('auth', 'true');
   }
   return `${consoleUrl}/job?${params.toString()}`;
 }
