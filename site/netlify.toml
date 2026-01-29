@@ -57,8 +57,8 @@
   # WalletConnect (for RainbowKit)
   # NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID = "your-walletconnect-project-id"
 
-  # Payment Configuration - LIVE
-  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_51SSWmjQcZcim9HgToGFTGl2i2ujksoZxVxl6Hnsy9Py2cxo9IWZY0852aiFcKEe2rrcozuYkf1UUhDKJuoyRCeS600gouzMj9F"
+  # Payment Configuration - LIVE (HyperCLI Stripe account)
+  NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_51So7MuD2ZZvODGmaYjExtp8HXimCBGbtkLeXSQizBhBlCMCgBrXdIc5gxSHCbEP0sDtZANoboAtdDyjDUXUmhTAA006XsGzKjf"
 
 # Cache control headers for static assets
 [[headers]]
