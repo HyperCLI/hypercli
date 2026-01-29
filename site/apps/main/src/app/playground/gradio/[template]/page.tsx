@@ -252,10 +252,11 @@ client = HyperCLI()
 
 # Launch ${template.title}
 job = client.jobs.create(
-    docker_image="${template.docker_image}",
-    gpu_type="L40S",
+    image="${template.docker_image}",
+    gpu_type="l40s",
     ports={"lb": ${template.port}},${template.env_vars && Object.keys(template.env_vars).length > 0 ? `
-    env_vars=${JSON.stringify(template.env_vars).replace(/"/g, '"')},` : ''}
+    env=${JSON.stringify(template.env_vars).replace(/"/g, '"')},` : ''}${template.auth ? `
+    auth=True,` : ''}
 )
 
 print(f"Job {job.job_id} launched!")
@@ -268,10 +269,11 @@ client = HyperCLI()
 
 # Launch ${template.title}
 job = client.jobs.create(
-    docker_image="${template.docker_image}",
-    gpu_type="L40S",
+    image="${template.docker_image}",
+    gpu_type="l40s",
     ports={"lb": ${template.port}},${template.env_vars && Object.keys(template.env_vars).length > 0 ? `
-    env_vars=${JSON.stringify(template.env_vars).replace(/"/g, '"')},` : ''}
+    env=${JSON.stringify(template.env_vars).replace(/"/g, '"')},` : ''}${template.auth ? `
+    auth=True,` : ''}
 )
 
 print(f"Job {job.job_id} launched!")
@@ -289,14 +291,12 @@ print(f"Access at: https://{job.job_id}.job.hypercli.com")`}</code>
                 <div className="bg-background border border-white/10 rounded-xl overflow-hidden">
                   <div className="flex items-center justify-between px-4 py-2 bg-surface-low border-b border-white/5">
                     <span className="text-xs text-muted-foreground font-mono">bash</span>
-                    <CopyButton text={`hyper job create \\
-  --image ${template.docker_image} \\
+                    <CopyButton text={`hyper instances launch ${template.docker_image} \\
   --gpu l40s \\
   --port lb:${template.port}${template.env_vars && Object.keys(template.env_vars).length > 0 ? Object.entries(template.env_vars).map(([k, v]) => ` \\\n  --env ${k}="${v}"`).join('') : ''}`} />
                   </div>
                   <pre className="p-6 text-sm text-secondary-foreground overflow-x-auto leading-relaxed">
-                    <code className="font-mono">{`hyper job create \\
-  --image ${template.docker_image} \\
+                    <code className="font-mono">{`hyper instances launch ${template.docker_image} \\
   --gpu l40s \\
   --port lb:${template.port}${template.env_vars && Object.keys(template.env_vars).length > 0 ? Object.entries(template.env_vars).map(([k, v]) => ` \\\n  --env ${k}="${v}"`).join('') : ''}`}</code>
                   </pre>
