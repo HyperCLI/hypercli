@@ -1,0 +1,32 @@
+{
+  "templates": [
+    {
+      "template_id": "qwen3-tts",
+      "title": "Qwen 3 TTS",
+      "description": "Text-to-speech with voice cloning and voice design using Qwen3-TTS models. Supports three modes: Voice Design (generate speech from text + voice description), Voice Clone (clone from reference audio), and Custom Voice (predefined speakers with style instructions).",
+      "docker_image": "ghcr.io/hypercli/qwen3-tts-gradio:latest",
+      "output_type": "audio",
+      "tags": ["TTS", "Voice Clone", "Voice Design", "Audio"],
+      "gpu_requirements": "16GB+ VRAM (24GB recommended for 1.7B models)",
+      "port": 7860,
+      "env_vars": {
+        "PRELOAD_MODELS": "CustomVoice:1.7B,Base:1.7B"
+      },
+      "https_lb": true,
+      "auth": true,
+      "models": [
+        {"name": "Qwen3-TTS-12Hz-0.6B-Base", "size": "0.6B", "type": "Base"},
+        {"name": "Qwen3-TTS-12Hz-1.7B-Base", "size": "1.7B", "type": "Base"},
+        {"name": "Qwen3-TTS-12Hz-1.7B-CustomVoice", "size": "1.7B", "type": "CustomVoice"},
+        {"name": "Qwen3-TTS-12Hz-1.7B-VoiceDesign", "size": "1.7B", "type": "VoiceDesign"}
+      ],
+      "features": [
+        "Voice Design - Generate speech from text + natural language voice description (1.7B only)",
+        "Voice Clone - Clone a voice from reference audio (0.6B or 1.7B)",
+        "Custom Voice - Use predefined speakers with optional style instructions (0.6B or 1.7B)"
+      ],
+      "source_repo": "https://github.com/HyperCLI/qwen3-tts-gradio"
+    }
+  ],
+  "count": 1
+}
