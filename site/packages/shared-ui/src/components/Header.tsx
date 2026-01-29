@@ -393,6 +393,7 @@ export default function Header() {
             showTitle={true}
             title="Sign In"
             description="Choose how you want to sign in"
+            onEmailLoginClick={() => setIsLoginModalOpen(false)}
             onAuthSuccess={() => {
               setIsLoginModalOpen(false);
               window.location.reload();
