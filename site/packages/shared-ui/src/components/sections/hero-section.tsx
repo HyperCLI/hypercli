@@ -201,8 +201,8 @@ export function HeroSection() {
 
           <div className="relative bg-surface-low/80 backdrop-blur-sm border border-primary/20 rounded-2xl p-8 text-left shadow-[0_0_80px_rgba(56,211,159,0.15)]">
             <div className="font-mono text-base space-y-3">
-              <div className="text-muted-foreground">$ pip install <span className="text-primary">hypercli</span></div>
-              <div className="text-muted-foreground">$ <span className="text-primary">hypercli</span> deploy minimax-m2</div>
+              <div className="text-muted-foreground">$ pip install <span className="text-primary">hypercli-cli</span></div>
+              <div className="text-muted-foreground">$ <span className="text-primary">hyper</span> instances launch nvidia/cuda:12.0 -g l40s</div>
             </div>
           </div>
         </motion.div>

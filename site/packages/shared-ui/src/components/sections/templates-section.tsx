@@ -172,7 +172,7 @@ export function TemplatesSection() {
           >
             <div className="bg-surface-low/50 backdrop-blur-sm border border-primary/20 rounded-xl p-6 shadow-[0_0_40px_rgba(56,211,159,0.08)]">
               <div className="font-mono text-base space-y-2">
-                <div className="text-muted-foreground">$ hypercli deploy rag-pipeline</div>
+                <div className="text-muted-foreground">$ hyper instances launch rag-pipeline</div>
                 <div className="text-primary">✓ Template deployed</div>
               </div>
             </div>
