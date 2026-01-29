@@ -8,6 +8,7 @@ import { cookieUtils } from '../utils/cookies';
 
 interface WalletAuthProps {
   onAuthSuccess?: (jwt: string, userId: string) => void;
+  onEmailLoginClick?: () => void; // Called when user clicks "Login with Email" - use to close parent modal
   showTitle?: boolean; // Show the "HyperCLI Chat" title and description
   title?: string; // Custom title (defaults to "HyperCLI Chat")
   description?: string; // Custom description
@@ -24,6 +25,7 @@ const debugLog = (...args: any[]) => {
 
 export function WalletAuth({
   onAuthSuccess,
+  onEmailLoginClick,
   showTitle = true,
   title = "HyperCLI Chat",
   description = "Choose how you want to sign in"
@@ -130,6 +132,9 @@ export function WalletAuth({
   };
 
   const handleTurnkeyLogin = async () => {
+    // Close parent modal before opening Turnkey's email modal
+    onEmailLoginClick?.();
+
     try {
       await handleLogin({
         logoLight: "/favicon.svg",

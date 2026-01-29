@@ -1485,6 +1485,7 @@ function ChatPageContent() {
               showTitle={true}
               title="Connect Wallet"
               description="Sign in with your wallet to save your chat history and top up your account"
+              onEmailLoginClick={() => setShowLoginModal(false)}
               onAuthSuccess={() => {
                 // Mark as wallet user (not free tier)
                 localStorage.setItem("hypercli_login_type", "wallet");
