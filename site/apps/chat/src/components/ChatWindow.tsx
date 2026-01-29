@@ -37,6 +37,8 @@ interface Message {
   content: string;
   type?: string;
   meta?: MessageMeta | null;
+  status?: string;
+  error?: string | null;
 }
 
 interface ChatWindowProps {
@@ -401,6 +403,16 @@ export function ChatWindow({
             const selectionKey = hasSelectionId ? String(selectionId) : "";
             const selectionState = selectionKey ? selectionStatus?.[selectionKey] : undefined;
             const selectionDisabled = !onSelectOption || !hasSelectionId || selectionState !== undefined;
+            
+            // Determine if this is an error message
+            const isError = message.content?.startsWith("__ERROR__") || message.status === "error" || !!message.error;
+            // Check if content is just a placeholder (dots, ellipsis, etc.)
+            const trimmedContent = remainingText?.trim() || "";
+            const isPlaceholderText = /^\.{1,3}$|^…$/.test(trimmedContent);
+            // Determine if we should show loading (empty assistant message with no render, or placeholder text)
+            const isLoading = message.role === "assistant" && (!trimmedContent || isPlaceholderText) && !render && !isSelection && !isError;
+            // Only show remaining text if it's actual content (not empty, not placeholder, not error)
+            const hasDisplayableText = trimmedContent && !isPlaceholderText && !isError;
 
             return (
             <div
@@ -479,7 +491,35 @@ export function ChatWindow({
                             ))}
                           </div>
                         </div>
-                      ) : remainingText ? (
+                      ) : isError ? (
+                        // Error message display - CHECK FIRST before any content rendering
+                        <div className="flex items-start gap-3">
+                          <div className="flex-shrink-0 w-8 h-8 rounded-lg bg-red-500/20 flex items-center justify-center">
+                            <svg className="w-4 h-4 text-red-400" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                              <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 9v2m0 4h.01m-6.938 4h13.856c1.54 0 2.502-1.667 1.732-3L13.732 4c-.77-1.333-2.694-1.333-3.464 0L3.34 16c-.77 1.333.192 3 1.732 3z" />
+                            </svg>
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <p className="text-sm font-medium text-red-400 mb-1">Something went wrong</p>
+                            <p className="text-sm text-red-300/80 leading-relaxed">
+                              {message.error || message.content?.replace("__ERROR__", "") || "An unexpected error occurred"}
+                            </p>
+                            <p className="text-xs text-text-tertiary mt-2">
+                              Try selecting a different model or check your balance
+                            </p>
+                          </div>
+                        </div>
+                      ) : isLoading ? (
+                        // Loading indicator - shown when assistant message has no content yet
+                        <div className="flex items-center gap-3 py-1">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                            <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                            <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                          </div>
+                          <span className="text-sm text-text-tertiary">Thinking...</span>
+                        </div>
+                      ) : hasDisplayableText ? (
                         <div
                           className="text-[15px] text-foreground markdown-content prose prose-invert prose-sm max-w-none
                             [&_p]:leading-relaxed [&_p]:my-2 [&_p:first-child]:mt-0 [&_p:last-child]:mb-0
@@ -498,14 +538,17 @@ export function ChatWindow({
                             [&_img]:!inline [&_img]:!h-[1em] [&_img]:!w-[1em] [&_img]:!max-h-[1em] [&_img]:!max-w-[1em] [&_img]:!m-0 [&_img]:!align-[-0.1em]"
                           dangerouslySetInnerHTML={renderMarkdown(remainingText)}
                         />
-                      ) : !render && (
-                        // Typing indicator - only show if there's no render card
-                        <div className="flex items-center gap-1.5 py-2 px-1">
-                          <div className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: "0ms", animationDuration: "1s" }} />
-                          <div className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: "200ms", animationDuration: "1s" }} />
-                          <div className="w-2 h-2 bg-text-tertiary rounded-full animate-bounce" style={{ animationDelay: "400ms", animationDuration: "1s" }} />
+                      ) : !render ? (
+                        // Fallback - show empty state if no render card either
+                        <div className="flex items-center gap-3 py-1">
+                          <div className="flex items-center gap-1.5">
+                            <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "0ms" }} />
+                            <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "150ms" }} />
+                            <div className="w-2 h-2 bg-primary/60 rounded-full animate-bounce" style={{ animationDelay: "300ms" }} />
+                          </div>
+                          <span className="text-sm text-text-tertiary">Processing...</span>
                         </div>
-                      )}
+                      ) : null}
                     </div>
                   )}
                 </div>

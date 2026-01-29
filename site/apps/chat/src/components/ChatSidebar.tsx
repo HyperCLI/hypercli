@@ -1,7 +1,7 @@
 "use client";
 
 import { cn, Button, Separator } from "@hypercli/shared-ui";
-import { Plus, MessageSquare, Settings, Cpu, Trash2, Moon, Sun, LogOut, PanelLeftClose } from "lucide-react";
+import { Plus, MessageSquare, Trash2, Moon, Sun, LogOut, PanelLeftClose, Zap, Settings } from "lucide-react";
 import Link from "next/link";
 
 interface Thread {
@@ -9,10 +9,6 @@ interface Thread {
   title: string | null;
   created_at: string;
   updated_at: string;
-}
-
-interface Model {
-  id: string;
 }
 
 interface Balance {
@@ -23,16 +19,12 @@ interface Balance {
 interface ChatSidebarProps {
   threads: Thread[];
   currentThreadId: string | null;
-  models: Model[];
-  selectedModel: string;
-  loadingModels: boolean;
   loadingThreads: boolean;
   balance: Balance | null;
   theme: "light" | "dark";
   onSelectThread: (threadId: string) => void;
   onDeleteThread: (threadId: string, e: React.MouseEvent) => void;
   onNewThread: () => void;
-  onSelectModel: (modelId: string) => void;
   onToggleTheme: () => void;
   onTopUp: () => void;
   onLogout: () => void;
@@ -42,16 +34,12 @@ interface ChatSidebarProps {
 export function ChatSidebar({
   threads,
   currentThreadId,
-  models,
-  selectedModel,
-  loadingModels,
   loadingThreads,
   balance,
   theme,
   onSelectThread,
   onDeleteThread,
   onNewThread,
-  onSelectModel,
   onToggleTheme,
   onTopUp,
   onLogout,
@@ -94,34 +82,14 @@ export function ChatSidebar({
 
       <Separator />
 
-      {/* Model Selector */}
+      {/* Direct Mode Indicator */}
       <div className="p-3">
-        <h3 className="text-[11px] font-semibold text-muted-foreground uppercase tracking-[0.2em] mb-2 px-2">
-          Models
-        </h3>
-        <div className="space-y-1 max-h-44 overflow-y-auto chat-scrollbar pr-1">
-          {loadingModels ? (
-            <div className="px-2 py-1.5 text-sm text-muted-foreground">Loading...</div>
-          ) : models.length === 0 ? (
-            <div className="px-2 py-1.5 text-sm text-muted-foreground">No models available</div>
-          ) : (
-            models.map((model) => (
-              <button
-                key={model.id}
-                onClick={() => onSelectModel(model.id)}
-                className={cn(
-                  "w-full flex items-center gap-2 px-3 py-2 rounded-xl text-sm transition-colors border cursor-pointer",
-                  selectedModel === model.id
-                    ? "bg-primary/10 text-primary border-primary/40"
-                    : "text-muted-foreground hover:text-foreground hover:bg-surface-high/80 border-border/50"
-                )}
-              >
-                <Cpu className="h-4 w-4 flex-shrink-0" />
-                <span className="flex-1 text-left truncate">{model.id}</span>
-                <span className="w-2 h-2 rounded-full bg-success flex-shrink-0" />
-              </button>
-            ))
-          )}
+        <div className="flex items-center gap-2 px-3 py-2.5 rounded-xl bg-primary/5 border border-primary/20">
+          <Zap className="w-4 h-4 text-primary flex-shrink-0" />
+          <div className="flex-1 min-w-0">
+            <p className="text-xs font-medium text-foreground">C3 Model</p>
+            <p className="text-[10px] text-muted-foreground truncate">hermes4:70b</p>
+          </div>
         </div>
       </div>
 

@@ -346,10 +346,30 @@ function ChatPageContent() {
 
         const data = await response.json();
         const allModels = data.data || [];
+        console.log("[Chat] Available models from API:", allModels.map((m: Model) => m.id));
         // Filter out embedding models (they can't be used for chat)
-        const chatModels = allModels.filter(
+        let chatModels = allModels.filter(
           (m: Model) => !m.id.toLowerCase().includes("embed")
         );
+        
+        // Check for model override in URL (e.g., ?model=google/gemma-3-1b-it:free)
+        const modelOverride = searchParams.get("model");
+        if (modelOverride) {
+          console.log("[Chat] Model override from URL:", modelOverride);
+          // Add the override model if not already in the list
+          if (!chatModels.find((m: Model) => m.id === modelOverride)) {
+            chatModels = [
+              { id: modelOverride, object: "model", created: Date.now(), owned_by: "override" },
+              ...chatModels,
+            ];
+          }
+          setModels(chatModels);
+          setSelectedModel(modelOverride);
+          localStorage.setItem("hypercli_chat_model", modelOverride);
+          setLoadingModels(false);
+          return;
+        }
+        
         setModels(chatModels);
 
         if (chatModels.length > 0) {
@@ -377,7 +397,7 @@ function ChatPageContent() {
     if (authToken) {
       fetchModels();
     }
-  }, [isAuthenticated]);
+  }, [isAuthenticated, searchParams]);
 
   // Fetch balance
   const fetchBalance = async () => {
@@ -396,7 +416,10 @@ function ChatPageContent() {
 
       if (response.ok) {
         const data = await response.json();
+        console.log("[Chat] Balance fetched:", data);
         setBalance(data);
+      } else {
+        console.log("[Chat] Balance fetch failed:", response.status, await response.text());
       }
     } catch (error) {
       console.error("Error fetching balance:", error);
@@ -433,9 +456,11 @@ function ChatPageContent() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
+        console.log("[Chat WS] Received message:", { type: data.type, hasContent: !!data.content, contentLength: data.content?.length, error: data.error });
 
         if (data.type === "state" || data.type === "token") {
           // Update the last assistant message with streamed content
+          console.log("[Chat WS] State/token update, content:", JSON.stringify(data.content?.substring(0, 100)));
           setMessages((prev) => {
             if (prev.length === 0) return prev;
             const newMessages = [...prev];
@@ -562,7 +587,36 @@ function ChatPageContent() {
             fetchBalance();
           }
         } else if (data.type === "error") {
-          console.error("[WS] Stream error:", data.error);
+          console.error("[Chat WS] Stream error - FULL DATA:", JSON.stringify(data, null, 2));
+          // Parse error for user-friendly display
+          const errorMsg = data.error || "An unexpected error occurred";
+          let userFriendlyError = errorMsg;
+          if (errorMsg.includes("402") || errorMsg.toLowerCase().includes("insufficient") || errorMsg.toLowerCase().includes("credit")) {
+            userFriendlyError = "Insufficient credits. Please top up your balance or select a free model.";
+          } else if (errorMsg.toLowerCase().includes("rate limit")) {
+            userFriendlyError = "Rate limit exceeded. Please wait a moment and try again.";
+          } else if (errorMsg.toLowerCase().includes("context") && errorMsg.toLowerCase().includes("length")) {
+            userFriendlyError = "Message too long. Please try a shorter message.";
+          }
+          console.log("[Chat WS] Original error:", errorMsg);
+          console.log("[Chat WS] User-friendly error:", userFriendlyError);
+          // Update the last assistant message with error content
+          setMessages((prev) => {
+            console.log("[Chat WS] Error handler - messages count:", prev.length, "last msg role:", prev[prev.length - 1]?.role);
+            if (prev.length === 0) return prev;
+            const newMessages = [...prev];
+            const lastMsg = newMessages[newMessages.length - 1];
+            if (lastMsg.role === "assistant") {
+              newMessages[newMessages.length - 1] = {
+                ...lastMsg,
+                content: "__ERROR__" + userFriendlyError,
+                error: userFriendlyError,
+                status: "error",
+              };
+              console.log("[Chat WS] Updated assistant message with error");
+            }
+            return newMessages;
+          });
           if (pendingSubscribeRef.current) {
             pendingSubscribeRef.current.reject(new Error(data.error));
             pendingSubscribeRef.current = null;
@@ -1181,7 +1235,7 @@ function ChatPageContent() {
   };
 
   const handleSendMessage = async (userMessage: string) => {
-    if (!userMessage.trim() || isStreaming || !selectedModel) return;
+    if (!userMessage.trim() || isStreaming) return;
 
     // Clear pending message if it was used
     if (pendingMessage) {
@@ -1214,92 +1268,74 @@ function ChatPageContent() {
     setMessages((prev) => [...prev, tempAssistantMsg]);
 
     try {
-      // Create thread if needed - use handover pattern for new chats
-      let threadId = currentThreadId;
-      if (!threadId) {
-        const createRes = await fetch(getBotApiUrl("/chats"), {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({ title: userMessage.substring(0, 50) }),
-        });
-
-        if (!createRes.ok) throw new Error("Failed to create thread");
-
-        const newThread: Thread = await createRes.json();
-        threadId = newThread.id;
-        setThreads((prev) => [newThread, ...prev]);
-
-        // Handover: navigate to chat page with message param
-        // The auto-send effect will pick this up after navigation completes
-        const encodedMessage = btoa(userMessage);
-        router.push(`/chat/${threadId}?message=${encodedMessage}`, { scroll: false });
-
-        // Reset streaming state since the handover will restart it
-        setIsStreaming(false);
-        setMessages([]);
-        return;
-      }
-
-      // Send message via POST (returns message IDs)
-      const response = await fetch(
-        getBotApiUrl(`/chats/${threadId}/messages`),
-        {
-          method: "POST",
-          headers: {
-            "Content-Type": "application/json",
-            Authorization: `Bearer ${authToken}`,
-          },
-          body: JSON.stringify({
-            content: userMessage,
-            model: selectedModel,
-          }),
-        }
-      );
+      // Use v1 endpoint directly with self-hosted model
+      // hermes4:70b is in c3-models group (self-hosted, not OpenRouter)
+      const MODEL = "hermes4:70b";
+      
+      // Build messages array for chat completions
+      // Get recent conversation history (last 10 messages for context)
+      const recentMessages = messages.slice(-10).map(m => ({
+        role: m.role as "user" | "assistant" | "system",
+        content: m.content || "",
+      })).filter(m => m.content && !m.content.startsWith("__ERROR__"));
+      
+      // Add the new user message
+      const chatMessages = [
+        ...recentMessages,
+        { role: "user" as const, content: userMessage }
+      ];
+      
+      // Use local API proxy to avoid CORS and use C3 API key (server-side)
+      const response = await fetch("/api/llm", {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          model: MODEL,
+          messages: chatMessages,
+          stream: false,
+          max_tokens: 2048,
+        }),
+      });
 
       if (!response.ok) {
         const errorData = await response.json().catch(() => ({}));
-        throw new Error(errorData.detail || `Error ${response.status}`);
+        throw new Error(errorData.error?.message || errorData.detail || `Error ${response.status}`);
       }
 
-      const { assistant_message_id } = await response.json();
+      // Handle non-streaming response (testing without stream)
+      const data = await response.json();
+      const assistantContent = data.choices?.[0]?.message?.content || "";
+      
+      // Update the assistant message with the response
+      setMessages((prev) => {
+        const newMessages = [...prev];
+        const lastMsg = newMessages[newMessages.length - 1];
+        if (lastMsg.role === "assistant") {
+          newMessages[newMessages.length - 1] = {
+            ...lastMsg,
+            content: assistantContent,
+          };
+        }
+        return newMessages;
+      });
 
-      // Subscribe to message stream via persistent WebSocket
-      // The message updates are handled by the global ws.onmessage handler
-      // Streaming will continue in the background, and "done" handler will refresh messages
-      try {
-        await subscribeToMessage(assistant_message_id);
-        // Subscription successful - streaming is now active
-        // The WebSocket "done" handler will:
-        // - Set isStreaming to false
-        // - Refresh messages to get real IDs
-        // - Refresh threads and balance
-      } catch (subscribeError) {
-        console.error("Failed to subscribe to message stream:", subscribeError);
-        // Message was sent but we couldn't subscribe - show error and reset state
-        setMessages((prev) => {
-          const newMessages = [...prev];
-          if (newMessages.length > 0) {
-            newMessages[newMessages.length - 1] = {
-              ...newMessages[newMessages.length - 1],
-              content: "Error: Failed to connect to stream. Please refresh.",
-            };
-          }
-          return newMessages;
-        });
-        setIsStreaming(false);
-      }
+      console.log("[Chat] Response received, length:", assistantContent.length);
+      setIsStreaming(false);
+      fetchBalance(); // Refresh balance after completion
     } catch (error) {
-      console.error("Chat error:", error);
+      console.error("[Chat] Send error:", error);
       const errorMessage = error instanceof Error ? error.message : "Failed to send message";
+      console.log("[Chat] Setting error in catch block:", errorMessage);
       setMessages((prev) => {
         const newMessages = [...prev];
         if (newMessages.length > 0) {
           newMessages[newMessages.length - 1] = {
             ...newMessages[newMessages.length - 1],
-            content: `Error: ${errorMessage}`,
+            content: "__ERROR__" + errorMessage,
+            error: errorMessage,
+            status: "error",
           };
         }
         return newMessages;
@@ -1411,15 +1447,11 @@ function ChatPageContent() {
             threads={threads}
             currentThreadId={currentThreadId}
             loadingThreads={loadingThreads}
-            models={models}
-            selectedModel={selectedModel}
-            loadingModels={loadingModels}
             balance={balance}
             theme={theme}
             onSelectThread={selectThread}
             onDeleteThread={deleteThread}
             onNewThread={startNewThread}
-            onSelectModel={handleModelChange}
             onToggleTheme={toggleTheme}
             onTopUp={() => setShowTopUpModal(true)}
             onLogout={handleLogout}
@@ -1431,8 +1463,6 @@ function ChatPageContent() {
       {/* Main Chat Area */}
       <div className="flex-1 flex flex-col min-w-0 w-full overflow-hidden">
         <ChatHeader
-          selectedModel={selectedModel}
-          loadingModels={loadingModels}
           showSignIn={showSignInPrompt}
           sidebarOpen={sidebarOpen}
           onToggleSidebar={() => setSidebarOpen(!sidebarOpen)}
@@ -1449,7 +1479,7 @@ function ChatPageContent() {
 
         <ChatInput
           onSendMessage={handleSendMessage}
-          disabled={isStreaming || !selectedModel}
+          disabled={isStreaming}
           initialValue={pendingMessage}
         />
       </div>
