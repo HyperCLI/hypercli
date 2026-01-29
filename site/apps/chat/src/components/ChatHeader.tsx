@@ -4,8 +4,6 @@ import { Button } from "@hypercli/shared-ui";
 import { PanelLeftOpen, Cpu } from "lucide-react";
 
 interface ChatHeaderProps {
-  selectedModel: string;
-  loadingModels: boolean;
   showSignIn: boolean;
   sidebarOpen: boolean;
   onToggleSidebar: () => void;
@@ -13,8 +11,6 @@ interface ChatHeaderProps {
 }
 
 export function ChatHeader({
-  selectedModel,
-  loadingModels,
   showSignIn,
   sidebarOpen,
   onToggleSidebar,
@@ -39,9 +35,8 @@ export function ChatHeader({
         <div className="flex items-center gap-3 flex-1 min-w-0">
           <div className="flex items-center gap-2 px-3 py-1.5 rounded-full border border-border/60 bg-surface-low/70">
             <Cpu className="w-4 h-4 text-primary" />
-            <span className="text-sm text-foreground truncate">
-              {loadingModels ? "Loading models..." : selectedModel || "No model selected"}
-            </span>
+            <span className="text-sm text-foreground truncate">hermes4:70b</span>
+            <span className="text-[10px] text-muted-foreground bg-primary/10 px-1.5 py-0.5 rounded-full">C3</span>
           </div>
           <div className="hidden sm:flex items-center gap-2 text-xs text-text-tertiary">
             <span className="w-2 h-2 rounded-full bg-success animate-pulse-soft" />
