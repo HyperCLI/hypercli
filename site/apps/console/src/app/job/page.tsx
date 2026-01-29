@@ -284,6 +284,35 @@ export default function LaunchPage() {
     }
   }, []);
 
+  // Load from URL query params (for Launch Template links)
+  useEffect(() => {
+    const params = new URLSearchParams(window.location.search);
+    const image = params.get('image');
+    if (image) {
+      setContainerSource('image');
+      setDockerImage(image);
+      loadedFromCloneRef.current = true;
+    }
+    const gpu = params.get('gpu');
+    if (gpu) setGpuType(gpu.toLowerCase());
+    const port = params.get('port');
+    if (port) {
+      setHttpsLbEnabled(true);
+      setHttpsLbPort(port);
+    }
+    const envParam = params.get('env');
+    if (envParam) {
+      try {
+        const envObj = JSON.parse(envParam);
+        setEnvVars(Object.entries(envObj).map(([key, value]) => ({ key, value: String(value) })));
+      } catch {}
+    }
+    const runtimeParam = params.get('runtime');
+    if (runtimeParam) setRuntime(parseInt(runtimeParam) || 3600);
+    const authParam = params.get('auth');
+    if (authParam === 'true' || authParam === '1') setHttpsLbAuth(true);
+  }, []);
+
   // Fetch all API data
   useEffect(() => {
     const fetchInstanceData = async () => {
