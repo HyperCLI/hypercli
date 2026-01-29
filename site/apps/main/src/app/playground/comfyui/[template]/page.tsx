@@ -496,7 +496,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ templ
                 </p>
                 <div className="bg-background border border-white/10 rounded-xl overflow-hidden mb-8">
                   <pre className="p-6 text-sm text-primary overflow-x-auto leading-relaxed">
-                    <code className="font-mono">pip install c3-cli && c3 comfyui run {templateId}</code>
+                    <code className="font-mono">pip install hypercli-cli && hyper comfyui run {templateId}</code>
                   </pre>
                 </div>
                 <Link
