@@ -124,20 +124,6 @@ export default async function GradioTemplatePage({ params }: { params: Promise<{
                   >
                     Get Started
                   </Link>
-                  {template.source_repo && (
-                    <a
-                      href={template.source_repo}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-2 px-8 py-4 bg-surface-low border border-white/10 text-white font-semibold rounded-xl hover:bg-surface-high hover:border-white/20 transition-all"
-                    >
-                      View Source
-                      <svg className="h-4 w-4" viewBox="0 0 20 20" fill="currentColor">
-                        <path d="M11 3a1 1 0 100 2h2.586l-6.293 6.293a1 1 0 101.414 1.414L15 6.414V9a1 1 0 102 0V4a1 1 0 00-1-1h-5z" />
-                        <path d="M5 5a2 2 0 00-2 2v8a2 2 0 002 2h8a2 2 0 002-2v-3a1 1 0 10-2 0v3H5V7h3a1 1 0 000-2H5z" />
-                      </svg>
-                    </a>
-                  )}
                 </div>
               </div>
 
