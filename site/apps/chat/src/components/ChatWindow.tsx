@@ -24,6 +24,11 @@ interface RenderMeta {
   gpu_type?: string | null;
   result_url?: string | null;
   error?: string | null;
+  render_type?: string | null;
+  width?: number | null;
+  height?: number | null;
+  prompt?: string | null;
+  model?: string | null;
 }
 
 interface MessageMeta {
@@ -47,6 +52,7 @@ interface ChatWindowProps {
   onSelectOption?: (messageId: number, option: SelectionOption) => void;
   selectionStatus?: Record<string, "pending" | "complete">;
   onSuggestedPromptClick?: (prompt: string) => void;
+  onCancelRender?: (renderId: string) => void;
 }
 
 function normalizeRenderPayload(payload: any): RenderMeta | null {
@@ -61,6 +67,11 @@ function normalizeRenderPayload(payload: any): RenderMeta | null {
     gpu_type: payload.gpu_type || payload.params?.gpu_type || null,
     result_url: payload.result_url || null,
     error: payload.error || null,
+    render_type: payload.render_type || payload.type || null,
+    width: payload.width || payload.params?.width || null,
+    height: payload.height || payload.params?.height || null,
+    prompt: payload.prompt || payload.params?.prompt || null,
+    model: payload.model || null,
   };
 }
 
@@ -173,13 +184,14 @@ function LoadingSpinner() {
   );
 }
 
-function RenderCard({ render }: { render: RenderMeta }) {
+function RenderCard({ render, onCancel }: { render: RenderMeta; onCancel?: (renderId: string) => void }) {
   const status = (render.state || "queued").toLowerCase();
   const shortId = render.render_id.slice(0, 8);
   const hasMedia = Boolean(render.result_url);
   const isVideo = Boolean(render.result_url && /\.(mp4|webm|mov|avi)(\?|$)/i.test(render.result_url));
   const isLoading = status === "queued" || status === "pending" || status === "running" || status === "processing" || !render.state;
   const [elapsedTime, setElapsedTime] = useState(0);
+  const [isCancelling, setIsCancelling] = useState(false);
   
   // Track elapsed time for loading renders
   useEffect(() => {
@@ -192,6 +204,19 @@ function RenderCard({ render }: { render: RenderMeta }) {
     
     return () => clearInterval(interval);
   }, [isLoading]);
+
+  // Format elapsed time as mm:ss
+  const formatTime = (seconds: number) => {
+    const mins = Math.floor(seconds / 60);
+    const secs = seconds % 60;
+    return `${mins}:${secs.toString().padStart(2, '0')}`;
+  };
+
+  const handleCancel = async () => {
+    if (isCancelling || !onCancel) return;
+    setIsCancelling(true);
+    onCancel(render.render_id);
+  };
   
   const getProgressMessageWithTime = (): string => {
     const normalized = status;
@@ -200,14 +225,14 @@ function RenderCard({ render }: { render: RenderMeta }) {
     if (normalized === "queued" || normalized === "pending") {
       if (elapsedTime < 3) return "Initializing render queue...";
       if (elapsedTime < 10) return "Allocating GPU resources...";
-      return `Waiting in queue (${elapsedTime}s)...`;
+      return `Waiting in queue...`;
     }
     
     if (normalized === "running" || normalized === "processing") {
       if (elapsedTime < 5) return `Starting ${templateName} generation...`;
-      if (elapsedTime < 15) return `Rendering ${templateName}... (${elapsedTime}s)`;
-      if (elapsedTime < 30) return `Processing ${templateName}... Almost there (${elapsedTime}s)`;
-      return `Still working on ${templateName}... (${elapsedTime}s)`;
+      if (elapsedTime < 15) return `Rendering ${templateName}...`;
+      if (elapsedTime < 30) return `Processing ${templateName}... Almost there`;
+      return `Still working on ${templateName}...`;
     }
     
     if (normalized === "completed" || normalized === "success") {
@@ -222,74 +247,103 @@ function RenderCard({ render }: { render: RenderMeta }) {
   const progressMessage = getProgressMessageWithTime();
   const isComplete = status === "success" || status === "completed" || status === "complete";
   const isFailed = status === "failed" || status === "error";
+  const isCancelled = status === "cancelled";
 
   return (
     <div className={cn(
-      "rounded-2xl border border-border/60 bg-surface-low/70 p-4 space-y-3 shadow-md shadow-black/20 transition-all",
+      "rounded-xl border border-border/60 bg-surface-low/70 p-3 space-y-2 shadow-md shadow-black/20 transition-all",
       isLoading && "ring-2 ring-primary/20 animate-pulse"
     )}>
-      <div className="flex items-center justify-between gap-3">
-        <div className="text-sm font-semibold text-foreground">Render</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex items-center gap-2">
+          <div className="text-sm font-semibold text-foreground">Render</div>
+          {isLoading && (
+            <span className="text-xs font-mono text-text-muted bg-surface-high/60 px-1.5 py-0.5 rounded">
+              {formatTime(elapsedTime)}
+            </span>
+          )}
+        </div>
         <span className={cn("text-xs font-medium px-2 py-1 rounded-full border", getRenderStatusStyles(status))}>
-          {status}
+          {isCancelling ? "cancelling" : status}
         </span>
       </div>
       
       {/* Progress message with loading indicator */}
       {isLoading && (
-        <div className="flex items-center justify-between gap-3 bg-primary/5 border border-primary/20 rounded-xl px-3 py-2.5">
-          <span className="text-sm text-foreground font-medium">{progressMessage}</span>
+        <div className="flex items-center justify-between gap-2 bg-primary/5 border border-primary/20 rounded-lg px-2.5 py-1.5">
+          <span className="text-xs text-foreground font-medium">{progressMessage}</span>
           <LoadingSpinner />
         </div>
       )}
       
       {/* Success message */}
       {isComplete && (
-        <div className="flex items-center gap-3 bg-success/5 border border-success/20 rounded-xl px-3 py-2.5">
-          <svg className="w-5 h-5 text-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="flex items-center gap-2 bg-success/5 border border-success/20 rounded-lg px-2.5 py-1.5">
+          <svg className="w-4 h-4 text-success flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M5 13l4 4L19 7" />
           </svg>
-          <span className="text-sm text-success font-medium">Render completed successfully!</span>
+          <span className="text-xs text-success font-medium">Render complete!</span>
+        </div>
+      )}
+
+      {/* Cancelled message */}
+      {isCancelled && (
+        <div className="flex items-center gap-2 bg-yellow-500/5 border border-yellow-500/20 rounded-lg px-2.5 py-1.5">
+          <svg className="w-4 h-4 text-yellow-500 flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+            <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
+          </svg>
+          <span className="text-xs text-yellow-500 font-medium">Cancelled</span>
         </div>
       )}
       
       {/* Error message */}
       {isFailed && !render.error && (
-        <div className="flex items-center gap-3 bg-destructive/5 border border-destructive/20 rounded-xl px-3 py-2.5">
-          <svg className="w-5 h-5 text-destructive flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+        <div className="flex items-center gap-2 bg-destructive/5 border border-destructive/20 rounded-lg px-2.5 py-1.5">
+          <svg className="w-4 h-4 text-destructive flex-shrink-0" fill="none" viewBox="0 0 24 24" stroke="currentColor">
             <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M6 18L18 6M6 6l12 12" />
           </svg>
-          <span className="text-sm text-destructive font-medium">Render failed</span>
+          <span className="text-xs text-destructive font-medium">Failed</span>
         </div>
       )}
       
-      <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 text-xs">
-        <div className="text-text-tertiary">
-          <span className="text-text-muted">Template</span>
-          <div className="text-foreground text-sm">{render.template || "Unknown"}</div>
+      {/* Render parameters - inline for loading, grid for complete */}
+      {isLoading ? (
+        <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-xs text-text-muted">
+          {render.model && <span>{render.model}</span>}
+          {(render.width || render.height) && <span>{render.width || 1024}×{render.height || 1024}</span>}
+          <span className="capitalize">{render.render_type || render.template || "Image"}</span>
+          <span className="font-mono text-text-tertiary">{shortId}</span>
         </div>
-        <div className="text-text-tertiary">
-          <span className="text-text-muted">GPU</span>
-          <div className="text-foreground text-sm">{render.gpu_type || "Auto"}</div>
-        </div>
-        <div className="text-text-tertiary">
-          <span className="text-text-muted">Render ID</span>
-          <div className="text-foreground text-sm font-mono">{shortId}</div>
-        </div>
-      </div>
-      
-      {/* Loading skeleton for media placeholder */}
-      {isLoading && !hasMedia && (
-        <div className="overflow-hidden rounded-xl border border-border/60 bg-surface-high/40">
-          <div className="w-full h-48 flex items-center justify-center">
-            <div className="flex flex-col items-center gap-3">
-              <div className="relative w-12 h-12">
-                <div className="absolute inset-0 border-4 border-primary/20 rounded-full"></div>
-                <div className="absolute inset-0 border-4 border-primary border-t-transparent rounded-full animate-spin"></div>
-              </div>
-              <span className="text-sm text-text-tertiary">Rendering...</span>
+      ) : (
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 text-xs">
+          {render.model && (
+            <div className="text-text-tertiary">
+              <span className="text-text-muted">Model</span>
+              <div className="text-foreground text-xs font-medium">{render.model}</div>
             </div>
+          )}
+          {(render.width || render.height) && (
+            <div className="text-text-tertiary">
+              <span className="text-text-muted">Size</span>
+              <div className="text-foreground text-xs">{render.width || 1024}×{render.height || 1024}</div>
+            </div>
+          )}
+          <div className="text-text-tertiary">
+            <span className="text-text-muted">Type</span>
+            <div className="text-foreground text-xs capitalize">{render.render_type || render.template || "Image"}</div>
           </div>
+          <div className="text-text-tertiary">
+            <span className="text-text-muted">Render ID</span>
+            <div className="text-foreground text-xs font-mono">{shortId}</div>
+          </div>
+        </div>
+      )}
+      
+      {/* Show prompt if available - only when not loading to save space */}
+      {render.prompt && !isLoading && (
+        <div className="text-xs">
+          <span className="text-text-muted">Prompt</span>
+          <div className="text-text-secondary text-xs mt-0.5 line-clamp-2">{render.prompt}</div>
         </div>
       )}
       
@@ -311,15 +365,28 @@ function RenderCard({ render }: { render: RenderMeta }) {
           {render.error}
         </div>
       )}
-      {render.result_url && (
-        <div className="flex items-center gap-2">
+      
+      {/* Action buttons */}
+      <div className="flex items-center gap-2">
+        {render.result_url && (
           <Button variant="outline" size="sm" asChild>
             <a href={render.result_url} target="_blank" rel="noreferrer">
               Open
             </a>
           </Button>
-        </div>
-      )}
+        )}
+        {isLoading && onCancel && (
+          <Button 
+            variant="outline" 
+            size="sm" 
+            onClick={handleCancel}
+            disabled={isCancelling}
+            className="text-destructive hover:text-destructive hover:bg-destructive/10 border-destructive/30"
+          >
+            {isCancelling ? "Cancelling..." : "Cancel"}
+          </Button>
+        )}
+      </div>
     </div>
   );
 }
@@ -330,6 +397,7 @@ export function ChatWindow({
   onSelectOption,
   selectionStatus,
   onSuggestedPromptClick,
+  onCancelRender,
 }: ChatWindowProps) {
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const scrollContainerRef = useRef<HTMLDivElement>(null);
@@ -459,7 +527,7 @@ export function ChatWindow({
                     </p>
                   ) : (
                     <div className="space-y-3">
-                      {render && <RenderCard render={render} />}
+                      {render && <RenderCard render={render} onCancel={onCancelRender} />}
                       {isSelection ? (
                         <div className="space-y-3">
                           {message.content && (
