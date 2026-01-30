@@ -35,6 +35,10 @@ interface RenderMeta {
   result_url?: string | null;
   error?: string | null;
   render_type?: string | null;
+  width?: number | null;
+  height?: number | null;
+  prompt?: string | null;
+  model?: string | null;
 }
 
 interface MessageMeta {
@@ -42,6 +46,11 @@ interface MessageMeta {
   tool_call?: {
     id?: string;
     name?: string;
+    arguments?: Record<string, unknown>;
+  };
+  pending_tool_call?: {
+    name: string;
+    status: 'calling' | 'executing' | 'done';
     arguments?: Record<string, unknown>;
   };
   render?: RenderMeta;
@@ -106,7 +115,52 @@ const normalizeRenderPayload = (payload: any): RenderMeta | null => {
     result_url: payload.result_url || null,
     error: payload.error || null,
     render_type: payload.type || payload.render_type || null,
+    width: payload.width || payload.params?.width || null,
+    height: payload.height || payload.params?.height || null,
+    prompt: payload.prompt || payload.params?.prompt || null,
+    model: payload.model || null,
   };
+};
+
+// LocalStorage helpers for message persistence (avoids bot API which triggers OpenRouter)
+const MESSAGES_STORAGE_KEY = 'hypercli_chat_messages';
+
+const saveMessagesToStorage = (threadId: string, messages: Message[]) => {
+  try {
+    const allData = JSON.parse(localStorage.getItem(MESSAGES_STORAGE_KEY) || '{}');
+    allData[threadId] = messages;
+    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(allData));
+  } catch (e) {
+    console.error('[Storage] Failed to save messages:', e);
+  }
+};
+
+const loadMessagesFromStorage = (threadId: string): Message[] => {
+  try {
+    const allData = JSON.parse(localStorage.getItem(MESSAGES_STORAGE_KEY) || '{}');
+    return allData[threadId] || [];
+  } catch (e) {
+    console.error('[Storage] Failed to load messages:', e);
+    return [];
+  }
+};
+
+const deleteMessagesFromStorage = (threadId: string) => {
+  try {
+    const allData = JSON.parse(localStorage.getItem(MESSAGES_STORAGE_KEY) || '{}');
+    delete allData[threadId];
+    localStorage.setItem(MESSAGES_STORAGE_KEY, JSON.stringify(allData));
+  } catch (e) {
+    console.error('[Storage] Failed to delete messages:', e);
+  }
+};
+
+const clearAllMessagesFromStorage = () => {
+  try {
+    localStorage.removeItem(MESSAGES_STORAGE_KEY);
+  } catch (e) {
+    console.error('[Storage] Failed to clear messages:', e);
+  }
 };
 
 const extractRenderMetaFromResult = (result: unknown): RenderMeta | null => {
@@ -173,6 +227,10 @@ function ChatPageContent() {
 
   // Track if user logged in via wallet (not just free tier)
   const [isWalletUser, setIsWalletUser] = useState(false);
+
+  // Track if we're using Gemini (local API) vs bot API LLM streaming
+  // When using Gemini, we should ignore WebSocket LLM streaming events
+  const usingGeminiRef = useRef(false);
 
   // Persistent WebSocket connection
   const wsRef = useRef<WebSocket | null>(null);
@@ -456,9 +514,16 @@ function ChatPageContent() {
     ws.onmessage = (event) => {
       try {
         const data = JSON.parse(event.data);
-        console.log("[Chat WS] Received message:", { type: data.type, hasContent: !!data.content, contentLength: data.content?.length, error: data.error });
+        console.log("[Chat WS] Received message:", { type: data.type, hasContent: !!data.content, contentLength: data.content?.length, error: data.error, usingGemini: usingGeminiRef.current });
 
         if (data.type === "state" || data.type === "token") {
+          // IGNORE LLM streaming events when using Gemini
+          // The bot API may auto-trigger OpenRouter responses, but we don't want them
+          if (usingGeminiRef.current) {
+            console.log("[Chat WS] Ignoring LLM streaming - using Gemini");
+            return;
+          }
+          
           // Update the last assistant message with streamed content
           console.log("[Chat WS] State/token update, content:", JSON.stringify(data.content?.substring(0, 100)));
           setMessages((prev) => {
@@ -528,6 +593,12 @@ function ChatPageContent() {
             });
           }
         } else if (data.type === "selection") {
+          // IGNORE selection events from bot API LLM when using Gemini
+          if (usingGeminiRef.current) {
+            console.log("[Chat WS] Ignoring selection event - using Gemini");
+            return;
+          }
+          
           setIsStreaming(false);
           setMessages((prev) => {
             const newMessages = [...prev];
@@ -552,6 +623,12 @@ function ChatPageContent() {
             ];
           });
         } else if (data.type === "done") {
+          // IGNORE done events from bot API LLM when using Gemini
+          if (usingGeminiRef.current) {
+            console.log("[Chat WS] Ignoring done event - using Gemini");
+            return;
+          }
+          
           setMessages((prev) => {
             if (prev.length === 0) return prev;
             const newMessages = [...prev];
@@ -587,6 +664,12 @@ function ChatPageContent() {
             fetchBalance();
           }
         } else if (data.type === "error") {
+          // IGNORE error events from bot API LLM when using Gemini
+          if (usingGeminiRef.current) {
+            console.log("[Chat WS] Ignoring error event - using Gemini:", data.error);
+            return;
+          }
+          
           console.error("[Chat WS] Stream error - FULL DATA:", JSON.stringify(data, null, 2));
           // Parse error for user-friendly display
           const errorMsg = data.error || "An unexpected error occurred";
@@ -789,7 +872,8 @@ function ChatPageContent() {
         }
 
         try {
-          const response = await fetch(getBotApiUrl(`/renders/${renderId}`), {
+          // Use the main API render status endpoint (not bot API)
+          const response = await fetch(`https://api.hypercli.com/api/renders/${renderId}/status`, {
             headers: { Authorization: `Bearer ${authToken}` },
           });
 
@@ -1135,6 +1219,15 @@ function ChatPageContent() {
       setMessages([]);
     }
 
+    // First, try to load from localStorage (this is where Gemini messages are stored)
+    const localMessages = loadMessagesFromStorage(threadId);
+    if (localMessages.length > 0) {
+      console.log("[Chat] Loaded", localMessages.length, "messages from localStorage for thread:", threadId);
+      setMessages(localMessages);
+      return; // Use local messages, skip bot API fetch
+    }
+
+    // Fall back to bot API (for legacy threads or if localStorage was cleared)
     try {
       const authToken = cookieUtils.get("auth_token");
       if (!authToken) return;
@@ -1222,6 +1315,9 @@ function ChatPageContent() {
 
       if (!response.ok) throw new Error("Failed to delete thread");
 
+      // Clean up localStorage for this thread
+      deleteMessagesFromStorage(threadId);
+
       setThreads((prev) => prev.filter((t) => t.id !== threadId));
 
       if (currentThreadId === threadId) {
@@ -1231,6 +1327,40 @@ function ChatPageContent() {
       }
     } catch (error) {
       console.error("Failed to delete thread:", error);
+    }
+  };
+
+  const clearAllChats = async () => {
+    if (!confirm("Are you sure you want to delete all chats? This cannot be undone.")) {
+      return;
+    }
+
+    try {
+      const authToken = cookieUtils.get("auth_token");
+      if (!authToken) return;
+
+      // Delete all threads one by one
+      const deletePromises = threads.map((thread) =>
+        fetch(getBotApiUrl(`/chats/${thread.id}`), {
+          method: "DELETE",
+          headers: { Authorization: `Bearer ${authToken}` },
+        })
+      );
+
+      await Promise.all(deletePromises);
+
+      // Clear all messages from localStorage
+      clearAllMessagesFromStorage();
+
+      // Clear local state atomically to avoid screen flash
+      setCurrentThreadId(null);
+      setMessages([]);
+      setThreads([]);
+      
+      // Update URL without triggering a full navigation
+      window.history.replaceState(null, '', '/');
+    } catch (error) {
+      console.error("Failed to clear all chats:", error);
     }
   };
 
@@ -1246,20 +1376,26 @@ function ChatPageContent() {
     if (!authToken) return;
 
     setIsStreaming(true);
-
-    // Add optimistic user message (will be replaced with real one from API)
+    
+    // Mark that we're using Gemini - ignore ALL WebSocket LLM events
+    usingGeminiRef.current = true;
+    
+    // Generate unique IDs for temp messages to avoid React key collisions
+    const tempId = Date.now();
+    
+    // Add optimistic user message (local only - no API call yet)
     const tempUserMsg: Message = {
-      id: "temp-user",
+      id: `temp-user-${tempId}`,
       role: "user",
       content: userMessage,
       type: "text",
       created_at: new Date().toISOString(),
     };
     setMessages((prev) => [...prev, tempUserMsg]);
-
-    // Add empty assistant message for streaming
+    
+    // Add empty assistant message for loading state
     const tempAssistantMsg: Message = {
-      id: "temp-assistant",
+      id: `temp-assistant-${tempId}`,
       role: "assistant",
       content: "",
       type: "text",
@@ -1268,10 +1404,6 @@ function ChatPageContent() {
     setMessages((prev) => [...prev, tempAssistantMsg]);
 
     try {
-      // Use v1 endpoint directly with self-hosted model
-      // hermes4:70b is in c3-models group (self-hosted, not OpenRouter)
-      const MODEL = "hermes4:70b";
-      
       // Build messages array for chat completions
       // Get recent conversation history (last 10 messages for context)
       const recentMessages = messages.slice(-10).map(m => ({
@@ -1285,17 +1417,17 @@ function ChatPageContent() {
         { role: "user" as const, content: userMessage }
       ];
       
-      // Use local API proxy to avoid CORS and use C3 API key (server-side)
-      const response = await fetch("/api/llm", {
+      // Use Gemini-powered chat API with HyperCLI tools
+      // This is FREE (Gemini free tier) and supports tool calling for renders
+      const response = await fetch("/api/chat", {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
+          "Authorization": `Bearer ${authToken}`,
         },
         body: JSON.stringify({
-          model: MODEL,
           messages: chatMessages,
-          stream: false,
-          max_tokens: 2048,
+          execute_tools: true, // Auto-execute tools like image/video generation
         }),
       });
 
@@ -1304,11 +1436,55 @@ function ChatPageContent() {
         throw new Error(errorData.error?.message || errorData.detail || `Error ${response.status}`);
       }
 
-      // Handle non-streaming response (testing without stream)
       const data = await response.json();
+      
+      // Check if there were tool calls (renders)
+      const toolResults = data.tool_results;
+      const toolCalls = data.choices?.[0]?.message?.tool_calls || [];
+      let renderMeta: RenderMeta | null = null;
+      
+      if (toolResults && toolResults.length > 0) {
+        console.log("[Chat] Tool results:", toolResults);
+        // Handle render results - extract render metadata for display
+        for (const tr of toolResults) {
+          if (tr.success && tr.result) {
+            const result = tr.result;
+            const renderId = result.id || result.render_id;
+            if (renderId) {
+              console.log("[Chat] Render created:", renderId);
+              // Find the matching tool call to get the arguments
+              const matchingCall = toolCalls.find((tc: { function?: { name: string } }) => 
+                tc.function?.name === tr.tool
+              );
+              const args = matchingCall?.function?.arguments 
+                ? JSON.parse(matchingCall.function.arguments) 
+                : {};
+              
+              // Build render metadata with parameters
+              renderMeta = {
+                render_id: renderId,
+                state: result.status || result.state || "queued",
+                template: result.template || tr.tool,
+                gpu_type: result.gpu_type || null,
+                render_type: tr.tool === "text_to_video" || tr.tool === "image_to_video" ? "video" : "image",
+                width: args.width || result.width || (tr.tool === "text_to_video" ? 640 : 1024),
+                height: args.height || result.height || (tr.tool === "text_to_video" ? 640 : 1024),
+                prompt: args.prompt || null,
+                model: tr.tool === "text_to_image" ? "HiDream/Flux" : 
+                       tr.tool === "text_to_video" ? "Wan 2.2" : 
+                       tr.tool === "image_to_video" ? "Wan 2.2" : null,
+              };
+              
+              // Start polling for render status
+              startRenderPolling(renderId);
+            }
+          }
+        }
+      }
+      
       const assistantContent = data.choices?.[0]?.message?.content || "";
       
-      // Update the assistant message with the response
+      // Update the assistant message with the response and render metadata
       setMessages((prev) => {
         const newMessages = [...prev];
         const lastMsg = newMessages[newMessages.length - 1];
@@ -1316,13 +1492,24 @@ function ChatPageContent() {
           newMessages[newMessages.length - 1] = {
             ...lastMsg,
             content: assistantContent,
+            meta: renderMeta ? { ...lastMsg.meta, render: renderMeta } : lastMsg.meta,
           };
         }
         return newMessages;
       });
 
+      // NOW save to bot API - AFTER Gemini has fully responded
+      // This is fire-and-forget, runs in background, doesn't block UI
+      // Only create thread if we got a valid response
+      if (assistantContent || renderMeta) {
+        saveConversationToHistory(userMessage, assistantContent, authToken).catch(err => {
+          console.error("[Chat] Background save failed:", err);
+        });
+      }
+
       console.log("[Chat] Response received, length:", assistantContent.length);
       setIsStreaming(false);
+      usingGeminiRef.current = false; // Done with Gemini request
       fetchBalance(); // Refresh balance after completion
     } catch (error) {
       console.error("[Chat] Send error:", error);
@@ -1341,7 +1528,49 @@ function ChatPageContent() {
         return newMessages;
       });
       setIsStreaming(false);
+      usingGeminiRef.current = false; // Done with Gemini request (even on error)
     }
+  };
+
+  // Save conversation to bot API history - runs AFTER Gemini responds
+  // This is completely async and doesn't interfere with the chat
+  const saveConversationToHistory = async (userMessage: string, assistantContent: string, authToken: string) => {
+    // Create thread if needed
+    let threadId = currentThreadId;
+    if (!threadId) {
+      const createResponse = await fetch(getBotApiUrl("/chats"), {
+        method: "POST",
+        headers: {
+          "Content-Type": "application/json",
+          "Authorization": `Bearer ${authToken}`,
+        },
+        body: JSON.stringify({
+          title: userMessage.slice(0, 50) + (userMessage.length > 50 ? "..." : ""),
+        }),
+      });
+      
+      if (!createResponse.ok) {
+        console.error("[Chat] Failed to create thread for history");
+        return;
+      }
+      
+      const newThread = await createResponse.json();
+      threadId = newThread.id;
+      setCurrentThreadId(threadId);
+      setThreads((prev) => [newThread, ...prev]);
+      // Update URL without causing navigation flash
+      window.history.replaceState(null, '', `/chat/${threadId}`);
+    }
+    
+    // Save messages to localStorage (not bot API - that triggers OpenRouter)
+    // This allows persistence across refreshes without incurring LLM costs
+    // We need to capture threadId in a local variable to avoid closure issues
+    const finalThreadId = threadId;
+    setMessages((currentMessages) => {
+      saveMessagesToStorage(finalThreadId, currentMessages);
+      console.log("[Chat] Messages saved to localStorage for thread:", finalThreadId);
+      return currentMessages;
+    });
   };
 
   const handleSelection = async (messageId: number, option: SelectionOption) => {
@@ -1456,6 +1685,7 @@ function ChatPageContent() {
             onTopUp={() => setShowTopUpModal(true)}
             onLogout={handleLogout}
             onHideSidebar={() => setSidebarOpen(false)}
+            onClearAllChats={clearAllChats}
           />
         </div>
       )}
