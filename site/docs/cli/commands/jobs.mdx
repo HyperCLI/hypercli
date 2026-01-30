@@ -1,0 +1,97 @@
+---
+title: hyper jobs
+description: Job management commands
+---
+
+## list
+
+List jobs.
+
+```bash
+hyper jobs list
+hyper jobs list -s running
+hyper jobs list -o json
+```
+
+**Options:**
+- `-s, --state` - Filter by state: `pending`, `running`, `succeeded`, `failed`, `canceled`
+- `-o, --output` - Output format: `table` or `json`
+
+## create
+
+Create a GPU job.
+
+```bash
+hyper jobs create <image> [options]
+
+# Examples
+hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py"
+hyper jobs create nvidia/cuda:12.0 -g h100 -n 8 -c "torchrun train.py" -f
+hyper jobs create myimage -e HF_TOKEN=xxx -p http:8080
+```
+
+**Arguments:**
+- `image` - Docker image (required)
+
+**Options:**
+- `-g, --gpu` - GPU type: `l40s`, `h100`, `a100`, etc. (default: l40s)
+- `-n, --count` - Number of GPUs (default: 1)
+- `-c, --command` - Command to run
+- `-r, --region` - Region code
+- `-t, --runtime` - Max runtime in seconds
+- `--interruptible/--on-demand` - Use interruptible instances (default: interruptible)
+- `-e, --env` - Environment variables (KEY=VALUE), can repeat
+- `-p, --port` - Port mappings (name:port), can repeat
+- `-f, --follow` - Launch TUI monitor after creation
+- `-o, --output` - Output format: `table` or `json`
+
+## get
+
+Get job details.
+
+```bash
+hyper jobs get <job_id>
+hyper jobs get <job_id> -o json
+```
+
+## logs
+
+Get job logs.
+
+```bash
+hyper jobs logs <job_id>
+hyper jobs logs <job_id> -f   # Stream with TUI
+```
+
+**Options:**
+- `-f, --follow` - Stream logs with TUI
+
+## metrics
+
+Get GPU metrics.
+
+```bash
+hyper jobs metrics <job_id>
+hyper jobs metrics <job_id> -w   # Watch live
+hyper jobs metrics <job_id> -o json
+```
+
+**Options:**
+- `-w, --watch` - Watch metrics live
+- `-o, --output` - Output format: `table` or `json`
+
+## cancel
+
+Cancel a job.
+
+```bash
+hyper jobs cancel <job_id>
+```
+
+## extend
+
+Extend job runtime.
+
+```bash
+hyper jobs extend <job_id> <seconds>
+```

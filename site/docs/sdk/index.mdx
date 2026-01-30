@@ -1,0 +1,51 @@
+---
+title: Python SDK
+description: hypercli-sdk Python package
+---
+
+## Install
+
+```bash
+pip install hypercli-sdk
+```
+
+## Usage
+
+```python
+from hypercli import HyperCLI
+
+hyper = HyperCLI()  # Uses HYPERCLI_API_KEY env var or ~/.hypercli/config
+
+# Billing
+balance = client.billing.balance()
+transactions = client.billing.transactions()
+
+# Jobs
+job = client.jobs.create(image="nvidia/cuda:12.0", gpu_type="l40s", command="python train.py")
+jobs = client.jobs.list()
+logs = client.jobs.logs(job.job_id)
+metrics = client.jobs.metrics(job.job_id)
+
+# User
+user = client.user.get()
+```
+
+## Authentication
+
+Three options (in priority order):
+
+1. **Environment variable**: `export HYPERCLI_API_KEY=your_key`
+2. **Config file**: `~/.hypercli/config` with `HYPERCLI_API_KEY=your_key`
+3. **Direct**: `HyperCLI(api_key="your_key")`
+
+## Error Handling
+
+```python
+from hypercli import HyperCLI,  APIError
+
+try:
+    hyper = HyperCLI()
+    balance = client.billing.balance()
+except APIError as e:
+    print(f"Error {e.status_code}: {e.detail}")
+```

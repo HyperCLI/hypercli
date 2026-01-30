@@ -1,0 +1,67 @@
+---
+title: HyperCLI
+description: GPU orchestration and LLM API platform
+---
+
+HyperCLI provides GPU infrastructure for running containerized workloads and accessing LLM APIs.
+
+## Install
+
+```bash
+pip install hypercli-sdk hypercli-cli
+```
+
+## Configure
+
+```bash
+hyper configure
+# or
+export HYPERCLI_API_KEY=your_key
+```
+
+Get your API key at [console.hypercli.com](https://console.hypercli.com).
+
+## Quick Examples
+
+### Python SDK
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI()
+
+# Check balance
+balance = client.billing.balance()
+print(f"${balance.total}")
+
+# Create GPU job
+job = client.jobs.create(
+    image="nvidia/cuda:12.0",
+    gpu_type="l40s",
+    command="python train.py"
+)
+```
+
+### CLI
+
+```bash
+hyper billing balance
+hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
+hyper llm chat deepseek-v3.1 "Hello!"
+```
+
+### LLM API (OpenAI Compatible)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="your_hypercli_api_key",
+    base_url="https://api.hypercli.com/v1"
+)
+
+response = client.chat.completions.create(
+    model="deepseek-v3.1",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```

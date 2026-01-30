@@ -1,133 +1,141 @@
-# HyperCLI Monorepo
+# HyperCLI
 
-This monorepo contains all the web applications and shared packages for HyperCLI.
+**GPU orchestration and LLM API platform**
 
-## Structure
+HyperCLI provides on-demand GPU infrastructure for running containerized workloads and accessing frontier LLMs through a unified API.
 
-```
-site/
-├── apps/
-│   ├── main/       # Main marketing site (port 4000)
-│   ├── console/    # User console/dashboard (port 4001)
-│   └── chat/       # AI chat interface (port 4002)
-├── packages/
-│   └── shared-ui/  # Shared UI components and styles
-├── package.json
-└── turbo.json
-```
+---
 
-## Getting Started
+## Features
 
-### Prerequisites
+- **GPU Instances** - Launch containerized workloads on H100, L40S, and other high-performance GPUs
+- **LLM API** - OpenAI-compatible API for models like DeepSeek, Claude, GPT-4, and more
+- **Render API** - ComfyUI-based image generation and video processing
+- **Python SDK** - Type-safe client library for all platform features
+- **CLI** - Powerful command-line interface with interactive TUI
+- **MCP Server** - Model Context Protocol integration for AI agents
 
-- Node.js 20+
-- npm 10+
+## Quick Start
 
 ### Installation
 
 ```bash
-cd site
-npm install
+pip install hypercli-sdk hypercli-cli
 ```
 
-### Environment Setup
-
-Each app requires its own `.env.local` file. Copy `env.sample` to each app directory:
+### Configure
 
 ```bash
-cp env.sample apps/main/.env.local
-cp env.sample apps/console/.env.local
-cp env.sample apps/chat/.env.local
+hyper configure
 ```
 
-Then edit each `.env.local` with your actual values.
-
-### Development
-
-Run all apps in development mode:
+Or set your API key directly:
 
 ```bash
-npm run dev
+export HYPERCLI_API_KEY=your_key
 ```
 
-Or run individual apps:
+Get your API key at [console.hypercli.com](https://console.hypercli.com)
+
+### Usage
+
+**Python SDK:**
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI()
+
+# Launch a GPU job
+job = client.jobs.create(
+    image="nvidia/cuda:12.0",
+    gpu_type="l40s",
+    command="python train.py"
+)
+
+# Check balance
+balance = client.billing.balance()
+print(f"Balance: ${balance.total}")
+```
+
+**CLI:**
 
 ```bash
-# Main site
-npm run dev --filter=@hypercli/main
+# Launch GPU job with live monitoring
+hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
 
-# Console
-npm run dev --filter=@hypercli/console
+# Chat with LLM
+hyper llm chat deepseek-v3.1 "Explain quantum computing"
 
-# Chat
-npm run dev --filter=@hypercli/chat
+# Check account balance
+hyper billing balance
 ```
 
-### Build
+**LLM API (OpenAI Compatible):**
 
-Build all apps:
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="your_hypercli_api_key",
+    base_url="https://api.hypercli.com/v1"
+)
+
+response = client.chat.completions.create(
+    model="deepseek-v3.1",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+## Repository Structure
+
+This monorepo contains:
+
+- **`sdk/`** - Python SDK ([PyPI](https://pypi.org/project/hypercli-sdk/))
+- **`cli/`** - Command-line interface ([PyPI](https://pypi.org/project/hypercli-cli/))
+- **`docs/`** - Documentation source files
+- **`site/`** - Marketing and console web applications
+
+## Documentation
+
+- **Website:** [hypercli.com](https://hypercli.com)
+- **Documentation:** [docs.hypercli.com](https://docs.hypercli.com)
+- **API Reference:** [docs.hypercli.com/api-reference](https://docs.hypercli.com/api-reference)
+- **API Endpoint:** [api.hypercli.com](https://api.hypercli.com)
+
+## Development
+
+### SDK Development
 
 ```bash
-npm run build
+cd sdk
+pip install -e ".[dev]"
+pytest
 ```
 
-Build individual apps:
+### CLI Development
 
 ```bash
-npm run build --filter=@hypercli/main
-npm run build --filter=@hypercli/console
-npm run build --filter=@hypercli/chat
+cd cli
+pip install -e ".[dev]"
 ```
 
-## Design System
+### Building Packages
 
-The HyperCLI design system is defined in `packages/shared-ui`. Key features:
+```bash
+python -m build sdk/
+python -m build cli/
+```
 
-- **Dark theme by default** - Dark background (#0B0D0E) with the HyperCLI green accent (#38D39F)
-- **Plus Jakarta Sans** - Primary font family
-- **CSS Variables** - All colors, spacing, and typography are defined as CSS custom properties
-- **Tailwind CSS v4** - Using the latest Tailwind with CSS-first configuration
+## Links
 
-### Color Palette
+- **Dashboard:** [console.hypercli.com](https://console.hypercli.com)
+- **GitHub:** [github.com/HyperCLI/hypercli](https://github.com/HyperCLI/hypercli)
+- **Support:** support@hypercli.com
+- **Twitter/X:** [@hypercliai](https://x.com/hypercliai)
 
-| Token | Value | Usage |
-|-------|-------|-------|
-| `--background` | #0B0D0E | Main background |
-| `--primary` | #38D39F | Primary green accent |
-| `--surface-low` | #161819 | Cards, panels |
-| `--surface-high` | #1D1F21 | Elevated surfaces |
-| `--foreground` | #FFFFFF | Primary text |
-| `--muted-foreground` | #9BA0A2 | Secondary text |
+## License
 
-## Apps
+MIT License - Copyright (c) 2025 HyperCLI, Inc.
 
-### Main Site (@hypercli/main)
-
-Marketing and landing pages for HyperCLI.
-
-- Port: 4000
-- Features: Hero section, pricing, GPU fleet, models, playground
-
-### Console (@hypercli/console)
-
-User dashboard for managing GPU instances and jobs.
-
-- Port: 4001
-- Features: Dashboard, jobs, history, API keys, billing
-
-### Chat (@hypercli/chat)
-
-Interactive chat interface for AI models.
-
-- Port: 4002
-- Features: Model selection, chat history, real-time messaging
-
-## Deployment
-
-This project is configured for Netlify deployment. See `netlify.toml` for configuration.
-
-Each app should be deployed as a separate Netlify site with:
-- Base directory: `site`
-- Build command: `npm run build -- --filter=@hypercli/<app-name>`
-- Publish directory: `apps/<app-name>/.next`
-- Package directory: `apps/<app-name>`
+See [LICENSE](LICENSE) for details.
