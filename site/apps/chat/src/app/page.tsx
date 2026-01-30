@@ -241,7 +241,11 @@ function ChatPageContent() {
   const creatingFreeUserRef = useRef(false);
   const renderPollersRef = useRef<Map<string, NodeJS.Timeout>>(new Map());
   const renderPollAttemptsRef = useRef<Record<string, number>>({});
+  const renderPollStartTimeRef = useRef<Record<string, number>>({}); // Track when polling started
   const renderNotificationPollerRef = useRef<NodeJS.Timeout | null>(null);
+
+  // Max time to poll for a render (5 minutes)
+  const RENDER_POLL_TIMEOUT_MS = 5 * 60 * 1000;
 
   // Keep ref in sync with state for use in WebSocket callbacks
   useEffect(() => {
@@ -775,8 +779,8 @@ function ChatPageContent() {
   }, [connectWebSocket]);
 
   const updateRenderMeta = useCallback((renderId: string, patch: Partial<RenderMeta>) => {
-    setMessages((prev) =>
-      prev.map((msg) => {
+    setMessages((prev) => {
+      const newMessages = prev.map((msg) => {
         if (msg.meta?.render?.render_id !== renderId) return msg;
         
         // Log status change for user feedback
@@ -789,6 +793,7 @@ function ChatPageContent() {
             processing: "Render in progress",
             success: "Render completed successfully",
             failed: "Render failed",
+            cancelled: "Render cancelled",
           };
           const message = statusMessages[newState.toLowerCase()] || `Status: ${newState}`;
           console.log(`[Render ${renderId.slice(0, 8)}] ${message}`);
@@ -804,8 +809,17 @@ function ChatPageContent() {
             },
           },
         };
-      }),
-    );
+      });
+      
+      // Persist to localStorage if we have a current thread
+      // This ensures cancelled/completed states survive page refresh
+      const threadId = currentThreadIdRef.current;
+      if (threadId) {
+        saveMessagesToStorage(threadId, newMessages);
+      }
+      
+      return newMessages;
+    });
   }, []);
 
   const upsertRenderFromNotification = useCallback((notification: RenderNotification) => {
@@ -858,11 +872,15 @@ function ChatPageContent() {
       renderPollersRef.current.delete(renderId);
     }
     delete renderPollAttemptsRef.current[renderId];
+    delete renderPollStartTimeRef.current[renderId];
   }, []);
 
   const startRenderPolling = useCallback(
     (renderId: string) => {
       if (!isAuthenticated || renderPollersRef.current.has(renderId)) return;
+
+      // Track when we started polling
+      renderPollStartTimeRef.current[renderId] = Date.now();
 
       const poll = async () => {
         const authToken = cookieUtils.get("auth_token");
@@ -871,9 +889,21 @@ function ChatPageContent() {
           return;
         }
 
+        // Check for timeout
+        const startTime = renderPollStartTimeRef.current[renderId];
+        if (startTime && Date.now() - startTime > RENDER_POLL_TIMEOUT_MS) {
+          console.warn(`[Polling] Render ${renderId.slice(0, 8)} timed out after 5 minutes`);
+          updateRenderMeta(renderId, {
+            state: "failed",
+            error: "Render timed out. It may still complete - check your render history.",
+          });
+          stopRenderPolling(renderId);
+          return;
+        }
+
         try {
-          // Use the main API render status endpoint (not bot API)
-          const response = await fetch(`https://api.hypercli.com/api/renders/${renderId}/status`, {
+          // Use local API route to avoid CORS issues
+          const response = await fetch(`/api/renders/${renderId}/status`, {
             headers: { Authorization: `Bearer ${authToken}` },
           });
 
@@ -952,6 +982,44 @@ function ChatPageContent() {
     [isAuthenticated, stopRenderPolling, updateRenderMeta],
   );
 
+  // Cancel a render
+  const cancelRender = useCallback(async (renderId: string) => {
+    const authToken = cookieUtils.get("auth_token");
+    if (!authToken) return;
+
+    console.log(`[Cancel] Cancelling render ${renderId.slice(0, 8)}`);
+    
+    try {
+      const response = await fetch(`/api/renders/${renderId}/cancel`, {
+        method: "POST",
+        headers: { Authorization: `Bearer ${authToken}` },
+      });
+
+      // Stop polling regardless of API response
+      stopRenderPolling(renderId);
+
+      // Update the render state to cancelled
+      updateRenderMeta(renderId, {
+        state: "cancelled",
+        error: null,
+      });
+
+      if (!response.ok) {
+        console.warn(`[Cancel] API returned ${response.status}, but render marked as cancelled locally`);
+      } else {
+        console.log(`[Cancel] Render ${renderId.slice(0, 8)} cancelled successfully`);
+      }
+    } catch (error) {
+      console.error(`[Cancel] Error cancelling render ${renderId.slice(0, 8)}:`, error);
+      // Still mark as cancelled locally
+      stopRenderPolling(renderId);
+      updateRenderMeta(renderId, {
+        state: "cancelled",
+        error: "Cancellation requested",
+      });
+    }
+  }, [stopRenderPolling, updateRenderMeta]);
+
   // Connect WebSocket when authenticated
   useEffect(() => {
     const authToken = cookieUtils.get("auth_token");
@@ -968,6 +1036,12 @@ function ChatPageContent() {
         wsRef.current.close();
         wsRef.current = null;
       }
+      // Stop all render polling
+      renderPollersRef.current.forEach((interval, renderId) => {
+        clearInterval(interval);
+        console.log(`[Polling] Cleanup: stopped polling for ${renderId.slice(0, 8)}`);
+      });
+      renderPollersRef.current.clear();
     };
   }, [isAuthenticated, connectWebSocket]);
 
@@ -1705,6 +1779,7 @@ function ChatPageContent() {
           onSelectOption={handleSelection}
           selectionStatus={selectionStatus}
           onSuggestedPromptClick={(prompt) => setPendingMessage(prompt)}
+          onCancelRender={cancelRender}
         />
 
         <ChatInput
