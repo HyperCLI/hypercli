@@ -1640,11 +1640,13 @@ function ChatPageContent() {
     // This allows persistence across refreshes without incurring LLM costs
     // We need to capture threadId in a local variable to avoid closure issues
     const finalThreadId = threadId;
-    setMessages((currentMessages) => {
-      saveMessagesToStorage(finalThreadId, currentMessages);
-      console.log("[Chat] Messages saved to localStorage for thread:", finalThreadId);
-      return currentMessages;
-    });
+    if (finalThreadId) {
+      setMessages((currentMessages) => {
+        saveMessagesToStorage(finalThreadId, currentMessages);
+        console.log("[Chat] Messages saved to localStorage for thread:", finalThreadId);
+        return currentMessages;
+      });
+    }
   };
 
   const handleSelection = async (messageId: number, option: SelectionOption) => {
