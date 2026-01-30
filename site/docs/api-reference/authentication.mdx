@@ -1,0 +1,59 @@
+---
+title: Authentication
+description: API authentication methods
+---
+
+## API Key Authentication
+
+Use your API key as a Bearer token:
+
+```bash
+curl https://api.hypercli.com/api/balance \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+Or via `X-API-KEY` header:
+
+```bash
+curl https://api.hypercli.com/api/balance \
+  -H "X-API-KEY: YOUR_API_KEY"
+```
+
+## Getting an API Key
+
+1. Sign up at [hypercli.com](https://hypercli.com)
+2. Go to [Console](https://console.hypercli.com)
+3. Create an API key
+
+## Managing Keys
+
+Create, list, and delete keys via the API:
+
+```bash
+# Create key
+curl -X POST https://api.hypercli.com/api/keys \
+  -H "Authorization: Bearer YOUR_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-key"}'
+
+# List keys
+curl https://api.hypercli.com/api/keys \
+  -H "Authorization: Bearer YOUR_API_KEY"
+
+# Delete key
+curl -X DELETE https://api.hypercli.com/api/keys/{key_id} \
+  -H "Authorization: Bearer YOUR_API_KEY"
+```
+
+## LLM API Authentication
+
+The LLM API (`/v1/*` endpoints) uses the same API key but is OpenAI-compatible:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_HYPERCLI_API_KEY",
+    base_url="https://api.hypercli.com/v1"
+)
+```

@@ -1,0 +1,454 @@
+---
+title: ComfyUI
+description: SDK helpers for running ComfyUI workflows
+---
+
+The SDK provides helpers for running ComfyUI workflows on GPU instances.
+
+## Installation
+
+ComfyUI support requires optional dependencies:
+
+```bash
+pip install "hypercli-sdk[comfyui]"
+```
+
+This installs the workflow templates packages.
+
+## Quick Start
+
+```python
+from hypercli import HyperCLI, ComfyUIJob
+
+hyper = HyperCLI()
+
+# Create a ComfyUI job
+job = ComfyUIJob.create(
+    c3,
+    gpu_type="l40s",
+    template="flux_schnell",  # Pre-built workflow template
+    lb=8188,                   # HTTPS load balancer on port 8188
+)
+
+# Wait for ComfyUI to be ready
+job.wait_ready()
+
+# Run a workflow
+history = job.run_template(
+    "flux_schnell",
+    prompt="a beautiful sunset over mountains",
+    width=1024,
+    height=1024,
+    steps=4,
+)
+
+# Download outputs
+images = job.get_output_images(history)
+for img in images:
+    job.download_image(img, "output/")
+```
+
+## ComfyUIJob
+
+`ComfyUIJob` wraps a job with ComfyUI-specific methods.
+
+### Create
+
+```python
+job = ComfyUIJob.create(
+    c3,
+    gpu_type="l40s",        # GPU type
+    gpu_count=1,            # Number of GPUs
+    template="flux_dev",    # Pre-loads models for this template
+    runtime=3600,           # Max runtime (optional)
+    lb=8188,                # HTTPS load balancer port
+    auth=False,             # Enable token auth
+    region=None,            # Region (optional)
+)
+```
+
+### From Existing Job
+
+```python
+# Wrap an existing job
+job = client.jobs.get("job-id")
+comfy = ComfyUIJob(c3, job)
+
+# Or find by hostname
+comfy = ComfyUIJob.from_hostname(c3, "my-hostname")
+```
+
+### Wait for Ready
+
+```python
+# Wait for ComfyUI HTTP endpoint to be available
+if job.wait_ready(timeout=300):
+    print("ComfyUI is ready!")
+else:
+    print("Timeout waiting for ComfyUI")
+```
+
+### Load Templates
+
+```python
+# Load a workflow template (graph format)
+graph = job.load_template("flux_schnell")
+
+# Convert to API format
+workflow = job.convert_workflow(graph)
+```
+
+### Apply Parameters
+
+Use `apply_params` to inject values into the workflow:
+
+```python
+from hyper import apply_params
+
+apply_params(
+    workflow,
+    prompt="your prompt here",
+    negative="things to avoid",
+    seed=12345,
+    steps=20,
+    cfg=7.5,
+    width=1024,
+    height=1024,
+    filename_prefix="output",
+)
+```
+
+Supported parameters:
+
+| Parameter | Description | Nodes affected |
+|-----------|-------------|----------------|
+| `prompt` | Positive prompt | CLIPTextEncode, etc. |
+| `negative` | Negative prompt | CLIPTextEncode (negative) |
+| `seed` | Random seed | KSampler, RandomNoise |
+| `steps` | Sampling steps | KSampler, schedulers |
+| `cfg` | CFG scale | KSampler |
+| `width` | Output width | EmptyLatentImage, etc. |
+| `height` | Output height | EmptyLatentImage, etc. |
+| `filename_prefix` | Output filename | SaveImage, SaveVideo |
+| `nodes` | Node-specific params by ID | Any node (see below) |
+
+### Node-Specific Parameters
+
+For advanced workflows requiring direct node control (images, audio, custom text), use the `nodes` parameter:
+
+```python
+from hyper import apply_params
+
+apply_params(
+    workflow,
+    prompt="your prompt here",
+    nodes={
+        "80": {"image": "start_frame.png"},   # LoadImage node
+        "89": {"image": "end_frame.png"},     # LoadImage node
+        "58": {"audio": "speech.wav"},        # LoadAudio node
+        "90": {"text": "custom prompt"},      # CLIPTextEncode node
+    }
+)
+```
+
+The `nodes` dict maps node IDs to input values:
+
+| Key | Node Type | Description |
+|-----|-----------|-------------|
+| `image` | LoadImage | Filename of uploaded image |
+| `audio` | LoadAudio | Filename of uploaded audio |
+| `text` | *TextEncode* | Text for any TextEncode node |
+| (any) | Any | Generic input (fallback) |
+
+To find node IDs, use `hyper comfyui show <template>` or `--workflow-json` with the CLI.
+
+### Enable/Disable Nodes
+
+Use `apply_graph_modes()` to enable or disable nodes **before** converting to API format:
+
+```python
+from hyper import load_template, graph_to_api, apply_graph_modes, apply_params
+
+# Load template
+graph = load_template("image_qwen_image_edit_2509")
+
+# Enable bypassed nodes (must be done BEFORE graph_to_api)
+apply_graph_modes(graph, {
+    "106": {"enabled": True},  # Enable bypassed LoadImage
+    "108": {"enabled": True},  # Enable another bypassed node
+})
+
+# Now convert to API format
+workflow = graph_to_api(graph)
+
+# Apply other parameters
+apply_params(workflow, prompt="...", nodes={
+    "78": {"image": "main.png"},
+    "106": {"image": "ref1.png"},
+    "108": {"image": "ref2.png"},
+})
+```
+
+Supported mode values:
+- `{"enabled": True}` - Enable node (mode 0)
+- `{"enabled": False}` - Bypass node (mode 4)
+- `{"mode": 0}` - Active
+- `{"mode": 2}` - Muted
+- `{"mode": 4}` - Bypassed
+
+### Run Workflows
+
+```python
+# Queue a workflow
+prompt_id = job.queue_prompt(workflow)
+
+# Wait for completion
+history = job.wait_for_completion(prompt_id, timeout=300)
+
+# Or use the combined run method
+history = job.run(workflow, timeout=300)
+```
+
+### Get Outputs
+
+```python
+# Get output images from history
+images = job.get_output_images(history)
+# Returns list of {"filename": "...", "subfolder": "...", "type": "output"}
+
+# Download images
+for img in images:
+    local_path = job.download_image(img, "output/")
+    print(f"Downloaded: {local_path}")
+```
+
+## Available Templates
+
+Templates are provided by the `comfyui-workflow-templates` packages:
+
+### Image Generation
+- `flux_schnell` - Fast Flux model (4 steps)
+- `flux_dev_full_text_to_image` - Full Flux Dev (high quality)
+- `image_qwen_image` - Qwen image model (excellent text rendering)
+- `hidream_i1_full` - HiDream I1 Full (50 steps, highest quality)
+
+### Image Editing (requires image input)
+- `hidream_e1_full` - HiDream E1 image editing (node 13: LoadImage)
+- `image_qwen_image_edit_2509` - Qwen image edit (nodes 78, 106*, 108* - up to 3 images)
+- `image_qwen_image_edit_2511` - Qwen multi-reference (nodes 41, 83, 87* - style transfer)
+
+*Nodes marked with `*` are bypassed by default - use `apply_graph_modes()` to enable.
+
+### Video Generation (text-to-video)
+- `video_wan2_2_14B_t2v` - Wan 2.2 text-to-video
+- `video_hunyuan_video_1.5_720p_t2v` - Hunyuan video 720p
+
+### Video Generation (image-to-video)
+- `video_wan2_2_14B_i2v` - Wan 2.2 image-to-video (node 97: LoadImage)
+- `video_wan2_2_14B_flf2v` - Wan 2.2 first/last frame (nodes 80, 89: LoadImage)
+- `video_wan2_2_14B_animate` - Wan 2.2 animate image
+
+### Video Generation (with audio)
+- `video_humo` - HuMo lip-sync (node 49: LoadImage, node 58: LoadAudio)
+- `video_wan2_2_14B_s2v` - Wan 2.2 speech-to-video (image + audio)
+
+## Workflow Utilities
+
+### Find Nodes
+
+```python
+from hyper import find_node, find_nodes
+
+# Find first node of a type
+node_id, node = find_node(workflow, "KSampler")
+
+# Find by type and title
+node_id, node = find_node(workflow, "CLIPTextEncode", "Positive")
+
+# Find all nodes of a type
+nodes = find_nodes(workflow, "CLIPTextEncode")
+```
+
+## Example: Complete Workflow
+
+```python
+import asyncio
+from hypercli import HyperCLI, ComfyUIJob, apply_params
+
+async def generate_image():
+    hyper = HyperCLI()
+
+    # Create job
+    job = ComfyUIJob.create(
+        c3,
+        gpu_type="l40s",
+        template="flux_schnell",
+        lb=8188,
+    )
+
+    print(f"Job: {job.job.job_id}")
+    print(f"URL: https://{job.job.hostname}")
+
+    try:
+        # Wait for ready
+        if not job.wait_ready(timeout=300):
+            raise RuntimeError("ComfyUI failed to start")
+
+        # Load and configure workflow
+        graph = job.load_template("flux_schnell")
+        workflow = job.convert_workflow(graph)
+
+        apply_params(
+            workflow,
+            prompt="a cyberpunk city at night, neon lights",
+            steps=4,
+            width=1024,
+            height=1024,
+        )
+
+        # Run
+        history = job.run(workflow, timeout=120)
+
+        # Download outputs
+        images = job.get_output_images(history)
+        for img in images:
+            path = job.download_image(img, "output/")
+            print(f"Saved: {path}")
+
+    finally:
+        # Cancel job when done
+        client.jobs.cancel(job.job.job_id)
+
+asyncio.run(generate_image())
+```
+
+## Example: Image-to-Video with Audio
+
+```python
+from hypercli import HyperCLI, ComfyUIJob, apply_params
+
+hyper = HyperCLI()
+
+# Create job with RTX PRO 6000 (needed for video)
+job = ComfyUIJob.create(
+    c3,
+    gpu_type="rtxpro6000",
+    template="video_humo",
+    lb=8188,
+)
+
+job.wait_ready(timeout=300)
+
+# Upload image and audio to ComfyUI
+image_filename = job.upload_image("face.png")
+audio_filename = job.upload_audio("speech.wav")
+
+# Load workflow and configure with node IDs
+graph = job.load_template("video_humo")
+workflow = job.convert_workflow(graph)
+
+apply_params(
+    workflow,
+    prompt="a person speaking naturally",
+    nodes={
+        "49": {"image": image_filename},  # LoadImage node
+        "58": {"audio": audio_filename},  # LoadAudio node
+    }
+)
+
+# Run and download
+history = job.run(workflow, timeout=300)
+videos = job.get_output_videos(history)
+for vid in videos:
+    job.download_video(vid, "output/")
+```
+
+## Example: First/Last Frame Video
+
+```python
+from hypercli import HyperCLI, ComfyUIJob, apply_params
+
+hyper = HyperCLI()
+
+job = ComfyUIJob.create(
+    c3,
+    gpu_type="rtxpro6000",
+    template="video_wan2_2_14B_flf2v",
+    lb=8188,
+)
+
+job.wait_ready(timeout=300)
+
+# Upload start and end frames
+start_img = job.upload_image("start_frame.png")
+end_img = job.upload_image("end_frame.png")
+
+graph = job.load_template("video_wan2_2_14B_flf2v")
+workflow = job.convert_workflow(graph)
+
+apply_params(
+    workflow,
+    prompt="smooth transition between frames",
+    nodes={
+        "80": {"image": start_img},  # Start frame LoadImage
+        "89": {"image": end_img},    # End frame LoadImage
+    }
+)
+
+history = job.run(workflow, timeout=300)
+```
+
+## Example: Multi-Image Style Transfer
+
+Use multiple reference images with Qwen Image Edit:
+
+```python
+from hypercli import HyperCLI, ComfyUIJob, load_template, graph_to_api, apply_graph_modes, apply_params
+
+hyper = HyperCLI()
+
+# Create job
+job = ComfyUIJob.create(
+    c3,
+    gpu_type="l40s",
+    template="image_qwen_image_edit_2509",
+    lb=8188,
+)
+
+job.wait_ready(timeout=300)
+
+# Upload images
+main_img = job.upload_image("subject.jpg")
+ref1_img = job.upload_image("style_ref1.jpg")
+ref2_img = job.upload_image("style_ref2.jpg")
+
+# Load template and enable bypassed nodes
+graph = load_template("image_qwen_image_edit_2509")
+
+# Enable the extra reference image nodes (bypassed by default)
+apply_graph_modes(graph, {
+    "106": {"enabled": True},
+    "108": {"enabled": True},
+})
+
+# Convert to API format
+workflow = graph_to_api(graph)
+
+# Apply parameters
+apply_params(
+    workflow,
+    prompt="Transform the subject using these style references",
+    negative="ugly, blurry, low quality",
+    nodes={
+        "78": {"image": main_img},    # Main subject
+        "106": {"image": ref1_img},   # Style reference 1
+        "108": {"image": ref2_img},   # Style reference 2
+    }
+)
+
+# Run and download
+history = job.run(workflow, timeout=300)
+images = job.get_output_images(history)
+for img in images:
+    job.download_output(img["filename"], "output/")
+```

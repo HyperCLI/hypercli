@@ -1,0 +1,91 @@
+---
+title: hyper renders
+description: Render management commands
+---
+
+## list
+
+List renders.
+
+```bash
+hyper renders list
+hyper renders list -s completed
+hyper renders list -t hidream_i1_full
+hyper renders list -o json
+```
+
+**Options:**
+- `-s, --state` - Filter by state: `pending`, `running`, `completed`, `failed`
+- `-t, --template` - Filter by template name
+- `--type` - Filter by render type (e.g., `comfyui`)
+- `-o, --output` - Output format: `table` or `json`
+
+## create
+
+Create a render.
+
+```bash
+hyper renders create <template> -p <prompt> [options]
+
+# Examples
+hyper renders create hidream_i1_full -p "a cat in space"
+hyper renders create hidream_i1_full -p "sunset over mountains" --gpu L40S --region kr
+hyper renders create hidream_i1_full -p "portrait of a robot" --wait
+```
+
+**Arguments:**
+- `template` - Template name (required)
+
+**Options:**
+- `-p, --prompt` - Text prompt (required)
+- `-g, --gpu` - GPU type (default: L40S)
+- `-r, --region` - Region code (e.g., `kr`)
+- `-t, --type` - Render type (default: comfyui)
+- `-w, --wait` - Wait for render to complete
+- `--notify` - Webhook URL for completion notification
+- `-o, --output` - Output format: `table` or `json`
+
+## get
+
+Get render details.
+
+```bash
+hyper renders get <render_id>
+hyper renders get <render_id> -o json
+```
+
+## status
+
+Get render status (lightweight polling endpoint).
+
+```bash
+hyper renders status <render_id>
+hyper renders status <render_id> -w   # Watch live
+hyper renders status <render_id> -o json
+```
+
+**Options:**
+- `-w, --watch` - Watch status live until completion
+- `-o, --output` - Output format: `table` or `json`
+
+## cancel
+
+Cancel a render.
+
+```bash
+hyper renders cancel <render_id>
+```
+
+## Example Workflow
+
+```bash
+# Create a render and wait for completion
+hyper renders create hidream_i1_full -p "a cat in space" --wait
+
+# Or create and poll separately
+hyper renders create hidream_i1_full -p "a cat in space"
+# Returns: Render created: abc123...
+
+hyper renders status abc123 --watch
+# Watches until completion, then shows result URL
+```

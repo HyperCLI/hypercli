@@ -1,0 +1,292 @@
+---
+title: Jobs
+description: SDK jobs methods
+---
+
+## Create Job
+
+```python
+from hypercli import HyperCLI
+
+hyper = HyperCLI()
+
+job = client.jobs.create(
+    image="nvidia/cuda:12.0",
+    command="python train.py",
+    gpu_type="l40s",        # l40s, h100, a100, etc.
+    gpu_count=1,
+    region=None,            # optional: us-east-1, etc.
+    runtime=None,           # optional: max seconds
+    interruptible=True,     # use interruptible instances
+    env={"KEY": "value"},   # optional
+    ports={"lb": 8080},     # optional: expose ports
+    auth=False,             # enable token auth on load balancer
+)
+
+print(f"Job: {job.job_id}")
+print(f"State: {job.state}")
+print(f"Price: ${job.price_per_hour}/hr")
+```
+
+### Create Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `image` | str | required | Docker image |
+| `command` | str | None | Command to run |
+| `gpu_type` | str | "l40s" | GPU type |
+| `gpu_count` | int | 1 | Number of GPUs |
+| `region` | str | None | Region code |
+| `runtime` | int | None | Max runtime (seconds) |
+| `interruptible` | bool | True | Use interruptible instances |
+| `env` | dict | None | Environment variables |
+| `ports` | dict | None | Port mappings (see below) |
+| `auth` | bool | False | Enable token auth on load balancer |
+
+## Connecting to Your Instance
+
+There are several ways to expose and connect to services running in your job.
+
+### Port Mappings
+
+The `ports` parameter controls how your container's ports are exposed:
+
+```python
+# Named port (internal reference only)
+ports={"http": 8080}
+
+# Load balancer - creates HTTPS endpoint at job.hostname
+ports={"lb": 8080}
+
+# Multiple ports
+ports={"lb": 8080, "metrics": 9090}
+```
+
+| Port Name | Description |
+|-----------|-------------|
+| `lb` | **Load Balancer** - Creates an HTTPS endpoint at `https://{job.hostname}`. Your container port is proxied through Traefik with automatic TLS. |
+| Other names | Named ports for internal reference. Not externally accessible without `lb`. |
+
+### HTTPS Load Balancer (Recommended)
+
+Use `ports={"lb": port}` to get a public HTTPS URL:
+
+```python
+job = client.jobs.create(
+    image="my-api:latest",
+    gpu_type="l40s",
+    ports={"lb": 8080},  # Your app listens on 8080
+    command="python -m uvicorn main:app --host 0.0.0.0 --port 8080",
+)
+
+# Wait for job to start
+import time
+while job.state != "running":
+    time.sleep(2)
+    job = client.jobs.get(job.job_id)
+
+# Access via HTTPS
+print(f"URL: https://{job.hostname}")
+```
+
+### Authentication with Tokens
+
+For secure access, enable `auth=True` to require a Bearer token:
+
+```python
+job = client.jobs.create(
+    image="my-api:latest",
+    gpu_type="l40s",
+    ports={"lb": 8080},
+    auth=True,  # Require token for all requests
+)
+
+# Get the token (only available to job owner)
+token = client.jobs.token(job.job_id)
+
+# Access with token
+import requests
+resp = requests.get(
+    f"https://{job.hostname}/api/data",
+    headers={"Authorization": f"Bearer {token}"}
+)
+```
+
+<Info>
+The token is tied to your API key. Only you can retrieve it and access the job's endpoints.
+</Info>
+
+### Embedding in Applications
+
+Example: Create a GPU-powered API and call it from your application:
+
+```python
+from hypercli import HyperCLI
+import requests
+
+hyper = HyperCLI()
+
+# Launch inference server
+job = client.jobs.create(
+    image="my-inference:latest",
+    gpu_type="l40s",
+    ports={"lb": 8000},
+    auth=True,
+    command="python server.py",
+)
+
+# Wait for ready
+while job.state != "running":
+    job = client.jobs.get(job.job_id)
+
+# Get auth token
+token = client.jobs.token(job.job_id)
+base_url = f"https://{job.hostname}"
+headers = {"Authorization": f"Bearer {token}"}
+
+# Make requests
+response = requests.post(
+    f"{base_url}/predict",
+    headers=headers,
+    json={"input": "data"}
+)
+print(response.json())
+```
+
+### WebSocket Connections
+
+For real-time log streaming, use the `job_key`:
+
+```python
+job = client.jobs.get("job-id")
+
+# WebSocket URL for logs
+ws_url = f"wss://api.hypercli.com/ws/logs/{job.job_key}"
+```
+
+See [Log Streaming](/sdk/logs) for the full async API.
+
+## List Jobs
+
+```python
+jobs = client.jobs.list()
+jobs = client.jobs.list(state="running")
+
+for job in jobs:
+    print(f"{job.job_id}: {job.state}")
+```
+
+## Get Job
+
+```python
+job = client.jobs.get("job_id")
+```
+
+### Job Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `job_id` | str | Job UUID |
+| `job_key` | str | Job key (for websocket connections) |
+| `state` | str | `pending`, `queued`, `running`, `succeeded`, `failed`, `canceled`, `terminated` |
+| `gpu_type` | str | GPU type |
+| `gpu_count` | int | Number of GPUs |
+| `region` | str | Region |
+| `hostname` | str | Assigned hostname (when running) |
+| `interruptible` | bool | Whether job uses interruptible instances |
+| `price_per_hour` | float | Price per hour |
+| `price_per_second` | float | Price per second |
+| `docker_image` | str | Docker image |
+| `runtime` | int | Max runtime in seconds |
+| `created_at` | float | Created timestamp |
+| `started_at` | float | Started timestamp |
+| `completed_at` | float | Completed timestamp |
+
+## Get Logs
+
+```python
+logs = client.jobs.logs("job_id")
+print(logs)
+```
+
+For streaming logs, see [Log Streaming](/sdk/logs).
+
+## Get Metrics
+
+```python
+metrics = client.jobs.metrics("job_id")
+
+# System metrics (CPU + RAM)
+if metrics.system:
+    print(f"CPU: {metrics.system.cpu_percent}%")
+    print(f"RAM: {metrics.system.memory_used/1024:.1f}/{metrics.system.memory_limit/1024:.1f} GB")
+
+# GPU metrics
+for gpu in metrics.gpus:
+    print(f"GPU {gpu.index}: {gpu.utilization}%")
+    print(f"  VRAM: {gpu.memory_used/1024:.1f}/{gpu.memory_total/1024:.1f} GB")
+    print(f"  Temp: {gpu.temperature}C")
+    print(f"  Power: {gpu.power_draw}W")
+```
+
+### SystemMetrics Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `cpu_percent` | float | CPU utilization % |
+| `cpu_cores` | float | Number of CPU cores |
+| `memory_used` | float | Memory used (MB) |
+| `memory_limit` | float | Memory limit (MB) |
+
+### GPUMetrics Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `index` | int | GPU index |
+| `name` | str | GPU name |
+| `utilization` | float | GPU utilization % |
+| `memory_used` | float | VRAM used (MB) |
+| `memory_total` | float | VRAM total (MB) |
+| `temperature` | int | Temperature (C) |
+| `power_draw` | float | Power draw (W) |
+
+## Extend Runtime
+
+```python
+job = client.jobs.extend("job_id", runtime=7200)
+```
+
+## Cancel Job
+
+```python
+client.jobs.cancel("job_id")
+```
+
+## Get Job Token
+
+For jobs with `auth=True`, get the Bearer token:
+
+```python
+token = client.jobs.token("job_id")
+# Use in Authorization header: Bearer {token}
+```
+
+## Find Jobs
+
+Utility functions to find jobs by various identifiers:
+
+```python
+from hyper import find_job, find_by_hostname, find_by_ip
+
+hyper = HyperCLI()
+
+# Find by UUID, hostname, or IP
+job = find_job(client.jobs, "job-uuid-here")
+job = find_job(client.jobs, "hostname-prefix")
+job = find_job(client.jobs, "192.168.1.1")
+
+# Or use specific finders
+jobs = client.jobs.list(state="running")
+job = find_by_hostname(jobs, "my-hostname")
+job = find_by_ip(jobs, "192.168.1.1")
+```

@@ -1,0 +1,551 @@
+From d857f2d5f65bda1bf0906dc6f3b430a9ad0ebcbb Mon Sep 17 00:00:00 2001
+From: Damian DevUX <damiandevux@gmail.com>
+Date: Fri, 12 Dec 2025 20:07:15 -0300
+Subject: [PATCH] Added Partner Page. Minor title copy change.
+
+---
+ site/apps/chat/src/app/page.tsx               |   2 +-
+ site/apps/main/src/app/partner/page.tsx       | 382 ++++++++++++++++++
+ site/package-lock.json                        |  45 ++-
+ .../shared-ui/src/components/Header.tsx       |   4 +
+ .../sections/what-is-hypercli-section.tsx     |   2 +-
+ .../shared-ui/src/utils/navigation.ts         |   2 +
+ 6 files changed, 431 insertions(+), 6 deletions(-)
+ create mode 100644 site/apps/main/src/app/partner/page.tsx
+
+diff --git a/site/apps/chat/src/app/page.tsx b/site/apps/chat/src/app/page.tsx
+index 406b72f..7b04f02 100644
+--- a/site/apps/chat/src/app/page.tsx
++++ b/site/apps/chat/src/app/page.tsx
+@@ -4,7 +4,7 @@ import React, { useState, useEffect, Suspense } from "react";
+ import { useAuth, WalletAuth, cookieUtils, TopUpModal } from "@hypercli/shared-ui";
+ import { useTurnkey } from "@turnkey/react-wallet-kit";
+ import { useRouter, useSearchParams } from "next/navigation";
+-import { ChatSidebar, ChatWindow, ChatInput, ChatHeader } from "../components";
++import { ChatSidebar, ChatWindow, ChatHeader, ChatInput } from "../components";
+ 
+ interface Message {
+   role: "user" | "assistant";
+diff --git a/site/apps/main/src/app/partner/page.tsx b/site/apps/main/src/app/partner/page.tsx
+new file mode 100644
+index 0000000..d4b4afc
+--- /dev/null
++++ b/site/apps/main/src/app/partner/page.tsx
+@@ -0,0 +1,382 @@
++"use client";
++
++import { ArrowRight } from "lucide-react";
++import { motion } from "framer-motion";
++import { Header } from "@hypercli/shared-ui";
++
++export default function PartnerPage() {
++  return (
++    <div className="bg-[#0B0D0E] min-h-screen overflow-x-hidden">
++      <Header />
++      <main className="pt-16">
++        {/* Hero Section */}
++        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E]">
++          <motion.div
++            className="max-w-5xl mx-auto"
++            initial={{ opacity: 0, y: 20 }}
++            animate={{ opacity: 1, y: 0 }}
++            transition={{ duration: 0.6 }}
++          >
++            <h1 className="text-6xl sm:text-7xl lg:text-8xl text-white mb-8 leading-[1.1] tracking-tight max-w-4xl">
++              A New Revenue Layer for AI.
++            </h1>
++
++            <p className="text-2xl text-[#9BA0A2] leading-relaxed mb-10 max-w-2xl">
++              Deliver full AI systems to your clients. No
++              infrastructure. No engineering. Just profit.
++            </p>
++
++            <button className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2">
++              Become a Partner
++              <ArrowRight className="w-5 h-5" />
++            </button>
++          </motion.div>
++        </section>
++       </main>
++      {/* The Shift */}
++      <section className="pt-32 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-6xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-5xl text-white mb-12 tracking-tight">
++              The Shift
++            </h2>
++          </motion.div>
++
++          <div className="grid md:grid-cols-2 gap-x-16 gap-y-8 items-start">
++            <motion.div
++              initial={{ opacity: 0, x: -20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.2 }}
++            >
++              <p className="text-3xl text-white leading-tight">
++                AI is here. Infrastructure is not.
++              </p>
++            </motion.div>
++
++            <motion.div
++              initial={{ opacity: 0, x: 20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.3 }}
++            >
++              <p className="text-lg text-[#9BA0A2] mb-4 leading-relaxed">
++                Your clients want: LLMs. Agents. RAG pipelines.
++                Media generation. Training.
++              </p>
++
++              <p className="text-lg text-[#9BA0A2] mb-10 leading-relaxed">
++                But the infrastructure is slow, brittle,
++                complex, and costly.
++              </p>
++
++              <p className="text-xl text-white leading-relaxed">
++                This is where HyperCLI enters.
++              </p>
++            </motion.div>
++          </div>
++        </div>
++      </section>
++
++      {/* What HyperCLI Enables */}
++      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-6xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-5xl text-white mb-12 tracking-tight">
++              What HyperCLI Enables
++            </h2>
++          </motion.div>
++
++          <div className="grid md:grid-cols-2 gap-x-16 gap-y-8 items-start">
++            <motion.div
++              initial={{ opacity: 0, x: -20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.2 }}
++            >
++              <p className="text-3xl text-white leading-tight">
++                Deploy AI workloads in minutes. Sell them for
++                years.
++              </p>
++            </motion.div>
++
++            <motion.div
++              initial={{ opacity: 0, x: 20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.3 }}
++            >
++              <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed">
++                You deliver: Production-ready AI clusters.
++                Inference at scale. Fine-tuning systems.
++                Enterprise search. Agentic workflows. GPU
++                orchestration. On-prem, hybrid, or cloud
++                deployments.
++              </p>
++              <p className="text-lg text-[#9BA0A2] leading-relaxed">
++                Without building or operating any of it.
++              </p>
++            </motion.div>
++          </div>
++        </div>
++      </section>
++
++      {/* The Revenue Model */}
++      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-6xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-5xl text-white mb-12 tracking-tight">
++              The Revenue Model
++            </h2>
++
++            <p className="text-3xl text-white mb-10 leading-tight">
++              AI that pays you back. Every month.
++            </p>
++
++            <p className="text-lg text-[#9BA0A2] mb-8 leading-relaxed">
++              Three streams:
++            </p>
++          </motion.div>
++
++          <div className="grid md:grid-cols-3 gap-6 mb-10">
++            <motion.div
++              className="p-6 border border-[#2A2D2F]/50 rounded-lg"
++              initial={{ opacity: 0, y: 20 }}
++              whileInView={{ opacity: 1, y: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.5, delay: 0.1 }}
++            >
++              <p className="text-xl text-white mb-3">
++                <span className="text-[#38D39F]">1.</span>{" "}
++                Resell Margin
++              </p>
++              <p className="text-[#9BA0A2] leading-relaxed">
++                20–40% on every HyperCLI deployment.
++              </p>
++            </motion.div>
++
++            <motion.div
++              className="p-6 border border-[#2A2D2F]/50 rounded-lg"
++              initial={{ opacity: 0, y: 20 }}
++              whileInView={{ opacity: 1, y: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.5, delay: 0.2 }}
++            >
++              <p className="text-xl text-white mb-3">
++                <span className="text-[#38D39F]">2.</span>{" "}
++                Compute Share
++              </p>
++              <p className="text-[#9BA0A2] leading-relaxed">
++                A percentage of all GPU usage across your
++                clients.
++              </p>
++            </motion.div>
++
++            <motion.div
++              className="p-6 border border-[#2A2D2F]/50 rounded-lg"
++              initial={{ opacity: 0, y: 20 }}
++              whileInView={{ opacity: 1, y: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.5, delay: 0.3 }}
++            >
++              <p className="text-xl text-white mb-3">
++                <span className="text-[#38D39F]">3.</span>{" "}
++                Managed Services
++              </p>
++              <p className="text-[#9BA0A2] leading-relaxed">
++                Monitoring. Optimization. Governance. Your
++                expertise layered over our runtime.
++              </p>
++            </motion.div>
++          </div>
++
++          <motion.p
++            className="text-xl text-[#D4D6D7] leading-relaxed"
++            initial={{ opacity: 0, y: 10 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5, delay: 0.4 }}
++          >
++            Recurring revenue. Predictable margin. Zero
++            infrastructure burden.
++          </motion.p>
++        </div>
++      </section>
++
++      {/* The Platform */}
++      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-6xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-5xl text-white mb-12 tracking-tight">
++              The Platform
++            </h2>
++          </motion.div>
++
++          <div className="grid md:grid-cols-2 gap-x-16 gap-y-8 items-start">
++            <motion.div
++              initial={{ opacity: 0, x: -20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.2 }}
++            >
++              <p className="text-3xl text-white leading-tight">
++                Your clients get the fabric. You get the credit.
++              </p>
++            </motion.div>
++
++            <motion.div
++              initial={{ opacity: 0, x: 20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.3 }}
++            >
++              <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed">
++                HyperCLI becomes your AI runtime: GPU
++                scheduling. Autoscaling. Distributed execution.
++                Model routing. Container isolation.
++                Observability. Deployment blueprints.
++              </p>
++              <p className="text-lg text-[#9BA0A2] leading-relaxed">
++                Delivered through your brand. Powered by our
++                engine.
++              </p>
++            </motion.div>
++          </div>
++        </div>
++      </section>
++
++      {/* The Console */}
++      <section className="pt-20 pb-20 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-6xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-5xl text-white mb-12 tracking-tight">
++              The Console
++            </h2>
++          </motion.div>
++
++          <div className="grid md:grid-cols-2 gap-x-16 gap-y-8 items-start">
++            <motion.div
++              initial={{ opacity: 0, x: -20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.2 }}
++            >
++              <p className="text-3xl text-white leading-tight">
++                Multi-client control. Zero-touch operations.
++              </p>
++            </motion.div>
++
++            <motion.div
++              initial={{ opacity: 0, x: 20 }}
++              whileInView={{ opacity: 1, x: 0 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.6, delay: 0.3 }}
++            >
++              <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed">
++                One dashboard for: Deployments. Clusters. Model
++                endpoints. Usage. Cost. Policies. Logs.
++              </p>
++              <p className="text-lg text-[#9BA0A2] leading-relaxed">
++                You manage outcomes. HyperCLI handles
++                orchestration.
++              </p>
++            </motion.div>
++          </div>
++        </div>
++      </section>
++
++      {/* GTM Alignment */}
++      <section className="pt-32 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-6xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-5xl text-white mb-12 tracking-tight">
++              GTM Alignment
++            </h2>
++          </motion.div>
++
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.6, delay: 0.2 }}
++          >
++            <p className="text-3xl text-white mb-12 leading-tight max-w-2xl">
++              We don't compete with you. We scale you.
++            </p>
++
++            <p className="text-lg text-[#9BA0A2] mb-5 leading-relaxed max-w-2xl">
++              Partners receive: Lead sharing. Co-selling.
++              Architecture support. Pilot assistance. Partner
++              playbooks. Priority integration. Dedicated
++              enablement.
++            </p>
++
++            <p className="text-lg text-[#9BA0A2] leading-relaxed max-w-2xl">
++              You own the relationship. We power the
++              infrastructure.
++            </p>
++          </motion.div>
++        </div>
++      </section>
++
++      {/* Final CTA */}
++      <section className="pt-24 pb-32 px-4 sm:px-6 lg:px-8 bg-[#0B0D0E] border-t border-[#2A2D2F]/30">
++        <div className="max-w-5xl mx-auto">
++          <motion.div
++            initial={{ opacity: 0, y: 20 }}
++            whileInView={{ opacity: 1, y: 0 }}
++            viewport={{ once: true }}
++            transition={{ duration: 0.5 }}
++          >
++            <h2 className="text-6xl text-white mb-12 tracking-tight leading-tight max-w-3xl">
++              Sell AI infrastructure without building it.
++            </h2>
++
++            <motion.button
++              className="px-8 py-4 bg-[#38D39F] text-[#0B0D0E] rounded-lg hover:bg-[#45E4AE] transition-colors flex items-center gap-2"
++              initial={{ opacity: 0, scale: 0.95 }}
++              whileInView={{ opacity: 1, scale: 1 }}
++              viewport={{ once: true }}
++              transition={{ duration: 0.4, delay: 0.2 }}
++              whileHover={{ scale: 1.02 }}
++              whileTap={{ scale: 0.98 }}
++            >
++              Join the Partner Network
++              <ArrowRight className="w-5 h-5" />
++            </motion.button>
++          </motion.div>
++        </div>
++      </section>
++    </div>
++  );
++};
+diff --git a/site/package-lock.json b/site/package-lock.json
+index 3f88929..fd6d471 100644
+--- a/site/package-lock.json
++++ b/site/package-lock.json
+@@ -8713,7 +8713,7 @@
+       "version": "19.2.3",
+       "resolved": "https://registry.npmjs.org/@types/react-dom/-/react-dom-19.2.3.tgz",
+       "integrity": "sha512-jp2L/eY6fn+KgVVQAOqYItbF0VY/YApe5Mz2F0aykSO8gx31bYCZyvSeYxCHKvzHG5eZjc+zyaS5BrBWya2+kQ==",
+-      "dev": true,
++      "devOptional": true,
+       "license": "MIT",
+       "peerDependencies": {
+         "@types/react": "^19.2.0"
+@@ -12590,7 +12590,6 @@
+       "version": "0.1.13",
+       "resolved": "https://registry.npmjs.org/encoding/-/encoding-0.1.13.tgz",
+       "integrity": "sha512-ETBauow1T35Y/WZMkio9jiM0Z5xjHHmJ4XmjZOq1l/dXz3lr2sRn87nJy20RupqSh1F2m3HHPSp8ShIPQJrJ3A==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -14522,7 +14521,6 @@
+       "version": "0.6.3",
+       "resolved": "https://registry.npmjs.org/iconv-lite/-/iconv-lite-0.6.3.tgz",
+       "integrity": "sha512-4fCk79wshMdzMp2rH06qWrJE4iolqLhCUH+OiuIgU++RB0+94NlDL81atO7GX55uUKueo0txHNtvEyI6D7WdMw==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true,
+       "dependencies": {
+@@ -18845,7 +18843,6 @@
+       "version": "2.1.2",
+       "resolved": "https://registry.npmjs.org/safer-buffer/-/safer-buffer-2.1.2.tgz",
+       "integrity": "sha512-YZo3K82SD7Riyi0E1EQPojLz7kpepnSQI9IyPbHHg1XXXevb5dJI7tpyN2ADxGcQbHG7vcyRHk0cbwqcQriUtg==",
+-      "dev": true,
+       "license": "MIT",
+       "optional": true
+     },
+@@ -19988,6 +19985,35 @@
+         "node": "20 || >=22"
+       }
+     },
++    "node_modules/tcompare/node_modules/react": {
++      "version": "18.3.1",
++      "resolved": "https://registry.npmjs.org/react/-/react-18.3.1.tgz",
++      "integrity": "sha512-wS+hAgJShR0KhEvPJArfuPVN1+Hz1t0Y6n5jLrGQbkb4urgPE/0Rve+1kMB1v/oWgHgm4WIcV+i7F2pTVj+2iQ==",
++      "dev": true,
++      "license": "MIT",
++      "peer": true,
++      "dependencies": {
++        "loose-envify": "^1.1.0"
++      },
++      "engines": {
++        "node": ">=0.10.0"
++      }
++    },
++    "node_modules/tcompare/node_modules/react-dom": {
++      "version": "18.3.1",
++      "resolved": "https://registry.npmjs.org/react-dom/-/react-dom-18.3.1.tgz",
++      "integrity": "sha512-5m4nQKp+rZRb09LNH59GM4BxTh9251/ylbKIbpe7TpGxfJ+9kv6BLkLBXIjjspbgbnIBNqlI23tRnTWT0snUIw==",
++      "dev": true,
++      "license": "MIT",
++      "peer": true,
++      "dependencies": {
++        "loose-envify": "^1.1.0",
++        "scheduler": "^0.23.2"
++      },
++      "peerDependencies": {
++        "react": "^18.3.1"
++      }
++    },
+     "node_modules/tcompare/node_modules/react-element-to-jsx-string": {
+       "version": "15.0.0",
+       "resolved": "https://registry.npmjs.org/react-element-to-jsx-string/-/react-element-to-jsx-string-15.0.0.tgz",
+@@ -20011,6 +20037,17 @@
+       "dev": true,
+       "license": "MIT"
+     },
++    "node_modules/tcompare/node_modules/scheduler": {
++      "version": "0.23.2",
++      "resolved": "https://registry.npmjs.org/scheduler/-/scheduler-0.23.2.tgz",
++      "integrity": "sha512-UOShsPwz7NrMUqhR6t0hWjFduvOzbtv7toDH1/hIrfRNIDBnnBWd0CwJTGvTpngVlmwGCdP9/Zl/tVrDqcuYzQ==",
++      "dev": true,
++      "license": "MIT",
++      "peer": true,
++      "dependencies": {
++        "loose-envify": "^1.1.0"
++      }
++    },
+     "node_modules/test-exclude": {
+       "version": "7.0.1",
+       "resolved": "https://registry.npmjs.org/test-exclude/-/test-exclude-7.0.1.tgz",
+diff --git a/site/packages/shared-ui/src/components/Header.tsx b/site/packages/shared-ui/src/components/Header.tsx
+index 994ed63..36d1546 100644
+--- a/site/packages/shared-ui/src/components/Header.tsx
++++ b/site/packages/shared-ui/src/components/Header.tsx
+@@ -89,6 +89,10 @@ export default function Header() {
+             <a href={NAV_URLS.launch} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+               Launch
+             </a>
++            <a href={NAV_URLS.partner} className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
++              Partners
++            </a>
++
+             <a href={NAV_URLS.docs} target="_blank" rel="noopener noreferrer" className="text-sm text-[#D4D6D7] hover:text-white transition-colors">
+               Docs
+             </a>
+diff --git a/site/packages/shared-ui/src/components/sections/what-is-hypercli-section.tsx b/site/packages/shared-ui/src/components/sections/what-is-hypercli-section.tsx
+index 6f7ac2b..b45963b 100755
+--- a/site/packages/shared-ui/src/components/sections/what-is-hypercli-section.tsx
++++ b/site/packages/shared-ui/src/components/sections/what-is-hypercli-section.tsx
+@@ -82,7 +82,7 @@ export function WhatIsHyperCLISection() {
+         >
+           <div className="inline-block">
+             <h2 className="text-[56px] sm:text-[72px] lg:text-[96px] xl:text-[120px] text-white leading-[0.9] tracking-[-0.05em] font-bold">
+-              What HyperCLI Is
++              Why HyperCLI?
+             </h2>
+             <motion.div
+               className="h-2 bg-[#38D39F] mt-12 w-full"
+diff --git a/site/packages/shared-ui/src/utils/navigation.ts b/site/packages/shared-ui/src/utils/navigation.ts
+index 22628f2..65c57ea 100644
+--- a/site/packages/shared-ui/src/utils/navigation.ts
++++ b/site/packages/shared-ui/src/utils/navigation.ts
+@@ -24,6 +24,8 @@ export const NAV_URLS = {
+   gpus: IS_MAIN_SITE ? '/gpus' : `${MAIN_SITE_URL}/gpus`,
+   playground: IS_MAIN_SITE ? '/playground' : `${MAIN_SITE_URL}/playground`,
+   docs: 'https://docs.hypercli.com',
++  partner: IS_MAIN_SITE ? '/partner' : `${MAIN_SITE_URL}/partner`,
++
+ 
+   // Console pages
+   console: `${CONSOLE_URL}/dashboard`,
+-- 
+2.50.0.windows.1
+

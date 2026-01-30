@@ -1,0 +1,350 @@
+---
+title: Renders
+description: SDK renders methods
+---
+
+## Flow Methods (Recommended)
+
+Simplified methods for common render tasks. These handle GPU selection, regions, and templates automatically.
+
+### Text to Image
+
+```python
+from hypercli import HyperCLI
+
+hyper = HyperCLI()
+
+# Qwen-Image (great for text in images)
+render = client.renders.text_to_image("a cat wearing sunglasses")
+
+# HiDream (highest quality)
+render = client.renders.text_to_image_hidream("a mystical forest at sunset")
+
+# With custom dimensions and webhook
+render = client.renders.text_to_image(
+    prompt="a landscape painting",
+    width=1920,
+    height=1080,
+    notify_url="https://myapp.com/webhook",
+)
+```
+
+### Text to Video
+
+```python
+render = client.renders.text_to_video("a cat walking through a garden")
+
+# With dimensions (must be multiples of 16)
+render = client.renders.text_to_video(
+    prompt="ocean waves at sunset",
+    width=832,
+    height=480,
+)
+```
+
+### Image to Video
+
+Animate a still image:
+
+```python
+# Upload image first
+image = client.files.upload("./character.png")
+
+render = client.renders.image_to_video(
+    prompt="the character is dancing",
+    image_url=image.url,
+)
+
+# With custom dimensions (maintains aspect ratio)
+render = client.renders.image_to_video(
+    prompt="the character is dancing",
+    image_url=image.url,
+    width=832,
+    height=480,
+    notify_url="https://myapp.com/webhook",
+)
+```
+
+### Speaking Video (Lip Sync)
+
+Generate lip-synced video from image and audio:
+
+```python
+face = client.files.upload("./face.png")
+audio = client.files.upload("./speech.wav")
+
+# HuMo (audio-driven lip sync)
+render = client.renders.speaking_video(
+    prompt="A person speaking to the camera",
+    image_url=face.url,
+    audio_url=audio.url,
+)
+
+# Wan 2.2 S2V (audio-driven, minute-level generation)
+render = client.renders.speaking_video_wan(
+    prompt="The person is singing a song",
+    image_url=face.url,
+    audio_url=audio.url,
+    width=832,
+    height=480,
+    notify_url="https://myapp.com/webhook",
+)
+```
+
+### Image Editing
+
+Edit or transform existing images:
+
+```python
+image = client.files.upload("./landscape.png")
+
+# HiDream E1 (single image editing)
+render = client.renders.image_edit(
+    prompt="make it look like winter with snow",
+    image_url=image.url,
+)
+```
+
+### Image Editing with Multiple References
+
+Use multiple reference images for style transfer:
+
+```python
+subject = client.files.upload("./subject.jpg")
+style1 = client.files.upload("./style_ref1.jpg")
+style2 = client.files.upload("./style_ref2.jpg")
+
+# Qwen multi-reference (up to 2 additional references)
+render = client.renders.image_edit_multi(
+    prompt="Apply the artistic style from the references",
+    image_url=subject.url,
+    ref_urls=[style1.url, style2.url],
+)
+```
+
+### First/Last Frame Video
+
+Generate video morphing between two images:
+
+```python
+start = client.files.upload("./start_frame.png")
+end = client.files.upload("./end_frame.png")
+
+render = client.renders.first_last_frame_video(
+    prompt="smooth transition from day to night",
+    start_image_url=start.url,
+    end_image_url=end.url,
+    width=832,
+    height=480,
+)
+```
+
+### Common Flow Parameters
+
+All flow methods support these optional parameters:
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `width` | int | Output width (video: must be multiple of 16) |
+| `height` | int | Output height (video: must be multiple of 16) |
+| `notify_url` | str | Webhook URL for completion notification |
+
+### Complete Example
+
+```python
+import time
+from hypercli import HyperCLI
+
+hyper = HyperCLI()
+
+# Upload assets
+face = client.files.upload("./face.png")
+audio = client.files.upload("./speech.wav")
+
+# Create render
+render = client.renders.speaking_video(
+    prompt="A person speaking naturally",
+    image_url=face.url,
+    audio_url=audio.url,
+)
+
+print(f"Render: {render.render_id}")
+
+# Poll for completion
+while render.state not in ("completed", "failed"):
+    status = client.renders.status(render.render_id)
+    print(f"State: {status.state}")
+    time.sleep(2)
+    render = client.renders.get(render.render_id)
+
+if render.result_url:
+    print(f"Result: {render.result_url}")
+else:
+    print(f"Error: {render.error}")
+```
+
+---
+
+## Advanced: Create Render
+
+```python
+from hypercli import HyperCLI
+
+hyper = HyperCLI()
+
+render = client.renders.create(
+    params={
+        "template": "hidream_i1_full",
+        "prompt": "a cat in space",
+        "gpu_type": "L40S",
+        "region": "kr",
+    },
+    render_type="comfyui",
+    notify_url="https://myapp.com/webhook",  # optional
+)
+
+print(f"Render: {render.render_id}")
+print(f"State: {render.state}")
+```
+
+### Create Parameters
+
+| Parameter | Type | Default | Description |
+|-----------|------|---------|-------------|
+| `params` | dict | required | Render parameters (see below) |
+| `render_type` | str | "comfyui" | Render type |
+| `notify_url` | str | None | Webhook URL for completion |
+
+### Params Object
+
+| Field | Type | Required | Description |
+|-------|------|----------|-------------|
+| `template` | str | Yes | Template name (e.g., `hidream_i1_full`) |
+| `prompt` | str | Yes | Text prompt |
+| `gpu_type` | str | No | GPU type (default: L40S) |
+| `region` | str | No | Region code (e.g., `kr`) |
+
+Additional parameters depend on the template. See [Templates](/render/templates).
+
+## List Renders
+
+```python
+renders = client.renders.list()
+renders = client.renders.list(state="completed")
+renders = client.renders.list(template="hidream_i1_full")
+
+for render in renders:
+    print(f"{render.render_id}: {render.state}")
+```
+
+### List Parameters
+
+| Parameter | Type | Description |
+|-----------|------|-------------|
+| `state` | str | Filter by state |
+| `template` | str | Filter by template |
+| `type` | str | Filter by render type |
+
+## Get Render
+
+```python
+render = client.renders.get("render_id")
+```
+
+### Render Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `render_id` | str | Render UUID |
+| `state` | str | `pending`, `running`, `completed`, `failed` |
+| `template` | str | Template name |
+| `render_type` | str | Render type (e.g., `comfyui`) |
+| `result_url` | str | Signed URL to output (when completed) |
+| `error` | str | Error message (when failed) |
+| `created_at` | float | Created timestamp |
+| `started_at` | float | Started timestamp |
+| `completed_at` | float | Completed timestamp |
+
+## Get Status
+
+Lightweight polling endpoint for checking render progress.
+
+```python
+status = client.renders.status("render_id")
+print(f"State: {status.state}")
+if status.progress:
+    print(f"Progress: {status.progress:.0%}")
+```
+
+### RenderStatus Object
+
+| Field | Type | Description |
+|-------|------|-------------|
+| `render_id` | str | Render UUID |
+| `state` | str | Current state |
+| `progress` | float | Progress (0.0-1.0), if available |
+
+## Cancel Render
+
+```python
+client.renders.cancel("render_id")
+```
+
+Only `pending` renders can be cancelled. Running renders must complete or timeout.
+
+## Polling Example
+
+```python
+import time
+from hypercli import HyperCLI
+
+hyper = HyperCLI()
+
+# Create render
+render = client.renders.create(
+    params={
+        "template": "hidream_i1_full",
+        "prompt": "a cat in space",
+    }
+)
+print(f"Created: {render.render_id}")
+
+# Poll until complete
+while True:
+    status = client.renders.status(render.render_id)
+    print(f"State: {status.state}")
+
+    if status.state in ("completed", "failed"):
+        break
+
+    time.sleep(2)
+
+# Get final result
+render = client.renders.get(render.render_id)
+if render.result_url:
+    print(f"Result: {render.result_url}")
+if render.error:
+    print(f"Error: {render.error}")
+```
+
+## Webhook Integration
+
+Set `notify_url` to receive a webhook when the render completes:
+
+```python
+render = client.renders.create(
+    params={"template": "hidream_i1_full", "prompt": "..."},
+    notify_url="https://myapp.com/api/render-complete",
+)
+```
+
+Webhook payload:
+
+```json
+{
+  "id": "render-uuid",
+  "status": "completed",
+  "result_url": "https://...",
+  "error": null
+}
+```

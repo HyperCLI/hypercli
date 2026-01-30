@@ -1,0 +1,55 @@
+---
+title: CLI Quickstart
+description: Get started with the HyperCLI CLI
+---
+
+## Install
+
+```bash
+pip install hypercli-cli
+```
+
+## Configure
+
+```bash
+hyper configure
+```
+
+## Check Balance
+
+```bash
+hyper billing balance
+```
+
+## Chat with LLM
+
+```bash
+# One-shot
+hyper llm chat deepseek-v3.1 "Hello!"
+
+# Interactive
+hyper llm chat deepseek-v3.1
+```
+
+## Create GPU Job
+
+```bash
+# Basic job
+hyper jobs create nvidia/cuda:12.0 -g l40s -c "nvidia-smi"
+
+# With live monitoring
+hyper jobs create nvidia/cuda:12.0 -g h100 -n 8 -c "torchrun train.py" -f
+```
+
+## Monitor Job
+
+```bash
+# Get logs
+hyper jobs logs <job_id>
+
+# Stream logs with TUI
+hyper jobs logs <job_id> -f
+
+# Watch GPU metrics
+hyper jobs metrics <job_id> -w
+```
