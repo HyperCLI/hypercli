@@ -11,10 +11,12 @@ from .comfyui import (
     expand_subgraphs,
     DEFAULT_OBJECT_INFO,
 )
+from .gradio import GradioJob
 
 __all__ = [
     "BaseJob",
     "ComfyUIJob",
+    "GradioJob",
     "apply_params",
     "apply_graph_modes",
     "find_node",
