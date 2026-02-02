@@ -60,6 +60,11 @@
   # Payment Configuration - LIVE
   NEXT_PUBLIC_STRIPE_PUBLISHABLE_KEY = "pk_live_51SSWmjQcZcim9HgToGFTGl2i2ujksoZxVxl6Hnsy9Py2cxo9IWZY0852aiFcKEe2rrcozuYkf1UUhDKJuoyRCeS600gouzMj9F"
 
+  # HyperClaw
+  NEXT_PUBLIC_CLAW_URL = "https://hyperclaw.app"
+  NEXT_PUBLIC_PRIVY_APP_ID = "cml5njpn701s2ky0cjd0y1vzq"
+  NEXT_PUBLIC_CLAW_API_URL = "https://api.hyperclaw.app"
+
 # Cache control headers for static assets
 [[headers]]
   for = "/*"

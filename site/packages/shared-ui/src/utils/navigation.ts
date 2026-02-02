@@ -9,6 +9,7 @@
 const MAIN_SITE_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL!;
 const CONSOLE_URL = process.env.NEXT_PUBLIC_CONSOLE_URL!;
 const CHAT_URL = process.env.NEXT_PUBLIC_CHAT_URL!;
+const CLAW_URL = process.env.NEXT_PUBLIC_CLAW_URL || '';
 const IS_MAIN_SITE = process.env.NEXT_PUBLIC_IS_MAIN_SITE === 'true';
 
 /**
@@ -41,6 +42,10 @@ export const NAV_URLS = {
 
   // Chat
   chat: CHAT_URL,
+
+  // HyperClaw
+  claw: CLAW_URL,
+  clawDashboard: `${CLAW_URL}/dashboard`,
 } as const;
 
 /**
