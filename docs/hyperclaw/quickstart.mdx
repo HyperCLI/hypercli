@@ -3,21 +3,50 @@ title: Quickstart
 description: Subscribe to HyperClaw and start making requests in minutes
 ---
 
-## 1. Create an Account
+## Option 1: CLI (Fastest)
+
+Subscribe with USDC via the HyperCLI:
+
+```bash
+# Install with wallet support
+pip install 'hypercli-cli[wallet]'
+
+# Create wallet
+hyper wallet create
+
+# Fund with USDC on Base (send to your wallet address)
+hyper wallet balance
+
+# Subscribe ($1-4/month)
+hyper claw subscribe 1aiu
+
+# Get your key
+hyper claw status
+```
+
+See [CLI commands](/cli/commands/claw) for details.
+
+## Option 2: Web Dashboard
+
+### 1. Create an Account
 
 Sign up at [hyperclaw.app](https://hyperclaw.app) with email or wallet.
 
-## 2. Subscribe to a Plan
+### 2. Subscribe to a Plan
 
 From the [plans page](https://hyperclaw.app/dashboard/plans), choose a plan and pay with credit card (Stripe) or USDC on Base.
 
 For CLI-based USDC payment, see the [x402 wallet guide](/hyperclaw/x402-wallet).
 
-## 3. Create an API Key
+### 3. Create an API Key
 
 Go to [API Keys](https://hyperclaw.app/dashboard/keys) and click **Create Key**. Copy the key immediately — it won't be shown again.
 
-## 4. Make a Request
+<Note>
+If you used the CLI, you already have a key saved at `~/.hypercli/claw-key.json`. Skip to step 4.
+</Note>
+
+## Make a Request
 
 ```bash
 export HYPERCLAW_API_KEY="sk-..."
@@ -48,14 +77,14 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-## 5. List Available Models
+## List Available Models
 
 ```bash
 curl https://api.hyperclaw.app/v1/models \
   -H "Authorization: Bearer $HYPERCLAW_API_KEY"
 ```
 
-## API Keys
+## API Keys (Dashboard Only)
 
 - Keys are scoped to your team
 - You can create multiple keys (e.g. one per agent or environment)
