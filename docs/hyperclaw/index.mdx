@@ -1,0 +1,63 @@
+---
+title: HyperClaw
+description: Flat-rate, OpenAI-compatible LLM inference for agents
+---
+
+## Overview
+
+HyperClaw is a flat-rate LLM inference API. Pay a fixed monthly subscription and get unlimited requests to any supported model through an OpenAI-compatible endpoint.
+
+**Base URL:** `https://api.hyperclaw.app/v1`
+
+## How It Works
+
+1. **Subscribe** to a plan on [hyperclaw.app](https://hyperclaw.app) via Stripe or USDC (x402)
+2. **Create an API key** from the [dashboard](https://hyperclaw.app/dashboard/keys)
+3. **Use the API** with any OpenAI-compatible client
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-...",
+    base_url="https://api.hyperclaw.app/v1"
+)
+
+response = client.chat.completions.create(
+    model="kimi-k2.5",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)
+```
+
+```bash
+curl https://api.hyperclaw.app/v1/chat/completions \
+  -H "Authorization: Bearer sk-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.5",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+## Payment Methods
+
+| Method | How |
+|--------|-----|
+| **Credit Card** | Stripe checkout from the dashboard |
+| **USDC (x402)** | Pay on Base via browser wallet or `x402-wallet` CLI |
+
+## Plans
+
+All plans include unlimited requests. Plans differ by rate limits (TPM/RPM) and concurrent agent capacity (AIU).
+
+Subscribe at [hyperclaw.app](https://hyperclaw.app/#pricing).
+
+## Rate Limits
+
+Each plan has per-team limits on:
+
+- **TPM** — tokens per minute
+- **RPM** — requests per minute
+
+Exceeding limits returns HTTP 429. Limits reset every minute.

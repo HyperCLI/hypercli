@@ -133,6 +133,19 @@
         ]
       },
       {
+        "tab": "HyperClaw",
+        "groups": [
+          {
+            "group": "HyperClaw",
+            "pages": [
+              "hyperclaw/index",
+              "hyperclaw/quickstart",
+              "hyperclaw/x402-wallet"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "API Reference",
         "groups": [
           {
