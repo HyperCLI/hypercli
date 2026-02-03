@@ -13,7 +13,7 @@ authors = [
     { name = "HyperCLI", email = "support@hypercli.com" }
 ]
 dependencies = [
-    "hypercli-sdk>=0.4.3",
+    "hypercli-sdk>=0.6.0",
     "openai>=2.8.1",
     "typer>=0.20.0",
     "rich>=14.2.0",
@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 comfyui = [
-    "hypercli-sdk[comfyui]>=0.4.3",
+    "hypercli-sdk[comfyui]>=0.6.0",
 ]
 wallet = [
     "x402[httpx]>=2.0.0",
@@ -32,7 +32,7 @@ wallet = [
     "argon2-cffi>=25.0.0",
 ]
 all = [
-    "hypercli-sdk[comfyui]>=0.4.3",
+    "hypercli-sdk[comfyui]>=0.6.0",
     "x402[httpx]>=2.0.0",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
