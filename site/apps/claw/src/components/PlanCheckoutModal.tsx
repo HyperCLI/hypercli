@@ -2,8 +2,9 @@
 
 import { useState } from "react";
 import { createPortal } from "react-dom";
-import { X, CreditCard, Coins, Copy, Check, AlertTriangle } from "lucide-react";
-import { clawFetch, CLAW_API_BASE } from "@/lib/api";
+import { X, CreditCard, Coins, Wallet } from "lucide-react";
+import { clawFetch } from "@/lib/api";
+import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
 
 interface Plan {
   id: string;
@@ -36,16 +37,15 @@ export function PlanCheckoutModal({
   const [processing, setProcessing] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [generatedKey, setGeneratedKey] = useState<string | null>(null);
-  const [keyCopied, setKeyCopied] = useState(false);
+  const [walletAddress, setWalletAddress] = useState<string | null>(
+    () => getWalletState()?.address ?? null
+  );
 
   const handleClose = () => {
     if (processing) return;
     setError(null);
     setSuccess(false);
     setMethod("card");
-    setGeneratedKey(null);
-    setKeyCopied(false);
     onClose();
   };
 
@@ -55,12 +55,11 @@ export function PlanCheckoutModal({
     try {
       const token = await getToken();
       const data = await clawFetch<{ checkout_url: string }>(
-        "/stripe/checkout",
+        `/stripe/checkout/${plan.id}`,
         token,
         {
           method: "POST",
           body: JSON.stringify({
-            plan_id: plan.id,
             success_url: `${window.location.origin}/dashboard/plans?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${window.location.origin}/dashboard/plans?cancelled=true`,
           }),
@@ -75,69 +74,68 @@ export function PlanCheckoutModal({
     }
   };
 
+  const handleConnectWallet = async () => {
+    setProcessing(true);
+    setError(null);
+    try {
+      const wallet = await connectWallet();
+      setWalletAddress(wallet.address);
+    } catch (err: any) {
+      setError(err.message || "Failed to connect wallet");
+    } finally {
+      setProcessing(false);
+    }
+  };
+
   const handleCrypto = async () => {
     setProcessing(true);
     setError(null);
     try {
       const token = await getToken();
-      const res = await clawFetch<{ ok?: boolean; plan_id?: string }>(
-        `/x402/${plan.id}`,
-        token,
-        { method: "POST" }
-      );
-
-      if (!res?.ok) {
-        // 402 or incomplete — x402 payment was not attached
-        setError(
-          "USDC payment requires an x402-compatible client. Use the CLI or SDK to subscribe with crypto."
-        );
-        return;
-      }
-
-      // Subscription activated — generate an API key
-      try {
-        const keyData = await clawFetch<{ key: string; key_alias: string }>(
-          "/keys",
-          token,
-          {
-            method: "POST",
-            body: JSON.stringify({ key_alias: `${plan.id}-key` }),
-          }
-        );
-        if (keyData?.key) {
-          setGeneratedKey(keyData.key);
-        }
-      } catch {
-        // Key generation optional — plan is still active
-      }
-
+      // connectWallet + x402 interceptor handles 402 → MetaMask sign → retry
+      await x402Subscribe(plan.id, token);
       setSuccess(true);
-      onSuccess();
-    } catch (err) {
-      setError(
-        err instanceof Error ? err.message : "Payment failed"
-      );
+      setTimeout(() => {
+        onSuccess();
+        handleClose();
+      }, 2000);
+    } catch (err: any) {
+      let msg = "Payment failed. Please try again.";
+      if (err.response?.data?.detail) {
+        msg =
+          typeof err.response.data.detail === "string"
+            ? err.response.data.detail
+            : JSON.stringify(err.response.data.detail);
+      } else if (err.message) {
+        msg = err.message;
+      }
+      setError(msg);
     } finally {
       setProcessing(false);
     }
   };
 
   const handleSubmit = () => {
-    if (method === "card") handleCard();
-    else handleCrypto();
-  };
-
-  const copyKey = async () => {
-    if (!generatedKey) return;
-    await navigator.clipboard.writeText(generatedKey);
-    setKeyCopied(true);
-    setTimeout(() => setKeyCopied(false), 2000);
+    if (method === "card") {
+      handleCard();
+    } else if (!walletAddress) {
+      handleConnectWallet();
+    } else {
+      handleCrypto();
+    }
   };
 
   if (!isOpen) return null;
 
   const fmtLimit = (n: number) =>
     n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
+
+  const buttonLabel = () => {
+    if (processing) return "Processing...";
+    if (method === "card") return `Pay $${plan.price} with Card`;
+    if (!walletAddress) return "Connect Wallet";
+    return `Pay $${plan.price} with USDC`;
+  };
 
   const modal = (
     <div
@@ -164,7 +162,7 @@ export function PlanCheckoutModal({
           </div>
 
           {success ? (
-            <div className="text-center py-6">
+            <div className="text-center py-8">
               <div className="w-16 h-16 bg-[#38D39F]/20 rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
                   className="w-8 h-8 text-primary"
@@ -183,39 +181,9 @@ export function PlanCheckoutModal({
               <h3 className="text-lg font-semibold text-foreground mb-2">
                 Subscription Active!
               </h3>
-              <p className="text-text-secondary mb-4">
+              <p className="text-text-secondary">
                 Your {plan.name} plan is now active.
               </p>
-
-              {generatedKey && (
-                <div className="mt-4 text-left">
-                  <div className="flex items-center gap-2 mb-2">
-                    <AlertTriangle className="w-4 h-4 text-amber-400" />
-                    <span className="text-sm font-medium text-amber-400">
-                      Save your API key now
-                    </span>
-                  </div>
-                  <p className="text-xs text-text-muted mb-3">
-                    This key will not be displayed again. Copy it and store it
-                    securely.
-                  </p>
-                  <div className="flex items-center gap-2 p-3 rounded-lg bg-surface-low border border-white/10 font-mono text-sm break-all">
-                    <span className="flex-1 text-foreground select-all">
-                      {generatedKey}
-                    </span>
-                    <button
-                      onClick={copyKey}
-                      className="flex-shrink-0 p-1.5 rounded hover:bg-white/10 transition-colors"
-                    >
-                      {keyCopied ? (
-                        <Check className="w-4 h-4 text-primary" />
-                      ) : (
-                        <Copy className="w-4 h-4 text-text-muted" />
-                      )}
-                    </button>
-                  </div>
-                </div>
-              )}
             </div>
           ) : (
             <>
@@ -279,15 +247,28 @@ export function PlanCheckoutModal({
                 </div>
               </div>
 
-              {/* Crypto info */}
+              {/* Crypto wallet status */}
               {method === "crypto" && (
-                <div className="mb-4 p-3 rounded-lg bg-surface-low/50 border border-white/5 text-sm text-text-secondary">
-                  <p className="mb-1">
-                    Pay <span className="text-foreground font-medium">${plan.price} USDC</span> on Base via the x402 protocol.
-                  </p>
-                  <p className="text-xs text-text-muted">
-                    Your wallet key will not be stored anywhere on our servers.
-                  </p>
+                <div className="mb-4 p-3 rounded-lg bg-surface-low/50 border border-white/5 text-sm">
+                  {walletAddress ? (
+                    <div className="flex items-center gap-2 text-text-secondary">
+                      <Wallet className="w-4 h-4 text-primary" />
+                      <span className="font-mono text-xs">
+                        {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
+                      </span>
+                      <span className="text-text-muted ml-auto">
+                        ${plan.price} USDC on Base
+                      </span>
+                    </div>
+                  ) : (
+                    <p className="text-text-muted">
+                      Connect your wallet to pay{" "}
+                      <span className="text-foreground font-medium">
+                        ${plan.price} USDC
+                      </span>{" "}
+                      on Base.
+                    </p>
+                  )}
                 </div>
               )}
 
@@ -304,9 +285,7 @@ export function PlanCheckoutModal({
                 disabled={processing}
                 className="w-full py-3 rounded-lg text-sm font-semibold btn-primary disabled:opacity-50"
               >
-                {processing
-                  ? "Processing..."
-                  : `Pay $${plan.price} with ${method === "card" ? "Card" : "USDC"}`}
+                {buttonLabel()}
               </button>
             </>
           )}

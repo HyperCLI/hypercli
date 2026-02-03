@@ -1,17 +1,12 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Key, Plus, Copy, Check, Ban, Play } from "lucide-react";
+import { Key, Plus, Copy, Check, Ban, Pencil, X } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch } from "@/lib/api";
 
 interface ApiKey {
-  token: string;
-  key_alias: string;
-  key_name: string;
-  blocked: boolean;
-  created_at: string;
-  last_used?: string;
+  [k: string]: unknown;
 }
 
 export default function KeysPage() {
@@ -29,13 +24,17 @@ export default function KeysPage() {
   const [createdKey, setCreatedKey] = useState<string | null>(null);
   const [copied, setCopied] = useState(false);
 
+  // Edit state
+  const [editingToken, setEditingToken] = useState<string | null>(null);
+  const [editName, setEditName] = useState("");
+  const [saving, setSaving] = useState(false);
+
   const fetchKeys = useCallback(async () => {
     try {
       const token = await getToken();
       const data = await clawFetch<{ keys: ApiKey[] }>("/keys", token);
       setKeys(data.keys || []);
     } catch {
-      // Backend may be stubbed
       setKeys([]);
     } finally {
       setLoading(false);
@@ -58,7 +57,7 @@ export default function KeysPage() {
         token,
         {
           method: "POST",
-          body: JSON.stringify({ key_alias: newKeyName.trim() }),
+          body: JSON.stringify({ name: newKeyName.trim() }),
         }
       );
       setCreatedKey(data.key);
@@ -72,14 +71,35 @@ export default function KeysPage() {
     }
   };
 
-  const handleToggleKey = async (keyRef: string, blocked: boolean) => {
+  const handleDisableKey = async (keyRef: string) => {
     try {
       const token = await getToken();
-      const action = blocked ? "enable" : "disable";
-      await clawFetch(`/keys/${keyRef}/${action}`, token, { method: "POST" });
+      await clawFetch(`/keys/${keyRef}/disable`, token, { method: "POST" });
+      fetchKeys();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disable key");
+    }
+  };
+
+  const handleSaveName = async (keyRef: string, currentMeta: Record<string, unknown>) => {
+    if (!editName.trim()) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      await clawFetch(`/keys/${keyRef}`, token, {
+        method: "PUT",
+        body: JSON.stringify({
+          metadata: { ...currentMeta, name: editName.trim() },
+        }),
+      });
+      setEditingToken(null);
+      setEditName("");
       fetchKeys();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to update key");
+    } finally {
+      setSaving(false);
     }
   };
 
@@ -173,48 +193,95 @@ export default function KeysPage() {
               </tr>
             </thead>
             <tbody className="divide-y divide-border">
-              {keys.map((key) => (
-                <tr key={key.token} className="hover:bg-surface-low/50">
-                  <td className="px-6 py-4 text-sm text-foreground">
-                    {key.key_alias || key.key_name || "Unnamed"}
-                  </td>
-                  <td className="px-6 py-4 text-sm text-text-muted font-mono">
-                    {key.token.slice(0, 8)}...{key.token.slice(-4)}
-                  </td>
-                  <td className="px-6 py-4">
-                    <span
-                      className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
-                        key.blocked
-                          ? "bg-[#d05f5f]/10 text-[#d05f5f]"
-                          : "bg-[#38D39F]/10 text-primary"
-                      }`}
-                    >
-                      {key.blocked ? "Disabled" : "Active"}
-                    </span>
-                  </td>
-                  <td className="px-6 py-4 text-sm text-text-muted">
-                    {new Date(key.created_at).toLocaleDateString()}
-                  </td>
-                  <td className="px-6 py-4 text-right">
-                    <button
-                      onClick={() =>
-                        handleToggleKey(key.token, key.blocked)
-                      }
-                      className="text-sm text-text-tertiary hover:text-foreground transition-colors inline-flex items-center gap-1"
-                    >
-                      {key.blocked ? (
-                        <>
-                          <Play className="w-3 h-3" /> Enable
-                        </>
+              {keys.map((key, i) => {
+                const meta = (key.metadata as Record<string, unknown>) || {};
+                const name = String(meta.name || key.key_alias || "Unnamed");
+                const keyName = String(key.key_name || "—");
+                const blocked = !!key.blocked;
+                const token = key.token as string | undefined;
+                const createdAt = key.created_at as string | undefined;
+                const isEditing = !!token && editingToken === token;
+
+                return (
+                  <tr key={token || i} className="hover:bg-surface-low/50">
+                    <td className="px-6 py-4 text-sm text-foreground">
+                      {isEditing ? (
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={editName}
+                            onChange={(e) => setEditName(e.target.value)}
+                            onKeyDown={(e) => {
+                              if (e.key === "Enter" && token) handleSaveName(token, meta);
+                              if (e.key === "Escape") { setEditingToken(null); setEditName(""); }
+                            }}
+                            className="px-2 py-1 rounded bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-primary"
+                            autoFocus
+                            disabled={saving}
+                          />
+                          <button
+                            onClick={() => token && handleSaveName(token, meta)}
+                            disabled={saving || !editName.trim()}
+                            className="text-primary hover:text-primary/80 disabled:opacity-50"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                          <button
+                            onClick={() => { setEditingToken(null); setEditName(""); }}
+                            className="text-text-muted hover:text-foreground"
+                          >
+                            <X className="w-4 h-4" />
+                          </button>
+                        </div>
                       ) : (
-                        <>
-                          <Ban className="w-3 h-3" /> Disable
-                        </>
+                        name
                       )}
-                    </button>
-                  </td>
-                </tr>
-              ))}
+                    </td>
+                    <td className="px-6 py-4 text-sm text-text-muted font-mono">
+                      {keyName}
+                    </td>
+                    <td className="px-6 py-4">
+                      <span
+                        className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
+                          blocked
+                            ? "bg-[#d05f5f]/10 text-[#d05f5f]"
+                            : "bg-[#38D39F]/10 text-primary"
+                        }`}
+                      >
+                        {blocked ? "Disabled" : "Active"}
+                      </span>
+                    </td>
+                    <td className="px-6 py-4 text-sm text-text-muted">
+                      {createdAt
+                        ? new Date(createdAt).toLocaleDateString()
+                        : "—"}
+                    </td>
+                    <td className="px-6 py-4 text-right">
+                      {token && (
+                        <div className="inline-flex items-center gap-3">
+                          <button
+                            onClick={() => {
+                              setEditingToken(token);
+                              setEditName(name === "Unnamed" ? "" : name);
+                            }}
+                            className="text-sm text-text-tertiary hover:text-foreground transition-colors inline-flex items-center gap-1"
+                          >
+                            <Pencil className="w-3 h-3" /> Edit
+                          </button>
+                          {!blocked && (
+                            <button
+                              onClick={() => handleDisableKey(token)}
+                              className="text-sm text-text-tertiary hover:text-[#d05f5f] transition-colors inline-flex items-center gap-1"
+                            >
+                              <Ban className="w-3 h-3" /> Revoke
+                            </button>
+                          )}
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                );
+              })}
             </tbody>
           </table>
         )}
