@@ -116,12 +116,14 @@
             "group": "Commands",
             "pages": [
               "cli/commands/billing",
+              "cli/commands/claw",
               "cli/commands/comfyui",
               "cli/commands/instances",
               "cli/commands/jobs",
               "cli/commands/llm",
               "cli/commands/renders",
-              "cli/commands/user"
+              "cli/commands/user",
+              "cli/commands/wallet"
             ]
           },
           {

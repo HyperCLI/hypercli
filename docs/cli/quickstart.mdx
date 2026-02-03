@@ -53,3 +53,39 @@ hyper jobs logs <job_id> -f
 # Watch GPU metrics
 hyper jobs metrics <job_id> -w
 ```
+
+## HyperClaw Inference (Optional)
+
+Subscribe to HyperClaw for serverless LLM inference with crypto payments.
+
+<Note>
+Requires wallet support:
+```bash
+pip install 'hypercli-cli[wallet]'
+```
+</Note>
+
+**1. Create Wallet:**
+```bash
+hyper wallet create
+```
+
+**2. Fund with USDC on Base:**
+```bash
+hyper wallet address  # Get address
+hyper wallet balance  # Check balance
+```
+
+**3. Subscribe:**
+```bash
+hyper claw plans                # View plans
+hyper claw subscribe 1aiu      # Subscribe for $1/month
+hyper claw status              # Check subscription
+```
+
+**4. Configure OpenClaw:**
+```bash
+hyper claw openclaw-setup      # Show config instructions
+```
+
+See [HyperClaw Commands](/cli/commands/claw) for details.

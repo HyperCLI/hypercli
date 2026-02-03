@@ -1,0 +1,149 @@
+---
+title: hyper wallet
+description: Manage your Ethereum wallet for x402 crypto payments
+---
+
+## Overview
+
+The `hyper wallet` commands manage an encrypted Ethereum wallet for paying with USDC on Base. This is required for:
+- **HyperClaw subscriptions** via `hyper claw subscribe`
+- **HyperCLI top-ups** via `hyper topup` (coming soon)
+
+<Note>
+Wallet commands require the `[wallet]` optional dependency:
+```bash
+pip install 'hypercli-cli[wallet]'
+```
+</Note>
+
+## Commands
+
+### create
+
+Generate a new wallet with an encrypted keystore.
+
+```bash
+hyper wallet create
+```
+
+**Interactive prompts:**
+- Passphrase (entered twice for confirmation)
+- Or set `HYPERCLI_WALLET_PASSPHRASE` env var to skip prompts
+
+**Output:**
+- Encrypted keystore at `~/.hypercli/wallet.json`
+- Wallet address displayed
+- Reminder to fund with USDC on Base
+
+**Example:**
+```bash
+$ hyper wallet create
+
+Creating new Ethereum wallet...
+
+✓ Wallet address: 0x5D4631C26CFA3Ef9E25351d3E8E810737fed8f54
+Set keystore passphrase: ****
+Confirm passphrase: ****
+
+✓ Keystore saved to /home/user/.hypercli/wallet.json
+✓ Address: 0x5D4631C26CFA3Ef9E25351d3E8E810737fed8f54
+
+⚠️  Fund this address with USDC on Base to use for payments!
+```
+
+### address
+
+Show your wallet address (no unlock required).
+
+```bash
+hyper wallet address
+```
+
+**Example:**
+```bash
+$ hyper wallet address
+
+Wallet address: 0x5D4631C26CFA3Ef9E25351d3E8E810737fed8f54
+```
+
+### balance
+
+Check USDC balance on Base mainnet.
+
+```bash
+hyper wallet balance
+```
+
+**Requirements:**
+- Unlocks wallet (prompts for passphrase)
+- Connects to Base RPC to query USDC contract
+
+**Example:**
+```bash
+$ hyper wallet balance
+
+Checking USDC balance on Base...
+
+Wallet: 0x5D4631C26CFA3Ef9E25351d3E8E810737fed8f54
+USDC Balance: 5.000000
+
+✓ You have 5.00 USDC
+```
+
+## Security
+
+**Keystore Encryption:**
+- Uses standard Ethereum keystore format
+- Encrypted with scrypt KDF + AES-128-CTR
+- Private key never stored in plaintext
+
+**File Permissions:**
+- `~/.hypercli/wallet.json` created with `0600` (owner read/write only)
+
+**Environment Variable (Optional):**
+```bash
+export HYPERCLI_WALLET_PASSPHRASE="your-secure-passphrase"
+hyper wallet balance  # No prompt
+```
+
+<Warning>
+Never share your wallet passphrase or keystore file. Backup `wallet.json` securely if storing significant funds.
+</Warning>
+
+## Funding Your Wallet
+
+To use your wallet for payments, send USDC to your wallet address on **Base mainnet**.
+
+**Options:**
+1. **Bridge from another chain** - [bridge.base.org](https://bridge.base.org)
+2. **Buy on an exchange** - Withdraw USDC to Base
+3. **Transfer from another wallet** - Send on Base network
+
+**Contract Address:**
+- USDC on Base: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`
+
+**RPC:**
+- Base mainnet: `https://mainnet.base.org`
+
+<Note>
+The x402 payment protocol uses EIP-3009 gasless transfers, so you only need USDC (no ETH for gas required).
+</Note>
+
+## Troubleshooting
+
+**"No module named 'wallet'"**
+- Install wallet dependencies: `pip install 'hypercli-cli[wallet]'`
+
+**"Failed to unlock wallet"**
+- Check your passphrase
+- Try setting `HYPERCLI_WALLET_PASSPHRASE` env var
+
+**"No USDC!"**
+- Fund your wallet address with USDC on Base
+- Check you're sending to the correct network (Base, not Ethereum mainnet)
+
+## Next Steps
+
+Once funded, use your wallet to:
+- [Subscribe to HyperClaw](/cli/commands/claw)
+- Top up HyperCLI balance (coming soon)
