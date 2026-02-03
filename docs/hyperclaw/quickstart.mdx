@@ -1,0 +1,63 @@
+---
+title: Quickstart
+description: Subscribe to HyperClaw and start making requests in minutes
+---
+
+## 1. Create an Account
+
+Sign up at [hyperclaw.app](https://hyperclaw.app) with email or wallet.
+
+## 2. Subscribe to a Plan
+
+From the [plans page](https://hyperclaw.app/dashboard/plans), choose a plan and pay with credit card (Stripe) or USDC on Base.
+
+For CLI-based USDC payment, see the [x402 wallet guide](/hyperclaw/x402-wallet).
+
+## 3. Create an API Key
+
+Go to [API Keys](https://hyperclaw.app/dashboard/keys) and click **Create Key**. Copy the key immediately — it won't be shown again.
+
+## 4. Make a Request
+
+```bash
+export HYPERCLAW_API_KEY="sk-..."
+
+curl https://api.hyperclaw.app/v1/chat/completions \
+  -H "Authorization: Bearer $HYPERCLAW_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.5",
+    "messages": [{"role": "user", "content": "What is x402?"}]
+  }'
+```
+
+Or with Python:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-...",
+    base_url="https://api.hyperclaw.app/v1"
+)
+
+response = client.chat.completions.create(
+    model="kimi-k2.5",
+    messages=[{"role": "user", "content": "What is x402?"}]
+)
+print(response.choices[0].message.content)
+```
+
+## 5. List Available Models
+
+```bash
+curl https://api.hyperclaw.app/v1/models \
+  -H "Authorization: Bearer $HYPERCLAW_API_KEY"
+```
+
+## API Keys
+
+- Keys are scoped to your team
+- You can create multiple keys (e.g. one per agent or environment)
+- Revoking a key is permanent — revoked keys cannot be re-enabled
+- Rename keys from the dashboard to keep track of what's what
