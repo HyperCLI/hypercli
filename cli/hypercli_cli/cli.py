@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import billing, comfyui, flow, instances, jobs, llm, renders, user
+from . import billing, claw, comfyui, flow, instances, jobs, llm, renders, user, wallet
 
 console = Console()
 
@@ -57,6 +57,7 @@ app = typer.Typer(
 
 # Register subcommands
 app.add_typer(billing.app, name="billing")
+app.add_typer(claw.app, name="claw")
 app.add_typer(comfyui.app, name="comfyui")
 app.add_typer(flow.app, name="flow")
 app.add_typer(instances.app, name="instances")
@@ -64,6 +65,7 @@ app.add_typer(jobs.app, name="jobs")
 app.add_typer(llm.app, name="llm")
 app.add_typer(renders.app, name="renders")
 app.add_typer(user.app, name="user")
+app.add_typer(wallet.app, name="wallet")
 
 
 @app.command("configure")
