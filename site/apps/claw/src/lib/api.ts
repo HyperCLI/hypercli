@@ -90,10 +90,6 @@ export async function clawFetch<T>(
   });
 
   if (!response.ok) {
-    // x402 payment-required responses are protocol-level, not real errors
-    if (response.status === 402) {
-      return {} as T;
-    }
     const errorText = await response.text();
     throw new Error(`API error: ${response.status} - ${errorText}`);
   }
