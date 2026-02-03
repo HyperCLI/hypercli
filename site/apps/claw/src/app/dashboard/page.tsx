@@ -7,11 +7,13 @@ import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch } from "@/lib/api";
 
 interface PlanInfo {
-  plan_id: string;
+  id: string;
   name: string;
+  price: number;
   aiu: number;
   tpm_limit: number;
   rpm_limit: number;
+  features: string[];
   expires_at: string | null;
 }
 

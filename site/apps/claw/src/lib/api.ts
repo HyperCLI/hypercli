@@ -32,12 +32,12 @@ export function isTokenExpired(token: string): boolean {
 
 // Exchange Privy access token for HyperClaw app JWT
 export async function exchangeToken(privyToken: string): Promise<string> {
-  const response = await fetch(`${CLAW_API_BASE}/auth/privy/login`, {
+  const response = await fetch(`${CLAW_API_BASE}/auth/login`, {
     method: "POST",
     headers: {
-      Authorization: `Bearer ${privyToken}`,
       "Content-Type": "application/json",
     },
+    body: JSON.stringify({ privy_token: privyToken }),
   });
 
   if (!response.ok) {
@@ -45,10 +45,10 @@ export async function exchangeToken(privyToken: string): Promise<string> {
     throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
   }
 
-  const data: { access_token: string; token_type: string } =
+  const data: { app_token: string; user_id: string; team_id: string } =
     await response.json();
-  setStoredToken(data.access_token);
-  return data.access_token;
+  setStoredToken(data.app_token);
+  return data.app_token;
 }
 
 // Get valid app token (from storage or exchange new one)
@@ -90,6 +90,10 @@ export async function clawFetch<T>(
   });
 
   if (!response.ok) {
+    // x402 payment-required responses are protocol-level, not real errors
+    if (response.status === 402) {
+      return {} as T;
+    }
     const errorText = await response.text();
     throw new Error(`API error: ${response.status} - ${errorText}`);
   }
