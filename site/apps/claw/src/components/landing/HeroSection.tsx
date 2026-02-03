@@ -41,7 +41,7 @@ export function HeroSection() {
   return (
     <section
       ref={sectionRef}
-      className="relative min-h-screen flex items-center justify-center px-4 sm:px-6 lg:px-8 overflow-hidden"
+      className="relative min-h-screen flex items-center justify-center pt-20 px-4 sm:px-6 lg:px-8 overflow-hidden"
     >
       {/* Grain texture */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
