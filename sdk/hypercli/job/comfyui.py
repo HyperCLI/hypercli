@@ -389,7 +389,7 @@ def apply_params(workflow: dict, **params) -> dict:
             "EmptySD3LatentImage", "EmptyFlux2LatentImage", "EmptyLatentImage",
             # Video
             "EmptyHunyuanLatentVideo", "EmptyMochiLatentVideo", "EmptyLTXVLatentVideo",
-            "WanImageToVideo", "WanStartEndFrames",
+            "WanImageToVideo", "WanStartEndFrames", "WanHuMoImageToVideo",
         ]
         node_id, node = find_first(latent_types)
         if node:

@@ -196,7 +196,8 @@ class Renders:
     def image_to_video(
         self,
         prompt: str,
-        image_url: str,
+        image_url: str = None,
+        file_ids: List[str] = None,
         negative: str = None,
         width: int = None,
         height: int = None,
@@ -207,33 +208,42 @@ class Renders:
         Args:
             prompt: Description of the motion/animation
             image_url: URL of the image to animate
+            file_ids: Pre-uploaded file IDs [image_id]
             negative: Optional negative prompt (things to avoid)
             width: Optional video width
             height: Optional video height
             notify_url: Optional webhook URL for completion notification
 
         Example:
-            render = client.renders.image_to_video("dancing", "https://example.com/img.png", width=832, height=480)
+            render = client.renders.image_to_video("dancing", image_url="https://example.com/img.png")
         """
-        return self._flow("/api/flow/image-to-video", prompt=prompt, image_url=image_url, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self._flow("/api/flow/image-to-video", prompt=prompt, image_url=image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def speaking_video(
         self,
         prompt: str,
-        image_url: str,
-        audio_url: str,
+        image_url: str = None,
+        audio_url: str = None,
+        file_ids: List[str] = None,
         negative: str = None,
+        length: int = None,
         width: int = None,
         height: int = None,
         notify_url: str = None,
     ) -> Render:
         """Generate a lip-sync video using HuMo.
 
+        Provide inputs as URLs or pre-uploaded file IDs:
+        - URLs: image_url + audio_url
+        - File IDs: file_ids=[image_file_id, audio_file_id]
+
         Args:
             prompt: Description of the scene/character
             image_url: URL of the face/character image
             audio_url: URL of the audio/speech file
+            file_ids: Pre-uploaded file IDs [image_id, audio_id]
             negative: Optional negative prompt (things to avoid)
+            length: Video length in frames at 25fps (calculated from audio duration)
             width: Optional video width
             height: Optional video height
             notify_url: Optional webhook URL for completion notification
@@ -241,11 +251,11 @@ class Renders:
         Example:
             render = client.renders.speaking_video(
                 "A person talking to camera",
-                "https://example.com/face.png",
-                "https://example.com/speech.mp3"
+                image_url="https://example.com/face.png",
+                audio_url="https://example.com/speech.mp3"
             )
         """
-        return self._flow("/api/flow/speaking-video", prompt=prompt, image_url=image_url, audio_url=audio_url, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self._flow("/api/flow/speaking-video", prompt=prompt, image_url=image_url, audio_url=audio_url, file_ids=file_ids, negative=negative, length=length, width=width, height=height, notify_url=notify_url)
 
     def speaking_video_wan(
         self,
@@ -280,7 +290,8 @@ class Renders:
     def image_to_image(
         self,
         prompt: str,
-        image_urls: List[str],
+        image_urls: List[str] = None,
+        file_ids: List[str] = None,
         negative: str = None,
         width: int = None,
         height: int = None,
@@ -291,6 +302,7 @@ class Renders:
         Args:
             prompt: Description of the transformation
             image_urls: List of 1-3 image URLs (first is main, others are references)
+            file_ids: Pre-uploaded file IDs [main_id, ref1_id, ref2_id]
             negative: Optional negative prompt (things to avoid)
             width: Optional output width
             height: Optional output height
@@ -299,20 +311,17 @@ class Renders:
         Example:
             render = client.renders.image_to_image(
                 "Apply the artistic style from the references",
-                [
-                    "https://example.com/subject.jpg",
-                    "https://example.com/style1.jpg",
-                    "https://example.com/style2.jpg",
-                ]
+                image_urls=["https://example.com/subject.jpg", "https://example.com/style.jpg"]
             )
         """
-        return self._flow("/api/flow/image-to-image", prompt=prompt, image_urls=image_urls, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self._flow("/api/flow/image-to-image", prompt=prompt, image_urls=image_urls, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def first_last_frame_video(
         self,
         prompt: str,
-        start_image_url: str,
-        end_image_url: str,
+        start_image_url: str = None,
+        end_image_url: str = None,
+        file_ids: List[str] = None,
         negative: str = None,
         width: int = None,
         height: int = None,
@@ -324,6 +333,7 @@ class Renders:
             prompt: Description of the transition/motion
             start_image_url: URL of the starting frame
             end_image_url: URL of the ending frame
+            file_ids: Pre-uploaded file IDs [start_image_id, end_image_id]
             negative: Optional negative prompt (things to avoid)
             width: Optional video width
             height: Optional video height
@@ -332,21 +342,27 @@ class Renders:
         Example:
             render = client.renders.first_last_frame_video(
                 "smooth transition from day to night",
-                "https://example.com/day.png",
-                "https://example.com/night.png"
+                start_image_url="https://example.com/day.png",
+                end_image_url="https://example.com/night.png"
             )
         """
-        return self._flow("/api/flow/first-last-frame-video", prompt=prompt, start_image_url=start_image_url, end_image_url=end_image_url, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self._flow("/api/flow/first-last-frame-video", prompt=prompt, start_image_url=start_image_url, end_image_url=end_image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def audio_to_text(
         self,
-        audio_url: str,
+        audio_url: str = None,
+        file_ids: List[str] = None,
         notify_url: str = None,
     ) -> Render:
         """Transcribe audio/video to text using WhisperX.
 
+        Provide input as a URL or pre-uploaded file ID:
+        - URL: audio_url="https://..."
+        - File ID: file_ids=["audio_file_id"]
+
         Args:
             audio_url: URL of the audio or video file to transcribe
+            file_ids: Pre-uploaded file IDs [audio_id]
             notify_url: Optional webhook URL for completion notification
 
         Returns:
@@ -355,5 +371,64 @@ class Renders:
 
         Example:
             render = client.renders.audio_to_text("https://example.com/recording.mp3")
+            render = client.renders.audio_to_text(file_ids=["abc123"])
         """
-        return self._flow("/api/flow/audio-to-text", audio_url=audio_url, notify_url=notify_url)
+        return self._flow("/api/flow/audio-to-text", audio_url=audio_url, file_ids=file_ids, notify_url=notify_url)
+
+    def text_to_speech(
+        self,
+        text: str,
+        mode: str = "custom",
+        language: str = "Auto",
+        speaker: str = None,
+        style: str = None,
+        model_size: str = None,
+        voice_description: str = None,
+        ref_audio_url: str = None,
+        file_ids: List[str] = None,
+        ref_text: str = None,
+        use_xvector_only: bool = None,
+        notify_url: str = None,
+    ) -> Render:
+        """Generate speech from text using Qwen3-TTS.
+
+        Three modes:
+        - "custom": Predefined speakers with optional style instructions
+        - "design": Describe any voice in natural language
+        - "clone": Clone a voice from reference audio
+
+        Args:
+            text: Text to synthesize
+            mode: TTS mode ("custom", "design", or "clone")
+            language: Language (Auto, English, Chinese, Japanese, Korean, etc.)
+            speaker: Speaker name for custom mode (Ryan, Serena, etc.)
+            style: Style instruction for custom mode (e.g. "Speak cheerfully")
+            model_size: Model size ("0.6B" or "1.7B")
+            voice_description: Voice description for design mode
+            ref_audio_url: Reference audio URL for clone mode
+            ref_text: Transcript of reference audio for clone mode
+            use_xvector_only: Use x-vector only for clone mode
+            notify_url: Optional webhook URL for completion notification
+
+        Returns:
+            Render object. When completed, result_url points to the WAV audio file.
+
+        Example:
+            render = client.renders.text_to_speech("Hello!", mode="design",
+                voice_description="A young Indian male, enthusiastic")
+        """
+        return self._flow(
+            "/api/flow/text-to-speech",
+            text=text,
+            mode=mode,
+            language=language,
+            speaker=speaker,
+            style=style,
+            model_size=model_size,
+            voice_description=voice_description,
+            ref_audio_url=ref_audio_url,
+            file_ids=file_ids,
+            ref_text=ref_text,
+            use_xvector_only=use_xvector_only,
+            notify_url=notify_url,
+        )
