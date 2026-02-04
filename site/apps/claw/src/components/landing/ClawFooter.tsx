@@ -9,7 +9,6 @@ const footerLinks = {
   ],
   Company: [
     { label: "HyperCLI", href: "https://hypercli.com" },
-    { label: "Blog", href: "https://hypercli.com/blog" },
     { label: "Contact", href: "mailto:support@hypercli.com" },
   ],
   Legal: [
