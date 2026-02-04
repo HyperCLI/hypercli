@@ -4,8 +4,8 @@ const footerLinks = {
   Product: [
     { label: "Features", href: "#features" },
     { label: "Pricing", href: "#pricing" },
-    { label: "Documentation", href: "https://docs.hypercli.com" },
-    { label: "API Reference", href: "https://docs.hypercli.com/api" },
+    { label: "Documentation", href: "https://docs.hypercli.com/hyperclaw" },
+    { label: "API Reference", href: "https://docs.hypercli.com/hyperclaw" },
   ],
   Company: [
     { label: "HyperCLI", href: "https://hypercli.com" },
@@ -13,8 +13,8 @@ const footerLinks = {
     { label: "Contact", href: "mailto:support@hypercli.com" },
   ],
   Legal: [
-    { label: "Privacy Policy", href: "https://hypercli.com/privacy" },
-    { label: "Terms of Service", href: "https://hypercli.com/terms" },
+    { label: "Privacy Policy", href: "/privacy" },
+    { label: "Terms of Service", href: "/terms" },
   ],
 };
 
