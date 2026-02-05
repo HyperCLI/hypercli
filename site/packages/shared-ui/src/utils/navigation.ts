@@ -25,12 +25,16 @@ export const NAV_URLS = {
   gpus: IS_MAIN_SITE ? '/gpus' : `${MAIN_SITE_URL}/gpus`,
   playground: IS_MAIN_SITE ? '/playground' : `${MAIN_SITE_URL}/playground`,
   docs: 'https://docs.hypercli.com',
+  apiReference: 'https://docs.hypercli.com/api-reference/introduction',
   partner: IS_MAIN_SITE ? '/partner' : `${MAIN_SITE_URL}/partner`,
   enterprise: IS_MAIN_SITE ? '/enterprise' : `${MAIN_SITE_URL}/enterprise`,
   dataCenter: IS_MAIN_SITE ? '/data-center' : `${MAIN_SITE_URL}/data-center`,
   // Architecture & Security page
   architecture: IS_MAIN_SITE ? '/architecture' : `${MAIN_SITE_URL}/architecture`,
 
+  // Legal pages
+  privacy: IS_MAIN_SITE ? '/privacy' : `${MAIN_SITE_URL}/privacy`,
+  terms: IS_MAIN_SITE ? '/terms' : `${MAIN_SITE_URL}/terms`,
 
   // Console pages
   console: `${CONSOLE_URL}/dashboard`,
