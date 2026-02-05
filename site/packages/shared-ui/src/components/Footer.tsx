@@ -47,46 +47,46 @@ export default function Footer() {
               <h3 className="text-foreground mb-4">Product</h3>
               <ul className="space-y-3">
                 <li>
-                    <Link href={NAV_URLS.home} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                    <Link href={NAV_URLS.console} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                       Deployments
                     </Link>
                 </li>
-                <li>
+                {/* <li>
                   <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Fine-Tuning
                   </Link>
-                </li>
+                </li> */}
                 <li>
-                  <Link href={NAV_URLS.docs} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link href={NAV_URLS.apiReference} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     API Reference
                   </Link>
                 </li>
-                <li>
+                {/* <li>
                   <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Pricing
                   </Link>
-                </li>
+                </li> */}
               </ul>
             </div>
 
             <div>
               <h3 className="text-foreground mb-4">Company</h3>
               <ul className="space-y-3">
-                <li>
+                {/* <li>
                   <Link href={NAV_URLS.home} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     About
                   </Link>
-                </li>
-                <li>
+                </li> */}
+                {/* <li>
                   <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Blog
                   </Link>
-                </li>
-                <li>
+                </li> */}
+                {/* <li>
                   <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Careers
                   </Link>
-                </li>
+                </li> */}
                 <li>
                   <Link href={NAV_URLS.architecture} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Architecture and Security
@@ -108,21 +108,21 @@ export default function Footer() {
                     Documentation
                   </Link>
                 </li>
-                <li>
+                {/* <li>
                   <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Guides
                   </Link>
-                </li>
+                </li> */}
                 <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <button onClick={() => setIsContactModalOpen(true)} className="text-sm text-muted-foreground hover:text-foreground transition-colors cursor-pointer">
                     Support
-                  </Link>
+                  </button>
                 </li>
-                <li>
+                {/* <li>
                   <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Status
                   </Link>
-                </li>
+                </li> */}
               </ul>
             </div>
 
@@ -151,17 +151,17 @@ export default function Footer() {
               <h3 className="text-foreground mb-4">Legal</h3>
               <ul className="space-y-3">
                 <li>
-                  <Link href={NAV_URLS.home} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link href={NAV_URLS.privacy} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Privacy
                   </Link>
                 </li>
                 <li>
-                  <Link href={NAV_URLS.home} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link href={NAV_URLS.terms} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Terms
                   </Link>
                 </li>
                 <li>
-                  <Link href="#" className="text-sm text-muted-foreground hover:text-foreground transition-colors">
+                  <Link href={NAV_URLS.architecture} className="text-sm text-muted-foreground hover:text-foreground transition-colors">
                     Security
                   </Link>
                 </li>
@@ -172,15 +172,15 @@ export default function Footer() {
         <div className="mt-12 pt-8 border-t border-border-medium flex flex-col md:flex-row justify-between items-center gap-4">
           <p className="text-sm text-text-muted">&copy; 2025 HyperCLI. All rights reserved.</p>
           <div className="flex items-center gap-6">
-            <Link href="#" className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
+            <Link href={NAV_URLS.privacy} className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
               Privacy Policy
             </Link>
-              <Link href={NAV_URLS.enterprise} className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
-                Enterprise
-              </Link>
-              <Link href="#" className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
-                Terms of Service
-              </Link>
+            <Link href={NAV_URLS.terms} className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
+              Terms of Service
+            </Link>
+            <Link href={NAV_URLS.enterprise} className="text-sm text-text-muted hover:text-muted-foreground transition-colors">
+              Enterprise
+            </Link>
           </div>
         </div>
       </div>
