@@ -38,9 +38,21 @@ def require_x402_deps():
 @app.command("subscribe")
 def subscribe(
     plan_id: str = typer.Argument(..., help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu"),
+    amount: str = typer.Option(None, "--amount", "-a", help="Custom USDC amount (e.g., '5' for $5). Duration scales proportionally."),
     dev: bool = typer.Option(False, "--dev", help="Use dev API (dev-api.hyperclaw.app)")
 ):
-    """Subscribe to a HyperClaw plan via x402 payment"""
+    """Subscribe to a HyperClaw plan via x402 payment.
+    
+    Duration scales with payment amount:
+      - Plan price = 30 days
+      - $0.01 minimum = ~12 minutes (for $1 plan)
+      - Pay more = longer duration
+    
+    Examples:
+      hyper claw subscribe 1aiu           # Pay $1 for 30 days
+      hyper claw subscribe 1aiu -a 5      # Pay $5 for 150 days
+      hyper claw subscribe 5aiu -a 0.50   # Pay $0.50 for 5 days
+    """
     require_x402_deps()
     
     # Import wallet helper
@@ -50,13 +62,15 @@ def subscribe(
     
     console.print(f"\n[bold]Subscribing to HyperClaw plan: {plan_id}[/bold]\n")
     console.print(f"API: {api_base}")
+    if amount:
+        console.print(f"Custom amount: [bold]${amount} USDC[/bold]")
     
     # Load wallet
     account = load_wallet()
     console.print(f"[green]✓[/green] Loaded wallet: {account.address}\n")
     
     # Run async subscribe
-    result = asyncio.run(_subscribe_async(account, plan_id, api_base))
+    result = asyncio.run(_subscribe_async(account, plan_id, api_base, amount))
     
     if result:
         # Save key
@@ -67,37 +81,98 @@ def subscribe(
         console.print("\n[green]✅ Subscription successful![/green]\n")
         console.print(f"API Key: [bold]{result['key']}[/bold]")
         console.print(f"Plan: {result['plan_id']}")
+        console.print(f"Amount paid: [bold]${result.get('amount_paid', 'N/A')} USDC[/bold]")
+        console.print(f"Duration: [bold]{result.get('duration_days', 30):.2f} days[/bold]")
         console.print(f"Expires: {result['expires_at']}")
         console.print(f"Limits: {result['tpm_limit']:,} TPM / {result['rpm_limit']:,} RPM")
         console.print(f"\n[green]✓[/green] Key saved to [bold]{CLAW_KEY_PATH}[/bold]")
         console.print("\nConfigure OpenClaw with: [bold]hyper claw openclaw-setup[/bold]")
 
 
-async def _subscribe_async(account, plan_id: str, api_base: str):
-    """Async helper for x402 payment"""
+async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = None):
+    """Async helper for x402 payment.
     
-    # Setup x402 v2 client
-    console.print("[bold]Setting up x402 v2 client...[/bold]")
+    Args:
+        account: Ethereum account for signing
+        plan_id: Plan to subscribe to
+        api_base: API base URL
+        amount: Optional custom USDC amount (as string, e.g., "5.00")
+    """
+    import httpx
+    from decimal import Decimal
+    from x402.http import x402HTTPClient
+    
+    # Setup x402 client
+    console.print("[bold]Setting up x402 client...[/bold]")
     client = x402Client()
     register_exact_evm_client(client, EthAccountSigner(account))
+    http_client = x402HTTPClient(client)
     
-    url = f"{api_base}/x402/{plan_id}"
+    url = f"{api_base}/api/x402/{plan_id}"
     console.print(f"\n[bold]→ Requesting:[/bold] POST {url}\n")
     
-    async with x402HttpxClient(client) as http:
+    async with httpx.AsyncClient() as http:
         try:
+            # Step 1: Make initial request to get 402 response with payment requirements
             response = await http.post(url)
             
-            console.print(f"[green]✓[/green] Response status: {response.status_code}")
-            
-            if response.is_success:
-                data = response.json()
-                return data
-            else:
-                console.print(f"\n[red]❌ Request failed: {response.status_code}[/red]")
+            if response.status_code != 402:
+                if response.is_success:
+                    return response.json()
+                console.print(f"\n[red]❌ Unexpected response: {response.status_code}[/red]")
                 console.print(response.text)
                 raise typer.Exit(1)
+            
+            console.print(f"[yellow]→[/yellow] Got 402 Payment Required")
+            
+            # Step 2: Parse payment requirements
+            def get_header(name: str) -> str | None:
+                return response.headers.get(name)
+            
+            try:
+                body = response.json()
+            except:
+                body = None
+            
+            payment_required = http_client.get_payment_required_response(get_header, body)
+            
+            # Step 3: Modify amount if custom amount specified
+            if amount and payment_required.accepts:
+                amount_decimal = Decimal(amount)
+                amount_smallest = str(int(amount_decimal * Decimal("1000000")))
+                console.print(f"[bold]Custom amount:[/bold] ${amount} USDC ({amount_smallest} smallest units)")
                 
+                # Modify the amount in payment requirements
+                # PaymentRequirements is a Pydantic model, so we can modify it
+                for req in payment_required.accepts:
+                    req.amount = amount_smallest
+            else:
+                console.print(f"[dim]Using server-requested amount: {payment_required.accepts[0].amount if payment_required.accepts else 'N/A'}[/dim]")
+            
+            # Step 4: Create payment payload
+            console.print("[bold]Creating payment signature...[/bold]")
+            payment_payload = await client.create_payment_payload(payment_required)
+            
+            # Step 5: Encode payment header
+            payment_headers = http_client.encode_payment_signature_header(payment_payload)
+            console.print(f"[green]✓[/green] Payment signed")
+            
+            # Step 6: Retry with payment
+            console.print("[bold]Sending payment...[/bold]")
+            retry_response = await http.post(url, headers=payment_headers)
+            
+            console.print(f"[green]✓[/green] Response status: {retry_response.status_code}")
+            
+            if retry_response.is_success:
+                data = retry_response.json()
+                return data
+            else:
+                console.print(f"\n[red]❌ Payment failed: {retry_response.status_code}[/red]")
+                console.print(retry_response.text)
+                raise typer.Exit(1)
+                
+        except typer.Exit:
+            raise
         except Exception as e:
             console.print(f"\n[red]❌ Error: {e}[/red]")
             import traceback
@@ -122,16 +197,27 @@ def status():
     now = datetime.now(expires_at.tzinfo)
     time_left = expires_at - now
     days_left = time_left.days
+    hours_left = time_left.seconds // 3600
     
     console.print("\n[bold]HyperClaw Subscription Status[/bold]\n")
     console.print(f"Plan: [bold]{key_data['plan_id']}[/bold]")
     console.print(f"Key: [dim]{key_data['key'][:20]}...[/dim]")
-    console.print(f"Expires: {expires_at.strftime('%Y-%m-%d %H:%M:%S')}")
+    
+    # Show amount paid and duration if available
+    if "amount_paid" in key_data:
+        console.print(f"Paid: [bold]${key_data['amount_paid']} USDC[/bold]")
+    if "duration_days" in key_data:
+        console.print(f"Duration: {key_data['duration_days']:.2f} days")
+    
+    console.print(f"Expires: {expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')}")
     
     if days_left > 1:
-        console.print(f"Time left: [green]{days_left} days[/green]")
+        console.print(f"Time left: [green]{days_left} days, {hours_left} hours[/green]")
     elif days_left == 1:
-        console.print(f"Time left: [yellow]{days_left} day[/yellow]")
+        console.print(f"Time left: [yellow]1 day, {hours_left} hours[/yellow]")
+    elif time_left.total_seconds() > 0:
+        mins_left = time_left.seconds // 60
+        console.print(f"Time left: [yellow]{hours_left} hours, {mins_left % 60} minutes[/yellow]")
     else:
         console.print(f"Time left: [red]EXPIRED[/red]")
     
