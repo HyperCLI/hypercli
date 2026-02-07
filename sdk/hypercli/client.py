@@ -7,6 +7,7 @@ from .user import UserAPI
 from .instances import Instances
 from .renders import Renders
 from .files import Files
+from .claw import Claw
 
 
 class HyperCLI:
@@ -36,7 +37,7 @@ class HyperCLI:
         user = client.user.get()
     """
 
-    def __init__(self, api_key: str = None, api_url: str = None):
+    def __init__(self, api_key: str = None, api_url: str = None, claw_api_key: str = None, claw_dev: bool = False):
         self._api_key = api_key or get_api_key()
         if not self._api_key:
             raise ValueError(
@@ -54,6 +55,7 @@ class HyperCLI:
         self.instances = Instances(self._http)
         self.renders = Renders(self._http)
         self.files = Files(self._http)
+        self.claw = Claw(self._http, claw_api_key=claw_api_key, dev=claw_dev)
 
     @property
     def api_url(self) -> str:
