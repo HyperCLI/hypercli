@@ -166,6 +166,26 @@ class Instances:
             return pricing.get_price(region, interruptible)
         return None
 
+    def capacity(self, gpu_type: str = None) -> dict:
+        """Get real-time GPU capacity by type and region.
+
+        Returns idle (running with available GPUs) and launching (booting) counts.
+
+        Args:
+            gpu_type: Optional filter by GPU type (e.g., 'l40s', 'h100')
+
+        Returns:
+            Dict with 'idle' and 'launching' nested dicts:
+            {
+                "idle": {"rtxpro6000": {"oh": 2, "va": 1}},
+                "launching": {"rtxpro6000": {"fi": 1}}
+            }
+        """
+        params = {}
+        if gpu_type:
+            params["gpu_type"] = gpu_type
+        return self._http.get("/api/jobs/instances/capacity", params=params if params else None)
+
     def list_available(self, gpu_type: str = None, region: str = None) -> list[dict]:
         """List available GPU configurations, optionally filtered"""
         types = self.types()
