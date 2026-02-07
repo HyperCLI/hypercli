@@ -18,6 +18,19 @@ declare global {
 const turnkeyConfig: TurnkeyProviderConfig = {
   organizationId: process.env.NEXT_PUBLIC_ORGANIZATION_ID!,
   authProxyConfigId: process.env.NEXT_PUBLIC_AUTH_PROXY_CONFIG_ID!,
+  ui: {
+    logoLight: "/hypercli-transparentbg-black-hyper-horizontal-200x60.png",
+    logoDark: "/hypercli-horizontal-transparentbg-whitehyper-200x60.png",
+    darkMode: false,
+    colors: {
+      light: {
+        modalText: "#0f1419",
+      },
+      dark: {
+        modalText: "#0f1419",
+      },
+    },
+  },
 };
 
 console.log("🔑 Turnkey Config:", {

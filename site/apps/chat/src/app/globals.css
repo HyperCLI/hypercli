@@ -215,7 +215,9 @@ html, body {
 
 /* Typography defaults */
 h1, h2, h3, h4, h5, h6 {
-  color: var(--foreground);
+  /* allow components to set heading color via utility classes
+     (e.g. text-[#0B0D0E]) or by inheriting from a container variable */
+  color: inherit;
 }
 
 /* Primary button */
