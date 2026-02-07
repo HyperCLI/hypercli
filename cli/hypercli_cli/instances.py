@@ -128,6 +128,58 @@ def list_regions(
         console.print(table)
 
 
+@app.command("capacity")
+def show_capacity(
+    gpu: Optional[str] = typer.Option(None, "--gpu", "-g", help="Filter by GPU type"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Show real-time GPU capacity (idle and launching instances)"""
+    client = get_client()
+    with spinner("Fetching capacity..."):
+        data = client.instances.capacity(gpu_type=gpu)
+
+    if fmt == "json":
+        output(data, "json")
+    else:
+        from rich.table import Table
+
+        idle = data.get("idle", {})
+        launching = data.get("launching", {})
+
+        if not idle and not launching:
+            console.print("[yellow]No GPU capacity available[/]")
+            return
+
+        # Collect all gpu types and regions
+        all_gpus = set(idle.keys()) | set(launching.keys())
+        all_regions = set()
+        for gpu_data in list(idle.values()) + list(launching.values()):
+            all_regions.update(gpu_data.keys())
+
+        table = Table(show_header=True, header_style="bold cyan", title="GPU Capacity")
+        table.add_column("GPU Type")
+        table.add_column("Region")
+        table.add_column("Idle", justify="right", style="green")
+        table.add_column("Launching", justify="right", style="yellow")
+
+        for gpu_type in sorted(all_gpus):
+            gpu_idle = idle.get(gpu_type, {})
+            gpu_launching = launching.get(gpu_type, {})
+            regions = set(gpu_idle.keys()) | set(gpu_launching.keys())
+
+            for region in sorted(regions):
+                idle_count = gpu_idle.get(region, 0)
+                launching_count = gpu_launching.get(region, 0)
+                table.add_row(
+                    f"[cyan]{gpu_type}[/]",
+                    region,
+                    str(idle_count) if idle_count else "-",
+                    str(launching_count) if launching_count else "-",
+                )
+
+        console.print(table)
+
+
 @app.command("launch")
 def launch(
     image: str = typer.Argument(..., help="Docker image"),
