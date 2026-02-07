@@ -30,6 +30,7 @@ wallet = [
     "eth-account>=0.13.0",
     "web3>=7.0.0",
     "argon2-cffi>=25.0.0",
+    "qrcode>=7.4.0",
 ]
 all = [
     "hypercli-sdk[comfyui]>=0.7.0",

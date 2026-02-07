@@ -78,6 +78,22 @@ def create():
     console.print(f"\n[green]✓[/green] Keystore saved to [bold]{WALLET_PATH}[/bold]")
     console.print(f"[green]✓[/green] Address: [bold]{account.address}[/bold]")
     console.print("\n[yellow]⚠️  Fund this address with USDC on Base to use for payments![/yellow]")
+    
+    # Show QR code for easy mobile scanning
+    try:
+        import qrcode
+        console.print("\n[bold]Scan to send USDC:[/bold]\n")
+        qr_obj = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=1,
+            border=1,
+        )
+        qr_obj.add_data(account.address)
+        qr_obj.make(fit=True)
+        qr_obj.print_ascii(invert=True)
+    except ImportError:
+        console.print("\n[dim]Tip: run 'hyper wallet qr' to display address as QR code[/dim]")
 
 
 @app.command("address")
@@ -95,6 +111,48 @@ def address():
     
     addr = keystore.get("address", "unknown")
     console.print(f"\n[bold]Wallet address:[/bold] 0x{addr}")
+
+
+@app.command("qr")
+def qr():
+    """Display wallet address as QR code (for easy mobile scanning)"""
+    require_wallet_deps()
+    
+    try:
+        import qrcode
+    except ImportError:
+        console.print("[red]❌ QR code support requires the qrcode package[/red]")
+        console.print("\nInstall with:")
+        console.print("  [bold]pip install 'hypercli-cli[wallet]'[/bold]")
+        raise typer.Exit(1)
+    
+    if not WALLET_PATH.exists():
+        console.print(f"[red]❌ No wallet found at {WALLET_PATH}[/red]")
+        console.print("Create one with: [bold]hyper wallet create[/bold]")
+        raise typer.Exit(1)
+    
+    with open(WALLET_PATH) as f:
+        keystore = json.load(f)
+    
+    addr = "0x" + keystore.get("address", "")
+    
+    console.print(f"\n[bold]Wallet Address:[/bold] {addr}")
+    console.print("[dim]Scan to send USDC on Base network[/dim]\n")
+    
+    # Generate QR code with ASCII art
+    qr_obj = qrcode.QRCode(
+        version=1,
+        error_correction=qrcode.constants.ERROR_CORRECT_L,
+        box_size=1,
+        border=1,
+    )
+    qr_obj.add_data(addr)
+    qr_obj.make(fit=True)
+    
+    # Print ASCII QR code
+    qr_obj.print_ascii(invert=True)
+    
+    console.print(f"\n[bold]{addr}[/bold]")
 
 
 @app.command("balance")
