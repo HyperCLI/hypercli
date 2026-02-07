@@ -55,7 +55,7 @@ export function PlanCheckoutModal({
     try {
       const token = await getToken();
       const data = await clawFetch<{ checkout_url: string }>(
-        `/stripe/checkout/${plan.id}`,
+        `/stripe/${plan.id}`,
         token,
         {
           method: "POST",
