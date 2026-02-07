@@ -137,8 +137,8 @@ export function WalletAuth({
 
     try {
       await handleLogin({
-        logoLight: "/favicon.svg",
-        logoDark: "/favicon.svg",
+        logoLight: "/hypercli-transparentbg-black-hyper-horizontal-200x60.png",
+        logoDark: "/hypercli-horizontal-transparentbg-whitehyper-200x60.png",
         title: "Welcome to HyperCLI",
       });
     } catch (error) {
