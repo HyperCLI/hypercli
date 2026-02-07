@@ -1,0 +1,328 @@
+---
+title: HyperClaw API
+description: REST API reference for HyperClaw subscriptions and payments
+---
+
+## Base URL
+
+```
+https://api.hyperclaw.app/api
+```
+
+## Authentication
+
+Most endpoints require a JWT token obtained from the `/auth/login` endpoint. Include it as a Bearer token:
+
+```bash
+Authorization: Bearer <your-jwt-token>
+```
+
+For x402 payments, authentication is optional — you can subscribe anonymously and receive a standalone API key.
+
+---
+
+## Plans
+
+### List Plans
+
+Get all available subscription plans.
+
+<CodeGroup>
+```bash Request
+curl https://api.hyperclaw.app/api/plans
+```
+
+```json Response
+{
+  "plans": [
+    {
+      "id": "1aiu",
+      "name": "1 Agent",
+      "price": 25,
+      "aiu": 1,
+      "tpm_limit": 50000,
+      "rpm_limit": 1000,
+      "features": [
+        "1 AIU allocation",
+        "~3M tokens/hour",
+        "50K TPM / 1,000 RPM",
+        "OpenAI-compatible API",
+        "Email support"
+      ],
+      "models": ["kimi-k2.5", "kimi-for-coding"]
+    }
+  ]
+}
+```
+</CodeGroup>
+
+### Get Current Plan
+
+Get the authenticated user's active plan.
+
+```bash
+curl https://api.hyperclaw.app/api/plans/current \
+  -H "Authorization: Bearer <token>"
+```
+
+---
+
+## x402 Payments
+
+Subscribe to a plan using USDC on Base via the x402 protocol.
+
+### How x402 Works
+
+1. **Request** — POST to `/x402/{plan_id}` without payment
+2. **402 Response** — Server returns payment requirements in `Payment-Required` header
+3. **Sign** — Client signs EIP-3009 gasless USDC transfer
+4. **Retry** — POST again with `X-Payment-Response` header containing the signature
+5. **Success** — Receive API key immediately
+
+### Subscribe via x402
+
+<CodeGroup>
+```bash Step 1: Get Payment Requirements
+curl -X POST https://api.hyperclaw.app/api/x402/1aiu
+
+# Returns HTTP 402 with Payment-Required header (base64 encoded)
+```
+
+```json Payment Requirements (decoded)
+{
+  "x402Version": 2,
+  "error": "Payment required",
+  "resource": {
+    "url": "https://api.hyperclaw.app/api/x402/1aiu",
+    "description": "HyperClaw plan subscription (variable amount)",
+    "mimeType": "application/json"
+  },
+  "accepts": [
+    {
+      "scheme": "exact",
+      "network": "eip155:8453",
+      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
+      "amount": "10000",
+      "payTo": "0xB4ad76dfEbc6A98d4C99BB43ea8a8023Ab57a902",
+      "maxTimeoutSeconds": 300
+    }
+  ]
+}
+```
+
+```bash Step 2: Submit Payment
+curl -X POST https://api.hyperclaw.app/api/x402/1aiu \
+  -H "X-Payment-Response: <base64-encoded-payment-signature>"
+```
+
+```json Success Response
+{
+  "ok": true,
+  "key": "sk-L0yyN8vV9OfM0urGRe0szg",
+  "plan_id": "1aiu",
+  "amount_paid": "2.000000",
+  "duration_days": 2.4,
+  "expires_at": "2026-02-10T02:35:32.538435+00:00",
+  "tpm_limit": 50000,
+  "rpm_limit": 1000
+}
+```
+</CodeGroup>
+
+### Variable Pricing
+
+HyperClaw uses **variable amount pricing**. The minimum payment is $0.01 USDC, but you can pay any amount ≥ minimum. Duration is calculated as:
+
+```
+duration_days = (amount_paid / plan_price) × 30
+```
+
+**Examples for the $25 1aiu plan:**
+
+| Payment | Duration |
+|---------|----------|
+| $0.01 | ~17 minutes |
+| $2.00 | 2.4 days |
+| $25.00 | 30 days |
+| $50.00 | 60 days |
+
+### Payment Requirements
+
+| Field | Description |
+|-------|-------------|
+| `scheme` | Always `exact` for EIP-3009 |
+| `network` | `eip155:8453` (Base mainnet) |
+| `asset` | USDC contract: `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
+| `amount` | Minimum in smallest units (6 decimals). `10000` = $0.01 |
+| `payTo` | HyperClaw's receiving address |
+| `maxTimeoutSeconds` | Payment signature validity window |
+
+---
+
+## API Keys
+
+### List Keys
+
+List API keys for the authenticated user.
+
+```bash
+curl https://api.hyperclaw.app/api/keys \
+  -H "Authorization: Bearer <token>"
+```
+
+### Create Key
+
+Generate a new API key.
+
+```bash
+curl -X POST https://api.hyperclaw.app/api/keys \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{"name": "my-agent"}'
+```
+
+### Disable Key
+
+Permanently disable an API key.
+
+```bash
+curl -X POST https://api.hyperclaw.app/api/keys/{key_ref}/disable \
+  -H "Authorization: Bearer <token>"
+```
+
+<Warning>
+Disabled keys cannot be re-enabled. Create a new key instead.
+</Warning>
+
+---
+
+## Stripe Payments
+
+For credit card payments via Stripe.
+
+### Create Checkout Session
+
+```bash
+curl -X POST https://api.hyperclaw.app/api/stripe/checkout/1aiu \
+  -H "Authorization: Bearer <token>" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "success_url": "https://hyperclaw.app/dashboard/plans?session_id={CHECKOUT_SESSION_ID}",
+    "cancel_url": "https://hyperclaw.app/dashboard/plans?cancelled=true"
+  }'
+```
+
+**Response:**
+```json
+{
+  "checkout_url": "https://checkout.stripe.com/..."
+}
+```
+
+Redirect the user to `checkout_url` to complete payment.
+
+---
+
+## LLM Inference
+
+After subscribing, use the OpenAI-compatible inference API:
+
+**Base URL:** `https://api.hyperclaw.app/v1`
+
+<CodeGroup>
+```bash cURL
+curl https://api.hyperclaw.app/v1/chat/completions \
+  -H "Authorization: Bearer sk-..." \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.5",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+```python Python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-...",
+    base_url="https://api.hyperclaw.app/v1"
+)
+
+response = client.chat.completions.create(
+    model="kimi-k2.5",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+```typescript TypeScript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: 'sk-...',
+  baseURL: 'https://api.hyperclaw.app/v1'
+});
+
+const response = await client.chat.completions.create({
+  model: 'kimi-k2.5',
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+</CodeGroup>
+
+### Available Models
+
+| Model | Description |
+|-------|-------------|
+| `kimi-k2.5` | Kimi K2.5 — general purpose |
+| `kimi-for-coding` | Kimi optimized for code |
+
+---
+
+## Error Responses
+
+| Status | Meaning |
+|--------|---------|
+| `400` | Bad request (invalid parameters) |
+| `401` | Unauthorized (missing/invalid token) |
+| `402` | Payment required (x402 flow) |
+| `404` | Not found (invalid plan, key, etc.) |
+| `422` | Validation error |
+| `429` | Rate limited (TPM/RPM exceeded) |
+| `500` | Server error |
+
+### 402 Payment Required
+
+```json
+{
+  "error": "Payment required",
+  "details": "..."
+}
+```
+
+The `Payment-Required` header contains base64-encoded payment requirements.
+
+### Settlement Errors
+
+```json
+{
+  "error": "Settlement failed",
+  "details": "simulation_failed:ERC20: transfer amount exceeds balance"
+}
+```
+
+Common causes:
+- Insufficient USDC balance
+- Payment signature expired
+- Wrong network
+
+---
+
+## OpenAPI Specification
+
+Download the full OpenAPI spec:
+
+```bash
+curl https://api.hyperclaw.app/api/openapi.json -o hyperclaw-openapi.json
+```
+
+Use with Swagger UI, Postman, or code generators.
