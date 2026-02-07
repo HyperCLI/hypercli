@@ -3,8 +3,8 @@ Tests for HyperClaw SDK client
 """
 import pytest
 import os
-from unittest.mock import Mock, patch
-from hypercli.claw import Claw, ClawKey, ClawPlan, ClawModel, ChatMessage, ChatCompletion
+from unittest.mock import Mock, patch, MagicMock
+from hypercli.claw import Claw, ClawKey, ClawPlan, ClawModel
 
 
 class TestClawDataclasses:
@@ -53,25 +53,6 @@ class TestClawDataclasses:
         assert model.context_length == 262144
         assert model.supports_vision is True
         assert model.supports_function_calling is True
-    
-    def test_chat_message_to_dict(self):
-        msg = ChatMessage(role="user", content="Hello!")
-        assert msg.to_dict() == {"role": "user", "content": "Hello!"}
-    
-    def test_chat_completion_from_dict(self):
-        data = {
-            "id": "chatcmpl-123",
-            "model": "kimi-k2.5",
-            "choices": [{
-                "message": {"content": "Hi there!"},
-                "finish_reason": "stop"
-            }],
-            "usage": {"prompt_tokens": 10, "completion_tokens": 5}
-        }
-        completion = ChatCompletion.from_dict(data)
-        assert completion.id == "chatcmpl-123"
-        assert completion.message == "Hi there!"
-        assert completion.finish_reason == "stop"
 
 
 class TestClawClient:
@@ -100,30 +81,41 @@ class TestClawClient:
         assert result["hosts_total"] == 1
         mock_http._session.get.assert_called_once()
     
-    def test_chat_payload(self, mock_http):
-        mock_http._session.post.return_value.json.return_value = {
-            "id": "chatcmpl-123",
-            "model": "kimi-k2.5",
-            "choices": [{"message": {"content": "Hi!"}, "finish_reason": "stop"}],
-            "usage": {}
-        }
-        mock_http._session.post.return_value.raise_for_status = Mock()
+    def test_openai_client_creation(self, mock_http):
+        """Test that OpenAI client is created with correct config."""
+        claw = Claw(mock_http, claw_api_key="sk-test", dev=True)
         
-        claw = Claw(mock_http, dev=True)
-        result = claw.chat(
-            model="kimi-k2.5",
-            messages=[{"role": "user", "content": "Hello"}],
-            temperature=0.7,
-            max_tokens=100
-        )
+        # Access openai property to trigger creation
+        with patch('hypercli.claw.OpenAI') as mock_openai:
+            mock_openai.return_value = MagicMock()
+            client = claw.openai
+            
+            mock_openai.assert_called_once_with(
+                api_key="sk-test",
+                base_url="https://dev-api.hyperclaw.app/v1",
+            )
+    
+    def test_chat_uses_openai_client(self, mock_http):
+        """Test that chat method uses OpenAI client."""
+        claw = Claw(mock_http, claw_api_key="sk-test", dev=True)
         
-        # Verify the call was made with correct payload
-        call_args = mock_http._session.post.call_args
-        payload = call_args.kwargs["json"]
-        assert payload["model"] == "kimi-k2.5"
-        assert payload["messages"] == [{"role": "user", "content": "Hello"}]
-        assert payload["temperature"] == 0.7
-        assert payload["max_tokens"] == 100
+        with patch('hypercli.claw.OpenAI') as mock_openai:
+            mock_client = MagicMock()
+            mock_openai.return_value = mock_client
+            
+            claw.chat(
+                model="kimi-k2.5",
+                messages=[{"role": "user", "content": "Hello"}],
+                temperature=0.7,
+                max_tokens=100
+            )
+            
+            mock_client.chat.completions.create.assert_called_once_with(
+                model="kimi-k2.5",
+                messages=[{"role": "user", "content": "Hello"}],
+                temperature=0.7,
+                max_tokens=100
+            )
 
 
 class TestClawIntegration:
@@ -142,7 +134,7 @@ class TestClawIntegration:
         import requests
         http._session = requests.Session()
         
-        return Claw(http, dev=True)
+        return Claw(http, claw_api_key=api_key, dev=True)
     
     @pytest.mark.integration
     def test_discovery_health_integration(self, claw_client):
@@ -151,7 +143,11 @@ class TestClawIntegration:
         assert result["status"] == "ok"
     
     @pytest.mark.integration
-    def test_models_integration(self, claw_client):
-        models = claw_client.models()
-        # Should return a list (may be empty if no models configured)
-        assert isinstance(models, list)
+    def test_chat_integration(self, claw_client):
+        """Test actual chat completion (requires running service + credits)."""
+        response = claw_client.chat(
+            model="kimi-k2.5",
+            messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
+            max_tokens=10
+        )
+        assert response.choices[0].message.content is not None
