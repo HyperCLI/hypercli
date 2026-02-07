@@ -50,7 +50,7 @@ export function ClawProviders({ children }: { children: ReactNode }) {
         appearance: {
           theme: "dark",
           accentColor: "#38D39F",
-          logo: "/favicon.svg",
+          logo: "https://hyperclaw.app/logo-horizontal-white.png",
         },
         embeddedWallets: {
           ethereum: {
