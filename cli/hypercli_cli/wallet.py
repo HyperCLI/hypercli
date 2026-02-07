@@ -114,7 +114,9 @@ def address():
 
 
 @app.command("qr")
-def qr():
+def qr(
+    output: str = typer.Option(None, "--output", "-o", help="Save QR code as PNG file"),
+):
     """Display wallet address as QR code (for easy mobile scanning)"""
     require_wallet_deps()
     
@@ -136,23 +138,48 @@ def qr():
     
     addr = "0x" + keystore.get("address", "")
     
-    console.print(f"\n[bold]Wallet Address:[/bold] {addr}")
-    console.print("[dim]Scan to send USDC on Base network[/dim]\n")
-    
-    # Generate QR code with ASCII art
-    qr_obj = qrcode.QRCode(
-        version=1,
-        error_correction=qrcode.constants.ERROR_CORRECT_L,
-        box_size=1,
-        border=1,
-    )
-    qr_obj.add_data(addr)
-    qr_obj.make(fit=True)
-    
-    # Print ASCII QR code
-    qr_obj.print_ascii(invert=True)
-    
-    console.print(f"\n[bold]{addr}[/bold]")
+    if output:
+        # Save as PNG
+        try:
+            qr_obj = qrcode.QRCode(
+                version=1,
+                error_correction=qrcode.constants.ERROR_CORRECT_L,
+                box_size=10,
+                border=2,
+            )
+            qr_obj.add_data(addr)
+            qr_obj.make(fit=True)
+            
+            img = qr_obj.make_image(fill_color="black", back_color="white")
+            
+            # Ensure .png extension
+            if not output.lower().endswith('.png'):
+                output = output + '.png'
+            
+            img.save(output)
+            console.print(f"[green]✓[/green] QR code saved to [bold]{output}[/bold]")
+            console.print(f"[dim]Address: {addr}[/dim]")
+        except Exception as e:
+            console.print(f"[red]❌ Failed to save PNG: {e}[/red]")
+            console.print("[dim]Try: pip install pillow[/dim]")
+            raise typer.Exit(1)
+    else:
+        # Print ASCII to terminal
+        console.print(f"\n[bold]Wallet Address:[/bold] {addr}")
+        console.print("[dim]Scan to send USDC on Base network[/dim]\n")
+        
+        qr_obj = qrcode.QRCode(
+            version=1,
+            error_correction=qrcode.constants.ERROR_CORRECT_L,
+            box_size=1,
+            border=1,
+        )
+        qr_obj.add_data(addr)
+        qr_obj.make(fit=True)
+        qr_obj.print_ascii(invert=True)
+        
+        console.print(f"\n[bold]{addr}[/bold]")
+        console.print("\n[dim]Tip: use --output wallet.png to save as image[/dim]")
 
 
 @app.command("balance")
