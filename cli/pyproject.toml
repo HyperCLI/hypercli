@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypercli-cli"
-version = "0.6.0"
+version = "0.7.0"
 description = "CLI for HyperCLI - GPU orchestration and LLM API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -13,7 +13,7 @@ authors = [
     { name = "HyperCLI", email = "support@hypercli.com" }
 ]
 dependencies = [
-    "hypercli-sdk>=0.6.0",
+    "hypercli-sdk>=0.7.0",
     "openai>=2.8.1",
     "typer>=0.20.0",
     "rich>=14.2.0",
@@ -23,7 +23,7 @@ dependencies = [
 
 [project.optional-dependencies]
 comfyui = [
-    "hypercli-sdk[comfyui]>=0.6.0",
+    "hypercli-sdk[comfyui]>=0.7.0",
 ]
 wallet = [
     "x402[httpx]>=2.0.0",
@@ -32,7 +32,7 @@ wallet = [
     "argon2-cffi>=25.0.0",
 ]
 all = [
-    "hypercli-sdk[comfyui]>=0.6.0",
+    "hypercli-sdk[comfyui]>=0.7.0",
     "x402[httpx]>=2.0.0",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
