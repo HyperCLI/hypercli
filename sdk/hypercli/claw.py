@@ -143,7 +143,7 @@ class Claw:
             dev: Use dev API endpoint
         """
         self._http = http
-        self._api_key = claw_api_key or http._api_key
+        self._api_key = claw_api_key or http.api_key
         self._dev = dev
         self._base_url = self.DEV_API_BASE if dev else self.CLAW_API_BASE
         self._openai = None
