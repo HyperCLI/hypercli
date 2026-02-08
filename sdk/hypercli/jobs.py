@@ -133,6 +133,7 @@ class Jobs:
         env: dict[str, str] = None,
         ports: dict[str, int] = None,
         auth: bool = False,
+        registry_auth: dict[str, str] = None,
     ) -> Job:
         """Create a new job.
 
@@ -147,6 +148,7 @@ class Jobs:
             env: Environment variables
             ports: Ports to expose. Use {"lb": port} for HTTPS load balancer
             auth: Enable Bearer token auth on load balancer (use with ports={"lb": port})
+            registry_auth: Private registry credentials {"username": "...", "password": "..."}
         """
         payload = {
             "docker_image": image,
@@ -165,6 +167,8 @@ class Jobs:
             payload["ports"] = ports
         if auth:
             payload["auth"] = auth
+        if registry_auth:
+            payload["registry_auth"] = registry_auth
 
         data = self._http.post("/api/jobs", json=payload)
         return Job.from_dict(data)

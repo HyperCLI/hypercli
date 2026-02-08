@@ -191,6 +191,8 @@ def launch(
     interruptible: bool = typer.Option(True, "--interruptible/--on-demand", help="Use interruptible instances"),
     env: Optional[list[str]] = typer.Option(None, "--env", "-e", help="Env vars (KEY=VALUE)"),
     port: Optional[list[str]] = typer.Option(None, "--port", "-p", help="Ports (name:port)"),
+    registry_user: Optional[str] = typer.Option(None, "--registry-user", help="Private registry username"),
+    registry_password: Optional[str] = typer.Option(None, "--registry-password", help="Private registry password"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs after creation"),
     cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
@@ -216,6 +218,11 @@ def launch(
                 name, port_num = p.split(":", 1)
                 ports_dict[name] = int(port_num)
 
+    # Build registry auth if provided
+    registry_auth = None
+    if registry_user and registry_password:
+        registry_auth = {"username": registry_user, "password": registry_password}
+
     with spinner("Launching instance..."):
         job = client.jobs.create(
             image=image,
@@ -227,6 +234,7 @@ def launch(
             interruptible=interruptible,
             env=env_dict,
             ports=ports_dict,
+            registry_auth=registry_auth,
         )
 
     if fmt == "json":
