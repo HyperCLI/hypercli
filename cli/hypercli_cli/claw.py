@@ -38,20 +38,20 @@ def require_x402_deps():
 @app.command("subscribe")
 def subscribe(
     plan_id: str = typer.Argument("1aiu", help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu (default: 1aiu)"),
-    amount: str = typer.Option(None, "--amount", "-a", help="Custom USDC amount (e.g., '5' for $5). Duration scales proportionally."),
+    amount: str = typer.Argument(None, help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally."),
     dev: bool = typer.Option(False, "--dev", help="Use dev API (dev-api.hyperclaw.app)")
 ):
     """Subscribe to a HyperClaw plan via x402 payment.
     
-    Duration scales with payment amount:
-      - Plan price = 30 days
-      - $0.01 minimum = ~12 minutes (for $1 plan)
-      - Pay more = longer duration
+    Duration scales with payment amount (1aiu: $25 = 32 days):
+      - $25 → 32 days
+      - $12.50 → 16 days
+      - $1 → ~1.3 days
     
     Examples:
-      hyper claw subscribe 1aiu           # Pay $1 for 30 days
-      hyper claw subscribe 1aiu -a 5      # Pay $5 for 150 days
-      hyper claw subscribe 5aiu -a 0.50   # Pay $0.50 for 5 days
+      hyper claw subscribe 1aiu 25     # Pay $25 for 32 days
+      hyper claw subscribe 1aiu 50     # Pay $50 for 64 days
+      hyper claw subscribe 5aiu 100    # Pay $100 for 5aiu plan
     """
     require_x402_deps()
     
@@ -264,7 +264,7 @@ def plans(
     console.print()
     console.print(table)
     console.print()
-    console.print("Subscribe with: [bold]hyper claw subscribe <plan_id> -a <amount>[/bold]")
+    console.print("Subscribe with: [bold]hyper claw subscribe <plan_id> <amount>[/bold]")
 
 
 @app.command("openclaw-setup")
