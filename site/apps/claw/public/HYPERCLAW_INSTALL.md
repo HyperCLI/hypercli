@@ -8,7 +8,7 @@ Set up HyperClaw LLM API access for OpenClaw agents.
 > - **HyperCLI API Key** — Used for GPU orchestration, job management, and billing at `api.hypercli.com`
 > - **HyperClaw API Key** — Used for LLM inference (chat completions) at `api.hyperclaw.app`
 > 
-> This guide sets up a **HyperClaw** API key for LLM access. HyperClaw keys start with `sk-hyper-`.
+> This guide sets up a **HyperClaw** API key for LLM access. HyperClaw keys start with `sk-`.
 
 ## Prerequisites
 
@@ -119,7 +119,7 @@ hyper claw subscribe 5aiu 100   # Pay $100 for 5aiu plan
 ```
 
 Enter wallet passphrase when prompted. On success, you'll receive:
-- API Key (sk-hyper-xxx...)
+- API Key (sk-xxx...)
 - Expiration date
 - Rate limits (TPM/RPM)
 
