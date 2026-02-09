@@ -73,10 +73,20 @@ def subscribe(
     result = asyncio.run(_subscribe_async(account, plan_id, api_base, amount))
     
     if result:
-        # Save key
+        # Save key (current)
         HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
         with open(CLAW_KEY_PATH, "w") as f:
             json.dump(result, f, indent=2)
+        
+        # Also append to keys history so we don't lose keys on re-subscribe
+        from datetime import datetime
+        keys_history_path = HYPERCLI_DIR / "claw-keys-history.jsonl"
+        history_entry = {
+            "timestamp": datetime.utcnow().isoformat() + "Z",
+            **result
+        }
+        with open(keys_history_path, "a") as f:
+            f.write(json.dumps(history_entry) + "\n")
         
         console.print("\n[green]✅ Subscription successful![/green]\n")
         console.print(f"API Key: [bold]{result['key']}[/bold]")
@@ -86,6 +96,7 @@ def subscribe(
         console.print(f"Expires: {result['expires_at']}")
         console.print(f"Limits: {result['tpm_limit']:,} TPM / {result['rpm_limit']:,} RPM")
         console.print(f"\n[green]✓[/green] Key saved to [bold]{CLAW_KEY_PATH}[/bold]")
+        console.print(f"[green]✓[/green] Key history: [bold]{keys_history_path}[/bold]")
         console.print("\nConfigure OpenClaw with: [bold]hyper claw openclaw-setup[/bold]")
 
 
