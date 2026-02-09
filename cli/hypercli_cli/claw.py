@@ -37,7 +37,7 @@ def require_x402_deps():
 
 @app.command("subscribe")
 def subscribe(
-    plan_id: str = typer.Argument(..., help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu"),
+    plan_id: str = typer.Argument("1aiu", help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu (default: 1aiu)"),
     amount: str = typer.Option(None, "--amount", "-a", help="Custom USDC amount (e.g., '5' for $5). Duration scales proportionally."),
     dev: bool = typer.Option(False, "--dev", help="Use dev API (dev-api.hyperclaw.app)")
 ):
