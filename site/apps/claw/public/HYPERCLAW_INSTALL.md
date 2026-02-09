@@ -153,64 +153,28 @@ Expected response includes available models like `kimi-k2.5`.
 
 ### 10. Configure OpenClaw
 
-Add HyperClaw as a model provider in OpenClaw config (`~/.openclaw/openclaw.json`).
-
-Use the gateway tool to patch the config:
+Run the setup command to configure OpenClaw with your HyperClaw key:
 
 ```bash
-# Using openclaw CLI (recommended)
-openclaw config set models.providers.hyperclaw.baseUrl "https://api.hyperclaw.app/v1"
-openclaw config set models.providers.hyperclaw.api "openai-completions"
+# Add HyperClaw provider to OpenClaw
+hyper claw openclaw-setup
+
+# Or also set it as the default model
+hyper claw openclaw-setup --default
 ```
 
-Or manually edit `~/.openclaw/openclaw.json` and add under the `models` key:
+Then restart OpenClaw:
 
-```json
-{
-  "models": {
-    "mode": "merge",
-    "providers": {
-      "hyperclaw": {
-        "baseUrl": "https://api.hyperclaw.app/v1",
-        "apiKey": "sk-YOUR_KEY_HERE",
-        "api": "openai-completions",
-        "models": [
-          {
-            "id": "kimi-k2.5",
-            "name": "Kimi K2.5",
-            "reasoning": false,
-            "input": ["text"],
-            "contextWindow": 200000,
-            "maxTokens": 8192
-          },
-          {
-            "id": "kimi-for-coding", 
-            "name": "Kimi for Coding",
-            "reasoning": false,
-            "input": ["text"],
-            "contextWindow": 200000,
-            "maxTokens": 8192
-          }
-        ]
-      }
-    }
-  }
-}
+```bash
+openclaw gateway restart
 ```
 
-Set as default model (optional) by adding to `agents.defaults`:
+This writes the correct provider configuration to `~/.openclaw/openclaw.json`:
+- Adds `hyperclaw` provider under `models.providers`
+- Configures API endpoint and your key
+- Registers available models (kimi-k2.5, kimi-for-coding)
 
-```json
-{
-  "agents": {
-    "defaults": {
-      "model": {
-        "primary": "hyperclaw/kimi-k2.5"
-      }
-    }
-  }
-}
-```
+With `--default`, it also sets `hyperclaw/kimi-k2.5` as your primary model.
 
 ### 11. Set Renewal Reminder
 
