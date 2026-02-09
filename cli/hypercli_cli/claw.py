@@ -73,20 +73,41 @@ def subscribe(
     result = asyncio.run(_subscribe_async(account, plan_id, api_base, amount))
     
     if result:
+        import yaml
+        from datetime import datetime
+        
         # Save key (current)
         HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
         with open(CLAW_KEY_PATH, "w") as f:
             json.dump(result, f, indent=2)
         
-        # Also append to keys history so we don't lose keys on re-subscribe
-        from datetime import datetime
-        keys_history_path = HYPERCLI_DIR / "claw-keys-history.jsonl"
+        # Build history entry with key info
+        tx_hash = result.get("tx_hash", "")
+        basescan_url = f"https://basescan.org/tx/{tx_hash}" if tx_hash else ""
+        
         history_entry = {
-            "timestamp": datetime.utcnow().isoformat() + "Z",
-            **result
+            "key": result["key"],
+            "plan": result["plan_id"],
+            "amount_usdc": result.get("amount_paid", ""),
+            "date": datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S UTC"),
+            "expires": result.get("expires_at", ""),
+            "basescan": basescan_url,
+            "tpm_limit": result.get("tpm_limit", 0),
+            "rpm_limit": result.get("rpm_limit", 0),
         }
-        with open(keys_history_path, "a") as f:
-            f.write(json.dumps(history_entry) + "\n")
+        
+        # Load existing keys or start fresh
+        keys_history_path = HYPERCLI_DIR / "claw-keys.yaml"
+        if keys_history_path.exists():
+            with open(keys_history_path) as f:
+                keys_data = yaml.safe_load(f) or {"keys": []}
+        else:
+            keys_data = {"keys": []}
+        
+        keys_data["keys"].append(history_entry)
+        
+        with open(keys_history_path, "w") as f:
+            yaml.dump(keys_data, f, default_flow_style=False, sort_keys=False)
         
         console.print("\n[green]✅ Subscription successful![/green]\n")
         console.print(f"API Key: [bold]{result['key']}[/bold]")
