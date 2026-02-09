@@ -299,54 +299,119 @@ def plans(
     console.print("Subscribe with: [bold]hyper claw subscribe <plan_id> <amount>[/bold]")
 
 
+OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
+
+HYPERCLAW_MODELS = [
+    {
+        "id": "kimi-k2.5",
+        "name": "Kimi K2.5",
+        "reasoning": False,
+        "input": ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 8192
+    },
+    {
+        "id": "kimi-for-coding",
+        "name": "Kimi for Coding", 
+        "reasoning": False,
+        "input": ["text"],
+        "contextWindow": 200000,
+        "maxTokens": 8192
+    }
+]
+
+
 @app.command("openclaw-setup")
-def openclaw_setup():
-    """Show OpenClaw configuration instructions for HyperClaw key"""
+def openclaw_setup(
+    default: bool = typer.Option(False, "--default", help="Set hyperclaw/kimi-k2.5 as the default model"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without writing")
+):
+    """Configure OpenClaw to use your HyperClaw API key.
+    
+    Reads your key from ~/.hypercli/claw-key.json and writes the correct
+    provider configuration to ~/.openclaw/openclaw.json.
+    
+    Examples:
+      hyper claw openclaw-setup           # Add HyperClaw provider
+      hyper claw openclaw-setup --default # Also set as default model
+    """
     
     # Load HyperClaw key
     if not CLAW_KEY_PATH.exists():
         console.print("[red]❌ No HyperClaw key found.[/red]")
-        console.print("Run: [bold]hyper claw subscribe <aiu>[/bold]")
+        console.print("Run: [bold]hyper claw subscribe 1aiu <amount>[/bold]")
         raise typer.Exit(1)
     
     with open(CLAW_KEY_PATH) as f:
         claw_key = json.load(f)
     
-    console.print("\n[bold cyan]OpenClaw Configuration Instructions[/bold cyan]\n")
-    console.print(f"Plan: [bold]{claw_key['plan_id']}[/bold]")
-    console.print(f"Key: [dim]{claw_key['key'][:20]}...[/dim]")
-    console.print(f"Expires: {claw_key['expires_at']}")
+    api_key = claw_key.get("key", "")
+    if not api_key:
+        console.print("[red]❌ Invalid key file - missing 'key' field[/red]")
+        raise typer.Exit(1)
     
-    # Show manual config instructions
-    console.print("\n[bold]1. Add HyperClaw provider to OpenClaw config:[/bold]\n")
+    console.print("\n[bold cyan]HyperClaw OpenClaw Setup[/bold cyan]\n")
+    console.print(f"Key: [dim]{api_key[:20]}...[/dim]")
+    console.print(f"Expires: {claw_key.get('expires_at', 'unknown')}")
     
-    provider_config = {
-        "providers": {
-            "hyperclaw": {
-                "label": "HyperClaw",
-                "baseURL": "https://api.hyperclaw.app/v1",
-                "apiKey": claw_key["key"],
-                "models": {
-                    "kimi-k2.5": "kimi-k2.5",
-                    "kimi-for-coding": "kimi-for-coding"
-                }
-            }
-        }
+    # Load existing OpenClaw config or create new
+    if OPENCLAW_CONFIG_PATH.exists():
+        with open(OPENCLAW_CONFIG_PATH) as f:
+            config = json.load(f)
+        console.print(f"[green]✓[/green] Found existing config: {OPENCLAW_CONFIG_PATH}")
+    else:
+        config = {}
+        console.print(f"[yellow]![/yellow] No existing config, will create: {OPENCLAW_CONFIG_PATH}")
+    
+    # Ensure models.providers structure exists
+    if "models" not in config:
+        config["models"] = {}
+    if "providers" not in config["models"]:
+        config["models"]["providers"] = {}
+    
+    # Set mode to merge
+    config["models"]["mode"] = "merge"
+    
+    # Add HyperClaw provider with correct schema
+    config["models"]["providers"]["hyperclaw"] = {
+        "baseUrl": "https://api.hyperclaw.app/v1",
+        "apiKey": api_key,
+        "api": "openai-completions",
+        "models": HYPERCLAW_MODELS
     }
     
-    console.print("Add this to your OpenClaw config:")
-    console.print(json.dumps(provider_config, indent=2))
+    console.print("\n[bold]Provider configuration:[/bold]")
+    console.print(f"  baseUrl: https://api.hyperclaw.app/v1")
+    console.print(f"  api: openai-completions")
+    console.print(f"  models: kimi-k2.5, kimi-for-coding")
     
-    console.print("\n[bold]2. Use in agents:[/bold]\n")
-    console.print("  model: hyperclaw/kimi-k2.5")
-    console.print("  model: hyperclaw/kimi-for-coding")
+    # Set as default model if requested
+    if default:
+        if "agents" not in config:
+            config["agents"] = {}
+        if "defaults" not in config["agents"]:
+            config["agents"]["defaults"] = {}
+        if "model" not in config["agents"]["defaults"]:
+            config["agents"]["defaults"]["model"] = {}
+        
+        config["agents"]["defaults"]["model"]["primary"] = "hyperclaw/kimi-k2.5"
+        console.print(f"\n[bold]Default model:[/bold] hyperclaw/kimi-k2.5")
     
-    console.print("\n[bold]3. Set expiry reminder (optional):[/bold]\n")
-    expires_at = datetime.fromisoformat(claw_key["expires_at"].replace("Z", "+00:00"))
-    reminder_time = expires_at - timedelta(days=1)
+    if dry_run:
+        console.print("\n[yellow]--dry-run: Not writing changes[/yellow]")
+        console.print("\n[bold]Would write:[/bold]")
+        console.print(json.dumps(config, indent=2))
+        return
     
-    console.print(f"Create a cron job to remind you 1 day before expiry ({reminder_time.strftime('%Y-%m-%d')}):")
-    console.print(f"\n  Renew with: [bold]hyper claw subscribe {claw_key['plan_id']}[/bold]")
+    # Write config
+    OPENCLAW_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
+    with open(OPENCLAW_CONFIG_PATH, "w") as f:
+        json.dump(config, f, indent=2)
     
-    console.print(f"\n[green]✓[/green] Key saved at [bold]{CLAW_KEY_PATH}[/bold]")
-    console.print(f"[green]✓[/green] Limits: {claw_key['tpm_limit']:,} TPM / {claw_key['rpm_limit']:,} RPM")
+    console.print(f"\n[green]✅ Config written to {OPENCLAW_CONFIG_PATH}[/green]")
+    console.print("\nRestart OpenClaw gateway:")
+    console.print("  [bold]openclaw gateway restart[/bold]")
+    
+    console.print("\n[bold]Available models:[/bold]")
+    console.print("  hyperclaw/kimi-k2.5")
+    console.print("  hyperclaw/kimi-for-coding")
