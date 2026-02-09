@@ -105,16 +105,17 @@ The 1AIU plan costs $25 for 32 days. Payment scales linearly:
 
 ### 7. Purchase Subscription
 
-Subscribe to the 1AIU plan (32 days):
+Subscribe to the 1AIU plan with your USDC balance:
 
 ```bash
-hyper claw subscribe 1aiu -a 25
+hyper claw subscribe 1aiu <usdc_amount>
 ```
 
-Or for a custom amount (scales duration proportionally):
-
+Examples:
 ```bash
-hyper claw subscribe 1aiu -a <amount>
+hyper claw subscribe 1aiu 25    # Pay $25 for 32 days
+hyper claw subscribe 1aiu 50    # Pay $50 for 64 days  
+hyper claw subscribe 5aiu 100   # Pay $100 for 5aiu plan
 ```
 
 Enter wallet passphrase when prompted. On success, you'll receive:
@@ -163,6 +164,16 @@ providers:
     models:
       kimi-k2.5: kimi-k2.5
       kimi-for-coding: kimi-for-coding
+```
+
+**Important:** Add HyperClaw models to the allowlist so agents can use them:
+
+```yaml
+allowlist:
+  - hyperclaw/*        # Allow all HyperClaw models
+  # Or be specific:
+  # - hyperclaw/kimi-k2.5
+  # - hyperclaw/kimi-for-coding
 ```
 
 Set as default model (optional):
@@ -236,7 +247,7 @@ Run `hyper claw status` to check expiration. Renew if expired.
 | `hyper wallet qr -o file.png` | Save QR code |
 | `hyper wallet balance` | Check USDC balance |
 | `hyper claw plans` | List available plans |
-| `hyper claw subscribe 1aiu -a 25` | Purchase 1AIU (32 days) |
+| `hyper claw subscribe 1aiu 25` | Purchase 1AIU (32 days) |
 | `hyper claw status` | Check subscription status |
 | `hyper claw openclaw-setup` | Show OpenClaw config instructions |
 
