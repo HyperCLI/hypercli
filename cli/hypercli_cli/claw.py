@@ -227,31 +227,44 @@ def status():
 
 
 @app.command("plans")
-def plans():
+def plans(
+    dev: bool = typer.Option(False, "--dev", help="Use dev API")
+):
     """List available HyperClaw plans"""
+    import httpx
+    
+    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    url = f"{api_base}/api/plans"
+    
+    try:
+        response = httpx.get(url, timeout=10)
+        response.raise_for_status()
+        data = response.json()
+    except Exception as e:
+        console.print(f"[red]❌ Failed to fetch plans: {e}[/red]")
+        raise typer.Exit(1)
     
     table = Table(title="HyperClaw Plans")
     table.add_column("Plan ID", style="cyan")
     table.add_column("Name", style="green")
     table.add_column("Price", style="yellow")
+    table.add_column("Duration", style="blue")
     table.add_column("TPM", style="magenta")
     table.add_column("RPM", style="magenta")
     
-    # Hardcoded for now (could fetch from API later)
-    plans_data = [
-        ("1aiu", "1 Agent", "$1", "50K", "1K"),
-        ("2aiu", "2 Agents", "$2", "100K", "2K"),
-        ("5aiu", "5 Agents", "$3", "250K", "5K"),
-        ("10aiu", "10 Agents", "$4", "500K", "10K"),
-    ]
-    
-    for plan in plans_data:
-        table.add_row(*plan)
+    for plan in data.get("plans", []):
+        plan_id = plan.get("id", "")
+        name = plan.get("name", "")
+        price = f"${plan.get('price', 0)}"
+        duration = f"{plan.get('duration_days', 30)} days"
+        tpm = f"{plan.get('tpm_limit', 0):,}"
+        rpm = f"{plan.get('rpm_limit', 0):,}"
+        table.add_row(plan_id, name, price, duration, tpm, rpm)
     
     console.print()
     console.print(table)
     console.print()
-    console.print("Subscribe with: [bold]hyper claw subscribe <plan_id>[/bold]")
+    console.print("Subscribe with: [bold]hyper claw subscribe <plan_id> -a <amount>[/bold]")
 
 
 @app.command("openclaw-setup")
