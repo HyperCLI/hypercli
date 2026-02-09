@@ -153,41 +153,63 @@ Expected response includes available models like `kimi-k2.5`.
 
 ### 10. Configure OpenClaw
 
-Add HyperClaw as a model provider in OpenClaw config (`~/.openclaw/config.yaml`):
+Add HyperClaw as a model provider in OpenClaw config (`~/.openclaw/openclaw.json`).
 
-```yaml
-providers:
-  hyperclaw:
-    label: HyperClaw
-    baseURL: https://api.hyperclaw.app/v1
-    apiKey: ${HYPERCLAW_API_KEY}  # Or reference credentials.yaml
-    models:
-      kimi-k2.5: kimi-k2.5
-      kimi-for-coding: kimi-for-coding
+Use the gateway tool to patch the config:
+
+```bash
+# Using openclaw CLI (recommended)
+openclaw config set models.providers.hyperclaw.baseUrl "https://api.hyperclaw.app/v1"
+openclaw config set models.providers.hyperclaw.api "openai-completions"
 ```
 
-**Important:** Add HyperClaw models to the allowlist so agents can use them:
+Or manually edit `~/.openclaw/openclaw.json` and add under the `models` key:
 
-```yaml
-allowlist:
-  - hyperclaw/*        # Allow all HyperClaw models
-  # Or be specific:
-  # - hyperclaw/kimi-k2.5
-  # - hyperclaw/kimi-for-coding
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hyperclaw": {
+        "baseUrl": "https://api.hyperclaw.app/v1",
+        "apiKey": "sk-YOUR_KEY_HERE",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          },
+          {
+            "id": "kimi-for-coding", 
+            "name": "Kimi for Coding",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 200000,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  }
+}
 ```
 
-Set as default model (optional):
+Set as default model (optional) by adding to `agents.defaults`:
 
-```yaml
-model: hyperclaw/kimi-k2.5
-```
-
-Or in agent config:
-
-```yaml
-agents:
-  main:
-    model: hyperclaw/kimi-k2.5
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "hyperclaw/kimi-k2.5"
+      }
+    }
+  }
+}
 ```
 
 ### 11. Set Renewal Reminder
