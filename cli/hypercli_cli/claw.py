@@ -310,14 +310,6 @@ HYPERCLAW_MODELS = [
         "contextWindow": 200000,
         "maxTokens": 8192
     },
-    {
-        "id": "kimi-for-coding",
-        "name": "Kimi for Coding", 
-        "reasoning": False,
-        "input": ["text"],
-        "contextWindow": 200000,
-        "maxTokens": 8192
-    }
 ]
 
 
@@ -374,6 +366,7 @@ def openclaw_setup(
 
     console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
     console.print(f"   provider: hyperclaw  key: {api_key[:16]}...")
+    console.print("   model: hyperclaw/kimi-k2.5")
     if default:
         console.print("   default model: hyperclaw/kimi-k2.5")
     console.print("\nRun: [bold]openclaw gateway restart[/bold]")
