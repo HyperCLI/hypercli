@@ -240,6 +240,88 @@ def balance():
         console.print(f"\n[green]✓[/green] You have [bold]{balance_usdc:.2f} USDC[/bold]")
 
 
+@app.command("login")
+def wallet_login(
+    name: str = typer.Option("cli", help="Name for the generated API key"),
+    api_url: str = typer.Option(None, help="API URL override"),
+):
+    """Login with wallet signature, create an API key, and save it.
+    
+    This is the recommended way to set up HyperCLI from scratch:
+    1. hyper wallet create
+    2. hyper wallet login
+    """
+    require_wallet_deps()
+    from eth_account.messages import encode_defunct
+    import httpx
+    from hypercli.config import get_api_url, configure
+
+    base_url = (api_url or get_api_url()).rstrip("/")
+
+    # Step 1: Load wallet
+    account = load_wallet()
+    console.print(f"[green]✓[/green] Wallet: {account.address}\n")
+
+    # Step 2: Get challenge
+    console.print("[bold]Requesting login challenge...[/bold]")
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(
+            f"{base_url}/api/auth/wallet/challenge",
+            json={"wallet": account.address},
+        )
+        if resp.status_code != 200:
+            console.print(f"[red]❌ Challenge failed: {resp.text}[/red]")
+            raise typer.Exit(1)
+        challenge = resp.json()
+
+    # Step 3: Sign the challenge
+    console.print("[bold]Signing challenge...[/bold]")
+    message = encode_defunct(text=challenge["message"])
+    signed = account.sign_message(message)
+
+    # Step 4: Login
+    console.print("[bold]Logging in...[/bold]")
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(
+            f"{base_url}/api/auth/wallet/login",
+            json={
+                "wallet": account.address,
+                "signature": signed.signature.hex(),
+                "timestamp": challenge["timestamp"],
+            },
+        )
+        if resp.status_code != 200:
+            console.print(f"[red]❌ Login failed: {resp.text}[/red]")
+            raise typer.Exit(1)
+        jwt_token = resp.json()["token"]
+
+    console.print("[green]✓[/green] Authenticated\n")
+
+    # Step 5: Create API key using JWT
+    console.print(f"[bold]Creating API key '{name}'...[/bold]")
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(
+            f"{base_url}/api/keys",
+            json={"name": name},
+            headers={"Authorization": f"Bearer {jwt_token}"},
+        )
+        if resp.status_code != 200:
+            console.print(f"[red]❌ Key creation failed: {resp.text}[/red]")
+            raise typer.Exit(1)
+        key_data = resp.json()
+
+    api_key = key_data["api_key"]
+
+    # Step 6: Save to config
+    configure(api_key, api_url)
+
+    console.print(f"[green]✓[/green] API key created and saved!\n")
+    console.print(f"  Name:    {key_data['name']}")
+    console.print(f"  Key:     [bold]{api_key}[/bold]")
+    console.print(f"  Saved:   ~/.hypercli/config")
+    console.print(f"\n[green]You're all set! Try:[/green] hyper keys list\n")
+
+
 def load_wallet():
     """Load and decrypt wallet (helper function for other commands)"""
     require_wallet_deps()
