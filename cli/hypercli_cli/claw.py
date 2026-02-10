@@ -324,94 +324,56 @@ HYPERCLAW_MODELS = [
 @app.command("openclaw-setup")
 def openclaw_setup(
     default: bool = typer.Option(False, "--default", help="Set hyperclaw/kimi-k2.5 as the default model"),
-    dry_run: bool = typer.Option(False, "--dry-run", help="Show changes without writing")
 ):
-    """Configure OpenClaw to use your HyperClaw API key.
-    
-    Reads your key from ~/.hypercli/claw-key.json and writes the correct
-    provider configuration to ~/.openclaw/openclaw.json.
-    
-    Examples:
-      hyper claw openclaw-setup           # Add HyperClaw provider
-      hyper claw openclaw-setup --default # Also set as default model
+    """Patch OpenClaw config with your HyperClaw API key.
+
+    Reads key from ~/.hypercli/claw-key.json, patches only the
+    models.providers.hyperclaw section in ~/.openclaw/openclaw.json.
+    Everything else in the config is left untouched.
     """
-    
+
     # Load HyperClaw key
     if not CLAW_KEY_PATH.exists():
         console.print("[red]❌ No HyperClaw key found.[/red]")
         console.print("Run: [bold]hyper claw subscribe 1aiu <amount>[/bold]")
         raise typer.Exit(1)
-    
+
     with open(CLAW_KEY_PATH) as f:
-        claw_key = json.load(f)
-    
-    api_key = claw_key.get("key", "")
+        api_key = json.load(f).get("key", "")
+
     if not api_key:
-        console.print("[red]❌ Invalid key file - missing 'key' field[/red]")
+        console.print("[red]❌ Invalid key file — missing 'key' field[/red]")
         raise typer.Exit(1)
-    
-    console.print("\n[bold cyan]HyperClaw OpenClaw Setup[/bold cyan]\n")
-    console.print(f"Key: [dim]{api_key[:20]}...[/dim]")
-    console.print(f"Expires: {claw_key.get('expires_at', 'unknown')}")
-    
-    # Load existing OpenClaw config or create new
+
+    # Read existing config (or start empty)
     if OPENCLAW_CONFIG_PATH.exists():
         with open(OPENCLAW_CONFIG_PATH) as f:
             config = json.load(f)
-        console.print(f"[green]✓[/green] Found existing config: {OPENCLAW_CONFIG_PATH}")
     else:
         config = {}
-        console.print(f"[yellow]![/yellow] No existing config, will create: {OPENCLAW_CONFIG_PATH}")
-    
-    # Ensure models.providers structure exists
-    if "models" not in config:
-        config["models"] = {}
-    if "providers" not in config["models"]:
-        config["models"]["providers"] = {}
-    
-    # Set mode to merge
-    config["models"]["mode"] = "merge"
-    
-    # Add HyperClaw provider with correct schema
+
+    # Patch only models.providers.hyperclaw
+    config.setdefault("models", {}).setdefault("providers", {})
     config["models"]["providers"]["hyperclaw"] = {
         "baseUrl": "https://api.hyperclaw.app/v1",
         "apiKey": api_key,
         "api": "openai-completions",
-        "models": HYPERCLAW_MODELS
+        "models": HYPERCLAW_MODELS,
     }
-    
-    console.print("\n[bold]Provider configuration:[/bold]")
-    console.print(f"  baseUrl: https://api.hyperclaw.app/v1")
-    console.print(f"  api: openai-completions")
-    console.print(f"  models: kimi-k2.5, kimi-for-coding")
-    
-    # Set as default model if requested
+
+    # Optionally set default model
     if default:
-        if "agents" not in config:
-            config["agents"] = {}
-        if "defaults" not in config["agents"]:
-            config["agents"]["defaults"] = {}
-        if "model" not in config["agents"]["defaults"]:
-            config["agents"]["defaults"]["model"] = {}
-        
+        config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})
         config["agents"]["defaults"]["model"]["primary"] = "hyperclaw/kimi-k2.5"
-        console.print(f"\n[bold]Default model:[/bold] hyperclaw/kimi-k2.5")
-    
-    if dry_run:
-        console.print("\n[yellow]--dry-run: Not writing changes[/yellow]")
-        console.print("\n[bold]Would write:[/bold]")
-        console.print(json.dumps(config, indent=2))
-        return
-    
-    # Write config
+
+    # Write back
     OPENCLAW_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
     with open(OPENCLAW_CONFIG_PATH, "w") as f:
         json.dump(config, f, indent=2)
-    
-    console.print(f"\n[green]✅ Config written to {OPENCLAW_CONFIG_PATH}[/green]")
-    console.print("\nRestart OpenClaw gateway:")
-    console.print("  [bold]openclaw gateway restart[/bold]")
-    
-    console.print("\n[bold]Available models:[/bold]")
-    console.print("  hyperclaw/kimi-k2.5")
-    console.print("  hyperclaw/kimi-for-coding")
+        f.write("\n")
+
+    console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
+    console.print(f"   provider: hyperclaw  key: {api_key[:16]}...")
+    if default:
+        console.print("   default model: hyperclaw/kimi-k2.5")
+    console.print("\nRun: [bold]openclaw gateway restart[/bold]")
