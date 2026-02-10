@@ -28,7 +28,7 @@ comfyui = [
     "hypercli-sdk[comfyui]>=0.7.1",
 ]
 wallet = [
-    "x402[httpx]>=2.0.0",
+    "x402[httpx,evm]>=2.0.0",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
     "argon2-cffi>=25.0.0",
@@ -36,7 +36,7 @@ wallet = [
 ]
 all = [
     "hypercli-sdk[comfyui]>=0.7.1",
-    "x402[httpx]>=2.0.0",
+    "x402[httpx,evm]>=2.0.0",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
     "argon2-cffi>=25.0.0",
