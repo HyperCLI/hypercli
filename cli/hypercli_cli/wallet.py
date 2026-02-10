@@ -240,6 +240,139 @@ def balance():
         console.print(f"\n[green]✓[/green] You have [bold]{balance_usdc:.2f} USDC[/bold]")
 
 
+@app.command("topup")
+def topup(
+    amount: float = typer.Argument(help="Amount in USDC to pay"),
+    plan: str = typer.Option("1aiu", help="Plan ID (1aiu, 2aiu, 5aiu, 10aiu)"),
+    api_url: str = typer.Option(None, help="API URL override"),
+    save: bool = typer.Option(True, help="Save returned API key to config"),
+):
+    """Top up account by paying USDC via x402 protocol.
+    
+    Sends a USDC payment on Base to purchase or extend a plan.
+    The duration granted is proportional to the amount paid.
+    
+    Examples:
+        hyper wallet topup 25              # Pay $25 USDC for ~23 days of 1 AIU
+        hyper wallet topup 35 --plan 1aiu  # Pay full price for 32 days
+        hyper wallet topup 5               # Pay $5 for ~4.5 days
+    """
+    require_wallet_deps()
+    import httpx
+    from hypercli.config import get_api_url, configure
+
+    try:
+        from x402 import x402ClientSync
+        from x402.http import x402HTTPClientSync
+        from x402.mechanisms.evm.exact import ExactEvmClientScheme
+        from x402.mechanisms.evm import EthAccountSigner
+    except ImportError:
+        console.print("[red]❌ x402 payment requires the x402 package[/red]")
+        console.print("\nInstall with:")
+        console.print("  [bold]pip install x402[/bold]")
+        raise typer.Exit(1)
+
+    base_url = (api_url or get_api_url()).rstrip("/")
+    endpoint = f"{base_url}/api/x402/{plan}"
+
+    # Step 1: Load wallet
+    account = load_wallet()
+    console.print(f"[green]✓[/green] Wallet: {account.address}")
+
+    # Step 2: Check USDC balance
+    w3 = Web3(Web3.HTTPProvider(BASE_RPC))
+    usdc_abi = [
+        {
+            "constant": True,
+            "inputs": [{"name": "_owner", "type": "address"}],
+            "name": "balanceOf",
+            "outputs": [{"name": "balance", "type": "uint256"}],
+            "type": "function",
+        }
+    ]
+    usdc = w3.eth.contract(address=USDC_CONTRACT, abi=usdc_abi)
+    balance_raw = usdc.functions.balanceOf(account.address).call()
+    balance_usdc = balance_raw / 1_000_000
+
+    console.print(f"[green]✓[/green] Balance: {balance_usdc:.2f} USDC")
+
+    if balance_usdc < amount:
+        console.print(f"\n[red]❌ Insufficient balance: {balance_usdc:.2f} < {amount:.2f} USDC[/red]")
+        console.print(f"Send USDC on Base to: [bold]{account.address}[/bold]")
+        raise typer.Exit(1)
+
+    # Step 3: Set up x402 client
+    signer = EthAccountSigner(account)
+    x402_client = x402ClientSync()
+    x402_client.register("eip155:8453", ExactEvmClientScheme(signer))
+    http_client = x402HTTPClientSync(x402_client)
+
+    # Step 4: Hit endpoint to get 402 payment requirements
+    console.print(f"\n[bold]Requesting payment for plan '{plan}'...[/bold]")
+
+    with httpx.Client(timeout=30) as client:
+        resp = client.post(endpoint)
+
+        if resp.status_code == 404:
+            console.print(f"[red]❌ Plan '{plan}' not found[/red]")
+            raise typer.Exit(1)
+
+        if resp.status_code != 402:
+            console.print(f"[red]❌ Unexpected response: {resp.status_code} {resp.text}[/red]")
+            raise typer.Exit(1)
+
+        # Step 5: Create x402 payment (signs EIP-3009 transferWithAuthorization)
+        console.print(f"[bold]Signing USDC payment of ${amount:.2f}...[/bold]")
+
+        # Override the amount in the payment requirements to match user's requested amount
+        from x402 import parse_payment_required
+        payment_required = parse_payment_required(
+            resp.headers, resp.content
+        )
+
+        # Override the amount to the user-specified amount (in USDC atomic units, 6 decimals)
+        amount_atomic = str(int(amount * 1_000_000))
+        for req in payment_required.accepts:
+            req.amount = amount_atomic
+
+        payment_payload = http_client.create_payment_payload(payment_required)
+        payment_headers = http_client.encode_payment_signature_header(payment_payload)
+
+        # Step 6: Retry with payment headers
+        console.print(f"[bold]Submitting payment...[/bold]")
+        resp2 = client.post(endpoint, headers=payment_headers)
+
+    if resp2.status_code != 200:
+        console.print(f"[red]❌ Payment failed: {resp2.status_code} {resp2.text}[/red]")
+        raise typer.Exit(1)
+
+    result = resp2.json()
+
+    api_key = result.get("key", "")
+    duration = result.get("duration_days", 0)
+    expires = result.get("expires_at", "")
+    paid = result.get("amount_paid", amount)
+
+    console.print(f"\n[bold green]✓ Payment successful![/bold green]\n")
+    console.print(f"  Plan:     {result.get('plan_id', plan)}")
+    console.print(f"  Paid:     ${paid} USDC")
+    console.print(f"  Duration: {duration:.1f} days")
+    console.print(f"  Expires:  {expires[:19]}")
+    console.print(f"  TPM:      {result.get('tpm_limit', 'N/A')}")
+    console.print(f"  RPM:      {result.get('rpm_limit', 'N/A')}")
+
+    if api_key:
+        console.print(f"  API Key:  [bold]{api_key}[/bold]")
+
+        if save:
+            configure(api_key, api_url)
+            console.print(f"\n[green]✓[/green] API key saved to ~/.hypercli/config")
+        else:
+            console.print(f"\n[yellow]⚠ Save this key — it won't be shown again.[/yellow]")
+
+    console.print()
+
+
 @app.command("login")
 def wallet_login(
     name: str = typer.Option("cli", help="Name for the generated API key"),
