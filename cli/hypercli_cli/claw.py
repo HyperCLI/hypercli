@@ -320,7 +320,6 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "reasoning": False,
                 "input": ["text"],
                 "contextWindow": 200000,
-                "maxTokens": 8192,
             }
             for m in data
             if m.get("id")
@@ -335,7 +334,6 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "reasoning": False,
                 "input": ["text"],
                 "contextWindow": 200000,
-                "maxTokens": 8192,
             },
         ]
 
