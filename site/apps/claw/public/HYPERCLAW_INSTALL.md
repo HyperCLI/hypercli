@@ -125,38 +125,12 @@ Enter wallet passphrase when prompted. On success, you'll receive:
 
 The key is saved to `~/.hypercli/claw-key.json`.
 
-### 8. Save Credentials
+### 8. Configure OpenClaw
 
-Save the API key to OpenClaw credentials:
-
-```bash
-# Read the key
-KEY=$(jq -r '.key' ~/.hypercli/claw-key.json)
-
-# Add to OpenClaw credentials.yaml
-cat >> ~/.openclaw/credentials.yaml << EOF
-hyperclaw:
-  apiKey: $KEY
-EOF
-```
-
-### 9. Test the Key
-
-Verify the key works:
+Patch your OpenClaw config with the HyperClaw provider:
 
 ```bash
-curl -s https://api.hyperclaw.app/v1/models \
-  -H "Authorization: Bearer $(jq -r '.key' ~/.hypercli/claw-key.json)"
-```
-
-Expected response includes available models like `kimi-k2.5`.
-
-### 10. Configure OpenClaw
-
-Run the setup command to configure OpenClaw with your HyperClaw key:
-
-```bash
-# Add HyperClaw provider to OpenClaw
+# Add HyperClaw provider to OpenClaw config
 hyper claw openclaw-setup
 
 # Or also set it as the default model
@@ -169,14 +143,20 @@ Then restart OpenClaw:
 openclaw gateway restart
 ```
 
-This writes the correct provider configuration to `~/.openclaw/openclaw.json`:
-- Adds `hyperclaw` provider under `models.providers`
-- Configures API endpoint and your key
-- Registers available models (kimi-k2.5, kimi-for-coding)
+This patches `~/.openclaw/openclaw.json` to add the `hyperclaw` provider with your API key and available models (kimi-k2.5, kimi-for-coding). The rest of your config is left untouched.
 
-With `--default`, it also sets `hyperclaw/kimi-k2.5` as your primary model.
+### 9. Test the Key
 
-### 11. Set Renewal Reminder
+Verify the key works:
+
+```bash
+curl -s https://api.hyperclaw.app/v1/models \
+  -H "Authorization: Bearer $(jq -r '.key' ~/.hypercli/claw-key.json)"
+```
+
+Expected response includes available models like `kimi-k2.5`.
+
+### 10. Set Renewal Reminder
 
 Create a cron job to remind the user 29 days from now:
 
@@ -235,7 +215,7 @@ Run `hyper claw status` to check expiration. Renew if expired.
 | `hyper claw plans` | List available plans |
 | `hyper claw subscribe 1aiu 25` | Purchase 1AIU (32 days) |
 | `hyper claw status` | Check subscription status |
-| `hyper claw openclaw-setup` | Show OpenClaw config instructions |
+| `hyper claw openclaw-setup` | Patch OpenClaw config with HyperClaw key |
 
 ## API Endpoints
 
