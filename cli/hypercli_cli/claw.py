@@ -302,23 +302,28 @@ def plans(
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 
-def fetch_models(api_base: str = PROD_API_BASE) -> list[dict]:
-    """Fetch available models from HyperClaw /v1/models endpoint."""
+def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
+    """Fetch available models from LiteLLM /v1/models (served by HyperClaw)."""
     import httpx
     try:
-        resp = httpx.get(f"{api_base}/api/v1/models", timeout=10)
+        resp = httpx.get(
+            f"{api_base}/v1/models",
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=10,
+        )
         resp.raise_for_status()
         data = resp.json().get("data", [])
         return [
             {
                 "id": m["id"],
-                "name": m.get("id", "").replace("-", " ").title(),
+                "name": m["id"].replace("-", " ").title(),
                 "reasoning": False,
                 "input": ["text"],
-                "contextWindow": m.get("context_window", 200000),
-                "maxTokens": m.get("max_tokens", 8192),
+                "contextWindow": 200000,
+                "maxTokens": 8192,
             }
             for m in data
+            if m.get("id")
         ]
     except Exception as e:
         console.print(f"[yellow]⚠ Could not fetch models from API: {e}[/yellow]")
@@ -366,8 +371,8 @@ def openclaw_setup(
     else:
         config = {}
 
-    # Fetch current model list from API
-    models = fetch_models()
+    # Fetch current model list from LiteLLM via API
+    models = fetch_models(api_key)
 
     # Patch only models.providers.hyperclaw
     config.setdefault("models", {}).setdefault("providers", {})
