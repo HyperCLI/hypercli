@@ -8,6 +8,7 @@ from .instances import Instances
 from .renders import Renders
 from .files import Files
 from .claw import Claw
+from .keys import KeysAPI
 
 
 class HyperCLI:
@@ -55,6 +56,7 @@ class HyperCLI:
         self.instances = Instances(self._http)
         self.renders = Renders(self._http)
         self.files = Files(self._http)
+        self.keys = KeysAPI(self._http)
         self.claw = Claw(self._http, claw_api_key=claw_api_key, dev=claw_dev)
 
     @property
