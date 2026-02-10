@@ -64,21 +64,21 @@
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_live_51Swl9SRZTaGJgE4BPe4ljplqQJQY8KoXjDZc2uOsiyublXnL5VDO4jA9VRTGDHUbAOXz0ZkbWqKMpEYPWvMvl2SS00XIDqCm4A"
   NEXT_PUBLIC_CLAW_URL = "https://hyperclaw.app"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5njpn701s2ky0cjd0y1vzq"
-  NEXT_PUBLIC_CLAW_API_URL = "https://api.hyperclaw.app"
+  NEXT_PUBLIC_CLAW_API_URL = "https://api.hyperclaw.app/api"
 
 # Non-production (branch deploys)
 [context.branch-deploy.environment]
   NEXT_PUBLIC_STRIPE_PK_CLI = "pk_test_51So7MuD2ZZvODGmahxL1H1uM1GS1zEllTp6UCjKlB7Ga6Wqv6YyoY7WgIUDOAoGQutVAEeTexlkmWAhhW5wMdgtP00bN74gl6d"
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
-  NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app"
+  NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
 
 # Non-production (deploy previews)
 [context.deploy-preview.environment]
   NEXT_PUBLIC_STRIPE_PK_CLI = "pk_test_51So7MuD2ZZvODGmahxL1H1uM1GS1zEllTp6UCjKlB7Ga6Wqv6YyoY7WgIUDOAoGQutVAEeTexlkmWAhhW5wMdgtP00bN74gl6d"
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
-  NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app"
+  NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
 
 # Cache control headers for static assets
 [[headers]]
