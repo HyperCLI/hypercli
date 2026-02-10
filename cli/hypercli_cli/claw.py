@@ -301,16 +301,38 @@ def plans(
 
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
-HYPERCLAW_MODELS = [
-    {
-        "id": "kimi-k2.5",
-        "name": "Kimi K2.5",
-        "reasoning": False,
-        "input": ["text"],
-        "contextWindow": 200000,
-        "maxTokens": 8192
-    },
-]
+
+def fetch_models(api_base: str = PROD_API_BASE) -> list[dict]:
+    """Fetch available models from HyperClaw /v1/models endpoint."""
+    import httpx
+    try:
+        resp = httpx.get(f"{api_base}/api/v1/models", timeout=10)
+        resp.raise_for_status()
+        data = resp.json().get("data", [])
+        return [
+            {
+                "id": m["id"],
+                "name": m.get("id", "").replace("-", " ").title(),
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": m.get("context_window", 200000),
+                "maxTokens": m.get("max_tokens", 8192),
+            }
+            for m in data
+        ]
+    except Exception as e:
+        console.print(f"[yellow]⚠ Could not fetch models from API: {e}[/yellow]")
+        console.print("[yellow]  Using fallback model list[/yellow]")
+        return [
+            {
+                "id": "kimi-k2.5",
+                "name": "Kimi K2.5",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 200000,
+                "maxTokens": 8192,
+            },
+        ]
 
 
 @app.command("openclaw-setup")
@@ -344,19 +366,22 @@ def openclaw_setup(
     else:
         config = {}
 
+    # Fetch current model list from API
+    models = fetch_models()
+
     # Patch only models.providers.hyperclaw
     config.setdefault("models", {}).setdefault("providers", {})
     config["models"]["providers"]["hyperclaw"] = {
         "baseUrl": "https://api.hyperclaw.app/v1",
         "apiKey": api_key,
         "api": "openai-completions",
-        "models": HYPERCLAW_MODELS,
+        "models": models,
     }
 
     # Optionally set default model
     if default:
         config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})
-        config["agents"]["defaults"]["model"]["primary"] = "hyperclaw/kimi-k2.5"
+        config["agents"]["defaults"]["model"]["primary"] = f"hyperclaw/{models[0]['id']}"
 
     # Write back
     OPENCLAW_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -366,7 +391,8 @@ def openclaw_setup(
 
     console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
     console.print(f"   provider: hyperclaw  key: {api_key[:16]}...")
-    console.print("   model: hyperclaw/kimi-k2.5")
+    for m in models:
+        console.print(f"   model: hyperclaw/{m['id']}")
     if default:
-        console.print("   default model: hyperclaw/kimi-k2.5")
+        console.print(f"   default model: hyperclaw/{models[0]['id']}")
     console.print("\nRun: [bold]openclaw gateway restart[/bold]")
