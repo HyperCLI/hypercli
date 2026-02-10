@@ -242,38 +242,50 @@ def balance():
 
 @app.command("topup")
 def topup(
-    amount: float = typer.Argument(help="Amount in USDC to pay"),
-    plan: str = typer.Option("1aiu", help="Plan ID (1aiu, 2aiu, 5aiu, 10aiu)"),
+    amount: str = typer.Argument(help="Amount in USDC to top up (max 6 decimals)"),
     api_url: str = typer.Option(None, help="API URL override"),
-    save: bool = typer.Option(True, help="Save returned API key to config"),
 ):
-    """Top up account by paying USDC via x402 protocol.
-    
-    Sends a USDC payment on Base to purchase or extend a plan.
-    The duration granted is proportional to the amount paid.
-    
+    """Top up account balance via Orchestra x402 endpoint.
+
+    Flow:
+    1) Resolve user_id via GET /api/user using your existing API key
+    2) POST /api/x402/top_up with {user_id, amount}
+    3) Handle 402 and retry with x402 payment headers
+
     Examples:
-        hyper wallet topup 25              # Pay $25 USDC for ~23 days of 1 AIU
-        hyper wallet topup 35 --plan 1aiu  # Pay full price for 32 days
-        hyper wallet topup 5               # Pay $5 for ~4.5 days
+        hyper wallet topup 10
+        hyper wallet topup 25.50
     """
     require_wallet_deps()
+    from decimal import Decimal, InvalidOperation
     import httpx
-    from hypercli.config import get_api_url, configure
+    from hypercli.config import get_api_key, get_api_url
 
     try:
         from x402 import x402ClientSync
         from x402.http import x402HTTPClientSync
-        from x402.mechanisms.evm.exact import ExactEvmClientScheme
         from x402.mechanisms.evm import EthAccountSigner
+        from x402.mechanisms.evm.exact.register import register_exact_evm_client
     except ImportError:
-        console.print("[red]❌ x402 payment requires the x402 package[/red]")
+        console.print("[red]❌ x402 payment requires wallet/x402 dependencies[/red]")
         console.print("\nInstall with:")
-        console.print("  [bold]pip install x402[/bold]")
+        console.print("  [bold]pip install 'hypercli-cli[wallet]'[/bold]")
         raise typer.Exit(1)
 
-    base_url = (api_url or get_api_url()).rstrip("/")
-    endpoint = f"{base_url}/api/x402/{plan}"
+    try:
+        amount_dec = Decimal(amount)
+    except InvalidOperation:
+        console.print(f"[red]❌ Invalid amount: {amount}[/red]")
+        raise typer.Exit(1)
+
+    if amount_dec <= 0:
+        console.print("[red]❌ Amount must be greater than 0[/red]")
+        raise typer.Exit(1)
+    if amount_dec.as_tuple().exponent < -6:
+        console.print("[red]❌ Amount supports at most 6 decimals[/red]")
+        raise typer.Exit(1)
+
+    amount_atomic = int(amount_dec * Decimal("1000000"))
 
     # Step 1: Load wallet
     account = load_wallet()
@@ -292,83 +304,107 @@ def topup(
     ]
     usdc = w3.eth.contract(address=USDC_CONTRACT, abi=usdc_abi)
     balance_raw = usdc.functions.balanceOf(account.address).call()
-    balance_usdc = balance_raw / 1_000_000
+    balance_usdc = Decimal(balance_raw) / Decimal("1000000")
 
-    console.print(f"[green]✓[/green] Balance: {balance_usdc:.2f} USDC")
+    console.print(f"[green]✓[/green] Balance: {balance_usdc:.6f} USDC")
 
-    if balance_usdc < amount:
-        console.print(f"\n[red]❌ Insufficient balance: {balance_usdc:.2f} < {amount:.2f} USDC[/red]")
+    if balance_raw < amount_atomic:
+        console.print(
+            f"\n[red]❌ Insufficient balance: {balance_usdc:.6f} < {amount_dec:.6f} USDC[/red]"
+        )
         console.print(f"Send USDC on Base to: [bold]{account.address}[/bold]")
         raise typer.Exit(1)
 
-    # Step 3: Set up x402 client
-    signer = EthAccountSigner(account)
-    x402_client = x402ClientSync()
-    x402_client.register("eip155:8453", ExactEvmClientScheme(signer))
-    http_client = x402HTTPClientSync(x402_client)
-
-    # Step 4: Hit endpoint to get 402 payment requirements
-    console.print(f"\n[bold]Requesting payment for plan '{plan}'...[/bold]")
-
-    with httpx.Client(timeout=30) as client:
-        resp = client.post(endpoint)
-
-        if resp.status_code == 404:
-            console.print(f"[red]❌ Plan '{plan}' not found[/red]")
-            raise typer.Exit(1)
-
-        if resp.status_code != 402:
-            console.print(f"[red]❌ Unexpected response: {resp.status_code} {resp.text}[/red]")
-            raise typer.Exit(1)
-
-        # Step 5: Create x402 payment (signs EIP-3009 transferWithAuthorization)
-        console.print(f"[bold]Signing USDC payment of ${amount:.2f}...[/bold]")
-
-        # Override the amount in the payment requirements to match user's requested amount
-        from x402 import parse_payment_required
-        payment_required = parse_payment_required(
-            resp.headers, resp.content
+    # Step 3: Set up x402 v2 client
+    api_key = get_api_key()
+    if not api_key:
+        console.print("[red]❌ API key required for top-up[/red]")
+        console.print(
+            "Set it with: [bold]hyper configure[/bold] or [bold]hyper wallet login[/bold]"
         )
-
-        # Override the amount to the user-specified amount (in USDC atomic units, 6 decimals)
-        amount_atomic = str(int(amount * 1_000_000))
-        for req in payment_required.accepts:
-            req.amount = amount_atomic
-
-        payment_payload = http_client.create_payment_payload(payment_required)
-        payment_headers = http_client.encode_payment_signature_header(payment_payload)
-
-        # Step 6: Retry with payment headers
-        console.print(f"[bold]Submitting payment...[/bold]")
-        resp2 = client.post(endpoint, headers=payment_headers)
-
-    if resp2.status_code != 200:
-        console.print(f"[red]❌ Payment failed: {resp2.status_code} {resp2.text}[/red]")
         raise typer.Exit(1)
 
-    result = resp2.json()
+    base_url = (api_url or get_api_url()).rstrip("/")
+    user_endpoint = f"{base_url}/api/user"
+    topup_endpoint = f"{base_url}/api/x402/top_up"
+    auth_headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json",
+    }
 
-    api_key = result.get("key", "")
-    duration = result.get("duration_days", 0)
-    expires = result.get("expires_at", "")
-    paid = result.get("amount_paid", amount)
+    signer = EthAccountSigner(account)
+    x402_client = x402ClientSync()
+    register_exact_evm_client(x402_client, signer)
+    http_client = x402HTTPClientSync(x402_client)
 
-    console.print(f"\n[bold green]✓ Payment successful![/bold green]\n")
-    console.print(f"  Plan:     {result.get('plan_id', plan)}")
-    console.print(f"  Paid:     ${paid} USDC")
-    console.print(f"  Duration: {duration:.1f} days")
-    console.print(f"  Expires:  {expires[:19]}")
-    console.print(f"  TPM:      {result.get('tpm_limit', 'N/A')}")
-    console.print(f"  RPM:      {result.get('rpm_limit', 'N/A')}")
+    with httpx.Client(timeout=30) as client:
+        # Step 4: Resolve user_id from API key
+        console.print("\n[bold]Resolving user...[/bold]")
+        user_resp = client.get(user_endpoint, headers=auth_headers)
+        if user_resp.status_code != 200:
+            console.print(
+                f"[red]❌ Failed to get user: {user_resp.status_code} {user_resp.text}[/red]"
+            )
+            raise typer.Exit(1)
 
-    if api_key:
-        console.print(f"  API Key:  [bold]{api_key}[/bold]")
+        user_id = user_resp.json().get("user_id")
+        if not user_id:
+            console.print("[red]❌ /api/user response missing user_id[/red]")
+            raise typer.Exit(1)
 
-        if save:
-            configure(api_key, api_url)
-            console.print(f"\n[green]✓[/green] API key saved to ~/.hypercli/config")
-        else:
-            console.print(f"\n[yellow]⚠ Save this key — it won't be shown again.[/yellow]")
+        payload = {"user_id": user_id, "amount": float(amount_dec)}
+
+        # Step 5: Request top-up (expect 402 then retry with payment)
+        console.print(f"[bold]Requesting top-up of ${amount_dec:.2f}...[/bold]")
+        resp = client.post(topup_endpoint, headers=auth_headers, json=payload)
+
+        if resp.status_code == 402:
+            console.print("[bold]Signing x402 payment...[/bold]")
+            try:
+                payment_headers, _ = http_client.handle_402_response(
+                    dict(resp.headers), resp.content
+                )
+            except Exception as e:
+                console.print(f"[red]❌ Failed to build payment header: {e}[/red]")
+                raise typer.Exit(1)
+
+            console.print("[bold]Submitting payment...[/bold]")
+            retry_headers = {**auth_headers, **payment_headers}
+            retry_headers["Access-Control-Expose-Headers"] = "PAYMENT-RESPONSE,X-PAYMENT-RESPONSE"
+            resp = client.post(topup_endpoint, headers=retry_headers, json=payload)
+
+    if resp.status_code != 200:
+        console.print(f"[red]❌ Top-up failed: {resp.status_code} {resp.text}[/red]")
+        try:
+            settle = http_client.get_payment_settle_response(lambda name: resp.headers.get(name))
+            if getattr(settle, "error_reason", None):
+                console.print(f"[red]❌ Payment error: {settle.error_reason}[/red]")
+        except Exception:
+            pass
+        raise typer.Exit(1)
+
+    result = resp.json()
+
+    credited = result.get("amount", float(amount_dec))
+    wallet = result.get("wallet", account.address)
+    tx_id = result.get("transaction_id", "")
+    msg = result.get("message", "Top-up successful")
+
+    console.print(f"\n[bold green]✓ Top-up successful![/bold green]\n")
+    console.print(f"  User:      {result.get('user_id', 'N/A')}")
+    console.print(f"  Credited:  ${credited} USDC")
+    console.print(f"  Wallet:    {wallet}")
+    console.print(f"  Tx ID:     {tx_id or 'N/A'}")
+    console.print(f"  Message:   {msg}")
+
+    try:
+        settle = http_client.get_payment_settle_response(lambda name: resp.headers.get(name))
+        if getattr(settle, "transaction", None):
+            console.print(f"  On-chain:  {settle.transaction}")
+        if getattr(settle, "network", None):
+            console.print(f"  Network:   {settle.network}")
+    except Exception:
+        pass
 
     console.print()
 
