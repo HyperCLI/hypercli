@@ -5,9 +5,8 @@ const requiredEnvVars = [
   'NEXT_PUBLIC_CLAW_URL',
   'NEXT_PUBLIC_COOKIE_DOMAIN',
   'NEXT_PUBLIC_CLAW_API_URL',
+  'NEXT_PUBLIC_PRIVY_APP_ID',
 ] as const;
-// NEXT_PUBLIC_PRIVY_APP_ID is intentionally optional at build time.
-// apps/claw/src/components/ClawProviders.tsx falls back to StubAuthProvider when absent.
 
 for (const envVar of requiredEnvVars) {
   if (!process.env[envVar]) {

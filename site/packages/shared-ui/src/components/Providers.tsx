@@ -2,6 +2,7 @@
 
 import { useEffect } from "react";
 import { TurnkeyProvider, TurnkeyProviderConfig } from "@turnkey/react-wallet-kit";
+import { PrivyProvider } from "@privy-io/react-auth";
 import "@turnkey/react-wallet-kit/styles.css";
 import { AuthProvider } from "../providers/AuthProvider";
 import { WalletProvider } from "../contexts/WalletContext";
@@ -33,6 +34,10 @@ const turnkeyConfig: TurnkeyProviderConfig = {
   },
 };
 
+const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
+const isValidPrivyAppId =
+  PRIVY_APP_ID && PRIVY_APP_ID.length > 10 && PRIVY_APP_ID !== "placeholder";
+
 console.log("🔑 Turnkey Config:", {
   organizationId: turnkeyConfig.organizationId,
   authProxyConfigId: turnkeyConfig.authProxyConfigId,
@@ -62,7 +67,7 @@ export function Providers({ children }: { children: React.ReactNode }) {
     return () => observer.disconnect();
   }, []);
 
-  return (
+  const appProviders = (
     <RainbowKitProvider>
       <TurnkeyProvider
         config={turnkeyConfig}
@@ -91,5 +96,30 @@ export function Providers({ children }: { children: React.ReactNode }) {
         </AuthProvider>
       </TurnkeyProvider>
     </RainbowKitProvider>
+  );
+
+  if (!isValidPrivyAppId) {
+    return appProviders;
+  }
+
+  return (
+    <PrivyProvider
+      appId={PRIVY_APP_ID!}
+      config={{
+        loginMethods: ["email", "wallet", "google"],
+        appearance: {
+          theme: "dark",
+          accentColor: "#38D39F",
+          logo: "/hypercli-horizontal-transparentbg-whitehyper-200x60.png",
+        },
+        embeddedWallets: {
+          ethereum: {
+            createOnLogin: "off",
+          },
+        },
+      }}
+    >
+      {appProviders}
+    </PrivyProvider>
   );
 }
