@@ -575,6 +575,7 @@ def onboard(
     reset: bool = typer.Option(False, "--reset", help="Start fresh (delete state)"),
     status: bool = typer.Option(False, "--status", help="Show current onboard state and exit"),
     poll_interval: int = typer.Option(10, "--poll", help="Balance poll interval in seconds"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Walk through all steps without making changes"),
 ):
     """Guided onboarding: wallet → fund → plan → subscribe → configure → verify"""
 
@@ -589,9 +590,15 @@ def onboard(
         console.print("[green]✓[/green] Onboard state cleared")
         raise typer.Exit(0)
 
-    _require_deps()
+    if not dry_run:
+        _require_deps()
 
     api_base = DEV_API_BASE if dev else PROD_API_BASE
+
+    if dry_run:
+        _run_dry(api_base, plan_override=plan, amount_override=amount)
+        return
+
     state = _load_state()
 
     if not json_mode:
@@ -604,3 +611,96 @@ def onboard(
     state = step_subscribe(state, json_mode, api_base)
     state = step_configure(state, json_mode, api_base)
     state = step_verify(state, json_mode, api_base)
+
+
+def _run_dry(api_base: str, plan_override: str = None, amount_override: str = None):
+    """Walk through the full onboard flow without making any changes."""
+    import httpx
+
+    console.print("\n[bold]🐾 HyperClaw Onboarding (dry run)[/bold]\n")
+    console.print("[dim]No changes will be made.[/dim]\n")
+
+    # Step 1: Wallet
+    _step_header(1, "Wallet")
+    if WALLET_PATH.exists():
+        with open(WALLET_PATH) as f:
+            addr = "0x" + json.load(f).get("address", "")
+        console.print(f"[green]✓[/green] Wallet: [bold]{addr}[/bold] (existing)")
+    else:
+        console.print("[yellow]→[/yellow] Would create new wallet at ~/.hypercli/wallet.json")
+        addr = "0x0000000000000000000000000000000000000000"
+
+    # Step 2: Fund
+    _step_header(2, "Fund wallet")
+    if WALLET_PATH.exists():
+        try:
+            balance = _get_usdc_balance(addr)
+            console.print(f"  Address: [bold]{addr}[/bold]")
+            console.print(f"  Balance: [bold]${balance:.2f} USDC[/bold]")
+            if balance == 0:
+                console.print("[yellow]→[/yellow] Would poll every 10s until funded")
+            else:
+                console.print(f"[green]✓[/green] Already funded")
+        except Exception:
+            console.print(f"  Address: [bold]{addr}[/bold]")
+            console.print("[yellow]→[/yellow] Would poll balance until funded")
+    else:
+        console.print("[yellow]→[/yellow] Would show QR code and poll balance")
+    console.print(f"  QR path: {QR_PATH}")
+
+    # Step 3: Plan
+    _step_header(3, "Choose plan")
+    try:
+        resp = httpx.get(f"{api_base}/api/plans", timeout=10)
+        resp.raise_for_status()
+        plans = resp.json().get("plans", [])
+
+        from rich.table import Table
+        table = Table(show_header=True, header_style="bold")
+        table.add_column("Plan", style="cyan")
+        table.add_column("Name", style="green")
+        table.add_column("Price", style="yellow")
+        table.add_column("TPM", style="magenta")
+        table.add_column("RPM", style="magenta")
+        for p in plans:
+            table.add_row(p["id"], p["name"], f"${p['price']}/mo",
+                          f"{p['tpm_limit']:,}", f"{p['rpm_limit']:,}")
+        console.print(table)
+
+        plan_id = plan_override or "1aiu"
+        plan_info = next((p for p in plans if p["id"] == plan_id), plans[0] if plans else None)
+        amt = amount_override or str(plan_info["price"]) if plan_info else "35"
+        console.print(f"\n[green]✓[/green] Would select: {plan_id} ({plan_info['name'] if plan_info else '?'}) — ${amt} USDC")
+    except Exception as e:
+        console.print(f"[yellow]⚠ Could not fetch plans: {e}[/yellow]")
+        console.print("[yellow]→[/yellow] Would prompt for plan selection")
+
+    # Step 4: Subscribe
+    _step_header(4, "Subscribe")
+    console.print("[yellow]→[/yellow] Would sign x402 payment and submit")
+    console.print("[yellow]→[/yellow] Would save key to ~/.hypercli/claw-key.json")
+    if CLAW_KEY_PATH.exists():
+        with open(CLAW_KEY_PATH) as f:
+            existing = json.load(f)
+        console.print(f"  [dim]Existing key: {existing.get('key', '?')[:20]}...[/dim]")
+
+    # Step 5: Configure
+    _step_header(5, "Configure OpenClaw")
+    if OPENCLAW_CONFIG_PATH.exists():
+        console.print(f"[green]✓[/green] OpenClaw detected at {OPENCLAW_CONFIG_PATH}")
+        console.print("[yellow]→[/yellow] Would patch models.providers.hyperclaw")
+        console.print("[yellow]→[/yellow] Would prompt to set default model")
+    else:
+        console.print("[yellow]⚠[/yellow] OpenClaw not detected")
+        console.print("[yellow]→[/yellow] Would skip, show manual config instructions")
+
+    # Step 6: Verify
+    _step_header(6, "Verify")
+    console.print("[yellow]→[/yellow] Would test inference: \"What is 2+2?\"")
+    console.print("[yellow]→[/yellow] Would prompt to restart OpenClaw")
+
+    # Summary
+    console.print(f"\n{'─' * 40}")
+    console.print(f"\n  [bold]Dry run complete.[/bold] No changes made.")
+    console.print(f"  Run [bold]hyper claw onboard[/bold] to start for real.\n")
+    console.print(f"{'─' * 40}")
