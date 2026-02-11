@@ -391,8 +391,8 @@ export default function Header() {
           {/* WalletAuth component */}
           <WalletAuth
             showTitle={true}
-            title="Sign In"
-            description="Choose how you want to sign in"
+            title="Welcome to HyperCLI Console"
+            description="Please sign in to continue"
             onEmailLoginClick={() => setIsLoginModalOpen(false)}
             onAuthSuccess={() => {
               setIsLoginModalOpen(false);
