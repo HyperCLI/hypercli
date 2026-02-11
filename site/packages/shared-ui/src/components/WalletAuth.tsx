@@ -31,9 +31,22 @@ const isPrivyEnabled = !!(PRIVY_APP_ID && PRIVY_APP_ID.length > 10 && PRIVY_APP_
 interface PrivyLoginButtonProps {
   disabled: boolean;
   onExchangeToken: (privyToken: string) => Promise<void>;
+  onError: (message: string) => void;
 }
 
-function PrivyLoginButton({ disabled, onExchangeToken }: PrivyLoginButtonProps) {
+function getErrorMessage(error: unknown, fallback: string): string {
+  if (error instanceof Error) {
+    const message = error.message?.trim();
+    if (message) return message;
+  }
+  if (typeof error === "string") {
+    const message = error.trim();
+    if (message) return message;
+  }
+  return fallback;
+}
+
+function PrivyLoginButton({ disabled, onExchangeToken, onError }: PrivyLoginButtonProps) {
   const { ready, authenticated, login, getAccessToken } = usePrivy();
   const [isExchanging, setIsExchanging] = useState(false);
   const shouldExchangeRef = useRef(false);
@@ -46,6 +59,9 @@ function PrivyLoginButton({ disabled, onExchangeToken }: PrivyLoginButtonProps) 
         throw new Error("Failed to get Privy access token");
       }
       await onExchangeToken(privyToken);
+    } catch (error) {
+      onError(getErrorMessage(error, "Privy authentication failed"));
+      throw error;
     } finally {
       shouldExchangeRef.current = false;
       setIsExchanging(false);
@@ -54,7 +70,7 @@ function PrivyLoginButton({ disabled, onExchangeToken }: PrivyLoginButtonProps) 
 
   useEffect(() => {
     if (!authenticated || !shouldExchangeRef.current || isExchanging) return;
-    void exchangeToken();
+    void exchangeToken().catch(() => {});
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [authenticated, isExchanging]);
 
@@ -188,7 +204,7 @@ export function WalletAuth({
 
     } catch (err) {
       debugLog('❌ Auth failed:', err);
-      setError(err instanceof Error ? err.message : 'Authentication failed');
+      setError(getErrorMessage(err, 'Authentication failed'));
       debugLog('🔄 Transitioning: authenticating -> error');
       setAuthState('error');
       disconnect();
@@ -234,7 +250,7 @@ export function WalletAuth({
         onAuthSuccess(loginData.token, loginData.user_id || '', 'privy');
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : 'Privy authentication failed');
+      setError(getErrorMessage(err, 'Privy authentication failed'));
       setAuthState('error');
     }
   };
@@ -264,9 +280,11 @@ export function WalletAuth({
         </div>
       )}
 
-      {error && (
-        <div className="w-full p-3 rounded-lg bg-red-500 bg-opacity-10 border border-red-500 border-opacity-30">
-          <p className="text-sm text-red-500">{error}</p>
+      {(error || authState === 'error') && (
+        <div className="w-full p-3 rounded-lg bg-red-500 bg-opacity-10 border border-red-400 border-opacity-40">
+          <p className="text-sm text-red-200 whitespace-pre-wrap break-words">
+            {error?.trim() || "Authentication failed. Please try again."}
+          </p>
         </div>
       )}
 
@@ -276,6 +294,10 @@ export function WalletAuth({
           <PrivyLoginButton
             disabled={authState === 'authenticating' || authState === 'authenticated'}
             onExchangeToken={handlePrivyExchange}
+            onError={(message) => {
+              setError(message);
+              setAuthState('error');
+            }}
           />
         )}
 
