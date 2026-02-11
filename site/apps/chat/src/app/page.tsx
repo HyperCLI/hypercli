@@ -1823,9 +1823,13 @@ function ChatPageContent() {
               title="Connect Wallet"
               description="Sign in with your wallet to save your chat history and top up your account"
               onEmailLoginClick={() => setShowLoginModal(false)}
-              onAuthSuccess={() => {
-                // Mark as wallet user (not free tier)
-                localStorage.setItem("hypercli_login_type", "wallet");
+              onAuthSuccess={(_, __, method) => {
+                // Only wallet logins should be marked as wallet users.
+                if (method === "wallet") {
+                  localStorage.setItem("hypercli_login_type", "wallet");
+                } else {
+                  localStorage.removeItem("hypercli_login_type");
+                }
                 setShowLoginModal(false);
                 window.location.reload();
               }}
