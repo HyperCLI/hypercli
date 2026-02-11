@@ -320,7 +320,7 @@ export function WalletAuth({
             >
               {authState === 'authenticating' ? 'Signing...' :
                authState === 'authenticated' ? 'Authenticated ✓' :
-               'Sign In with Wallet'}
+               'Login with Wallet'}
             </button>
           ) : (
             // Wallet not connected - show connect button
@@ -332,7 +332,7 @@ export function WalletAuth({
                     disabled={!mounted}
                     className="w-full btn-primary text-white px-6 py-3 rounded-lg font-medium disabled:opacity-50"
                   >
-                    Connect your wallet
+                    Login with Wallet
                   </button>
                 );
               }}
@@ -343,7 +343,7 @@ export function WalletAuth({
         {/* Subtle Turnkey fallback */}
         <button
           onClick={handleTurnkeyLogin}
-          className="text-sm text-[var(--color-text)] opacity-70 underline underline-offset-4 hover:opacity-100 transition-opacity"
+          className="self-center w-fit text-sm text-[var(--color-text)] opacity-85 underline underline-offset-4 hover:opacity-100 transition-opacity"
         >
           Turnkey Login
         </button>
