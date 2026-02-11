@@ -10,212 +10,160 @@ Set up HyperClaw LLM API access for OpenClaw agents.
 > 
 > This guide sets up a **HyperClaw** API key for LLM access. HyperClaw keys start with `sk-`.
 
-## Prerequisites
+## Quick Start (Recommended)
 
-- Python 3.10+
-- OpenClaw installed and configured
-- USDC on Base network (for payment)
-
-## Steps
-
-### 1. Install Python
-
-Ensure Python 3.10+ is installed:
+The fastest way to get set up:
 
 ```bash
-python3 --version
-# If not installed:
-# Ubuntu/Debian: sudo apt install python3 python3-pip python3-venv
-# macOS: brew install python@3.12
+# 1. Install HyperCLI
+pip install "hypercli-cli[all]"
+
+# 2. Run guided onboarding
+hyper claw onboard
 ```
 
-### 2. Install HyperCLI
+This walks you through everything: wallet creation, funding, plan selection, payment, OpenClaw config, and verification.
 
-Install the CLI with all optional dependencies (wallet + x402 payments):
+**Options:**
+```bash
+hyper claw onboard --dry-run   # Preview steps without making changes
+hyper claw onboard --json      # JSON mode for agent integration (writes state to ~/.hypercli/onboard/state.json)
+hyper claw onboard --plan 1aiu --amount 35  # Skip prompts
+hyper claw onboard --status    # Check onboard progress
+hyper claw onboard --reset     # Start fresh
+```
+
+The onboard flow is resumable — if interrupted (Ctrl+C, network error), just run `hyper claw onboard` again to pick up where you left off.
+
+## Manual Steps (Alternative)
+
+If you prefer to run each step manually:
+
+### 1. Install HyperCLI
 
 ```bash
 pip install "hypercli-cli[all]"
-```
-
-Verify installation:
-
-```bash
 hyper --version
 ```
 
-### 3. Create Wallet
+### 2. Create Wallet
 
-Ask the user:
-> "Do you want to protect your wallet with a passphrase? Enter a passphrase, or say 'none' for no passphrase."
-
-**If user says "none":**
-```bash
-# Create wallet without passphrase (press Enter when prompted)
-hyper wallet create
-# Just press Enter twice when prompted for passphrase
-```
-
-**If user provides a passphrase:**
 ```bash
 hyper wallet create
-# Enter the passphrase when prompted
 ```
 
-The wallet is stored at `~/.hypercli/keystore.json`.
+Set a passphrase when prompted (or press Enter for none). Wallet is stored at `~/.hypercli/wallet.json`.
 
-### 4. Get Wallet Address and QR Code
+### 3. Fund Wallet
 
-Display the wallet address:
+Get your wallet address and QR code:
 
 ```bash
 hyper wallet address
+hyper wallet qr -o wallet_qr.png
 ```
 
-Save QR code to workspace and send to user:
+Send USDC on **Base network** to this address.
 
-```bash
-hyper wallet qr -o ~/workspace/wallet_qr.png
-```
-
-Send `~/workspace/wallet_qr.png` to the user as an attachment. Tell them:
-> "Send USDC on **Base network** to this address. You'll need $25 USDC for a 32-day 1AIU subscription (or less for shorter periods)."
-
-### 5. Wait for Funding
-
-Poll the wallet balance until funded:
-
+Check balance:
 ```bash
 hyper wallet balance
 ```
 
-This requires the wallet passphrase if one was set. Wait until balance shows sufficient USDC (minimum $25 for full 1AIU plan).
+### 4. Choose Plan and Subscribe
 
-### 6. Check Available Plans
-
-Fetch current plans:
-
+View available plans:
 ```bash
-curl -s https://api.hyperclaw.app/api/plans | jq .
+hyper claw plans
 ```
 
-The 1AIU plan costs $25 for 32 days. Payment scales linearly:
-- $25 → 32 days
-- $12.50 → 16 days  
-- $1 → ~1.3 days
+Plans and pricing:
+- **1aiu** (1 Agent): $35/mo — 100K TPM / 2K RPM
+- **2aiu** (2 Agents): $65/mo — 200K TPM / 4K RPM
+- **5aiu** (5 Agents): $120/mo — 500K TPM / 10K RPM
+- **10aiu** (10 Agents): $225/mo — 1M TPM / 20K RPM
 
-### 7. Purchase Subscription
-
-Subscribe to the 1AIU plan with your USDC balance:
-
+Subscribe:
 ```bash
-hyper claw subscribe 1aiu <usdc_amount>
+hyper claw subscribe 1aiu 35    # 1 Agent plan
+hyper claw subscribe 5aiu 120   # 5 Agents plan
 ```
 
-Examples:
-```bash
-hyper claw subscribe 1aiu 25    # Pay $25 for 32 days
-hyper claw subscribe 1aiu 50    # Pay $50 for 64 days  
-hyper claw subscribe 5aiu 100   # Pay $100 for 5aiu plan
-```
+On success, your API key is saved to `~/.hypercli/claw-key.json`.
 
-Enter wallet passphrase when prompted. On success, you'll receive:
-- API Key (sk-xxx...)
-- Expiration date
-- Rate limits (TPM/RPM)
-
-The key is saved to `~/.hypercli/claw-key.json`.
-
-### 8. Configure OpenClaw
-
-Patch your OpenClaw config with the HyperClaw provider:
+### 5. Configure OpenClaw
 
 ```bash
-# Add HyperClaw provider to OpenClaw config
-hyper claw openclaw-setup
-
-# Or also set it as the default model
+# Patch config and set as default model
 hyper claw openclaw-setup --default
-```
 
-Then restart OpenClaw:
-
-```bash
+# Restart OpenClaw
 openclaw gateway restart
 ```
 
-This patches `~/.openclaw/openclaw.json` to add the `hyperclaw` provider with your API key and available models (kimi-k2.5, kimi-for-coding). The rest of your config is left untouched.
-
-### 9. Test the Key
-
-Verify the key works:
+### 6. Verify
 
 ```bash
 curl -s https://api.hyperclaw.app/v1/models \
   -H "Authorization: Bearer $(jq -r '.key' ~/.hypercli/claw-key.json)"
 ```
 
-Expected response includes available models like `kimi-k2.5`.
+## Agent Integration (JSON Mode)
 
-### 10. Set Renewal Reminder
-
-Create a cron job to remind the user 29 days from now:
+For OpenClaw agents onboarding users programmatically:
 
 ```bash
-# Calculate reminder date (29 days from now)
-REMIND_DATE=$(date -d "+29 days" +"%Y-%m-%d" 2>/dev/null || date -v+29d +"%Y-%m-%d")
+hyper claw onboard --json --plan 1aiu --amount 35
 ```
 
-Use OpenClaw's cron tool to schedule a reminder:
+State is written to `~/.hypercli/onboard/state.json` at each step:
 
 ```json
 {
-  "name": "HyperClaw renewal reminder",
-  "schedule": {
-    "kind": "at",
-    "atMs": <unix_ms_29_days_from_now>
-  },
-  "payload": {
-    "kind": "systemEvent",
-    "text": "⏰ Reminder: Your HyperClaw 1AIU subscription expires tomorrow! Run `hyper claw subscribe 1aiu` to renew."
-  },
-  "sessionTarget": "main"
+  "version": 1,
+  "current_step": "funding",
+  "steps": {
+    "wallet": {"status": "complete", "address": "0x..."},
+    "funding": {"status": "waiting", "balance": "0.00", "qr_path": "~/.hypercli/onboard/wallet_qr.png"}
+  }
 }
 ```
 
-Or tell the user to run:
-
-```bash
-hyper claw status
-```
-
-To check expiration at any time.
+The agent can:
+1. Run `hyper claw onboard --json` 
+2. Poll `--status` to check progress
+3. Send the QR image from `qr_path` to the user
+4. Resume with `hyper claw onboard --json` after user funds wallet
 
 ## Troubleshooting
 
 ### Wallet passphrase issues
-If you forget your passphrase, you'll need to create a new wallet and transfer funds.
+If you forget your passphrase, create a new wallet and transfer funds.
 
 ### Insufficient balance
-Check balance on Base network. USDC must be on Base (not Ethereum mainnet).
+USDC must be on **Base network** (not Ethereum mainnet). Check with `hyper wallet balance`.
 
 ### Key not working
-Run `hyper claw status` to check expiration. Renew if expired.
+Run `hyper claw status` to check expiration. Renew with `hyper claw subscribe`.
 
 ### Rate limits
-1AIU = 50K TPM / 1K RPM. Upgrade to higher AIU plans for more capacity.
+1AIU = 100K TPM / 2K RPM. Upgrade to higher plans for more capacity.
 
 ## Quick Reference
 
 | Command | Description |
 |---------|-------------|
+| `hyper claw onboard` | **Guided setup (recommended)** |
+| `hyper claw onboard --dry-run` | Preview onboarding steps |
+| `hyper claw onboard --json` | JSON mode for agent integration |
+| `hyper claw plans` | List available plans |
+| `hyper claw subscribe 1aiu 35` | Purchase 1 Agent plan |
+| `hyper claw status` | Check subscription status |
+| `hyper claw openclaw-setup` | Patch OpenClaw config |
 | `hyper wallet create` | Create new wallet |
 | `hyper wallet address` | Show wallet address |
 | `hyper wallet qr -o file.png` | Save QR code |
 | `hyper wallet balance` | Check USDC balance |
-| `hyper claw plans` | List available plans |
-| `hyper claw subscribe 1aiu 25` | Purchase 1AIU (32 days) |
-| `hyper claw status` | Check subscription status |
-| `hyper claw openclaw-setup` | Patch OpenClaw config with HyperClaw key |
 
 ## API Endpoints
 
