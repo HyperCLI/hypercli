@@ -19,9 +19,9 @@ const features = [
   },
   {
     icon: Cpu,
-    title: "Kimi K2.5 on B200 GPUs",
+    title: "Frontier Models on B200 GPUs",
     description:
-      "Kimi K2.5 (262K ctx) and GLM-5 (202K ctx, reasoning). ~36M tokens/hour per AIU with 4x burst.",
+      "Kimi K2.5, GLM-5, and MiniMax M2.5 — reasoning, vision, and tool use. ~36M tokens/hour per AIU with 4x burst.",
   },
   {
     icon: Wallet,
