@@ -360,10 +360,14 @@ function ChatPageContent() {
     if (isLoading || isAuthenticated) return;
     // Prevent multiple free user creation calls (race condition guard)
     if (creatingFreeUserRef.current) return;
+    // Prevent reload loops — if we already tried creating a free user recently, don't retry
+    const lastAttempt = localStorage.getItem("hypercli_free_user_created_at");
+    if (lastAttempt && Date.now() - parseInt(lastAttempt, 10) < 30_000) return;
     creatingFreeUserRef.current = true;
 
     const createFreeUser = async () => {
       try {
+        localStorage.setItem("hypercli_free_user_created_at", String(Date.now()));
         const response = await fetch(getAuthBackendUrl("/auth/free"), {
           method: "POST",
           headers: { "Content-Type": "application/json" },
@@ -1210,10 +1214,13 @@ function ChatPageContent() {
       if (!isAuthenticated) {
         // Prevent multiple free user creation calls (race condition guard)
         if (creatingFreeUserRef.current) return;
+        const lastAttempt = localStorage.getItem("hypercli_free_user_created_at");
+        if (lastAttempt && Date.now() - parseInt(lastAttempt, 10) < 30_000) return;
         creatingFreeUserRef.current = true;
 
         const createFreeUser = async () => {
           try {
+            localStorage.setItem("hypercli_free_user_created_at", String(Date.now()));
             const response = await fetch(getAuthBackendUrl("/auth/free"), {
               method: "POST",
               headers: { "Content-Type": "application/json" },
