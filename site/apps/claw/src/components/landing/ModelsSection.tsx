@@ -2,14 +2,7 @@
 
 import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
-import {
-  Eye,
-  Wrench,
-  Brain,
-  ListChecks,
-  MessageSquare,
-  ImageIcon,
-} from "lucide-react";
+import { Check, X } from "lucide-react";
 import { CLAW_API_BASE } from "@/lib/api";
 
 interface ModelInfo {
@@ -28,22 +21,20 @@ interface ModelInfo {
 
 const MODEL_DISPLAY: Record<
   string,
-  { title: string; tagline: string; accent: string }
+  { title: string; tagline: string; highlighted?: boolean }
 > = {
   "kimi-k2.5": {
     title: "Kimi K2.5",
-    tagline: "Full-featured MoE with vision",
-    accent: "#38D39F",
+    tagline: "Full-featured MoE with vision & tools",
+    highlighted: true,
   },
   "glm-5": {
     title: "GLM-5",
-    tagline: "754B MIT-licensed reasoning",
-    accent: "#6C63FF",
+    tagline: "754B MIT-licensed reasoning model",
   },
   "minimax-m2.5": {
     title: "MiniMax M2.5",
     tagline: "Fast & affordable reasoning",
-    accent: "#FF6B6B",
   },
 };
 
@@ -51,29 +42,6 @@ function fmtCtx(n: number | null): string {
   if (!n) return "—";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   return `${Math.round(n / 1024)}K`;
-}
-
-function CapBadge({
-  icon: Icon,
-  label,
-  active,
-}: {
-  icon: React.ElementType;
-  label: string;
-  active: boolean;
-}) {
-  return (
-    <div
-      className={`flex items-center gap-1.5 px-2.5 py-1 rounded-full text-xs font-medium transition-colors ${
-        active
-          ? "bg-[#38D39F]/10 text-primary border border-[#38D39F]/20"
-          : "bg-surface-low text-text-muted border border-border/30"
-      }`}
-    >
-      <Icon className="w-3 h-3" />
-      {label}
-    </div>
-  );
 }
 
 export function ModelsSection() {
@@ -91,6 +59,13 @@ export function ModelsSection() {
   }, []);
 
   if (models.length === 0) return null;
+
+  const capabilities = (m: ModelInfo) => [
+    { label: "Reasoning", active: m.supports_reasoning },
+    { label: "Vision", active: m.supports_vision },
+    { label: "Tool Use", active: m.supports_tools },
+    { label: "Structured Output", active: m.supports_structured_outputs },
+  ];
 
   return (
     <section
@@ -118,13 +93,12 @@ export function ModelsSection() {
           </p>
         </motion.div>
 
-        {/* Model cards */}
-        <div className="grid md:grid-cols-3 gap-6">
+        {/* Model cards — same grid as pricing */}
+        <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {models.map((model, index) => {
             const display = MODEL_DISPLAY[model.id] || {
               title: model.name,
               tagline: "",
-              accent: "#38D39F",
             };
 
             return (
@@ -139,77 +113,59 @@ export function ModelsSection() {
                   delay: 0.2 + index * 0.1,
                   ease: [0.22, 1, 0.36, 1],
                 }}
-                className="glass-card p-6 flex flex-col"
+                className={`glass-card p-6 flex flex-col ${
+                  display.highlighted
+                    ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
+                    : ""
+                }`}
               >
-                {/* Header */}
-                <div className="flex items-start justify-between mb-4">
-                  <div>
-                    <h3
-                      className="text-xl font-bold"
-                      style={{ color: display.accent }}
+                {/* Model ID badge */}
+                <code className="text-xs text-text-tertiary bg-surface-low px-2.5 py-1 rounded font-mono self-start mb-4">
+                  {model.id}
+                </code>
+
+                {/* Name + tagline */}
+                <h3 className="text-lg font-semibold text-foreground">
+                  {display.title}
+                </h3>
+                <p className="text-sm text-text-tertiary mt-1 mb-4">
+                  {display.tagline}
+                </p>
+
+                {/* Stats row */}
+                <div className="flex items-baseline gap-1 mt-auto mb-1">
+                  <span className="text-3xl font-bold text-foreground">
+                    {fmtCtx(model.context_length)}
+                  </span>
+                  <span className="text-text-muted text-sm">context</span>
+                </div>
+                <p className="text-sm text-text-tertiary mb-6">
+                  ${model.input_cost_per_m.toFixed(2)}/{" "}
+                  ${model.output_cost_per_m.toFixed(2)} per M tokens
+                </p>
+
+                {/* Capabilities list — same style as pricing features */}
+                <ul className="space-y-3 mb-2">
+                  {capabilities(model).map((cap) => (
+                    <li
+                      key={cap.label}
+                      className="flex items-center gap-2 text-sm"
                     >
-                      {display.title}
-                    </h3>
-                    <p className="text-sm text-text-muted mt-0.5">
-                      {display.tagline}
-                    </p>
-                  </div>
-                  <code className="text-xs text-text-tertiary bg-surface-low px-2 py-1 rounded font-mono">
-                    {model.id}
-                  </code>
-                </div>
-
-                {/* Stats */}
-                <div className="grid grid-cols-3 gap-3 mb-5">
-                  <div>
-                    <p className="text-xs text-text-muted mb-0.5">Context</p>
-                    <p className="text-lg font-bold text-foreground">
-                      {fmtCtx(model.context_length)}
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-text-muted mb-0.5">Input</p>
-                    <p className="text-lg font-bold text-foreground">
-                      ${model.input_cost_per_m.toFixed(2)}
-                      <span className="text-xs text-text-muted font-normal">
-                        /M
+                      {cap.active ? (
+                        <Check className="w-4 h-4 text-primary flex-shrink-0" />
+                      ) : (
+                        <X className="w-4 h-4 text-text-muted/40 flex-shrink-0" />
+                      )}
+                      <span
+                        className={
+                          cap.active ? "text-text-secondary" : "text-text-muted/50"
+                        }
+                      >
+                        {cap.label}
                       </span>
-                    </p>
-                  </div>
-                  <div>
-                    <p className="text-xs text-text-muted mb-0.5">Output</p>
-                    <p className="text-lg font-bold text-foreground">
-                      ${model.output_cost_per_m.toFixed(2)}
-                      <span className="text-xs text-text-muted font-normal">
-                        /M
-                      </span>
-                    </p>
-                  </div>
-                </div>
-
-                {/* Capabilities */}
-                <div className="flex flex-wrap gap-2 mt-auto">
-                  <CapBadge
-                    icon={Brain}
-                    label="Reasoning"
-                    active={model.supports_reasoning}
-                  />
-                  <CapBadge
-                    icon={Eye}
-                    label="Vision"
-                    active={model.supports_vision}
-                  />
-                  <CapBadge
-                    icon={Wrench}
-                    label="Tools"
-                    active={model.supports_tools}
-                  />
-                  <CapBadge
-                    icon={ListChecks}
-                    label="Structured"
-                    active={model.supports_structured_outputs}
-                  />
-                </div>
+                    </li>
+                  ))}
+                </ul>
               </motion.div>
             );
           })}
@@ -222,8 +178,8 @@ export function ModelsSection() {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center text-sm text-text-muted mt-8"
         >
-          Pricing shown is OpenRouter passthrough cost — included in your flat-rate plan.
-          No per-token charges.
+          Pricing shown is OpenRouter passthrough cost — included in your
+          flat-rate plan. No per-token charges.
         </motion.p>
       </div>
     </section>
