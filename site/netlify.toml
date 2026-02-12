@@ -66,19 +66,44 @@
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5njpn701s2ky0cjd0y1vzq"
   NEXT_PUBLIC_CLAW_API_URL = "https://api.hyperclaw.app/api"
 
-# Non-production (branch deploys)
+# Redirect branch/preview deploys to production site
+[[context.branch-deploy.redirects]]
+  from = "/*"
+  to = "https://hypercli.com/:splat"
+  status = 301
+  force = true
+
+[[context.deploy-preview.redirects]]
+  from = "/*"
+  to = "https://hypercli.com/:splat"
+  status = 301
+  force = true
+
+# Non-production (branch deploys) — point EVERYTHING at dev to prevent prod pollution
 [context.branch-deploy.environment]
   NEXT_PUBLIC_STRIPE_PK_CLI = "pk_test_51So7MuD2ZZvODGmahxL1H1uM1GS1zEllTp6UCjKlB7Ga6Wqv6YyoY7WgIUDOAoGQutVAEeTexlkmWAhhW5wMdgtP00bN74gl6d"
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
   NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_AUTH_BACKEND = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_API_BASE = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_INSTANCES_API_URL = "https://dev-api.hyperclaw.app/instances"
+  NEXT_PUBLIC_WS_URL = "wss://dev-api.hyperclaw.app/orchestra/ws"
+  NEXT_PUBLIC_LLM_API_URL = "https://dev-api.hyperclaw.app/v1"
+  NEXT_PUBLIC_BOT_API_URL = "https://dev-api.hyperclaw.app/agent/api"
 
-# Non-production (deploy previews)
+# Non-production (deploy previews) — same isolation as branch deploys
 [context.deploy-preview.environment]
   NEXT_PUBLIC_STRIPE_PK_CLI = "pk_test_51So7MuD2ZZvODGmahxL1H1uM1GS1zEllTp6UCjKlB7Ga6Wqv6YyoY7WgIUDOAoGQutVAEeTexlkmWAhhW5wMdgtP00bN74gl6d"
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
   NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_AUTH_BACKEND = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_API_BASE = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_INSTANCES_API_URL = "https://dev-api.hyperclaw.app/instances"
+  NEXT_PUBLIC_WS_URL = "wss://dev-api.hyperclaw.app/orchestra/ws"
+  NEXT_PUBLIC_LLM_API_URL = "https://dev-api.hyperclaw.app/v1"
+  NEXT_PUBLIC_BOT_API_URL = "https://dev-api.hyperclaw.app/agent/api"
 
 # Cache control headers for static assets
 [[headers]]
