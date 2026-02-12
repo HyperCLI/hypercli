@@ -142,56 +142,114 @@ All plans include:
 - OpenAI-compatible API
 - Access to Kimi K2.5 and Kimi for Coding models
 
-### openclaw-setup
+### config
 
-Show instructions to configure OpenClaw with your HyperClaw key.
+Generate provider configs for OpenClaw, OpenCode, and other tools. Validates your key against the API and fetches available models automatically.
 
 ```bash
-hyper claw openclaw-setup
+hyper claw config [FORMAT] [--key sk-...] [--apply]
 ```
 
-**Output:**
-1. Provider configuration JSON
-2. Model usage examples
-3. Expiry reminder setup
+**Arguments:**
+- `FORMAT` — Output format: `openclaw`, `opencode`, `env`. Omit to show all three.
 
-**Example:**
+**Options:**
+- `--key`, `-k` — API key (`sk-...`). Falls back to `~/.hypercli/claw-key.json`
+- `--apply` — Write config directly to the appropriate file (deep-merges, won't overwrite other settings)
+- `--dev` — Use dev API
+
+<Tip>
+The `--key` flag means you don't need a wallet or x402 subscription to use this command. Got a key from the dashboard or Stripe? Just pass it in.
+</Tip>
+
+**Examples:**
+
 ```bash
-$ hyper claw openclaw-setup
+# Show all config formats (uses saved key)
+$ hyper claw config
 
-OpenClaw Configuration Instructions
+# OpenClaw config snippet
+$ hyper claw config openclaw
 
-Plan: 1aiu
-Key: sk-Kn4wYCpt0gMS1xZzb...
-Expires: 2026-03-05T19:45:30+00:00
+# OpenCode config with an explicit key
+$ hyper claw config opencode --key sk-L0yyN8vV9OfM0urGRe0szg
 
-1. Add HyperClaw provider to OpenClaw config:
+# Write directly to ~/.openclaw/openclaw.json
+$ hyper claw config openclaw --apply
 
+# Shell env vars (for Claude Code, Codex, etc.)
+$ hyper claw config env
+```
+
+**Output — OpenClaw:**
+```json
 {
-  "providers": {
-    "hyperclaw": {
-      "label": "HyperClaw",
-      "baseURL": "https://api.hyperclaw.app/v1",
-      "apiKey": "sk-...",
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hyperclaw": {
+        "baseUrl": "https://api.hyperclaw.app/v1",
+        "apiKey": "sk-...",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 200000
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
       "models": {
-        "kimi-k2.5": "kimi-k2.5",
-        "kimi-for-coding": "kimi-for-coding"
+        "hyperclaw/kimi-k2.5": { "alias": "kimi" }
       }
     }
   }
 }
-
-2. Use in agents:
-
-  model: hyperclaw/kimi-k2.5
-  model: hyperclaw/kimi-for-coding
-
-3. Set expiry reminder (optional):
-
-Create a cron job to remind you 1 day before expiry (2026-03-04)
-
-  Renew with: hyper claw subscribe 1aiu
 ```
+
+**Output — OpenCode:**
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "hypercli": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "HyperCLI",
+      "options": {
+        "baseURL": "https://api.hyperclaw.app/v1",
+        "apiKey": "sk-..."
+      },
+      "models": {
+        "kimi-k2.5": { "name": "kimi-k2.5" }
+      }
+    }
+  }
+}
+```
+
+**Output — env:**
+```bash
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
+# Available models: kimi-k2.5
+```
+
+### openclaw-setup
+
+Patch OpenClaw config directly with your HyperClaw key (legacy — prefer `hyper claw config openclaw --apply`).
+
+```bash
+hyper claw openclaw-setup [--default]
+```
+
+**Options:**
+- `--default` — Also set `hyperclaw/kimi-k2.5` as the primary model
 
 ## Payment Protocol (x402)
 
@@ -209,35 +267,20 @@ HyperClaw uses the x402 protocol for crypto payments:
 - No credit card required
 - Private (no email, no account needed for anonymous mode)
 
-## OpenClaw Integration
+## Tool Integration
 
-After subscribing, configure OpenClaw to use your HyperClaw key:
+After subscribing, configure your tools automatically:
 
-**1. Add Provider Config:**
-```yaml
-providers:
-  hyperclaw:
-    label: HyperClaw
-    baseURL: https://api.hyperclaw.app/v1
-    apiKey: sk-XHAWG8ywjaZ0behp-LC_BQ
-    models:
-      kimi-k2.5: kimi-k2.5
-      kimi-for-coding: kimi-for-coding
-```
-
-**2. Use in Agents:**
-```yaml
-agent:
-  model: hyperclaw/kimi-k2.5
-  thinking: low
-```
-
-**3. Set Reminder:**
-Create an OpenClaw cron job to remind you before expiry:
 ```bash
-# Run this command again to renew
-hyper claw subscribe 1aiu
+# Auto-configure OpenClaw (writes to ~/.openclaw/openclaw.json)
+hyper claw config openclaw --apply
+
+# Or generate config for any tool
+hyper claw config opencode --key sk-...
+hyper claw config env
 ```
+
+See [Agent Integrations](/hyperclaw/integrations) for manual setup with OpenClaw, OpenCode, Claude Code, Python, TypeScript, and more.
 
 ## Renewal
 
