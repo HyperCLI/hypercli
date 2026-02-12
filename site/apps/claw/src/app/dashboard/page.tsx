@@ -184,7 +184,7 @@ export default function DashboardPage() {
             </span>
           </Link>
           <a
-            href="https://docs.hyperclaw.app"
+            href="https://docs.hypercli.com/hyperclaw"
             target="_blank"
             rel="noopener noreferrer"
             className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"

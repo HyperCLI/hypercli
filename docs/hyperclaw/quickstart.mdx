@@ -3,30 +3,7 @@ title: Quickstart
 description: Subscribe to HyperClaw and start making requests in minutes
 ---
 
-## Option 1: CLI (Fastest)
-
-Subscribe with USDC via the HyperCLI:
-
-```bash
-# Install with wallet support
-pip install 'hypercli-cli[wallet]'
-
-# Create wallet
-hyper wallet create
-
-# Fund with USDC on Base (send to your wallet address)
-hyper wallet balance
-
-# Subscribe ($1-4/month)
-hyper claw subscribe 1aiu
-
-# Get your key
-hyper claw status
-```
-
-See [CLI commands](/cli/commands/claw) for details.
-
-## Option 2: Web Dashboard
+## Option 1: Web Dashboard (Easiest)
 
 ### 1. Create an Account
 
@@ -34,19 +11,16 @@ Sign up at [hyperclaw.app](https://hyperclaw.app) with email or wallet.
 
 ### 2. Subscribe to a Plan
 
-From the [plans page](https://hyperclaw.app/dashboard/plans), choose a plan and pay with credit card (Stripe) or USDC on Base.
+From the [plans page](https://hyperclaw.app/dashboard/plans), choose a plan and pay with:
 
-For CLI-based USDC payment, see the [x402 wallet guide](/hyperclaw/x402-wallet).
+- **Credit card** — via Stripe, takes 30 seconds
+- **USDC on Base** — via browser wallet (MetaMask, Coinbase Wallet, etc.)
 
 ### 3. Create an API Key
 
 Go to [API Keys](https://hyperclaw.app/dashboard/keys) and click **Create Key**. Copy the key immediately — it won't be shown again.
 
-<Note>
-If you used the CLI, you already have a key saved at `~/.hypercli/claw-key.json`. Skip to step 4.
-</Note>
-
-## Make a Request
+### 4. Make a Request
 
 ```bash
 export HYPERCLAW_API_KEY="sk-..."
@@ -77,16 +51,75 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-## List Available Models
+## Option 2: CLI
+
+Subscribe with USDC via the HyperCLI:
+
+```bash
+# Install with wallet support
+pip install 'hypercli-cli[wallet]'
+
+# Create wallet
+hyper wallet create
+
+# Fund with USDC on Base (send to your wallet address)
+hyper wallet balance
+
+# Subscribe
+hyper claw subscribe 1aiu
+
+# Get your key
+hyper claw status
+```
+
+<Note>
+If you used the CLI, your key is saved at `~/.hypercli/claw-key.json`. No need to create one from the dashboard.
+</Note>
+
+See [CLI commands](/cli/commands/claw) for details.
+
+## Option 3: x402-wallet (Headless)
+
+For servers or CI/CD environments without a browser:
+
+```bash
+# Install x402-wallet
+curl -L https://hyperclaw.app/binaries/x402-wallet -o x402-wallet
+chmod +x x402-wallet
+
+# Create and fund a wallet
+./x402-wallet wallet-init --keystore
+./x402-wallet config-set --network base
+
+# Create payment signature and subscribe
+./x402-wallet create-payment \
+  --pay-to <RECIPIENT_ADDRESS> \
+  --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
+  --amount 35000000
+```
+
+See the [x402 wallet guide](/hyperclaw/x402-wallet) for the full flow.
+
+## Verify Your Setup
+
+### List Models
 
 ```bash
 curl https://api.hyperclaw.app/v1/models \
   -H "Authorization: Bearer $HYPERCLAW_API_KEY"
 ```
 
-## API Keys (Dashboard Only)
+### Check Your Plan
 
-- Keys are scoped to your team
-- You can create multiple keys (e.g. one per agent or environment)
-- Revoking a key is permanent — revoked keys cannot be re-enabled
-- Rename keys from the dashboard to keep track of what's what
+From the dashboard at [hyperclaw.app/dashboard](https://hyperclaw.app/dashboard), or via API:
+
+```bash
+curl https://api.hyperclaw.app/api/plans/current \
+  -H "Authorization: Bearer <jwt-token>"
+```
+
+## What's Next?
+
+- [API Reference](/hyperclaw/api) — full REST API docs
+- [x402 Wallet](/hyperclaw/x402-wallet) — headless USDC payments
+- [CLI Commands](/cli/commands/claw) — manage subscriptions from the terminal
