@@ -8,16 +8,16 @@ const specs = [
   {
     icon: Zap,
     label: "Throughput",
-    value: "~3M",
+    value: "~36M",
     unit: "tokens/hour per AIU",
-    description: "Sustained throughput on NVIDIA B200 Blackwell GPUs",
+    description: "Sustained throughput with 4x burst on frontier models",
   },
   {
     icon: Gauge,
     label: "Rate Limits",
-    value: "50K TPM",
-    unit: "/ 1,000 RPM per AIU",
-    description: "Tokens per minute and requests per minute, scales linearly with AIUs",
+    value: "600K TPM",
+    unit: "/ 3,000 RPM per AIU",
+    description: "Base rate per AIU with 4x burst capacity. Scales linearly with AIUs.",
   },
   {
     icon: Plug,
