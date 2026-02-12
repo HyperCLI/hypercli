@@ -318,13 +318,18 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
         )
         resp.raise_for_status()
         data = resp.json().get("data", [])
+        # Known model metadata (context windows, reasoning, etc.)
+        MODEL_META = {
+            "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": False, "contextWindow": 262144},
+            "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
+        }
         return [
             {
                 "id": m["id"],
-                "name": m["id"].replace("-", " ").title(),
-                "reasoning": False,
+                "name": MODEL_META.get(m["id"], {}).get("name", m["id"].replace("-", " ").title()),
+                "reasoning": MODEL_META.get(m["id"], {}).get("reasoning", False),
                 "input": ["text"],
-                "contextWindow": 200000,
+                "contextWindow": MODEL_META.get(m["id"], {}).get("contextWindow", 200000),
             }
             for m in data
             if m.get("id")
@@ -338,7 +343,14 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "name": "Kimi K2.5",
                 "reasoning": False,
                 "input": ["text"],
-                "contextWindow": 200000,
+                "contextWindow": 262144,
+            },
+            {
+                "id": "glm-5",
+                "name": "GLM-5",
+                "reasoning": True,
+                "input": ["text"],
+                "contextWindow": 202752,
             },
         ]
 
@@ -442,7 +454,7 @@ def _config_openclaw(api_key: str, models: list[dict]) -> dict:
         "agents": {
             "defaults": {
                 "models": {
-                    f"hyperclaw/{models[0]['id']}": {"alias": "kimi"}
+                    **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in models}
                 }
             }
         }
