@@ -21,7 +21,7 @@ const features = [
     icon: Cpu,
     title: "Kimi K2.5 on B200 GPUs",
     description:
-      "Latest frontier models running on NVIDIA Blackwell B200 GPUs. ~3M tokens/hour throughput per AIU.",
+      "Kimi K2.5 (262K ctx) and GLM-5 (202K ctx, reasoning). ~36M tokens/hour per AIU with 4x burst.",
   },
   {
     icon: Wallet,

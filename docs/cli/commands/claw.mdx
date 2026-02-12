@@ -119,28 +119,28 @@ hyper claw plans
 ```bash
 $ hyper claw plans
 
-┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━┓
-┃ Plan ID ┃ Name      ┃ Price ┃ TPM  ┃ RPM ┃
-┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━┩
-│ 1aiu    │ 1 Agent   │ $25   │ 50K  │ 1K  │
-│ 2aiu    │ 2 Agents  │ $50   │ 100K │ 2K  │
-│ 5aiu    │ 5 Agents  │ $100  │ 250K │ 5K  │
-│ 10aiu   │ 10 Agents │ $200  │ 500K │ 10K │
-└─────────┴───────────┴───────┴──────┴─────┘
+┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━┓
+┃ Plan ID ┃ Name      ┃ Price ┃ TPM  ┃ RPM  ┃
+┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━┩
+│ 1aiu    │ 1 Agent   │ $35   │ 600K │ 3K   │
+│ 2aiu    │ 2 Agents  │ $65   │ 1.2M │ 6K   │
+│ 5aiu    │ 5 Agents  │ $120  │ 3M   │ 15K  │
+│ 10aiu   │ 10 Agents │ $225  │ 6M   │ 30K  │
+└─────────┴───────────┴───────┴──────┴──────┘
 
 Subscribe with: hyper claw subscribe <plan_id>
 ```
 
 **Plan Details:**
-- **1aiu** - $25/month, 50K TPM, 1K RPM, ~3M tokens/hour
-- **2aiu** - $50/month, 100K TPM, 2K RPM, ~6M tokens/hour
-- **5aiu** - $100/month, 250K TPM, 5K RPM, ~15M tokens/hour
-- **10aiu** - $200/month, 500K TPM, 10K RPM, ~30M tokens/hour
+- **1aiu** - $35/month, 600K TPM, 3K RPM, 4x burst (2.4M TPM)
+- **2aiu** - $65/month, 1.2M TPM, 6K RPM, 4x burst (4.8M TPM)
+- **5aiu** - $120/month, 3M TPM, 15K RPM, 4x burst (12M TPM)
+- **10aiu** - $225/month, 6M TPM, 30K RPM, 4x burst (24M TPM)
 
 All plans include:
-- 30-day validity
+- 32-day validity
 - OpenAI-compatible API
-- Access to Kimi K2.5 and Kimi for Coding models
+- Access to Kimi K2.5 and GLM-5 models
 
 ### config
 
@@ -237,7 +237,7 @@ $ hyper claw config env
 ```bash
 export OPENAI_API_KEY="sk-..."
 export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
-# Available models: kimi-k2.5
+# Available models: kimi-k2.5, glm-5
 ```
 
 ### openclaw-setup

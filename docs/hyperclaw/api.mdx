@@ -55,16 +55,17 @@ curl https://api.hyperclaw.app/api/plans
       "name": "1 Agent",
       "price": 35,
       "aiu": 1,
-      "tpm_limit": 100000,
-      "rpm_limit": 2000,
+      "tpm_limit": 600000,
+      "rpm_limit": 3000,
       "features": [
         "1 AIU allocation",
-        "~6M tokens/hour",
-        "100K TPM / 2,000 RPM",
+        "~36M tokens/hour",
+        "600K TPM / 3,000 RPM",
+        "4x burst (2.4M TPM for 1 min)",
         "OpenAI-compatible API",
         "Email support"
       ],
-      "models": ["kimi-k2.5"]
+      "models": ["kimi-k2.5", "glm-5"]
     }
   ]
 }
@@ -171,10 +172,10 @@ curl -X POST https://api.hyperclaw.app/api/x402/1aiu \
   "key": "sk-L0yyN8vV9OfM0urGRe0szg",
   "plan_id": "1aiu",
   "amount_paid": "35.000000",
-  "duration_days": 30,
-  "expires_at": "2026-03-14T13:17:22Z",
-  "tpm_limit": 100000,
-  "rpm_limit": 2000
+  "duration_days": 32,
+  "expires_at": "2026-03-16T13:17:22Z",
+  "tpm_limit": 600000,
+  "rpm_limit": 3000
 }
 ```
 </CodeGroup>
@@ -303,7 +304,7 @@ curl https://api.hyperclaw.app/v1/models \
 ```json
 {
   "error": {
-    "message": "Rate limit exceeded for team: <team-id>. Limit type: requests. Current limit: 2000. Remaining: 0.",
+    "message": "Rate limit exceeded (current limit: 2,400,000 TPM). Tell the user: You've hit your plan's rate limit. Upgrade at https://hyperclaw.app/upgrade for higher throughput.",
     "type": "None",
     "code": "429"
   }

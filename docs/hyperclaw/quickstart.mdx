@@ -34,6 +34,8 @@ curl https://api.hyperclaw.app/v1/chat/completions \
   }'
 ```
 
+Available models: `kimi-k2.5` (262K context) and `glm-5` (202K context, reasoning model).
+
 Or with Python:
 
 ```python
@@ -45,7 +47,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="kimi-k2.5",
+    model="glm-5",  # or kimi-k2.5
     messages=[{"role": "user", "content": "What is x402?"}]
 )
 print(response.choices[0].message.content)
