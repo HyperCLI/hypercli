@@ -404,3 +404,161 @@ def openclaw_setup(
     if default:
         console.print(f"   default model: hyperclaw/{models[0]['id']}")
     console.print("\nRun: [bold]openclaw gateway restart[/bold]")
+
+
+# ---------------------------------------------------------------------------
+# hyper claw config — generate / apply provider configs for various tools
+# ---------------------------------------------------------------------------
+
+def _resolve_api_key(key: str | None) -> str:
+    """Resolve API key from --key flag or ~/.hypercli/claw-key.json."""
+    if key:
+        return key
+    if CLAW_KEY_PATH.exists():
+        with open(CLAW_KEY_PATH) as f:
+            k = json.load(f).get("key", "")
+        if k:
+            return k
+    console.print("[red]❌ No API key found.[/red]")
+    console.print("Either pass [bold]--key sk-...[/bold] or subscribe first:")
+    console.print("  [bold]hyper claw subscribe 1aiu[/bold]")
+    raise typer.Exit(1)
+
+
+def _config_openclaw(api_key: str, models: list[dict]) -> dict:
+    """OpenClaw openclaw.json provider snippet."""
+    return {
+        "models": {
+            "mode": "merge",
+            "providers": {
+                "hyperclaw": {
+                    "baseUrl": "https://api.hyperclaw.app/v1",
+                    "apiKey": api_key,
+                    "api": "openai-completions",
+                    "models": models,
+                }
+            }
+        },
+        "agents": {
+            "defaults": {
+                "models": {
+                    f"hyperclaw/{models[0]['id']}": {"alias": "kimi"}
+                }
+            }
+        }
+    }
+
+
+def _config_opencode(api_key: str, models: list[dict]) -> dict:
+    """OpenCode opencode.json provider snippet."""
+    model_entries = {}
+    for m in models:
+        model_entries[m["id"]] = {"name": m["id"]}
+    return {
+        "$schema": "https://opencode.ai/config.json",
+        "provider": {
+            "hypercli": {
+                "npm": "@ai-sdk/openai-compatible",
+                "name": "HyperCLI",
+                "options": {
+                    "baseURL": "https://api.hyperclaw.app/v1",
+                    "apiKey": api_key,
+                },
+                "models": model_entries,
+            }
+        }
+    }
+
+
+def _config_env(api_key: str, models: list[dict]) -> str:
+    """Shell env vars for generic OpenAI-compatible tools."""
+    lines = [
+        f'export OPENAI_API_KEY="{api_key}"',
+        'export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"',
+        f'# Available models: {", ".join(m["id"] for m in models)}',
+    ]
+    return "\n".join(lines)
+
+
+FORMAT_CHOICES = ["openclaw", "opencode", "env"]
+
+
+@app.command("config")
+def config_cmd(
+    format: str = typer.Argument(
+        None,
+        help=f"Output format: {', '.join(FORMAT_CHOICES)}. Omit to show all.",
+    ),
+    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/claw-key.json"),
+    apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+):
+    """Generate provider configs for OpenClaw, OpenCode, and other tools.
+
+    Examples:
+      hyper claw config                          # Show all configs
+      hyper claw config openclaw                 # OpenClaw snippet
+      hyper claw config opencode --key sk-...    # OpenCode with explicit key
+      hyper claw config openclaw --apply         # Write directly to openclaw.json
+      hyper claw config env                      # Shell export lines
+    """
+    api_key = _resolve_api_key(key)
+    api_base = DEV_API_BASE if dev else PROD_API_BASE
+
+    # Validate key & fetch models
+    console.print(f"[dim]Validating key against {api_base}...[/dim]")
+    models = fetch_models(api_key, api_base)
+    model_names = ", ".join(m["id"] for m in models)
+    console.print(f"[green]✓[/green] Key valid — models: [bold]{model_names}[/bold]\n")
+
+    formats = [format] if format else FORMAT_CHOICES
+    for fmt in formats:
+        if fmt not in FORMAT_CHOICES:
+            console.print(f"[red]Unknown format: {fmt}[/red]")
+            console.print(f"Choose from: {', '.join(FORMAT_CHOICES)}")
+            raise typer.Exit(1)
+
+    for fmt in formats:
+        if fmt == "openclaw":
+            snippet = _config_openclaw(api_key, models)
+            _show_snippet("OpenClaw", "~/.openclaw/openclaw.json", snippet, apply, OPENCLAW_CONFIG_PATH)
+        elif fmt == "opencode":
+            snippet = _config_opencode(api_key, models)
+            target = Path.cwd() / "opencode.json"
+            _show_snippet("OpenCode", "opencode.json", snippet, apply, target)
+        elif fmt == "env":
+            console.print("[bold]── Shell Environment ──[/bold]")
+            console.print(_config_env(api_key, models))
+            console.print()
+
+
+def _show_snippet(name: str, path_hint: str, data: dict, apply: bool, target_path: Path):
+    """Print a JSON snippet and optionally apply it."""
+    console.print(f"[bold]── {name} ({path_hint}) ──[/bold]")
+    formatted = json.dumps(data, indent=2)
+    console.print(formatted)
+    console.print()
+
+    if apply:
+        if target_path.exists():
+            with open(target_path) as f:
+                existing = json.load(f)
+            _deep_merge(existing, data)
+            merged = existing
+        else:
+            merged = data
+
+        target_path.parent.mkdir(parents=True, exist_ok=True)
+        with open(target_path, "w") as f:
+            json.dump(merged, f, indent=2)
+            f.write("\n")
+        console.print(f"[green]✅ Written to {target_path}[/green]\n")
+
+
+def _deep_merge(base: dict, overlay: dict):
+    """Recursively merge overlay into base (mutates base)."""
+    for k, v in overlay.items():
+        if k in base and isinstance(base[k], dict) and isinstance(v, dict):
+            _deep_merge(base[k], v)
+        else:
+            base[k] = v
