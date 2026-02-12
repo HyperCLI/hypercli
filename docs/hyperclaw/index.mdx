@@ -5,9 +5,22 @@ description: Flat-rate, OpenAI-compatible LLM inference for agents
 
 ## Overview
 
-HyperClaw is a flat-rate LLM inference API. Pay a fixed monthly subscription and get unlimited requests to any supported model through an OpenAI-compatible endpoint.
+HyperClaw is a flat-rate LLM inference API. Pay a fixed monthly subscription and get unlimited requests to supported models through an OpenAI-compatible endpoint.
 
-**Base URL:** `https://api.hyperclaw.app/v1`
+## Base URLs
+
+HyperClaw has two base URLs — one for inference, one for account management:
+
+| Purpose | Base URL | Description |
+|---------|----------|-------------|
+| **LLM Inference** | `https://api.hyperclaw.app/v1` | OpenAI-compatible endpoint (chat completions, models) |
+| **Account API** | `https://api.hyperclaw.app/api` | Plans, keys, auth, billing, subscriptions |
+| **Dashboard** | `https://hyperclaw.app` | Web UI for account management |
+| **Documentation** | `https://docs.hypercli.com/hyperclaw` | This documentation |
+
+<Note>
+The inference endpoint (`/v1`) is powered by [LiteLLM](https://litellm.ai) and is fully compatible with any OpenAI SDK or client.
+</Note>
 
 ## How It Works
 
@@ -40,18 +53,47 @@ curl https://api.hyperclaw.app/v1/chat/completions \
   }'
 ```
 
+## Available Models
+
+| Model | Description | Capabilities |
+|-------|-------------|-------------|
+| `kimi-k2.5` | Kimi K2.5 — 256K context, MoE architecture | Vision, function calling, structured output |
+
+List models programmatically:
+
+```bash
+curl https://api.hyperclaw.app/v1/models \
+  -H "Authorization: Bearer sk-..."
+```
+
 ## Payment Methods
 
-| Method | How |
-|--------|-----|
-| **Credit Card** | Stripe checkout from the dashboard |
-| **USDC (x402)** | Pay on Base via browser wallet or `x402-wallet` CLI |
+| Method | How | Speed |
+|--------|-----|-------|
+| **Credit Card** | Stripe checkout from the [dashboard](https://hyperclaw.app/dashboard/plans) | Instant |
+| **USDC (x402)** | Pay on Base via browser wallet or [`x402-wallet` CLI](/hyperclaw/x402-wallet) | Instant |
+| **USDC (CLI)** | `hyper claw subscribe` via [HyperCLI](/cli/commands/claw) | Instant |
 
 ## Plans
 
-All plans include unlimited requests. Plans differ by rate limits (TPM/RPM) and concurrent agent capacity (AIU).
+All plans include unlimited requests within rate limits. Plans differ by rate limits (TPM/RPM) and concurrent agent capacity (AIU).
 
-Subscribe at [hyperclaw.app](https://hyperclaw.app/#pricing).
+| Plan | Price | AIU | TPM | RPM |
+|------|-------|-----|-----|-----|
+| **1 Agent** | $35/mo | 1 | 100K | 2,000 |
+| **2 Agents** | $65/mo | 2 | 200K | 4,000 |
+| **5 Agents** | $120/mo | 5 | 500K | 10,000 |
+| **10 Agents** | $225/mo | 10 | 1M | 20,000 |
+
+<Tip>
+Not sure which plan? Start with **1 Agent** — it's enough for a single coding agent or chatbot. Upgrade anytime from the dashboard.
+</Tip>
+
+Get live pricing from the API:
+
+```bash
+curl https://api.hyperclaw.app/api/plans
+```
 
 ## Rate Limits
 
@@ -61,3 +103,59 @@ Each plan has per-team limits on:
 - **RPM** — requests per minute
 
 Exceeding limits returns HTTP 429. Limits reset every minute.
+
+Rate limits are applied at the **team level** — all API keys under your account share the same limits. Create multiple keys for different agents or environments without splitting your quota.
+
+## Teams & API Keys
+
+When you sign up, a **team** is created for your account. Your plan's rate limits apply to the team.
+
+- Create **unlimited API keys** under your team
+- Each key inherits the team's rate limits
+- Keys can be created and revoked from the [dashboard](https://hyperclaw.app/dashboard/keys) or via the [API](/hyperclaw/api)
+- Revoking a key is permanent
+
+## Integration Examples
+
+### OpenClaw / OpenAI Gateway
+
+Add HyperClaw as a provider in your OpenClaw config:
+
+```json
+{
+  "models": {
+    "providers": {
+      "hyperclaw": {
+        "baseURL": "https://api.hyperclaw.app",
+        "apiKey": "sk-..."
+      }
+    }
+  }
+}
+```
+
+### LiteLLM
+
+```python
+import litellm
+
+response = litellm.completion(
+    model="openai/kimi-k2.5",
+    api_key="sk-...",
+    api_base="https://api.hyperclaw.app/v1",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+### Continue.dev
+
+In `.continue/config.yaml`:
+
+```yaml
+models:
+  - title: Kimi K2.5
+    provider: openai
+    model: kimi-k2.5
+    apiBase: https://api.hyperclaw.app/v1
+    apiKey: sk-...
+```
