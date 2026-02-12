@@ -142,6 +142,7 @@
             "pages": [
               "hyperclaw/index",
               "hyperclaw/quickstart",
+              "hyperclaw/integrations",
               "hyperclaw/api",
               "hyperclaw/x402-wallet"
             ]
