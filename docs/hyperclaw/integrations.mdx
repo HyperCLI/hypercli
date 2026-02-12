@@ -1,0 +1,179 @@
+---
+title: Agent Integrations
+description: Configure your AI agent or coding tool to use HyperClaw as an LLM provider
+---
+
+HyperClaw exposes an **OpenAI-compatible API** at `https://api.hyperclaw.app/v1`. Any tool that supports custom OpenAI base URLs works out of the box.
+
+## OpenCode
+
+Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "provider": {
+    "hypercli": {
+      "npm": "@ai-sdk/openai-compatible",
+      "name": "HyperCLI",
+      "options": {
+        "baseURL": "https://api.hyperclaw.app/v1",
+        "apiKey": "sk-YOUR-API-KEY"
+      },
+      "models": {
+        "kimi-k2.5": {
+          "name": "kimi-k2.5"
+        }
+      }
+    }
+  }
+}
+```
+
+Then select the model with `hypercli/kimi-k2.5` in OpenCode.
+
+## OpenClaw
+
+Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.providers`:
+
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hyperclaw": {
+        "baseUrl": "https://api.hyperclaw.app/v1",
+        "apiKey": "sk-YOUR-API-KEY",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 262144,
+            "maxTokens": 8192
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+Then reference the model as `hyperclaw/kimi-k2.5` in your agent config, or set it as primary:
+
+```json
+{
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "hyperclaw/kimi-k2.5"
+      },
+      "models": {
+        "hyperclaw/kimi-k2.5": {
+          "alias": "kimi"
+        }
+      }
+    }
+  }
+}
+```
+
+## Claude Code / Codex
+
+Use environment variables — no config file needed:
+
+```bash
+export OPENAI_API_KEY="sk-YOUR-API-KEY"
+export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
+
+# Claude Code
+claude --model kimi-k2.5
+
+# OpenAI Codex
+codex --model kimi-k2.5
+```
+
+## Python (OpenAI SDK)
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="sk-YOUR-API-KEY",
+    base_url="https://api.hyperclaw.app/v1"
+)
+
+response = client.chat.completions.create(
+    model="kimi-k2.5",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+print(response.choices[0].message.content)
+```
+
+## TypeScript (OpenAI SDK)
+
+```typescript
+import OpenAI from 'openai';
+
+const client = new OpenAI({
+  apiKey: 'sk-YOUR-API-KEY',
+  baseURL: 'https://api.hyperclaw.app/v1'
+});
+
+const response = await client.chat.completions.create({
+  model: 'kimi-k2.5',
+  messages: [{ role: 'user', content: 'Hello!' }]
+});
+```
+
+## cURL
+
+```bash
+curl https://api.hyperclaw.app/v1/chat/completions \
+  -H "Authorization: Bearer sk-YOUR-API-KEY" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.5",
+    "messages": [{"role": "user", "content": "Hello!"}],
+    "stream": true
+  }'
+```
+
+## LiteLLM
+
+```yaml
+model_list:
+  - model_name: kimi-k2.5
+    litellm_params:
+      model: openai/kimi-k2.5
+      api_key: sk-YOUR-API-KEY
+      api_base: https://api.hyperclaw.app/v1
+```
+
+## Available Models
+
+| Model | Context | Description |
+|-------|---------|-------------|
+| `kimi-k2.5` | 262K tokens | Kimi K2.5 — high-performance reasoning model on B200 GPUs |
+
+Check available models at any time:
+
+```bash
+curl https://api.hyperclaw.app/v1/models \
+  -H "Authorization: Bearer sk-YOUR-API-KEY"
+```
+
+## Base URLs
+
+| Purpose | URL |
+|---------|-----|
+| **LLM Inference** (OpenAI-compatible) | `https://api.hyperclaw.app/v1` |
+| **Account/Billing API** | `https://api.hyperclaw.app/api` |
+| **Dashboard** | `https://hyperclaw.app` |
+| **Docs** | `https://docs.hypercli.com` |
+
+<Note>
+Both `api.hyperclaw.app` and `api.hypercli.com` point to the same backend. Use `api.hyperclaw.app` for direct access.
+</Note>
