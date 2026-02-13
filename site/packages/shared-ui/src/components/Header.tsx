@@ -145,8 +145,8 @@ export default function Header() {
 
           {/* Desktop Nav Links */}
           <div className="hidden md:!flex items-center space-x-6">
-            <a href={NAV_URLS.chat} className="text-sm text-text-secondary hover:text-foreground transition-colors">
-              Chat
+            <a href={NAV_URLS.claw} className="text-sm text-text-secondary hover:text-foreground transition-colors">
+              HyperClaw
             </a>
 
             {/* Product dropdown grouping console/playground/models/gpus/launch (Radix) */}
@@ -273,11 +273,11 @@ export default function Header() {
       >
         <div className="px-2 pt-2 pb-3 space-y-1 sm:px-3">
           <a
-            href={NAV_URLS.chat}
+            href={NAV_URLS.claw}
             className="block px-3 py-2 rounded-md text-base font-medium text-text-secondary hover:text-foreground hover:bg-surface-high"
             onClick={() => setMobileMenuOpen(false)}
           >
-            Chat
+            HyperClaw
           </a>
           <a
             href={NAV_URLS.console}

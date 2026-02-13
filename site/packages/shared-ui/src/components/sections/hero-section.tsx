@@ -1,8 +1,7 @@
 "use client";
 
-import { Send } from 'lucide-react';
 import { motion, useScroll, useTransform, useSpring } from 'framer-motion';
-import { useState, useEffect, useRef } from 'react';
+import { useRef } from 'react';
 import { NAV_URLS } from '../../utils/navigation';
 
 export function HeroSection() {
@@ -21,119 +20,6 @@ export function HeroSection() {
   const opacity = useTransform(scrollYProgress, [0, 0.5], [1, 0]);
   const scale = useTransform(scrollYProgress, [0, 0.5], [1, 0.95]);
   const y = useTransform(scrollYProgress, [0, 1], [0, -100]);
-
-  // Chat animation state
-  const [chatInput, setChatInput] = useState("");
-  const [models, setModels] = useState<string[]>([]);
-  const [placeholderText, setPlaceholderText] = useState("");
-  const [animationState, setAnimationState] = useState("LOADING");
-  const currentModelIndexRef = useRef(0);
-  const charIndexRef = useRef(0);
-
-  // Helper function to pick a random model different from current
-  const getRandomModelIndex = (currentIndex: number, modelsLength: number): number => {
-    if (modelsLength <= 1) return 0;
-    let nextIndex;
-    do {
-      nextIndex = Math.floor(Math.random() * modelsLength);
-    } while (nextIndex === currentIndex);
-    return nextIndex;
-  };
-
-  // Fetch models
-  useEffect(() => {
-    const fetchModels = async () => {
-      try {
-        const apiBase = process.env.NEXT_PUBLIC_LLM_API_URL?.replace('/v1', '') || 'https://api.hypercli.com';
-        const response = await fetch(`${apiBase}/llm/models`);
-        const data = await response.json();
-        const modelList = Object.entries(data)
-          .filter(([key]) => !key.toLowerCase().includes("embed"))
-          .map(([, value]) => {
-            const name = (value as { name: string }).name;
-            // Strip provider prefix (e.g., "Nous: Hermes 4 70B" -> "Hermes 4 70B")
-            return name.includes(": ") ? name.split(": ")[1] : name;
-          })
-          .filter(Boolean);
-        if (modelList.length === 0) throw new Error("No models");
-        const shuffled = [...modelList].sort(() => Math.random() - 0.5);
-        setModels(shuffled);
-        currentModelIndexRef.current = Math.floor(Math.random() * shuffled.length);
-        setAnimationState("TYPING_IN");
-      } catch (err) {
-        console.error("Failed to fetch models:", err);
-        const fallbackModels = ["Claude Sonnet 4.5", "GPT-4o", "Llama 3.3 70B", "Gemini 2.5 Flash"];
-        const shuffled = [...fallbackModels].sort(() => Math.random() - 0.5);
-        setModels(shuffled);
-        currentModelIndexRef.current = Math.floor(Math.random() * shuffled.length);
-        setAnimationState("TYPING_IN");
-      }
-    };
-    fetchModels();
-  }, []);
-
-  // FSM animation
-  useEffect(() => {
-    if (models.length === 0 || animationState === "LOADING") return;
-
-    const currentModel = models[currentModelIndexRef.current] || models[0];
-    if (!currentModel) return;
-
-    const otherModelsCount = models.length - 1;
-    const fullText = `One API, use ${currentModel} or ${otherModelsCount}+ other models...`;
-    let interval: NodeJS.Timeout | undefined;
-
-    switch (animationState) {
-      case "TYPING_IN":
-        interval = setInterval(() => {
-          if (charIndexRef.current < fullText.length) {
-            charIndexRef.current++;
-            setPlaceholderText(fullText.substring(0, charIndexRef.current));
-          } else {
-            clearInterval(interval);
-            setAnimationState("PAUSED");
-          }
-        }, 50);
-        break;
-
-      case "PAUSED":
-        const pauseTimeout = setTimeout(() => {
-          setAnimationState("TYPING_OUT");
-        }, 2000);
-        return () => clearTimeout(pauseTimeout);
-
-      case "TYPING_OUT":
-        interval = setInterval(() => {
-          if (charIndexRef.current > 0) {
-            charIndexRef.current--;
-            setPlaceholderText(fullText.substring(0, charIndexRef.current));
-          } else {
-            clearInterval(interval);
-            setAnimationState("CYCLING");
-          }
-        }, 30);
-        break;
-
-      case "CYCLING":
-        const cycleTimeout = setTimeout(() => {
-          currentModelIndexRef.current = getRandomModelIndex(currentModelIndexRef.current, models.length);
-          charIndexRef.current = 0;
-          setAnimationState("TYPING_IN");
-        }, 100);
-        return () => clearTimeout(cycleTimeout);
-    }
-
-    return () => {
-      if (interval) clearInterval(interval);
-    };
-  }, [models, animationState]);
-
-  const handleChatSubmit = (e: React.FormEvent<HTMLFormElement>) => {
-    e.preventDefault();
-    if (!chatInput.trim()) return;
-    const encodedMessage = btoa(chatInput);
-    window.location.href = `${NAV_URLS.chat}?message=${encodedMessage}`;
-  };
 
   return (
     <section 
@@ -207,54 +93,23 @@ export function HeroSection() {
           </div>
         </motion.div>
 
-        {/* Chat Input */}
+        {/* HyperClaw CTA */}
         <motion.div
-          className="max-w-xl mx-auto mb-6"
+          className="max-w-xl mx-auto mb-6 text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h3 className="text-lg font-medium text-foreground mb-4 text-center">
-            Talk to our <span className="text-primary">AI chat</span>
+          <h3 className="text-lg font-medium text-foreground mb-4">
+            Launch your own <span className="text-primary">OpenClaw Agent</span>
           </h3>
-          <form onSubmit={handleChatSubmit} className="flex gap-2 bg-surface-low/80 backdrop-blur-sm p-2 rounded-xl border border-border-medium focus-within:border-primary/40 focus-within:shadow-[0_0_30px_rgba(56,211,159,0.1)] transition-all duration-300">
-            <input
-              type="text"
-              className="flex-1 bg-transparent border-none text-foreground text-base px-4 py-3 outline-none placeholder:text-primary/60"
-              placeholder={animationState !== "LOADING" ? placeholderText : "Loading models..."}
-              value={chatInput}
-              onChange={(e) => setChatInput(e.target.value)}
-              onFocus={() => {
-                if (!chatInput) {
-                  setAnimationState("PAUSED");
-                  setPlaceholderText("Ask me anything...");
-                }
-              }}
-              onBlur={() => {
-                if (!chatInput && animationState !== "LOADING") {
-                  charIndexRef.current = 0;
-                  setAnimationState("TYPING_IN");
-                }
-              }}
-            />
-            <button
-              type="submit"
-              disabled={!chatInput.trim()}
-              className="px-4 py-2 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover disabled:opacity-30 disabled:cursor-not-allowed transition-all duration-300 flex items-center justify-center"
-            >
-              <Send className="w-5 h-5" />
-            </button>
-          </form>
+          <a
+            href={NAV_URLS.claw}
+            className="inline-flex items-center px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-all duration-300 font-medium text-base shadow-[0_0_30px_rgba(56,211,159,0.15)]"
+          >
+            Get Started
+          </a>
         </motion.div>
-
-        <motion.p
-          className="text-sm text-[#6E7375] text-center"
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          transition={{ duration: 0.8, delay: 0.8 }}
-        >
-          No signup required
-        </motion.p>
       </motion.div>
     </section>
   );

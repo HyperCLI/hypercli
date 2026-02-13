@@ -8,7 +8,6 @@ and efficiently in the codebase.
 - `site/`: Turbo monorepo (Next.js apps + shared UI)
   - `apps/main`: Marketing site (port 4000)
   - `apps/console`: User console/dashboard (port 4001)
-  - `apps/chat`: Chat UI (port 4002)
   - `packages/shared-ui`: Shared components/styles
 - `scripts/`: Python tooling for ComfyUI template docs
 - `site/env.sample`: Local env template
@@ -23,7 +22,6 @@ and efficiently in the codebase.
 4. Create env files for each app:
    - `cp env.sample apps/main/.env.local`
    - `cp env.sample apps/console/.env.local`
-   - `cp env.sample apps/chat/.env.local`
 5. Edit each `.env.local` with your values. Most `NEXT_PUBLIC_*` values can
    stay as defaults for basic local rendering, but auth/payment features need
    real keys and working backend URLs.
@@ -32,13 +30,12 @@ and efficiently in the codebase.
 7. Visit:
    - `http://localhost:4000` (main)
    - `http://localhost:4001` (console)
-   - `http://localhost:4002` (chat)
 
 Tip: If you run commands from the repo root, use `npm --prefix site <script>`.
 
 ## Environment variables (local)
 These are referenced by Turbo and the apps (see `site/turbo.json`):
-- `NEXT_PUBLIC_MAIN_SITE_URL`, `NEXT_PUBLIC_CONSOLE_URL`, `NEXT_PUBLIC_CHAT_URL`
+- `NEXT_PUBLIC_MAIN_SITE_URL`, `NEXT_PUBLIC_CONSOLE_URL`
 - `NEXT_PUBLIC_COOKIE_DOMAIN`, `NEXT_PUBLIC_COOKIE_VALIDITY`
 - `NEXT_PUBLIC_ORGANIZATION_ID`, `NEXT_PUBLIC_AUTH_PROXY_CONFIG_ID`
 - `NEXT_PUBLIC_GOOGLE_OAUTH_CLIENT_ID`

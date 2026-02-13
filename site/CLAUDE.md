@@ -34,7 +34,7 @@ pip install -e ".[dev]"
 ```bash
 cd site
 npm install
-npm run dev        # Runs all apps via Turborepo (main:4000, console:4001, chat:4002)
+npm run dev        # Runs all apps via Turborepo (main:4000, console:4001)
 npm run build      # Build all apps
 npm run lint       # Lint all apps
 npm run clear-cache  # Clear Turborepo cache
@@ -44,7 +44,6 @@ To run a single app:
 ```bash
 npm run dev --filter=@hypercli/main     # Marketing site on port 4000
 npm run dev --filter=@hypercli/console  # User dashboard on port 4001
-npm run dev --filter=@hypercli/chat     # LLM chat interface on port 4002
 ```
 
 ### ComfyUI Template Content Generation
@@ -81,10 +80,9 @@ All modules use `HTTPClient` from `http.py` for API communication. Config is loa
 Built with Typer. Main entry point is `cli.py` which registers subcommand modules (billing, comfyui, instances, jobs, llm, renders, user). The `tui/` subdirectory contains Rich-based interactive components like the job monitor.
 
 ### Web Apps (`site/`)
-Turborepo monorepo with three Next.js 16+ apps using app directory routing:
+Turborepo monorepo with Next.js 16+ apps using app directory routing:
 - **main** (`@hypercli/main`) - Marketing site with playground (port 4000)
 - **console** (`@hypercli/console`) - User dashboard, job management (port 4001)
-- **chat** (`@hypercli/chat`) - LLM chat interface (port 4002)
 
 Shared code lives in `site/packages/shared-ui/` (`@hypercli/shared-ui`):
 - `components/ui/` - Radix-based primitives (button, dialog, tabs, etc.)
