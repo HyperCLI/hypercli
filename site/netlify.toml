@@ -65,6 +65,8 @@
   NEXT_PUBLIC_CLAW_URL = "https://hyperclaw.app"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5njpn701s2ky0cjd0y1vzq"
   NEXT_PUBLIC_CLAW_API_URL = "https://api.hyperclaw.app/api"
+  HYPERCLAW_API_URL = "https://api.hyperclaw.app"
+  HYPERCLAW_MODELS_URL = "https://api.hyperclaw.app/models"
 
 # Redirect branch/preview deploys to production site
 [[context.branch-deploy.redirects]]
@@ -85,6 +87,8 @@
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
   NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
+  HYPERCLAW_API_URL = "https://dev-api.hyperclaw.app"
+  HYPERCLAW_MODELS_URL = "https://dev-api.hyperclaw.app/models"
   NEXT_PUBLIC_AUTH_BACKEND = "https://dev-api.hyperclaw.app/api"
   NEXT_PUBLIC_API_BASE = "https://dev-api.hyperclaw.app/api"
   NEXT_PUBLIC_INSTANCES_API_URL = "https://dev-api.hyperclaw.app/instances"
@@ -98,6 +102,8 @@
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
   NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
+  HYPERCLAW_API_URL = "https://dev-api.hyperclaw.app"
+  HYPERCLAW_MODELS_URL = "https://dev-api.hyperclaw.app/models"
   NEXT_PUBLIC_AUTH_BACKEND = "https://dev-api.hyperclaw.app/api"
   NEXT_PUBLIC_API_BASE = "https://dev-api.hyperclaw.app/api"
   NEXT_PUBLIC_INSTANCES_API_URL = "https://dev-api.hyperclaw.app/instances"

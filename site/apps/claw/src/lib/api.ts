@@ -1,4 +1,25 @@
-export const CLAW_API_BASE = process.env.NEXT_PUBLIC_CLAW_API_URL || "";
+function trimTrailingSlash(value: string): string {
+  return value.endsWith("/") ? value.slice(0, -1) : value;
+}
+
+function stripApiSuffix(value: string): string {
+  const trimmed = trimTrailingSlash(value);
+  return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed;
+}
+
+const rawClawApiBase = process.env.NEXT_PUBLIC_CLAW_API_URL || "";
+const rawHyperclawApiBase = process.env.NEXT_PUBLIC_HYPERCLAW_API_URL || "";
+const rawHyperclawModelsUrl = process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "";
+
+export const CLAW_API_BASE = trimTrailingSlash(rawClawApiBase);
+
+export const HYPERCLAW_MODELS_ENDPOINT = rawHyperclawModelsUrl
+  ? trimTrailingSlash(rawHyperclawModelsUrl)
+  : rawHyperclawApiBase
+    ? `${trimTrailingSlash(rawHyperclawApiBase)}/models`
+    : rawClawApiBase
+      ? `${stripApiSuffix(rawClawApiBase)}/models`
+      : "/models";
 
 const TOKEN_KEY = "claw_auth_token";
 

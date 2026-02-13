@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
 import { Check, X } from "lucide-react";
-import { CLAW_API_BASE } from "@/lib/api";
+import { HYPERCLAW_MODELS_ENDPOINT } from "@/lib/api";
 
 interface ModelInfo {
   id: string;
@@ -50,12 +50,14 @@ export function ModelsSection() {
   const [models, setModels] = useState<ModelInfo[]>([]);
 
   useEffect(() => {
-    fetch(`${CLAW_API_BASE}/models`)
+    fetch(HYPERCLAW_MODELS_ENDPOINT)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (data?.models) setModels(data.models);
       })
-      .catch(() => {});
+      .catch((error) => {
+        console.error("Failed to load model cards", error);
+      });
   }, []);
 
   if (models.length === 0) return null;
@@ -84,8 +86,7 @@ export function ModelsSection() {
           className="text-center mb-16"
         >
           <h2 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
-            Frontier{" "}
-            <span className="gradient-text-primary">Models</span>
+            Frontier <span className="gradient-text-primary">Models</span>
           </h2>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
             All models included in every plan. Choose the right one for your
@@ -140,7 +141,7 @@ export function ModelsSection() {
                   <span className="text-text-muted text-sm">context</span>
                 </div>
                 <p className="text-sm text-text-tertiary mb-6">
-                  ${model.input_cost_per_m.toFixed(2)}/{" "}
+                  ${model.input_cost_per_m.toFixed(2)}/
                   ${model.output_cost_per_m.toFixed(2)} per M tokens
                 </p>
 
