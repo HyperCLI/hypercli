@@ -304,6 +304,57 @@ def plans(
     console.print("Subscribe with: [bold]hyper claw subscribe <plan_id> <amount>[/bold]")
 
 
+@app.command("models")
+def models(
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """List available HyperClaw models from the public /models endpoint."""
+    import httpx
+
+    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    url = f"{api_base}/models"
+
+    try:
+        response = httpx.get(url, timeout=15)
+        response.raise_for_status()
+        payload = response.json()
+    except Exception as e:
+        console.print(f"[red]❌ Failed to fetch models from {url}: {e}[/red]")
+        raise typer.Exit(1)
+
+    models_data = payload.get("models")
+    if not isinstance(models_data, list):
+        console.print("[red]❌ Unexpected /models response shape (expected top-level models list)[/red]")
+        if json_output:
+            console.print_json(json.dumps(payload))
+        raise typer.Exit(1)
+
+    if json_output:
+        console.print_json(json.dumps(payload))
+        return
+
+    table = Table(title="HyperClaw Models")
+    table.add_column("Model ID", style="cyan")
+    table.add_column("Context", style="blue")
+    table.add_column("Vision", style="green")
+    table.add_column("Tools", style="green")
+    table.add_column("Reasoning", style="magenta")
+
+    for model in models_data:
+        model_id = str(model.get("id", ""))
+        context_length = model.get("context_length", "")
+        vision = "yes" if model.get("supports_vision") else "no"
+        tools = "yes" if model.get("supports_tools") else "no"
+        reasoning = "yes" if model.get("supports_reasoning") else "no"
+        table.add_row(model_id, str(context_length), vision, tools, reasoning)
+
+    console.print()
+    console.print(table)
+    console.print()
+    console.print(f"Source: {url}")
+
+
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 
