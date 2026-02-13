@@ -197,7 +197,13 @@ def launch(
     cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
-    """Launch a new GPU instance"""
+    """Launch a new GPU instance
+
+    Examples:
+        hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -c 'nvidia-smi && sleep 60'
+        hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -r kr -c 'nvidia-smi' -t 120
+        hyper instances launch my-registry.com/my-image:latest -g h100 -n 8 -c 'python train.py'
+    """
     client = get_client()
 
     # Parse env vars
@@ -222,6 +228,10 @@ def launch(
     registry_auth = None
     if registry_user and registry_password:
         registry_auth = {"username": registry_user, "password": registry_password}
+
+    # Auto-wrap command in sh -c if it contains shell operators
+    if command and any(op in command for op in ['&&', '||', '|', ';', '>', '<', '$']):
+        command = f'sh -c "{command}"'
 
     with spinner("Launching instance..."):
         job = client.jobs.create(
