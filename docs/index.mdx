@@ -1,9 +1,14 @@
 ---
 title: HyperCLI
-description: GPU orchestration and LLM API platform
+description: GPU orchestration, media flows, and HyperClaw inference
 ---
 
-HyperCLI provides GPU infrastructure for running containerized workloads and accessing LLM APIs.
+HyperCLI provides:
+
+- GPU job orchestration (`/api/jobs`)
+- Media generation flows (`/api/flow/*`)
+- Pay-per-use x402 launches for jobs/flows (`/api/x402/*`)
+- Agent inference via HyperClaw (`https://hyperclaw.app`)
 
 ## Install
 
@@ -23,45 +28,29 @@ Get your API key at [console.hypercli.com](https://console.hypercli.com).
 
 ## Quick Examples
 
-### Python SDK
-
-```python
-from hypercli import HyperCLI
-
-client = HyperCLI()
-
-# Check balance
-balance = client.billing.balance()
-print(f"${balance.total}")
-
-# Create GPU job
-job = client.jobs.create(
-    image="nvidia/cuda:12.0",
-    gpu_type="l40s",
-    command="python train.py"
-)
-```
-
-### CLI
+### Launch a GPU Job
 
 ```bash
-hyper billing balance
 hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
-hyper llm chat deepseek-v3.1 "Hello!"
 ```
 
-### LLM API (OpenAI Compatible)
+### Run a Flow
 
-```python
-from openai import OpenAI
+```bash
+hyper flow text-to-image "a product hero image"
+```
 
-client = OpenAI(
-    api_key="your_hypercli_api_key",
-    base_url="https://api.hypercli.com/v1"
-)
+### x402 Pay-Per-Use Flow
 
-response = client.chat.completions.create(
-    model="deepseek-v3.1",
-    messages=[{"role": "user", "content": "Hello!"}]
-)
+```bash
+hyper flow text-to-image "a product hero image" --x402
+```
+
+### HyperClaw Inference
+
+```bash
+export HYPERCLI_API_URL="https://api.hyperclaw.app"
+export HYPERCLI_API_KEY="sk-..."
+hyper claw plans
+hyper claw config env
 ```

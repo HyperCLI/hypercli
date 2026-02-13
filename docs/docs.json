@@ -46,10 +46,22 @@
         ]
       },
       {
+        "tab": "Flows",
+        "groups": [
+          {
+            "group": "Flow API",
+            "pages": [
+              "flows/index",
+              "flows/x402"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "LLM",
         "groups": [
           {
-            "group": "LLM API",
+            "group": "Inference (HyperClaw)",
             "pages": [
               "llm/index",
               "llm/models",
@@ -120,7 +132,7 @@
               "cli/commands/comfyui",
               "cli/commands/instances",
               "cli/commands/jobs",
-              "cli/commands/llm",
+              "cli/commands/flow",
               "cli/commands/renders",
               "cli/commands/user",
               "cli/commands/wallet"
@@ -141,6 +153,7 @@
             "group": "HyperClaw",
             "pages": [
               "hyperclaw/index",
+              "hyperclaw/provider",
               "hyperclaw/quickstart",
               "hyperclaw/integrations",
               "hyperclaw/api",

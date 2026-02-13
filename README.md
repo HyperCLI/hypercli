@@ -1,141 +1,54 @@
 # HyperCLI
 
-**GPU orchestration and LLM API platform**
+HyperCLI is the SDK/CLI/docs workspace for:
 
-HyperCLI provides on-demand GPU infrastructure for running containerized workloads and accessing frontier LLMs through a unified API.
+- GPU job orchestration against Orchestra (`/api/jobs`)
+- Media Flow APIs (`/api/flow/*`)
+- x402 pay-per-use launches (`/api/x402/job`, `/api/x402/flow/{flow_type}`)
+- HyperClaw checkout and agent setup (`hyper claw *`)
 
----
-
-## Features
-
-- **GPU Instances** - Launch containerized workloads on H100, L40S, and other high-performance GPUs
-- **LLM API** - OpenAI-compatible API for models like DeepSeek, Claude, GPT-4, and more
-- **Render API** - ComfyUI-based image generation and video processing
-- **Python SDK** - Type-safe client library for all platform features
-- **CLI** - Powerful command-line interface with interactive TUI
-- **MCP Server** - Model Context Protocol integration for AI agents
-
-## Quick Start
-
-### Installation
+## Install
 
 ```bash
 pip install hypercli-sdk hypercli-cli
 ```
 
-### Configure
+## Configure
 
 ```bash
 hyper configure
+export HYPERCLI_API_KEY=...
 ```
 
-Or set your API key directly:
+## Quick Commands
 
 ```bash
-export HYPERCLI_API_KEY=your_key
+# Launch account-billed GPU job
+hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi"
+
+# Launch pay-per-use x402 GPU job
+hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi" --x402 --amount 0.01
+
+# Run account-billed flow
+hyper flow text-to-image "a cinematic portrait"
+
+# Run pay-per-use x402 flow
+hyper flow text-to-image "a cinematic portrait" --x402
+
+# HyperClaw plan + config workflow
+hyper claw plans
+hyper claw subscribe 1aiu
+hyper claw config env
 ```
 
-Get your API key at [console.hypercli.com](https://console.hypercli.com)
+## Repo Layout
 
-### Usage
+- `sdk/` Python SDK (`hypercli-sdk`)
+- `cli/` CLI (`hypercli-cli`)
+- `docs/` Mintlify docs source
+- `site/` web properties
 
-**Python SDK:**
+## Current Notes
 
-```python
-from hypercli import HyperCLI
-
-client = HyperCLI()
-
-# Launch a GPU job
-job = client.jobs.create(
-    image="nvidia/cuda:12.0",
-    gpu_type="l40s",
-    command="python train.py"
-)
-
-# Check balance
-balance = client.billing.balance()
-print(f"Balance: ${balance.total}")
-```
-
-**CLI:**
-
-```bash
-# Launch GPU job with live monitoring
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
-
-# Chat with LLM
-hyper llm chat deepseek-v3.1 "Explain quantum computing"
-
-# Check account balance
-hyper billing balance
-```
-
-**LLM API (OpenAI Compatible):**
-
-```python
-from openai import OpenAI
-
-client = OpenAI(
-    api_key="your_hypercli_api_key",
-    base_url="https://api.hypercli.com/v1"
-)
-
-response = client.chat.completions.create(
-    model="deepseek-v3.1",
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-```
-
-## Repository Structure
-
-This monorepo contains:
-
-- **`sdk/`** - Python SDK ([PyPI](https://pypi.org/project/hypercli-sdk/))
-- **`cli/`** - Command-line interface ([PyPI](https://pypi.org/project/hypercli-cli/))
-- **`docs/`** - Documentation source files
-- **`site/`** - Marketing and console web applications
-
-## Documentation
-
-- **Website:** [hypercli.com](https://hypercli.com)
-- **Documentation:** [docs.hypercli.com](https://docs.hypercli.com)
-- **API Reference:** [docs.hypercli.com/api-reference](https://docs.hypercli.com/api-reference)
-- **API Endpoint:** [api.hypercli.com](https://api.hypercli.com)
-
-## Development
-
-### SDK Development
-
-```bash
-cd sdk
-pip install -e ".[dev]"
-pytest
-```
-
-### CLI Development
-
-```bash
-cd cli
-pip install -e ".[dev]"
-```
-
-### Building Packages
-
-```bash
-python -m build sdk/
-python -m build cli/
-```
-
-## Links
-
-- **Dashboard:** [console.hypercli.com](https://console.hypercli.com)
-- **GitHub:** [github.com/HyperCLI/hypercli](https://github.com/HyperCLI/hypercli)
-- **Support:** support@hypercli.com
-- **Twitter/X:** [@hypercliai](https://x.com/hypercliai)
-
-## License
-
-MIT License - Copyright (c) 2025 HyperCLI, Inc.
-
-See [LICENSE](LICENSE) for details.
+- CLI `llm` command surface was removed; inference setup is documented through HyperClaw pages and `hyper claw config` output.
+- Public flow pricing and metadata come from `GET /flows` and `GET /flows/{name}`.

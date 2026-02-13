@@ -20,6 +20,7 @@ except ImportError:
 
 WALLET_DIR = Path.home() / ".hypercli"
 WALLET_PATH = WALLET_DIR / "wallet.json"
+WALLET_PASSPHRASE_PATH = WALLET_DIR / "wallet.passphrase"
 BASE_RPC = "https://mainnet.base.org"
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"
 
@@ -32,6 +33,20 @@ def require_wallet_deps():
         console.print("  [bold]pip install 'hypercli-cli[wallet]'[/bold]")
         raise typer.Exit(1)
 
+
+
+def _get_wallet_passphrase(prompt: str = "Unlock keystore passphrase: ") -> str:
+    passphrase_env = os.getenv("HYPERCLI_WALLET_PASSPHRASE")
+    if passphrase_env:
+        return passphrase_env
+
+    if WALLET_PASSPHRASE_PATH.exists():
+        passphrase_file = WALLET_PASSPHRASE_PATH.read_text().strip()
+        if passphrase_file:
+            console.print("[dim]Using passphrase from ~/.hypercli/wallet.passphrase[/dim]")
+            return passphrase_file
+
+    return getpass.getpass(prompt)
 
 @app.command("create")
 def create():
@@ -195,12 +210,7 @@ def balance():
     with open(WALLET_PATH) as f:
         keystore = json.load(f)
     
-    # Get passphrase
-    passphrase_env = os.getenv("HYPERCLI_WALLET_PASSPHRASE")
-    if passphrase_env:
-        passphrase = passphrase_env
-    else:
-        passphrase = getpass.getpass("Unlock keystore passphrase: ")
+    passphrase = _get_wallet_passphrase()
     
     try:
         private_key = Account.decrypt(keystore, passphrase)
@@ -503,12 +513,7 @@ def load_wallet():
     with open(WALLET_PATH) as f:
         keystore = json.load(f)
     
-    # Get passphrase
-    passphrase_env = os.getenv("HYPERCLI_WALLET_PASSPHRASE")
-    if passphrase_env:
-        passphrase = passphrase_env
-    else:
-        passphrase = getpass.getpass("Unlock keystore passphrase: ")
+    passphrase = _get_wallet_passphrase()
     
     try:
         private_key = Account.decrypt(keystore, passphrase)

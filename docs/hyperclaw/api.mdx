@@ -1,98 +1,52 @@
 ---
 title: HyperClaw API
-description: REST API reference for HyperClaw subscriptions, payments, and inference
+description: Checkout and account API for HyperClaw inference
 ---
 
 ## Base URLs
 
-| Endpoint | Base URL | Auth |
-|----------|----------|------|
-| **LLM Inference** | `https://api.hyperclaw.app/v1` | `Authorization: Bearer sk-...` |
-| **Account API** | `https://api.hyperclaw.app/api` | `Authorization: Bearer <jwt>` |
+| Surface | URL |
+|---------|-----|
+| Inference (OpenAI-compatible) | `https://api.hyperclaw.app/v1` |
+| Account + billing API | `https://api.hyperclaw.app/api` |
+| Product UI | `https://hyperclaw.app` |
 
-<Warning>
-The inference endpoint (`/v1`) uses your **API key** (`sk-...`). The account API uses a **JWT token** from `/auth/login`. Don't mix them up.
-</Warning>
+<Note>
+In production, routes are served under `/api` (for example `/api/stripe/{plan_id}` and `/api/x402/{plan_id}`).
+</Note>
 
-## Authentication
+## Auth Modes
 
-### JWT (Account API)
-
-Obtain a JWT via the Privy login flow, then include it as a Bearer token:
-
-```bash
-Authorization: Bearer <your-jwt-token>
-```
-
-### API Key (Inference)
-
-Use your API key for all `/v1` endpoints:
-
-```bash
-Authorization: Bearer sk-...
-```
-
-For x402 payments, authentication is optional — you can subscribe anonymously and receive a standalone API key.
-
----
+- Inference endpoints (`/v1/*`): `Authorization: Bearer sk-...`
+- Account endpoints (`/api/*`): `Authorization: Bearer <jwt>`
+- x402 checkout (`/api/x402/{plan_id}`): JWT is optional
 
 ## Plans
 
-### List Plans
+List plans:
 
-Get all available subscription plans with current pricing.
-
-<CodeGroup>
-```bash Request
+```bash
 curl https://api.hyperclaw.app/api/plans
 ```
 
-```json Response
-{
-  "plans": [
-    {
-      "id": "1aiu",
-      "name": "1 Agent",
-      "price": 35,
-      "aiu": 1,
-      "tpm_limit": 600000,
-      "rpm_limit": 3000,
-      "features": [
-        "1 AIU allocation",
-        "~36M tokens/hour",
-        "600K TPM / 3,000 RPM",
-        "4x burst (2.4M TPM for 1 min)",
-        "OpenAI-compatible API",
-        "Email support"
-      ],
-      "models": ["kimi-k2.5", "glm-5"]
-    }
-  ]
-}
-```
-</CodeGroup>
-
-### Get Current Plan
-
-Get the authenticated user's active plan and expiry.
+Get current plan (JWT required):
 
 ```bash
 curl https://api.hyperclaw.app/api/plans/current \
-  -H "Authorization: Bearer <token>"
+  -H "Authorization: Bearer <jwt>"
 ```
 
----
+## Stripe Checkout (Credit Card)
 
-## Checkout: Stripe (Credit Card)
+Endpoint: `POST /api/stripe/{plan_id}`
 
-### 1. Create Checkout Session
+- Requires JWT auth
+- Returns a Stripe-hosted `checkout_url`
+- Webhook (`/api/stripe/hook`) activates subscription and applies team limits
 
-Requires JWT auth. Redirects the user to Stripe's hosted checkout page.
-
-<CodeGroup>
-```bash Request
+```bash
 curl -X POST https://api.hyperclaw.app/api/stripe/1aiu \
-  -H "Authorization: Bearer <token>" \
+  -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
     "success_url": "https://hyperclaw.app/dashboard/plans?session_id={CHECKOUT_SESSION_ID}",
@@ -100,233 +54,55 @@ curl -X POST https://api.hyperclaw.app/api/stripe/1aiu \
   }'
 ```
 
-```json Response
-{
-  "checkout_url": "https://checkout.stripe.com/c/pay/..."
-}
-```
-</CodeGroup>
+## x402 Checkout (USDC)
 
-### 2. Redirect to Checkout
+Endpoint: `POST /api/x402/{plan_id}`
 
-Redirect the user to `checkout_url`. After payment, Stripe redirects to your `success_url`.
+- Uses x402 HTTP 402 flow
+- Middleware validates payment and accepts amounts `>=` plan minimum
+- Route calculates duration from the signed transfer amount (`authorization.value`)
 
-### 3. Webhook Activation
+### Flow
 
-Stripe sends a `checkout.session.completed` webhook to the backend, which:
-- Creates an active subscription (32 days)
-- Updates the user's plan
-- Sets team rate limits in LiteLLM
+1. POST request without payment headers
+2. Receive HTTP 402 with payment requirements
+3. Sign and retry with payment payload (`X-PAYMENT`)
+4. Receive API key + expiry + limits
 
-No further action needed from the user.
+```bash
+# Step 1
+curl -X POST https://api.hyperclaw.app/api/x402/1aiu
 
----
-
-## Checkout: x402 (USDC on Base)
-
-Pay with USDC on Base using the [x402 protocol](https://x402.org). No gas needed — the facilitator pays settlement costs.
-
-### How It Works
-
-1. **POST** to `/api/x402/{plan_id}` without payment
-2. Server returns **HTTP 402** with payment requirements
-3. Client signs an **EIP-3009** gasless USDC transfer
-4. Client retries with the **`X-Payment`** header containing the signature
-5. Server verifies, settles on-chain, and returns the API key
-
-### Subscribe via x402
-
-<CodeGroup>
-```bash Step 1: Trigger 402
+# Step 2: retry with x402 payment payload
 curl -X POST https://api.hyperclaw.app/api/x402/1aiu \
-  -H "Authorization: Bearer <token>"
-
-# Returns HTTP 402 with Payment-Required header
+  -H "X-PAYMENT: <signed-payment-payload>"
 ```
 
-```json Payment Requirements (decoded from header)
-{
-  "x402Version": 2,
-  "accepts": [
-    {
-      "scheme": "exact",
-      "network": "eip155:8453",
-      "asset": "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913",
-      "amount": "35000000",
-      "payTo": "0xB4ad76dfEbc6A98d4C99BB43ea8a8023Ab57a902",
-      "maxTimeoutSeconds": 300
-    }
-  ]
-}
-```
+### Duration Calculation
 
-```bash Step 2: Submit with Payment
-curl -X POST https://api.hyperclaw.app/api/x402/1aiu \
-  -H "Authorization: Bearer <token>" \
-  -H "X-Payment: <base64-encoded-payment-signature>"
-```
+Duration scales with paid amount:
 
-```json Success Response
+- `duration_days = (amount_paid / plan_price) * X402_PLAN_DURATION_DAYS`
+- Includes sub-day precision (seconds)
+
+So exact plan price gives base duration, and higher amounts increase duration proportionally.
+
+### JWT Optional Behavior
+
+- With JWT: creates account-linked subscription/payment records and updates team limits
+- Without JWT: returns standalone API key (anonymous x402 purchase)
+
+### Response Shape
+
+```json
 {
   "ok": true,
-  "key": "sk-L0yyN8vV9OfM0urGRe0szg",
+  "key": "sk-...",
   "plan_id": "1aiu",
   "amount_paid": "35.000000",
-  "duration_days": 32,
-  "expires_at": "2026-03-16T13:17:22Z",
+  "duration_days": 30.0,
+  "expires_at": "2026-03-15T12:00:00+00:00",
   "tpm_limit": 600000,
   "rpm_limit": 3000
 }
 ```
-</CodeGroup>
-
-### Payment Details
-
-| Field | Value |
-|-------|-------|
-| Network | Base (eip155:8453) |
-| Token | USDC (`0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913`) |
-| Recipient | `0xB4ad76dfEbc6A98d4C99BB43ea8a8023Ab57a902` |
-| Amount | Plan price in USDC (6 decimal places, e.g. `35000000` = $35) |
-| Signature validity | 5 minutes |
-
-### Authenticated vs Anonymous
-
-- **With JWT**: Creates a subscription linked to your account. Create additional keys from the dashboard.
-- **Without JWT**: Returns a standalone API key with the plan's rate limits and expiry baked in.
-
----
-
-## API Keys
-
-### List Keys
-
-```bash
-curl https://api.hyperclaw.app/api/keys \
-  -H "Authorization: Bearer <token>"
-```
-
-### Create Key
-
-```bash
-curl -X POST https://api.hyperclaw.app/api/keys \
-  -H "Authorization: Bearer <token>" \
-  -H "Content-Type: application/json" \
-  -d '{"name": "my-agent"}'
-```
-
-### Disable Key
-
-Permanently disable an API key.
-
-```bash
-curl -X POST https://api.hyperclaw.app/api/keys/{key_ref}/disable \
-  -H "Authorization: Bearer <token>"
-```
-
-<Warning>
-Disabled keys cannot be re-enabled. Create a new key instead.
-</Warning>
-
----
-
-## LLM Inference
-
-After subscribing, use the OpenAI-compatible inference API.
-
-**Base URL:** `https://api.hyperclaw.app/v1`
-
-### Chat Completions
-
-<CodeGroup>
-```bash cURL
-curl https://api.hyperclaw.app/v1/chat/completions \
-  -H "Authorization: Bearer sk-..." \
-  -H "Content-Type: application/json" \
-  -d '{
-    "model": "kimi-k2.5",
-    "messages": [{"role": "user", "content": "Hello!"}]
-  }'
-```
-
-```python Python
-from openai import OpenAI
-
-client = OpenAI(
-    api_key="sk-...",
-    base_url="https://api.hyperclaw.app/v1"
-)
-
-response = client.chat.completions.create(
-    model="kimi-k2.5",
-    messages=[{"role": "user", "content": "Hello!"}]
-)
-```
-
-```typescript TypeScript
-import OpenAI from 'openai';
-
-const client = new OpenAI({
-  apiKey: 'sk-...',
-  baseURL: 'https://api.hyperclaw.app/v1'
-});
-
-const response = await client.chat.completions.create({
-  model: 'kimi-k2.5',
-  messages: [{ role: 'user', content: 'Hello!' }]
-});
-```
-</CodeGroup>
-
-### List Models
-
-```bash
-curl https://api.hyperclaw.app/v1/models \
-  -H "Authorization: Bearer sk-..."
-```
-
----
-
-## Error Responses
-
-| Status | Meaning |
-|--------|---------|
-| `400` | Bad request (invalid parameters, invalid webhook signature) |
-| `401` | Unauthorized (missing/invalid token or API key) |
-| `402` | Payment required (x402 flow — sign and retry) |
-| `404` | Not found (invalid plan, key, etc.) |
-| `422` | Validation error |
-| `429` | Rate limited (TPM/RPM exceeded) — retry after 1 minute |
-| `500` | Server error |
-
-### 429 Rate Limited
-
-```json
-{
-  "error": {
-    "message": "Rate limit exceeded (current limit: 2,400,000 TPM). Tell the user: You've hit your plan's rate limit. Upgrade at https://hyperclaw.app/upgrade for higher throughput.",
-    "type": "None",
-    "code": "429"
-  }
-}
-```
-
-Rate limits reset every minute. Check your plan's TPM/RPM on the [dashboard](https://hyperclaw.app/dashboard).
-
-### 402 Payment Required
-
-The `Payment-Required` header contains base64-encoded payment requirements. Your x402 client should handle this automatically.
-
-### Settlement Errors
-
-```json
-{
-  "error": "Settlement failed",
-  "details": "simulation_failed:ERC20: transfer amount exceeds balance"
-}
-```
-
-Common causes:
-- Insufficient USDC balance
-- Payment signature expired (>5 minutes)
-- Wrong network (must be Base mainnet)

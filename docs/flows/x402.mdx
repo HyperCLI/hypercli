@@ -1,0 +1,110 @@
+---
+title: x402 Top-Ups and Flow Checkout
+description: How x402 top-ups and pay-per-use flow launches work on HyperCLI
+---
+
+## Overview
+
+HyperCLI has two distinct x402 payment flows:
+
+1. **x402 top-up** (`POST /api/x402/top_up`)
+- Adds funds to an existing HyperCLI user account
+- Used by account-based billing workflows
+
+2. **x402 flow pay-per-use** (`POST /api/x402/flow/{flow_type}`)
+- Pays a fixed amount for exactly one flow render
+- Does not require a pre-existing billing account
+- Returns an ephemeral access key to poll/cancel that render
+
+## 1) x402 Top-Up
+
+Endpoint: `POST /api/x402/top_up`
+
+Request body:
+
+```json
+{
+  "user_id": "<hypercli-user-uuid>",
+  "amount": 10.0
+}
+```
+
+Notes:
+
+- Server requires a valid x402 payment (HTTP 402 flow).
+- Verified payment amount comes from the signed transfer payload.
+- Minimum top-up is `$0.01`.
+- Transaction is recorded with x402 scope `top_up`.
+
+## 2) x402 Flow Checkout (Per Render)
+
+Endpoint: `POST /api/x402/flow/{flow_type}`
+
+Request body:
+
+```json
+{
+  "amount": 0.10,
+  "params": {
+    "prompt": "a product photo on white background"
+  },
+  "notify_url": "https://example.com/webhook"
+}
+```
+
+Rules:
+
+- `amount` must match the fixed flow price exactly.
+- Middleware payment amount and signed transfer amount must also match that fixed price.
+- Payer wallet is resolved from the signed authorization payload.
+- If wallet has no account yet, HyperCLI creates an `x402` login user for that wallet.
+
+Success response:
+
+```json
+{
+  "render": {
+    "id": "<render_id>",
+    "state": "pending",
+    "type": "comfyui"
+  },
+  "access_key": "hypercli_access_...",
+  "status_url": "/flow/renders/<render_id>/status",
+  "cancel_url": "/flow/renders/<render_id>"
+}
+```
+
+## Polling and Cancelling with the Access Key
+
+Use the returned access key as Bearer auth.
+
+```bash
+ACCESS_KEY="hypercli_access_..."
+RENDER_ID="..."
+
+curl -H "Authorization: Bearer $ACCESS_KEY" \
+  "https://api.hypercli.com/api/flow/renders/$RENDER_ID/status"
+
+curl -H "Authorization: Bearer $ACCESS_KEY" \
+  "https://api.hypercli.com/api/flow/renders/$RENDER_ID"
+
+curl -X DELETE -H "Authorization: Bearer $ACCESS_KEY" \
+  "https://api.hypercli.com/api/flow/renders/$RENDER_ID"
+```
+
+<Note>
+The `hypercli_access_...` key is scoped to the specific flow render and is intended for lightweight lifecycle access (status/get/cancel) without requiring JWT or a long-lived API key.
+</Note>
+
+## CLI
+
+```bash
+# Uses embedded x402 wallet and auto-loads fixed flow price from /flows
+hyper flow text-to-image "studio portrait" --x402
+```
+
+Optional explicit amount (must equal flow fixed price):
+
+```bash
+hyper flow text-to-image "studio portrait" --x402 --amount 0.10
+```

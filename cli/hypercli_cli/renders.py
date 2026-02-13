@@ -52,12 +52,13 @@ def create_render(
     gpu: str = typer.Option("L40S", "--gpu", "-g", help="GPU type"),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="Region"),
     render_type: str = typer.Option("comfyui", "--type", "-t", help="Render type"),
+    x402: bool = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet"),
+    amount: Optional[float] = typer.Option(None, "--amount", help="USDC amount to spend with --x402"),
     wait: bool = typer.Option(False, "--wait", "-w", help="Wait for completion"),
     notify_url: Optional[str] = typer.Option(None, "--notify", help="Webhook URL for completion"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Create a new render"""
-    client = get_client()
 
     params = {
         "template": template,
@@ -67,6 +68,13 @@ def create_render(
     if region:
         params["region"] = region
 
+    if x402:
+        raise typer.BadParameter(
+            "--x402 is not supported for 'hyper renders create'. "
+            "Use 'hyper flow <flow-name> --x402' for pay-per-use launches."
+        )
+
+    client = get_client()
     with spinner("Creating render..."):
         render = client.renders.create(params=params, render_type=render_type, notify_url=notify_url)
 
@@ -78,7 +86,6 @@ def create_render(
 
     if wait:
         _wait_for_render(client, render.render_id, fmt)
-
 
 @app.command("status")
 def status(

@@ -1,85 +1,26 @@
 ---
 title: Access Tiers
-description: LLM API access tiers and model groups
+description: Inference access is controlled by HyperClaw subscription plans
 ---
 
-## Tiers
+Inference access limits (TPM/RPM) are controlled by your HyperClaw plan.
 
-Get tier information:
-
-```bash
-curl https://api.hypercli.com/llm/tiers \
-  -H "Authorization: Bearer YOUR_API_KEY"
-```
-
-### Free Tier
-
-- Access to free models
-- No credit card required
-- Rate limits apply
-
-### Rewards Tier
-
-- Earned through platform usage
-- Access to additional models
-- Higher rate limits
-
-### Paid Tier
-
-- Full access to all models
-- Highest rate limits
-- Priority support
-
-## Model Groups
-
-Get group information:
+## Check Available Plans
 
 ```bash
-curl https://api.hypercli.com/llm/groups \
-  -H "Authorization: Bearer YOUR_API_KEY"
+curl https://api.hyperclaw.app/api/plans
 ```
 
-### free-models
-
-Models available at no cost:
-
-- Community models
-- Open-source deployments
-- Basic capabilities
-
-### c3-models
-
-HyperCLI's optimized model deployments:
-
-- Optimized for performance
-- Competitive pricing
-- Reliable availability
-
-### external-models
-
-Third-party model providers:
-
-- Premium models
-- Specialized capabilities
-- Pass-through pricing
-
-## Checking Your Tier
-
-View your current tier and access:
+## Check Your Current Plan
 
 ```bash
-hyper user
-hyper user -o json
+curl https://api.hyperclaw.app/api/plans/current \
+  -H "Authorization: Bearer <jwt>"
 ```
 
-## Rate Limits
+## Notes
 
-Rate limits vary by tier:
+- Authenticated x402 purchases attach plan/subscription data to your account.
+- Anonymous x402 purchases return standalone API keys.
 
-| Tier | Requests/min | Tokens/min |
-|------|--------------|------------|
-| Free | Lower | Lower |
-| Rewards | Medium | Medium |
-| Paid | Higher | Higher |
-
-If you hit rate limits, wait and retry or upgrade your tier.
+See [HyperClaw API](/hyperclaw/api) and [HyperClaw for Agents](/hyperclaw/provider).

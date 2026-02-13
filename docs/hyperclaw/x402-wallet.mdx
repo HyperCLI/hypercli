@@ -1,190 +1,53 @@
 ---
 title: x402 Wallet
-description: Pay for HyperClaw subscriptions with USDC using the x402-wallet CLI
+description: Headless x402 checkout for HyperClaw plans using USDC on Base
 ---
 
 ## Overview
 
-[`x402-wallet`](https://github.com/0xkoda/x402-wallet) is an open-source command-line tool for paying HyperClaw subscriptions with USDC on Base. It creates EIP-3009 (gasless transfer) signatures that the x402 protocol uses to authorize payments without requiring on-chain gas from the payer.
+Use `x402-wallet` when you want to buy HyperClaw plan access without a browser checkout flow.
 
-This is useful for:
+- Checkout endpoint: `POST https://api.hyperclaw.app/api/x402/{plan_id}`
+- Token: USDC on Base
+- Payment transport: x402 HTTP 402 + signed EIP-3009 payload
 
-- Headless environments (servers, CI/CD) where a browser wallet isn't available
-- Programmatic subscription management
-- Agents that need to self-provision API access
+## Flow
 
-## Install
+1. Call `POST /api/x402/{plan_id}` without payment headers
+2. Receive HTTP 402 payment requirements
+3. Sign payment with your x402 wallet
+4. Retry request with `X-PAYMENT` header
+5. Receive `sk-...` key, expiry, and limits
 
-We host a pre-built Linux x86_64 binary:
-
-```bash
-curl -L https://hyperclaw.app/binaries/x402-wallet -o x402-wallet
-chmod +x x402-wallet
-
-# Verify checksum
-curl -s https://hyperclaw.app/binaries/x402-wallet.sha256
-sha256sum x402-wallet
-```
-
-### Build from Source (macOS, ARM, etc.)
+## Example (curl + wallet-managed payment payload)
 
 ```bash
-git clone https://github.com/0xkoda/x402-wallet.git
-cd x402-wallet
-cargo build --release
-# Binary at target/release/x402-wallet
+# Initial request (expect 402)
+curl -i -X POST https://api.hyperclaw.app/api/x402/1aiu
+
+# Retry with signed payment payload
+curl -X POST https://api.hyperclaw.app/api/x402/1aiu \
+  -H "X-PAYMENT: <signed-payment-payload>"
 ```
 
-Requires Rust 1.75+.
-
-## Generate a Wallet
-
-Create a new wallet with an encrypted keystore:
-
-```bash
-x402-wallet wallet-init --keystore
-```
-
-This will:
-
-1. Generate a new private key using OS-level randomness
-2. Prompt you for a passphrase
-3. Store the encrypted key at `~/.x402wallet/keystore.json` (Argon2 + XChaCha20Poly1305)
-
-To import an existing private key instead, select "Import" when prompted.
-
-Confirm your wallet address:
-
-```bash
-x402-wallet wallet-address
-```
-
-### Alternative: `.env` storage
-
-For simpler setups, store the key in a `.env` file:
-
-```bash
-x402-wallet wallet-init
-```
-
-This writes `X402_WALLET_PRIVATE_KEY` to `.env` with `0600` permissions. Use `--dotenv /path/to/.env` to specify a custom path.
-
-## Configure Network
-
-Set the network to Base (mainnet):
-
-```bash
-x402-wallet config-set --network base
-```
-
-Supported networks:
-
-| Network | Chain ID | USDC Contract |
-|---------|----------|---------------|
-| `base` | 8453 | `0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913` |
-| `base-sepolia` | 84532 | Testnet USDC |
-| `ethereum` | 1 | `0xA0b86991c6218b36c1d19D4a2e9Eb0cE3606eB48` |
-
-For testing, use `base-sepolia`.
-
-## Fund Your Wallet
-
-Send USDC to your wallet address on Base. You can:
-
-- **Bridge from another chain** using [bridge.base.org](https://bridge.base.org)
-- **Buy on an exchange** and withdraw to Base
-- **Transfer from another wallet** on Base
-
-Check your balance:
-
-```bash
-# ETH balance (needed for gas on direct transfers)
-x402-wallet balance
-
-# USDC balance on Base
-x402-wallet balance --erc20 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913
-```
-
-<Note>
-x402 payments use EIP-3009 gasless transfers — the facilitator pays gas, not you. You only need USDC, not ETH.
-</Note>
-
-## Pay for a Subscription
-
-### How x402 Works
-
-When you hit a paid HyperClaw endpoint, the server returns HTTP 402 with a `PAYMENT-REQUIRED` header containing the payment terms (amount, recipient, token). Your client signs an EIP-3009 `TransferWithAuthorization` and retries with the signature in the `X-PAYMENT` header. The server's facilitator settles the USDC transfer on-chain.
-
-### Create a Payment Signature
-
-```bash
-x402-wallet create-payment \
-  --pay-to <RECIPIENT_ADDRESS> \
-  --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
-  --amount <AMOUNT_IN_MICRO_USDC>
-```
-
-- `--pay-to` — HyperClaw's payment address (provided in the 402 response)
-- `--token` — USDC contract on Base
-- `--amount` — Amount in smallest units (1 USDC = 1000000)
-
-This outputs a base64-encoded payment payload for the `X-PAYMENT` header.
-
-### Full Flow with curl
-
-```bash
-# 1. Attempt the subscription endpoint (will return 402)
-PLAN_ID="1aiu"
-
-# 2. Subscribe with x402 payment
-#    First get an auth token by logging in
-AUTH_TOKEN="your-jwt-token"
-
-# 3. Create the payment signature
-PAYMENT=$(x402-wallet create-payment \
-  --pay-to <RECIPIENT_ADDRESS> \
-  --token 0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913 \
-  --amount 1000000)
-
-# 4. Send the subscription request with payment
-curl -X POST "https://api.hyperclaw.app/x402/$PLAN_ID" \
-  -H "Authorization: Bearer $AUTH_TOKEN" \
-  -H "X-PAYMENT: $PAYMENT" \
-  -H "Content-Type: application/json"
-```
-
-A successful response returns:
+## Response
 
 ```json
 {
   "ok": true,
+  "key": "sk-...",
   "plan_id": "1aiu",
-  "expires_at": "2026-03-05T14:27:53Z",
-  "tpm_limit": 100000,
-  "rpm_limit": 100
+  "amount_paid": "35.000000",
+  "duration_days": 30.0,
+  "expires_at": "2026-03-15T12:00:00+00:00",
+  "tpm_limit": 600000,
+  "rpm_limit": 3000
 }
 ```
 
-### Browser Wallet
+## Auth Modes
 
-If you prefer a browser wallet (MetaMask, Coinbase Wallet, etc.), subscribe directly from [hyperclaw.app/dashboard/plans](https://hyperclaw.app/dashboard/plans) using the USDC payment option.
+- With JWT Bearer token: account-linked subscription records
+- Without JWT: standalone key issuance (anonymous x402 checkout)
 
-## Command Reference
-
-| Command | Description |
-|---------|-------------|
-| `wallet-init` | Create or import a private key |
-| `wallet-address` | Display your wallet address |
-| `config-set` | Set network (`--network`) or custom RPC (`--rpc`) |
-| `balance` | Check ETH or ERC20 balance (`--erc20 <contract>`) |
-| `send-eth` | Send ETH (`--to <addr> --eth <amount>`) |
-| `send-erc20` | Send ERC20 tokens (`--token <contract> --to <addr> --amount <n>`) |
-| `create-payment` | Generate x402 payment signature |
-
-## Security
-
-- Private keys are encrypted at rest with Argon2 + XChaCha20Poly1305
-- Sensitive data is zeroed from memory after use
-- Payment signatures are time-bound (10-minute validity)
-- Each payment uses a random nonce to prevent replay
-- `.env` files are written with `0600` permissions (owner read/write only)
+See [HyperClaw API](/hyperclaw/api) for checkout semantics and duration calculation details.
