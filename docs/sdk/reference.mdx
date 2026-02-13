@@ -1,85 +1,80 @@
 ---
 title: Reference
-description: SDK API reference
+description: Core HyperCLI SDK classes and x402 helpers
 ---
 
-## C3
+## HyperCLI
 
-Main client class.
+Main SDK client.
 
 ```python
 from hypercli import HyperCLI
 
-hyper = HyperCLI(api_key=None, api_url=None)
+client = HyperCLI(api_key=None, api_url=None)
 ```
 
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `api_key` | str | None | API key (uses env/config if not provided) |
-| `api_url` | str | None | API URL (default: https://api.hypercli.com) |
+- `client.billing`
+- `client.jobs`
+- `client.renders`
+- `client.files`
+- `client.user`
 
-### Properties
+## X402Client
 
-- `client.billing` - Billing API
-- `client.jobs` - Jobs API
-- `client.user` - User API
-- `client.api_url` - Base API URL
-
-## Billing
+Use `X402Client` for pay-per-use x402 launches without a full account billing setup.
 
 ```python
-client.billing.balance() -> Balance
-client.billing.transactions(limit=50, page=1) -> list[Transaction]
-client.billing.get_transaction(transaction_id) -> Transaction
+from eth_account import Account
+from hypercli import X402Client
+
+acct = Account.from_key("0x...")
+x402 = X402Client(api_url="https://api.hypercli.com")
 ```
 
-## Jobs
+### Methods
 
 ```python
-client.jobs.create(...) -> Job
-client.jobs.list(state=None) -> list[Job]
-client.jobs.get(job_id) -> Job
-client.jobs.logs(job_id) -> str
-client.jobs.metrics(job_id) -> JobMetrics
-client.jobs.extend(job_id, runtime) -> Job
-client.jobs.cancel(job_id) -> dict
-client.jobs.token(job_id) -> str
+x402.get_flow_catalog() -> list[FlowCatalogItem]
+x402.get_flow_price(flow_type: str) -> float
+
+x402.create_job(
+  amount: float,
+  account,
+  image: str,
+  command: str | None = None,
+  gpu_type: str = "l40s",
+  gpu_count: int = 1,
+  region: str | None = None,
+  interruptible: bool = True,
+  ...
+) -> X402JobLaunch
+
+x402.create_flow(
+  flow_type: str,
+  amount: float,
+  account,
+  params: dict | None = None,
+  notify_url: str | None = None,
+) -> X402FlowCreate
 ```
 
-## User
+## Key Data Objects
+
+- `Job`
+- `Render`
+- `RenderStatus`
+- `FlowCatalogItem`
+- `X402JobLaunch`
+- `X402FlowCreate`
+
+## Errors
 
 ```python
-client.user.get() -> User
-```
-
-### User Object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `user_id` | str | User ID |
-| `email` | str | Email address |
-| `name` | str | Display name |
-| `is_active` | bool | Account active |
-| `created_at` | str | Created timestamp |
-
-## APIError
-
-Exception raised on API errors.
-
-```python
-from hyper import APIError
+from hypercli import APIError
 
 try:
     client.jobs.get("invalid")
 except APIError as e:
-    print(e.status_code)  # HTTP status code
-    print(e.detail)       # Error message
-```
-
-## Configuration
-
-```python
-from hyper import configure
-
-configure(api_key="your_key", api_url=None)  # Saves to ~/.hypercli/config
+    print(e.status_code)
+    print(e.detail)
 ```

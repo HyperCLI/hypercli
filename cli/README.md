@@ -1,105 +1,45 @@
-# HyperCLI CLI
+# hypercli-cli
 
-Command-line interface for [HyperCLI](https://hypercli.com) - GPU orchestration and LLM API.
+Command-line interface for HyperCLI jobs, flows, x402 pay-per-use launches, and HyperClaw checkout tooling.
 
-## Installation
+## Install
 
 ```bash
 pip install hypercli-cli
 ```
 
-This also installs the `hypercli-sdk` as a dependency.
-
-## Setup
-
-Configure your API key:
+## Configure
 
 ```bash
 hyper configure
 ```
 
-Or set via environment:
+## Core Commands
 
 ```bash
-export HYPERCLI_API_KEY=your_key
-```
+# GPU discovery and launch
+hyper instances list
+hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi"
 
-Or create `~/.hypercli/config`:
+# x402 pay-per-use GPU launch
+hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi" --x402 --amount 0.01
 
-```
-HYPERCLI_API_KEY=your_key
-```
-
-Get your API key at [hypercli.com/dashboard](https://hypercli.com/dashboard)
-
-## Usage
-
-### Billing
-
-```bash
-hyper billing balance
-hyper billing transactions
-hyper billing balance -o json
-```
-
-### LLM
-
-```bash
-# List models
-hyper llm models
-
-# Quick chat
-hyper llm chat deepseek-v3.1 "Explain quantum computing"
-
-# Interactive chat
-hyper llm chat deepseek-v3.1
-
-# With system prompt
-hyper llm chat deepseek-v3.1 "Write a haiku" -s "You are a poet"
-```
-
-### Jobs
-
-```bash
-# List jobs
+# Job lifecycle
 hyper jobs list
-hyper jobs list -s running
+hyper jobs logs <job_id>
+hyper jobs metrics <job_id>
 
-# Create a job
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py"
+# Flows (recommended media path)
+hyper flow text-to-image "a cinematic portrait"
+hyper flow text-to-image "a cinematic portrait" --x402
 
-# Create and follow logs with TUI
-hyper jobs create nvidia/cuda:12.0 -g h100 -n 8 -c "torchrun train.py" -f
-
-# Get job details
-hyper jobs get <job_id>
-
-# Stream logs
-hyper jobs logs <job_id> -f
-
-# Watch GPU metrics
-hyper jobs metrics <job_id> -w
-
-# Cancel
-hyper jobs cancel <job_id>
-
-# Extend runtime
-hyper jobs extend <job_id> 7200
+# HyperClaw checkout/config
+hyper claw plans
+hyper claw subscribe 1aiu
+hyper claw config env
 ```
 
-### User
+## Notes
 
-```bash
-hyper user
-```
-
-## Output Formats
-
-```bash
-hyper jobs list -o json
-hyper billing balance -o table
-```
-
-## License
-
-MIT
+- `hyper llm` command surface has been removed.
+- For inference setup, use HyperClaw (`hyper claw config ...`) and your agent/client's OpenAI-compatible configuration.

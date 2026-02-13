@@ -1,7 +1,7 @@
 """hyper instances commands"""
 import typer
 from typing import Optional
-from hypercli import HyperCLI
+from hypercli import HyperCLI, X402Client
 from .output import output, console, success, spinner
 
 app = typer.Typer(help="GPU instances - browse and launch")
@@ -193,6 +193,8 @@ def launch(
     port: Optional[list[str]] = typer.Option(None, "--port", "-p", help="Ports (name:port)"),
     registry_user: Optional[str] = typer.Option(None, "--registry-user", help="Private registry username"),
     registry_password: Optional[str] = typer.Option(None, "--registry-password", help="Private registry password"),
+    x402: bool = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet"),
+    amount: Optional[float] = typer.Option(None, "--amount", help="USDC amount to spend with --x402"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs after creation"),
     cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
@@ -203,8 +205,8 @@ def launch(
         hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -c 'nvidia-smi && sleep 60'
         hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -r kr -c 'nvidia-smi' -t 120
         hyper instances launch my-registry.com/my-image:latest -g h100 -n 8 -c 'python train.py'
+        hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 --x402 --amount 2.5
     """
-    client = get_client()
 
     # Parse env vars
     env_dict = None
@@ -230,35 +232,98 @@ def launch(
         registry_auth = {"username": registry_user, "password": registry_password}
 
     # Auto-wrap command in sh -c if it contains shell operators
-    if command and any(op in command for op in ['&&', '||', '|', ';', '>', '<', '$']):
+    if command and any(op in command for op in ["&&", "||", "|", ";", ">", "<", "$"]):
         command = f'sh -c "{command}"'
 
-    with spinner("Launching instance..."):
-        job = client.jobs.create(
-            image=image,
-            command=command,
-            gpu_type=gpu,
-            gpu_count=count,
-            region=region,
-            runtime=runtime,
-            interruptible=interruptible,
-            env=env_dict,
-            ports=ports_dict,
-            registry_auth=registry_auth,
-        )
+    follow_api_key = None
 
-    if fmt == "json":
-        output(job, "json")
+    if x402:
+        if amount is None:
+            raise typer.BadParameter("--amount is required when using --x402")
+        if amount <= 0:
+            raise typer.BadParameter("--amount must be greater than 0")
+        if runtime is not None:
+            console.print("[yellow]Ignoring --runtime with --x402 (runtime is computed from payment amount).[/yellow]")
+
+        from .wallet import require_wallet_deps, load_wallet
+
+        require_wallet_deps()
+        account = load_wallet()
+        x402_client = X402Client()
+
+        with spinner("Launching instance with x402..."):
+            x402_job = x402_client.create_job(
+                amount=amount,
+                account=account,
+                image=image,
+                command=command,
+                gpu_type=gpu,
+                gpu_count=count,
+                region=region,
+                interruptible=interruptible,
+                env=env_dict,
+                ports=ports_dict,
+                registry_auth=registry_auth,
+            )
+        job = x402_job.job
+        follow_api_key = x402_job.access_key
+
+        if fmt == "json":
+            output(
+                {
+                    "job": job.__dict__,
+                    "access_key": x402_job.access_key,
+                    "status_url": x402_job.status_url,
+                    "logs_url": x402_job.logs_url,
+                    "cancel_url": x402_job.cancel_url,
+                },
+                "json",
+            )
+        else:
+            success(f"Instance launched: {job.job_id}")
+            console.print(f"  State:      {job.state}")
+            console.print(f"  GPU:        {job.gpu_type} x{job.gpu_count}")
+            console.print(f"  Region:     {job.region}")
+            console.print(f"  Price:      ${job.price_per_hour:.2f}/hr")
+            if job.hostname:
+                console.print(f"  Hostname:   {job.hostname}")
+            console.print(f"  Access Key: {x402_job.access_key}")
+            console.print(f"  Status URL: {x402_job.status_url}")
+            console.print(f"  Logs URL:   {x402_job.logs_url}")
+            console.print(f"  Cancel URL: {x402_job.cancel_url}")
     else:
-        success(f"Instance launched: {job.job_id}")
-        console.print(f"  State:    {job.state}")
-        console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
-        console.print(f"  Region:   {job.region}")
-        console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
-        if job.hostname:
-            console.print(f"  Hostname: {job.hostname}")
+        client = get_client()
+
+        with spinner("Launching instance..."):
+            job = client.jobs.create(
+                image=image,
+                command=command,
+                gpu_type=gpu,
+                gpu_count=count,
+                region=region,
+                runtime=runtime,
+                interruptible=interruptible,
+                env=env_dict,
+                ports=ports_dict,
+                registry_auth=registry_auth,
+            )
+
+        if fmt == "json":
+            output(job, "json")
+        else:
+            success(f"Instance launched: {job.job_id}")
+            console.print(f"  State:    {job.state}")
+            console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
+            console.print(f"  Region:   {job.region}")
+            console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
+            if job.hostname:
+                console.print(f"  Hostname: {job.hostname}")
 
     if follow:
         console.print()
         from .tui.job_monitor import run_job_monitor
-        run_job_monitor(job.job_id, cancel_on_exit=cancel_on_exit)
+
+        if follow_api_key:
+            run_job_monitor(job.job_id, cancel_on_exit=cancel_on_exit, api_key=follow_api_key)
+        else:
+            run_job_monitor(job.job_id, cancel_on_exit=cancel_on_exit)

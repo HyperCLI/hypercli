@@ -5,13 +5,13 @@ from .http import APIError, AsyncHTTPClient
 from .instances import GPUType, GPUConfig, Region, GPUPricing, PricingTier
 from .jobs import Job, JobMetrics, GPUMetrics, find_job, find_by_id, find_by_hostname, find_by_ip
 from .renders import Render, RenderStatus
-from .x402 import X402Client, X402JobLaunch, X402RenderCreate
+from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
 from .claw import Claw, ClawKey, ClawPlan, ClawModel
 
-__version__ = "0.8.7"
+__version__ = "0.8.9"
 __all__ = [
     "HyperCLI",
     "configure",
@@ -35,7 +35,9 @@ __all__ = [
     # x402 API
     "X402Client",
     "X402JobLaunch",
+    "X402FlowCreate",
     "X402RenderCreate",
+    "FlowCatalogItem",
     # Files API
     "File",
     "AsyncFiles",

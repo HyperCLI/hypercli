@@ -1,91 +1,46 @@
 ---
 title: CLI Quickstart
-description: Get started with the HyperCLI CLI
+description: Get started with jobs, flows, x402, and HyperClaw from the CLI
 ---
 
-## Install
+## Install and Configure
 
 ```bash
 pip install hypercli-cli
-```
-
-## Configure
-
-```bash
 hyper configure
 ```
 
-## Check Balance
+## Launch a GPU Job
 
 ```bash
-hyper billing balance
-```
-
-## Chat with LLM
-
-```bash
-# One-shot
-hyper llm chat deepseek-v3.1 "Hello!"
-
-# Interactive
-hyper llm chat deepseek-v3.1
-```
-
-## Create GPU Job
-
-```bash
-# Basic job
 hyper jobs create nvidia/cuda:12.0 -g l40s -c "nvidia-smi"
-
-# With live monitoring
-hyper jobs create nvidia/cuda:12.0 -g h100 -n 8 -c "torchrun train.py" -f
 ```
 
-## Monitor Job
+## Run a Flow
 
 ```bash
-# Get logs
-hyper jobs logs <job_id>
-
-# Stream logs with TUI
-hyper jobs logs <job_id> -f
-
-# Watch GPU metrics
-hyper jobs metrics <job_id> -w
+hyper flow text-to-image "a mountain lake at dawn"
 ```
 
-## HyperClaw Inference (Optional)
+## x402 Pay-Per-Use Flow
 
-Subscribe to HyperClaw for serverless LLM inference with crypto payments.
-
-<Note>
-Requires wallet support:
 ```bash
-pip install 'hypercli-cli[wallet]'
+hyper flow text-to-image "a mountain lake at dawn" --x402
 ```
-</Note>
 
-**1. Create Wallet:**
+## HyperClaw Inference
+
 ```bash
-hyper wallet create
+export HYPERCLI_API_URL="https://api.hyperclaw.app"
+export HYPERCLI_API_KEY="sk-..."
+hyper claw plans
+hyper claw config env
 ```
 
-**2. Fund with USDC on Base:**
+## HyperClaw Plan Checkout
+
 ```bash
-hyper wallet address  # Get address
-hyper wallet balance  # Check balance
+hyper claw plans
+hyper claw subscribe 1aiu
+hyper claw status
 ```
-
-**3. Subscribe:**
-```bash
-hyper claw plans                # View plans
-hyper claw subscribe 1aiu      # Subscribe for $1/month
-hyper claw status              # Check subscription
-```
-
-**4. Configure OpenClaw:**
-```bash
-hyper claw openclaw-setup      # Show config instructions
-```
-
-See [HyperClaw Commands](/cli/commands/claw) for details.

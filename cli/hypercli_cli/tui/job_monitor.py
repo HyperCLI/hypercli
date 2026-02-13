@@ -163,9 +163,10 @@ async def _run_job_monitor_async(
     status_q: Queue = None,
     stop_on_status_complete: bool = False,
     cancel_on_exit: bool = False,
+    api_key: str | None = None,
 ):
     """Async job monitor - uses SDK LogStream for logs"""
-    client = HyperCLI()
+    client = HyperCLI(api_key=api_key) if api_key else HyperCLI()
     should_cancel = False
     logs: deque[str] = deque(maxlen=MAX_LOG_LINES)
     log_stream: Optional[LogStream] = None
@@ -340,6 +341,7 @@ def run_job_monitor(
     status_q: Queue = None,
     stop_on_status_complete: bool = False,
     cancel_on_exit: bool = False,
+    api_key: str | None = None,
 ):
     """Run the job monitor TUI (sync wrapper).
 
@@ -348,5 +350,6 @@ def run_job_monitor(
         status_q: Optional queue receiving JobStatus updates for status pane
         stop_on_status_complete: If True, exit when JobStatus.complete is True
         cancel_on_exit: If True, cancel the job when exiting via Ctrl+C
+        api_key: Optional bearer token (API key or x402 access key)
     """
-    asyncio.run(_run_job_monitor_async(job_id, status_q, stop_on_status_complete, cancel_on_exit))
+    asyncio.run(_run_job_monitor_async(job_id, status_q, stop_on_status_complete, cancel_on_exit, api_key))

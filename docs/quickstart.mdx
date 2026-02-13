@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Get started with HyperCLI
+description: Get started with HyperCLI jobs, flows, and HyperClaw inference
 ---
 
 ## 1. Install
@@ -15,27 +15,38 @@ pip install hypercli-sdk hypercli-cli
 hyper configure
 ```
 
-Or set environment variable:
-
-```bash
-export HYPERCLI_API_KEY=your_key
-```
-
-## 3. Verify
+## 3. Verify Account Access
 
 ```bash
 hyper billing balance
 ```
 
-## 4. Use
+## 4. Launch a GPU Job
 
 ```bash
-# Chat with LLM
-hyper llm chat deepseek-v3.1 "Hello!"
-
-# Launch GPU job
 hyper jobs create nvidia/cuda:12.0 -g l40s -c "nvidia-smi"
-
-# Monitor with TUI
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
 ```
+
+## 5. Run a Flow
+
+```bash
+hyper flow text-to-image "a cinematic landscape"
+```
+
+## 6. Optional: x402 Pay-Per-Use
+
+```bash
+# Uses embedded wallet and fixed flow pricing from /flows
+hyper flow text-to-image "a cinematic landscape" --x402
+```
+
+## 7. Inference via HyperClaw
+
+```bash
+export HYPERCLI_API_URL="https://api.hyperclaw.app"
+export HYPERCLI_API_KEY="sk-..."
+hyper claw plans
+hyper claw config env
+```
+
+See [Flows](/flows/index), [x402 Top-Ups and Flow Checkout](/flows/x402), and [HyperClaw for Agents](/hyperclaw/provider).

@@ -1,0 +1,38 @@
+---
+title: HyperClaw for Agents
+description: HyperClaw is HyperCLI's inference provider for agent workloads
+---
+
+## What HyperClaw Is
+
+HyperClaw is the dedicated inference provider for agentic workloads.
+
+- Product site: [https://hyperclaw.app](https://hyperclaw.app)
+- Inference API: `https://api.hyperclaw.app/v1` (OpenAI-compatible)
+- Account/Billing API: `https://api.hyperclaw.app/api`
+
+Use HyperClaw when your agent needs LLM inference with API keys, subscription plans, and OpenAI-compatible clients.
+
+## Why Agents Use It
+
+- OpenAI-compatible API surface (works with standard SDKs/tooling)
+- Plan-based throughput controls (TPM/RPM)
+- Checkout options:
+  - Stripe (`/api/stripe/{plan_id}`)
+  - x402 USDC (`/api/x402/{plan_id}`)
+
+## Basic Agent Setup
+
+```bash
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
+```
+
+Then select a HyperClaw model in your agent toolchain (for example `kimi-k2.5` or `glm-5`).
+
+## Related Pages
+
+- [HyperClaw Overview](/hyperclaw/index)
+- [HyperClaw API](/hyperclaw/api)
+- [HyperClaw Integrations](/hyperclaw/integrations)
+- [HyperClaw Quickstart](/hyperclaw/quickstart)

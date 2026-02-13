@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import billing, claw, comfyui, flow, instances, jobs, keys, llm, renders, user, wallet
+from . import billing, claw, comfyui, flow, instances, jobs, keys, user, wallet
 
 console = Console()
 
@@ -50,7 +50,7 @@ def fuzzy_match(input_str: str, options: list[str], threshold: float = 0.5) -> l
 
 app = typer.Typer(
     name="hyper",
-    help="HyperCLI - GPU orchestration and LLM API",
+    help="HyperCLI - GPU orchestration, flows, and x402 tooling",
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
@@ -63,8 +63,6 @@ app.add_typer(flow.app, name="flow")
 app.add_typer(instances.app, name="instances")
 app.add_typer(keys.app, name="keys")
 app.add_typer(jobs.app, name="jobs")
-app.add_typer(llm.app, name="llm")
-app.add_typer(renders.app, name="renders")
 app.add_typer(user.app, name="user")
 app.add_typer(wallet.app, name="wallet")
 
@@ -123,7 +121,7 @@ def main(
     version: bool = typer.Option(False, "--version", "-v", help="Show version"),
 ):
     """
-    [bold cyan]HyperCLI[/bold cyan] - GPU orchestration and LLM API
+    [bold cyan]HyperCLI[/bold cyan] - GPU orchestration, flows, and x402 tooling
 
     Set your API key: [green]hyper configure[/green]
 
@@ -131,7 +129,7 @@ def main(
         hyper instances list      Browse available GPUs
         hyper instances launch    Launch a GPU instance
         hyper jobs list           View your running jobs
-        hyper llm chat -i         Start a chat
+        hyper claw plans          View HyperClaw plans
     """
     if version:
         from . import __version__
