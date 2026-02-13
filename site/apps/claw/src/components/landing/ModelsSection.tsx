@@ -10,8 +10,6 @@ interface ModelInfo {
   name: string;
   context_length: number | null;
   max_completion_tokens: number | null;
-  input_cost_per_m: number | null;
-  output_cost_per_m: number | null;
   supports_vision: boolean;
   supports_tools: boolean;
   supports_structured_outputs: boolean;
@@ -44,9 +42,6 @@ function fmtCtx(n: number | null): string {
   return `${Math.round(n / 1024)}K`;
 }
 
-function fmtCost(n: number | null): string {
-  return n == null ? "N/A" : `$${n.toFixed(2)}`;
-}
 
 function toNullableNumber(value: unknown): number | null {
   if (typeof value === "number" && Number.isFinite(value)) return value;
@@ -77,8 +72,6 @@ function normalizeModel(raw: Record<string, unknown>): ModelInfo | null {
     name,
     context_length: toNullableNumber(raw.context_length),
     max_completion_tokens: toNullableNumber(raw.max_completion_tokens),
-    input_cost_per_m: toNullableNumber(raw.input_cost_per_m),
-    output_cost_per_m: toNullableNumber(raw.output_cost_per_m),
     supports_vision: toBool(raw.supports_vision),
     supports_tools: toBool(raw.supports_tools),
     supports_structured_outputs: toBool(raw.supports_structured_outputs),
@@ -196,9 +189,6 @@ export function ModelsSection() {
                   </span>
                   <span className="text-text-muted text-sm">context</span>
                 </div>
-                <p className="text-sm text-text-tertiary mb-6">
-                  {fmtCost(model.input_cost_per_m)}/{fmtCost(model.output_cost_per_m)} per M tokens
-                </p>
 
                 {/* Capabilities list — same style as pricing features */}
                 <ul className="space-y-3 mb-2">
@@ -234,8 +224,7 @@ export function ModelsSection() {
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center text-sm text-text-muted mt-8"
         >
-          Pricing shown is OpenRouter passthrough cost — included in your
-          flat-rate plan. No per-token charges.
+          All model usage is included in your active plan.
         </motion.p>
       </div>
     </section>
