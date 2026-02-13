@@ -10,8 +10,8 @@ interface ModelInfo {
   name: string;
   context_length: number | null;
   max_completion_tokens: number | null;
-  input_cost_per_m: number;
-  output_cost_per_m: number;
+  input_cost_per_m: number | null;
+  output_cost_per_m: number | null;
   supports_vision: boolean;
   supports_tools: boolean;
   supports_structured_outputs: boolean;
@@ -44,16 +44,72 @@ function fmtCtx(n: number | null): string {
   return `${Math.round(n / 1024)}K`;
 }
 
+function fmtCost(n: number | null): string {
+  return n == null ? "N/A" : `$${n.toFixed(2)}`;
+}
+
+function toNullableNumber(value: unknown): number | null {
+  if (typeof value === "number" && Number.isFinite(value)) return value;
+  if (typeof value === "string" && value.trim().length > 0) {
+    const parsed = Number(value);
+    if (Number.isFinite(parsed)) return parsed;
+  }
+  return null;
+}
+
+function toBool(value: unknown): boolean {
+  return value === true || value === "true" || value === 1 || value === "1";
+}
+
+function normalizeModel(raw: Record<string, unknown>): ModelInfo | null {
+  const id = typeof raw.id === "string" ? raw.id : "";
+  if (!id) return null;
+
+  const name = typeof raw.name === "string" && raw.name ? raw.name : id;
+  const inputModalities = Array.isArray(raw.input_modalities)
+    ? raw.input_modalities.filter(
+        (entry): entry is string => typeof entry === "string"
+      )
+    : [];
+
+  return {
+    id,
+    name,
+    context_length: toNullableNumber(raw.context_length),
+    max_completion_tokens: toNullableNumber(raw.max_completion_tokens),
+    input_cost_per_m: toNullableNumber(raw.input_cost_per_m),
+    output_cost_per_m: toNullableNumber(raw.output_cost_per_m),
+    supports_vision: toBool(raw.supports_vision),
+    supports_tools: toBool(raw.supports_tools),
+    supports_structured_outputs: toBool(raw.supports_structured_outputs),
+    supports_reasoning: toBool(raw.supports_reasoning),
+    input_modalities: inputModalities,
+  };
+}
+
 export function ModelsSection() {
   const sectionRef = useRef<HTMLElement>(null);
   const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
   const [models, setModels] = useState<ModelInfo[]>([]);
+  const [hasMounted, setHasMounted] = useState(false);
+
+  useEffect(() => {
+    setHasMounted(true);
+  }, []);
 
   useEffect(() => {
     fetch(HYPERCLAW_MODELS_ENDPOINT)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.models) setModels(data.models);
+        if (!Array.isArray(data?.models)) return;
+        const normalizedModels = data.models
+          .map((entry: unknown) =>
+            entry && typeof entry === "object"
+              ? normalizeModel(entry as Record<string, unknown>)
+              : null
+          )
+          .filter((entry: ModelInfo | null): entry is ModelInfo => entry !== null);
+        setModels(normalizedModels);
       })
       .catch((error) => {
         console.error("Failed to load model cards", error);
@@ -69,6 +125,8 @@ export function ModelsSection() {
     { label: "Structured Output", active: m.supports_structured_outputs },
   ];
 
+  const reveal = isInView || hasMounted;
+
   return (
     <section
       ref={sectionRef}
@@ -81,7 +139,7 @@ export function ModelsSection() {
         {/* Title */}
         <motion.div
           initial={{ opacity: 0, y: 40 }}
-          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
+          animate={reveal ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
           className="text-center mb-16"
         >
@@ -98,7 +156,7 @@ export function ModelsSection() {
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {models.map((model, index) => {
             const display = MODEL_DISPLAY[model.id] || {
-              title: model.name,
+              title: model.name || model.id,
               tagline: "",
             };
 
@@ -106,9 +164,7 @@ export function ModelsSection() {
               <motion.div
                 key={model.id}
                 initial={{ opacity: 0, y: 30 }}
-                animate={
-                  isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }
-                }
+                animate={reveal ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }}
                 transition={{
                   duration: 0.6,
                   delay: 0.2 + index * 0.1,
@@ -141,8 +197,7 @@ export function ModelsSection() {
                   <span className="text-text-muted text-sm">context</span>
                 </div>
                 <p className="text-sm text-text-tertiary mb-6">
-                  ${model.input_cost_per_m.toFixed(2)}/
-                  ${model.output_cost_per_m.toFixed(2)} per M tokens
+                  {fmtCost(model.input_cost_per_m)}/{fmtCost(model.output_cost_per_m)} per M tokens
                 </p>
 
                 {/* Capabilities list — same style as pricing features */}
@@ -175,7 +230,7 @@ export function ModelsSection() {
         {/* Footnote */}
         <motion.p
           initial={{ opacity: 0 }}
-          animate={isInView ? { opacity: 1 } : { opacity: 0 }}
+          animate={reveal ? { opacity: 1 } : { opacity: 0 }}
           transition={{ duration: 0.6, delay: 0.6 }}
           className="text-center text-sm text-text-muted mt-8"
         >
