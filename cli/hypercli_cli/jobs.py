@@ -45,18 +45,28 @@ def get_job(
 @app.command("logs")
 def logs(
     job_id: str = typer.Argument(..., help="Job ID"),
-    follow: bool = typer.Option(False, "--follow", "-f", help="Stream logs"),
-    cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C"),
+    follow: bool = typer.Option(False, "--follow", "-f", help="Stream logs via WebSocket"),
+    tail: int = typer.Option(None, "--tail", "-n", help="Show last N lines"),
+    tui: bool = typer.Option(False, "--tui", help="Interactive TUI with metrics"),
+    cancel_on_exit: bool = typer.Option(False, "--cancel-on-exit", help="Cancel job when exiting with Ctrl+C (with --tui)"),
 ):
     """Get job logs"""
     client = get_client()
 
-    if follow:
+    if tui:
         _follow_job(job_id, cancel_on_exit=cancel_on_exit)
+    elif follow:
+        _stream_logs(job_id)
     else:
-        with spinner("Fetching logs..."):
-            logs_str = client.jobs.logs(job_id)
-        console.print(logs_str)
+        logs_str = client.jobs.logs(job_id)
+        if not logs_str:
+            print("(no logs)")
+            return
+        lines = logs_str.rstrip("\n").split("\n")
+        if tail:
+            lines = lines[-tail:]
+        for line in lines:
+            print(line)
 
 
 @app.command("metrics")
@@ -166,6 +176,31 @@ def _make_bar(value: float, max_val: float, warn: float = None, crit: float = No
 
     bar = "█" * filled + "░" * (width - filled)
     return f"[{color}]{bar}[/{color}]"
+
+
+def _stream_logs(job_id: str):
+    """Stream logs via WebSocket (like tail -f)"""
+    import asyncio
+    from hypercli import stream_logs
+
+    client = get_client()
+
+    async def _run():
+        try:
+            await stream_logs(
+                client,
+                job_id,
+                on_line=lambda line: print(line),
+                fetch_initial=True,
+                fetch_final=True,
+            )
+        except KeyboardInterrupt:
+            pass
+
+    try:
+        asyncio.run(_run())
+    except KeyboardInterrupt:
+        pass
 
 
 def _follow_job(job_id: str, cancel_on_exit: bool = False):
