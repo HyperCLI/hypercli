@@ -190,7 +190,9 @@ def launch(
     runtime: Optional[int] = typer.Option(None, "--runtime", "-t", help="Runtime in seconds"),
     interruptible: bool = typer.Option(True, "--interruptible/--on-demand", help="Use interruptible instances"),
     env: Optional[list[str]] = typer.Option(None, "--env", "-e", help="Env vars (KEY=VALUE)"),
-    port: Optional[list[str]] = typer.Option(None, "--port", "-p", help="Ports (name:port)"),
+    port: Optional[list[int]] = typer.Option(None, "--port", "-p", help="TCP ports to expose"),
+    lb: Optional[int] = typer.Option(None, "--lb", help="HTTPS load balancer port (Traefik + TLS on hostname)"),
+    lb_auth: bool = typer.Option(False, "--lb-auth", help="Enable auth on load balancer"),
     registry_user: Optional[str] = typer.Option(None, "--registry-user", help="Private registry username"),
     registry_password: Optional[str] = typer.Option(None, "--registry-password", help="Private registry password"),
     x402: bool = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet"),
@@ -219,12 +221,13 @@ def launch(
 
     # Parse ports
     ports_dict = None
-    if port:
+    if port or lb:
         ports_dict = {}
-        for p in port:
-            if ":" in p:
-                name, port_num = p.split(":", 1)
-                ports_dict[name] = int(port_num)
+        if port:
+            for p in port:
+                ports_dict[f"{p}/tcp"] = p
+        if lb:
+            ports_dict["lb"] = lb
 
     # Build registry auth if provided
     registry_auth = None
@@ -305,6 +308,7 @@ def launch(
                 interruptible=interruptible,
                 env=env_dict,
                 ports=ports_dict,
+                auth=lb_auth,
                 registry_auth=registry_auth,
             )
 
