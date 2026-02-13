@@ -1,0 +1,52 @@
+{
+  "name": "@hypercli/sdk",
+  "version": "0.1.0",
+  "description": "TypeScript SDK for HyperCLI API",
+  "type": "module",
+  "main": "./dist/index.js",
+  "types": "./dist/index.d.ts",
+  "exports": {
+    ".": {
+      "import": "./dist/index.js",
+      "types": "./dist/index.d.ts"
+    }
+  },
+  "files": [
+    "dist"
+  ],
+  "scripts": {
+    "build": "tsc",
+    "watch": "tsc --watch",
+    "clean": "rm -rf dist",
+    "lint": "eslint .",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts",
+    "test:integration": "vitest run",
+    "test:watch": "vitest"
+  },
+  "keywords": [
+    "hypercli",
+    "gpu",
+    "cloud",
+    "compute",
+    "inference"
+  ],
+  "author": "Compute3 AI",
+  "license": "MIT",
+  "dependencies": {
+    "ws": "^8.16.0"
+  },
+  "devDependencies": {
+    "@types/node": "^20.11.0",
+    "@types/ws": "^8.5.10",
+    "@typescript-eslint/eslint-plugin": "^8.55.0",
+    "@typescript-eslint/parser": "^8.55.0",
+    "@vitest/ui": "^4.0.18",
+    "eslint": "^9.39.2",
+    "typescript": "^5.3.3",
+    "vitest": "^4.0.18"
+  },
+  "engines": {
+    "node": ">=18.0.0"
+  }
+}
