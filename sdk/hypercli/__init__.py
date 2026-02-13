@@ -11,7 +11,7 @@ from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes
 from .logs import LogStream, stream_logs, fetch_logs
 from .claw import Claw, ClawKey, ClawPlan, ClawModel
 
-__version__ = "0.8.6"
+__version__ = "0.8.7"
 __all__ = [
     "HyperCLI",
     "configure",
