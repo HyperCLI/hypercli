@@ -13,6 +13,7 @@ interface PlanInfo {
   name: string;
   price: number;
   aiu: number;
+  tpd?: number;
   tpm_limit: number;
   rpm_limit: number;
   features: string[];
@@ -212,7 +213,12 @@ export default function DashboardPage() {
             <span className="text-sm text-text-tertiary">Rate Limit</span>
           </div>
           <p className="text-2xl font-bold text-foreground">
-            {usage ? (
+            {plan?.tpd ? (
+              <>
+                {formatTokens(plan.tpd)}{" "}
+                <span className="text-sm text-text-muted font-normal">tokens/day</span>
+              </>
+            ) : usage ? (
               <>
                 {formatTokens(usage.current_tpm)}{" "}
                 <span className="text-sm text-text-muted font-normal">TPM</span>
@@ -228,7 +234,7 @@ export default function DashboardPage() {
           </p>
           {(usage || plan) && (
             <p className="text-xs text-text-muted mt-1">
-              4x burst available
+              4x burst &middot; 2x sustained (12h)
             </p>
           )}
         </div>
