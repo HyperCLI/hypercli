@@ -7,7 +7,7 @@ import { useClawAuth } from "@/hooks/useClawAuth";
 
 const navLinks = [
   { label: "Features", href: "#features" },
-  { label: "Pricing", href: "#pricing" },
+  { label: "Pricing", href: "/pricing" },
   { label: "Docs", href: "https://docs.hypercli.com/hyperclaw", external: true },
 ];
 
