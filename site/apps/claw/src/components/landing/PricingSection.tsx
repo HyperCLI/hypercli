@@ -2,7 +2,8 @@
 
 import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
-import { Check } from "lucide-react";
+import { useRouter } from "next/navigation";
+import { Check, ArrowRight } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE } from "@/lib/api";
 
@@ -143,6 +144,22 @@ export function PricingSection() {
             </motion.div>
           ))}
         </div>
+
+        {/* View All Plans Link */}
+        <motion.div
+          initial={{ opacity: 0, y: 20 }}
+          animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
+          transition={{ duration: 0.6, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="text-center mt-12"
+        >
+          <a
+            href="/pricing"
+            className="inline-flex items-center gap-2 text-primary hover:text-primary/80 font-medium transition-colors"
+          >
+            View all plans including Business pricing
+            <ArrowRight className="w-4 h-4" />
+          </a>
+        </motion.div>
       </div>
     </section>
   );
