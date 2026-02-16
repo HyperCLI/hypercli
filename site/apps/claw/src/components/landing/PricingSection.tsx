@@ -11,6 +11,7 @@ interface Plan {
   name: string;
   price: number;
   aiu: number;
+  tpd?: number;
   tpm_limit: number;
   rpm_limit: number;
   features: string[];
@@ -34,6 +35,13 @@ export function PricingSection() {
 
   const fmtLimit = (n: number) =>
     n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
+
+  const fmtTPD = (n: number) => {
+    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(0)}B`;
+    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
+    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
+    return String(n);
+  };
 
   const handleSelect = () => {
     if (isAuthenticated) {
@@ -106,8 +114,10 @@ export function PricingSection() {
                 <span className="text-text-muted text-sm">/month</span>
               </div>
               <p className="text-sm text-text-tertiary mb-6">
-                {plan.aiu} AIU &middot; {fmtLimit(plan.tpm_limit)} TPM &middot;{" "}
-                {fmtLimit(plan.rpm_limit)} RPM
+                {plan.aiu} AIU &middot;{" "}
+                {plan.tpd
+                  ? `${fmtTPD(plan.tpd)} tokens/day`
+                  : `${fmtLimit(plan.tpm_limit)} TPM`}
               </p>
 
               <ul className="space-y-3 mb-8 flex-1">
