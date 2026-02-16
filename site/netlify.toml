@@ -64,19 +64,6 @@
   HYPERCLAW_API_URL = "https://api.hyperclaw.app"
   HYPERCLAW_MODELS_URL = "https://api.hyperclaw.app/models"
 
-# Redirect branch/preview deploys to production site
-[[context.branch-deploy.redirects]]
-  from = "/*"
-  to = "https://hypercli.com/:splat"
-  status = 301
-  force = true
-
-[[context.deploy-preview.redirects]]
-  from = "/*"
-  to = "https://hypercli.com/:splat"
-  status = 301
-  force = true
-
 # Non-production (branch deploys) — point EVERYTHING at dev to prevent prod pollution
 [context.branch-deploy.environment]
   NEXT_PUBLIC_STRIPE_PK_CLI = "pk_test_51So7MuD2ZZvODGmahxL1H1uM1GS1zEllTp6UCjKlB7Ga6Wqv6YyoY7WgIUDOAoGQutVAEeTexlkmWAhhW5wMdgtP00bN74gl6d"
