@@ -265,10 +265,7 @@ class X402Client:
         if not flow_type:
             raise ValueError("flow_type is required")
 
-        payload: dict[str, Any] = {
-            "amount": amount,
-            "params": params or {},
-        }
+        payload: dict[str, Any] = dict(params or {})
         if notify_url:
             payload["notify_url"] = notify_url
 
