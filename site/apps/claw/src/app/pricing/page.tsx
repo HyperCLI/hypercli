@@ -2,7 +2,7 @@
 
 import { useState, useRef, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
-import { Check, ArrowRight, Users } from "lucide-react";
+import { Check, ArrowRight, Users, Building2, Shield } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE } from "@/lib/api";
 import { ClawHeader } from "@/components/landing/ClawHeader";
@@ -20,42 +20,45 @@ interface Plan {
   highlighted?: boolean;
 }
 
-// Business plans: 5, 10, 20 coding agents
-// Base: 1 AIU per coding agent, $20 per agent, 50K TPM, 1K RPM
-const BUSINESS_AGENTS = [5, 10, 20];
+// Agent-based pricing tiers
+const AGENT_TIERS = [
+  {
+    name: "Skill",
+    agents: 1,
+    price: 29,
+    aiu: 1,
+    tpm: 50000,
+    rpm: 1000,
+    highlighted: false,
+  },
+  {
+    name: "Team",
+    agents: 5,
+    price: 99,
+    aiu: 5,
+    tpm: 250000,
+    rpm: 5000,
+    highlighted: true,
+  },
+  {
+    name: "Business",
+    agents: 20,
+    price: 299,
+    aiu: 20,
+    tpm: 1000000,
+    rpm: 20000,
+    highlighted: false,
+  },
+];
 
-interface BusinessPlan {
-  agents: number;
-  aiu: number;
-  price: number;
-  tpm: number;
-  rpm: number;
-}
-
-function getBusinessPlan(agents: number): BusinessPlan {
-  const basePricePerAgent = 20;
-  const baseTpmPerAgent = 50000;
-  const baseRpmPerAgent = 1000;
-
-  return {
-    agents,
-    aiu: agents,
-    price: basePricePerAgent * agents,
-    tpm: baseTpmPerAgent * agents,
-    rpm: baseRpmPerAgent * agents,
-  };
-}
-
-function BusinessPricingCard({
-  plan,
+function AgentTierCard({
+  tier,
   onSelect,
   isAuthenticated,
-  highlighted,
 }: {
-  plan: BusinessPlan;
+  tier: typeof AGENT_TIERS[0];
   onSelect: () => void;
   isAuthenticated: boolean;
-  highlighted?: boolean;
 }) {
   const fmtLimit = (n: number) =>
     n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
@@ -66,12 +69,12 @@ function BusinessPricingCard({
       animate={{ opacity: 1, y: 0 }}
       transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
       className={`glass-card p-6 flex flex-col ${
-        highlighted
+        tier.highlighted
           ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
           : ""
       }`}
     >
-      {highlighted && (
+      {tier.highlighted && (
         <div className="text-xs font-semibold text-primary bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
           Most Popular
         </div>
@@ -79,55 +82,211 @@ function BusinessPricingCard({
 
       <div className="flex items-center gap-2 mb-2">
         <Users className="w-5 h-5 text-primary" />
-        <h3 className="text-lg font-semibold text-foreground">
-          {plan.agents} Agents
-        </h3>
+        <h3 className="text-lg font-semibold text-foreground">{tier.name}</h3>
       </div>
 
       <div className="mt-2 mb-1">
-        <span className="text-3xl font-bold text-foreground">${plan.price}</span>
+        <span className="text-3xl font-bold text-foreground">${tier.price}</span>
         <span className="text-text-muted text-sm">/month</span>
       </div>
       <p className="text-sm text-text-tertiary mb-6">
-        {plan.aiu} AIU &middot; {fmtLimit(plan.tpm)} TPM &middot; {fmtLimit(plan.rpm)} RPM
+        {tier.agents} {tier.agents === 1 ? "Agent" : "Agents"} &middot; {tier.aiu} AIU &middot; {fmtLimit(tier.tpm)} TPM
       </p>
 
       <ul className="space-y-3 mb-8 flex-1">
         <li className="flex items-start gap-2 text-sm text-text-secondary">
           <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <span>{plan.agents} concurrent coding agents</span>
+          <span>{tier.agents} concurrent {tier.agents === 1 ? "agent" : "agents"}</span>
         </li>
         <li className="flex items-start gap-2 text-sm text-text-secondary">
           <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <span>{plan.aiu} AI Units per month</span>
+          <span>{tier.aiu} AI Units per month</span>
         </li>
         <li className="flex items-start gap-2 text-sm text-text-secondary">
           <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <span>{fmtLimit(plan.tpm)} tokens per minute</span>
+          <span>{fmtLimit(tier.tpm)} tokens per minute</span>
         </li>
         <li className="flex items-start gap-2 text-sm text-text-secondary">
           <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <span>{fmtLimit(plan.rpm)} requests per minute</span>
+          <span>{fmtLimit(tier.rpm)} requests per minute</span>
         </li>
-        <li className="flex items-start gap-2 text-sm text-text-secondary">
-          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <span>Priority support</span>
-        </li>
-        <li className="flex items-start gap-2 text-sm text-text-secondary">
-          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-          <span>Custom SLA available</span>
-        </li>
+        {tier.name === "Skill" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>API access</span>
+          </li>
+        )}
+        {tier.name === "Skill" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Basic dashboard</span>
+          </li>
+        )}
+        {tier.name === "Team" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Everything in Skill</span>
+          </li>
+        )}
+        {tier.name === "Team" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>GitHub integration</span>
+          </li>
+        )}
+        {tier.name === "Team" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Team dashboard</span>
+          </li>
+        )}
+        {tier.name === "Team" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Priority support</span>
+          </li>
+        )}
+        {tier.name === "Business" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Everything in Team</span>
+          </li>
+        )}
+        {tier.name === "Business" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Fleet management</span>
+          </li>
+        )}
+        {tier.name === "Business" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Custom workflows</span>
+          </li>
+        )}
+        {tier.name === "Business" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Dedicated infrastructure</span>
+          </li>
+        )}
+        {tier.name === "Business" && (
+          <li className="flex items-start gap-2 text-sm text-text-secondary">
+            <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+            <span>Dedicated support</span>
+          </li>
+        )}
       </ul>
 
       <button
         onClick={onSelect}
         className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all ${
-          highlighted ? "btn-primary" : "btn-secondary"
+          tier.highlighted ? "btn-primary" : "btn-secondary"
         }`}
       >
-        {isAuthenticated ? "Contact Sales" : "Get Started"}
+        {isAuthenticated ? "Upgrade" : "Get Started"}
       </button>
     </motion.div>
+  );
+}
+
+function EnterpriseCard({
+  onSelect,
+  isAuthenticated,
+}: {
+  onSelect: () => void;
+  isAuthenticated: boolean;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0, y: 30 }}
+      animate={{ opacity: 1, y: 0 }}
+      transition={{ duration: 0.6, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
+      className="glass-card p-6 flex flex-col border-border/60"
+    >
+      <div className="flex items-center gap-2 mb-2">
+        <Shield className="w-5 h-5 text-primary" />
+        <h3 className="text-lg font-semibold text-foreground">Enterprise</h3>
+      </div>
+
+      <div className="mt-2 mb-1">
+        <span className="text-3xl font-bold text-foreground">Contact Us</span>
+      </div>
+      <p className="text-sm text-text-tertiary mb-6">
+        Unlimited Agents &middot; Custom AIU &middot; SLA Guarantee
+      </p>
+
+      <ul className="space-y-3 mb-8 flex-1">
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>Unlimited agents</span>
+        </li>
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>Custom AIU allocation</span>
+        </li>
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>SSO / SAML</span>
+        </li>
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>Audit logs</span>
+        </li>
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>SLA guarantee</span>
+        </li>
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>On-premise option</span>
+        </li>
+        <li className="flex items-start gap-2 text-sm text-text-secondary">
+          <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+          <span>Dedicated account manager</span>
+        </li>
+      </ul>
+
+      <button
+        onClick={onSelect}
+        className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary"
+      >
+        Contact Sales
+      </button>
+    </motion.div>
+  );
+}
+
+function AgentsPricing({
+  onSelect,
+  isAuthenticated,
+}: {
+  onSelect: () => void;
+  isAuthenticated: boolean;
+}) {
+  return (
+    <div>
+      <div className="text-center mb-12">
+        <p className="text-text-secondary max-w-2xl mx-auto text-lg">
+          Hire agents, not headcount.
+        </p>
+        <p className="text-text-muted max-w-2xl mx-auto mt-2">
+          Deploy AI agents in minutes. One flat fee per agent. No surprise bills.
+        </p>
+      </div>
+      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6 max-w-6xl mx-auto">
+        {AGENT_TIERS.map((tier) => (
+          <AgentTierCard
+            key={tier.name}
+            tier={tier}
+            onSelect={onSelect}
+            isAuthenticated={isAuthenticated}
+          />
+        ))}
+        
+        <EnterpriseCard onSelect={onSelect} isAuthenticated={isAuthenticated} />
+      </div>
+    </div>
   );
 }
 
@@ -214,58 +373,8 @@ function StandardPricing({
   );
 }
 
-function BusinessPricing({
-  onSelect,
-  isAuthenticated,
-}: {
-  onSelect: () => void;
-  isAuthenticated: boolean;
-}) {
-  return (
-    <div>
-      <div className="text-center mb-12">
-        <p className="text-text-secondary max-w-2xl mx-auto text-lg">
-          Serious coding agents for serious development.
-        </p>
-        <p className="text-text-muted max-w-2xl mx-auto mt-2">
-          Scale your engineering team with dedicated AI agents. Each agent includes 
-          1 AIU, 50K TPM, and 1K RPM — fully isolated and ready to ship code.
-        </p>
-      </div>
-      <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6 max-w-4xl mx-auto">
-        {BUSINESS_AGENTS.map((agents, index) => {
-          const plan = getBusinessPlan(agents);
-          const highlighted = agents === 10;
-          return (
-            <BusinessPricingCard
-              key={agents}
-              plan={plan}
-              onSelect={onSelect}
-              isAuthenticated={isAuthenticated}
-              highlighted={highlighted}
-            />
-          );
-        })}
-      </div>
-      <div className="mt-12 text-center">
-        <p className="text-text-secondary mb-6">
-          Need more than 20 agents? Contact us for custom enterprise pricing.
-        </p>
-        <button
-          onClick={onSelect}
-          className="inline-flex items-center gap-2 btn-primary px-6 py-3 rounded-lg text-sm font-medium"
-        >
-          Contact Sales <ArrowRight className="w-4 h-4" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export default function PricingPage() {
-  const [activeTab, setActiveTab] = useState<"standard" | "business">(
-    "standard"
-  );
+  const [activeTab, setActiveTab] = useState<"standard" | "agents">("agents");
   const [plans, setPlans] = useState<Plan[]>([]);
   const sectionRef = useRef<HTMLElement>(null);
   const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
@@ -326,6 +435,16 @@ export default function PricingPage() {
             >
               <div className="inline-flex bg-surface rounded-lg p-1 border border-border">
                 <button
+                  onClick={() => setActiveTab("agents")}
+                  className={`px-6 py-2.5 rounded-md text-sm font-medium transition-all ${
+                    activeTab === "agents"
+                      ? "bg-primary text-white"
+                      : "text-text-secondary hover:text-foreground"
+                  }`}
+                >
+                  Agents
+                </button>
+                <button
                   onClick={() => setActiveTab("standard")}
                   className={`px-6 py-2.5 rounded-md text-sm font-medium transition-all ${
                     activeTab === "standard"
@@ -333,30 +452,20 @@ export default function PricingPage() {
                       : "text-text-secondary hover:text-foreground"
                   }`}
                 >
-                  Standard
-                </button>
-                <button
-                  onClick={() => setActiveTab("business")}
-                  className={`px-6 py-2.5 rounded-md text-sm font-medium transition-all ${
-                    activeTab === "business"
-                      ? "bg-primary text-white"
-                      : "text-text-secondary hover:text-foreground"
-                  }`}
-                >
-                  Business
+                  API
                 </button>
               </div>
             </motion.div>
 
             {/* Content */}
-            {activeTab === "standard" ? (
-              <StandardPricing
-                plans={plans}
+            {activeTab === "agents" ? (
+              <AgentsPricing
                 onSelect={handleSelect}
                 isAuthenticated={isAuthenticated}
               />
             ) : (
-              <BusinessPricing
+              <StandardPricing
+                plans={plans}
                 onSelect={handleSelect}
                 isAuthenticated={isAuthenticated}
               />
