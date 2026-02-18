@@ -20,7 +20,7 @@ def _resolve_job_id(client: HyperCLI, job_id: str) -> str:
     if len(matches) == 1:
         return matches[0]
     elif len(matches) == 0:
-        console.print(f"[red]Error:[/red] No job matching '{job_id}'")
+        console.print(f"[red]Error:[/red] No job matching '{job_id}' in recent jobs. Try the full UUID.")
         raise typer.Exit(1)
     else:
         console.print(f"[red]Error:[/red] Ambiguous prefix '{job_id}' — {len(matches)} matches:")
