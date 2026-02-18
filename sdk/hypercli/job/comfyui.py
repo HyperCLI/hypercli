@@ -113,6 +113,10 @@ DEFAULT_OBJECT_INFO = {
         "input": {"required": {"width": ["INT", {}], "height": ["INT", {}], "length": ["INT", {}], "batch_size": ["INT", {}]}, "optional": {}},
         "input_order": {"required": ["width", "height", "length", "batch_size"], "optional": []},
     },
+    "WanFirstLastFrameToVideo": {
+        "input": {"required": {"width": ["INT", {}], "height": ["INT", {}], "length": ["INT", {}], "batch_size": ["INT", {}], "positive": ["CONDITIONING"], "negative": ["CONDITIONING"], "vae": ["VAE"], "start_image": ["IMAGE"], "end_image": ["IMAGE"]}, "optional": {}},
+        "input_order": {"required": ["width", "height", "length", "batch_size", "positive", "negative", "vae", "start_image", "end_image"], "optional": []},
+    },
     # Model loaders
     "UNETLoader": {
         "input": {"required": {"unet_name": [["model.safetensors"], {}], "weight_dtype": [["default", "fp8_e4m3fn"], {}]}, "optional": {}},
@@ -328,6 +332,7 @@ def apply_params(workflow: dict, **params) -> dict:
         width: Image/video width (EmptySD3LatentImage, EmptyHunyuanLatentVideo, etc.)
         height: Image/video height (same as width)
         length: Video length in frames (EmptyHunyuanLatentVideo, etc.)
+        batch_size: Batch size for video generation (WanImageToVideo, WanFirstLastFrameToVideo, etc.)
         seed: Random seed (KSampler uses "seed", KSamplerAdvanced uses "noise_seed")
         steps: Sampling steps (KSampler or Flux2Scheduler)
         cfg: CFG scale (KSampler or FluxGuidance)
@@ -389,7 +394,7 @@ def apply_params(workflow: dict, **params) -> dict:
             "EmptySD3LatentImage", "EmptyFlux2LatentImage", "EmptyLatentImage",
             # Video
             "EmptyHunyuanLatentVideo", "EmptyMochiLatentVideo", "EmptyLTXVLatentVideo",
-            "WanImageToVideo", "WanStartEndFrames", "WanHuMoImageToVideo",
+            "WanImageToVideo", "WanStartEndFrames", "WanFirstLastFrameToVideo", "WanHuMoImageToVideo",
         ]
         node_id, node = find_first(latent_types)
         if node:
@@ -399,6 +404,8 @@ def apply_params(workflow: dict, **params) -> dict:
                 node["inputs"]["height"] = params["height"]
             if "length" in params:
                 node["inputs"]["length"] = params["length"]
+            if "batch_size" in params:
+                node["inputs"]["batch_size"] = params["batch_size"]
         else:
             # Try PrimitiveNode with "width"/"height" title (Flux2 style)
             if "width" in params:
