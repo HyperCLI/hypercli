@@ -1,5 +1,7 @@
 """hyper flow commands - simplified flow interfaces"""
+import json
 import math
+from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import typer
 from pathlib import Path
@@ -7,6 +9,8 @@ from typing import Any, Optional, List
 
 from hypercli import HyperCLI, X402Client
 from .output import output, console, spinner
+
+X402_RENDERS_FILE = Path.home() / ".hypercli" / "x402_renders.jsonl"
 
 HUMO_FPS = 25  # HuMo video_humo template frame rate
 USDC_ATOMIC_UNITS = Decimal("1000000")
@@ -52,6 +56,25 @@ def _usd_to_atomic(amount_usd: float) -> int:
     return int((usd * USDC_ATOMIC_UNITS).to_integral_value(rounding=ROUND_HALF_UP))
 
 
+def _save_x402_render(flow_type: str, amount: float, x402_result) -> None:
+    """Append x402 render info to ~/.hypercli/x402_renders.jsonl"""
+    try:
+        X402_RENDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
+        entry = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "flow_type": flow_type,
+            "render_id": x402_result.render.render_id,
+            "amount_usd": amount,
+            "access_key": x402_result.access_key,
+            "status_url": x402_result.status_url,
+            "cancel_url": x402_result.cancel_url,
+        }
+        with open(X402_RENDERS_FILE, "a") as f:
+            f.write(json.dumps(entry) + "\n")
+    except Exception:
+        pass  # best-effort, don't break the flow
+
+
 def _create_flow_render(
     flow_type: str,
     payload: dict[str, Any],
@@ -90,6 +113,7 @@ def _create_flow_render(
                 params=clean_payload,
                 notify_url=notify_url,
             )
+        _save_x402_render(flow_type, amount, x402_result)
         return x402_result.render, x402_result
 
     with spinner("Creating render..."):
@@ -137,6 +161,78 @@ OPT_NOTIFY = typer.Option(None, "--notify", help="Webhook URL for completion not
 OPT_X402 = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet")
 OPT_AMOUNT = typer.Option(None, "--amount", help="USDC amount to spend with --x402 (defaults to fixed flow price)")
 OPT_FMT = typer.Option("table", "--output", "-o", help="Output format: table|json")
+
+
+@app.command("renders")
+def list_renders(
+    limit: int = typer.Option(10, "--limit", "-n", help="Number of recent renders to show"),
+    check: bool = typer.Option(False, "--check", "-c", help="Check current status of each render"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List saved x402 render history from ~/.hypercli/x402_renders.jsonl"""
+    if not X402_RENDERS_FILE.exists():
+        console.print("[dim]No x402 renders recorded yet.[/dim]")
+        raise typer.Exit(0)
+
+    entries = []
+    with open(X402_RENDERS_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if line:
+                try:
+                    entries.append(json.loads(line))
+                except json.JSONDecodeError:
+                    pass
+
+    if not entries:
+        console.print("[dim]No x402 renders recorded yet.[/dim]")
+        raise typer.Exit(0)
+
+    entries = entries[-limit:]
+
+    if check:
+        import httpx
+        for entry in entries:
+            access_key = entry.get("access_key", "")
+            status_path = entry.get("status_url", "")
+            if access_key and status_path:
+                try:
+                    url = f"https://api.hypercli.com/api{status_path}" if status_path.startswith("/flow") else f"https://api.hypercli.com{status_path}"
+                    resp = httpx.get(url, headers={"Authorization": f"Bearer {access_key}"}, timeout=10)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        entry["live_state"] = data.get("state", "?")
+                        entry["result_url"] = data.get("result_url")
+                        entry["error"] = data.get("error")
+                except Exception:
+                    entry["live_state"] = "error"
+
+    if fmt == "json":
+        output(entries, "json")
+        return
+
+    from rich.table import Table
+    table = Table(title="x402 Renders")
+    table.add_column("Time", style="dim")
+    table.add_column("Flow")
+    table.add_column("Render ID", style="cyan")
+    table.add_column("USD", justify="right")
+    if check:
+        table.add_column("State")
+        table.add_column("Result")
+
+    for e in entries:
+        ts = e.get("ts", "?")[:19].replace("T", " ")
+        row = [ts, e.get("flow_type", "?"), e.get("render_id", "?")[:13] + "…", f"${e.get('amount_usd', 0):.2f}"]
+        if check:
+            state = e.get("live_state", "?")
+            style = "green" if state == "completed" else "red" if state == "failed" else "yellow"
+            row.append(f"[{style}]{state}[/{style}]")
+            result = e.get("result_url") or e.get("error") or ""
+            row.append(result[:60] if result else "")
+        table.add_row(*row)
+
+    console.print(table)
 
 
 @app.command("text-to-image")
