@@ -11,6 +11,24 @@ def get_client() -> HyperCLI:
     return HyperCLI()
 
 
+def _resolve_job_id(client: HyperCLI, job_id: str) -> str:
+    """Resolve a partial job ID prefix to a full UUID."""
+    if len(job_id) == 36:
+        return job_id
+    jobs = client.jobs.list()
+    matches = [j.job_id for j in jobs if j.job_id.startswith(job_id)]
+    if len(matches) == 1:
+        return matches[0]
+    elif len(matches) == 0:
+        console.print(f"[red]Error:[/red] No job matching '{job_id}'")
+        raise typer.Exit(1)
+    else:
+        console.print(f"[red]Error:[/red] Ambiguous prefix '{job_id}' — {len(matches)} matches:")
+        for m in matches[:5]:
+            console.print(f"  {m}")
+        raise typer.Exit(1)
+
+
 @app.command("list")
 def list_jobs(
     state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
@@ -37,6 +55,7 @@ def get_job(
 ):
     """Get job details"""
     client = get_client()
+    job_id = _resolve_job_id(client, job_id)
     with spinner("Fetching job..."):
         job = client.jobs.get(job_id)
     output(job, fmt)
@@ -52,6 +71,7 @@ def logs(
 ):
     """Get job logs"""
     client = get_client()
+    job_id = _resolve_job_id(client, job_id)
 
     if tui:
         _follow_job(job_id, cancel_on_exit=cancel_on_exit)
@@ -77,6 +97,7 @@ def metrics(
 ):
     """Get job GPU metrics"""
     client = get_client()
+    job_id = _resolve_job_id(client, job_id)
 
     if watch:
         _watch_metrics(job_id)
@@ -95,6 +116,7 @@ def cancel(
 ):
     """Cancel a running job"""
     client = get_client()
+    job_id = _resolve_job_id(client, job_id)
     with spinner("Cancelling job..."):
         client.jobs.cancel(job_id)
     success(f"Job {job_id} cancelled")
@@ -108,6 +130,7 @@ def extend(
 ):
     """Extend job runtime"""
     client = get_client()
+    job_id = _resolve_job_id(client, job_id)
     with spinner("Extending runtime..."):
         job = client.jobs.extend(job_id, runtime)
     if fmt == "json":
