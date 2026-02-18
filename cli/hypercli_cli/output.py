@@ -42,7 +42,7 @@ def table_list(items: list, columns: list[str] = None):
     table = Table(show_header=True, header_style="bold cyan")
 
     for col in cols:
-        table.add_column(col)
+        table.add_column(col, no_wrap=True if col.endswith("_id") else False)
 
     for item in items:
         row = [str(item.get(col, "")) for col in cols]
