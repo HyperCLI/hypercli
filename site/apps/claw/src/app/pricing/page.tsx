@@ -291,84 +291,71 @@ function AgentsPricing({
 }
 
 function StandardPricing({
-  plans,
   onSelect,
   isAuthenticated,
 }: {
-  plans: Plan[];
   onSelect: () => void;
   isAuthenticated: boolean;
 }) {
-  const fmtLimit = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
-
-  const fmtTPD = (n: number) => {
-    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(0)}B`;
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-    return String(n);
-  };
-
   return (
-    <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-      {plans.map((plan, index) => (
+    <div>
+      <div className="text-center mb-12">
+        <p className="text-text-secondary max-w-2xl mx-auto text-lg">
+          Simple pay-as-you-go pricing for API access.
+        </p>
+        <p className="text-text-muted max-w-2xl mx-auto mt-2">
+          No subscriptions, no minimums. Only pay for what you use.
+        </p>
+      </div>
+      
+      <div className="max-w-3xl mx-auto">
         <motion.div
-          key={plan.id}
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{
-            duration: 0.6,
-            delay: index * 0.1,
-            ease: [0.22, 1, 0.36, 1],
-          }}
-          className={`glass-card p-6 flex flex-col ${
-            plan.highlighted
-              ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
-              : ""
-          }`}
+          transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          className="glass-card p-8 text-center"
         >
-          {plan.highlighted && (
-            <div className="text-xs font-semibold text-primary bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
-              Most Popular
-            </div>
-          )}
-
-          <h3 className="text-lg font-semibold text-foreground">{plan.name}</h3>
-          <div className="mt-2 mb-1">
-            <span className="text-3xl font-bold text-foreground">
-              ${plan.price}
-            </span>
-            <span className="text-text-muted text-sm">/month</span>
+          <div className="mb-6">
+            <span className="text-5xl font-bold text-foreground">$1</span>
+            <span className="text-text-muted text-lg ml-2">per 1,000 tokens</span>
           </div>
-          <p className="text-sm text-text-tertiary mb-6">
-            {plan.aiu} AIU &middot;{" "}
-            {plan.tpd
-              ? `${fmtTPD(plan.tpd)} tokens/day`
-              : `${fmtLimit(plan.tpm_limit)} TPM`}
+          
+          <p className="text-text-secondary mb-8 max-w-xl mx-auto">
+            Transparent pricing across all models. No hidden fees, no surprise bills.
+            Pay only for the tokens you consume.
           </p>
 
-          <ul className="space-y-3 mb-8 flex-1">
-            {plan.features.map((feature) => (
-              <li
-                key={feature}
-                className="flex items-start gap-2 text-sm text-text-secondary"
-              >
-                <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-                <span>{feature}</span>
-              </li>
-            ))}
+          <ul className="space-y-4 mb-8 max-w-md mx-auto text-left">
+            <li className="flex items-start gap-3 text-sm text-text-secondary">
+              <Check className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <span>OpenAI-compatible API</span>
+            </li>
+            <li className="flex items-start gap-3 text-sm text-text-secondary">
+              <Check className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <span>Access to all frontier models (Kimi K2.5, GLM-5, MiniMax)</span>
+            </li>
+            <li className="flex items-start gap-3 text-sm text-text-secondary">
+              <Check className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <span>Real-time usage tracking</span>
+            </li>
+            <li className="flex items-start gap-3 text-sm text-text-secondary">
+              <Check className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <span>Crypto payments via x402 (USDC)</span>
+            </li>
+            <li className="flex items-start gap-3 text-sm text-text-secondary">
+              <Check className="w-5 h-5 text-primary flex-shrink-0 mt-0.5" />
+              <span>No minimum spend, no subscription required</span>
+            </li>
           </ul>
 
           <button
             onClick={onSelect}
-            className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all ${
-              plan.highlighted ? "btn-primary" : "btn-secondary"
-            }`}
+            className="btn-primary px-8 py-3 rounded-lg text-sm font-medium"
           >
-            Get Started
+            Get API Access
           </button>
         </motion.div>
-      ))}
+      </div>
     </div>
   );
 }
@@ -465,7 +452,6 @@ export default function PricingPage() {
               />
             ) : (
               <StandardPricing
-                plans={plans}
                 onSelect={handleSelect}
                 isAuthenticated={isAuthenticated}
               />
