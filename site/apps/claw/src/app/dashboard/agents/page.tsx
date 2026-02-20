@@ -177,18 +177,16 @@ export default function AgentsPage() {
     () => agents.find((item) => item.id === selectedAgentId) || null,
     [agents, selectedAgentId]
   );
+  const selectedAgentHostname = selectedAgent?.hostname || null;
 
   const issueAgentAccessToken = useCallback(
-    async (agent: Agent): Promise<string> => {
-      if (!agent.hostname) {
-        throw new Error("Agent hostname is not available yet");
-      }
+    async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
       const tokenData = await clawFetch<AgentDesktopTokenResponse>(
-        `/agents/${agent.id}/token`,
+        `/agents/${agentId}/token`,
         authToken
       );
-      const subdomain = agent.hostname.split(".")[0];
+      const subdomain = hostname.split(".")[0];
       const cookieDomain =
         (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hyperclaw.app";
       setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
@@ -372,23 +370,21 @@ export default function AgentsPage() {
     const connect = async () => {
       try {
         setShellStatus("connecting");
-        const agent = agents.find((item) => item.id === agentId);
-        if (!agent || !agent.hostname) {
+        if (!selectedAgentHostname) {
           scheduleReconnect();
           return;
         }
 
-        await issueAgentAccessToken(agent);
+        await issueAgentAccessToken(agentId, selectedAgentHostname);
         if (cancelled) return;
 
-        const ws = new WebSocket(buildShellWsUrl(agent.hostname));
+        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname));
         shellWsRef.current = ws;
 
         ws.onopen = () => {
           if (cancelled) return;
           reconnectScheduled = false;
           setShellStatus("connected");
-          void fetchAgents();
         };
 
         ws.onmessage = (event) => {
@@ -426,7 +422,7 @@ export default function AgentsPage() {
       }
       shellWsRef.current = null;
     };
-  }, [consoleTab, selectedAgentId, reconnectNonce, agents, issueAgentAccessToken, fetchAgents]);
+  }, [consoleTab, selectedAgentId, selectedAgentHostname, reconnectNonce, issueAgentAccessToken]);
 
   useEffect(() => {
     if (!shellBoxRef.current) return;
@@ -486,7 +482,7 @@ export default function AgentsPage() {
     setError(null);
 
     try {
-      await issueAgentAccessToken(agent);
+      await issueAgentAccessToken(agent.id, agent.hostname);
 
       const desktopUrl = new URL(`https://${agent.hostname}`);
 
