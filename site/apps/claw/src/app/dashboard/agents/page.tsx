@@ -489,15 +489,26 @@ export default function AgentsPage() {
               ref={logBoxRef}
               className="h-[560px] overflow-auto bg-[#0c1016] text-[#d8dde7] text-xs leading-5 font-mono p-4"
             >
-              {logs.length === 0 ? (
-                <div className="text-[#8b95a6]">Waiting for log stream...</div>
-              ) : (
-                logs.map((line, idx) => (
-                  <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">
-                    {line}
-                  </div>
-                ))
+              {wsStatus !== "connected" && (
+                <div className="flex items-center gap-2 text-[#8b95a6] mb-3">
+                  <Loader2 className="w-4 h-4 animate-spin" />
+                  <span>
+                    {wsStatus === "connecting"
+                      ? "Connecting to websocket..."
+                      : "Waiting for websocket connection..."}
+                  </span>
+                </div>
               )}
+
+              {logs.length === 0 && wsStatus === "connected" && (
+                <div className="text-[#8b95a6]">Connected. Waiting for log stream...</div>
+              )}
+
+              {logs.map((line, idx) => (
+                <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">
+                  {line}
+                </div>
+              ))}
             </div>
           )}
         </div>
