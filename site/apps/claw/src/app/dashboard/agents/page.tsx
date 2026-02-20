@@ -10,7 +10,6 @@ import {
   TerminalSquare,
   Trash2,
 } from "lucide-react";
-import { cookieUtils } from "@hypercli/shared-ui";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
@@ -79,6 +78,21 @@ function wsBaseFromApiBase(apiBase: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function setDesktopAuthCookie(
+  name: string,
+  value: string,
+  days: number,
+  domain: string
+): void {
+  const date = new Date();
+  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+  const expires = date.toUTCString();
+  const securePart = window.location.protocol === "https:" ? "; secure" : "";
+  const domainPart = domain ? `; domain=${domain}` : "";
+  const encodedValue = encodeURIComponent(value);
+  document.cookie = `${name}=${encodedValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
 }
 
 function stateClass(state: AgentState): string {
@@ -311,8 +325,11 @@ export default function AgentsPage() {
       const desktopUrl = new URL(`https://${agent.hostname}`);
       const subdomain = agent.hostname.split(".")[0];
       const cookieName = `${subdomain}-token`;
-      cookieUtils.set(cookieName, tokenData.token, 2);
-      cookieUtils.set("reef_token", tokenData.token, 2);
+      const cookieDomain =
+        (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hyperclaw.app";
+
+      setDesktopAuthCookie(cookieName, tokenData.token, 2, cookieDomain);
+      setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);
 
       if (popup) {
         popup.location.href = desktopUrl.toString();

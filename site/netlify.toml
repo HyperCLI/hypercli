@@ -16,6 +16,7 @@
 
   # Cookie domain for cross-subdomain authentication
   NEXT_PUBLIC_COOKIE_DOMAIN = ".hypercli.com"
+  NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN = ".hyperclaw.app"
   NEXT_PUBLIC_COOKIE_VALIDITY = "15"
 
   # Site URLs
@@ -70,6 +71,7 @@
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
   NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN = ".hyperclaw.app"
   HYPERCLAW_API_URL = "https://dev-api.hyperclaw.app"
   HYPERCLAW_MODELS_URL = "https://dev-api.hyperclaw.app/models"
   NEXT_PUBLIC_AUTH_BACKEND = "https://dev-api.hyperclaw.app/api"
@@ -85,6 +87,7 @@
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
   NEXT_PUBLIC_CLAW_API_URL = "https://dev-api.hyperclaw.app/api"
+  NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN = ".hyperclaw.app"
   HYPERCLAW_API_URL = "https://dev-api.hyperclaw.app"
   HYPERCLAW_MODELS_URL = "https://dev-api.hyperclaw.app/models"
   NEXT_PUBLIC_AUTH_BACKEND = "https://dev-api.hyperclaw.app/api"
