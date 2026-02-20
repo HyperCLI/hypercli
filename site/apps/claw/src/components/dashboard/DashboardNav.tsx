@@ -2,11 +2,12 @@
 
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Key, CreditCard, Settings, LogOut } from "lucide-react";
+import { LayoutDashboard, Key, CreditCard, Settings, LogOut, Bot } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
 
 const navItems = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
+  { label: "Agents", href: "/dashboard/agents", icon: Bot },
   { label: "API Keys", href: "/dashboard/keys", icon: Key },
   { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
