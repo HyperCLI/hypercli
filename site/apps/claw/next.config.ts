@@ -4,6 +4,7 @@ import type { NextConfig } from "next";
 const requiredEnvVars = [
   "NEXT_PUBLIC_CLAW_URL",
   "NEXT_PUBLIC_COOKIE_DOMAIN",
+  "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN",
   "NEXT_PUBLIC_CLAW_API_URL",
   "NEXT_PUBLIC_PRIVY_APP_ID",
 ] as const;
