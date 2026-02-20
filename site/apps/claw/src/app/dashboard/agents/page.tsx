@@ -57,6 +57,7 @@ interface LogEvent {
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
+type ConsoleTab = "logs" | "shell";
 
 function formatWhen(ts: string | null): string {
   if (!ts) return "-";
@@ -80,6 +81,10 @@ function wsBaseFromApiBase(apiBase: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function buildShellWsUrl(hostname: string): string {
+  return `wss://shell-${hostname}/shell`;
 }
 
 function setDesktopAuthCookie(
@@ -121,13 +126,21 @@ export default function AgentsPage() {
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("logs");
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">(
     "disconnected"
   );
   const [logs, setLogs] = useState<string[]>([]);
+  const [shellStatus, setShellStatus] = useState<"disconnected" | "connecting" | "connected">(
+    "disconnected"
+  );
+  const [shellOutput, setShellOutput] = useState<string[]>([]);
+  const [shellInput, setShellInput] = useState("");
 
   const logBoxRef = useRef<HTMLDivElement | null>(null);
+  const shellBoxRef = useRef<HTMLDivElement | null>(null);
+  const shellWsRef = useRef<WebSocket | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -165,7 +178,32 @@ export default function AgentsPage() {
     [agents, selectedAgentId]
   );
 
+  const issueAgentAccessToken = useCallback(
+    async (agent: Agent): Promise<string> => {
+      if (!agent.hostname) {
+        throw new Error("Agent hostname is not available yet");
+      }
+      const authToken = await getToken();
+      const tokenData = await clawFetch<AgentDesktopTokenResponse>(
+        `/agents/${agent.id}/token`,
+        authToken
+      );
+      const subdomain = agent.hostname.split(".")[0];
+      const cookieDomain =
+        (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hyperclaw.app";
+      setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
+      setDesktopAuthCookie(`shell-${subdomain}-token`, tokenData.token, 2, cookieDomain);
+      setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);
+      return tokenData.token;
+    },
+    [getToken]
+  );
+
   useEffect(() => {
+    if (consoleTab !== "logs") {
+      setWsStatus("disconnected");
+      return;
+    }
     if (!selectedAgentId) {
       setWsStatus("disconnected");
       setLogs([]);
@@ -291,12 +329,117 @@ export default function AgentsPage() {
         ws.close();
       }
     };
-  }, [selectedAgentId, getToken, reconnectNonce, fetchAgents]);
+  }, [consoleTab, selectedAgentId, getToken, reconnectNonce, fetchAgents]);
 
   useEffect(() => {
     if (!logBoxRef.current) return;
     logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight;
   }, [logs]);
+
+  useEffect(() => {
+    if (consoleTab !== "shell") {
+      setShellStatus("disconnected");
+      if (shellWsRef.current) {
+        shellWsRef.current.close();
+        shellWsRef.current = null;
+      }
+      return;
+    }
+    if (!selectedAgentId) {
+      setShellStatus("disconnected");
+      setShellOutput([]);
+      return;
+    }
+
+    const agentId = selectedAgentId;
+    let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectScheduled = false;
+    setShellOutput([]);
+
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectScheduled) return;
+      reconnectScheduled = true;
+      setShellStatus("connecting");
+      reconnectTimer = setTimeout(() => {
+        reconnectScheduled = false;
+        if (!cancelled) {
+          void connect();
+        }
+      }, WS_RETRY_INTERVAL_MS);
+    };
+
+    const connect = async () => {
+      try {
+        setShellStatus("connecting");
+        const agent = agents.find((item) => item.id === agentId);
+        if (!agent || !agent.hostname) {
+          scheduleReconnect();
+          return;
+        }
+
+        await issueAgentAccessToken(agent);
+        if (cancelled) return;
+
+        const ws = new WebSocket(buildShellWsUrl(agent.hostname));
+        shellWsRef.current = ws;
+
+        ws.onopen = () => {
+          if (cancelled) return;
+          reconnectScheduled = false;
+          setShellStatus("connected");
+          void fetchAgents();
+        };
+
+        ws.onmessage = (event) => {
+          if (cancelled) return;
+          const text = typeof event.data === "string" ? event.data : String(event.data ?? "");
+          if (!text) return;
+          setShellOutput((prev) => {
+            const next = [...prev, text];
+            return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next;
+          });
+        };
+
+        ws.onclose = () => {
+          if (cancelled) return;
+          scheduleReconnect();
+        };
+
+        ws.onerror = () => {
+          if (cancelled) return;
+          scheduleReconnect();
+        };
+      } catch {
+        if (!cancelled) scheduleReconnect();
+      }
+    };
+
+    void connect();
+
+    return () => {
+      cancelled = true;
+      if (reconnectTimer) clearTimeout(reconnectTimer);
+      const ws = shellWsRef.current;
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
+        ws.close();
+      }
+      shellWsRef.current = null;
+    };
+  }, [consoleTab, selectedAgentId, reconnectNonce, agents, issueAgentAccessToken, fetchAgents]);
+
+  useEffect(() => {
+    if (!shellBoxRef.current) return;
+    shellBoxRef.current.scrollTop = shellBoxRef.current.scrollHeight;
+  }, [shellOutput]);
+
+  const sendShellCommand = useCallback(() => {
+    const ws = shellWsRef.current;
+    const command = shellInput.trim();
+    if (!command || !ws || ws.readyState !== WebSocket.OPEN) return;
+    ws.send(`${command}\n`);
+    setShellInput("");
+  }, [shellInput]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -343,20 +486,9 @@ export default function AgentsPage() {
     setError(null);
 
     try {
-      const token = await getToken();
-      const tokenData = await clawFetch<AgentDesktopTokenResponse>(
-        `/agents/${agent.id}/token`,
-        token
-      );
+      await issueAgentAccessToken(agent);
 
       const desktopUrl = new URL(`https://${agent.hostname}`);
-      const subdomain = agent.hostname.split(".")[0];
-      const cookieName = `${subdomain}-token`;
-      const cookieDomain =
-        (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hyperclaw.app";
-
-      setDesktopAuthCookie(cookieName, tokenData.token, 2, cookieDomain);
-      setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);
 
       if (popup) {
         popup.location.href = desktopUrl.toString();
@@ -480,23 +612,45 @@ export default function AgentsPage() {
         <div className="glass-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <div>
-              <h2 className="text-lg font-semibold text-foreground">Console Logs</h2>
+              <h2 className="text-lg font-semibold text-foreground">Console</h2>
               <p className="text-xs text-text-muted mt-0.5">
                 {selectedAgent ? selectedAgent.pod_name : "Select an agent"}
               </p>
+              <div className="mt-3 inline-flex rounded-lg border border-border overflow-hidden">
+                <button
+                  onClick={() => setConsoleTab("logs")}
+                  className={`px-3 py-1.5 text-xs ${
+                    consoleTab === "logs"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  Logs
+                </button>
+                <button
+                  onClick={() => setConsoleTab("shell")}
+                  className={`px-3 py-1.5 text-xs border-l border-border ${
+                    consoleTab === "shell"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  Shell
+                </button>
+              </div>
             </div>
 
             <div className="flex items-center gap-3">
               <span
                 className={`text-xs font-medium ${
-                  wsStatus === "connected"
+                  (consoleTab === "logs" ? wsStatus : shellStatus) === "connected"
                     ? "text-primary"
-                    : wsStatus === "connecting"
+                    : (consoleTab === "logs" ? wsStatus : shellStatus) === "connecting"
                       ? "text-[#f0c56c]"
                       : "text-text-muted"
                 }`}
               >
-                {wsStatus}
+                {consoleTab === "logs" ? wsStatus : shellStatus}
               </span>
               <button
                 onClick={() => setReconnectNonce((n) => n + 1)}
@@ -511,7 +665,7 @@ export default function AgentsPage() {
 
           {!selectedAgent ? (
             <div className="p-8 text-center text-text-muted">Select an agent to view logs.</div>
-          ) : (
+          ) : consoleTab === "logs" ? (
             <div
               ref={logBoxRef}
               className="h-[560px] overflow-auto bg-[#0c1016] text-[#d8dde7] text-xs leading-5 font-mono p-4"
@@ -536,6 +690,54 @@ export default function AgentsPage() {
                   {line}
                 </div>
               ))}
+            </div>
+          ) : (
+            <div className="h-[560px] bg-[#0c1016] text-[#d8dde7] text-xs leading-5 font-mono p-4 flex flex-col">
+              <div ref={shellBoxRef} className="flex-1 overflow-auto">
+                {shellStatus !== "connected" && (
+                  <div className="flex items-center gap-2 text-[#8b95a6] mb-3">
+                    <Loader2 className="w-4 h-4 animate-spin" />
+                    <span>
+                      {shellStatus === "connecting"
+                        ? "Connecting to shell websocket..."
+                        : "Waiting for shell websocket connection..."}
+                    </span>
+                  </div>
+                )}
+                {shellOutput.length === 0 && shellStatus === "connected" && (
+                  <div className="text-[#8b95a6]">
+                    Connected. Type a command below and press Enter.
+                  </div>
+                )}
+                {shellOutput.map((line, idx) => (
+                  <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">
+                    {line}
+                  </div>
+                ))}
+              </div>
+              <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-3">
+                <span className="text-[#8b95a6]">$</span>
+                <input
+                  value={shellInput}
+                  onChange={(e) => setShellInput(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") {
+                      e.preventDefault();
+                      sendShellCommand();
+                    }
+                  }}
+                  placeholder={shellStatus === "connected" ? "Enter command..." : "Shell disconnected"}
+                  disabled={shellStatus !== "connected"}
+                  className="flex-1 bg-transparent outline-none text-[#d8dde7] placeholder:text-[#6f7a8d] disabled:opacity-50"
+                />
+                <button
+                  onClick={sendShellCommand}
+                  disabled={shellStatus !== "connected" || !shellInput.trim()}
+                  className="btn-secondary px-2.5 py-1.5 rounded text-xs disabled:opacity-50"
+                >
+                  Send
+                </button>
+              </div>
             </div>
           )}
         </div>
