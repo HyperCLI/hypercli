@@ -55,6 +55,8 @@ interface LogEvent {
 }
 
 const MAX_LOG_LINES = 1500;
+const WS_RETRY_INTERVAL_MS = 15000;
+const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 
 function formatWhen(ts: string | null): string {
   if (!ts) return "-";
@@ -151,38 +153,43 @@ export default function AgentsPage() {
     fetchAgents();
   }, [fetchAgents]);
 
+  useEffect(() => {
+    const timer = setInterval(() => {
+      void fetchAgents();
+    }, AGENT_STATE_REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [fetchAgents]);
+
   const selectedAgent = useMemo(
     () => agents.find((item) => item.id === selectedAgentId) || null,
     [agents, selectedAgentId]
   );
 
   useEffect(() => {
-    if (!selectedAgent) {
+    if (!selectedAgentId) {
       setWsStatus("disconnected");
       setLogs([]);
       return;
     }
 
+    const agentId = selectedAgentId;
     let ws: WebSocket | null = null;
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectScheduled = false;
-    let reconnectAttempt = 0;
 
     setLogs([]);
 
     const scheduleReconnect = () => {
       if (cancelled || reconnectScheduled) return;
       reconnectScheduled = true;
-      const delayMs = Math.min(1000 * Math.pow(2, reconnectAttempt), 15000);
-      reconnectAttempt += 1;
       setWsStatus("connecting");
       reconnectTimer = setTimeout(() => {
         reconnectScheduled = false;
         if (!cancelled) {
           void connect();
         }
-      }, delayMs);
+      }, WS_RETRY_INTERVAL_MS);
     };
 
     const connect = async () => {
@@ -192,7 +199,7 @@ export default function AgentsPage() {
         if (cancelled) return;
 
         const stream = await clawFetch<AgentLogsTokenResponse>(
-          `/agents/${selectedAgent.id}/logs/token`,
+          `/agents/${agentId}/logs/token`,
           token,
           { method: "POST" }
         );
@@ -213,7 +220,7 @@ export default function AgentsPage() {
             throw new Error("WebSocket base URL is not configured");
           }
           url =
-            `${wsBase}/ws/${selectedAgent.id}` +
+            `${wsBase}/ws/${agentId}` +
             `?ws_token=${encodeURIComponent(stream.ws_token)}` +
             "&container=reef&tail_lines=400";
         }
@@ -222,9 +229,9 @@ export default function AgentsPage() {
 
         ws.onopen = () => {
           if (!cancelled) {
-            reconnectAttempt = 0;
             reconnectScheduled = false;
             setWsStatus("connected");
+            void fetchAgents();
           }
         };
 
@@ -284,7 +291,7 @@ export default function AgentsPage() {
         ws.close();
       }
     };
-  }, [selectedAgent, getToken, reconnectNonce]);
+  }, [selectedAgentId, getToken, reconnectNonce, fetchAgents]);
 
   useEffect(() => {
     if (!logBoxRef.current) return;
