@@ -165,8 +165,25 @@ export default function AgentsPage() {
 
     let ws: WebSocket | null = null;
     let cancelled = false;
+    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
+    let reconnectScheduled = false;
+    let reconnectAttempt = 0;
 
     setLogs([]);
+
+    const scheduleReconnect = () => {
+      if (cancelled || reconnectScheduled) return;
+      reconnectScheduled = true;
+      const delayMs = Math.min(1000 * Math.pow(2, reconnectAttempt), 15000);
+      reconnectAttempt += 1;
+      setWsStatus("connecting");
+      reconnectTimer = setTimeout(() => {
+        reconnectScheduled = false;
+        if (!cancelled) {
+          void connect();
+        }
+      }, delayMs);
+    };
 
     const connect = async () => {
       try {
@@ -204,7 +221,11 @@ export default function AgentsPage() {
         ws = new WebSocket(url);
 
         ws.onopen = () => {
-          if (!cancelled) setWsStatus("connected");
+          if (!cancelled) {
+            reconnectAttempt = 0;
+            reconnectScheduled = false;
+            setWsStatus("connected");
+          }
         };
 
         ws.onmessage = (event) => {
@@ -237,30 +258,29 @@ export default function AgentsPage() {
         };
 
         ws.onclose = () => {
-          if (!cancelled) setWsStatus("disconnected");
+          if (cancelled) return;
+          scheduleReconnect();
         };
 
         ws.onerror = () => {
-          if (!cancelled) {
-            setWsStatus("disconnected");
-            setLogs((prev) => [...prev, "[stream-error] websocket connection failed"]);
-          }
+          if (cancelled) return;
+          scheduleReconnect();
         };
-      } catch (err) {
+      } catch {
         if (!cancelled) {
-          setWsStatus("disconnected");
-          setLogs([
-            `[stream-error] ${err instanceof Error ? err.message : "failed to connect"}`,
-          ]);
+          scheduleReconnect();
         }
       }
     };
 
-    connect();
+    void connect();
 
     return () => {
       cancelled = true;
-      if (ws && ws.readyState === WebSocket.OPEN) {
+      if (reconnectTimer) {
+        clearTimeout(reconnectTimer);
+      }
+      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) {
         ws.close();
       }
     };
