@@ -7,6 +7,7 @@ from .user import UserAPI
 from .instances import Instances
 from .renders import Renders
 from .files import Files
+from .agents import Agents
 from .claw import Claw
 from .keys import KeysAPI
 
@@ -50,6 +51,7 @@ class HyperCLI:
         self._http = HTTPClient(self._api_url, self._api_key)
 
         # API namespaces
+        self.agents = Agents(self._http, claw_api_key=claw_api_key)
         self.billing = Billing(self._http)
         self.jobs = Jobs(self._http)
         self.user = UserAPI(self._http)
