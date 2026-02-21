@@ -8,12 +8,14 @@ from rich.console import Console
 from rich.table import Table
 
 from .onboard import onboard as _onboard_fn
+from .voice import app as voice_app
 
 app = typer.Typer(help="HyperClaw inference commands")
 console = Console()
 
-# Register onboard as a subcommand
+# Register subcommands
 app.command("onboard")(_onboard_fn)
+app.add_typer(voice_app, name="voice")
 
 # Check if wallet dependencies are available
 try:
