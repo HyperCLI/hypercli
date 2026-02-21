@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { FitAddon } from "@xterm/addon-fit";
+import { Terminal } from "@xterm/xterm";
 import {
   Bot,
   ExternalLink,
@@ -10,6 +12,7 @@ import {
   TerminalSquare,
   Trash2,
 } from "lucide-react";
+import "@xterm/xterm/css/xterm.css";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
@@ -135,12 +138,13 @@ export default function AgentsPage() {
   const [shellStatus, setShellStatus] = useState<"disconnected" | "connecting" | "connected">(
     "disconnected"
   );
-  const [shellOutput, setShellOutput] = useState<string[]>([]);
-  const [shellInput, setShellInput] = useState("");
 
   const logBoxRef = useRef<HTMLDivElement | null>(null);
   const shellBoxRef = useRef<HTMLDivElement | null>(null);
   const shellWsRef = useRef<WebSocket | null>(null);
+  const shellTerminalRef = useRef<Terminal | null>(null);
+  const shellFitAddonRef = useRef<FitAddon | null>(null);
+  const shellSessionAgentRef = useRef<string | null>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -335,6 +339,54 @@ export default function AgentsPage() {
   }, [logs]);
 
   useEffect(() => {
+    if (consoleTab !== "shell") return;
+    if (!shellBoxRef.current) return;
+
+    const term = new Terminal({
+      convertEol: false,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      fontFamily:
+        "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
+      fontSize: 12,
+      lineHeight: 1.45,
+      scrollback: 3000,
+      theme: {
+        background: "#0c1016",
+        foreground: "#d8dde7",
+        cursor: "#d8dde7",
+        selectionBackground: "#2a3445",
+      },
+    });
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(shellBoxRef.current);
+    fitAddon.fit();
+    term.focus();
+
+    const disposable = term.onData((data) => {
+      const ws = shellWsRef.current;
+      if (!ws || ws.readyState !== WebSocket.OPEN) return;
+      ws.send(data);
+    });
+
+    const onResize = () => fitAddon.fit();
+    window.addEventListener("resize", onResize);
+
+    shellTerminalRef.current = term;
+    shellFitAddonRef.current = fitAddon;
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      disposable.dispose();
+      term.dispose();
+      shellTerminalRef.current = null;
+      shellFitAddonRef.current = null;
+      shellSessionAgentRef.current = null;
+    };
+  }, [consoleTab]);
+
+  useEffect(() => {
     if (consoleTab !== "shell") {
       setShellStatus("disconnected");
       if (shellWsRef.current) {
@@ -345,7 +397,6 @@ export default function AgentsPage() {
     }
     if (!selectedAgentId) {
       setShellStatus("disconnected");
-      setShellOutput([]);
       return;
     }
 
@@ -353,7 +404,14 @@ export default function AgentsPage() {
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectScheduled = false;
-    setShellOutput([]);
+
+    const term = shellTerminalRef.current;
+    if (term && shellSessionAgentRef.current !== agentId) {
+      term.reset();
+      term.writeln(`Connected to ${agentId}`);
+      term.writeln("");
+      shellSessionAgentRef.current = agentId;
+    }
 
     const scheduleReconnect = () => {
       if (cancelled || reconnectScheduled) return;
@@ -370,6 +428,7 @@ export default function AgentsPage() {
     const connect = async () => {
       try {
         setShellStatus("connecting");
+        shellTerminalRef.current?.writeln("\r\n[connecting shell...]");
         if (!selectedAgentHostname) {
           scheduleReconnect();
           return;
@@ -385,25 +444,26 @@ export default function AgentsPage() {
           if (cancelled) return;
           reconnectScheduled = false;
           setShellStatus("connected");
+          shellFitAddonRef.current?.fit();
+          shellTerminalRef.current?.focus();
         };
 
         ws.onmessage = (event) => {
           if (cancelled) return;
           const text = typeof event.data === "string" ? event.data : String(event.data ?? "");
           if (!text) return;
-          setShellOutput((prev) => {
-            const next = [...prev, text];
-            return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next;
-          });
+          shellTerminalRef.current?.write(text);
         };
 
         ws.onclose = () => {
           if (cancelled) return;
+          shellTerminalRef.current?.writeln("\r\n[disconnected]");
           scheduleReconnect();
         };
 
         ws.onerror = () => {
           if (cancelled) return;
+          shellTerminalRef.current?.writeln("\r\n[shell websocket error]");
           scheduleReconnect();
         };
       } catch {
@@ -423,19 +483,6 @@ export default function AgentsPage() {
       shellWsRef.current = null;
     };
   }, [consoleTab, selectedAgentId, selectedAgentHostname, reconnectNonce, issueAgentAccessToken]);
-
-  useEffect(() => {
-    if (!shellBoxRef.current) return;
-    shellBoxRef.current.scrollTop = shellBoxRef.current.scrollHeight;
-  }, [shellOutput]);
-
-  const sendShellCommand = useCallback(() => {
-    const ws = shellWsRef.current;
-    const command = shellInput.trim();
-    if (!command || !ws || ws.readyState !== WebSocket.OPEN) return;
-    ws.send(`${command}\n`);
-    setShellInput("");
-  }, [shellInput]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -688,51 +735,25 @@ export default function AgentsPage() {
               ))}
             </div>
           ) : (
-            <div className="h-[560px] bg-[#0c1016] text-[#d8dde7] text-xs leading-5 font-mono p-4 flex flex-col">
-              <div ref={shellBoxRef} className="flex-1 overflow-auto">
-                {shellStatus !== "connected" && (
-                  <div className="flex items-center gap-2 text-[#8b95a6] mb-3">
-                    <Loader2 className="w-4 h-4 animate-spin" />
-                    <span>
-                      {shellStatus === "connecting"
-                        ? "Connecting to shell websocket..."
-                        : "Waiting for shell websocket connection..."}
-                    </span>
-                  </div>
-                )}
-                {shellOutput.length === 0 && shellStatus === "connected" && (
-                  <div className="text-[#8b95a6]">
-                    Connected. Type a command below and press Enter.
-                  </div>
-                )}
-                {shellOutput.map((line, idx) => (
-                  <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">
-                    {line}
-                  </div>
-                ))}
-              </div>
-              <div className="mt-3 flex items-center gap-2 border-t border-border/40 pt-3">
-                <span className="text-[#8b95a6]">$</span>
-                <input
-                  value={shellInput}
-                  onChange={(e) => setShellInput(e.target.value)}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter") {
-                      e.preventDefault();
-                      sendShellCommand();
-                    }
-                  }}
-                  placeholder={shellStatus === "connected" ? "Enter command..." : "Shell disconnected"}
-                  disabled={shellStatus !== "connected"}
-                  className="flex-1 bg-transparent outline-none text-[#d8dde7] placeholder:text-[#6f7a8d] disabled:opacity-50"
-                />
-                <button
-                  onClick={sendShellCommand}
-                  disabled={shellStatus !== "connected" || !shellInput.trim()}
-                  className="btn-secondary px-2.5 py-1.5 rounded text-xs disabled:opacity-50"
-                >
-                  Send
-                </button>
+            <div className="relative h-[560px] bg-[#0c1016] p-4">
+              <div ref={shellBoxRef} className="h-full w-full" />
+              {shellStatus !== "connected" && (
+                <div className="pointer-events-none absolute right-4 top-4 flex items-center gap-2 text-xs text-[#8b95a6]">
+                  <Loader2 className="h-4 w-4 animate-spin" />
+                  <span>
+                    {shellStatus === "connecting"
+                      ? "Connecting to shell websocket..."
+                      : "Waiting for shell websocket connection..."}
+                  </span>
+                </div>
+              )}
+              {shellStatus === "connected" && (
+                <div className="pointer-events-none absolute right-4 top-4 text-xs text-[#8b95a6]">
+                  Interactive shell active
+                </div>
+              )}
+              <div className="pointer-events-none absolute bottom-4 right-4 text-[11px] text-[#6f7a8d]">
+                Type directly in terminal
               </div>
             </div>
           )}
