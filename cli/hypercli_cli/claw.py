@@ -194,7 +194,19 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
             payment_headers = http_client.encode_payment_signature_header(payment_payload)
             console.print(f"[green]✓[/green] Payment signed")
             
-            # Step 6: Retry with payment
+            # Step 6: Retry with payment (include JWT if available from claw login)
+            jwt_path = HYPERCLI_DIR / "claw-jwt.json"
+            if jwt_path.exists():
+                try:
+                    with open(jwt_path) as f:
+                        jwt_data = json.load(f)
+                    jwt_token = jwt_data.get("token", "")
+                    if jwt_token:
+                        payment_headers["Authorization"] = f"Bearer {jwt_token}"
+                        console.print("[green]✓[/green] Attaching user auth (from claw login)")
+                except Exception:
+                    pass
+
             console.print("[bold]Sending payment...[/bold]")
             retry_response = await http.post(url, headers=payment_headers)
             
@@ -353,6 +365,134 @@ def models(
     console.print(table)
     console.print()
     console.print(f"Source: {url}")
+
+
+@app.command("login")
+def login(
+    api_url: str = typer.Option(None, "--api-url", help="API base URL override"),
+):
+    """Login to HyperClaw with your wallet.
+
+    Signs a challenge message with your wallet key to authenticate,
+    then creates a user-bound API key for agent management.
+
+    Prerequisite: hyper wallet create (if you don't have a wallet yet)
+
+    Flow:
+      1. Signs a challenge with your wallet private key
+      2. Backend verifies signature, creates/finds your user
+      3. Creates an API key bound to your user account
+      4. Saves the key to ~/.hypercli/claw-key.json
+
+    After login, you can use:
+      hyper agents create    Launch an OpenClaw agent pod
+      hyper agents list      List your agents
+      hyper claw config      Generate provider configs
+    """
+    try:
+        from eth_account.messages import encode_defunct
+        from eth_account import Account
+    except ImportError:
+        console.print("[red]❌ Wallet dependencies required[/red]")
+        console.print("Install with: [bold]pip install 'hypercli-cli[wallet]'[/bold]")
+        raise typer.Exit(1)
+
+    import httpx
+
+    # Import wallet loader from wallet module
+    from .wallet import load_wallet
+
+    base_url = (api_url or PROD_API_BASE).rstrip("/")
+
+    # Step 1: Load wallet
+    account = load_wallet()
+    console.print(f"\n[green]✓[/green] Wallet: [bold]{account.address}[/bold]\n")
+
+    # Step 2: Get challenge
+    console.print("[bold]Requesting challenge...[/bold]")
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(
+            f"{base_url}/api/auth/wallet/challenge",
+            json={"wallet": account.address},
+        )
+        if resp.status_code != 200:
+            console.print(f"[red]❌ Challenge failed: {resp.text}[/red]")
+            raise typer.Exit(1)
+        challenge = resp.json()
+
+    # Step 3: Sign
+    console.print("[bold]Signing...[/bold]")
+    message = encode_defunct(text=challenge["message"])
+    signed = account.sign_message(message)
+
+    # Step 4: Verify signature and login
+    console.print("[bold]Authenticating...[/bold]")
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(
+            f"{base_url}/api/auth/wallet/login",
+            json={
+                "wallet": account.address,
+                "signature": signed.signature.hex(),
+                "timestamp": challenge["timestamp"],
+            },
+        )
+        if resp.status_code != 200:
+            console.print(f"[red]❌ Login failed: {resp.text}[/red]")
+            raise typer.Exit(1)
+        login_data = resp.json()
+        jwt_token = login_data["token"]
+
+    console.print("[green]✓[/green] Authenticated\n")
+
+    user_id = login_data.get("user_id", "")
+    team_id = login_data.get("team_id", "")
+    wallet_addr = login_data.get("wallet_address", account.address)
+
+    # Step 5: Create a claw API key using the JWT
+    console.print("[bold]Creating API key...[/bold]")
+    with httpx.Client(timeout=15) as client:
+        resp = client.post(
+            f"{base_url}/api/keys",
+            json={"name": "claw-cli"},
+            headers={"Authorization": f"Bearer {jwt_token}"},
+        )
+        if resp.status_code != 200:
+            # Save JWT anyway so user can still auth
+            jwt_path = HYPERCLI_DIR / "claw-jwt.json"
+            HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
+            with open(jwt_path, "w") as f:
+                json.dump({"token": jwt_token, "user_id": user_id, "team_id": team_id}, f, indent=2)
+            console.print(f"[yellow]⚠ Key creation failed: {resp.text}[/yellow]")
+            console.print(f"[green]✓[/green] JWT saved to {jwt_path} (use for direct auth)")
+            raise typer.Exit(1)
+
+        key_data = resp.json()
+
+    api_key = key_data.get("api_key", key_data.get("key", ""))
+
+    # Step 6: Save as claw key
+    HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
+    claw_key_data = {
+        "key": api_key,
+        "plan_id": login_data.get("plan_id", "free"),
+        "user_id": user_id,
+        "team_id": team_id,
+        "wallet_address": wallet_addr,
+        "tpm_limit": 0,
+        "rpm_limit": 0,
+        "expires_at": "",
+    }
+    with open(CLAW_KEY_PATH, "w") as f:
+        json.dump(claw_key_data, f, indent=2)
+
+    console.print(f"[green]✓[/green] API key saved to [bold]{CLAW_KEY_PATH}[/bold]\n")
+    console.print(f"  User:    {user_id[:12]}...")
+    console.print(f"  Team:    {team_id[:12]}...")
+    console.print(f"  Key:     {api_key[:20]}...")
+    console.print(f"  Wallet:  {wallet_addr}")
+    console.print(f"\n[green]You're all set![/green]")
+    console.print(f"  Launch agent:   [bold]hyper agents create[/bold]")
+    console.print(f"  Configure:      [bold]hyper claw config openclaw --apply[/bold]")
 
 
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"

@@ -9,6 +9,7 @@ from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, F
 from .files import File, AsyncFiles
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
+from .agents import Agents, ReefPod, ExecResult
 from .claw import Claw, ClawKey, ClawPlan, ClawModel
 
 __version__ = "0.8.9"
@@ -64,6 +65,10 @@ __all__ = [
     "LogStream",
     "stream_logs",
     "fetch_logs",
+    # Agents (Reef Pods)
+    "Agents",
+    "ReefPod",
+    "ExecResult",
     # HyperClaw
     "Claw",
     "ClawKey",
