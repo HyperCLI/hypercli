@@ -149,7 +149,7 @@ def design(
     api_key = _get_api_key(key)
     payload = {
         "text": text,
-        "voice_description": description,
+        "instruct": description,
         "language": language,
     }
     _post_voice("design", payload, api_key, output, dev)
