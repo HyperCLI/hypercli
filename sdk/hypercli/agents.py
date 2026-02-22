@@ -29,6 +29,9 @@ class ReefPod:
     pod_id: str
     pod_name: str
     state: str
+    name: Optional[str] = None
+    cpu: int = 0              # cores
+    memory: int = 0           # GB
     hostname: Optional[str] = None
     jwt_token: Optional[str] = None
     jwt_expires_at: Optional[datetime] = None
@@ -51,6 +54,9 @@ class ReefPod:
             pod_id=data.get("pod_id", ""),
             pod_name=data.get("pod_name", ""),
             state=data.get("state", "unknown"),
+            name=data.get("name"),
+            cpu=data.get("cpu", 0),
+            memory=data.get("memory", 0),
             hostname=data.get("hostname"),
             jwt_token=data.get("jwt_token"),
             jwt_expires_at=_parse_dt(data.get("jwt_expires_at")),
@@ -172,20 +178,56 @@ class Agents:
     # Agent lifecycle (HyperClaw backend → Lagoon)
     # -----------------------------------------------------------------------
 
-    def create(self, config: dict = None) -> ReefPod:
+    def create(
+        self,
+        name: str = "agent",
+        size: str = None,
+        cpu: int = None,
+        memory: int = None,
+        config: dict = None,
+        start: bool = True,
+    ) -> ReefPod:
         """Create a new agent (provisions a reef pod via the backend).
 
-        The backend handles: auth, plan enforcement, runtime key generation,
-        Lagoon pod creation, and DB persistence.
-
         Args:
+            name: Agent name.
+            size: Size preset (small/medium/large). Default: medium.
+            cpu: Custom CPU in cores (overrides size).
+            memory: Custom memory in GB (overrides size).
             config: Optional config overrides.
+            start: Start the agent immediately (default: True).
 
         Returns:
             ReefPod with connection details.
         """
-        data = self._post("/api/agents", json={"config": config or {}})
+        body: dict = {"name": name, "config": config or {}, "start": start}
+        if size:
+            body["size"] = size
+        if cpu is not None:
+            body["cpu"] = cpu
+        if memory is not None:
+            body["memory"] = memory
+        data = self._post("/api/agents", json=body)
         return ReefPod.from_dict(data)
+
+    def budget(self) -> dict:
+        """Get the user's current agent resource budget and usage.
+
+        Returns:
+            Dict with budget, used, available (all in cores/GB).
+        """
+        return self._get("/api/agents/budget")
+
+    def metrics(self, agent_id: str) -> dict:
+        """Get live CPU/memory metrics for a running agent.
+
+        Args:
+            agent_id: Agent UUID.
+
+        Returns:
+            Dict with container metrics from k8s metrics-server.
+        """
+        return self._get(f"/api/agents/{agent_id}/metrics")
 
     def list(self) -> list[ReefPod]:
         """List all agents for the authenticated user.
