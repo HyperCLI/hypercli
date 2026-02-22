@@ -16,6 +16,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
+import { AlertDialog } from "@hypercli/shared-ui";
 
 type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
@@ -126,6 +127,7 @@ export default function AgentsPage() {
   const [error, setError] = useState<string | null>(null);
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
+  const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -634,7 +636,7 @@ export default function AgentsPage() {
                       </button>
                     )}
                     <button
-                      onClick={() => handleDelete(agent.id)}
+                      onClick={() => setDeleteConfirmId(agent.id)}
                       disabled={deletingId === agent.id}
                       className="px-2.5 py-1.5 rounded text-xs border border-[#d05f5f]/30 text-[#d05f5f] hover:bg-[#d05f5f]/10 disabled:opacity-60 flex items-center gap-1"
                     >
@@ -759,6 +761,23 @@ export default function AgentsPage() {
           )}
         </div>
       </div>
+
+      <AlertDialog
+        isOpen={deleteConfirmId !== null}
+        onClose={() => setDeleteConfirmId(null)}
+        title="Delete Agent"
+        message={`This will permanently delete the agent${deleteConfirmId ? ` "${agents.find((a) => a.id === deleteConfirmId)?.pod_name || deleteConfirmId.slice(0, 12)}"` : ""}. All associated data will be removed. This action cannot be undone.`}
+        type="warning"
+        confirmText="Delete"
+        cancelText="Cancel"
+        showCancel
+        onConfirm={async () => {
+          if (deleteConfirmId) {
+            await handleDelete(deleteConfirmId);
+            setDeleteConfirmId(null);
+          }
+        }}
+      />
     </div>
   );
 }
