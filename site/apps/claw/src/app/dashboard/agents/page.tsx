@@ -1141,9 +1141,9 @@ export default function AgentsPage() {
                 </div>
                 <p className="text-[#8b95a6] text-sm">
                   {selectedAgent.state === "STOPPED"
-                    ? "Agent is stopped. Start it to view logs and shell."
+                    ? "Agent is stopped. Start it to view logs and shell, or use the Files tab to browse storage."
                     : selectedAgent.state === "FAILED"
-                      ? "Agent has failed. Check the error and restart."
+                      ? "Agent has failed. Check the error and restart, or use the Files tab to browse storage."
                       : "Agent is not running."}
                 </p>
               </div>
