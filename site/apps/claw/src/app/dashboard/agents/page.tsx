@@ -4,8 +4,12 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import {
+  ArrowLeft,
   Bot,
+  Download,
   ExternalLink,
+  File,
+  FolderOpen,
   Loader2,
   Pencil,
   Play,
@@ -14,6 +18,7 @@ import {
   Square,
   TerminalSquare,
   Trash2,
+  Upload,
   X as XIcon,
   Check as CheckIcon,
 } from "lucide-react";
@@ -50,6 +55,22 @@ interface AgentLogsTokenResponse {
   ws_url?: string;
 }
 
+interface FileEntry {
+  name: string;
+  path: string;
+  type: "file" | "directory";
+  size?: number;
+  size_formatted?: string;
+  last_modified?: string;
+}
+
+interface FileListResponse {
+  prefix: string;
+  directories: FileEntry[];
+  files: FileEntry[];
+  truncated: boolean;
+}
+
 interface AgentDesktopTokenResponse {
   agent_id: string;
   pod_id: string;
@@ -67,7 +88,7 @@ interface LogEvent {
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
-type ConsoleTab = "logs" | "shell";
+type ConsoleTab = "logs" | "shell" | "files";
 
 function formatWhen(ts: string | null): string {
   if (!ts) return "-";
@@ -144,6 +165,14 @@ export default function AgentsPage() {
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("logs");
+
+  // File browser state
+  const [filePath, setFilePath] = useState("");
+  const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
+  const [filesLoading, setFilesLoading] = useState(false);
+  const [filesError, setFilesError] = useState<string | null>(null);
+  const [uploading, setUploading] = useState(false);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">(
     "disconnected"
@@ -549,6 +578,94 @@ export default function AgentsPage() {
     }
   };
 
+  // --- File browser ---
+  const fetchFiles = useCallback(async (agentId: string, prefix: string) => {
+    setFilesLoading(true);
+    setFilesError(null);
+    try {
+      const token = await getToken();
+      const params = new URLSearchParams();
+      if (prefix) params.set("prefix", prefix);
+      const data = await clawFetch<FileListResponse>(
+        `/agents/${agentId}/files?${params.toString()}`,
+        token,
+      );
+      const entries: FileEntry[] = [
+        ...data.directories,
+        ...data.files,
+      ];
+      setFileEntries(entries);
+    } catch (err) {
+      setFilesError(err instanceof Error ? err.message : "Failed to load files");
+      setFileEntries([]);
+    } finally {
+      setFilesLoading(false);
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    if (consoleTab === "files" && selectedAgentId) {
+      void fetchFiles(selectedAgentId, filePath);
+    }
+  }, [consoleTab, selectedAgentId, filePath, fetchFiles]);
+
+  const handleFileDownload = async (agentId: string, path: string) => {
+    try {
+      const token = await getToken();
+      const data = await clawFetch<{ url: string }>(
+        `/agents/${agentId}/files/download/${path}`,
+        token,
+      );
+      window.open(data.url, "_blank");
+    } catch (err) {
+      setFilesError(err instanceof Error ? err.message : "Download failed");
+    }
+  };
+
+  const handleFileUpload = async (agentId: string, files: FileList) => {
+    setUploading(true);
+    setFilesError(null);
+    try {
+      const token = await getToken();
+      for (const file of Array.from(files)) {
+        const uploadPath = filePath + file.name;
+        const resp = await fetch(
+          `${CLAW_API_BASE}/agents/${agentId}/files/upload/${uploadPath}`,
+          {
+            method: "PUT",
+            headers: {
+              Authorization: `Bearer ${token}`,
+              "Content-Type": file.type || "application/octet-stream",
+            },
+            body: file,
+          },
+        );
+        if (!resp.ok) {
+          const err = await resp.json().catch(() => ({ detail: resp.statusText }));
+          throw new Error(err.detail || `Upload failed (${resp.status})`);
+        }
+      }
+      void fetchFiles(agentId, filePath);
+    } catch (err) {
+      setFilesError(err instanceof Error ? err.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  };
+
+  const handleFileDelete = async (agentId: string, path: string, name: string) => {
+    if (!confirm(`Delete "${name}"?`)) return;
+    try {
+      const token = await getToken();
+      await clawFetch(`/agents/${agentId}/files/delete/${path}`, token, {
+        method: "DELETE",
+      });
+      void fetchFiles(agentId, filePath);
+    } catch (err) {
+      setFilesError(err instanceof Error ? err.message : "Delete failed");
+    }
+  };
+
   const handleDelete = async (agentId: string) => {
     setDeletingId(agentId);
     setError(null);
@@ -855,34 +972,176 @@ export default function AgentsPage() {
                 >
                   Shell
                 </button>
+                <button
+                  onClick={() => { setConsoleTab("files"); setFilePath(""); }}
+                  className={`px-3 py-1.5 text-xs border-l border-border ${
+                    consoleTab === "files"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  Files
+                </button>
               </div>
             </div>
 
             <div className="flex items-center gap-3">
-              <span
-                className={`text-xs font-medium ${
-                  (consoleTab === "logs" ? wsStatus : shellStatus) === "connected"
-                    ? "text-primary"
-                    : (consoleTab === "logs" ? wsStatus : shellStatus) === "connecting"
-                      ? "text-[#f0c56c]"
-                      : "text-text-muted"
-                }`}
-              >
-                {consoleTab === "logs" ? wsStatus : shellStatus}
-              </span>
-              <button
-                onClick={() => setReconnectNonce((n) => n + 1)}
-                disabled={!selectedAgent}
-                className="text-xs text-text-muted hover:text-foreground transition-colors disabled:opacity-40 flex items-center gap-1"
-              >
-                <RefreshCw className="w-3.5 h-3.5" />
-                Reconnect
-              </button>
+              {consoleTab === "files" ? (
+                <>
+                  <input
+                    ref={fileInputRef}
+                    type="file"
+                    multiple
+                    className="hidden"
+                    onChange={(e) => {
+                      if (e.target.files && selectedAgentId) {
+                        void handleFileUpload(selectedAgentId, e.target.files);
+                        e.target.value = "";
+                      }
+                    }}
+                  />
+                  <button
+                    onClick={() => fileInputRef.current?.click()}
+                    disabled={!selectedAgent || uploading}
+                    className="text-xs text-text-muted hover:text-foreground transition-colors disabled:opacity-40 flex items-center gap-1"
+                  >
+                    {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+                    Upload
+                  </button>
+                  <button
+                    onClick={() => selectedAgentId && void fetchFiles(selectedAgentId, filePath)}
+                    disabled={!selectedAgent}
+                    className="text-xs text-text-muted hover:text-foreground transition-colors disabled:opacity-40 flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                  </button>
+                </>
+              ) : (
+                <>
+                  <span
+                    className={`text-xs font-medium ${
+                      (consoleTab === "logs" ? wsStatus : shellStatus) === "connected"
+                        ? "text-primary"
+                        : (consoleTab === "logs" ? wsStatus : shellStatus) === "connecting"
+                          ? "text-[#f0c56c]"
+                          : "text-text-muted"
+                    }`}
+                  >
+                    {consoleTab === "logs" ? wsStatus : shellStatus}
+                  </span>
+                  <button
+                    onClick={() => setReconnectNonce((n) => n + 1)}
+                    disabled={!selectedAgent}
+                    className="text-xs text-text-muted hover:text-foreground transition-colors disabled:opacity-40 flex items-center gap-1"
+                  >
+                    <RefreshCw className="w-3.5 h-3.5" />
+                    Reconnect
+                  </button>
+                </>
+              )}
             </div>
           </div>
 
           {!selectedAgent ? (
             <div className="p-8 text-center text-text-muted">Select an agent to view logs.</div>
+          ) : consoleTab === "files" ? (
+            <div className="h-[560px] overflow-auto bg-[#0c1016] text-[#d8dde7] text-xs font-mono">
+              {/* Breadcrumb */}
+              <div className="sticky top-0 bg-[#0c1016] border-b border-[#1a2030] px-4 py-2 flex items-center gap-2 text-[#8b95a6]">
+                <span className="text-text-muted">/</span>
+                {filePath && (
+                  <>
+                    <button
+                      onClick={() => {
+                        const parts = filePath.replace(/\/$/, "").split("/");
+                        parts.pop();
+                        setFilePath(parts.length ? parts.join("/") + "/" : "");
+                      }}
+                      className="hover:text-foreground flex items-center gap-1"
+                    >
+                      <ArrowLeft className="w-3 h-3" />
+                    </button>
+                    {filePath.split("/").filter(Boolean).map((part, i, arr) => (
+                      <span key={i}>
+                        <button
+                          onClick={() => setFilePath(arr.slice(0, i + 1).join("/") + "/")}
+                          className="hover:text-foreground"
+                        >
+                          {part}
+                        </button>
+                        {i < arr.length - 1 && <span className="mx-1">/</span>}
+                      </span>
+                    ))}
+                  </>
+                )}
+              </div>
+
+              {filesError && (
+                <div className="px-4 py-2 text-[#d05f5f] text-xs">{filesError}</div>
+              )}
+
+              {filesLoading ? (
+                <div className="flex items-center justify-center py-12">
+                  <Loader2 className="w-4 h-4 animate-spin text-[#8b95a6]" />
+                </div>
+              ) : fileEntries.length === 0 ? (
+                <div className="flex flex-col items-center justify-center py-16 text-[#8b95a6]">
+                  <FolderOpen className="w-8 h-8 mb-3 opacity-40" />
+                  <p>No files yet</p>
+                  <p className="text-[10px] mt-1">Upload files to get started</p>
+                </div>
+              ) : (
+                <div>
+                  {fileEntries.map((entry) => (
+                    <div
+                      key={entry.path}
+                      className="flex items-center gap-3 px-4 py-2 hover:bg-[#141a24] group border-b border-[#1a2030]/50"
+                    >
+                      {entry.type === "directory" ? (
+                        <button
+                          onClick={() => setFilePath(entry.path)}
+                          className="flex items-center gap-2 flex-1 min-w-0 text-left hover:text-foreground"
+                        >
+                          <FolderOpen className="w-3.5 h-3.5 text-[#f0c56c] flex-shrink-0" />
+                          <span className="truncate">{entry.name}/</span>
+                        </button>
+                      ) : (
+                        <div className="flex items-center gap-2 flex-1 min-w-0">
+                          <File className="w-3.5 h-3.5 text-[#8b95a6] flex-shrink-0" />
+                          <span className="truncate">{entry.name}</span>
+                          <span className="text-[#6f7a8d] flex-shrink-0 ml-auto mr-2">
+                            {entry.size_formatted}
+                          </span>
+                        </div>
+                      )}
+                      {entry.type === "file" && (
+                        <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-opacity flex-shrink-0">
+                          <button
+                            onClick={() => void handleFileDownload(selectedAgentId!, entry.path)}
+                            className="p-1 hover:text-primary"
+                            title="Download"
+                          >
+                            <Download className="w-3.5 h-3.5" />
+                          </button>
+                          <button
+                            onClick={() => void handleFileDelete(selectedAgentId!, entry.path, entry.name)}
+                            className="p-1 hover:text-[#d05f5f]"
+                            title="Delete"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Sync notice */}
+              <div className="sticky bottom-0 bg-[#0c1016] border-t border-[#1a2030] px-4 py-2 text-[10px] text-[#6f7a8d]">
+                Uploaded files are synced on agent restart
+              </div>
+            </div>
           ) : !isAgentConnectable ? (
             <div className="h-[560px] bg-[#0c1016] flex items-center justify-center">
               <div className="text-center">
