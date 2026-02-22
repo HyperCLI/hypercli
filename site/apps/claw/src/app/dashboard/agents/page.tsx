@@ -497,7 +497,7 @@ export default function AgentsPage() {
       const token = await getToken();
       await clawFetch<Agent>("/agents", token, {
         method: "POST",
-        body: JSON.stringify({ config: {} }),
+        body: JSON.stringify({ start: false }),
       });
       await fetchAgents();
     } catch (err) {
@@ -597,7 +597,7 @@ export default function AgentsPage() {
           className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-60"
         >
           {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Launch Agent
+          Create Agent
         </button>
       </div>
 
@@ -625,7 +625,7 @@ export default function AgentsPage() {
             <div className="p-8 text-center">
               <Bot className="w-8 h-8 text-text-muted mx-auto mb-3" />
               <p className="text-text-secondary mb-1">No active agents</p>
-              <p className="text-sm text-text-muted">Launch your first reef agent to start.</p>
+              <p className="text-sm text-text-muted">Create your first agent, then start it when ready.</p>
             </div>
           ) : (
             <div className="divide-y divide-border">
