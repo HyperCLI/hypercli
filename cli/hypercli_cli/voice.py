@@ -76,7 +76,8 @@ def tts(
     text: str = typer.Argument(..., help="Text to synthesize"),
     voice: str = typer.Option("Chelsie", "--voice", "-v", help="Voice name (CustomVoice preset)"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
-    output: Path = typer.Option("output.wav", "--output", "-o", help="Output audio file"),
+    format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
@@ -84,13 +85,16 @@ def tts(
     
     Examples:
       hyper claw voice tts "Hello world"
-      hyper claw voice tts "Bonjour" -v Etienne -l french -o hello.wav
+      hyper claw voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
     """
     api_key = _get_api_key(key)
+    if output is None:
+        output = Path(f"output.{format}")
     payload = {
         "text": text,
         "voice": voice,
         "language": language,
+        "response_format": format,
     }
     _post_voice("tts", payload, api_key, output, dev)
 
@@ -101,7 +105,8 @@ def clone(
     ref_audio: Path = typer.Option(..., "--ref", "-r", help="Reference audio file (wav/mp3/ogg)"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     x_vector_only: bool = typer.Option(True, "--x-vector-only/--full-clone", help="Use x_vector_only mode (recommended)"),
-    output: Path = typer.Option("output.wav", "--output", "-o", help="Output audio file"),
+    format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
@@ -109,9 +114,11 @@ def clone(
     
     Examples:
       hyper claw voice clone "Hello" --ref voice.wav
-      hyper claw voice clone "Test" -r ref.wav -l english -o cloned.wav
+      hyper claw voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
     """
     api_key = _get_api_key(key)
+    if output is None:
+        output = Path(f"output.{format}")
 
     if not ref_audio.exists():
         console.print(f"[red]❌ Reference audio not found: {ref_audio}[/red]")
@@ -127,6 +134,7 @@ def clone(
         "ref_audio_base64": ref_b64,
         "language": language,
         "x_vector_only": x_vector_only,
+        "response_format": format,
     }
     _post_voice("clone", payload, api_key, output, dev)
 
@@ -136,7 +144,8 @@ def design(
     text: str = typer.Argument(..., help="Text to synthesize"),
     description: str = typer.Option(..., "--desc", "-d", help="Voice description (e.g. 'young female, warm, American accent')"),
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
-    output: Path = typer.Option("output.wav", "--output", "-o", help="Output audio file"),
+    format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
+    output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
@@ -144,12 +153,15 @@ def design(
     
     Examples:
       hyper claw voice design "Hello" --desc "deep male voice, British accent"
-      hyper claw voice design "Test" -d "young woman, cheerful" -o designed.wav
+      hyper claw voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
     """
     api_key = _get_api_key(key)
+    if output is None:
+        output = Path(f"output.{format}")
     payload = {
         "text": text,
         "instruct": description,
         "language": language,
+        "response_format": format,
     }
     _post_voice("design", payload, api_key, output, dev)
