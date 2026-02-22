@@ -742,6 +742,9 @@ export default function AgentsPage() {
                           <p className="text-xs text-text-muted truncate">
                             {agent.hostname || `${agent.name}.hyperclaw.app`}
                           </p>
+                          <p className="text-[10px] text-text-muted/60 truncate font-mono mt-0.5">
+                            {agent.id}
+                          </p>
                         </button>
                       )}
                     </div>
