@@ -107,8 +107,41 @@ def _get_pod_with_token(agent_id: str) -> ReefPod:
     return pod
 
 
+@app.command("budget")
+def budget():
+    """Show your agent resource budget and usage."""
+    agents = _get_agents_client()
+
+    try:
+        data = agents.budget()
+    except Exception as e:
+        console.print(f"[red]❌ Failed to get budget: {e}[/red]")
+        raise typer.Exit(1)
+
+    b = data.get("budget", {})
+    u = data.get("used", {})
+    a = data.get("available", {})
+
+    console.print(f"\n[bold]Agent Resource Budget[/bold] ({data.get('plan_id', '')})")
+    console.print(f"  Agents:  {u.get('agents', 0)}/{b.get('max_agents', 0)} ({a.get('agents', 0)} available)")
+    console.print(f"  CPU:     {u.get('cpu', 0)}/{b.get('total_cpu', 0)} cores ({a.get('cpu', 0)} available)")
+    console.print(f"  Memory:  {u.get('memory', 0)}/{b.get('total_memory', 0)} GB ({a.get('memory', 0)} available)")
+
+    presets = data.get("size_presets", {})
+    if presets:
+        console.print("\n[bold]Size Presets:[/bold]")
+        for name, spec in presets.items():
+            console.print(f"  {name:8s} — {spec['cpu']} CPU, {spec['memory']} GB")
+    console.print()
+
+
 @app.command("create")
 def create(
+    name: str = typer.Option("agent", "--name", "-n", help="Agent name"),
+    size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
+    cpu: int = typer.Option(None, "--cpu", help="Custom CPU in cores"),
+    memory: int = typer.Option(None, "--memory", help="Custom memory in GB"),
+    no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
 ):
     """Create a new OpenClaw agent pod."""
@@ -117,7 +150,7 @@ def create(
     console.print("\n[bold]Creating agent pod...[/bold]")
 
     try:
-        pod = agents.create()
+        pod = agents.create(name=name, size=size, cpu=cpu, memory=memory, start=not no_start)
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
         raise typer.Exit(1)
@@ -125,7 +158,8 @@ def create(
     _save_pod_state(pod)
 
     console.print(f"[green]✓[/green] Agent created: [bold]{pod.id[:12]}[/bold]")
-    console.print(f"  Pod:      {pod.pod_name}")
+    console.print(f"  Name:     {pod.name or pod.pod_name}")
+    console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
     console.print(f"  Desktop:  {pod.vnc_url}")
     console.print(f"  Shell:    {pod.shell_url}")
@@ -186,7 +220,8 @@ def list_agents(
 
     table = Table(title="Agents")
     table.add_column("ID", style="cyan", no_wrap=True)
-    table.add_column("Pod", style="blue")
+    table.add_column("Name", style="blue")
+    table.add_column("Size")
     table.add_column("State")
     table.add_column("Desktop URL")
     table.add_column("Created")
@@ -194,9 +229,11 @@ def list_agents(
     for pod in pods:
         style = {"running": "green", "pending": "yellow", "starting": "yellow"}.get(pod.state, "red")
         created = pod.created_at.strftime("%Y-%m-%d %H:%M") if pod.created_at else ""
+        size_str = f"{pod.cpu}c/{pod.memory}G" if pod.cpu else ""
         table.add_row(
             pod.id[:12],
-            pod.pod_name or "",
+            pod.name or pod.pod_name or "",
+            size_str,
             f"[{style}]{pod.state}[/{style}]",
             pod.vnc_url or "",
             created,
@@ -225,7 +262,9 @@ def status(
     _save_pod_state(pod)
 
     console.print(f"\n[bold]Agent {pod.id[:12]}[/bold]")
+    console.print(f"  Name:       {pod.name or pod.pod_name}")
     console.print(f"  Pod:        {pod.pod_name}")
+    console.print(f"  Size:       {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:      {pod.state}")
     console.print(f"  Desktop:    {pod.vnc_url}")
     console.print(f"  Shell:      {pod.shell_url}")
