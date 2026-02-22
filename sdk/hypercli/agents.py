@@ -180,7 +180,7 @@ class Agents:
 
     def create(
         self,
-        name: str = "agent",
+        name: str = None,
         size: str = None,
         cpu: int = None,
         memory: int = None,
@@ -200,7 +200,9 @@ class Agents:
         Returns:
             ReefPod with connection details.
         """
-        body: dict = {"name": name, "config": config or {}, "start": start}
+        body: dict = {"config": config or {}, "start": start}
+        if name:
+            body["name"] = name
         if size:
             body["size"] = size
         if cpu is not None:

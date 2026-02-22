@@ -24,6 +24,7 @@ type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | 
 
 interface Agent {
   id: string;
+  name: string;
   user_id: string;
   pod_id: string;
   pod_name: string;
@@ -133,6 +134,8 @@ export default function AgentsPage() {
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
+  const [createName, setCreateName] = useState("");
+  const [createNameError, setCreateNameError] = useState<string | null>(null);
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("logs");
@@ -207,6 +210,11 @@ export default function AgentsPage() {
     [getToken]
   );
 
+  const isAgentConnectable = useMemo(() => {
+    if (!selectedAgent) return false;
+    return ["RUNNING", "PENDING", "STARTING", "STOPPING"].includes(selectedAgent.state);
+  }, [selectedAgent]);
+
   useEffect(() => {
     if (consoleTab !== "logs") {
       setWsStatus("disconnected");
@@ -215,6 +223,10 @@ export default function AgentsPage() {
     if (!selectedAgentId) {
       setWsStatus("disconnected");
       setLogs([]);
+      return;
+    }
+    if (!isAgentConnectable) {
+      setWsStatus("disconnected");
       return;
     }
 
@@ -337,7 +349,7 @@ export default function AgentsPage() {
         ws.close();
       }
     };
-  }, [consoleTab, selectedAgentId, getToken, reconnectNonce, fetchAgents]);
+  }, [consoleTab, selectedAgentId, isAgentConnectable, getToken, reconnectNonce, fetchAgents]);
 
   useEffect(() => {
     if (!logBoxRef.current) return;
@@ -402,6 +414,10 @@ export default function AgentsPage() {
       return;
     }
     if (!selectedAgentId) {
+      setShellStatus("disconnected");
+      return;
+    }
+    if (!isAgentConnectable) {
       setShellStatus("disconnected");
       return;
     }
@@ -488,20 +504,32 @@ export default function AgentsPage() {
       }
       shellWsRef.current = null;
     };
-  }, [consoleTab, selectedAgentId, selectedAgentHostname, reconnectNonce, issueAgentAccessToken]);
+  }, [consoleTab, selectedAgentId, selectedAgentHostname, isAgentConnectable, reconnectNonce, issueAgentAccessToken]);
 
   const handleCreate = async () => {
     setCreating(true);
     setError(null);
+    setCreateNameError(null);
     try {
       const token = await getToken();
+      const body: Record<string, unknown> = { start: false };
+      const trimmedName = createName.trim().toLowerCase();
+      if (trimmedName) {
+        body.name = trimmedName;
+      }
       await clawFetch<Agent>("/agents", token, {
         method: "POST",
-        body: JSON.stringify({ start: false }),
+        body: JSON.stringify(body),
       });
+      setCreateName("");
       await fetchAgents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create agent");
+      const msg = err instanceof Error ? err.message : "Failed to create agent";
+      if (msg.includes("name") || msg.includes("taken") || msg.includes("reserved")) {
+        setCreateNameError(msg);
+      } else {
+        setError(msg);
+      }
     } finally {
       setCreating(false);
     }
@@ -591,15 +619,48 @@ export default function AgentsPage() {
     <div>
       <div className="flex items-center justify-between mb-8">
         <h1 className="text-3xl font-bold text-foreground">Agents</h1>
-        <button
-          onClick={handleCreate}
-          disabled={creating}
-          className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-60"
-        >
-          {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-          Create Agent
-        </button>
+        <div className="flex items-center gap-2">
+          <div className="relative">
+            <input
+              type="text"
+              value={createName}
+              onChange={(e) => {
+                setCreateName(e.target.value.toLowerCase().replace(/[^a-z0-9-]/g, ""));
+                setCreateNameError(null);
+              }}
+              placeholder="agent name (optional)"
+              maxLength={32}
+              className={`px-3 py-2 rounded-lg text-sm bg-surface-low border ${
+                createNameError ? "border-[#d05f5f]" : "border-border"
+              } text-foreground placeholder:text-text-muted focus:outline-none focus:border-primary w-48`}
+              onKeyDown={(e) => {
+                if (e.key === "Enter" && !creating) {
+                  void handleCreate();
+                }
+              }}
+            />
+            {createName && (
+              <span className="absolute right-3 top-1/2 -translate-y-1/2 text-[10px] text-text-muted">
+                .hyperclaw.app
+              </span>
+            )}
+          </div>
+          <button
+            onClick={handleCreate}
+            disabled={creating}
+            className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-60"
+          >
+            {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
+            Create
+          </button>
+        </div>
       </div>
+
+      {createNameError && (
+        <div className="mb-4 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f]">
+          {createNameError}
+        </div>
+      )}
 
       {error && (
         <div className="mb-4 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f]">
@@ -641,9 +702,12 @@ export default function AgentsPage() {
                       onClick={() => setSelectedAgentId(agent.id)}
                       className="text-left min-w-0"
                     >
-                      <p className="text-sm font-semibold text-foreground truncate">{agent.pod_name}</p>
-                      <p className="text-xs text-text-muted truncate">{agent.hostname || "pending hostname"}</p>
-                      <p className="text-xs text-text-muted mt-1">Updated: {formatWhen(agent.updated_at)}</p>
+                      <p className="text-sm font-semibold text-foreground truncate">{agent.name}</p>
+                      <p className="text-xs text-text-muted truncate">
+                        {agent.hostname
+                          ? agent.hostname
+                          : `${agent.name}.hyperclaw.app`}
+                      </p>
                     </button>
 
                     <span className={`text-[11px] font-medium px-2 py-0.5 rounded-full ${stateClass(agent.state)}`}>
@@ -680,30 +744,30 @@ export default function AgentsPage() {
                         Stop
                       </button>
                     )}
-                    {(agent.state === "RUNNING" || agent.state === "PENDING" || agent.state === "STARTING") && (
-                      <>
-                        <button
-                          onClick={() => setSelectedAgentId(agent.id)}
-                          className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1"
-                        >
-                          <TerminalSquare className="w-3.5 h-3.5" />
-                          Console
-                        </button>
-                        {agent.hostname && (
-                          <button
-                            onClick={() => handleOpenDesktop(agent)}
-                            disabled={openingDesktopId === agent.id}
-                            className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-60"
-                          >
-                            {openingDesktopId === agent.id ? (
-                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
-                            ) : (
-                              <ExternalLink className="w-3.5 h-3.5" />
-                            )}
-                            Desktop
-                          </button>
+                    <button
+                      onClick={() => setSelectedAgentId(agent.id)}
+                      className={`px-2.5 py-1.5 rounded text-xs flex items-center gap-1 ${
+                        selectedAgentId === agent.id
+                          ? "bg-surface-low text-foreground border border-border"
+                          : "btn-secondary"
+                      }`}
+                    >
+                      <TerminalSquare className="w-3.5 h-3.5" />
+                      Console
+                    </button>
+                    {agent.hostname && (agent.state === "RUNNING" || agent.state === "PENDING" || agent.state === "STARTING") && (
+                      <button
+                        onClick={() => handleOpenDesktop(agent)}
+                        disabled={openingDesktopId === agent.id}
+                        className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-60"
+                      >
+                        {openingDesktopId === agent.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <ExternalLink className="w-3.5 h-3.5" />
                         )}
-                      </>
+                        Desktop
+                      </button>
                     )}
                     <button
                       onClick={() => setDeleteConfirmId(agent.id)}
@@ -729,7 +793,7 @@ export default function AgentsPage() {
             <div>
               <h2 className="text-lg font-semibold text-foreground">Console</h2>
               <p className="text-xs text-text-muted mt-0.5">
-                {selectedAgent ? selectedAgent.pod_name : "Select an agent"}
+                {selectedAgent ? selectedAgent.name : "Select an agent"}
               </p>
               <div className="mt-3 inline-flex rounded-lg border border-border overflow-hidden">
                 <button
@@ -780,6 +844,21 @@ export default function AgentsPage() {
 
           {!selectedAgent ? (
             <div className="p-8 text-center text-text-muted">Select an agent to view logs.</div>
+          ) : !isAgentConnectable ? (
+            <div className="h-[560px] bg-[#0c1016] flex items-center justify-center">
+              <div className="text-center">
+                <div className={`inline-block text-sm font-medium px-3 py-1 rounded-full mb-3 ${stateClass(selectedAgent.state)}`}>
+                  {selectedAgent.state}
+                </div>
+                <p className="text-[#8b95a6] text-sm">
+                  {selectedAgent.state === "STOPPED"
+                    ? "Agent is stopped. Start it to view logs and shell."
+                    : selectedAgent.state === "FAILED"
+                      ? "Agent has failed. Check the error and restart."
+                      : "Agent is not running."}
+                </p>
+              </div>
+            </div>
           ) : consoleTab === "logs" ? (
             <div
               ref={logBoxRef}
@@ -836,7 +915,7 @@ export default function AgentsPage() {
         isOpen={deleteConfirmId !== null}
         onClose={() => setDeleteConfirmId(null)}
         title="Delete Agent"
-        message={`This will permanently delete the agent${deleteConfirmId ? ` "${agents.find((a) => a.id === deleteConfirmId)?.pod_name || deleteConfirmId.slice(0, 12)}"` : ""}. All associated data will be removed. This action cannot be undone.`}
+        message={`This will permanently delete the agent${deleteConfirmId ? ` "${agents.find((a) => a.id === deleteConfirmId)?.name || deleteConfirmId.slice(0, 12)}"` : ""}. All associated data will be removed. This action cannot be undone.`}
         type="warning"
         confirmText="Delete"
         cancelText="Cancel"

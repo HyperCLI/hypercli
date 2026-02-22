@@ -137,7 +137,7 @@ def budget():
 
 @app.command("create")
 def create(
-    name: str = typer.Option("agent", "--name", "-n", help="Agent name"),
+    name: str = typer.Option(None, "--name", "-n", help="Agent name (auto-generated if omitted, becomes {name}.hyperclaw.app)"),
     size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
     cpu: int = typer.Option(None, "--cpu", help="Custom CPU in cores"),
     memory: int = typer.Option(None, "--memory", help="Custom memory in GB"),
