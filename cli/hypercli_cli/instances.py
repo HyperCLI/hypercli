@@ -195,6 +195,7 @@ def launch(
     lb_auth: bool = typer.Option(False, "--lb-auth", help="Enable auth on load balancer"),
     registry_user: Optional[str] = typer.Option(None, "--registry-user", help="Private registry username"),
     registry_password: Optional[str] = typer.Option(None, "--registry-password", help="Private registry password"),
+    dockerfile: Optional[str] = typer.Option(None, "--dockerfile", "-d", help="Path to Dockerfile (built on GPU node, overrides image as base)"),
     x402: bool = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet"),
     amount: Optional[float] = typer.Option(None, "--amount", help="USDC amount to spend with --x402"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs after creation"),
@@ -233,6 +234,16 @@ def launch(
     registry_auth = None
     if registry_user and registry_password:
         registry_auth = {"username": registry_user, "password": registry_password}
+
+    # Read and base64-encode Dockerfile if provided
+    dockerfile_b64 = None
+    if dockerfile:
+        import base64
+        from pathlib import Path
+        df_path = Path(dockerfile)
+        if not df_path.exists():
+            raise typer.BadParameter(f"Dockerfile not found: {dockerfile}")
+        dockerfile_b64 = base64.b64encode(df_path.read_bytes()).decode()
 
     # Auto-wrap command in sh -c if it contains shell operators
     if command and any(op in command for op in ["&&", "||", "|", ";", ">", "<", "$"]):
@@ -310,6 +321,7 @@ def launch(
                 ports=ports_dict,
                 auth=lb_auth,
                 registry_auth=registry_auth,
+                dockerfile=dockerfile_b64,
             )
 
         if fmt == "json":

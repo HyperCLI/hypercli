@@ -134,6 +134,7 @@ class Jobs:
         ports: dict[str, int] = None,
         auth: bool = False,
         registry_auth: dict[str, str] = None,
+        dockerfile: str = None,
     ) -> Job:
         """Create a new job.
 
@@ -149,6 +150,7 @@ class Jobs:
             ports: Ports to expose. Use {"lb": port} for HTTPS load balancer
             auth: Enable Bearer token auth on load balancer (use with ports={"lb": port})
             registry_auth: Private registry credentials {"username": "...", "password": "..."}
+            dockerfile: Base64-encoded Dockerfile (overrides docker_image if provided)
         """
         payload = {
             "docker_image": image,
@@ -169,6 +171,8 @@ class Jobs:
             payload["auth"] = auth
         if registry_auth:
             payload["registry_auth"] = registry_auth
+        if dockerfile:
+            payload["dockerfile"] = dockerfile
 
         data = self._http.post("/api/jobs", json=payload)
         return Job.from_dict(data)
