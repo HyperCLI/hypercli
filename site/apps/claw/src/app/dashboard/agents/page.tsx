@@ -7,8 +7,10 @@ import {
   Bot,
   ExternalLink,
   Loader2,
+  Play,
   Plus,
   RefreshCw,
+  Square,
   TerminalSquare,
   Trash2,
 } from "lucide-react";
@@ -128,6 +130,8 @@ export default function AgentsPage() {
   const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [deleteConfirmId, setDeleteConfirmId] = useState<string | null>(null);
+  const [startingId, setStartingId] = useState<string | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -522,6 +526,40 @@ export default function AgentsPage() {
     }
   };
 
+  const handleStart = async (agentId: string) => {
+    setStartingId(agentId);
+    setError(null);
+    try {
+      const token = await getToken();
+      await clawFetch<Agent>(`/agents/${agentId}/start`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await fetchAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to start agent");
+    } finally {
+      setStartingId(null);
+    }
+  };
+
+  const handleStop = async (agentId: string) => {
+    setStoppingId(agentId);
+    setError(null);
+    try {
+      const token = await getToken();
+      await clawFetch<Agent>(`/agents/${agentId}/stop`, token, {
+        method: "POST",
+        body: JSON.stringify({}),
+      });
+      await fetchAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to stop agent");
+    } finally {
+      setStoppingId(null);
+    }
+  };
+
   const handleOpenDesktop = async (agent: Agent) => {
     if (!agent.hostname) return;
 
@@ -613,27 +651,59 @@ export default function AgentsPage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-2">
-                    <button
-                      onClick={() => setSelectedAgentId(agent.id)}
-                      className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1"
-                    >
-                      <TerminalSquare className="w-3.5 h-3.5" />
-                      Console
-                    </button>
-                    {agent.hostname && (
+                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                    {(agent.state === "STOPPED" || agent.state === "FAILED") && (
                       <button
-                        onClick={() => handleOpenDesktop(agent)}
-                        disabled={openingDesktopId === agent.id}
-                        className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-60"
+                        onClick={() => handleStart(agent.id)}
+                        disabled={startingId === agent.id}
+                        className="px-2.5 py-1.5 rounded text-xs border border-[#3ad8a0]/30 text-[#3ad8a0] hover:bg-[#3ad8a0]/10 disabled:opacity-60 flex items-center gap-1"
                       >
-                        {openingDesktopId === agent.id ? (
+                        {startingId === agent.id ? (
                           <Loader2 className="w-3.5 h-3.5 animate-spin" />
                         ) : (
-                          <ExternalLink className="w-3.5 h-3.5" />
+                          <Play className="w-3.5 h-3.5" />
                         )}
-                        Desktop
+                        Start
                       </button>
+                    )}
+                    {(agent.state === "RUNNING" || agent.state === "PENDING" || agent.state === "STARTING") && (
+                      <button
+                        onClick={() => handleStop(agent.id)}
+                        disabled={stoppingId === agent.id}
+                        className="px-2.5 py-1.5 rounded text-xs border border-[#e0a85f]/30 text-[#e0a85f] hover:bg-[#e0a85f]/10 disabled:opacity-60 flex items-center gap-1"
+                      >
+                        {stoppingId === agent.id ? (
+                          <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                        ) : (
+                          <Square className="w-3.5 h-3.5" />
+                        )}
+                        Stop
+                      </button>
+                    )}
+                    {(agent.state === "RUNNING" || agent.state === "PENDING" || agent.state === "STARTING") && (
+                      <>
+                        <button
+                          onClick={() => setSelectedAgentId(agent.id)}
+                          className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1"
+                        >
+                          <TerminalSquare className="w-3.5 h-3.5" />
+                          Console
+                        </button>
+                        {agent.hostname && (
+                          <button
+                            onClick={() => handleOpenDesktop(agent)}
+                            disabled={openingDesktopId === agent.id}
+                            className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1 disabled:opacity-60"
+                          >
+                            {openingDesktopId === agent.id ? (
+                              <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                            ) : (
+                              <ExternalLink className="w-3.5 h-3.5" />
+                            )}
+                            Desktop
+                          </button>
+                        )}
+                      </>
                     )}
                     <button
                       onClick={() => setDeleteConfirmId(agent.id)}
