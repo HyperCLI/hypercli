@@ -158,6 +158,8 @@ export default function AgentsPage() {
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
+  const [showUploadNotice, setShowUploadNotice] = useState(false);
+  const [pendingUploadFiles, setPendingUploadFiles] = useState<FileList | null>(null);
   const [renamingId, setRenamingId] = useState<string | null>(null);
   const [renameValue, setRenameValue] = useState("");
   const [renameError, setRenameError] = useState<string | null>(null);
@@ -791,14 +793,15 @@ export default function AgentsPage() {
               {agents.map((agent) => (
                 <div
                   key={agent.id}
-                  className={`p-4 transition-colors ${
+                  onClick={() => setSelectedAgentId(agent.id)}
+                  className={`p-4 transition-colors cursor-pointer ${
                     selectedAgentId === agent.id ? "bg-surface-low/70" : "hover:bg-surface-low/40"
                   }`}
                 >
                   <div className="flex items-start justify-between gap-3">
                     <div className="text-left min-w-0 flex-1">
                       {renamingId === agent.id ? (
-                        <div>
+                        <div onClick={(e) => e.stopPropagation()}>
                           <div className="flex items-center gap-1.5">
                             <input
                               type="text"
@@ -836,10 +839,7 @@ export default function AgentsPage() {
                           )}
                         </div>
                       ) : (
-                        <button
-                          onClick={() => setSelectedAgentId(agent.id)}
-                          className="text-left min-w-0 w-full group"
-                        >
+                        <div className="text-left min-w-0 w-full group">
                           <div className="flex items-center gap-1.5">
                             <p className="text-sm font-semibold text-foreground truncate">{agent.name}</p>
                             {agent.state === "STOPPED" && (
@@ -862,7 +862,7 @@ export default function AgentsPage() {
                           <p className="text-[10px] text-text-muted/60 truncate font-mono mt-0.5">
                             {agent.id}
                           </p>
-                        </button>
+                        </div>
                       )}
                     </div>
 
@@ -871,7 +871,8 @@ export default function AgentsPage() {
                     </span>
                   </div>
 
-                  <div className="mt-3 flex items-center gap-2 flex-wrap">
+                  {/* eslint-disable-next-line jsx-a11y/click-events-have-key-events,jsx-a11y/no-static-element-interactions */}
+                  <div className="mt-3 flex items-center gap-2 flex-wrap" onClick={(e) => e.stopPropagation()}>
                     {(agent.state === "STOPPED" || agent.state === "FAILED") && (
                       <button
                         onClick={() => handleStart(agent.id)}
@@ -900,17 +901,6 @@ export default function AgentsPage() {
                         Stop
                       </button>
                     )}
-                    <button
-                      onClick={() => setSelectedAgentId(agent.id)}
-                      className={`px-2.5 py-1.5 rounded text-xs flex items-center gap-1 ${
-                        selectedAgentId === agent.id
-                          ? "bg-surface-low text-foreground border border-border"
-                          : "btn-secondary"
-                      }`}
-                    >
-                      <TerminalSquare className="w-3.5 h-3.5" />
-                      Console
-                    </button>
                     {agent.hostname && (agent.state === "RUNNING" || agent.state === "PENDING" || agent.state === "STARTING") && (
                       <button
                         onClick={() => handleOpenDesktop(agent)}
@@ -994,8 +984,9 @@ export default function AgentsPage() {
                     multiple
                     className="hidden"
                     onChange={(e) => {
-                      if (e.target.files && selectedAgentId) {
-                        void handleFileUpload(selectedAgentId, e.target.files);
+                      if (e.target.files && e.target.files.length > 0 && selectedAgentId) {
+                        setPendingUploadFiles(e.target.files);
+                        setShowUploadNotice(true);
                         e.target.value = "";
                       }
                     }}
@@ -1208,6 +1199,24 @@ export default function AgentsPage() {
           )}
         </div>
       </div>
+
+      <AlertDialog
+        isOpen={showUploadNotice}
+        onClose={() => { setShowUploadNotice(false); setPendingUploadFiles(null); }}
+        title="Upload Files"
+        message="Uploaded files won't be available to the agent until it's restarted. The agent syncs files from storage on boot."
+        type="info"
+        confirmText="Upload"
+        cancelText="Cancel"
+        showCancel
+        onConfirm={async () => {
+          setShowUploadNotice(false);
+          if (pendingUploadFiles && selectedAgentId) {
+            await handleFileUpload(selectedAgentId, pendingUploadFiles);
+          }
+          setPendingUploadFiles(null);
+        }}
+      />
 
       <AlertDialog
         isOpen={deleteConfirmId !== null}
