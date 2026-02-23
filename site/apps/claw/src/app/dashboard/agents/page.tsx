@@ -24,7 +24,6 @@ import {
   X as XIcon,
   Check as CheckIcon,
 } from "lucide-react";
-import "@xterm/xterm/css/xterm.css";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
