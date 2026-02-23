@@ -10,7 +10,7 @@
   NODE_OPTIONS = "--max-old-space-size=4096"
   
   # Cache version - increment this to force cache invalidation
-  NEXT_PUBLIC_CACHE_VERSION = "4"
+  NEXT_PUBLIC_CACHE_VERSION = "5"
 
   # Disable debug in production
   NEXT_PUBLIC_AUTH_DEBUG = "false"
@@ -68,6 +68,7 @@
 
 # Non-production (branch deploys) — point EVERYTHING at dev to prevent prod pollution
 [context.branch-deploy.environment]
+  NEXT_PUBLIC_CACHE_VERSION = "5"
   NEXT_PUBLIC_STRIPE_PK_CLI = "pk_test_51So7MuD2ZZvODGmahxL1H1uM1GS1zEllTp6UCjKlB7Ga6Wqv6YyoY7WgIUDOAoGQutVAEeTexlkmWAhhW5wMdgtP00bN74gl6d"
   NEXT_PUBLIC_STRIPE_PK_CLAW = "pk_test_51Swl9SRZTaGJgE4B3Fc9kjdJ7hEz06ikaE9aKNiJIEkgt4c4ONQZMMRjuWz5DtsUpUw70v3FiN8AhhXINO41wf3Z00YNmVwtyy"
   NEXT_PUBLIC_PRIVY_APP_ID = "cml5no19f001jla0dc105snyy"
@@ -128,3 +129,10 @@
   [headers.values]
     # CSS files cached for 1 hour
     Cache-Control = "public, max-age=3600, must-revalidate"
+
+# Force fresh builds on branch deploys by disabling edge cache
+[[headers]]
+  for = "/*"
+  [context.branch-deploy.headers.values]
+    Cache-Control = "public, max-age=0, must-revalidate, no-cache"
+    X-Deploy-Version = "5"
