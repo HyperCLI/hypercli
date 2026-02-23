@@ -19,24 +19,18 @@ export default function DashboardLayout({
     }
   }, [isLoading, isAuthenticated, router]);
 
-  if (isLoading) {
-    return (
-      <div className="min-h-screen bg-background flex items-center justify-center">
-        <div className="text-text-muted">Loading...</div>
-      </div>
-    );
-  }
-
-  if (!isAuthenticated) {
-    return null;
-  }
-
   return (
     <div className="min-h-screen bg-background">
       <DashboardNav />
       <main className="pt-14">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {children}
+          {isLoading ? (
+            <div className="flex items-center justify-center py-32">
+              <div className="text-text-muted">Loading...</div>
+            </div>
+          ) : !isAuthenticated ? null : (
+            children
+          )}
         </div>
       </main>
     </div>
