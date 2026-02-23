@@ -17,7 +17,35 @@ interface Plan {
   rpm_limit: number;
   features: string[];
   highlighted?: boolean;
+  description?: string;
 }
+
+// Plan metadata for display
+const PLAN_META: Record<
+  string,
+  { displayName: string; description: string; userType: string }
+> = {
+  scout: {
+    displayName: "Scout",
+    description: "Side projects, experiments, first agents",
+    userType: "1 AIU",
+  },
+  operator: {
+    displayName: "Operator",
+    description: "Production apps, our average 50M/day users",
+    userType: "5 AIUs",
+  },
+  heavy: {
+    displayName: "Heavy",
+    description: "Relentless scale, our 400M/day power users",
+    userType: "20 AIUs",
+  },
+  squad: {
+    displayName: "Squad",
+    description: "Teams, shared pools, enterprise deployments",
+    userType: "Custom",
+  },
+};
 
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -29,20 +57,20 @@ export function PricingSection() {
     fetch(`${CLAW_API_BASE}/plans`)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
-        if (data?.plans) setPlans(data.plans);
+        if (data?.plans) {
+          // Enhance plans with metadata
+          const enhancedPlans = data.plans.map((plan: Plan) => ({
+            ...plan,
+            ...PLAN_META[plan.id],
+          }));
+          setPlans(enhancedPlans);
+        }
       })
       .catch(() => {});
   }, []);
 
   const fmtLimit = (n: number) =>
     n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
-
-  const fmtTPD = (n: number) => {
-    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(0)}B`;
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-    return String(n);
-  };
 
   const handleSelect = () => {
     if (isAuthenticated) {
@@ -56,7 +84,7 @@ export function PricingSection() {
     <section
       ref={sectionRef}
       id="pricing"
-      className="relative py-24 sm:py-32 px-4 sm:px-6 lg:px-8 overflow-hidden"
+      className="relative py-24 sm:py-32 px-4 sm:px-6 lg:px-8 overflow-hidden bg-background-secondary"
     >
       {/* Grain texture */}
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
@@ -70,12 +98,11 @@ export function PricingSection() {
           className="text-center mb-16"
         >
           <h2 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
-            Simple, Predictable{" "}
-            <span className="gradient-text-primary">Pricing</span>
+            Pick Your{" "}
+            <span className="gradient-text-primary">Scale</span>
           </h2>
           <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            Pay per AIU, not per token. Scale your agents without surprise
-            bills.
+            Stop calculating. Start shipping. One AIU = ~36M tokens/hour + 4x burst.
           </p>
         </motion.div>
 
@@ -105,20 +132,21 @@ export function PricingSection() {
                 </div>
               )}
 
-              <h3 className="text-lg font-semibold text-foreground">
-                {plan.name}
+              <h3 className="text-xl font-bold text-foreground">
+                {plan.displayName || plan.name}
               </h3>
+              <p className="text-sm text-text-muted mt-1 mb-4">
+                {plan.description || PLAN_META[plan.id]?.description}
+              </p>
+
               <div className="mt-2 mb-1">
                 <span className="text-3xl font-bold text-foreground">
                   ${plan.price}
                 </span>
                 <span className="text-text-muted text-sm">/month</span>
               </div>
-              <p className="text-sm text-text-tertiary mb-6">
-                {plan.aiu} AIU &middot;{" "}
-                {plan.tpd
-                  ? `${fmtTPD(plan.tpd)} tokens/day`
-                  : `${fmtLimit(plan.tpm_limit)} TPM`}
+              <p className="text-sm text-primary font-medium mb-6">
+                {plan.userType || `${plan.aiu} AIU`}
               </p>
 
               <ul className="space-y-3 mb-8 flex-1">
@@ -139,24 +167,28 @@ export function PricingSection() {
                   plan.highlighted ? "btn-primary" : "btn-secondary"
                 }`}
               >
-                Get Started
+                {plan.price === 0 ? "Start Free" : "Get Started"}
               </button>
             </motion.div>
           ))}
         </div>
 
-        {/* View All Plans Link */}
+        {/* Free trial note */}
         <motion.div
           initial={{ opacity: 0, y: 20 }}
           animate={isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 20 }}
           transition={{ duration: 0.6, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
           className="text-center mt-12"
         >
-          <a
+          <p className="text-text-secondary mb-4">
+            Every account starts with{" "}
+            <span className="text-primary font-semibold">30 minutes free GPU time</span>.
+            No credit card required.
+          </p>          <a
             href="/pricing"
             className="inline-flex items-center gap-2 text-primary hover:text-primary/80 font-medium transition-colors"
           >
-            View all plans including Business pricing
+            View detailed specifications
             <ArrowRight className="w-4 h-4" />
           </a>
         </motion.div>
