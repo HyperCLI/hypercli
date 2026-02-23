@@ -7,6 +7,7 @@ import { PricingSectionNew } from "@/components/landing/PricingSectionNew";
 import { TechSpecsSection } from "@/components/landing/TechSpecsSection";
 import { ClawFooter } from "@/components/landing/ClawFooter";
 
+// New copy deployment - refreshed 2026-02-23
 export default function Home() {
   return (
     <div className="min-h-screen bg-background overflow-x-hidden">
