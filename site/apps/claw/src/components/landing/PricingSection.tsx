@@ -38,7 +38,7 @@ const PLAN_META: Record<
   },
   heavy: {
     displayName: "Heavy",
-    description: "Relentless scale, our 400M/day power users",
+    description: "Relentless scale, high-volume production workloads",
     userType: "20 AIUs",
   },
   squad: {

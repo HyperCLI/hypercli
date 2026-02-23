@@ -12,7 +12,6 @@ const comparisonData = [
     daily10M: "$100",
     monthly10M: "~$3,000",
     monthly50M: "~$15,000",
-    monthly400M: "~$120,000",
   },
   {
     provider: "Anthropic",
@@ -21,7 +20,6 @@ const comparisonData = [
     daily10M: "$150",
     monthly10M: "~$4,500",
     monthly50M: "~$22,500",
-    monthly400M: "~$180,000",
   },
   {
     provider: "Anthropic",
@@ -30,7 +28,6 @@ const comparisonData = [
     daily10M: "$750",
     monthly10M: "~$22,500",
     monthly50M: "~$112,500",
-    monthly400M: "~$900,000",
     isExpensive: true,
   },
   {
@@ -40,7 +37,6 @@ const comparisonData = [
     daily10M: "—",
     monthly10M: "$99",
     monthly50M: "$99",
-    monthly400M: "$299",
     isHyperClaw: true,
   },
 ];
@@ -90,8 +86,8 @@ export function ComparisonSection() {
             </p>
           </div>
 
-          <div className="grid sm:grid-cols-2 gap-6">
-            <div className="text-center p-6 rounded-xl bg-surface-low"
+          <div className="max-w-md mx-auto">
+            <div className="text-center p-8 rounded-xl bg-surface-low"
             >
               <div className="text-4xl font-bold text-primary mb-2">50M</div>
               <div className="text-sm text-text-secondary mb-1">tokens/day</div>
@@ -100,17 +96,6 @@ export function ComparisonSection() {
                 Would cost ~$15,000/mo elsewhere
               </div>
               <div className="text-2xl font-bold text-primary mt-3">$99/mo with us</div>
-            </div>
-
-            <div className="text-center p-6 rounded-xl bg-surface-low"
-            >
-              <div className="text-4xl font-bold text-primary mb-2">400M</div>
-              <div className="text-sm text-text-secondary mb-1">tokens/day</div>
-              <div className="text-lg font-semibold text-foreground">Power Users</div>
-              <div className="text-sm text-text-muted mt-2">
-                Would cost ~$120,000/mo elsewhere
-              </div>
-              <div className="text-2xl font-bold text-primary mt-3">$299/mo with us</div>
             </div>
           </div>
 
@@ -138,7 +123,6 @@ export function ComparisonSection() {
                   <th className="text-right p-4 font-medium text-text-muted">Price</th>
                   <th className="text-right p-4 font-medium text-text-muted hidden sm:table-cell">10M/day</th>
                   <th className="text-right p-4 font-medium text-text-muted">50M/day</th>
-                  <th className="text-right p-4 font-medium text-text-muted">400M/day</th>
                 </tr>
               </thead>
               <tbody>
@@ -165,23 +149,6 @@ export function ComparisonSection() {
                       }`}
                     >
                       {row.monthly50M}
-                    </td>
-                    <td
-                      className={`p-4 text-right font-medium ${
-                        row.isHyperClaw
-                          ? "text-primary"
-                          : row.isExpensive
-                          ? "text-red-400"
-                          : "text-text-secondary"
-                      }`}
-                    >
-                      {row.isHyperClaw ? (
-                        <span className="inline-flex items-center gap-1">
-                          <Check className="w-4 h-4" /> {row.monthly400M}
-                        </span>
-                      ) : (
-                        row.monthly400M
-                      )}
                     </td>
                   </tr>
                 ))}
