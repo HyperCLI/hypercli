@@ -421,14 +421,13 @@ export default function AgentsPage() {
     let retryTimer: ReturnType<typeof setTimeout>;
     let initialDelay: ReturnType<typeof setTimeout>;
 
-    const tryConnect = async (attempt = 0) => {
+    const tryConnect = async () => {
       if (cancelled || !selectedAgent || selectedAgent.state !== "RUNNING") return;
       try {
         await connectGateway(selectedAgent);
       } catch {
-        if (!cancelled && attempt < 5) {
-          const delay = Math.min(3000 * Math.pow(2, attempt), 20000);
-          retryTimer = setTimeout(() => tryConnect(attempt + 1), delay);
+        if (!cancelled) {
+          retryTimer = setTimeout(() => tryConnect(), 15000);
         }
       }
     };
