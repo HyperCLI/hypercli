@@ -415,7 +415,7 @@ export default function AgentsPage() {
   );
   const selectedAgentHostname = selectedAgent?.hostname || null;
 
-  // Connect gateway when selected agent changes (with retry)
+  // Connect gateway after logs WS is established (sequenced to avoid connection races)
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout>;
@@ -432,14 +432,15 @@ export default function AgentsPage() {
       }
     };
 
-    if (selectedAgent?.state === "RUNNING") {
+    if (selectedAgent?.state === "RUNNING" && wsStatus === "connected") {
+      // Logs WS is up — safe to connect Gateway now
       void tryConnect();
-    } else {
+    } else if (selectedAgent?.state !== "RUNNING") {
       gwRef.current?.close();
       setGwConnected(false);
     }
     return () => { cancelled = true; clearTimeout(retryTimer); gwRef.current?.close(); };
-  }, [selectedAgentId, selectedAgent?.state]);
+  }, [selectedAgentId, selectedAgent?.state, wsStatus]);
 
   // Auto-scroll chat
   useEffect(() => {
