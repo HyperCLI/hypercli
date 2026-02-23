@@ -91,7 +91,7 @@ interface LogEvent {
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
-type ConsoleTab = "logs" | "shell" | "files" | "chat" | "workspace" | "config";
+type ConsoleTab = "logs" | "shell" | "files" | "chat";
 
 function formatWhen(ts: string | null): string {
   if (!ts) return "-";
@@ -1151,26 +1151,7 @@ export default function AgentsPage() {
                 >
                   💬 Chat
                 </button>
-                <button
-                  onClick={() => setConsoleTab("workspace")}
-                  className={`px-3 py-1.5 text-xs border-l border-border ${
-                    consoleTab === "workspace"
-                      ? "bg-surface-low text-foreground"
-                      : "bg-transparent text-text-muted hover:text-foreground"
-                  }`}
-                >
-                  📁 Workspace
-                </button>
-                <button
-                  onClick={() => setConsoleTab("config")}
-                  className={`px-3 py-1.5 text-xs border-l border-border ${
-                    consoleTab === "config"
-                      ? "bg-surface-low text-foreground"
-                      : "bg-transparent text-text-muted hover:text-foreground"
-                  }`}
-                >
-                  ⚙️ Config
-                </button>
+                {/* Workspace + Config are in the right panel */}
               </div>
             </div>
 
