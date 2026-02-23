@@ -11,6 +11,7 @@ from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Agents, ReefPod, ExecResult
 from .claw import Claw, ClawKey, ClawPlan, ClawModel
+from .gateway import GatewayClient, GatewayError, ChatEvent
 
 __version__ = "0.8.9"
 __all__ = [
@@ -74,4 +75,8 @@ __all__ = [
     "ClawKey",
     "ClawPlan",
     "ClawModel",
+    # OpenClaw Gateway
+    "GatewayClient",
+    "GatewayError",
+    "ChatEvent",
 ]

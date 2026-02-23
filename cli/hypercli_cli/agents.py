@@ -596,3 +596,187 @@ def token(
 
     console.print(f"[green]✅ Token refreshed[/green]")
     console.print(f"  Expires: {result.get('expires_at', 'unknown')}")
+
+
+# ---------------------------------------------------------------------------
+# Gateway commands (OpenClaw Gateway RPC via WebSocket)
+# ---------------------------------------------------------------------------
+
+def _run_async(coro):
+    """Run an async coroutine from sync CLI."""
+    import asyncio
+    return asyncio.run(coro)
+
+
+@app.command("config")
+def gateway_config(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    schema: bool = typer.Option(False, "--schema", help="Show config schema instead of current config"),
+):
+    """Get the OpenClaw gateway config for an agent."""
+    from hypercli.gateway import GatewayClient
+
+    pod = _get_pod_with_token(agent_id)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            if schema:
+                result = await gw.config_schema()
+            else:
+                result = await gw.config_get()
+            console.print_json(json.dumps(result, default=str))
+
+    _run_async(_run())
+
+
+@app.command("config-patch")
+def gateway_config_patch(
+    agent_id: str = typer.Argument(..., help="Agent ID or name"),
+    patch: str = typer.Argument(..., help="JSON patch to apply"),
+):
+    """Patch the OpenClaw gateway config (merges with existing). Restarts gateway."""
+    from hypercli.gateway import GatewayClient
+
+    pod = _get_pod_with_token(agent_id)
+    patch_data = json.loads(patch)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            result = await gw.config_patch(patch_data)
+            console.print("[green]✅ Config patched. Gateway restarting.[/green]")
+
+    _run_async(_run())
+
+
+@app.command("models")
+def gateway_models(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+):
+    """List available models on an agent's gateway."""
+    from hypercli.gateway import GatewayClient
+
+    pod = _get_pod_with_token(agent_id)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            models = await gw.models_list()
+            if not models:
+                console.print("[dim]No models configured[/dim]")
+                return
+            for m in models:
+                ctx = m.get("contextWindow", "?")
+                console.print(f"  {m['provider']}/{m['name']}  (ctx={ctx})")
+
+    _run_async(_run())
+
+
+@app.command("files")
+def gateway_files(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    get: str = typer.Option(None, "--get", help="Read a specific file"),
+    set_file: str = typer.Option(None, "--set", help="Write a file (name=content)"),
+):
+    """List or read/write workspace files on an agent via Gateway."""
+    from hypercli.gateway import GatewayClient
+
+    pod = _get_pod_with_token(agent_id)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            # Get the default agent ID from the gateway
+            agents = await gw.agents_list()
+            gw_agent_id = agents[0]["id"] if agents else "main"
+
+            if get:
+                content = await gw.file_get(gw_agent_id, get)
+                console.print(content)
+            elif set_file:
+                name, _, content = set_file.partition("=")
+                if not content:
+                    console.print("[red]Usage: --set 'SOUL.md=# My Agent'[/red]")
+                    raise typer.Exit(1)
+                await gw.file_set(gw_agent_id, name, content)
+                console.print(f"[green]✅ Written {name}[/green]")
+            else:
+                files = await gw.files_list(gw_agent_id)
+                if not files:
+                    console.print("[dim]No workspace files[/dim]")
+                    return
+                for f in files:
+                    icon = "📄" if not f.get("missing") else "❌"
+                    size = f.get("size", 0)
+                    console.print(f"  {icon} {f['name']:30s} {size:>8,} bytes")
+
+    _run_async(_run())
+
+
+@app.command("sessions")
+def gateway_sessions(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    limit: int = typer.Option(20, "--limit", "-n"),
+):
+    """List chat sessions on an agent's gateway."""
+    from hypercli.gateway import GatewayClient
+
+    pod = _get_pod_with_token(agent_id)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            sessions = await gw.sessions_list(limit=limit)
+            if not sessions:
+                console.print("[dim]No sessions[/dim]")
+                return
+            for s in sessions:
+                console.print(f"  {s.get('key','?'):20s}  {s.get('status','?'):10s}  {s.get('lastActivity','')}")
+
+    _run_async(_run())
+
+
+@app.command("cron")
+def gateway_cron(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+):
+    """List cron jobs on an agent's gateway."""
+    from hypercli.gateway import GatewayClient
+
+    pod = _get_pod_with_token(agent_id)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            jobs = await gw.cron_list()
+            if not jobs:
+                console.print("[dim]No cron jobs[/dim]")
+                return
+            for j in jobs:
+                enabled = "✅" if j.get("enabled", True) else "⏸️"
+                console.print(f"  {enabled} {j.get('id','?'):20s}  {j.get('name','unnamed'):20s}  {j.get('schedule','')}")
+
+    _run_async(_run())
+
+
+@app.command("gateway-chat")
+def gateway_chat(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    message: str = typer.Argument(..., help="Message to send"),
+):
+    """Send a chat message to an agent via the Gateway and stream the response."""
+    from hypercli.gateway import GatewayClient, ChatEvent
+
+    pod = _get_pod_with_token(agent_id)
+
+    async def _run():
+        async with pod.gateway() as gw:
+            async for event in gw.chat_send(message):
+                if event.type == "content":
+                    print(event.text, end="", flush=True)
+                elif event.type == "thinking":
+                    console.print(f"[dim]{event.text}[/dim]", end="")
+                elif event.type == "tool_call":
+                    console.print(f"\n[yellow]🔧 {event.data}[/yellow]")
+                elif event.type == "error":
+                    console.print(f"\n[red]❌ {event.text}[/red]")
+                elif event.type == "done":
+                    print()
+            print()
+
+    _run_async(_run())
