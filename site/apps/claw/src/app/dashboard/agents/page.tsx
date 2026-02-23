@@ -29,6 +29,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
 import { AlertDialog } from "@hypercli/shared-ui";
+import { GatewayClient } from "@/gateway-client";
 
 type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
@@ -90,7 +91,7 @@ interface LogEvent {
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
-type ConsoleTab = "logs" | "shell" | "files";
+type ConsoleTab = "logs" | "shell" | "files" | "chat" | "workspace" | "config";
 
 function formatWhen(ts: string | null): string {
   if (!ts) return "-";
@@ -171,6 +172,23 @@ export default function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [consoleTab, setConsoleTab] = useState<ConsoleTab>("logs");
 
+  // Gateway state
+  const gwRef = useRef<GatewayClient | null>(null);
+  const [gwConnected, setGwConnected] = useState(false);
+  const [gwError, setGwError] = useState<string | null>(null);
+  const [gwFiles, setGwFiles] = useState<Array<{ name: string; size: number; missing: boolean }>>([]);
+  const [gwSelectedFile, setGwSelectedFile] = useState<string | null>(null);
+  const [gwFileContent, setGwFileContent] = useState("");
+  const [gwFileDirty, setGwFileDirty] = useState(false);
+  const [gwFileSaving, setGwFileSaving] = useState(false);
+  const [gwConfigJson, setGwConfigJson] = useState("");
+  const [gwConfigDirty, setGwConfigDirty] = useState(false);
+  const [gwAgentId, setGwAgentId] = useState("main");
+  const [gwChatMessages, setGwChatMessages] = useState<Array<{ role: string; content: string; thinking?: string }>>([]);
+  const [gwChatInput, setGwChatInput] = useState("");
+  const [gwChatSending, setGwChatSending] = useState(false);
+  const gwChatEndRef = useRef<HTMLDivElement | null>(null);
+
   // File browser state
   const [filePath, setFilePath] = useState("");
   const [fileEntries, setFileEntries] = useState<FileEntry[]>([]);
@@ -193,6 +211,129 @@ export default function AgentsPage() {
   const shellTerminalRef = useRef<Terminal | null>(null);
   const shellFitAddonRef = useRef<FitAddon | null>(null);
   const shellSessionAgentRef = useRef<string | null>(null);
+
+  // Gateway connection
+  const connectGateway = useCallback(async (agent: Agent) => {
+    // Cleanup previous
+    gwRef.current?.close();
+    setGwConnected(false);
+    setGwError(null);
+    setGwFiles([]);
+    setGwSelectedFile(null);
+    setGwConfigJson("");
+    setGwConfigDirty(false);
+
+    if (agent.state !== "RUNNING" || !agent.hostname) return;
+
+    try {
+      const authToken = await getToken();
+      const tokenData = await clawFetch<{ token: string }>(`/agents/${agent.id}/token`, authToken);
+      const url = `wss://openclaw-${agent.hostname}`;
+
+      const gw = new GatewayClient({ url, token: tokenData.token });
+
+      gw.onEvent((event, payload) => {
+        if (event === "chat.content") {
+          setGwChatMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant") {
+              return [...prev.slice(0, -1), { ...last, content: last.content + ((payload as any).text ?? "") }];
+            }
+            return [...prev, { role: "assistant", content: (payload as any).text ?? "" }];
+          });
+        } else if (event === "chat.thinking") {
+          setGwChatMessages(prev => {
+            const last = prev[prev.length - 1];
+            if (last?.role === "assistant") {
+              return [...prev.slice(0, -1), { ...last, thinking: (last.thinking ?? "") + ((payload as any).text ?? "") }];
+            }
+            return [...prev, { role: "assistant", content: "", thinking: (payload as any).text ?? "" }];
+          });
+        } else if (event === "chat.done") {
+          setGwChatSending(false);
+        } else if (event === "chat.error") {
+          setGwChatSending(false);
+        }
+      });
+
+      await gw.connect();
+      gwRef.current = gw;
+      setGwConnected(true);
+
+      // Load agents to get gateway agent ID
+      const agents = await gw.agentsList();
+      const aid = agents.length > 0 ? agents[0].id : "main";
+      setGwAgentId(aid);
+
+      // Load workspace files
+      const files = await gw.filesList(aid);
+      setGwFiles(files);
+
+      // Load config
+      const cfg = await gw.configGet();
+      setGwConfigJson(JSON.stringify(cfg, null, 2));
+    } catch (e: any) {
+      setGwError(e.message);
+    }
+  }, [getToken]);
+
+  // Gateway connection effect moved below selectedAgent declaration
+
+  // Gateway handlers
+  const handleGwFileOpen = useCallback(async (name: string) => {
+    const gw = gwRef.current;
+    if (!gw) return;
+    try {
+      const content = await gw.fileGet(gwAgentId, name);
+      setGwSelectedFile(name);
+      setGwFileContent(content);
+      setGwFileDirty(false);
+    } catch (e: any) {
+      setGwSelectedFile(name);
+      setGwFileContent(`Error: ${e.message}`);
+    }
+  }, [gwAgentId]);
+
+  const handleGwFileSave = useCallback(async () => {
+    const gw = gwRef.current;
+    if (!gw || !gwSelectedFile) return;
+    setGwFileSaving(true);
+    try {
+      await gw.fileSet(gwAgentId, gwSelectedFile, gwFileContent);
+      setGwFileDirty(false);
+    } catch (e: any) {
+      alert(`Save failed: ${e.message}`);
+    } finally {
+      setGwFileSaving(false);
+    }
+  }, [gwAgentId, gwSelectedFile, gwFileContent]);
+
+  const handleGwConfigSave = useCallback(async () => {
+    const gw = gwRef.current;
+    if (!gw) return;
+    try {
+      const patch = JSON.parse(gwConfigJson);
+      await gw.configPatch(patch);
+      setGwConfigDirty(false);
+    } catch (e: any) {
+      alert(`Config save failed: ${e.message}`);
+    }
+  }, [gwConfigJson]);
+
+  const handleGwChatSend = useCallback(async () => {
+    const gw = gwRef.current;
+    if (!gw || !gwChatInput.trim() || gwChatSending) return;
+    const msg = gwChatInput.trim();
+    setGwChatInput("");
+    setGwChatSending(true);
+    setGwChatMessages(prev => [...prev, { role: "user", content: msg }]);
+    try {
+      await gw.chatSend(msg);
+    } catch (e: any) {
+      setGwChatMessages(prev => [...prev, { role: "system", content: `Error: ${e.message}` }]);
+      setGwChatSending(false);
+    }
+  }, [gwChatInput, gwChatSending]);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -230,6 +371,22 @@ export default function AgentsPage() {
     [agents, selectedAgentId]
   );
   const selectedAgentHostname = selectedAgent?.hostname || null;
+
+  // Connect gateway when selected agent changes
+  useEffect(() => {
+    if (selectedAgent?.state === "RUNNING") {
+      void connectGateway(selectedAgent);
+    } else {
+      gwRef.current?.close();
+      setGwConnected(false);
+    }
+    return () => { gwRef.current?.close(); };
+  }, [selectedAgentId, selectedAgent?.state]);
+
+  // Auto-scroll chat
+  useEffect(() => {
+    gwChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [gwChatMessages]);
 
   const issueAgentAccessToken = useCallback(
     async (agentId: string, hostname: string): Promise<string> => {
@@ -771,7 +928,7 @@ export default function AgentsPage() {
         </div>
       )}
 
-      <div className="grid lg:grid-cols-[1.1fr_1.3fr] gap-6">
+      <div className="grid lg:grid-cols-[280px_1fr_320px] gap-4">
         <div className="glass-card overflow-hidden">
           <div className="px-5 py-4 border-b border-border flex items-center justify-between">
             <h2 className="text-lg font-semibold text-foreground">Your Agents</h2>
@@ -984,6 +1141,36 @@ export default function AgentsPage() {
                 >
                   Files
                 </button>
+                <button
+                  onClick={() => setConsoleTab("chat")}
+                  className={`px-3 py-1.5 text-xs border-l border-border ${
+                    consoleTab === "chat"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  💬 Chat
+                </button>
+                <button
+                  onClick={() => setConsoleTab("workspace")}
+                  className={`px-3 py-1.5 text-xs border-l border-border ${
+                    consoleTab === "workspace"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  📁 Workspace
+                </button>
+                <button
+                  onClick={() => setConsoleTab("config")}
+                  className={`px-3 py-1.5 text-xs border-l border-border ${
+                    consoleTab === "config"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  ⚙️ Config
+                </button>
               </div>
             </div>
 
@@ -1186,7 +1373,7 @@ export default function AgentsPage() {
                 </div>
               ))}
             </div>
-          ) : (
+          ) : consoleTab === "shell" ? (
             <div className="relative h-[560px] bg-[#0c1016] p-4">
               <div ref={shellBoxRef} className="h-full w-full" />
               {shellStatus !== "connected" && (
@@ -1207,6 +1394,196 @@ export default function AgentsPage() {
               <div className="pointer-events-none absolute bottom-4 right-4 text-[11px] text-[#6f7a8d]">
                 Type directly in terminal
               </div>
+            </div>
+          ) : consoleTab === "chat" ? (
+            <div className="h-[560px] flex flex-col bg-[#0c1016]">
+              <div className="flex-1 overflow-y-auto p-4 space-y-3">
+                {gwChatMessages.length === 0 && (
+                  <div className="flex flex-col items-center justify-center h-full text-[#6f7a8d]">
+                    <MessageSquare className="w-8 h-8 mb-2 opacity-40" />
+                    <p className="text-sm">Chat with your agent via Gateway</p>
+                    {!gwConnected && <p className="text-xs mt-1 text-[#d05f5f]">{gwError || "Gateway not connected"}</p>}
+                  </div>
+                )}
+                {gwChatMessages.map((msg, i) => (
+                  <div key={i} className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}>
+                    <div className={`max-w-[80%] rounded-lg px-3 py-2 text-xs ${
+                      msg.role === "user"
+                        ? "bg-primary/20 text-foreground"
+                        : msg.role === "system"
+                          ? "bg-[#d05f5f]/10 text-[#d05f5f]"
+                          : "bg-surface-low text-[#d8dde7]"
+                    }`}>
+                      {msg.thinking && (
+                        <details className="mb-1">
+                          <summary className="text-[10px] text-[#6f7a8d] cursor-pointer">💭 Thinking...</summary>
+                          <pre className="text-[10px] text-[#6f7a8d] whitespace-pre-wrap mt-1">{msg.thinking}</pre>
+                        </details>
+                      )}
+                      <div className="whitespace-pre-wrap">{msg.content}</div>
+                    </div>
+                  </div>
+                ))}
+                {gwChatSending && (
+                  <div className="flex justify-start">
+                    <div className="bg-surface-low rounded-lg px-3 py-2">
+                      <Loader2 className="w-3 h-3 animate-spin text-[#6f7a8d]" />
+                    </div>
+                  </div>
+                )}
+                <div ref={gwChatEndRef} />
+              </div>
+              <div className="border-t border-[#1a2030] p-3 flex gap-2">
+                <input
+                  type="text"
+                  value={gwChatInput}
+                  onChange={(e) => setGwChatInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); void handleGwChatSend(); } }}
+                  placeholder={gwConnected ? "Type a message..." : "Gateway not connected"}
+                  disabled={!gwConnected || gwChatSending}
+                  className="flex-1 bg-[#141a24] border border-[#1a2030] rounded px-3 py-2 text-xs text-[#d8dde7] placeholder-[#6f7a8d] focus:outline-none focus:border-primary disabled:opacity-50"
+                />
+                <button
+                  onClick={() => void handleGwChatSend()}
+                  disabled={!gwConnected || gwChatSending || !gwChatInput.trim()}
+                  className="bg-primary hover:bg-primary/80 disabled:opacity-40 text-white px-3 py-2 rounded text-xs transition-colors"
+                >
+                  Send
+                </button>
+              </div>
+            </div>
+          ) : null}
+        </div>
+
+        {/* Right Panel — Agent Settings */}
+        <div className="glass-card overflow-hidden">
+          <div className="px-4 py-3 border-b border-border">
+            <h3 className="text-sm font-semibold text-foreground uppercase tracking-wider">
+              Agent Settings
+            </h3>
+            {selectedAgent && (
+              <p className="text-xs text-text-muted mt-0.5 font-mono truncate">{selectedAgent.name}</p>
+            )}
+          </div>
+
+          {!selectedAgent ? (
+            <div className="p-4 text-xs text-text-muted">Select an agent</div>
+          ) : (
+            <div className="overflow-y-auto max-h-[600px] divide-y divide-border/50">
+              {/* Identity */}
+              <div className="p-4">
+                <h4 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mb-2">Identity</h4>
+                <div className="space-y-2">
+                  <div>
+                    <label className="text-[10px] text-text-muted uppercase">Name</label>
+                    <p className="text-sm text-foreground font-mono">{selectedAgent.name}</p>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-muted uppercase">State</label>
+                    <p className={`text-sm font-medium ${stateClass(selectedAgent.state)}`}>{selectedAgent.state}</p>
+                  </div>
+                  <div>
+                    <label className="text-[10px] text-text-muted uppercase">Hostname</label>
+                    <p className="text-xs text-text-muted font-mono truncate">{selectedAgent.hostname || '-'}</p>
+                  </div>
+                </div>
+              </div>
+
+              {/* Quick Actions */}
+              <div className="p-4">
+                <h4 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mb-2">Actions</h4>
+                <div className="flex flex-wrap gap-2">
+                  {selectedAgent.hostname && selectedAgent.state === "RUNNING" && (
+                    <a
+                      href={`https://${selectedAgent.hostname}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1"
+                    >
+                      <ExternalLink className="w-3 h-3" />
+                      Desktop
+                    </a>
+                  )}
+                </div>
+              </div>
+
+              {/* Gateway Workspace Files */}
+              {selectedAgent.state === "RUNNING" && gwConnected && (
+                <div className="p-4">
+                  <h4 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mb-2">Workspace Files</h4>
+                  {gwSelectedFile ? (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <button onClick={() => setGwSelectedFile(null)} className="text-xs text-text-muted hover:text-foreground flex items-center gap-1">
+                          <ArrowLeft className="w-3 h-3" /> Back
+                        </button>
+                        <button
+                          onClick={handleGwFileSave}
+                          disabled={!gwFileDirty || gwFileSaving}
+                          className="text-xs bg-primary text-white px-2 py-1 rounded disabled:opacity-40 flex items-center gap-1"
+                        >
+                          {gwFileSaving ? <Loader2 className="w-3 h-3 animate-spin" /> : null}
+                          Save
+                        </button>
+                      </div>
+                      <p className="text-xs font-mono text-foreground mb-1">{gwSelectedFile}</p>
+                      {gwFileDirty && <span className="text-[10px] text-[#f0c56c]">● unsaved</span>}
+                      <textarea
+                        value={gwFileContent}
+                        onChange={(e) => { setGwFileContent(e.target.value); setGwFileDirty(true); }}
+                        className="w-full h-48 bg-[#0c1016] text-[#d8dde7] text-xs font-mono p-2 rounded border border-border resize-none focus:outline-none focus:border-primary mt-1"
+                        spellCheck={false}
+                      />
+                    </div>
+                  ) : (
+                    <div className="space-y-0.5">
+                      {gwFiles.length === 0 && <p className="text-xs text-text-muted">No files</p>}
+                      {gwFiles.map((f) => (
+                        <button
+                          key={f.name}
+                          onClick={() => handleGwFileOpen(f.name)}
+                          className="flex items-center gap-2 w-full px-2 py-1.5 rounded text-left hover:bg-surface-low/50 transition-colors"
+                        >
+                          <File className={`w-3 h-3 flex-shrink-0 ${f.missing ? 'text-[#d05f5f]' : 'text-text-muted'}`} />
+                          <span className="text-xs text-foreground font-mono truncate flex-1">{f.name}</span>
+                          <span className="text-[10px] text-text-muted">{(f.size / 1024).toFixed(1)}K</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Gateway Config */}
+              {selectedAgent.state === "RUNNING" && gwConnected && (
+                <div className="p-4">
+                  <h4 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mb-2">Gateway Config</h4>
+                  <textarea
+                    value={gwConfigJson}
+                    onChange={(e) => { setGwConfigJson(e.target.value); setGwConfigDirty(true); }}
+                    className="w-full h-32 bg-[#0c1016] text-[#d8dde7] text-xs font-mono p-2 rounded border border-border resize-none focus:outline-none focus:border-primary"
+                    spellCheck={false}
+                  />
+                  <button
+                    onClick={handleGwConfigSave}
+                    disabled={!gwConfigDirty}
+                    className="mt-2 text-xs bg-primary text-white px-3 py-1.5 rounded disabled:opacity-40 w-full"
+                  >
+                    Apply & Restart
+                  </button>
+                </div>
+              )}
+
+              {/* Gateway Status */}
+              {selectedAgent.state === "RUNNING" && (
+                <div className="p-4">
+                  <h4 className="text-[11px] font-semibold text-text-muted uppercase tracking-wider mb-2">Gateway</h4>
+                  <div className="flex items-center gap-2">
+                    <span className={`w-2 h-2 rounded-full ${gwConnected ? 'bg-primary' : 'bg-text-muted'}`} />
+                    <span className="text-xs text-text-muted">{gwConnected ? 'Connected' : gwError || 'Disconnected'}</span>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
