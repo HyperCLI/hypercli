@@ -1,9 +1,8 @@
 import { ClawHeader } from "@/components/landing/ClawHeader";
-import { HeroSectionNew } from "@/components/landing/HeroSectionNew";
-import { FeaturesSectionNew } from "@/components/landing/FeaturesSectionNew";
+import { HeroSection } from "@/components/landing/HeroSection";
+import { FeaturesSection } from "@/components/landing/FeaturesSection";
 import { ModelsSection } from "@/components/landing/ModelsSection";
-import { ComparisonSection } from "@/components/landing/ComparisonSection";
-import { PricingSectionNew } from "@/components/landing/PricingSectionNew";
+import { PricingSection } from "@/components/landing/PricingSection";
 import { TechSpecsSection } from "@/components/landing/TechSpecsSection";
 import { ClawFooter } from "@/components/landing/ClawFooter";
 
@@ -12,11 +11,10 @@ export default function Home() {
     <div className="min-h-screen bg-background overflow-x-hidden">
       <ClawHeader />
       <main>
-        <HeroSectionNew />
-        <FeaturesSectionNew />
+        <HeroSection />
+        <FeaturesSection />
         <ModelsSection />
-        <ComparisonSection />
-        <PricingSectionNew />
+        <PricingSection />
         <TechSpecsSection />
       </main>
       <ClawFooter />
