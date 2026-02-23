@@ -10,7 +10,7 @@ const AGENT_TIERS = [
   {
     name: "Skill",
     agents: 1,
-    price: 29,
+    price: 39,
     aiu: 1,
     tpm: 50000,
     rpm: 1000,
@@ -321,3 +321,4 @@ export function PricingSection() {
     </section>
   );
 }
+
