@@ -56,60 +56,65 @@ export function HeroSection() {
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h1 className="text-[40px] sm:text-[48px] md:text-[56px] lg:text-[64px] xl:text-[64px] text-foreground mb-12 leading-[0.95] tracking-[-0.03em] font-bold max-w-5xl mx-auto text-center">
-            Deploy AI models in 30 seconds.
-            <br />
-            <span className="text-transparent bg-clip-text bg-gradient-to-r from-text-secondary via-text-tertiary to-text-muted text-[36px]">
-              No GPUs. No Kubernetes. No infrastructure.
-            </span>
+          <h1 className="text-[36px] sm:text-[44px] md:text-[52px] lg:text-[56px] xl:text-[64px] text-foreground mb-6 leading-[1.05] tracking-[-0.03em] font-bold max-w-5xl mx-auto text-center">
+            Unlimited Inference. One Flat Price. Deploy in Seconds.
           </h1>
         </motion.div>
 
         {/* Subheadline */}
         <motion.p 
-          className="text-xl text-secondary-foreground max-w-2xl mx-auto mb-16 leading-relaxed text-center"
+          className="text-2xl sm:text-3xl font-medium text-primary max-w-2xl mx-auto mb-8 leading-relaxed text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ duration: 0.8, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
         >
-          HyperCLI is the universal AI runtime that runs any model — Llama 3, Mistral, Flux, Whisper, custom checkpoints — across a global GPU fabric with a single command.
+          Stop counting tokens. Start shipping.
         </motion.p>
 
-        {/* Code snippet with spotlight glow */}
-        <motion.div
-          className="max-w-2xl mx-auto mb-20 relative"
+        {/* Body copy */}
+        <motion.p 
+          className="text-lg text-secondary-foreground max-w-2xl mx-auto mb-12 leading-relaxed text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.4, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.8, delay: 0.3, ease: [0.22, 1, 0.36, 1] }}
         >
-          {/* Glow effect behind code block */}
-          <div className="absolute inset-0 bg-[#38D39F]/10 blur-[80px] rounded-full scale-110" />
+          Unlimited inference on the leading models. One flat price. Launch your first agent before you finish your coffee.
+        </motion.p>
 
-          <div className="relative bg-surface-low/80 backdrop-blur-sm border border-primary/20 rounded-2xl p-8 text-left shadow-[0_0_80px_rgba(56,211,159,0.15)]">
-            <div className="font-mono text-base space-y-3">
-              <div className="text-muted-foreground">$ pip install <span className="text-primary">hypercli-cli</span></div>
-              <div className="text-muted-foreground">$ <span className="text-primary">hyper</span> instances launch nvidia/cuda:12.0 -g l40s</div>
-            </div>
-          </div>
-        </motion.div>
-
-        {/* HyperClaw CTA */}
+        {/* Primary CTA */}
         <motion.div
           className="max-w-xl mx-auto mb-6 text-center"
           initial={{ opacity: 0, y: 20 }}
           animate={{ opacity: 1, y: 0 }}
-          transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
+          transition={{ duration: 0.8, delay: 0.5, ease: [0.22, 1, 0.36, 1] }}
         >
-          <h3 className="text-lg font-medium text-foreground mb-4">
-            Launch your own <span className="text-primary">OpenClaw Agent</span>
-          </h3>
           <a
             href={NAV_URLS.claw}
-            className="inline-flex items-center px-8 py-3 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-all duration-300 font-medium text-base shadow-[0_0_30px_rgba(56,211,159,0.15)]"
+            className="inline-flex items-center px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-all duration-300 font-semibold text-lg shadow-[0_0_30px_rgba(56,211,159,0.25)] hover:shadow-[0_0_40px_rgba(56,211,159,0.35)]"
           >
-            Get Started
+            Start Free — Agent Running in 60 Seconds
           </a>
         </motion.div>
+
+        {/* Secondary line */}
+        <motion.p 
+          className="text-sm text-muted-foreground max-w-xl mx-auto mb-12 text-center"
+          initial={{ opacity: 0, y: 20 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.8, delay: 0.6, ease: [0.22, 1, 0.36, 1] }}
+        >
+          No credit card · No downloads · 30 min free GPU
+        </motion.p>
+
+        {/* Trust microcopy */}
+        <motion.p 
+          className="text-xs text-muted-foreground/60 max-w-xl mx-auto text-center"
+          initial={{ opacity: 0 }}
+          animate={{ opacity: 1 }}
+          transition={{ duration: 0.8, delay: 0.7, ease: [0.22, 1, 0.36, 1] }}
+        >
+          OpenAI-compatible · Kimi · GLM-5 · MiniMax · B200 GPUs
+        </motion.p>
       </motion.div>
     </section>
   );
