@@ -10,6 +10,7 @@ import { CLAW_API_BASE } from "@/lib/api";
 interface Plan {
   id: string;
   name: string;
+  displayName?: string;
   price: number;
   aiu: number;
   tpd?: number;
@@ -146,7 +147,7 @@ export function PricingSection() {
                 <span className="text-text-muted text-sm">/month</span>
               </div>
               <p className="text-sm text-primary font-medium mb-6">
-                {plan.userType || `${plan.aiu} AIU`}
+                {PLAN_META[plan.id]?.userType || `${plan.aiu} AIU`}
               </p>
 
               <ul className="space-y-3 mb-8 flex-1">

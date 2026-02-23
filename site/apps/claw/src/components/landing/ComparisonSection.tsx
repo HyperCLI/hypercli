@@ -114,8 +114,7 @@ export function ComparisonSection() {
             </div>
           </div>
 
-          <div className="text-center mt-6"
-003e
+          <div className="text-center mt-6">
             <div className="inline-flex items-center gap-2 text-lg">
               <span className="text-text-secondary">That's not 10% savings.</span>
               <span className="font-bold text-primary">That's 99.75% savings.</span>
@@ -130,8 +129,7 @@ export function ComparisonSection() {
           transition={{ duration: 0.6, delay: 0.2, ease: [0.22, 1, 0.36, 1] }}
           className="glass-card overflow-hidden"
         >
-          <div className="overflow-x-auto"
-003e
+          <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-border/50">
