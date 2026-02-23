@@ -294,6 +294,20 @@ export default function AgentsPage() {
       const aid = agents.length > 0 ? agents[0].id : "main";
       setGwAgentId(aid);
 
+      // Load chat history
+      try {
+        const history = await gw.chatHistory("main", 50);
+        const msgs = history.map((m: any) => {
+          const text = Array.isArray(m.content)
+            ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+            : (typeof m.content === "string" ? m.content : "");
+          return { role: m.role ?? "assistant", content: text };
+        }).filter((m: any) => m.content);
+        setGwChatMessages(msgs);
+      } catch (e) {
+        // No history yet, that's fine
+      }
+
       // Load workspace files
       const files = await gw.filesList(aid);
       setGwFiles(files);
