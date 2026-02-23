@@ -17,7 +17,7 @@ import {
 } from "lucide-react";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
-import { CLAW_API_BASE, clawFetch } from "@/lib/api";
+import { clawFetch } from "@/lib/api";
 import { GatewayClient, type ChatEvent } from "@/gateway-client";
 
 // -----------------------------------------------------------------------
@@ -57,7 +57,7 @@ export default function AgentConsolePage() {
   const params = useParams();
   const router = useRouter();
   const agentId = params.id as string;
-  const { apiKey } = useClawAuth();
+  const { getToken } = useClawAuth();
 
   // Agent state
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -95,9 +95,9 @@ export default function AgentConsolePage() {
   // -----------------------------------------------------------------------
 
   const fetchAgent = useCallback(async () => {
-    if (!apiKey) return;
     try {
-      const resp = await clawFetch(`/api/agents/${agentId}`, { apiKey });
+      const token = await getToken();
+      const resp = await clawFetch<Agent>(`/agents/${agentId}`, token);
       setAgent(resp);
       setError(null);
     } catch (e: any) {
@@ -105,7 +105,7 @@ export default function AgentConsolePage() {
     } finally {
       setLoading(false);
     }
-  }, [agentId, apiKey]);
+  }, [agentId, getToken]);
 
   useEffect(() => { fetchAgent(); }, [fetchAgent]);
 
