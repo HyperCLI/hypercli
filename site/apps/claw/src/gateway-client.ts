@@ -280,8 +280,11 @@ export class GatewayClient {
    * chat.tool_result, chat.done, chat.error, chat.status
    */
   async chatSend(message: string, sessionKey?: string, agentId?: string): Promise<any> {
-    const params: Record<string, unknown> = { message };
-    if (sessionKey) params.sessionKey = sessionKey;
+    const params: Record<string, unknown> = {
+      message,
+      sessionKey: sessionKey ?? "main",
+      idempotencyKey: crypto.randomUUID(),
+    };
     if (agentId) params.agentId = agentId;
     return this.call("chat.send", params, CHAT_TIMEOUT);
   }
