@@ -103,7 +103,7 @@ export class GatewayClient {
           return;
         }
 
-        if (handshakePhase === "hello") {
+        if (handshakePhase === "hello" && msg.type === "res") {
           clearTimeout(timeout);
           if (msg.ok) {
             this._connected = true;
@@ -207,6 +207,9 @@ export class GatewayClient {
 
   async configGet(): Promise<Record<string, unknown>> {
     const r = await this.call<any>("config.get");
+    // Gateway returns {path, exists, raw, parsed} — raw is JSON string, parsed is object
+    if (r.parsed) return r.parsed;
+    if (r.raw) try { return JSON.parse(r.raw); } catch { /* */ }
     return r.config ?? r;
   }
 
