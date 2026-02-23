@@ -65,7 +65,7 @@ export function HeroSection() {
         style={{ y: contentY, opacity: contentOpacity }}
         className="relative max-w-5xl mx-auto text-center"
       >
-        {/* Headline */}
+        {/* Headline - BUILD TEST */}
         <motion.h1
           initial={{ opacity: 0, y: 30 }}
           animate={{ opacity: 1, y: 0 }}
