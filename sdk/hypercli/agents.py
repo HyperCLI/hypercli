@@ -33,6 +33,7 @@ class ReefPod:
     cpu: int = 0              # cores
     memory: int = 0           # GB
     hostname: Optional[str] = None
+    openclaw_url: Optional[str] = None
     jwt_token: Optional[str] = None
     jwt_expires_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
@@ -58,6 +59,7 @@ class ReefPod:
             cpu=data.get("cpu", 0),
             memory=data.get("memory", 0),
             hostname=data.get("hostname"),
+            openclaw_url=data.get("openclaw_url"),
             jwt_token=data.get("jwt_token"),
             jwt_expires_at=_parse_dt(data.get("jwt_expires_at")),
             started_at=_parse_dt(data.get("started_at")),
@@ -86,6 +88,24 @@ class ReefPod:
     @property
     def is_running(self) -> bool:
         return self.state == "running"
+
+    def gateway(self, **kwargs) -> "GatewayClient":
+        """Create a GatewayClient for this pod.
+
+        Requires the pod to be running with a valid JWT token.
+        Returns an unconnected client — use `async with pod.gateway() as gw:`.
+        """
+        from .gateway import GatewayClient
+        if not self.openclaw_url:
+            if self.hostname:
+                url = f"wss://openclaw-{self.hostname}"
+            else:
+                raise ValueError("Pod has no openclaw_url or hostname")
+        else:
+            url = self.openclaw_url
+        if not self.jwt_token:
+            raise ValueError("Pod has no JWT token — refresh it first")
+        return GatewayClient(url=url, token=self.jwt_token, **kwargs)
 
 
 @dataclass
