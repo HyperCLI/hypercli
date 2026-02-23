@@ -233,21 +233,50 @@ export default function AgentsPage() {
       const gw = new GatewayClient({ url, token: tokenData.token });
 
       gw.onEvent((event, payload) => {
-        if (event === "chat.content") {
+        const p = payload as any;
+        if (event === "chat") {
+          const state = p.state; // "streaming", "thinking", "final", "error"
+          const msg = p.message;
+          if (msg?.role === "assistant") {
+            const text = Array.isArray(msg.content)
+              ? msg.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+              : (typeof msg.content === "string" ? msg.content : "");
+            const thinking = Array.isArray(msg.content)
+              ? msg.content.filter((c: any) => c.type === "thinking").map((c: any) => c.thinking ?? c.text ?? "").join("")
+              : undefined;
+
+            if (state === "streaming" || state === "thinking") {
+              // Replace last assistant message (streaming update)
+              setGwChatMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  return [...prev.slice(0, -1), { role: "assistant", content: text, thinking: thinking || last.thinking }];
+                }
+                return [...prev, { role: "assistant", content: text, thinking }];
+              });
+            } else if (state === "final") {
+              // Final message — replace or append
+              setGwChatMessages(prev => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  return [...prev.slice(0, -1), { role: "assistant", content: text, thinking }];
+                }
+                return [...prev, { role: "assistant", content: text, thinking }];
+              });
+              setGwChatSending(false);
+            } else if (state === "error") {
+              setGwChatMessages(prev => [...prev, { role: "system", content: `Error: ${text || p.error || "unknown"}` }]);
+              setGwChatSending(false);
+            }
+          }
+        } else if (event === "chat.content") {
+          // Legacy format fallback
           setGwChatMessages(prev => {
             const last = prev[prev.length - 1];
             if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...last, content: last.content + ((payload as any).text ?? "") }];
+              return [...prev.slice(0, -1), { ...last, content: last.content + (p.text ?? "") }];
             }
-            return [...prev, { role: "assistant", content: (payload as any).text ?? "" }];
-          });
-        } else if (event === "chat.thinking") {
-          setGwChatMessages(prev => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...last, thinking: (last.thinking ?? "") + ((payload as any).text ?? "") }];
-            }
-            return [...prev, { role: "assistant", content: "", thinking: (payload as any).text ?? "" }];
+            return [...prev, { role: "assistant", content: p.text ?? "" }];
           });
         } else if (event === "chat.done") {
           setGwChatSending(false);
