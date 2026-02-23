@@ -43,8 +43,8 @@ export class GatewayClient {
   constructor(config: GatewayConfig) {
     this.config = {
       gatewayToken: "traefik-forwarded-auth-not-used",
-      clientId: "webchat-ui",
-      clientMode: "webchat",
+      clientId: "openclaw-control-ui",
+      clientMode: "ui",
       ...config,
     };
   }
@@ -233,7 +233,9 @@ export class GatewayClient {
 
   async agentsList(): Promise<any[]> {
     const r = await this.call<any>("agents.list");
-    return r.agents ?? [];
+    // Normalize: Gateway returns agentId, we expose as id for convenience
+    const agents = r.agents ?? [];
+    return agents.map((a: any) => ({ ...a, id: a.agentId ?? a.id }));
   }
 
   // -----------------------------------------------------------------------
