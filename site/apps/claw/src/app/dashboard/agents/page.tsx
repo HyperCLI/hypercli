@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import {
@@ -11,6 +12,7 @@ import {
   File,
   FolderOpen,
   Loader2,
+  MessageSquare,
   Pencil,
   Play,
   Plus,
@@ -147,6 +149,7 @@ function stateClass(state: AgentState): string {
 }
 
 export default function AgentsPage() {
+  const router = useRouter();
   const { getToken } = useClawAuth();
 
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -913,6 +916,15 @@ export default function AgentsPage() {
                           <ExternalLink className="w-3.5 h-3.5" />
                         )}
                         Desktop
+                      </button>
+                    )}
+                    {agent.hostname && agent.state === "RUNNING" && (
+                      <button
+                        onClick={() => router.push(`/dashboard/agents/${agent.id}/console`)}
+                        className="btn-secondary px-2.5 py-1.5 rounded text-xs flex items-center gap-1"
+                      >
+                        <MessageSquare className="w-3.5 h-3.5" />
+                        Console
                       </button>
                     )}
                     <button
