@@ -415,10 +415,11 @@ export default function AgentsPage() {
   );
   const selectedAgentHostname = selectedAgent?.hostname || null;
 
-  // Connect gateway after logs WS is established (sequenced to avoid connection races)
+  // Connect gateway when agent is RUNNING (with delay + retry)
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout>;
+    let initialDelay: ReturnType<typeof setTimeout>;
 
     const tryConnect = async (attempt = 0) => {
       if (cancelled || !selectedAgent || selectedAgent.state !== "RUNNING") return;
@@ -426,21 +427,21 @@ export default function AgentsPage() {
         await connectGateway(selectedAgent);
       } catch {
         if (!cancelled && attempt < 5) {
-          const delay = Math.min(2000 * Math.pow(2, attempt), 15000);
+          const delay = Math.min(3000 * Math.pow(2, attempt), 20000);
           retryTimer = setTimeout(() => tryConnect(attempt + 1), delay);
         }
       }
     };
 
-    if (selectedAgent?.state === "RUNNING" && wsStatus === "connected") {
-      // Logs WS is up — safe to connect Gateway now
-      void tryConnect();
-    } else if (selectedAgent?.state !== "RUNNING") {
+    if (selectedAgent?.state === "RUNNING") {
+      // Small delay to let pod settle, then connect independently of logs WS
+      initialDelay = setTimeout(() => tryConnect(), 2000);
+    } else {
       gwRef.current?.close();
       setGwConnected(false);
     }
-    return () => { cancelled = true; clearTimeout(retryTimer); gwRef.current?.close(); };
-  }, [selectedAgentId, selectedAgent?.state, wsStatus]);
+    return () => { cancelled = true; clearTimeout(retryTimer); clearTimeout(initialDelay); gwRef.current?.close(); };
+  }, [selectedAgentId, selectedAgent?.state]);
 
   // Auto-scroll chat
   useEffect(() => {
