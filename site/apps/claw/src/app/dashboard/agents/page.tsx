@@ -415,15 +415,30 @@ export default function AgentsPage() {
   );
   const selectedAgentHostname = selectedAgent?.hostname || null;
 
-  // Connect gateway when selected agent changes
+  // Connect gateway when selected agent changes (with retry)
   useEffect(() => {
+    let cancelled = false;
+    let retryTimer: ReturnType<typeof setTimeout>;
+
+    const tryConnect = async (attempt = 0) => {
+      if (cancelled || !selectedAgent || selectedAgent.state !== "RUNNING") return;
+      try {
+        await connectGateway(selectedAgent);
+      } catch {
+        if (!cancelled && attempt < 5) {
+          const delay = Math.min(2000 * Math.pow(2, attempt), 15000);
+          retryTimer = setTimeout(() => tryConnect(attempt + 1), delay);
+        }
+      }
+    };
+
     if (selectedAgent?.state === "RUNNING") {
-      void connectGateway(selectedAgent);
+      void tryConnect();
     } else {
       gwRef.current?.close();
       setGwConnected(false);
     }
-    return () => { gwRef.current?.close(); };
+    return () => { cancelled = true; clearTimeout(retryTimer); gwRef.current?.close(); };
   }, [selectedAgentId, selectedAgent?.state]);
 
   // Auto-scroll chat
