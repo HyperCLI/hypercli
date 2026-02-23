@@ -35,7 +35,7 @@ export function DashboardNav() {
           </div>
 
           {/* Nav links */}
-          <nav className="hidden md:flex items-center gap-1">
+          <nav className="flex items-center gap-1">
             {navItems.map((item) => {
               const Icon = item.icon;
               const isActive =
@@ -63,7 +63,7 @@ export function DashboardNav() {
           {/* Right side */}
           <div className="flex items-center gap-3">
             {user?.email && (
-              <span className="hidden sm:block text-sm text-text-muted">
+              <span className="text-sm text-text-muted">
                 {user.email}
               </span>
             )}
@@ -72,7 +72,7 @@ export function DashboardNav() {
               className="flex items-center gap-1.5 text-sm text-text-tertiary hover:text-foreground transition-colors"
             >
               <LogOut className="w-4 h-4" />
-              <span className="hidden sm:inline">Logout</span>
+              <span>Logout</span>
             </button>
           </div>
         </div>
