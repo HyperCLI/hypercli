@@ -114,18 +114,48 @@ export default function AgentConsolePage() {
   // -----------------------------------------------------------------------
 
   const connectGateway = useCallback(async () => {
-    if (!agent?.jwt_token || agent.state !== "RUNNING") return;
+    if (!agent || agent.state !== "RUNNING" || !agent.hostname) return;
 
-    const url = agent.openclaw_url || (agent.hostname ? `wss://openclaw-${agent.hostname}` : null);
+    const url = agent.openclaw_url || `wss://openclaw-${agent.hostname}`;
     if (!url) {
       setGwError("No gateway URL available");
       return;
     }
 
     try {
+      const subdomain = agent.hostname.split(".")[0];
+      const hostCookie = `${subdomain}-token`;
+      const shellCookie = `shell-${subdomain}-token`;
+      const openclawCookie = `openclaw-${subdomain}-token`;
+      const reefCookie = "reef_token";
+      const hasCookie = (name: string) =>
+        document.cookie.split(";").some((entry) => entry.trim().startsWith(`${encodeURIComponent(name)}=`));
+      const configuredCookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim();
+      const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
+      const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
+      const canUseCrossDomainCookie =
+        normalizedDomain &&
+        (currentHost === normalizedDomain || currentHost.endsWith(`.${normalizedDomain}`));
+      const cookieDomain = canUseCrossDomainCookie
+        ? (configuredCookieDomain || `.${normalizedDomain}`)
+        : "";
+
+      if (!(hasCookie(hostCookie) || hasCookie(shellCookie) || hasCookie(openclawCookie) || hasCookie(reefCookie))) {
+        const authToken = await getToken();
+        const tokenResp = await clawFetch<{ token: string }>(`/agents/${agentId}/token`, authToken);
+        const tokenValue = encodeURIComponent(tokenResp.token);
+        const securePart = window.location.protocol === "https:" ? "; secure" : "";
+        const domainPart = cookieDomain ? `; domain=${cookieDomain}` : "";
+        const expires = new Date(Date.now() + 12 * 60 * 60 * 1000).toUTCString();
+
+        document.cookie = `${hostCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+        document.cookie = `${shellCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+        document.cookie = `${openclawCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+        document.cookie = `${reefCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+      }
+
       const gw = new GatewayClient({
         url,
-        token: agent.jwt_token,
       });
 
       // Set up event handler for streaming chat
@@ -190,7 +220,7 @@ export default function AgentConsolePage() {
     } catch (e: any) {
       setGwError(e.message);
     }
-  }, [agent]);
+  }, [agent, agentId, getToken]);
 
   useEffect(() => {
     if (agent?.state === "RUNNING" && !gwConnected) {

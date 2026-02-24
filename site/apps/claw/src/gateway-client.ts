@@ -23,19 +23,24 @@ export interface ChatEvent {
 
 export interface GatewayConfig {
   url: string;
-  token: string;
+  token?: string;
   gatewayToken?: string;
   clientId?: string;
   clientMode?: string;
 }
 
 type EventHandler = (event: string, payload: Record<string, unknown>) => void;
+type ResolvedGatewayConfig = GatewayConfig & {
+  gatewayToken: string;
+  clientId: string;
+  clientMode: string;
+};
 
 export class GatewayClient {
   private ws: WebSocket | null = null;
   private pending = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void; timer: ReturnType<typeof setTimeout> }>();
   private eventHandlers: EventHandler[] = [];
-  private config: Required<GatewayConfig>;
+  private config: ResolvedGatewayConfig;
   private _connected = false;
   private _version: string | null = null;
   private _protocol: number | null = null;
@@ -59,11 +64,8 @@ export class GatewayClient {
 
   connect(): Promise<void> {
     return new Promise((resolve, reject) => {
-      // Append token as query param for browsers (no custom headers on WS)
-      const sep = this.config.url.includes("?") ? "&" : "?";
-      const url = `${this.config.url}${sep}token=${encodeURIComponent(this.config.token)}`;
-
-      this.ws = new WebSocket(url);
+      // Browser WS auth is handled by host-scoped cookies (ForwardAuth).
+      this.ws = new WebSocket(this.config.url);
 
       let handshakePhase: "challenge" | "hello" | "done" = "challenge";
       const timeout = setTimeout(() => {

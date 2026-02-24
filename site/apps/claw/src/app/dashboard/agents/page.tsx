@@ -90,6 +90,7 @@ interface LogEvent {
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
+const AUTH_COOKIE_MAX_AGE_HOURS = 12;
 type ConsoleTab = "logs" | "shell" | "files" | "chat";
 
 function formatWhen(ts: string | null): string {
@@ -116,23 +117,39 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function buildShellWsUrl(hostname: string, token: string): string {
-  return `wss://shell-${hostname}/shell?token=${encodeURIComponent(token)}`;
+function buildShellWsUrl(hostname: string): string {
+  return `wss://shell-${hostname}/shell`;
 }
 
 function setDesktopAuthCookie(
   name: string,
   value: string,
-  days: number,
+  maxAgeHours: number,
   domain: string
 ): void {
   const date = new Date();
-  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
+  date.setTime(date.getTime() + maxAgeHours * 60 * 60 * 1000);
   const expires = date.toUTCString();
   const securePart = window.location.protocol === "https:" ? "; secure" : "";
   const domainPart = domain ? `; domain=${domain}` : "";
   const encodedValue = encodeURIComponent(value);
   document.cookie = `${name}=${encodedValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+}
+
+function getDesktopCookieDomain(): string {
+  const configuredCookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim();
+  const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
+  const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
+  const canUseCrossDomainCookie =
+    normalizedDomain &&
+    (currentHost === normalizedDomain || currentHost.endsWith(`.${normalizedDomain}`));
+  return canUseCrossDomainCookie ? (configuredCookieDomain || `.${normalizedDomain}`) : "";
+}
+
+function hasCookie(name: string): boolean {
+  if (typeof document === "undefined") return false;
+  const encoded = `${encodeURIComponent(name)}=`;
+  return document.cookie.split(";").some((entry) => entry.trim().startsWith(encoded));
 }
 
 function stateClass(state: AgentState): string {
@@ -214,6 +231,33 @@ export default function AgentsPage() {
   const shellFitAddonRef = useRef<FitAddon | null>(null);
   const shellSessionAgentRef = useRef<string | null>(null);
 
+  const ensureAgentAccessCookies = useCallback(
+    async (agentId: string, hostname: string, force = false): Promise<void> => {
+      const subdomain = hostname.split(".")[0];
+      const hostCookie = `${subdomain}-token`;
+      const shellCookie = `shell-${subdomain}-token`;
+      const openclawCookie = `openclaw-${subdomain}-token`;
+      const reefCookie = "reef_token";
+
+      if (!force && (hasCookie(hostCookie) || hasCookie(shellCookie) || hasCookie(openclawCookie) || hasCookie(reefCookie))) {
+        return;
+      }
+
+      const authToken = await getToken();
+      const tokenData = await clawFetch<AgentDesktopTokenResponse>(
+        `/agents/${agentId}/token`,
+        authToken
+      );
+      const cookieDomain = getDesktopCookieDomain();
+
+      setDesktopAuthCookie(hostCookie, tokenData.token, AUTH_COOKIE_MAX_AGE_HOURS, cookieDomain);
+      setDesktopAuthCookie(shellCookie, tokenData.token, AUTH_COOKIE_MAX_AGE_HOURS, cookieDomain);
+      setDesktopAuthCookie(openclawCookie, tokenData.token, AUTH_COOKIE_MAX_AGE_HOURS, cookieDomain);
+      setDesktopAuthCookie(reefCookie, tokenData.token, AUTH_COOKIE_MAX_AGE_HOURS, cookieDomain);
+    },
+    [getToken]
+  );
+
   // Gateway connection
   const connectGateway = useCallback(async (agent: Agent) => {
     // Cleanup previous
@@ -230,11 +274,10 @@ export default function AgentsPage() {
 
     try {
       setGwStatus("connecting");
-      const authToken = await getToken();
-      const tokenData = await clawFetch<{ token: string }>(`/agents/${agent.id}/token`, authToken);
+      await ensureAgentAccessCookies(agent.id, agent.hostname);
       const url = `wss://openclaw-${agent.hostname}`;
 
-      const gw = new GatewayClient({ url, token: tokenData.token });
+      const gw = new GatewayClient({ url });
 
       gw.onEvent((event, payload) => {
         const p = payload as any;
@@ -326,7 +369,7 @@ export default function AgentsPage() {
       setGwStatus("disconnected");
       throw e;
     }
-  }, [getToken]);
+  }, [ensureAgentAccessCookies]);
 
   // Gateway connection effect moved below selectedAgent declaration
 
@@ -464,33 +507,10 @@ export default function AgentsPage() {
     gwChatEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [gwChatMessages]);
 
-  const issueAgentAccessToken = useCallback(
-    async (agentId: string, hostname: string): Promise<string> => {
-      const authToken = await getToken();
-      const tokenData = await clawFetch<AgentDesktopTokenResponse>(
-        `/agents/${agentId}/token`,
-        authToken
-      );
-      const subdomain = hostname.split(".")[0];
-      const configuredCookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim();
-      const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
-      const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
-      const canUseCrossDomainCookie =
-        normalizedDomain &&
-        (currentHost === normalizedDomain || currentHost.endsWith(`.${normalizedDomain}`));
-      const cookieDomain = canUseCrossDomainCookie
-        ? (configuredCookieDomain || `.${normalizedDomain}`)
-        : "";
-
-      // On localhost dev, browser rejects .hyperclaw.app cookies. That's fine:
-      // shell/gateway WS auth uses explicit ?token=... query auth.
-      setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
-      setDesktopAuthCookie(`shell-${subdomain}-token`, tokenData.token, 2, cookieDomain);
-      setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);
-      return tokenData.token;
-    },
-    [getToken]
-  );
+  useEffect(() => {
+    if (!selectedAgentId || !selectedAgent?.hostname) return;
+    void ensureAgentAccessCookies(selectedAgentId, selectedAgent.hostname);
+  }, [selectedAgentId, selectedAgent?.hostname, ensureAgentAccessCookies]);
 
   const isAgentConnectable = useMemo(() => {
     if (!selectedAgent) return false;
@@ -736,10 +756,10 @@ export default function AgentsPage() {
           return;
         }
 
-        const shellToken = await issueAgentAccessToken(agentId, selectedAgentHostname);
+        await ensureAgentAccessCookies(agentId, selectedAgentHostname);
         if (cancelled) return;
 
-        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname, shellToken));
+        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname));
         shellWsRef.current = ws;
 
         ws.onopen = () => {
@@ -782,7 +802,7 @@ export default function AgentsPage() {
       }
       shellWsRef.current = null;
     };
-  }, [consoleTab, selectedAgentId, selectedAgentHostname, isAgentRunning, reconnectNonce, issueAgentAccessToken]);
+  }, [consoleTab, selectedAgentId, selectedAgentHostname, isAgentRunning, reconnectNonce, ensureAgentAccessCookies]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -972,10 +992,9 @@ export default function AgentsPage() {
     setError(null);
 
     try {
-      const accessToken = await issueAgentAccessToken(agent.id, agent.hostname);
+      await ensureAgentAccessCookies(agent.id, agent.hostname, true);
 
       const desktopUrl = new URL(`https://${agent.hostname}`);
-      desktopUrl.searchParams.set("token", accessToken);
 
       if (popup) {
         popup.location.href = desktopUrl.toString();
