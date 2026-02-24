@@ -8,7 +8,7 @@
                        "packages/*"
                    ],
     "scripts":  {
-                    "dev":  "concurrently \\\"npm:cors-proxy\\\" \\\"npm:dev:apps\\\"",
+                    "dev":  "bash scripts/dev.sh",
                     "build":  "turbo run build",
                     "lint":  "turbo run lint",
                     "clean":  "turbo run clean \u0026\u0026 rm -rf node_modules",
