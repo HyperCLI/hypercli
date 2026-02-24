@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Menu, X } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
@@ -23,12 +23,26 @@ export function ClawHeader() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
+  // Redirect to dashboard only when user just completed login
+  // (auth transitions from false → true), not on every page load
+  const wasAuthenticated = useRef(isAuthenticated);
+  useEffect(() => {
+    if (!isLoading && isAuthenticated && !wasAuthenticated.current) {
+      router.push("/dashboard");
+    }
+    if (!isLoading) {
+      wasAuthenticated.current = isAuthenticated;
+    }
+  }, [isLoading, isAuthenticated, router]);
+
   return (
     <header
       className={`fixed top-0 left-0 right-0 z-50 transition-all duration-300 ${
-        scrolled
-          ? "bg-background/80 backdrop-blur-lg border-b border-border"
-          : "bg-transparent"
+        mobileOpen
+          ? "bg-background border-b border-border"
+          : scrolled
+            ? "bg-background/80 backdrop-blur-lg border-b border-border"
+            : "bg-transparent"
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
@@ -101,7 +115,7 @@ export function ClawHeader() {
 
         {/* Mobile Menu */}
         {mobileOpen && (
-          <div className="md:hidden pb-4 border-t border-border mt-2 pt-4">
+          <div className="md:hidden pb-4 border-t border-border mt-2 pt-4 bg-background">
             <nav className="flex flex-col gap-3">
               {navLinks.map((link) => (
                 <a
