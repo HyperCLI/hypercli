@@ -1,0 +1,102 @@
+---
+title: Agents Overview
+description: OpenClaw desktop containers (reef pods) with VNC, shell, file access, and an AI gateway
+---
+
+## What Are Agents?
+
+Agents are fully managed **OpenClaw desktop containers** (internally called *reef pods*) that run on Kubernetes. Each agent provides:
+
+- **VNC desktop** — full Linux desktop accessible via browser
+- **Shell access** — WebSocket PTY terminal
+- **File system** — read/write files on the container
+- **OpenClaw Gateway** — WebSocket RPC for AI chat, config, cron, and more
+
+Agents are ideal for running autonomous AI workflows, development environments, or any task that needs a persistent Linux desktop with programmatic control.
+
+## Architecture
+
+```
+Client (CLI / SDK)
+    │
+    ▼
+HyperClaw Backend API (api.hyperclaw.app)
+    │  Auth, plan enforcement, DB persistence
+    ▼
+Lagoon (pod orchestrator)
+    │  Scheduling, health monitoring, log ingest
+    ▼
+Reef containers on Kubernetes
+    ├── VNC desktop (noVNC)
+    ├── Shell executor (HTTP + WebSocket)
+    └── OpenClaw Gateway (WebSocket RPC v3)
+```
+
+The HyperClaw backend handles authentication and plan enforcement. It proxies lifecycle commands to **Lagoon**, which orchestrates reef containers on the underlying Kubernetes cluster.
+
+## Hostnames
+
+Each agent gets three public endpoints based on its pod name:
+
+| Service  | URL Pattern                              | Protocol   |
+|----------|------------------------------------------|------------|
+| Desktop  | `https://{name}.hyperclaw.app`           | HTTPS/VNC  |
+| Shell    | `https://shell-{name}.hyperclaw.app`     | HTTPS/WS   |
+| Gateway  | `wss://openclaw-{name}.hyperclaw.app`    | WebSocket  |
+
+All endpoints are secured via Traefik ForwardAuth with JWT tokens.
+
+## Lifecycle
+
+Agents move through these states:
+
+```
+create → pending → starting → running → stopped → deleted
+```
+
+| State      | Description                                    |
+|------------|------------------------------------------------|
+| `pending`  | Created in DB, waiting for pod scheduling      |
+| `starting` | Pod scheduled, containers initializing         |
+| `running`  | All containers healthy, endpoints accessible   |
+| `stopped`  | Pod torn down, DB record preserved             |
+| `deleted`  | Fully removed (pod + DB record)                |
+
+Stopped agents retain their configuration and can be restarted. Deleted agents are gone permanently.
+
+## Health Monitoring
+
+Agent health is monitored via **app-level ping/pong** over the Lagoon log ingest WebSocket — not by direct HTTP probing. This approach:
+
+- Works through Traefik ingress without exposing health endpoints
+- Detects application-level hangs (not just TCP connectivity)
+- Integrates with the existing log streaming infrastructure
+
+## Resources
+
+Each HyperClaw plan includes a CPU/memory budget for agents. Check yours with:
+
+```bash
+hyper agents budget
+```
+
+### Size Presets
+
+| Size     | CPU (cores) | Memory (GB) |
+|----------|-------------|-------------|
+| `small`  | 1           | 2           |
+| `medium` | 2           | 4           |
+| `large`  | 4           | 8           |
+
+You can also specify custom CPU/memory values if your plan budget allows it.
+
+<Tip>
+Use `hyper agents budget` to see your plan's total budget, current usage, and available resources before creating agents.
+</Tip>
+
+## Next Steps
+
+- [Quickstart](/agents/quickstart) — Create your first agent in 2 minutes
+- [CLI Reference](/cli/commands/agents) — Full `hyper agents` command reference
+- [SDK Reference](/sdk/agents) — Python SDK for programmatic control
+- [Gateway Client](/sdk/gateway) — WebSocket RPC for OpenClaw Gateway

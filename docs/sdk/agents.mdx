@@ -1,0 +1,254 @@
+---
+title: Agents SDK
+description: Python SDK for managing OpenClaw agent pods (reef containers)
+---
+
+## Overview
+
+The `Agents` class provides programmatic access to reef pod lifecycle, execution, file management, and streaming — all through the HyperClaw backend API.
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(api_key="...", claw_api_key="sk-...")
+agents = client.agents
+```
+
+## Constructor
+
+```python
+Agents(http: HTTPClient, claw_api_key: str = None, claw_api_base: str = None)
+```
+
+| Parameter      | Description                                      | Default                       |
+|----------------|--------------------------------------------------|-------------------------------|
+| `http`         | HTTPClient instance                              | Required                      |
+| `claw_api_key` | HyperClaw API key (`sk-...`)                     | Falls back to `http.api_key`  |
+| `claw_api_base`| Backend API base URL                             | `https://api.hyperclaw.app`   |
+
+## Lifecycle Methods
+
+### create()
+
+```python
+def create(
+    name: str = None,
+    size: str = None,      # "small", "medium", "large"
+    cpu: int = None,       # cores (overrides size)
+    memory: int = None,    # GB (overrides size)
+    config: dict = None,
+    start: bool = True,
+) -> ReefPod
+```
+
+Create a new agent. Returns a `ReefPod` with connection details.
+
+### list()
+
+```python
+def list() -> list[ReefPod]
+```
+
+List all agents for the authenticated user.
+
+### get()
+
+```python
+def get(agent_id: str) -> ReefPod
+```
+
+Get agent details by UUID. Refreshes status from Lagoon.
+
+### start() / stop() / delete()
+
+```python
+def start(agent_id: str) -> ReefPod
+def stop(agent_id: str) -> ReefPod
+def delete(agent_id: str) -> dict
+```
+
+### budget()
+
+```python
+def budget() -> dict
+```
+
+Returns `{"budget": {...}, "used": {...}, "available": {...}, "size_presets": {...}}`.
+
+### metrics()
+
+```python
+def metrics(agent_id: str) -> dict
+```
+
+Live CPU/memory metrics from the k8s metrics-server.
+
+### refresh_token()
+
+```python
+def refresh_token(agent_id: str) -> dict
+```
+
+Returns `{"agent_id": "...", "pod_id": "...", "token": "...", "expires_at": "..."}`.
+
+## Executor Methods (Direct to Pod)
+
+These methods talk directly to the reef pod's executor at `https://shell-{name}.hyperclaw.app`. The pod must be running with a valid JWT token.
+
+### exec()
+
+```python
+def exec(pod: ReefPod, command: str, timeout: int = 30) -> ExecResult
+```
+
+Execute a one-shot shell command. Returns `ExecResult` with `exit_code`, `stdout`, `stderr`.
+
+```python
+result = agents.exec(pod, "ls -la /workspace")
+print(result.stdout)
+print(f"Exit code: {result.exit_code}")
+```
+
+### health()
+
+```python
+def health(pod: ReefPod) -> dict
+```
+
+Check executor health. Returns `{"status": "ok", "disk_free_mb": ...}`.
+
+### files_list() / file_read() / file_write()
+
+```python
+def files_list(pod: ReefPod, path: str = ".") -> list[dict]
+def file_read(pod: ReefPod, path: str) -> str
+def file_write(pod: ReefPod, path: str, content: str) -> dict
+```
+
+Direct file operations on the pod's filesystem.
+
+### chat_stream()
+
+```python
+def chat_stream(pod: ReefPod, messages: list[dict], model: str = "hyperclaw/kimi-k2.5")
+```
+
+Stream chat completions via the executor proxy. Yields content delta strings.
+
+```python
+messages = [{"role": "user", "content": "Hello!"}]
+for chunk in agents.chat_stream(pod, messages):
+    print(chunk, end="", flush=True)
+```
+
+### logs_stream()
+
+```python
+def logs_stream(pod: ReefPod, lines: int = 100, follow: bool = True)
+```
+
+Stream logs via executor SSE. Yields log lines.
+
+## WebSocket Methods (Via Backend)
+
+These connect through the HyperClaw backend WebSocket proxy.
+
+### logs_stream_ws() (async)
+
+```python
+async def logs_stream_ws(
+    agent_id: str,
+    tail_lines: int = 100,
+    container: str = "reef"
+) -> AsyncIterator[str]
+```
+
+Stream logs via the backend WebSocket (proxied through Lagoon).
+
+```python
+import asyncio
+
+async def stream():
+    async for line in agents.logs_stream_ws("agent-uuid"):
+        print(line)
+
+asyncio.run(stream())
+```
+
+### shell_connect() (async)
+
+```python
+async def shell_connect(agent_id: str) -> websockets.ClientConnection
+```
+
+Connect to an interactive PTY shell via the backend WebSocket proxy. Returns a bidirectional WebSocket connection.
+
+## Dataclasses
+
+### ReefPod
+
+```python
+@dataclass
+class ReefPod:
+    id: str
+    user_id: str
+    pod_id: str
+    pod_name: str
+    state: str                           # pending, starting, running, stopped, etc.
+    name: Optional[str] = None
+    cpu: int = 0                         # cores
+    memory: int = 0                      # GB
+    hostname: Optional[str] = None
+    openclaw_url: Optional[str] = None
+    jwt_token: Optional[str] = None
+    jwt_expires_at: Optional[datetime] = None
+    started_at: Optional[datetime] = None
+    stopped_at: Optional[datetime] = None
+    last_error: Optional[str] = None
+    created_at: Optional[datetime] = None
+    updated_at: Optional[datetime] = None
+```
+
+**Properties:**
+
+| Property        | Type            | Description                              |
+|-----------------|-----------------|------------------------------------------|
+| `vnc_url`       | `str \| None`   | `https://{hostname}`                     |
+| `shell_url`     | `str \| None`   | `https://shell-{hostname}`               |
+| `executor_url`  | `str \| None`   | Same as `shell_url`                      |
+| `is_running`    | `bool`          | `True` if `state == "running"`           |
+
+**Methods:**
+
+```python
+def gateway(**kwargs) -> GatewayClient
+```
+
+Creates an unconnected [GatewayClient](/sdk/gateway) for this pod. Use as an async context manager:
+
+```python
+async with pod.gateway() as gw:
+    config = await gw.config_get()
+    async for event in gw.chat_send("Hello"):
+        print(event.text, end="")
+```
+
+<Note>
+Requires the pod to be running with a valid `jwt_token`. Call `refresh_token()` first if the token has expired.
+</Note>
+
+### ExecResult
+
+```python
+@dataclass
+class ExecResult:
+    exit_code: int
+    stdout: str
+    stderr: str
+```
+
+## Related
+
+- [Agents Overview](/agents/index) — Architecture and concepts
+- [CLI Reference](/cli/commands/agents) — `hyper agents` commands
+- [Gateway Client](/sdk/gateway) — Full Gateway RPC reference

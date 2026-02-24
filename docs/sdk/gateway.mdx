@@ -1,0 +1,289 @@
+---
+title: Gateway Client SDK
+description: WebSocket RPC client for the OpenClaw Gateway protocol v3
+---
+
+## Overview
+
+`GatewayClient` is an async WebSocket client for the OpenClaw Gateway running inside reef pods. It implements protocol v3 with challenge-response authentication and supports config management, chat streaming, file operations, sessions, cron, and more.
+
+```python
+from hypercli.gateway import GatewayClient
+
+async with GatewayClient(
+    url="wss://openclaw-myagent.hyperclaw.app",
+    token="jwt..."
+) as gw:
+    config = await gw.config_get()
+    async for event in gw.chat_send("Hello!"):
+        if event.type == "content":
+            print(event.text, end="")
+```
+
+<Tip>
+The easiest way to get a `GatewayClient` is via `ReefPod.gateway()` — see the [Agents SDK](/sdk/agents).
+</Tip>
+
+## Constructor
+
+```python
+GatewayClient(
+    url: str,                    # wss://openclaw-{name}.hyperclaw.app
+    token: str,                  # JWT token for Traefik ForwardAuth
+    gateway_token: str = "...",  # Gateway auth token (challenge-response)
+    client_id: str = "gateway-client",
+    client_mode: str = "backend",
+    timeout: float = 15.0,       # Default RPC timeout in seconds
+)
+```
+
+## Connection
+
+`GatewayClient` is an **async context manager**. On connect, it performs a protocol v3 handshake:
+
+1. Receive `connect.challenge` from the gateway
+2. Send `connect` request with protocol version, client info, and auth
+3. Receive `hello` response with gateway version and protocol confirmation
+
+```python
+async with GatewayClient(url=url, token=token) as gw:
+    print(f"Connected: v{gw.version}, protocol {gw.protocol}")
+    # ... use gw
+# Automatically closed
+```
+
+You can also use `connect()` / `close()` manually:
+
+```python
+gw = GatewayClient(url=url, token=token)
+await gw.connect()
+try:
+    # ...
+finally:
+    await gw.close()
+```
+
+## Config
+
+### config_get()
+
+```python
+async def config_get() -> dict
+```
+
+Get the current gateway configuration.
+
+### config_schema()
+
+```python
+async def config_schema() -> dict
+```
+
+Get the JSON schema and UI hints for the configuration.
+
+### config_patch()
+
+```python
+async def config_patch(patch: dict) -> dict
+```
+
+Deep-merge a patch into the gateway config. **Triggers a gateway restart.**
+
+```python
+await gw.config_patch({
+    "models": {
+        "providers": {
+            "openai": {"apiKey": "sk-...", "models": [...]}
+        }
+    }
+})
+```
+
+### config_apply()
+
+```python
+async def config_apply(config: dict) -> dict
+```
+
+Replace the entire gateway configuration. **Triggers a gateway restart.**
+
+<Warning>
+`config_apply()` replaces the full config. Use `config_patch()` for partial updates.
+</Warning>
+
+## Chat
+
+### chat_send()
+
+```python
+async def chat_send(
+    message: str,
+    session_key: str = None,
+    agent_id: str = None,
+) -> AsyncIterator[ChatEvent]
+```
+
+Send a message and stream the response as `ChatEvent` objects.
+
+```python
+async for event in gw.chat_send("Explain quantum computing"):
+    match event.type:
+        case "content":
+            print(event.text, end="", flush=True)
+        case "thinking":
+            print(f"[thinking] {event.text}")
+        case "tool_call":
+            print(f"[tool] {event.data}")
+        case "done":
+            print("\n--- Done ---")
+        case "error":
+            print(f"Error: {event.text}")
+```
+
+### chat_history()
+
+```python
+async def chat_history(session_key: str = None, limit: int = 50) -> list[dict]
+```
+
+### chat_abort()
+
+```python
+async def chat_abort(session_key: str = None) -> dict
+```
+
+Abort the current chat generation.
+
+## Files
+
+All file methods operate on workspace files managed by the OpenClaw agent.
+
+### files_list()
+
+```python
+async def files_list(agent_id: str) -> list[dict]
+```
+
+Returns `[{"name": "SOUL.md", "size": 1234, "missing": false}, ...]`.
+
+### file_get()
+
+```python
+async def file_get(agent_id: str, name: str) -> str
+```
+
+Read a workspace file's content.
+
+### file_set()
+
+```python
+async def file_set(agent_id: str, name: str, content: str) -> dict
+```
+
+Write a workspace file.
+
+<Note>
+The `agent_id` parameter refers to the OpenClaw agent inside the gateway (usually `"main"`), not the reef pod ID.
+</Note>
+
+## Sessions
+
+### sessions_list()
+
+```python
+async def sessions_list(limit: int = 20) -> list[dict]
+```
+
+Returns `[{"key": "...", "status": "...", "lastActivity": "..."}, ...]`.
+
+## Cron
+
+### cron_list()
+
+```python
+async def cron_list() -> list[dict]
+```
+
+Returns `[{"id": "...", "name": "...", "schedule": "...", "enabled": true}, ...]`.
+
+### cron_add() / cron_remove() / cron_run()
+
+```python
+async def cron_add(job: dict) -> dict
+async def cron_remove(job_id: str) -> dict
+async def cron_run(job_id: str) -> dict      # Trigger immediately
+```
+
+## Models
+
+### models_list()
+
+```python
+async def models_list() -> list[dict]
+```
+
+Returns available models with `provider`, `name`, and `contextWindow`.
+
+## Agents
+
+### agents_list()
+
+```python
+async def agents_list() -> list[dict]
+```
+
+List agents configured in the gateway.
+
+### agent_get()
+
+```python
+async def agent_get(agent_id: str) -> dict
+```
+
+## Low-Level RPC
+
+### call()
+
+```python
+async def call(method: str, params: dict = None, timeout: float = None) -> Any
+```
+
+Send a raw RPC request and wait for the response. Returns the `payload` dict on success, raises `GatewayError` on failure.
+
+### status()
+
+```python
+async def status() -> dict
+```
+
+Get gateway status.
+
+## Dataclasses
+
+### ChatEvent
+
+```python
+@dataclass
+class ChatEvent:
+    type: str                    # content, thinking, tool_call, tool_result, done, error, status
+    text: Optional[str] = None   # For content, thinking, error, status
+    data: Optional[dict] = None  # For tool_call, tool_result, done
+```
+
+### GatewayError
+
+```python
+@dataclass
+class GatewayError(Exception):
+    code: str
+    message: str
+    details: Optional[dict] = None
+```
+
+Common error codes: `NOT_CONNECTED`, `TIMEOUT`, `PROTOCOL`, `CONNECT_FAILED`, `RPC_ERROR`.
+
+## Related
+
+- [Agents SDK](/sdk/agents) — Pod lifecycle and `ReefPod.gateway()`
+- [Agents Overview](/agents/index) — Architecture and concepts
+- [CLI Reference](/cli/commands/agents) — Gateway commands via CLI

@@ -72,6 +72,18 @@
         ]
       },
       {
+        "tab": "Agents",
+        "groups": [
+          {
+            "group": "Agent Pods",
+            "pages": [
+              "agents/index",
+              "agents/quickstart"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "SDK",
         "groups": [
           {
@@ -84,6 +96,8 @@
               "sdk/files",
               "sdk/logs",
               "sdk/comfyui",
+              "sdk/agents",
+              "sdk/gateway",
               "sdk/reference"
             ]
           }
@@ -127,6 +141,7 @@
           {
             "group": "Commands",
             "pages": [
+              "cli/commands/agents",
               "cli/commands/billing",
               "cli/commands/claw",
               "cli/commands/comfyui",
