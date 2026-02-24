@@ -14,7 +14,7 @@
     "@turnkey/react-wallet-kit": "^1.5.0",
     "@types/react-syntax-highlighter": "^15.5.13",
     "framer-motion": "^11.18.0",
-    "lucide-react": "*",
+    "lucide-react": "^0.575.0",
     "next": "*",
     "react": "*",
     "react-dom": "*",
