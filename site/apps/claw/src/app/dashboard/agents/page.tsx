@@ -89,6 +89,9 @@ interface LogEvent {
 
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
+const GATEWAY_RETRY_INITIAL_DELAY_MS = 1000;
+const GATEWAY_RETRY_MAX_DELAY_MS = 10000;
+const LOG_TAIL_LINES = 150;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AUTH_COOKIE_MAX_AGE_HOURS = 12;
 type ConsoleTab = "logs" | "shell" | "files" | "chat";
@@ -239,7 +242,7 @@ export default function AgentsPage() {
       const openclawCookie = `openclaw-${subdomain}-token`;
       const reefCookie = "reef_token";
 
-      if (!force && (hasCookie(hostCookie) || hasCookie(shellCookie) || hasCookie(openclawCookie) || hasCookie(reefCookie))) {
+      if (!force && hasCookie(hostCookie) && hasCookie(shellCookie) && hasCookie(openclawCookie) && hasCookie(reefCookie)) {
         return;
       }
 
@@ -280,6 +283,14 @@ export default function AgentsPage() {
       const gw = new GatewayClient({ url });
 
       gw.onEvent((event, payload) => {
+        const mergeStreamText = (previous: string, incoming: string) => {
+          if (!incoming) return previous;
+          if (!previous) return incoming;
+          if (incoming.startsWith(previous)) return incoming; // snapshot-style stream frame
+          if (previous.endsWith(incoming)) return previous; // duplicate chunk guard
+          return previous + incoming; // delta-style stream frame
+        };
+
         const p = payload as any;
         if (event === "chat") {
           const state = p.state; // "streaming", "thinking", "final", "error"
@@ -293,11 +304,15 @@ export default function AgentsPage() {
               : undefined;
 
             if (state === "streaming" || state === "thinking") {
-              // Replace last assistant message (streaming update)
+              // Merge streaming frames whether gateway sends snapshot or delta chunks.
               setGwChatMessages(prev => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant") {
-                  return [...prev.slice(0, -1), { role: "assistant", content: text, thinking: thinking || last.thinking }];
+                  const nextContent = mergeStreamText(last.content ?? "", text);
+                  const nextThinking = thinking
+                    ? mergeStreamText(last.thinking ?? "", thinking)
+                    : (last.thinking ?? "");
+                  return [...prev.slice(0, -1), { role: "assistant", content: nextContent, thinking: nextThinking }];
                 }
                 return [...prev, { role: "assistant", content: text, thinking }];
               });
@@ -306,7 +321,11 @@ export default function AgentsPage() {
               setGwChatMessages(prev => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant") {
-                  return [...prev.slice(0, -1), { role: "assistant", content: text, thinking }];
+                  const nextContent = mergeStreamText(last.content ?? "", text);
+                  const nextThinking = thinking
+                    ? mergeStreamText(last.thinking ?? "", thinking)
+                    : undefined;
+                  return [...prev.slice(0, -1), { role: "assistant", content: nextContent, thinking: nextThinking }];
                 }
                 return [...prev, { role: "assistant", content: text, thinking }];
               });
@@ -337,32 +356,45 @@ export default function AgentsPage() {
       setGwConnected(true);
       setGwStatus("connected");
 
-      // Load agents to get gateway agent ID
-      const agents = await gw.agentsList();
-      const aid = agents.length > 0 ? agents[0].id : "main";
-      setGwAgentId(aid);
+      // Bootstrap non-chat gateway state in background without blocking connection UX.
+      void (async () => {
+        let aid = "main";
+        try {
+          const agents = await gw.agentsList();
+          if (gwRef.current !== gw) return;
+          aid = agents.length > 0 ? agents[0].id : "main";
+          setGwAgentId(aid);
+        } catch {
+          // Non-fatal; keep default "main".
+        }
 
-      // Load chat history
-      try {
-        const history = await gw.chatHistory("main", 50);
-        const msgs = history.map((m: any) => {
-          const text = Array.isArray(m.content)
-            ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
-            : (typeof m.content === "string" ? m.content : "");
-          return { role: m.role ?? "assistant", content: text };
-        }).filter((m: any) => m.content);
-        setGwChatMessages(msgs);
-      } catch (e) {
-        // No history yet, that's fine
-      }
+        const [historyRes, filesRes, configRes] = await Promise.allSettled([
+          gw.chatHistory("main", 20),
+          gw.filesList(aid),
+          gw.configGet(),
+        ]);
+        if (gwRef.current !== gw) return;
 
-      // Load workspace files
-      const files = await gw.filesList(aid);
-      setGwFiles(files);
+        if (historyRes.status === "fulfilled") {
+          const msgs = historyRes.value
+            .map((m: any) => {
+              const text = Array.isArray(m.content)
+                ? m.content.filter((c: any) => c.type === "text").map((c: any) => c.text).join("")
+                : (typeof m.content === "string" ? m.content : "");
+              return { role: m.role ?? "assistant", content: text };
+            })
+            .filter((m: any) => m.content);
+          setGwChatMessages(msgs);
+        }
 
-      // Load config
-      const cfg = await gw.configGet();
-      setGwConfigJson(JSON.stringify(cfg, null, 2));
+        if (filesRes.status === "fulfilled") {
+          setGwFiles(filesRes.value);
+        }
+
+        if (configRes.status === "fulfilled") {
+          setGwConfigJson(JSON.stringify(configRes.value, null, 2));
+        }
+      })();
     } catch (e: any) {
       setGwError(e.message);
       setGwConnected(false);
@@ -470,7 +502,7 @@ export default function AgentsPage() {
   useEffect(() => {
     let cancelled = false;
     let retryTimer: ReturnType<typeof setTimeout> | null = null;
-    let initialDelay: ReturnType<typeof setTimeout> | null = null;
+    let retryDelayMs = GATEWAY_RETRY_INITIAL_DELAY_MS;
 
     const shouldConnectGateway =
       consoleTab === "chat" && selectedAgent?.state === "RUNNING" && Boolean(selectedAgent?.hostname);
@@ -479,16 +511,19 @@ export default function AgentsPage() {
       if (cancelled || !shouldConnectGateway || !selectedAgent) return;
       try {
         await connectGateway(selectedAgent);
+        retryDelayMs = GATEWAY_RETRY_INITIAL_DELAY_MS;
       } catch {
         if (!cancelled) {
-          retryTimer = setTimeout(() => tryConnect(), 15000);
+          retryTimer = setTimeout(() => {
+            void tryConnect();
+          }, retryDelayMs);
+          retryDelayMs = Math.min(retryDelayMs * 2, GATEWAY_RETRY_MAX_DELAY_MS);
         }
       }
     };
 
     if (shouldConnectGateway) {
-      // Small delay to let pod settle before first gateway attempt.
-      initialDelay = setTimeout(() => tryConnect(), 2000);
+      void tryConnect();
     } else {
       gwRef.current?.close();
       setGwConnected(false);
@@ -497,7 +532,6 @@ export default function AgentsPage() {
     return () => {
       cancelled = true;
       if (retryTimer) clearTimeout(retryTimer);
-      if (initialDelay) clearTimeout(initialDelay);
       gwRef.current?.close();
     };
   }, [consoleTab, selectedAgentId, selectedAgent?.state, selectedAgent?.hostname, reconnectNonce, connectGateway]);
@@ -574,7 +608,7 @@ export default function AgentsPage() {
           const sep = explicitWsUrl.includes("?") ? "&" : "?";
           url =
             `${explicitWsUrl}${sep}ws_token=${encodeURIComponent(stream.ws_token)}` +
-            "&container=reef&tail_lines=400";
+            `&container=reef&tail_lines=${LOG_TAIL_LINES}`;
         } else {
           const wsBase = configuredWsBase || derivedWsBase;
           if (!wsBase) {
@@ -583,7 +617,7 @@ export default function AgentsPage() {
           url =
             `${wsBase}/ws/${agentId}` +
             `?ws_token=${encodeURIComponent(stream.ws_token)}` +
-            "&container=reef&tail_lines=400";
+            `&container=reef&tail_lines=${LOG_TAIL_LINES}`;
         }
 
         ws = new WebSocket(url);
