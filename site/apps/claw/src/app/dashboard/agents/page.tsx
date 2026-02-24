@@ -665,8 +665,8 @@ export default function AgentsPage() {
 
     const term = new Terminal({
       convertEol: false,
-      cursorBlink: true,
-      cursorStyle: "bar",
+      cursorBlink: false,
+      cursorStyle: "block",
       fontFamily:
         "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
       fontSize: 12,
@@ -676,6 +676,7 @@ export default function AgentsPage() {
         background: "#0c1016",
         foreground: "#d8dde7",
         cursor: "#d8dde7",
+        cursorAccent: "#0c1016",
         selectionBackground: "#2a3445",
       },
     });
