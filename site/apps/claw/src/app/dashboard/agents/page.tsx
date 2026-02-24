@@ -52,7 +52,14 @@ interface AgentListResponse {
 
 interface AgentLogsTokenResponse {
   agent_id: string;
-  ws_token: string;
+  jwt: string;
+  expires_at: string;
+  ws_url?: string;
+}
+
+interface AgentShellTokenResponse {
+  agent_id: string;
+  jwt: string;
   expires_at: string;
   ws_url?: string;
 }
@@ -137,10 +144,6 @@ function normalizeWsOrigin(value: string): string {
     if (host.startsWith("ws://") || host.startsWith("wss://")) return host;
     return `wss://${host}`;
   }
-}
-
-function buildShellWsUrl(hostname: string): string {
-  return `wss://shell-${hostname}/shell`;
 }
 
 function setDesktopAuthCookie(
@@ -626,7 +629,7 @@ export default function AgentsPage() {
         if (explicitWsUrl) {
           const sep = explicitWsUrl.includes("?") ? "&" : "?";
           url =
-            `${explicitWsUrl}${sep}ws_token=${encodeURIComponent(stream.ws_token)}` +
+            `${explicitWsUrl}${sep}jwt=${encodeURIComponent(stream.jwt)}` +
             `&container=reef&tail_lines=${LOG_TAIL_LINES}`;
         } else {
           // Prefer API-derived origin so shared NEXT_PUBLIC_WS_URL (console jobs)
@@ -637,7 +640,7 @@ export default function AgentsPage() {
           }
           url =
             `${wsBase}/ws/${agentId}` +
-            `?ws_token=${encodeURIComponent(stream.ws_token)}` +
+            `?jwt=${encodeURIComponent(stream.jwt)}` +
             `&container=reef&tail_lines=${LOG_TAIL_LINES}`;
         }
 
@@ -807,15 +810,25 @@ export default function AgentsPage() {
     const connect = async () => {
       try {
         setShellStatus("connecting");
-        if (!selectedAgentHostname) {
-          scheduleReconnect();
-          return;
-        }
-
-        await ensureAgentAccessCookies(agentId, selectedAgentHostname);
+        const token = await getToken();
+        if (cancelled) return;
+        const shellStream = await clawFetch<AgentShellTokenResponse>(
+          `/agents/${agentId}/shell/token`,
+          token,
+          { method: "POST" }
+        );
         if (cancelled) return;
 
-        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname));
+        const explicitShellWsUrl = (shellStream.ws_url || "").trim();
+        const configuredWsBase = normalizeWsOrigin(process.env.NEXT_PUBLIC_WS_URL || "");
+        const derivedWsBase = normalizeWsOrigin(wsBaseFromApiBase(CLAW_API_BASE));
+        const shellWsBase = derivedWsBase || configuredWsBase;
+        if (!explicitShellWsUrl && !shellWsBase) {
+          throw new Error("Shell websocket URL is not configured");
+        }
+        const wsUrl = explicitShellWsUrl || `${shellWsBase}/ws/shell/${agentId}`;
+        const sep = wsUrl.includes("?") ? "&" : "?";
+        const ws = new WebSocket(`${wsUrl}${sep}jwt=${encodeURIComponent(shellStream.jwt)}`);
         shellWsRef.current = ws;
 
         ws.onopen = () => {
@@ -858,7 +871,7 @@ export default function AgentsPage() {
       }
       shellWsRef.current = null;
     };
-  }, [consoleTab, selectedAgentId, selectedAgentHostname, isAgentRunning, reconnectNonce, ensureAgentAccessCookies]);
+  }, [consoleTab, selectedAgentId, isAgentRunning, reconnectNonce, getToken]);
 
   const handleCreate = async () => {
     setCreating(true);
