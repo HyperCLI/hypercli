@@ -389,11 +389,28 @@ export default function JobDetailPage() {
     }
   };
 
+  const buildJobLogsWsUrl = (jobKey: string) => {
+    const rawBase = (process.env.NEXT_PUBLIC_WS_URL || '').trim().replace(/\/+$/, '');
+    if (!rawBase) return '';
+
+    const wsBase = rawBase
+      .replace(/^https:\/\//i, 'wss://')
+      .replace(/^http:\/\//i, 'ws://');
+
+    if (wsBase.endsWith('/ws/logs')) return `${wsBase}/${jobKey}`;
+    if (wsBase.endsWith('/ws')) return `${wsBase}/logs/${jobKey}`;
+    if (wsBase.endsWith('/orchestra/ws')) return `${wsBase}/logs/${jobKey}`;
+    return `${wsBase}/ws/logs/${jobKey}`;
+  };
+
   const connectWebSocket = (jobKey: string) => {
     if (wsRef.current) return;
 
-    const wsUrl = process.env.NEXT_PUBLIC_WS_URL || '';
-    const fullWsUrl = `${wsUrl}/logs/${jobKey}`;
+    const fullWsUrl = buildJobLogsWsUrl(jobKey);
+    if (!fullWsUrl) {
+      setWsStatus('disconnected');
+      return;
+    }
 
     setWsStatus('connecting');
 

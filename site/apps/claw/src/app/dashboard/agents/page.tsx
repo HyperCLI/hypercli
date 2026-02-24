@@ -120,6 +120,25 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
+function normalizeWsOrigin(value: string): string {
+  const base = value.trim().replace(/\/+$/, "");
+  if (!base) return "";
+
+  const wsBase = base
+    .replace(/^https:\/\//i, "wss://")
+    .replace(/^http:\/\//i, "ws://");
+
+  try {
+    const parsed = new URL(wsBase);
+    return `${parsed.protocol}//${parsed.host}`;
+  } catch {
+    const host = wsBase.split("/", 1)[0];
+    if (!host) return "";
+    if (host.startsWith("ws://") || host.startsWith("wss://")) return host;
+    return `wss://${host}`;
+  }
+}
+
 function buildShellWsUrl(hostname: string): string {
   return `wss://shell-${hostname}/shell`;
 }
@@ -600,8 +619,8 @@ export default function AgentsPage() {
         );
 
         const explicitWsUrl = (stream.ws_url || "").trim();
-        const configuredWsBase = trimTrailingSlash((process.env.NEXT_PUBLIC_WS_URL || "").trim());
-        const derivedWsBase = trimTrailingSlash(wsBaseFromApiBase(CLAW_API_BASE));
+        const configuredWsBase = normalizeWsOrigin(process.env.NEXT_PUBLIC_WS_URL || "");
+        const derivedWsBase = normalizeWsOrigin(wsBaseFromApiBase(CLAW_API_BASE));
 
         let url = "";
         if (explicitWsUrl) {
@@ -610,7 +629,9 @@ export default function AgentsPage() {
             `${explicitWsUrl}${sep}ws_token=${encodeURIComponent(stream.ws_token)}` +
             `&container=reef&tail_lines=${LOG_TAIL_LINES}`;
         } else {
-          const wsBase = configuredWsBase || derivedWsBase;
+          // Prefer API-derived origin so shared NEXT_PUBLIC_WS_URL (console jobs)
+          // does not override claw-specific websocket routing.
+          const wsBase = derivedWsBase || configuredWsBase;
           if (!wsBase) {
             throw new Error("WebSocket base URL is not configured");
           }
