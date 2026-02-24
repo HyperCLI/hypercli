@@ -116,8 +116,8 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function buildShellWsUrl(hostname: string): string {
-  return `wss://shell-${hostname}/shell`;
+function buildShellWsUrl(hostname: string, token: string): string {
+  return `wss://shell-${hostname}/shell?token=${encodeURIComponent(token)}`;
 }
 
 function setDesktopAuthCookie(
@@ -169,11 +169,14 @@ export default function AgentsPage() {
   const [renameSaving, setRenameSaving] = useState(false);
 
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
-  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("logs");
+  const [consoleTab, setConsoleTab] = useState<ConsoleTab>("chat");
 
   // Gateway state
   const gwRef = useRef<GatewayClient | null>(null);
   const [gwConnected, setGwConnected] = useState(false);
+  const [gwStatus, setGwStatus] = useState<"disconnected" | "connecting" | "connected">(
+    "disconnected"
+  );
   const [gwError, setGwError] = useState<string | null>(null);
   const [gwFiles, setGwFiles] = useState<Array<{ name: string; size: number; missing: boolean }>>([]);
   const [gwSelectedFile, setGwSelectedFile] = useState<string | null>(null);
@@ -216,6 +219,7 @@ export default function AgentsPage() {
     // Cleanup previous
     gwRef.current?.close();
     setGwConnected(false);
+    setGwStatus("disconnected");
     setGwError(null);
     setGwFiles([]);
     setGwSelectedFile(null);
@@ -225,6 +229,7 @@ export default function AgentsPage() {
     if (agent.state !== "RUNNING" || !agent.hostname) return;
 
     try {
+      setGwStatus("connecting");
       const authToken = await getToken();
       const tokenData = await clawFetch<{ token: string }>(`/agents/${agent.id}/token`, authToken);
       const url = `wss://openclaw-${agent.hostname}`;
@@ -287,6 +292,7 @@ export default function AgentsPage() {
       await gw.connect();
       gwRef.current = gw;
       setGwConnected(true);
+      setGwStatus("connected");
 
       // Load agents to get gateway agent ID
       const agents = await gw.agentsList();
@@ -316,6 +322,9 @@ export default function AgentsPage() {
       setGwConfigJson(JSON.stringify(cfg, null, 2));
     } catch (e: any) {
       setGwError(e.message);
+      setGwConnected(false);
+      setGwStatus("disconnected");
+      throw e;
     }
   }, [getToken]);
 
@@ -414,14 +423,17 @@ export default function AgentsPage() {
   );
   const selectedAgentHostname = selectedAgent?.hostname || null;
 
-  // Connect gateway when agent is RUNNING (with delay + retry)
+  // Connect gateway only for chat when agent is RUNNING (with delay + retry)
   useEffect(() => {
     let cancelled = false;
-    let retryTimer: ReturnType<typeof setTimeout>;
-    let initialDelay: ReturnType<typeof setTimeout>;
+    let retryTimer: ReturnType<typeof setTimeout> | null = null;
+    let initialDelay: ReturnType<typeof setTimeout> | null = null;
+
+    const shouldConnectGateway =
+      consoleTab === "chat" && selectedAgent?.state === "RUNNING" && Boolean(selectedAgent?.hostname);
 
     const tryConnect = async () => {
-      if (cancelled || !selectedAgent || selectedAgent.state !== "RUNNING") return;
+      if (cancelled || !shouldConnectGateway || !selectedAgent) return;
       try {
         await connectGateway(selectedAgent);
       } catch {
@@ -431,15 +443,21 @@ export default function AgentsPage() {
       }
     };
 
-    if (selectedAgent?.state === "RUNNING") {
-      // Small delay to let pod settle, then connect independently of logs WS
+    if (shouldConnectGateway) {
+      // Small delay to let pod settle before first gateway attempt.
       initialDelay = setTimeout(() => tryConnect(), 2000);
     } else {
       gwRef.current?.close();
       setGwConnected(false);
+      setGwStatus("disconnected");
     }
-    return () => { cancelled = true; clearTimeout(retryTimer); clearTimeout(initialDelay); gwRef.current?.close(); };
-  }, [selectedAgentId, selectedAgent?.state]);
+    return () => {
+      cancelled = true;
+      if (retryTimer) clearTimeout(retryTimer);
+      if (initialDelay) clearTimeout(initialDelay);
+      gwRef.current?.close();
+    };
+  }, [consoleTab, selectedAgentId, selectedAgent?.state, selectedAgent?.hostname, reconnectNonce, connectGateway]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -454,8 +472,18 @@ export default function AgentsPage() {
         authToken
       );
       const subdomain = hostname.split(".")[0];
-      const cookieDomain =
-        (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hyperclaw.app";
+      const configuredCookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim();
+      const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
+      const currentHost = typeof window !== "undefined" ? window.location.hostname : "";
+      const canUseCrossDomainCookie =
+        normalizedDomain &&
+        (currentHost === normalizedDomain || currentHost.endsWith(`.${normalizedDomain}`));
+      const cookieDomain = canUseCrossDomainCookie
+        ? (configuredCookieDomain || `.${normalizedDomain}`)
+        : "";
+
+      // On localhost dev, browser rejects .hyperclaw.app cookies. That's fine:
+      // shell/gateway WS auth uses explicit ?token=... query auth.
       setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
       setDesktopAuthCookie(`shell-${subdomain}-token`, tokenData.token, 2, cookieDomain);
       setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);
@@ -468,6 +496,7 @@ export default function AgentsPage() {
     if (!selectedAgent) return false;
     return ["RUNNING", "PENDING", "STARTING", "STOPPING"].includes(selectedAgent.state);
   }, [selectedAgent]);
+  const isAgentRunning = selectedAgent?.state === "RUNNING";
 
   useEffect(() => {
     if (consoleTab !== "logs") {
@@ -479,7 +508,7 @@ export default function AgentsPage() {
       setLogs([]);
       return;
     }
-    if (!isAgentConnectable) {
+    if (!isAgentRunning) {
       setWsStatus("disconnected");
       return;
     }
@@ -603,7 +632,7 @@ export default function AgentsPage() {
         ws.close();
       }
     };
-  }, [consoleTab, selectedAgentId, isAgentConnectable, getToken, reconnectNonce, fetchAgents]);
+  }, [consoleTab, selectedAgentId, isAgentRunning, getToken, reconnectNonce, fetchAgents]);
 
   useEffect(() => {
     if (!logBoxRef.current) return;
@@ -671,7 +700,7 @@ export default function AgentsPage() {
       setShellStatus("disconnected");
       return;
     }
-    if (!isAgentConnectable) {
+    if (!isAgentRunning) {
       setShellStatus("disconnected");
       return;
     }
@@ -684,8 +713,6 @@ export default function AgentsPage() {
     const term = shellTerminalRef.current;
     if (term && shellSessionAgentRef.current !== agentId) {
       term.reset();
-      term.writeln(`Connected to ${agentId}`);
-      term.writeln("");
       shellSessionAgentRef.current = agentId;
     }
 
@@ -704,16 +731,15 @@ export default function AgentsPage() {
     const connect = async () => {
       try {
         setShellStatus("connecting");
-        shellTerminalRef.current?.writeln("\r\n[connecting shell...]");
         if (!selectedAgentHostname) {
           scheduleReconnect();
           return;
         }
 
-        await issueAgentAccessToken(agentId, selectedAgentHostname);
+        const shellToken = await issueAgentAccessToken(agentId, selectedAgentHostname);
         if (cancelled) return;
 
-        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname));
+        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname, shellToken));
         shellWsRef.current = ws;
 
         ws.onopen = () => {
@@ -733,13 +759,11 @@ export default function AgentsPage() {
 
         ws.onclose = () => {
           if (cancelled) return;
-          shellTerminalRef.current?.writeln("\r\n[disconnected]");
           scheduleReconnect();
         };
 
         ws.onerror = () => {
           if (cancelled) return;
-          shellTerminalRef.current?.writeln("\r\n[shell websocket error]");
           scheduleReconnect();
         };
       } catch {
@@ -758,7 +782,7 @@ export default function AgentsPage() {
       }
       shellWsRef.current = null;
     };
-  }, [consoleTab, selectedAgentId, selectedAgentHostname, isAgentConnectable, reconnectNonce, issueAgentAccessToken]);
+  }, [consoleTab, selectedAgentId, selectedAgentHostname, isAgentRunning, reconnectNonce, issueAgentAccessToken]);
 
   const handleCreate = async () => {
     setCreating(true);
@@ -948,9 +972,10 @@ export default function AgentsPage() {
     setError(null);
 
     try {
-      await issueAgentAccessToken(agent.id, agent.hostname);
+      const accessToken = await issueAgentAccessToken(agent.id, agent.hostname);
 
       const desktopUrl = new URL(`https://${agent.hostname}`);
+      desktopUrl.searchParams.set("token", accessToken);
 
       if (popup) {
         popup.location.href = desktopUrl.toString();
@@ -1170,8 +1195,18 @@ export default function AgentsPage() {
               </p>
               <div className="mt-3 inline-flex rounded-lg border border-border overflow-hidden">
                 <button
-                  onClick={() => setConsoleTab("logs")}
+                  onClick={() => setConsoleTab("chat")}
                   className={`px-3 py-1.5 text-xs ${
+                    consoleTab === "chat"
+                      ? "bg-surface-low text-foreground"
+                      : "bg-transparent text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  Chat
+                </button>
+                <button
+                  onClick={() => setConsoleTab("logs")}
+                  className={`px-3 py-1.5 text-xs border-l border-border ${
                     consoleTab === "logs"
                       ? "bg-surface-low text-foreground"
                       : "bg-transparent text-text-muted hover:text-foreground"
@@ -1198,16 +1233,6 @@ export default function AgentsPage() {
                   }`}
                 >
                   Files
-                </button>
-                <button
-                  onClick={() => setConsoleTab("chat")}
-                  className={`px-3 py-1.5 text-xs border-l border-border ${
-                    consoleTab === "chat"
-                      ? "bg-surface-low text-foreground"
-                      : "bg-transparent text-text-muted hover:text-foreground"
-                  }`}
-                >
-                  💬 Chat
                 </button>
                 {/* Workspace + Config are in the right panel */}
               </div>
@@ -1247,17 +1272,35 @@ export default function AgentsPage() {
                 </>
               ) : (
                 <>
-                  <span
-                    className={`text-xs font-medium ${
-                      (consoleTab === "logs" ? wsStatus : shellStatus) === "connected"
-                        ? "text-primary"
-                        : (consoleTab === "logs" ? wsStatus : shellStatus) === "connecting"
-                          ? "text-[#f0c56c]"
-                          : "text-text-muted"
-                    }`}
-                  >
-                    {consoleTab === "logs" ? wsStatus : shellStatus}
-                  </span>
+                  {/*
+                    Per-tab realtime status:
+                    - logs -> lagoon logs ws
+                    - shell -> shell ws
+                    - chat -> gateway ws
+                  */}
+                  {(() => {
+                    const activeStatus =
+                      consoleTab === "logs"
+                        ? wsStatus
+                        : consoleTab === "shell"
+                          ? shellStatus
+                          : consoleTab === "chat"
+                            ? gwStatus
+                            : "disconnected";
+                    return (
+                      <span
+                        className={`text-xs font-medium ${
+                          activeStatus === "connected"
+                            ? "text-primary"
+                            : activeStatus === "connecting"
+                              ? "text-[#f0c56c]"
+                              : "text-text-muted"
+                        }`}
+                      >
+                        {activeStatus}
+                      </span>
+                    );
+                  })()}
                   <button
                     onClick={() => setReconnectNonce((n) => n + 1)}
                     disabled={!selectedAgent}
