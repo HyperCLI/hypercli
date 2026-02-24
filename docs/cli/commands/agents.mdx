@@ -1,0 +1,292 @@
+---
+title: hyper agents
+description: Manage OpenClaw agent pods (reef containers)
+---
+
+## Overview
+
+The `hyper agents` commands manage reef pods — OpenClaw desktop containers with VNC, shell, file access, and an AI gateway. All commands authenticate via your HyperClaw API key.
+
+<Note>
+All commands support **agent ID prefix matching** from local state (`~/.hypercli/agents.json`). Type just the first few characters instead of the full UUID.
+</Note>
+
+## Lifecycle Commands
+
+### create
+
+Create a new OpenClaw agent pod.
+
+```bash
+hyper agents create [OPTIONS]
+```
+
+**Options:**
+- `--name`, `-n` — Agent name (auto-generated if omitted; becomes `{name}.hyperclaw.app`)
+- `--size`, `-s` — Size preset: `small`, `medium`, `large`
+- `--cpu` — Custom CPU in cores (overrides size)
+- `--memory` — Custom memory in GB (overrides size)
+- `--no-start` — Create without starting
+- `--wait/--no-wait` — Wait for pod to reach `running` state (default: wait)
+
+**Example:**
+```bash
+$ hyper agents create --name my-agent --size medium --wait
+
+Creating agent pod...
+✓ Agent created: a1b2c3d4e5f6
+  Name:     my-agent
+  Size:     2 CPU, 4 GB
+  State:    pending
+  Desktop:  https://my-agent.hyperclaw.app
+  Shell:    https://shell-my-agent.hyperclaw.app
+
+Waiting for pod to start...
+  [5s] State: starting
+  [10s] State: starting
+✅ Agent is running!
+
+Exec:    hyper agents exec a1b2c3d4 'echo hello'
+Shell:   hyper agents shell a1b2c3d4
+Desktop: https://my-agent.hyperclaw.app
+```
+
+### list
+
+List all agent pods.
+
+```bash
+hyper agents list [--json]
+```
+
+**Options:**
+- `--json` — Output as JSON
+
+### status
+
+Get detailed status of an agent, including executor health.
+
+```bash
+hyper agents status <agent_id>
+```
+
+### start
+
+Start a previously stopped agent.
+
+```bash
+hyper agents start <agent_id>
+```
+
+### stop
+
+Stop an agent. Tears down the pod but keeps the DB record for restarting later.
+
+```bash
+hyper agents stop <agent_id> [--force]
+```
+
+**Options:**
+- `--force`, `-f` — Skip confirmation prompt
+
+### delete
+
+Permanently delete an agent (pod + DB record).
+
+```bash
+hyper agents delete <agent_id> [--force]
+```
+
+**Options:**
+- `--force`, `-f` — Skip confirmation prompt
+
+<Warning>
+Deletion is permanent. The agent's pod, configuration, and all data are destroyed.
+</Warning>
+
+## Execution Commands
+
+### exec
+
+Execute a one-shot command on an agent pod via the executor API.
+
+```bash
+hyper agents exec <agent_id> <command> [--timeout 30]
+```
+
+**Options:**
+- `--timeout`, `-t` — Command timeout in seconds (default: 30)
+
+**Example:**
+```bash
+$ hyper agents exec a1b2 'uname -a && whoami'
+Linux reef-my-agent 6.1.0 #1 SMP x86_64 GNU/Linux
+ubuntu
+```
+
+Exit code is forwarded to the shell.
+
+### shell
+
+Open an interactive PTY shell on an agent pod via WebSocket.
+
+```bash
+hyper agents shell <agent_id>
+```
+
+Connects through the HyperClaw backend WebSocket proxy to the pod's shell. Press **Ctrl+]** to disconnect.
+
+### logs
+
+Stream logs from an agent pod.
+
+```bash
+hyper agents logs <agent_id> [-n 100] [-f/--no-follow] [--ws]
+```
+
+**Options:**
+- `-n`, `--lines` — Number of historical lines (default: 100)
+- `-f/--no-follow` — Follow log output (default: follow)
+- `--ws` — Use WebSocket via backend instead of SSE via executor
+
+### chat
+
+Interactive chat with the agent's OpenClaw instance via the executor proxy.
+
+```bash
+hyper agents chat <agent_id> [--model hyperclaw/kimi-k2.5]
+```
+
+**Options:**
+- `--model`, `-m` — Model to use (default: `hyperclaw/kimi-k2.5`)
+
+Type messages, get streaming responses. Type `exit` or press Ctrl+C to quit.
+
+## Token & Budget
+
+### token
+
+Refresh the JWT token for an agent.
+
+```bash
+hyper agents token <agent_id>
+```
+
+### budget
+
+Show your agent resource budget and usage.
+
+```bash
+hyper agents budget
+```
+
+**Example:**
+```bash
+$ hyper agents budget
+
+Agent Resource Budget (1aiu)
+  Agents:  1/2 (1 available)
+  CPU:     2/8 cores (6 available)
+  Memory:  4/16 GB (12 available)
+
+Size Presets:
+  small    — 1 CPU, 2 GB
+  medium   — 2 CPU, 4 GB
+  large    — 4 CPU, 8 GB
+```
+
+## Gateway Commands
+
+These commands communicate with the OpenClaw Gateway running inside the agent pod via WebSocket RPC.
+
+### config
+
+Get the OpenClaw gateway configuration.
+
+```bash
+hyper agents config <agent_id> [--schema]
+```
+
+**Options:**
+- `--schema` — Show JSON schema instead of current config
+
+### config-patch
+
+Patch the gateway configuration (deep merge). Triggers a gateway restart.
+
+```bash
+hyper agents config-patch <agent_id> '<json>'
+```
+
+**Example:**
+```bash
+hyper agents config-patch a1b2 '{"models":{"providers":{"openai":{"apiKey":"sk-..."}}}}'
+```
+
+### models
+
+List models available on the agent's gateway.
+
+```bash
+hyper agents models <agent_id>
+```
+
+### files
+
+List, read, or write workspace files on the agent via the gateway.
+
+```bash
+hyper agents files <agent_id> [--get <name>] [--set 'name=content']
+```
+
+**Options:**
+- `--get` — Read a specific file
+- `--set` — Write a file (`name=content`)
+
+**Examples:**
+```bash
+# List workspace files
+hyper agents files a1b2
+
+# Read SOUL.md
+hyper agents files a1b2 --get SOUL.md
+
+# Write a file
+hyper agents files a1b2 --set 'SOUL.md=# My Agent'
+```
+
+### sessions
+
+List chat sessions on the agent's gateway.
+
+```bash
+hyper agents sessions <agent_id> [--limit 20]
+```
+
+### cron
+
+List cron jobs on the agent's gateway.
+
+```bash
+hyper agents cron <agent_id>
+```
+
+### gateway-chat
+
+Send a single chat message to the agent via the Gateway and stream the response.
+
+```bash
+hyper agents gateway-chat <agent_id> <message>
+```
+
+**Example:**
+```bash
+$ hyper agents gateway-chat a1b2 "What's in the workspace?"
+```
+
+## Related
+
+- [Agents Overview](/agents/index) — Architecture and concepts
+- [Agents Quickstart](/agents/quickstart) — Get started in 2 minutes
+- [SDK Reference](/sdk/agents) — Python SDK
+- [Gateway Client](/sdk/gateway) — Gateway WebSocket RPC
