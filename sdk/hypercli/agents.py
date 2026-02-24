@@ -11,7 +11,7 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from datetime import datetime
-from typing import Optional, Any
+from typing import Optional, Any, AsyncIterator
 
 import httpx
 
@@ -479,3 +479,59 @@ class Agents:
                         if data == "[keepalive]":
                             continue
                         yield data
+
+    # -----------------------------------------------------------------------
+    # WebSocket API (via HyperClaw backend)
+    # -----------------------------------------------------------------------
+
+    async def logs_stream_ws(self, agent_id: str, tail_lines: int = 100, container: str = "reef") -> AsyncIterator[str]:
+        """Stream logs via backend WebSocket.
+
+        Connects to the HyperClaw backend WebSocket endpoint which proxies
+        to the lagoon log buffer.
+
+        Args:
+            agent_id: Agent UUID.
+            tail_lines: Number of historical lines to fetch first.
+            container: Container name (default: reef).
+
+        Yields:
+            Log lines as they arrive.
+        """
+        import websockets
+
+        # Get JWT token
+        token_data = self.refresh_token(agent_id)
+        jwt = token_data["token"]
+
+        # Convert HTTP base to WebSocket base
+        ws_base = self._api_base.replace("https://", "wss://").replace("http://", "ws://")
+        url = f"{ws_base}/ws/{agent_id}?jwt={jwt}&container={container}&tail_lines={tail_lines}"
+
+        async with websockets.connect(url) as ws:
+            async for msg in ws:
+                yield msg
+
+    async def shell_connect(self, agent_id: str):
+        """Connect to agent shell via backend WebSocket proxy.
+
+        Connects to the HyperClaw backend shell WebSocket which proxies
+        to lagoon → k8s exec for bidirectional PTY access.
+
+        Args:
+            agent_id: Agent UUID.
+
+        Returns:
+            WebSocket connection for bidirectional shell I/O.
+        """
+        import websockets
+
+        # Get shell token
+        token_data = self._post(f"/api/agents/{agent_id}/shell/token")
+        jwt = token_data["token"]
+
+        # Convert HTTP base to WebSocket base
+        ws_base = self._api_base.replace("https://", "wss://").replace("http://", "ws://")
+        url = f"{ws_base}/ws/shell/{agent_id}?jwt={jwt}"
+
+        return await websockets.connect(url, ping_interval=20, ping_timeout=20)

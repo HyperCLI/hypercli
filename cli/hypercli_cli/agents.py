@@ -399,41 +399,26 @@ def shell(
 ):
     """Open an interactive shell on an agent pod (WebSocket PTY).
 
-    Connects to the executor's /shell endpoint. Press Ctrl+] to disconnect.
+    Connects via the HyperClaw backend WebSocket proxy. Press Ctrl+] to disconnect.
     """
     agent_id = _resolve_agent(agent_id)
+    agents = _get_agents_client()
+
+    console.print(f"[dim]Connecting to shell...[/dim]")
 
     try:
-        pod = _get_pod_with_token(agent_id)
-    except Exception as e:
-        console.print(f"[red]❌ Failed to get agent: {e}[/red]")
-        raise typer.Exit(1)
-
-    if not pod.executor_url:
-        console.print("[red]❌ Agent has no executor URL[/red]")
-        raise typer.Exit(1)
-
-    ws_url = pod.executor_url.replace("https://", "wss://").replace("http://", "ws://")
-    ws_url = f"{ws_url}/shell"
-
-    console.print(f"[dim]Connecting to {ws_url}...[/dim]")
-
-    try:
-        import websockets
         import asyncio
         import termios
         import tty
     except ImportError:
-        console.print("[red]❌ 'websockets' required: pip install websockets[/red]")
+        console.print("[red]❌ TTY libraries required[/red]")
         raise typer.Exit(1)
 
     async def _run_shell():
-        headers = {}
-        if pod.jwt_token:
-            headers["Authorization"] = f"Bearer {pod.jwt_token}"
-            headers["Cookie"] = f"{pod.pod_name}-token={pod.jwt_token}"
+        # Connect via backend WebSocket
+        ws = await agents.shell_connect(agent_id)
 
-        async with websockets.connect(ws_url, additional_headers=headers) as ws:
+        try:
             console.print("[green]Connected.[/green] Ctrl+] to disconnect.\n")
 
             old_settings = termios.tcgetattr(sys.stdin)
@@ -453,7 +438,7 @@ def shell(
                             elif isinstance(msg, bytes):
                                 sys.stdout.buffer.write(msg)
                                 sys.stdout.buffer.flush()
-                    except websockets.ConnectionClosed:
+                    except Exception:
                         pass
 
                 async def read_stdin():
@@ -463,10 +448,10 @@ def shell(
                             data = await loop.run_in_executor(None, lambda: os.read(sys.stdin.fileno(), 1024))
                             if not data:
                                 break
-                            if b"\x1d" in data:
+                            if b"\x1d" in data:  # Ctrl+]
                                 break
                             await ws.send(data.decode(errors="replace"))
-                    except (websockets.ConnectionClosed, OSError):
+                    except Exception:
                         pass
 
                 done, pending = await asyncio.wait(
@@ -478,6 +463,8 @@ def shell(
             finally:
                 termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
                 console.print("\n[dim]Disconnected.[/dim]")
+        finally:
+            await ws.close()
 
     try:
         asyncio.run(_run_shell())
@@ -493,26 +480,46 @@ def logs(
     agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
     lines: int = typer.Option(100, "-n", "--lines", help="Number of lines to show"),
     follow: bool = typer.Option(True, "-f/--no-follow", help="Follow log output"),
+    ws: bool = typer.Option(False, "--ws", help="Use WebSocket instead of SSE (via backend)"),
 ):
     """Stream logs from an agent pod."""
     agent_id = _resolve_agent(agent_id)
-
-    try:
-        pod = _get_pod_with_token(agent_id)
-    except Exception as e:
-        console.print(f"[red]❌ Failed to get agent: {e}[/red]")
-        raise typer.Exit(1)
-
     agents = _get_agents_client()
 
-    try:
-        for line in agents.logs_stream(pod, lines=lines, follow=follow):
-            console.print(line)
-    except KeyboardInterrupt:
-        pass
-    except Exception as e:
-        console.print(f"[red]❌ Logs failed: {e}[/red]")
-        raise typer.Exit(1)
+    if ws:
+        # WebSocket mode via backend
+        import asyncio
+
+        async def _stream_ws():
+            try:
+                async for line in agents.logs_stream_ws(agent_id, tail_lines=lines):
+                    console.print(line)
+            except KeyboardInterrupt:
+                pass
+            except Exception as e:
+                console.print(f"[red]❌ Logs failed: {e}[/red]")
+                raise typer.Exit(1)
+
+        try:
+            asyncio.run(_stream_ws())
+        except KeyboardInterrupt:
+            pass
+    else:
+        # SSE mode via executor (legacy)
+        try:
+            pod = _get_pod_with_token(agent_id)
+        except Exception as e:
+            console.print(f"[red]❌ Failed to get agent: {e}[/red]")
+            raise typer.Exit(1)
+
+        try:
+            for line in agents.logs_stream(pod, lines=lines, follow=follow):
+                console.print(line)
+        except KeyboardInterrupt:
+            pass
+        except Exception as e:
+            console.print(f"[red]❌ Logs failed: {e}[/red]")
+            raise typer.Exit(1)
 
 
 @app.command("chat")
