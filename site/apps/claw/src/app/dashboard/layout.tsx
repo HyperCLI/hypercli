@@ -22,7 +22,7 @@ export default function DashboardLayout({
   return (
     <div className="min-h-screen bg-background">
       <DashboardNav />
-      <main className="pt-14">
+      <main className="pt-14 pb-20 md:pb-0">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
           {isLoading ? (
             <div className="flex items-center justify-center py-32">
