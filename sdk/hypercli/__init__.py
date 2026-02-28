@@ -10,10 +10,11 @@ from .files import File, AsyncFiles
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Agents, ReefPod, ExecResult
+from .shell import ShellSession, shell_connect
 from .claw import Claw, ClawKey, ClawPlan, ClawModel
 from .gateway import GatewayClient, GatewayError, ChatEvent
 
-__version__ = "0.8.9"
+__version__ = "1.0.0"
 __all__ = [
     "HyperCLI",
     "configure",
@@ -70,6 +71,9 @@ __all__ = [
     "Agents",
     "ReefPod",
     "ExecResult",
+    # Shell
+    "ShellSession",
+    "shell_connect",
     # HyperClaw
     "Claw",
     "ClawKey",
