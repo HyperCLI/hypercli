@@ -232,6 +232,106 @@ def _follow_job(job_id: str, cancel_on_exit: bool = False):
     run_job_monitor(job_id, cancel_on_exit=cancel_on_exit)
 
 
+@app.command("shell")
+def shell(
+    job_id: str = typer.Argument(..., help="Job ID (full or prefix)"),
+    shell_cmd: str = typer.Option("/bin/bash", "--shell", "-s", help="Shell to use"),
+):
+    """Open an interactive shell on a running job container (WebSocket PTY)"""
+    import asyncio
+    import sys
+
+    client = get_client()
+    job_id = _resolve_job_id(client, job_id)
+
+    with spinner("Connecting to shell..."):
+        job = client.jobs.get(job_id)
+
+    if job.state != "running":
+        console.print(f"[red]Error:[/red] Job is {job.state}, not running")
+        raise typer.Exit(1)
+
+    console.print(f"[dim]Connected to job {job_id[:8]}... (press Ctrl+D or type 'exit' to disconnect)[/dim]")
+
+    asyncio.run(_run_shell(client, job_id, job.job_key, shell_cmd))
+
+
+async def _run_shell(client, job_id: str, job_key: str, shell_cmd: str):
+    """Run interactive shell with raw terminal mode."""
+    import os
+    import sys
+    import signal
+    import struct
+    import termios
+    import tty
+    import fcntl
+
+    from hypercli.shell import shell_connect
+
+    loop = asyncio.get_event_loop()
+
+    # Save terminal state
+    stdin_fd = sys.stdin.fileno()
+    old_settings = termios.tcgetattr(stdin_fd)
+
+    session = None
+    try:
+        # Connect
+        session = await shell_connect(
+            client,
+            job_id,
+            job_key=job_key,
+            shell=shell_cmd,
+            on_output=lambda data: sys.stdout.write(data) or sys.stdout.flush(),
+            on_close=lambda reason: None,
+        )
+
+        # Send initial terminal size
+        try:
+            sz = struct.unpack("hh", fcntl.ioctl(stdin_fd, termios.TIOCGWINSZ, b"\x00" * 4))
+            await session.resize(cols=sz[1], rows=sz[0])
+        except Exception:
+            await session.resize(cols=80, rows=24)
+
+        # Handle SIGWINCH (terminal resize)
+        def on_resize(*_):
+            try:
+                sz = struct.unpack("hh", fcntl.ioctl(stdin_fd, termios.TIOCGWINSZ, b"\x00" * 4))
+                asyncio.run_coroutine_threadsafe(session.resize(cols=sz[1], rows=sz[0]), loop)
+            except Exception:
+                pass
+
+        signal.signal(signal.SIGWINCH, on_resize)
+
+        # Enter raw mode
+        tty.setraw(stdin_fd)
+
+        # Read stdin and forward to shell
+        reader = asyncio.StreamReader()
+        protocol = asyncio.StreamReaderProtocol(reader)
+        await loop.connect_read_pipe(lambda: protocol, sys.stdin)
+
+        while not session.closed:
+            try:
+                data = await asyncio.wait_for(reader.read(4096), timeout=0.5)
+                if not data:
+                    break
+                await session.send(data.decode(errors="replace"))
+            except asyncio.TimeoutError:
+                continue
+            except Exception:
+                break
+
+    finally:
+        # Restore terminal
+        termios.tcsetattr(stdin_fd, termios.TCSADRAIN, old_settings)
+        signal.signal(signal.SIGWINCH, signal.SIG_DFL)
+        if session:
+            await session.close()
+        sys.stdout.write("\r\n")
+        sys.stdout.flush()
+
+
 def _watch_metrics(job_id: str):
     """Watch metrics live"""
     import time
