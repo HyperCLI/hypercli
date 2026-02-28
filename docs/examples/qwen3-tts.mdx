@@ -1,0 +1,132 @@
+---
+title: Qwen3 TTS (Voice Cloning)
+description: Deploy Qwen3-TTS with voice cloning, preset voices, and voice design on a single GPU.
+---
+
+# Qwen3 TTS — Voice Cloning on GPU
+
+[Qwen3-TTS](https://huggingface.co/Qwen/Qwen3-TTS) is Alibaba's text-to-speech model with native voice cloning — give it a reference audio clip and it reproduces that voice. This guide uses our optimized container with a REST API for cloning, preset voices, and voice design.
+
+## Requirements
+
+- **1x L40S** (or any GPU with ≥24GB VRAM)
+- Models are pre-baked in the container — no download wait
+
+## Quick Launch
+
+```bash
+hyper jobs launch \
+  --image git.nedos.co/hypercli/hyperclaw-tts:prod \
+  --gpu-type L40S \
+  --gpu-count 1 \
+  --region se \
+  --runtime 3600 \
+  --interruptible \
+  --auth \
+  --port lb=8998 \
+  --env TTS_MAX_SENTENCES=2
+```
+
+## API Endpoints
+
+The container exposes three endpoints on port 8998:
+
+| Endpoint | Method | Description |
+|---|---|---|
+| `/v1/tts` | POST | Text-to-speech with preset voices |
+| `/v1/clone` | POST | Voice cloning from reference audio |
+| `/v1/design` | POST | Voice design from text description (GPU only) |
+
+## Usage
+
+### Voice Cloning
+
+Clone any voice from a short audio sample (5-30 seconds recommended):
+
+```python
+import requests
+import base64
+
+# Load reference audio
+with open("reference_voice.wav", "rb") as f:
+    audio_b64 = base64.b64encode(f.read()).decode()
+
+response = requests.post(
+    "https://YOUR-HOSTNAME-gpu.hypercli.com/v1/clone",
+    headers={"Authorization": "Bearer YOUR_JOB_TOKEN"},
+    json={
+        "text": "This is my cloned voice speaking from a GPU in the cloud.",
+        "reference_audio": audio_b64,
+        "x_vector_only": True  # Prevents reference text bleeding into output
+    }
+)
+
+with open("cloned_output.wav", "wb") as f:
+    f.write(response.content)
+```
+
+```bash
+# Encode reference audio and clone
+REF_B64=$(base64 -w0 reference_voice.wav)
+
+curl -X POST https://YOUR-HOSTNAME-gpu.hypercli.com/v1/clone \
+  -H "Authorization: Bearer YOUR_JOB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d "{\"text\": \"Hello from the cloud.\", \"reference_audio\": \"$REF_B64\", \"x_vector_only\": true}" \
+  --output cloned.wav
+```
+
+### Preset Voices
+
+Use built-in voices without a reference clip:
+
+```python
+response = requests.post(
+    "https://YOUR-HOSTNAME-gpu.hypercli.com/v1/tts",
+    headers={"Authorization": "Bearer YOUR_JOB_TOKEN"},
+    json={
+        "text": "Welcome to HyperCLI. Your GPU is ready.",
+        "voice": "default"
+    }
+)
+
+with open("output.wav", "wb") as f:
+    f.write(response.content)
+```
+
+### Voice Design
+
+Describe the voice you want in natural language:
+
+```python
+response = requests.post(
+    "https://YOUR-HOSTNAME-gpu.hypercli.com/v1/design",
+    headers={"Authorization": "Bearer YOUR_JOB_TOKEN"},
+    json={
+        "text": "The future of computing is here.",
+        "description": "A deep, calm male voice with a slight British accent"
+    }
+)
+```
+
+## Tips
+
+- **`x_vector_only: true`** — Always use this for voice cloning. Prevents the reference audio's spoken text from leaking into the output.
+- **`TTS_MAX_SENTENCES=2`** — Chunks input into 2-sentence batches for consistent quality. Increase for faster throughput at the cost of naturalness.
+- **Reference audio quality matters.** Clean, single-speaker, 5-30 seconds. No background noise or music.
+- **Output format:** WAV by default. The container handles chunking and stitching automatically.
+
+## Performance
+
+On a single L40S:
+- **Generation speed:** ~10 seconds for a paragraph (~50 words)
+- **Boot time:** ~2 minutes (models are pre-baked, no download)
+- **Voice cloning:** Adds ~2 seconds for speaker embedding extraction
+
+## Spot Pricing
+
+| GPU | Spot $/hr |
+|---|---|
+| 🇸🇪 L40S Stockholm | ~$0.70 |
+| 🇺🇸 L40S Ohio | ~$0.80 |
+| 🇺🇸 L40S Oregon | ~$0.90 |

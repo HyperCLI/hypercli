@@ -1,0 +1,40 @@
+---
+title: Examples
+description: Real-world deployment examples for GPU workloads on HyperCLI.
+---
+
+# Examples
+
+Production-tested deployment recipes for popular models and workloads. Every example includes a one-liner launch command, API usage, and spot pricing.
+
+## Large Language Models
+
+<Card title="Kimi K2.5 on H200/B200" icon="brain" href="/examples/kimi-k2-5">
+  Deploy Moonshot AI's 1T parameter MoE model on 8x H200 or B200 GPUs using upstream vLLM.
+</Card>
+
+## Speech & Audio
+
+<Card title="Speaches (STT + TTS)" icon="microphone" href="/examples/speaches">
+  OpenAI-compatible speech-to-text and text-to-speech in one container. Whisper + Kokoro on a single L40S.
+</Card>
+
+<Card title="Whisper (Speech-to-Text)" icon="waveform-lines" href="/examples/whisper">
+  Run OpenAI Whisper Large v3 on GPU via vLLM for fast, accurate transcription.
+</Card>
+
+<Card title="Qwen3 TTS (Voice Cloning)" icon="volume-high" href="/examples/qwen3-tts">
+  Text-to-speech with voice cloning — give it a reference clip and it reproduces any voice.
+</Card>
+
+## Embeddings & Search
+
+<Card title="Embedding Models" icon="magnifying-glass" href="/examples/embeddings">
+  Run Qwen3, BGE, or E5 embedding models on GPU for semantic search, RAG, and clustering.
+</Card>
+
+## Coming Soon
+
+- DeepSeek V3/R1 on H200
+- Qwen3 on L40S
+- ComfyUI workflows
