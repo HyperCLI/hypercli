@@ -296,3 +296,88 @@ def _render_metrics(m):
 
     panels.append(Panel(table, title="[bold]GPU Metrics[/bold]", border_style="green"))
     return Group(*panels)
+
+
+@app.command("shell")
+def shell(
+    job_id: str = typer.Argument(..., help="Job ID (or prefix/hostname)"),
+    shell_bin: str = typer.Option("/bin/bash", "--shell", "-s", help="Shell binary"),
+):
+    """Open an interactive shell on a running job container (WebSocket PTY).
+
+    Connects via the director WebSocket proxy. Press Ctrl+] to disconnect.
+    """
+    import asyncio
+    import os
+    import sys
+
+    client = get_client()
+    job_id = _resolve_job_id(client, job_id)
+
+    console.print(f"[dim]Connecting to shell...[/dim]")
+
+    try:
+        import termios
+        import tty
+    except ImportError:
+        console.print("[red]❌ TTY libraries required (not available on Windows)[/red]")
+        raise typer.Exit(1)
+
+    async def _run_shell():
+        ws = await client.jobs.shell_connect(job_id, shell=shell_bin)
+
+        try:
+            console.print("[green]Connected.[/green] Ctrl+] to disconnect.\n")
+
+            old_settings = termios.tcgetattr(sys.stdin)
+            try:
+                tty.setraw(sys.stdin.fileno())
+
+                import shutil
+                cols, rows = shutil.get_terminal_size()
+                await ws.send(f"\x1b[8;{rows};{cols}t")
+
+                async def read_ws():
+                    try:
+                        async for msg in ws:
+                            if isinstance(msg, str):
+                                sys.stdout.write(msg)
+                                sys.stdout.flush()
+                            elif isinstance(msg, bytes):
+                                sys.stdout.buffer.write(msg)
+                                sys.stdout.buffer.flush()
+                    except Exception:
+                        pass
+
+                async def read_stdin():
+                    loop = asyncio.get_event_loop()
+                    try:
+                        while True:
+                            data = await loop.run_in_executor(None, lambda: os.read(sys.stdin.fileno(), 1024))
+                            if not data:
+                                break
+                            if b"\x1d" in data:  # Ctrl+]
+                                break
+                            await ws.send(data.decode(errors="replace"))
+                    except Exception:
+                        pass
+
+                done, pending = await asyncio.wait(
+                    [asyncio.create_task(read_ws()), asyncio.create_task(read_stdin())],
+                    return_when=asyncio.FIRST_COMPLETED,
+                )
+                for t in pending:
+                    t.cancel()
+            finally:
+                termios.tcsetattr(sys.stdin, termios.TCSADRAIN, old_settings)
+                console.print("\n[dim]Disconnected.[/dim]")
+        finally:
+            await ws.close()
+
+    try:
+        asyncio.run(_run_shell())
+    except KeyboardInterrupt:
+        console.print("\n[dim]Disconnected.[/dim]")
+    except Exception as e:
+        console.print(f"[red]❌ Shell failed: {e}[/red]")
+        raise typer.Exit(1)

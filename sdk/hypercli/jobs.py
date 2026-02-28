@@ -201,6 +201,33 @@ class Jobs:
         data = self._http.get(f"/api/jobs/{job_id}/token")
         return data.get("token", "")
 
+    async def shell_connect(self, job_id: str, shell: str = "/bin/bash"):
+        """Connect to job shell via director WebSocket proxy.
+
+        Opens a PTY shell on the job's running container via:
+        CLI → SDK → Director → Orchestrator → docker exec
+
+        Args:
+            job_id: Job UUID.
+            shell: Shell binary (default /bin/bash).
+
+        Returns:
+            WebSocket connection for bidirectional shell I/O.
+        """
+        import websockets
+
+        # Get job key for auth
+        job = self.get(job_id)
+        job_key = job.job_key
+
+        # Convert HTTP base to WebSocket base
+        ws_base = self._http._base_url.replace("https://", "wss://").replace("http://", "ws://")
+        # Strip /api suffix if present, shell endpoint is on /orchestra
+        ws_base = ws_base.removesuffix("/api")
+        url = f"{ws_base}/orchestra/ws/shell/{job_id}?token={job_key}&shell={shell}"
+
+        return await websockets.connect(url, ping_interval=20, ping_timeout=20)
+
 
 # Utility functions for finding jobs
 
