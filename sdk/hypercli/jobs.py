@@ -221,7 +221,7 @@ class Jobs:
         job_key = job.job_key
 
         # Convert HTTP base to WebSocket base
-        ws_base = self._http._base_url.replace("https://", "wss://").replace("http://", "ws://")
+        ws_base = self._http.base_url.replace("https://", "wss://").replace("http://", "ws://")
         # Strip /api suffix if present, shell endpoint is on /orchestra
         ws_base = ws_base.removesuffix("/api")
         url = f"{ws_base}/orchestra/ws/shell/{job_id}?token={job_key}&shell={shell}"
