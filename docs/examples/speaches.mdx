@@ -1,0 +1,107 @@
+---
+title: Speaches (STT + TTS)
+description: Deploy an OpenAI-compatible speech-to-text and text-to-speech server on a single GPU.
+---
+
+# Speaches — STT + TTS on GPU
+
+[Speaches](https://github.com/speaches-ai/speaches) is an open-source, OpenAI-compatible speech server that bundles Whisper (STT) and Kokoro/Piper (TTS) into a single container. One GPU, two APIs, zero hassle.
+
+## Requirements
+
+- **1x L40S** (or any GPU with ≥24GB VRAM)
+- Speaches downloads models on first request — no pre-loading needed
+
+## Quick Launch
+
+```bash
+hyper jobs launch \
+  --image ghcr.io/speaches-ai/speaches:latest-cuda \
+  --gpu-type L40S \
+  --gpu-count 1 \
+  --region se \
+  --runtime 3600 \
+  --interruptible \
+  --auth \
+  --port lb=8000
+```
+
+## Usage
+
+### Speech-to-Text (Whisper)
+
+Transcribe audio using the OpenAI-compatible `/v1/audio/transcriptions` endpoint:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_JOB_TOKEN",
+    base_url="https://YOUR-HOSTNAME-gpu.hypercli.com/v1"
+)
+
+with open("meeting.mp3", "rb") as f:
+    transcript = client.audio.transcriptions.create(
+        model="Systran/faster-whisper-large-v3",
+        file=f,
+        response_format="text"
+    )
+print(transcript)
+```
+
+```bash
+# cURL
+curl -X POST https://YOUR-HOSTNAME-gpu.hypercli.com/v1/audio/transcriptions \
+  -H "Authorization: Bearer YOUR_JOB_TOKEN" \
+  -F "file=@meeting.mp3" \
+  -F "model=Systran/faster-whisper-large-v3" \
+  -F "response_format=text"
+```
+
+### Text-to-Speech
+
+Generate speech using the `/v1/audio/speech` endpoint:
+
+```python
+response = client.audio.speech.create(
+    model="kokoro",
+    voice="af_heart",
+    input="HyperCLI makes GPU deployment stupidly simple.",
+    response_format="opus"
+)
+response.stream_to_file("output.opus")
+```
+
+```bash
+curl -X POST https://YOUR-HOSTNAME-gpu.hypercli.com/v1/audio/speech \
+  -H "Authorization: Bearer YOUR_JOB_TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"model": "kokoro", "voice": "af_heart", "input": "Hello from the GPU cloud.", "response_format": "opus"}' \
+  --output output.opus
+```
+
+## Available Models
+
+Speaches auto-downloads models from HuggingFace on first use. Popular choices:
+
+| Task | Model | Size | Notes |
+|---|---|---|---|
+| STT | `Systran/faster-whisper-large-v3` | ~3GB | Best accuracy, multilingual |
+| STT | `Systran/faster-whisper-medium` | ~1.5GB | Faster, still solid |
+| STT | `Systran/faster-whisper-base` | ~150MB | Fastest, English-focused |
+| TTS | `kokoro` | ~300MB | High-quality, multiple voices |
+
+## Why Speaches over Whisper Directly?
+
+- **Two-in-one:** STT and TTS from the same endpoint — no need for separate containers.
+- **OpenAI-compatible:** Drop-in replacement for `openai.audio.transcriptions` and `openai.audio.speech`. Your existing code just works.
+- **Auto model management:** Models download on first request and stay cached for the job's lifetime.
+- **GPU-accelerated Whisper:** Real-time factor well under 0.1x on L40S (a 10-minute file transcribes in under a minute).
+
+## Spot Pricing
+
+| GPU | Spot $/hr |
+|---|---|
+| 🇸🇪 L40S Stockholm | ~$0.70 |
+| 🇺🇸 L40S Ohio | ~$0.80 |
+| 🇺🇸 L40S Oregon | ~$0.90 |

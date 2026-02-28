@@ -32,6 +32,22 @@
         ]
       },
       {
+        "tab": "Examples",
+        "groups": [
+          {
+            "group": "Deployment Recipes",
+            "pages": [
+              "examples/index",
+              "examples/kimi-k2-5",
+              "examples/speaches",
+              "examples/whisper",
+              "examples/qwen3-tts",
+              "examples/embeddings"
+            ]
+          }
+        ]
+      },
+      {
         "tab": "Instances",
         "groups": [
           {

@@ -1,0 +1,134 @@
+---
+title: Kimi K2.5 on H200/B200
+description: Deploy Moonshot AI's Kimi K2.5 (1T parameter MoE) on 8x H200 or B200 GPUs.
+---
+
+# Deploying Kimi K2.5
+
+[Kimi K2.5](https://huggingface.co/moonshotai/Kimi-K2.5) is Moonshot AI's 1 trillion parameter Mixture-of-Experts model with 256K context, native vision, tool calling, and reasoning capabilities. This guide covers deploying it on HyperCLI using upstream vLLM.
+
+## Requirements
+
+- **8x H200** (141GB each, 1,128GB total) or **8x B200** (192GB each, 1,536GB total)
+- The model weights are ~549GB (only MoE routed experts are INT4, attention + shared experts remain BF16)
+- 8 GPUs required — 4x H200 is not enough (only ~3GB free per GPU after weights)
+
+## Quick Launch
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1 \
+  --gpu-type H200 \
+  --gpu-count 8 \
+  --region se \
+  --runtime 7200 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --command 'vllm serve moonshotai/Kimi-K2.5 \
+    --host 0.0.0.0 --port 8000 \
+    -tp 8 \
+    --served-model-name kimi-k2.5 \
+    --trust-remote-code \
+    --tool-call-parser kimi_k2 \
+    --reasoning-parser kimi_k2 \
+    --enable-auto-tool-choice \
+    --mm-encoder-tp-mode data \
+    --enable-prefix-caching \
+    --enable-chunked-prefill' \
+  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu
+```
+
+## Parameter Reference
+
+### vLLM Arguments
+
+| Parameter | Value | Description |
+|---|---|---|
+| `-tp 8` | 8 | Tensor parallelism across all 8 GPUs |
+| `--served-model-name` | `kimi-k2.5` | Model name exposed via `/v1/models` endpoint |
+| `--trust-remote-code` | — | Required for Kimi K2.5's custom model code |
+| `--tool-call-parser kimi_k2` | — | Native tool/function calling support |
+| `--reasoning-parser kimi_k2` | — | Extracts reasoning/thinking content from output |
+| `--enable-auto-tool-choice` | — | Automatically detect when to use tools |
+| `--mm-encoder-tp-mode data` | — | Data-parallel vision encoder (better perf than TP for small encoders) |
+| `--enable-prefix-caching` | — | Cache common prompt prefixes across requests |
+| `--enable-chunked-prefill` | — | Overlap prefill with decode for better throughput |
+
+### Environment Variables
+
+| Variable | Value | Description |
+|---|---|---|
+| `LD_LIBRARY_PATH` | `/usr/local/nvidia/lib64:...` | **Required.** Fixes CUDA driver compatibility (Error 803) on hosts with CUDA 13.0+ drivers. Ensures host driver libs take priority over vLLM's baked CUDA 12.9 compat libs. |
+
+### Optional Parameters
+
+| Parameter | Description |
+|---|---|
+| `--kv-cache-dtype fp8` | Quantize KV cache to FP8, halving cache memory. Useful for higher concurrency but may cause slight accuracy loss. Not needed with 8x H200 (plenty of headroom). |
+| `--gpu-memory-utilization 0.95` | Increase GPU memory available for KV cache (default 0.9). |
+| `--max-model-len 131072` | Limit context length to save memory (default: model's full 256K). |
+
+## GPU Memory Breakdown
+
+| Component | Size |
+|---|---|
+| INT4 MoE routed experts | ~400GB |
+| BF16 attention layers (MLA) | ~120GB |
+| BF16 shared experts + dense layer + embeddings | ~29GB |
+| **Total weights** | **~549GB** |
+| **Free for KV cache (8x H200)** | **~579GB** |
+| **Free for KV cache (8x B200)** | **~987GB** |
+
+## CUDA Compatibility Fix
+
+vLLM v0.15.x includes baked CUDA 12.9 compatibility libraries via `ldconfig`. On hosts running CUDA 13.0+ drivers, these stale compat libs conflict with the host driver, causing:
+
+```
+RuntimeError: Error 803: system has unsupported display driver / cuda driver combination
+```
+
+The fix is setting `LD_LIBRARY_PATH` to prioritize the host's driver libraries. This environment variable takes precedence over the `ldconfig` cache for all processes, including vLLM's forked workers.
+
+## Spot Pricing
+
+H200 x8 (`p5en.48xlarge`) spot prices as of Feb 2026:
+
+| Region | Spot $/hr |
+|---|---|
+| 🇸🇪 Stockholm (eu-north-1) | ~$13 |
+| 🇺🇸 Ohio (us-east-2) | ~$15-19 |
+| 🇺🇸 Oregon (us-west-2) | ~$18-19 |
+
+Use `--interruptible` for spot pricing. Add `--region` to target a specific region.
+
+## Querying the Model
+
+Once running, authenticate with the job token and query the OpenAI-compatible API:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_JOB_TOKEN",  # from /api/jobs/{id}/token
+    base_url="https://YOUR-HOSTNAME-gpu.hypercli.com/v1",
+    timeout=120
+)
+
+response = client.chat.completions.create(
+    model="kimi-k2.5",
+    messages=[{"role": "user", "content": "Explain quantum computing in one paragraph."}],
+    max_tokens=500
+)
+print(response.choices[0].message.content)
+```
+
+The model supports reasoning (thinking) mode — reasoning content appears in `message.reasoning_content`.
+
+## Performance
+
+Observed on 8x H200 (Stockholm):
+- **Prompt throughput:** ~5,400 tokens/s
+- **Generation throughput:** ~20 tokens/s per request
+- **Boot time:** ~15 min (image pull + model download + weight loading + CUDA graph warmup)
+- **Weight loading:** ~5 min (from HuggingFace cache)

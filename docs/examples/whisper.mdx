@@ -1,0 +1,86 @@
+---
+title: Whisper (Speech-to-Text)
+description: Run OpenAI Whisper Large v3 on GPU via vLLM for fast, accurate transcription.
+---
+
+# Whisper Large v3 — Speech-to-Text on GPU
+
+[Whisper Large v3](https://huggingface.co/openai/whisper-large-v3) is OpenAI's state-of-the-art speech recognition model. Running it on vLLM gives you an OpenAI-compatible transcription API with GPU acceleration.
+
+<Note>
+For most use cases, consider [Speaches](/examples/speaches) instead — it bundles Whisper STT **and** TTS in a single container with the same OpenAI-compatible API.
+</Note>
+
+## Requirements
+
+- **1x L40S** (or any GPU with ≥24GB VRAM)
+- Model downloads automatically from HuggingFace (~3GB)
+
+## Quick Launch
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1 \
+  --gpu-type L40S \
+  --gpu-count 1 \
+  --region se \
+  --runtime 3600 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --command 'vllm serve openai/whisper-large-v3 \
+    --host 0.0.0.0 --port 8000 \
+    --served-model-name whisper-large-v3 \
+    --task transcription \
+    --max-model-len 448'
+```
+
+## Usage
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_JOB_TOKEN",
+    base_url="https://YOUR-HOSTNAME-gpu.hypercli.com/v1"
+)
+
+with open("audio.mp3", "rb") as f:
+    transcript = client.audio.transcriptions.create(
+        model="whisper-large-v3",
+        file=f,
+        response_format="text"
+    )
+print(transcript)
+```
+
+```bash
+curl -X POST https://YOUR-HOSTNAME-gpu.hypercli.com/v1/audio/transcriptions \
+  -H "Authorization: Bearer YOUR_JOB_TOKEN" \
+  -F "file=@audio.mp3" \
+  -F "model=whisper-large-v3" \
+  -F "response_format=text"
+```
+
+## vLLM Parameters
+
+| Parameter | Value | Description |
+|---|---|---|
+| `--task transcription` | — | Run in transcription mode (not generation) |
+| `--max-model-len 448` | 448 | Max output tokens (Whisper's limit) |
+| `--served-model-name` | `whisper-large-v3` | Name exposed via `/v1/models` |
+
+## Performance
+
+On a single L40S:
+- **Real-time factor:** ~0.05x (a 10-minute file transcribes in ~30 seconds)
+- **Boot time:** ~2 minutes (image pull + model download)
+- **Supports:** 99 languages, timestamps, word-level alignment
+
+## Spot Pricing
+
+| GPU | Spot $/hr |
+|---|---|
+| 🇸🇪 L40S Stockholm | ~$0.70 |
+| 🇺🇸 L40S Ohio | ~$0.80 |
+| 🇺🇸 L40S Oregon | ~$0.90 |
