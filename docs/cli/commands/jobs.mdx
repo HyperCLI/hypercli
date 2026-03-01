@@ -88,6 +88,68 @@ Cancel a job.
 hyper jobs cancel <job_id>
 ```
 
+## exec
+
+Execute a command non-interactively on a running job container. Returns stdout, stderr, and exit code.
+
+```bash
+hyper jobs exec <job_id> <command> [--timeout 30]
+```
+
+**Arguments:**
+- `job_id` — Job ID (full or prefix)
+- `command` — Command to execute
+
+**Options:**
+- `-t, --timeout` — Timeout in seconds (default: 30)
+
+**Examples:**
+```bash
+# Check GPU
+hyper jobs exec abc123 "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader"
+NVIDIA H200, 141120 MiB
+
+# Run a script
+hyper jobs exec abc123 "python -c 'import torch; print(torch.cuda.device_count())'"
+8
+
+# Check container OS
+hyper jobs exec abc123 "cat /etc/os-release | head -3"
+PRETTY_NAME="Ubuntu 22.04.5 LTS"
+NAME="Ubuntu"
+VERSION_ID="22.04"
+```
+
+Exit code is forwarded to the shell — use `$?` to check success/failure.
+
+<Tip>
+For interactive shells, use `hyper jobs shell` instead. `exec` is designed for scripting and automation.
+</Tip>
+
+## shell
+
+Open an interactive PTY shell on a running job container via WebSocket.
+
+```bash
+hyper jobs shell <job_id> [--shell /bin/bash]
+```
+
+**Arguments:**
+- `job_id` — Job ID (full or prefix)
+
+**Options:**
+- `-s, --shell` — Shell to use (default: `/bin/bash`)
+
+Press **Ctrl+]** to disconnect.
+
+**Example:**
+```bash
+$ hyper jobs shell abc123
+root@container:/app# nvidia-smi
+root@container:/app# python train.py
+root@container:/app# ^]  # Ctrl+] to exit
+```
+
 ## extend
 
 Extend job runtime.
