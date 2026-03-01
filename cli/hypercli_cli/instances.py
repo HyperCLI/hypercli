@@ -196,6 +196,7 @@ def launch(
     registry_user: Optional[str] = typer.Option(None, "--registry-user", help="Private registry username"),
     registry_password: Optional[str] = typer.Option(None, "--registry-password", help="Private registry password"),
     dockerfile: Optional[str] = typer.Option(None, "--dockerfile", "-d", help="Path to Dockerfile (built on GPU node, overrides image as base)"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate configuration without creating job or reserving funds"),
     x402: bool = typer.Option(False, "--x402", help="Pay per-use via embedded x402 wallet"),
     amount: Optional[float] = typer.Option(None, "--amount", help="USDC amount to spend with --x402"),
     follow: bool = typer.Option(False, "--follow", "-f", help="Follow logs after creation"),
@@ -308,7 +309,8 @@ def launch(
     else:
         client = get_client()
 
-        with spinner("Launching instance..."):
+        spinner_msg = "Validating configuration..." if dry_run else "Launching instance..."
+        with spinner(spinner_msg):
             job = client.jobs.create(
                 image=image,
                 command=command,
@@ -322,18 +324,37 @@ def launch(
                 auth=lb_auth,
                 registry_auth=registry_auth,
                 dockerfile=dockerfile_b64,
+                dry_run=dry_run,
             )
 
         if fmt == "json":
             output(job, "json")
         else:
-            success(f"Instance launched: {job.job_id}")
-            console.print(f"  State:    {job.state}")
-            console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
-            console.print(f"  Region:   {job.region}")
-            console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
-            if job.hostname:
-                console.print(f"  Hostname: {job.hostname}")
+            if dry_run:
+                console.print("[bold green]✓[/] Dry run successful - configuration valid")
+                console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
+                console.print(f"  Region:   {job.region}")
+                console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
+                console.print(f"  Runtime:  {job.runtime}s")
+                # Display cold boot status
+                import sys
+                if job.cold_boot:
+                    console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]", file=sys.stderr)
+                else:
+                    console.print("[green]🚀 Warm instance available — should be ready in under a minute[/]", file=sys.stderr)
+            else:
+                success(f"Instance launched: {job.job_id}")
+                console.print(f"  State:    {job.state}")
+                console.print(f"  GPU:      {job.gpu_type} x{job.gpu_count}")
+                console.print(f"  Region:   {job.region}")
+                console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
+                if job.hostname:
+                    console.print(f"  Hostname: {job.hostname}")
+                # Display cold boot status for real launches too
+                if job.cold_boot:
+                    console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]")
+                else:
+                    console.print("[green]🚀 Warm instance available — should be ready in under a minute[/]")
 
     if follow:
         console.print()
