@@ -1,0 +1,186 @@
+---
+title: GLM-5 on H200
+description: Deploy Zhipu AI's GLM-5 (744B parameter) reasoning model on 8x H200 GPUs.
+---
+
+# Deploying GLM-5
+
+[GLM-5](https://huggingface.co/zai-org/GLM-5) is Zhipu AI's 744 billion parameter language model (40B active MoE) trained on 28.5T tokens. It rivals frontier models on reasoning, coding, and agentic tasks, with native tool calling and a toggleable thinking mode. This guide uses the [FP8 variant](https://huggingface.co/zai-org/GLM-5-FP8) on 8x H200 GPUs.
+
+## Requirements
+
+- **8x H200** (141GB each, 1,128GB total)
+- FP8 weights are ~756GB — fits on 8x H200 with ~372GB free for KV cache
+- Requires a special vLLM build: `vllm/vllm-openai:glm5` (includes DeepGEMM for FP8)
+
+<Note>
+GLM-5 requires the `vllm/vllm-openai:glm5` Docker tag — the standard `v0.15.1` tag won't work. This build includes DeepGEMM and GLM-5-specific optimizations.
+</Note>
+
+## Quick Launch
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:glm5 \
+  --gpu-type H200 \
+  --gpu-count 8 \
+  --region se \
+  --runtime 7200 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --command 'vllm serve zai-org/GLM-5-FP8 \
+    --host 0.0.0.0 --port 8000 \
+    -tp 8 \
+    --served-model-name glm-5-fp8 \
+    --trust-remote-code \
+    --speculative-config.method mtp \
+    --speculative-config.num_speculative_tokens 1 \
+    --tool-call-parser glm47 \
+    --reasoning-parser glm45 \
+    --enable-auto-tool-choice' \
+  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu
+```
+
+## Parameter Reference
+
+### vLLM Arguments
+
+| Parameter | Value | Description |
+|---|---|---|
+| `-tp 8` | 8 | Tensor parallelism across all 8 GPUs |
+| `--served-model-name` | `glm-5-fp8` | Model name exposed via `/v1/models` |
+| `--trust-remote-code` | — | Required for GLM-5's custom model code |
+| `--speculative-config.method mtp` | — | Multi-Token Prediction for faster decoding |
+| `--speculative-config.num_speculative_tokens 1` | — | Speculate 1 token ahead |
+| `--tool-call-parser glm47` | — | Native tool/function calling |
+| `--reasoning-parser glm45` | — | Extracts reasoning/thinking from output |
+| `--enable-auto-tool-choice` | — | Automatically detect when to use tools |
+
+### Environment Variables
+
+| Variable | Value | Description |
+|---|---|---|
+| `LD_LIBRARY_PATH` | `/usr/local/nvidia/lib64:...` | **Required.** Fixes CUDA driver compatibility on hosts with CUDA 13.0+ drivers. |
+
+## Querying the Model
+
+### With Reasoning (Default)
+
+Thinking mode is enabled by default. Reasoning content appears in `message.reasoning`:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_JOB_TOKEN",  # from /api/jobs/{id}/token
+    base_url="https://YOUR-HOSTNAME-gpu.hypercli.com/v1",
+    timeout=120
+)
+
+response = client.chat.completions.create(
+    model="glm-5-fp8",
+    messages=[{"role": "user", "content": "Prove that √2 is irrational."}],
+    max_tokens=4096,
+    temperature=1
+)
+
+choice = response.choices[0]
+print("Reasoning:", choice.message.reasoning)
+print("Answer:", choice.message.content)
+```
+
+### Without Reasoning
+
+Disable thinking for faster, direct responses:
+
+```python
+response = client.chat.completions.create(
+    model="glm-5-fp8",
+    messages=[{"role": "user", "content": "Write a haiku about GPU clouds."}],
+    max_tokens=500,
+    extra_body={
+        "chat_template_kwargs": {"enable_thinking": False}
+    }
+)
+print(response.choices[0].message.content)
+# Green lights softly blink,
+# Silicon valleys humming,
+# Vast and virtual.
+```
+
+### Tool Calling
+
+GLM-5 supports OpenAI-style function calling out of the box:
+
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "get_weather",
+        "description": "Get current weather for a location",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "location": {"type": "string", "description": "City name"}
+            },
+            "required": ["location"]
+        }
+    }
+}]
+
+response = client.chat.completions.create(
+    model="glm-5-fp8",
+    messages=[{"role": "user", "content": "What's the weather in Tokyo?"}],
+    tools=tools,
+    max_tokens=500
+)
+```
+
+## GPU Memory Breakdown
+
+| Component | Size |
+|---|---|
+| FP8 model weights | ~756GB |
+| **Total VRAM (8x H200)** | **1,128GB** |
+| **Free for KV cache** | **~372GB** |
+
+## Boot Time
+
+Expect ~20 minutes for a cold boot:
+
+| Phase | Time |
+|---|---|
+| Docker image pull (9.2GB) | ~2 min |
+| Model download from HuggingFace (756GB) | ~10 min |
+| CUDA graph compilation + warmup | ~8 min |
+| **Total** | **~20 min** |
+
+Subsequent boots with cached weights are significantly faster.
+
+## Spot Pricing
+
+H200 x8 (`p5en.48xlarge`) spot prices as of Feb 2026:
+
+| Region | Spot $/hr |
+|---|---|
+| 🇸🇪 Stockholm (eu-north-1) | ~$13 |
+| 🇺🇸 Ohio (us-east-2) | ~$15-19 |
+| 🇺🇸 Oregon (us-west-2) | ~$18-19 |
+
+Use `--interruptible` for spot pricing. Add `--region` to target a specific region.
+
+## GLM-5 vs Kimi K2.5
+
+Both are large MoE models that run on 8x H200. Here's how they compare:
+
+| | GLM-5-FP8 | Kimi K2.5 |
+|---|---|---|
+| Parameters | 744B (40B active) | ~1T (est.) |
+| Weights | ~756GB (FP8) | ~549GB (INT4/BF16 mix) |
+| Free VRAM | ~372GB | ~579GB |
+| Docker image | `vllm/vllm-openai:glm5` (special) | `vllm/vllm-openai:v0.15.1` (standard) |
+| Speculative decode | MTP (built-in) | No |
+| Thinking toggle | Yes (`enable_thinking`) | Always on |
+| Vision | No | Yes |
+| Boot time | ~20 min | ~15 min |

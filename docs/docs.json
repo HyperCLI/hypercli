@@ -39,6 +39,7 @@
             "pages": [
               "examples/index",
               "examples/kimi-k2-5",
+              "examples/glm-5",
               "examples/speaches",
               "examples/whisper",
               "examples/qwen3-tts",
