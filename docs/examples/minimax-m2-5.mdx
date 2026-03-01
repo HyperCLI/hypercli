@@ -1,0 +1,187 @@
+---
+title: MiniMax M2.5 on RTX Pro 6000
+description: Deploy MiniMax M2.5 (229B MoE, 10B active) on 4x RTX Pro 6000 GPUs.
+---
+
+# Deploying MiniMax M2.5
+
+[MiniMax M2.5](https://huggingface.co/MiniMaxAI/MiniMax-M2.5) is a 229 billion parameter Mixture-of-Experts model (10B active) that ranks #1 among open-source models on coding, math, science, and agentic tasks. It ships as native FP8, supports 196K context, and includes built-in reasoning with tool calling. This guide deploys it on 4x RTX Pro 6000 GPUs using vLLM.
+
+## Requirements
+
+- **4x RTX Pro 6000** (96GB each, 384GB total) or any **96GB+ x4** configuration
+- FP8 weights are ~220GB — leaves ~164GB for KV cache (~400K tokens)
+- Requires `vllm/vllm-openai:v0.15.1-cu130` for Blackwell GPU support (RTX Pro 6000)
+
+<Note>
+RTX Pro 6000 is a Blackwell architecture GPU (sm_120). You must use the `-cu130` vLLM image tag **and** set `LD_LIBRARY_PATH` to fix CUDA driver compatibility. The standard vLLM image will crash with Error 803.
+</Note>
+
+## Quick Launch
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1-cu130 \
+  --gpu-type RTXPRO6000 \
+  --gpu-count 4 \
+  --region oh \
+  --runtime 7200 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --env SAFETENSORS_FAST_GPU=1 \
+  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu \
+  --command 'vllm serve MiniMaxAI/MiniMax-M2.5 \
+    --host 0.0.0.0 --port 8000 \
+    -tp 4 \
+    --served-model-name minimax-m2.5 \
+    --trust-remote-code \
+    --tool-call-parser minimax_m2 \
+    --reasoning-parser minimax_m2_append_think \
+    --enable-auto-tool-choice'
+```
+
+### On H200 (8-GPU with Expert Parallelism)
+
+For maximum KV cache capacity (~3M tokens aggregate), deploy on 8x H200 with expert parallelism:
+
+```bash
+hyper jobs launch \
+  --image vllm/vllm-openai:v0.15.1 \
+  --gpu-type H200 \
+  --gpu-count 8 \
+  --region se \
+  --runtime 7200 \
+  --interruptible \
+  --auth \
+  --port lb=8000 \
+  --env SAFETENSORS_FAST_GPU=1 \
+  --env LD_LIBRARY_PATH=/usr/local/nvidia/lib64:/usr/local/nvidia/lib:/usr/lib/x86_64-linux-gnu \
+  --command 'vllm serve MiniMaxAI/MiniMax-M2.5 \
+    --host 0.0.0.0 --port 8000 \
+    -tp 8 \
+    --served-model-name minimax-m2.5 \
+    --trust-remote-code \
+    --enable_expert_parallel \
+    --tool-call-parser minimax_m2 \
+    --reasoning-parser minimax_m2_append_think \
+    --enable-auto-tool-choice'
+```
+
+## Parameter Reference
+
+### vLLM Arguments
+
+| Parameter | Value | Description |
+|---|---|---|
+| `-tp 4` | 4 | Tensor parallelism across all 4 GPUs |
+| `--served-model-name` | `minimax-m2.5` | Model name exposed via `/v1/models` |
+| `--trust-remote-code` | — | Required for MiniMax's custom model code |
+| `--tool-call-parser minimax_m2` | — | Native tool/function calling |
+| `--reasoning-parser minimax_m2_append_think` | — | Appends reasoning in `<think>` tags within content |
+| `--enable-auto-tool-choice` | — | Automatically detect when to use tools |
+| `--enable_expert_parallel` | — | Expert parallelism for 8-GPU deployment |
+
+### Environment Variables
+
+| Variable | Value | Description |
+|---|---|---|
+| `LD_LIBRARY_PATH` | `/usr/local/nvidia/lib64:...` | **Required.** Fixes CUDA driver compatibility (Error 803). |
+| `SAFETENSORS_FAST_GPU` | `1` | Faster weight loading via GPU-accelerated safetensors. |
+
+## Querying the Model
+
+### Chat Completions
+
+MiniMax M2.5 includes built-in reasoning — thinking appears inline in the response wrapped in `<think>` tags:
+
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    api_key="YOUR_JOB_TOKEN",  # from /api/jobs/{id}/token
+    base_url="https://YOUR-HOSTNAME-gpu.hypercli.com/v1",
+    timeout=120
+)
+
+response = client.chat.completions.create(
+    model="minimax-m2.5",
+    messages=[
+        {"role": "system", "content": [{"type": "text", "text": "You are a helpful assistant."}]},
+        {"role": "user", "content": [{"type": "text", "text": "What is the sum of the first 100 prime numbers?"}]}
+    ],
+    max_tokens=4096
+)
+
+content = response.choices[0].message.content
+# Content includes <think>...</think> reasoning followed by the answer
+print(content)
+```
+
+### Tool Calling
+
+MiniMax M2.5 supports OpenAI-style function calling:
+
+```python
+tools = [{
+    "type": "function",
+    "function": {
+        "name": "search_web",
+        "description": "Search the web for information",
+        "parameters": {
+            "type": "object",
+            "properties": {
+                "query": {"type": "string", "description": "Search query"}
+            },
+            "required": ["query"]
+        }
+    }
+}]
+
+response = client.chat.completions.create(
+    model="minimax-m2.5",
+    messages=[{"role": "user", "content": "Find the current price of Bitcoin"}],
+    tools=tools,
+    max_tokens=500
+)
+```
+
+## Reasoning Behavior
+
+MiniMax M2.5 uses the `minimax_m2_append_think` reasoning parser, which appends thinking inline in the content field wrapped in `<think>` tags:
+
+```
+<think>The user wants a haiku about GPU clouds. A haiku has a 5-7-5 syllable pattern...</think>
+
+GPU clouds float high
+Computing power on demand
+Data rides the wind
+```
+
+This is different from models like GLM-5 or Kimi K2.5 which use a separate `reasoning` field. To extract just the answer, strip content before the closing `</think>` tag.
+
+## GPU Memory Breakdown
+
+| Component | Size |
+|---|---|
+| FP8 model weights | ~220GB |
+| **Total VRAM (4x RTX Pro 6000)** | **384GB** |
+| **Free for KV cache** | **~164GB (~400K tokens)** |
+| **Total VRAM (8x H200)** | **1,128GB** |
+| **Free for KV cache (8x H200)** | **~908GB (~3M tokens)** |
+
+## Troubleshooting
+
+### CUDA illegal memory access
+Add `--compilation-config '{"cudagraph_mode": "PIECEWISE"}'` to the vLLM command if you encounter this error.
+
+### Garbled output
+Upgrade to the latest vLLM nightly or use a version after commit `cf3eacfe`.
+
+## Spot Pricing
+
+| GPU Config | Region | Spot $/hr |
+|---|---|---|
+| 🇺🇸 RTX Pro 6000 x4 Ohio | us-east-2 | ~$5.00 |
+| 🇺🇸 RTX Pro 6000 x4 Virginia | us-east-1 | ~$5.50 |
+| 🇸🇪 H200 x8 Stockholm | eu-north-1 | ~$13.00 |
