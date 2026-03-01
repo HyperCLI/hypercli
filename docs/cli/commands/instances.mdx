@@ -119,6 +119,7 @@ hyper instances launch my-image:latest -g h100 -c "./run.sh"
 | `--env` | `-e` | Environment variables (KEY=VALUE) |
 | `--port` | `-p` | Port mappings (name:port) |
 | `--follow` | `-f` | Follow logs after launch |
+| `--dry-run` | | Validate config and pricing without launching |
 | `--output` | `-o` | Output format: table\|json |
 
 ### Environment Variables
@@ -156,6 +157,21 @@ hyper instances launch my-image:latest --on-demand
 # Launch and follow logs in TUI
 hyper instances launch my-image:latest -g l40s -c "python train.py" -f
 ```
+
+### Dry Run
+
+Validate your configuration, GPU availability, and account balance without launching:
+
+```bash
+hyper instances launch my-image:latest -g h100 -n 8 --dry-run
+# ✓ Dry run passed
+#   GPU:      H100 x8
+#   Region:   se
+#   Price:    $13.42/hr
+#   Cold boot: yes (~15 min)
+```
+
+The response includes a `cold_boot` indicator — when `false`, a warm instance is available and your job will start in under a minute.
 
 ### JSON Output
 
