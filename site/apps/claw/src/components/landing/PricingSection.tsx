@@ -5,18 +5,7 @@ import { motion, useInView } from "framer-motion";
 import { Check } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE } from "@/lib/api";
-
-interface Plan {
-  id: string;
-  name: string;
-  price: number;
-  aiu: number;
-  tpd?: number;
-  tpm_limit: number;
-  rpm_limit: number;
-  features: string[];
-  highlighted?: boolean;
-}
+import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
 
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -26,22 +15,10 @@ export function PricingSection() {
 
   useEffect(() => {
     fetch(`${CLAW_API_BASE}/plans`)
-      .then((res) => (res.ok ? res.json() : null))
-      .then((data) => {
-        if (data?.plans) setPlans(data.plans);
-      })
+      .then((r) => r.json())
+      .then((data) => setPlans(data.plans ?? []))
       .catch(() => {});
   }, []);
-
-  const fmtLimit = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
-
-  const fmtTPD = (n: number) => {
-    if (n >= 1_000_000_000) return `${(n / 1_000_000_000).toFixed(0)}B`;
-    if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(0)}M`;
-    if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-    return String(n);
-  };
 
   const handleSelect = () => {
     if (isAuthenticated) {
@@ -113,12 +90,21 @@ export function PricingSection() {
                 </span>
                 <span className="text-text-muted text-sm">/month</span>
               </div>
-              <p className="text-sm text-text-tertiary mb-6">
+              <p className="text-sm text-text-tertiary mb-1">
                 {plan.aiu} AIU &middot;{" "}
-                {plan.tpd
-                  ? `${fmtTPD(plan.tpd)} tokens/day`
-                  : `${fmtLimit(plan.tpm_limit)} TPM`}
+                {formatTokens(plan.limits.tpd)} tokens/day
               </p>
+              <p className="text-xs text-text-muted mb-6">
+                Up to {formatTokens(plan.limits.burst_tpm)} TPM burst &middot;{" "}
+                {formatTokens(plan.limits.rpm)} RPM
+              </p>
+              {plan.agent_resources && plan.agent_resources.max_agents > 0 && (
+                <p className="text-xs text-text-muted mb-6">
+                  {plan.agent_resources.max_agents} agent{plan.agent_resources.max_agents > 1 ? 's' : ''} &middot;{' '}
+                  {formatCpu(Number(plan.agent_resources.total_cpu))} &middot;{' '}
+                  {formatMemory(Number(plan.agent_resources.total_memory))}
+                </p>
+              )}
 
               <ul className="space-y-3 mb-8 flex-1">
                 {plan.features.map((feature) => (

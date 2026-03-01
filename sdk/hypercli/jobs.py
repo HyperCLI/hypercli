@@ -21,6 +21,7 @@ class Job:
     docker_image: str
     runtime: int
     hostname: str | None = None
+    cold_boot: bool = True
     created_at: float | None = None
     started_at: float | None = None
     completed_at: float | None = None
@@ -40,6 +41,7 @@ class Job:
             docker_image=data.get("docker_image", ""),
             runtime=data.get("runtime", 0),
             hostname=data.get("hostname"),
+            cold_boot=data.get("cold_boot", True),
             created_at=data.get("created_at"),
             started_at=data.get("started_at"),
             completed_at=data.get("completed_at"),
@@ -102,6 +104,23 @@ class JobMetrics:
         )
 
 
+@dataclass
+class ExecResult:
+    job_id: str
+    stdout: str
+    stderr: str
+    exit_code: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "ExecResult":
+        return cls(
+            job_id=data.get("job_id", ""),
+            stdout=data.get("stdout", ""),
+            stderr=data.get("stderr", ""),
+            exit_code=data.get("exit_code", -1),
+        )
+
+
 class Jobs:
     """Jobs API wrapper"""
 
@@ -135,6 +154,7 @@ class Jobs:
         auth: bool = False,
         registry_auth: dict[str, str] = None,
         dockerfile: str = None,
+        dry_run: bool = False,
     ) -> Job:
         """Create a new job.
 
@@ -151,6 +171,7 @@ class Jobs:
             auth: Enable Bearer token auth on load balancer (use with ports={"lb": port})
             registry_auth: Private registry credentials {"username": "...", "password": "..."}
             dockerfile: Base64-encoded Dockerfile (overrides docker_image if provided)
+            dry_run: If True, validate everything but don't create job or reserve funds
         """
         payload = {
             "docker_image": image,
@@ -173,6 +194,8 @@ class Jobs:
             payload["registry_auth"] = registry_auth
         if dockerfile:
             payload["dockerfile"] = dockerfile
+        if dry_run:
+            payload["dry_run"] = dry_run
 
         data = self._http.post("/api/jobs", json=payload)
         return Job.from_dict(data)
@@ -200,6 +223,23 @@ class Jobs:
         """Get job auth token"""
         data = self._http.get(f"/api/jobs/{job_id}/token")
         return data.get("token", "")
+
+    def exec(self, job_id: str, command: str, timeout: int = 30) -> ExecResult:
+        """Execute a command non-interactively on a running job container.
+
+        Args:
+            job_id: Job UUID
+            command: Command to execute (e.g., "nvidia-smi")
+            timeout: Timeout in seconds (default: 30)
+
+        Returns:
+            ExecResult with stdout, stderr, and exit_code
+        """
+        data = self._http.post(
+            f"/api/jobs/{job_id}/exec",
+            json={"command": command, "timeout": timeout},
+        )
+        return ExecResult.from_dict(data)
 
     async def shell_connect(self, job_id: str, shell: str = "/bin/bash"):
         """Connect to job shell via director WebSocket proxy.

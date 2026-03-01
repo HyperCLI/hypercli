@@ -5,16 +5,7 @@ import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { clawFetch } from "@/lib/api";
 import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
-
-interface Plan {
-  id: string;
-  name: string;
-  price: number;
-  aiu: number;
-  tpm_limit: number;
-  rpm_limit: number;
-  features: string[];
-}
+import { Plan, formatTokens } from "@/lib/format";
 
 interface PlanCheckoutModalProps {
   plan: Plan;
@@ -92,7 +83,6 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      // connectWallet + x402 interceptor handles 402 → MetaMask sign → retry
       await x402Subscribe(plan.id, token);
       setSuccess(true);
       setTimeout(() => {
@@ -126,9 +116,6 @@ export function PlanCheckoutModal({
   };
 
   if (!isOpen) return null;
-
-  const fmtLimit = (n: number) =>
-    n >= 1000 ? `${(n / 1000).toFixed(0)}K` : String(n);
 
   const buttonLabel = () => {
     if (processing) return "Processing...";
@@ -201,8 +188,9 @@ export function PlanCheckoutModal({
                   </span>
                 </div>
                 <p className="text-sm text-text-tertiary">
-                  {plan.aiu} AIU &middot; {fmtLimit(plan.tpm_limit)} TPM
-                  &middot; {fmtLimit(plan.rpm_limit)} RPM
+                  {formatTokens(plan.limits.tpd)} tokens/day &middot;{" "}
+                  Up to {formatTokens(plan.limits.burst_tpm)} TPM &middot;{" "}
+                  {formatTokens(plan.limits.rpm)} RPM
                 </p>
               </div>
 

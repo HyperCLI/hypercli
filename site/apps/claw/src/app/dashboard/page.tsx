@@ -8,16 +8,21 @@ import { clawFetch } from "@/lib/api";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 
+interface PlanLimits {
+  tpd: number;
+  tpm: number;
+  burst_tpm: number;
+  rpm: number;
+}
+
 interface PlanInfo {
   id: string;
   name: string;
   price: number;
   aiu: number;
-  tpd?: number;
-  tpm_limit: number;
-  rpm_limit: number;
   features: string[];
   expires_at: string | null;
+  limits: PlanLimits;
 }
 
 interface UsageInfo {
@@ -213,28 +218,18 @@ export default function DashboardPage() {
             <span className="text-sm text-text-tertiary">Rate Limit</span>
           </div>
           <p className="text-2xl font-bold text-foreground">
-            {plan?.tpd ? (
+            {plan ? (
               <>
-                {formatTokens(plan.tpd)}{" "}
+                {formatTokens(plan.limits.tpd)}{" "}
                 <span className="text-sm text-text-muted font-normal">tokens/day</span>
-              </>
-            ) : usage ? (
-              <>
-                {formatTokens(usage.current_tpm)}{" "}
-                <span className="text-sm text-text-muted font-normal">TPM</span>
-              </>
-            ) : plan ? (
-              <>
-                {formatTokens(plan.tpm_limit)}{" "}
-                <span className="text-sm text-text-muted font-normal">TPM</span>
               </>
             ) : (
               "—"
             )}
           </p>
-          {(usage || plan) && (
+          {plan && (
             <p className="text-xs text-text-muted mt-1">
-              4x burst &middot; 2x sustained (12h)
+              Up to {formatTokens(plan.limits.burst_tpm)} TPM burst
             </p>
           )}
         </div>
