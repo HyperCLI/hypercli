@@ -398,6 +398,47 @@ def _render_metrics(m):
     return Group(*panels)
 
 
+@app.command("exec")
+def exec_command(
+    job_id: str = typer.Argument(..., help="Job ID (full or prefix)"),
+    command: str = typer.Argument(..., help="Command to execute"),
+    timeout: int = typer.Option(30, "--timeout", "-t", help="Timeout in seconds"),
+):
+    """Execute a command non-interactively on a running job container.
+
+    Runs the command and returns stdout/stderr. For interactive shells, use 'hyper jobs shell'.
+
+    Examples:
+        hyper jobs exec <job_id> "nvidia-smi"
+        hyper jobs exec <job_id> "ps aux" --timeout 10
+    """
+    import sys
+
+    client = get_client()
+    job_id = _resolve_job_id(client, job_id)
+
+    with spinner("Executing command..."):
+        try:
+            result = client.jobs.exec(job_id, command, timeout=timeout)
+        except Exception as e:
+            console.print(f"[red]Error: {e}[/red]")
+            raise typer.Exit(1)
+
+    # Print stdout to stdout
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+        sys.stdout.flush()
+
+    # Print stderr to stderr
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+        sys.stderr.flush()
+
+    # Exit with remote exit code
+    if result.exit_code != 0:
+        raise typer.Exit(result.exit_code)
+
+
 @app.command("shell")
 def shell(
     job_id: str = typer.Argument(..., help="Job ID (or prefix/hostname)"),

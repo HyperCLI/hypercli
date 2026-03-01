@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypercli-cli"
-version = "1.0.1"
+version = "1.0.2"
 description = "CLI for HyperCLI - GPU orchestration and LLM API"
 readme = "README.md"
 requires-python = ">=3.10"
