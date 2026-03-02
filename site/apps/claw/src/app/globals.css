@@ -47,11 +47,11 @@
   --font-weight-medium: 500;
   --font-weight-normal: 400;
   --ring: rgba(255, 255, 255, 0.2);
-  --chart-1: #fafafa;
-  --chart-2: #a1a1a6;
-  --chart-3: #6b6b70;
-  --chart-4: #48484d;
-  --chart-5: #38d39f;
+  --chart-1: #38d39f;
+  --chart-2: #45e4ae;
+  --chart-3: #2db789;
+  --chart-4: #1a5f48;
+  --chart-5: #3ad8a0;
   --radius: 0.5rem;
   --sidebar: #0a0a0b;
   --sidebar-foreground: #fafafa;
