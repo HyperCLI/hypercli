@@ -70,7 +70,7 @@ export default function KeyUsageTable({ keys, loading }: KeyUsageTableProps) {
               </div>
               <div className="w-full h-2 rounded-full bg-surface-low overflow-hidden">
                 <div
-                  className="h-full rounded-full bg-gradient-to-r from-[#38D39F] to-[#6C63FF] transition-all duration-500"
+                  className="h-full rounded-full bg-gradient-to-r from-[#fafafa] to-[#6b6b70] transition-all duration-500"
                   style={{ width: `${Math.max(pct, 1)}%` }}
                 />
               </div>
