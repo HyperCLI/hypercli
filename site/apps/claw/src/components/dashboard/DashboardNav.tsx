@@ -1,9 +1,10 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useRef, useEffect } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
-import { LayoutDashboard, Key, CreditCard, Settings, LogOut, Bot, Menu, X } from "lucide-react";
+import { motion, AnimatePresence } from "framer-motion";
+import { LayoutDashboard, Key, CreditCard, Settings, LogOut, Bot, Menu, X, ChevronDown } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
 
 const navItems = [
@@ -18,10 +19,27 @@ export function DashboardNav() {
   const pathname = usePathname();
   const { user, logout } = useClawAuth();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
+  const [userMenuOpen, setUserMenuOpen] = useState(false);
+  const userMenuRef = useRef<HTMLDivElement>(null);
 
   const isActive = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(href));
+
+  // Close user menu on click outside
+  useEffect(() => {
+    const handleClickOutside = (e: MouseEvent) => {
+      if (userMenuRef.current && !userMenuRef.current.contains(e.target as Node)) {
+        setUserMenuOpen(false);
+      }
+    };
+    if (userMenuOpen) {
+      document.addEventListener("mousedown", handleClickOutside);
+      return () => document.removeEventListener("mousedown", handleClickOutside);
+    }
+  }, [userMenuOpen]);
+
+  const emailInitial = user?.email ? user.email[0].toUpperCase() : "?";
 
   return (
     <>
@@ -52,7 +70,7 @@ export function DashboardNav() {
                     href={item.href}
                     className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
                       isActive(item.href)
-                        ? "text-primary bg-[#38D39F]/10"
+                        ? "text-foreground bg-surface-low"
                         : "text-text-tertiary hover:text-foreground hover:bg-surface-low"
                     }`}
                   >
@@ -63,23 +81,57 @@ export function DashboardNav() {
               })}
             </nav>
 
-            {/* Desktop right side */}
-            <div className="hidden md:flex items-center gap-3">
-              {user?.email && (
-                <span className="text-sm text-text-muted">
-                  {user.email}
-                </span>
-              )}
+            {/* Desktop right side — avatar dropdown */}
+            <div className="hidden md:flex items-center" ref={userMenuRef}>
               <button
-                onClick={logout}
-                className="flex items-center gap-1.5 text-sm text-text-tertiary hover:text-foreground transition-colors"
+                onClick={() => setUserMenuOpen(!userMenuOpen)}
+                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-surface-low transition-colors"
               >
-                <LogOut className="w-4 h-4" />
-                <span>Logout</span>
+                <div className="w-7 h-7 rounded-full bg-surface-high flex items-center justify-center text-xs font-bold text-foreground">
+                  {emailInitial}
+                </div>
+                <ChevronDown className={`w-3.5 h-3.5 text-text-muted transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
               </button>
+
+              <AnimatePresence>
+                {userMenuOpen && (
+                  <motion.div
+                    initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                    animate={{ opacity: 1, y: 0, scale: 1 }}
+                    exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                    transition={{ duration: 0.15 }}
+                    className="absolute right-0 top-12 w-56 glass-card p-1 shadow-xl"
+                  >
+                    {/* User info */}
+                    <div className="px-3 py-2 border-b border-border mb-1">
+                      <p className="text-sm text-foreground font-medium truncate">{user?.email || "User"}</p>
+                    </div>
+
+                    <Link
+                      href="/dashboard/settings"
+                      onClick={() => setUserMenuOpen(false)}
+                      className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </Link>
+
+                    <button
+                      onClick={() => {
+                        setUserMenuOpen(false);
+                        logout();
+                      }}
+                      className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors w-full text-left"
+                    >
+                      <LogOut className="w-4 h-4" />
+                      Sign Out
+                    </button>
+                  </motion.div>
+                )}
+              </AnimatePresence>
             </div>
 
-            {/* Mobile hamburger (for user info / logout) */}
+            {/* Mobile hamburger */}
             <button
               className="md:hidden p-2 text-text-secondary hover:text-foreground transition-colors"
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
@@ -93,26 +145,40 @@ export function DashboardNav() {
           </div>
         </div>
 
-        {/* Mobile dropdown menu (user info + logout) */}
-        {mobileMenuOpen && (
-          <div className="md:hidden bg-background border-t border-border px-4 py-3">
-            {user?.email && (
-              <div className="text-sm text-text-muted mb-3 truncate">
-                {user.email}
-              </div>
-            )}
-            <button
-              onClick={() => {
-                setMobileMenuOpen(false);
-                logout();
-              }}
-              className="flex items-center gap-2 text-sm text-text-tertiary hover:text-foreground transition-colors w-full"
+        {/* Mobile dropdown menu */}
+        <AnimatePresence>
+          {mobileMenuOpen && (
+            <motion.div
+              initial={{ height: 0, opacity: 0 }}
+              animate={{ height: "auto", opacity: 1 }}
+              exit={{ height: 0, opacity: 0 }}
+              className="md:hidden bg-background border-t border-border overflow-hidden"
             >
-              <LogOut className="w-4 h-4" />
-              <span>Logout</span>
-            </button>
-          </div>
-        )}
+              <div className="px-4 py-3">
+                {/* User info */}
+                <div className="flex items-center gap-2 mb-3 pb-3 border-b border-border">
+                  <div className="w-8 h-8 rounded-full bg-surface-high flex items-center justify-center text-sm font-bold text-foreground">
+                    {emailInitial}
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="text-sm text-foreground truncate">{user?.email || "User"}</p>
+                  </div>
+                </div>
+
+                <button
+                  onClick={() => {
+                    setMobileMenuOpen(false);
+                    logout();
+                  }}
+                  className="flex items-center gap-2 text-sm text-text-tertiary hover:text-foreground transition-colors w-full"
+                >
+                  <LogOut className="w-4 h-4" />
+                  <span>Sign Out</span>
+                </button>
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </header>
 
       {/* Mobile bottom tab bar */}
@@ -127,7 +193,7 @@ export function DashboardNav() {
                 href={item.href}
                 className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors ${
                   active
-                    ? "text-primary"
+                    ? "text-foreground"
                     : "text-text-tertiary"
                 }`}
               >
