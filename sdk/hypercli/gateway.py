@@ -86,15 +86,17 @@ class GatewayClient:
         url: str,
         token: str,
         gateway_token: str = "traefik-forwarded-auth-not-used",
-        client_id: str = "gateway-client",
-        client_mode: str = "backend",
+        client_id: str = "openclaw-control-ui",
+        client_mode: str = "webchat",
+        origin: str = "https://hyperclaw.app",
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.url = url
         self.token = token
         self.gateway_token = gateway_token
-        self.client_id = client_id
-        self.client_mode = client_mode
+        self.client_id = client_id or "openclaw-control-ui"
+        self.client_mode = client_mode or "webchat"
+        self.origin = origin
         self.timeout = timeout
         self._ws: Optional[ClientConnection] = None
         self._pending: dict[str, asyncio.Future] = {}
@@ -107,6 +109,8 @@ class GatewayClient:
     async def connect(self):
         """Connect and perform the challenge-response handshake."""
         headers = {"Authorization": f"Bearer {self.token}"}
+        if self.origin:
+            headers["Origin"] = self.origin
         self._ws = await websockets.connect(self.url, additional_headers=headers)
 
         # 1. Receive challenge
