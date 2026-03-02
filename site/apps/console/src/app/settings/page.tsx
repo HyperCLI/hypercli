@@ -4,7 +4,6 @@ import React, { useEffect, useState, useCallback, useRef } from "react";
 import {
   Header,
   Footer,
-  useAuth,
   Button,
   Input,
   Label,
@@ -179,8 +178,14 @@ class GatewayWS {
 // Settings Page
 // ---------------------------------------------------------------------------
 
+function getAuthToken(): string | null {
+  return document.cookie
+    .split("; ")
+    .find((row) => row.startsWith("auth_token="))
+    ?.split("=")[1] ?? null;
+}
+
 export default function SettingsPage() {
-  const { user, getAccessToken } = useAuth();
   const router = useRouter();
 
   const [pods, setPods] = useState<AgentPod[]>([]);
@@ -199,10 +204,10 @@ export default function SettingsPage() {
 
   // Load pods
   useEffect(() => {
-    if (!user) return;
     (async () => {
       try {
-        const token = await getAccessToken();
+        const token = getAuthToken();
+        if (!token) return;
         const res = await fetch(`${getAuthBackendUrl()}/lagoon/pods`, {
           headers: { Authorization: `Bearer ${token}` },
         });
@@ -218,7 +223,7 @@ export default function SettingsPage() {
         setLoading(false);
       }
     })();
-  }, [user]);
+  }, []);
 
   // Connect gateway when pod changes
   const connectGateway = useCallback(async (podId: string) => {
@@ -227,7 +232,8 @@ export default function SettingsPage() {
     setGwState((s) => ({ ...s, connected: false, connecting: true, error: null, config: null, sessions: [] }));
 
     try {
-      const token = await getAccessToken();
+      const token = getAuthToken();
+      if (!token) throw new Error("Not authenticated");
       // Get JWT for pod
       const tokenRes = await fetch(`${getAuthBackendUrl()}/lagoon/pods/${podId}/token/refresh`, {
         method: "POST",
@@ -266,7 +272,7 @@ export default function SettingsPage() {
         error: e.message,
       }));
     }
-  }, [pods, getAccessToken]);
+  }, [pods]);
 
   useEffect(() => {
     if (selectedPod) connectGateway(selectedPod);
@@ -312,19 +318,6 @@ export default function SettingsPage() {
   // ---------------------------------------------------------------------------
   // Render
   // ---------------------------------------------------------------------------
-
-  if (!user) {
-    return (
-      <div className="min-h-screen bg-background text-foreground">
-        <Header />
-        <Navigation />
-        <div className="max-w-4xl mx-auto px-4 pt-24 pb-12 text-center">
-          <p className="text-muted-foreground">Please sign in to access settings.</p>
-        </div>
-        <Footer />
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen bg-background text-foreground">
