@@ -15,8 +15,6 @@ import {
   RefreshCw,
   TerminalSquare,
   Trash2,
-  ChevronDown,
-  ChevronUp,
   FileText,
   Send,
   Settings,
@@ -33,6 +31,7 @@ import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation"
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
+import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 
 // ── Types ──
 
@@ -98,12 +97,6 @@ const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
 type MainTab = "chat" | "logs" | "shell" | "files";
-
-const SIZES = [
-  { label: "Small", cpu: 1000, mem: 1024, tag: "1 vCPU · 1 GiB", desc: "Lightweight tasks" },
-  { label: "Medium", cpu: 2000, mem: 2048, tag: "2 vCPU · 2 GiB", desc: "Balanced performance" },
-  { label: "Large", cpu: 4000, mem: 4096, tag: "4 vCPU · 4 GiB", desc: "Heavy workloads" },
-] as const;
 
 // ── Utility functions ──
 
@@ -185,7 +178,6 @@ export default function AgentsPage() {
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
-  const [creating, setCreating] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
@@ -193,12 +185,6 @@ export default function AgentsPage() {
 
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [newName, setNewName] = useState("agent");
-  const [selectedSize, setSelectedSize] = useState(1);
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customCpu, setCustomCpu] = useState("2000");
-  const [customMem, setCustomMem] = useState("2048");
-  const [startImmediately, setStartImmediately] = useState(true);
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -482,32 +468,6 @@ export default function AgentsPage() {
   }, [mainTab, selectedAgentId, selectedAgentHostname, reconnectNonce, issueAgentAccessToken]);
 
   // ── Actions ──
-  const handleCreate = async () => {
-    setCreating(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      const cpu = showAdvanced ? Number(customCpu) : SIZES[selectedSize].cpu;
-      const mem = showAdvanced ? Number(customMem) : SIZES[selectedSize].mem;
-      await clawFetch<Agent>("/agents", token, {
-        method: "POST",
-        body: JSON.stringify({
-          name: newName || "agent",
-          cpu_millicores: cpu,
-          memory_mib: mem,
-          start: startImmediately,
-          config: {},
-        }),
-      });
-      setShowCreateDialog(false);
-      setNewName("agent");
-      await fetchAgents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to create agent");
-    } finally {
-      setCreating(false);
-    }
-  };
 
   const handleStart = async (agentId: string) => {
     setStartingId(agentId);
@@ -604,10 +564,6 @@ export default function AgentsPage() {
     chat.sendMessage();
   };
 
-  const remainingCpu = budget ? budget.total_cpu - budget.used_cpu : 0;
-  const remainingMem = budget ? budget.total_memory - budget.used_memory : 0;
-  const remainingAgents = budget ? budget.max_agents - budget.used_agents : 0;
-
   // ── Render ──
 
   return (
@@ -660,101 +616,12 @@ export default function AgentsPage() {
         )}
       </AnimatePresence>
 
-      {/* Create Agent Dialog */}
-      <AnimatePresence>
-        {showCreateDialog && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setShowCreateDialog(false)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              className="glass-card p-6 w-full max-w-md mx-4"
-              onClick={(e) => e.stopPropagation()}
-            >
-              <div className="flex items-center justify-between mb-4">
-                <h2 className="text-lg font-semibold text-foreground">Create Agent</h2>
-                <button onClick={() => setShowCreateDialog(false)} className="text-text-muted hover:text-foreground"><X className="w-4 h-4" /></button>
-              </div>
-
-              {budget && (
-                <p className="text-xs text-text-muted mb-4">
-                  Budget remaining: {remainingAgents} agent{remainingAgents !== 1 ? 's' : ''} · {formatCpu(remainingCpu)} · {formatMemory(remainingMem)}
-                </p>
-              )}
-
-              <label className="block text-sm text-text-secondary mb-1">Name</label>
-              <input
-                value={newName}
-                onChange={(e) => setNewName(e.target.value)}
-                className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm mb-4 focus:outline-none focus:border-border-strong"
-                placeholder="agent"
-              />
-
-              {!showAdvanced ? (
-                <>
-                  <label className="block text-sm text-text-secondary mb-2">Size</label>
-                  <div className="grid grid-cols-3 gap-2 mb-3">
-                    {SIZES.map((s, i) => (
-                      <button
-                        key={s.label}
-                        onClick={() => setSelectedSize(i)}
-                        className={`p-3 rounded-lg border text-center transition-all ${
-                          selectedSize === i
-                            ? "border-primary bg-primary/10 text-foreground"
-                            : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
-                        }`}
-                      >
-                        <div className="text-sm font-medium">{s.label}</div>
-                        <div className="text-xs text-text-muted mt-0.5">{s.tag}</div>
-                        <div className="text-[10px] text-text-muted mt-0.5">{s.desc}</div>
-                      </button>
-                    ))}
-                  </div>
-                  <button onClick={() => setShowAdvanced(true)} className="text-xs text-text-muted hover:text-foreground flex items-center gap-1 mb-4">
-                    <ChevronDown className="w-3 h-3" /> Custom resources
-                  </button>
-                </>
-              ) : (
-                <>
-                  <div className="flex items-center justify-between mb-2">
-                    <label className="text-sm text-text-secondary">Custom Resources</label>
-                    <button onClick={() => setShowAdvanced(false)} className="text-xs text-text-muted hover:text-foreground flex items-center gap-1">
-                      <ChevronUp className="w-3 h-3" /> Presets
-                    </button>
-                  </div>
-                  <div className="grid grid-cols-2 gap-3 mb-4">
-                    <div>
-                      <label className="block text-xs text-text-muted mb-1">CPU (millicores)</label>
-                      <input value={customCpu} onChange={(e) => setCustomCpu(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong" />
-                    </div>
-                    <div>
-                      <label className="block text-xs text-text-muted mb-1">Memory (MiB)</label>
-                      <input value={customMem} onChange={(e) => setCustomMem(e.target.value)} className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong" />
-                    </div>
-                  </div>
-                </>
-              )}
-
-              <label className="flex items-center gap-2 text-sm text-text-secondary mb-5 cursor-pointer">
-                <input type="checkbox" checked={startImmediately} onChange={(e) => setStartImmediately(e.target.checked)} className="rounded border-border" />
-                Start immediately
-              </label>
-
-              <button onClick={handleCreate} disabled={creating} className="w-full btn-primary py-2.5 rounded-lg text-sm font-medium flex items-center justify-center gap-2 disabled:opacity-60">
-                {creating ? <Loader2 className="w-4 h-4 animate-spin" /> : <Plus className="w-4 h-4" />}
-                Create Agent
-              </button>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
+      <AgentCreationWizard
+        open={showCreateDialog}
+        onClose={() => setShowCreateDialog(false)}
+        onCreated={() => { setShowCreateDialog(false); fetchAgents(); }}
+        budget={budget}
+      />
 
       {/* Main layout: Sidebar + Panel */}
       <div className="flex h-[calc(100vh-8rem)]">
