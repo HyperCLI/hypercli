@@ -1,12 +1,31 @@
 "use client";
 
-import { useState, useEffect } from "react";
-import { Key, Activity, Gauge, ArrowRight, Zap, Hash } from "lucide-react";
+import { useState, useEffect, useCallback } from "react";
+import { motion } from "framer-motion";
+import {
+  Key,
+  Activity,
+  Gauge,
+  ArrowRight,
+  Zap,
+  Hash,
+  Bot,
+  Play,
+  Square,
+  ExternalLink,
+  MessageSquare,
+  Loader2,
+} from "lucide-react";
 import Link from "next/link";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch } from "@/lib/api";
+import { formatCpu, formatMemory } from "@/lib/format";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
+import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
+import { agentAvatar } from "@/lib/avatar";
+
+// ── Types ──
 
 interface PlanLimits {
   tpd: number;
@@ -63,175 +82,300 @@ interface KeyUsageResponse {
   days: number;
 }
 
+type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
+
+interface Agent {
+  id: string;
+  name: string;
+  state: AgentState;
+  cpu_millicores: number;
+  memory_mib: number;
+  hostname: string | null;
+  started_at: string | null;
+  last_error: string | null;
+}
+
+interface AgentListResponse {
+  items: Agent[];
+}
+
 function formatTokens(n: number): string {
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
   return n.toString();
 }
 
+function relativeTime(ts: string): string {
+  const diff = Date.now() - new Date(ts).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  return `${Math.floor(hours / 24)}d`;
+}
+
+function stateDotClass(state: AgentState): string {
+  switch (state) {
+    case "RUNNING": return "bg-[#38D39F]";
+    case "FAILED": return "bg-[#d05f5f]";
+    case "STOPPED": return "bg-text-muted";
+    default: return "bg-[#f0c56c]";
+  }
+}
+
+// ── Main component ──
+
 export default function DashboardPage() {
-  const { getToken } = useClawAuth();
+  const { getToken, user } = useClawAuth();
   const [plan, setPlan] = useState<PlanInfo | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [history, setHistory] = useState<DayData[]>([]);
   const [keyUsage, setKeyUsage] = useState<KeyUsageEntry[]>([]);
+  const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
+  const [startingId, setStartingId] = useState<string | null>(null);
+  const [stoppingId, setStoppingId] = useState<string | null>(null);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = await getToken();
-        const [planData, usageData, historyData, keyData] =
-          await Promise.allSettled([
-            clawFetch<PlanInfo>("/plans/current", token),
-            clawFetch<UsageInfo>("/usage", token),
-            clawFetch<HistoryResponse>("/usage/history?days=7", token),
-            clawFetch<KeyUsageResponse>("/usage/keys?days=7", token),
-          ]);
+  const fetchData = useCallback(async () => {
+    try {
+      const token = await getToken();
+      const [planData, usageData, historyData, keyData, agentData] =
+        await Promise.allSettled([
+          clawFetch<PlanInfo>("/plans/current", token),
+          clawFetch<UsageInfo>("/usage", token),
+          clawFetch<HistoryResponse>("/usage/history?days=7", token),
+          clawFetch<KeyUsageResponse>("/usage/keys?days=7", token),
+          clawFetch<AgentListResponse>("/agents", token),
+        ]);
 
-        if (planData.status === "fulfilled") setPlan(planData.value);
-        if (usageData.status === "fulfilled") setUsage(usageData.value);
-        if (historyData.status === "fulfilled")
-          setHistory(historyData.value.history);
-        if (keyData.status === "fulfilled") setKeyUsage(keyData.value.keys);
-      } catch {
-        // Graceful fallback
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    fetchData();
+      if (planData.status === "fulfilled") setPlan(planData.value);
+      if (usageData.status === "fulfilled") setUsage(usageData.value);
+      if (historyData.status === "fulfilled") setHistory(historyData.value.history);
+      if (keyData.status === "fulfilled") setKeyUsage(keyData.value.keys);
+      if (agentData.status === "fulfilled") setAgents(agentData.value.items || []);
+    } catch {
+      // Graceful fallback
+    } finally {
+      setLoading(false);
+    }
   }, [getToken]);
+
+  useEffect(() => { fetchData(); }, [fetchData]);
+
+  const handleStartAgent = async (agentId: string) => {
+    setStartingId(agentId);
+    try {
+      const token = await getToken();
+      await clawFetch<unknown>(`/agents/${agentId}/start`, token, { method: "POST" });
+      await fetchData();
+    } catch { /* handled silently */ } finally {
+      setStartingId(null);
+    }
+  };
+
+  const handleStopAgent = async (agentId: string) => {
+    setStoppingId(agentId);
+    try {
+      const token = await getToken();
+      await clawFetch<unknown>(`/agents/${agentId}/stop`, token, { method: "POST" });
+      await fetchData();
+    } catch { /* handled silently */ } finally {
+      setStoppingId(null);
+    }
+  };
+
+  const showOnboarding = !loading && usage && usage.total_tokens === 0 && usage.active_keys === 0 && agents.length === 0;
 
   return (
     <div>
-      {/* Header */}
-      <div className="flex items-center justify-between mb-8">
-        <h1 className="text-3xl font-bold text-foreground">Dashboard</h1>
+      {/* Welcome header */}
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-foreground">
+            Welcome back{user?.email ? `, ${user.email.split("@")[0]}` : ""}
+          </h1>
+          {plan && (
+            <div className="flex items-center gap-2 mt-1">
+              <span className="text-xs bg-surface-high text-text-secondary px-2 py-0.5 rounded-full font-medium">
+                {plan.name}
+              </span>
+              {plan.expires_at && (
+                <span className="text-xs text-text-muted">
+                  Renews {new Date(plan.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                </span>
+              )}
+            </div>
+          )}
+        </div>
         <Link
-          href="/dashboard/keys"
+          href="/dashboard/agents"
           className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
         >
-          <Key className="w-4 h-4" />
-          API Keys
+          <Bot className="w-4 h-4" />
+          New Agent
         </Link>
       </div>
 
-      {/* Current Plan */}
-      <div className="glass-card p-6 mb-6">
-        <div className="flex items-center justify-between">
-          <div>
-            <p className="text-sm text-text-tertiary mb-1">Current Plan</p>
-            <h2 className="text-2xl font-bold text-foreground">
-              {loading ? (
-                <span className="text-text-muted">Loading...</span>
-              ) : plan ? (
-                <>
-                  {plan.name}{" "}
-                  <span className="text-primary text-lg font-normal">
-                    {plan.aiu} AIU
-                  </span>
-                </>
-              ) : (
-                <span className="text-text-muted">Free Tier</span>
-              )}
-            </h2>
-            {plan?.expires_at && (
-              <p className="text-sm text-text-muted mt-1">
-                Renews{" "}
-                {new Date(plan.expires_at).toLocaleDateString(undefined, {
-                  month: "long",
-                  day: "numeric",
-                  year: "numeric",
-                })}
-              </p>
-            )}
-          </div>
-          <Link
-            href="/dashboard/plans"
-            className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          >
-            Manage Plan
-            <ArrowRight className="w-4 h-4" />
-          </Link>
-        </div>
-      </div>
+      {/* Onboarding guide for new users */}
+      {showOnboarding && <OnboardingGuide />}
 
-      {/* Stats grid */}
-      <div className="grid sm:grid-cols-4 gap-4 mb-6">
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-[#38D39F]/10 flex items-center justify-center">
-              <Activity className="w-4 h-4 text-primary" />
-            </div>
-            <span className="text-sm text-text-tertiary">Tokens (30d)</span>
+      {/* Agent cards grid — the hero section */}
+      {agents.length > 0 && (
+        <div className="mb-6">
+          <div className="flex items-center justify-between mb-3">
+            <h2 className="text-lg font-semibold text-foreground">Your Agents</h2>
+            <Link href="/dashboard/agents" className="text-xs text-text-muted hover:text-foreground flex items-center gap-1 transition-colors">
+              Manage Agents <ArrowRight className="w-3 h-3" />
+            </Link>
           </div>
-          <p className="text-2xl font-bold text-foreground">
-            {loading
-              ? "—"
-              : usage
-                ? formatTokens(usage.total_tokens)
-                : "0"}
+          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
+            {agents.map((agent, i) => {
+              const avatar = agentAvatar(agent.name || agent.id);
+              const AvatarIcon = avatar.icon;
+              const isRunning = agent.state === "RUNNING";
+              const isStopped = agent.state === "STOPPED" || agent.state === "FAILED";
+              const isTransitioning = ["PENDING", "STARTING", "STOPPING"].includes(agent.state);
+
+              return (
+                <motion.div
+                  key={agent.id}
+                  initial={{ opacity: 0, y: 10 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  transition={{ delay: i * 0.05 }}
+                  className="glass-card p-4"
+                >
+                  <div className="flex items-start gap-3 mb-3">
+                    {/* Avatar */}
+                    <div className="relative flex-shrink-0">
+                      <div
+                        className="w-10 h-10 rounded-full flex items-center justify-center"
+                        style={{ backgroundColor: avatar.bgColor }}
+                      >
+                        <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
+                      </div>
+                      <motion.div
+                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${stateDotClass(agent.state)}`}
+                        animate={isTransitioning ? { opacity: [0.5, 1, 0.5] } : {}}
+                        transition={isTransitioning ? { duration: 1.5, repeat: Infinity } : {}}
+                      />
+                    </div>
+
+                    <div className="min-w-0 flex-1">
+                      <p className="text-sm font-semibold text-foreground truncate">{agent.name}</p>
+                      <p className="text-xs text-text-muted">
+                        {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
+                      </p>
+                    </div>
+
+                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${
+                      isRunning ? "bg-[#38D39F]/10 text-[#38D39F]" :
+                      agent.state === "FAILED" ? "bg-[#d05f5f]/10 text-[#d05f5f]" :
+                      isStopped ? "bg-surface-low text-text-muted" :
+                      "bg-[#f0c56c]/15 text-[#f0c56c]"
+                    }`}>
+                      {agent.state}
+                    </span>
+                  </div>
+
+                  {/* Uptime / error */}
+                  {isRunning && agent.started_at && (
+                    <p className="text-xs text-text-muted mb-3">Up {relativeTime(agent.started_at)}</p>
+                  )}
+                  {agent.state === "FAILED" && agent.last_error && (
+                    <p className="text-xs text-[#d05f5f] mb-3 truncate">{agent.last_error}</p>
+                  )}
+
+                  {/* Quick actions */}
+                  <div className="flex items-center gap-2">
+                    {isStopped && (
+                      <button
+                        onClick={() => handleStartAgent(agent.id)}
+                        disabled={startingId === agent.id}
+                        className="px-2.5 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                      >
+                        {startingId === agent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        Start
+                      </button>
+                    )}
+                    {(isRunning || isTransitioning) && agent.state !== "STOPPING" && (
+                      <button
+                        onClick={() => handleStopAgent(agent.id)}
+                        disabled={stoppingId === agent.id}
+                        className="px-2.5 py-1 rounded text-xs border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60 flex items-center gap-1"
+                      >
+                        {stoppingId === agent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+                        Stop
+                      </button>
+                    )}
+                    {isRunning && (
+                      <Link
+                        href="/dashboard/agents"
+                        className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low flex items-center gap-1"
+                      >
+                        <MessageSquare className="w-3 h-3" />
+                        Chat
+                      </Link>
+                    )}
+                    {isRunning && agent.hostname && (
+                      <a
+                        href={`https://${agent.hostname}`}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                        className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low flex items-center gap-1"
+                      >
+                        <ExternalLink className="w-3 h-3" />
+                        Desktop
+                      </a>
+                    )}
+                  </div>
+                </motion.div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {/* Stats bar — compact horizontal row */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Activity className="w-4 h-4 text-text-tertiary" />
+            <span className="text-xs text-text-tertiary">Tokens (30d)</span>
+          </div>
+          <p className="text-xl font-bold text-foreground tabular-nums">
+            {loading ? "—" : usage ? formatTokens(usage.total_tokens) : "0"}
           </p>
-          {usage && usage.total_tokens > 0 && (
-            <p className="text-xs text-text-muted mt-1">
-              {formatTokens(usage.prompt_tokens)} prompt /{" "}
-              {formatTokens(usage.completion_tokens)} completion
-            </p>
-          )}
         </div>
 
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-[#38D39F]/10 flex items-center justify-center">
-              <Hash className="w-4 h-4 text-primary" />
-            </div>
-            <span className="text-sm text-text-tertiary">Requests (30d)</span>
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Hash className="w-4 h-4 text-text-tertiary" />
+            <span className="text-xs text-text-tertiary">Requests</span>
           </div>
-          <p className="text-2xl font-bold text-foreground">
-            {loading
-              ? "—"
-              : usage
-                ? usage.request_count.toLocaleString()
-                : "0"}
+          <p className="text-xl font-bold text-foreground tabular-nums">
+            {loading ? "—" : usage ? usage.request_count.toLocaleString() : "0"}
           </p>
         </div>
 
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-[#38D39F]/10 flex items-center justify-center">
-              <Key className="w-4 h-4 text-primary" />
-            </div>
-            <span className="text-sm text-text-tertiary">Active Keys</span>
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Key className="w-4 h-4 text-text-tertiary" />
+            <span className="text-xs text-text-tertiary">Active Keys</span>
           </div>
-          <p className="text-2xl font-bold text-foreground">
+          <p className="text-xl font-bold text-foreground tabular-nums">
             {loading ? "—" : usage ? usage.active_keys : "0"}
           </p>
         </div>
 
-        <div className="glass-card p-5">
-          <div className="flex items-center gap-3 mb-3">
-            <div className="w-8 h-8 rounded-lg bg-[#38D39F]/10 flex items-center justify-center">
-              <Zap className="w-4 h-4 text-primary" />
-            </div>
-            <span className="text-sm text-text-tertiary">Rate Limit</span>
+        <div className="glass-card p-4">
+          <div className="flex items-center gap-2 mb-2">
+            <Zap className="w-4 h-4 text-text-tertiary" />
+            <span className="text-xs text-text-tertiary">Rate Limit</span>
           </div>
-          <p className="text-2xl font-bold text-foreground">
-            {plan ? (
-              <>
-                {formatTokens(plan.limits.tpd)}{" "}
-                <span className="text-sm text-text-muted font-normal">tokens/day</span>
-              </>
-            ) : (
-              "—"
-            )}
+          <p className="text-xl font-bold text-foreground tabular-nums">
+            {plan ? formatTokens(plan.limits.tpd) : "—"}
           </p>
-          {plan && (
-            <p className="text-xs text-text-muted mt-1">
-              Up to {formatTokens(plan.limits.burst_tpm)} TPM burst
-            </p>
-          )}
+          {plan && <p className="text-[10px] text-text-muted mt-0.5">tokens/day</p>}
         </div>
       </div>
 
@@ -243,24 +387,27 @@ export default function DashboardPage() {
 
       {/* Quick Actions */}
       <div className="glass-card p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">
-          Quick Actions
-        </h3>
-        <div className="grid sm:grid-cols-3 gap-3">
+        <h3 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h3>
+        <div className="grid sm:grid-cols-4 gap-3">
+          <Link
+            href="/dashboard/agents"
+            className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
+          >
+            <Bot className="w-5 h-5 text-text-secondary" />
+            <span className="text-sm text-text-secondary">Manage Agents</span>
+          </Link>
           <Link
             href="/dashboard/keys"
             className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
           >
-            <Key className="w-5 h-5 text-primary" />
-            <span className="text-sm text-text-secondary">
-              Create API Key
-            </span>
+            <Key className="w-5 h-5 text-text-secondary" />
+            <span className="text-sm text-text-secondary">Create API Key</span>
           </Link>
           <Link
             href="/dashboard/plans"
             className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
           >
-            <Gauge className="w-5 h-5 text-primary" />
+            <Gauge className="w-5 h-5 text-text-secondary" />
             <span className="text-sm text-text-secondary">View Plans</span>
           </Link>
           <a
@@ -269,7 +416,7 @@ export default function DashboardPage() {
             rel="noopener noreferrer"
             className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
           >
-            <Activity className="w-5 h-5 text-primary" />
+            <Activity className="w-5 h-5 text-text-secondary" />
             <span className="text-sm text-text-secondary">Documentation</span>
           </a>
         </div>
