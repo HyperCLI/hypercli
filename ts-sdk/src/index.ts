@@ -112,3 +112,11 @@ export {
   GradioJob,
   type GradioJobOptions,
 } from './job/gradio.js';
+
+export {
+  GatewayClient,
+  type GatewayOptions,
+  type GatewayEvent,
+  type ChatEvent,
+  type GatewayEventHandler,
+} from './gateway.js';
