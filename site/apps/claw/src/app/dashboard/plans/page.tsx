@@ -6,6 +6,7 @@ import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch, CLAW_API_BASE } from "@/lib/api";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
+import { Skeleton } from "@/components/dashboard/Skeleton";
 
 export default function PlansPage() {
   const { getToken } = useClawAuth();
@@ -46,8 +47,27 @@ export default function PlansPage() {
 
   if (loading) {
     return (
-      <div className="flex items-center justify-center py-24">
-        <div className="text-text-muted">Loading plans...</div>
+      <div>
+        <div className="mb-8">
+          <Skeleton className="w-32 h-8 mb-2" />
+          <Skeleton className="w-64 h-5" />
+        </div>
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {Array.from({ length: 4 }).map((_, i) => (
+            <div key={i} className="glass-card p-6">
+              <Skeleton className="w-20 h-5 mb-3" />
+              <Skeleton className="w-24 h-8 mb-2" />
+              <Skeleton className="w-full h-3 mb-1" />
+              <Skeleton className="w-3/4 h-3 mb-6" />
+              <div className="space-y-3 mb-8">
+                {Array.from({ length: 3 }).map((_, j) => (
+                  <Skeleton key={j} className="w-full h-4" />
+                ))}
+              </div>
+              <Skeleton className="w-full h-10 rounded-lg" />
+            </div>
+          ))}
+        </div>
       </div>
     );
   }
@@ -75,12 +95,12 @@ export default function PlansPage() {
               key={plan.id}
               className={`glass-card p-6 flex flex-col ${
                 isCurrent
-                  ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
+                  ? "border-border-medium shadow-[0_0_40px_rgba(255,255,255,0.04)]"
                   : ""
               }`}
             >
               {isCurrent && (
-                <div className="text-xs font-semibold text-primary bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
+                <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
                   Current Plan
                 </div>
               )}
@@ -116,14 +136,14 @@ export default function PlansPage() {
                     key={feature}
                     className="flex items-start gap-2 text-sm text-text-secondary"
                   >
-                    <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                    <Check className="w-4 h-4 text-text-secondary flex-shrink-0 mt-0.5" />
                     <span>{feature}</span>
                   </li>
                 ))}
               </ul>
 
               {isCurrent ? (
-                <div className="w-full py-2.5 rounded-lg text-sm font-medium text-center text-primary bg-[#38D39F]/10">
+                <div className="w-full py-2.5 rounded-lg text-sm font-medium text-center text-[#38D39F] bg-[#38D39F]/10">
                   Active
                 </div>
               ) : (

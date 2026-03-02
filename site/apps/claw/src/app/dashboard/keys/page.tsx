@@ -2,8 +2,10 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Key, Plus, Copy, Check, Ban, Pencil, X } from "lucide-react";
+import { AnimatePresence, motion } from "framer-motion";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch } from "@/lib/api";
+import { Skeleton, TableSkeleton } from "@/components/dashboard/Skeleton";
 
 interface ApiKey {
   [k: string]: unknown;
@@ -123,16 +125,26 @@ export default function KeysPage() {
         </button>
       </div>
 
-      {error && (
-        <div className="mb-4 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f]">
-          {error}
-        </div>
-      )}
+      <AnimatePresence>
+        {error && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            className="overflow-hidden mb-4"
+          >
+            <div className="p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
+              <span>{error}</span>
+              <button onClick={() => setError(null)} className="ml-2 hover:text-foreground"><X className="w-3.5 h-3.5" /></button>
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Created key reveal */}
       {createdKey && (
-        <div className="mb-6 glass-card p-4 border-[#38D39F]/30">
-          <p className="text-sm text-primary font-medium mb-2">
+        <div className="mb-6 glass-card p-4 border-border-medium">
+          <p className="text-sm text-foreground font-medium mb-2">
             API key created! Copy it now — it won&apos;t be shown again.
           </p>
           <div className="flex items-center gap-2">
@@ -144,7 +156,7 @@ export default function KeysPage() {
               className="btn-secondary p-2 rounded-lg"
             >
               {copied ? (
-                <Check className="w-4 h-4 text-primary" />
+                <Check className="w-4 h-4 text-text-secondary" />
               ) : (
                 <Copy className="w-4 h-4" />
               )}
@@ -162,7 +174,17 @@ export default function KeysPage() {
       {/* Keys table */}
       <div className="glass-card overflow-hidden">
         {loading ? (
-          <div className="p-8 text-center text-text-muted">Loading...</div>
+          <div className="divide-y divide-border">
+            {Array.from({ length: 3 }).map((_, i) => (
+              <div key={i} className="px-6 py-4 flex items-center gap-4">
+                <Skeleton className="w-28 h-4" />
+                <Skeleton className="w-40 h-4" />
+                <Skeleton className="w-16 h-5 rounded-full" />
+                <Skeleton className="w-20 h-4" />
+                <Skeleton className="w-16 h-4 ml-auto" />
+              </div>
+            ))}
+          </div>
         ) : keys.length === 0 ? (
           <div className="p-8 text-center">
             <Key className="w-8 h-8 text-text-muted mx-auto mb-3" />
@@ -215,14 +237,14 @@ export default function KeysPage() {
                               if (e.key === "Enter" && token) handleSaveName(token, meta);
                               if (e.key === "Escape") { setEditingToken(null); setEditName(""); }
                             }}
-                            className="px-2 py-1 rounded bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-primary"
+                            className="px-2 py-1 rounded bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
                             autoFocus
                             disabled={saving}
                           />
                           <button
                             onClick={() => token && handleSaveName(token, meta)}
                             disabled={saving || !editName.trim()}
-                            className="text-primary hover:text-primary/80 disabled:opacity-50"
+                            className="text-text-secondary hover:text-foreground disabled:opacity-50"
                           >
                             <Check className="w-4 h-4" />
                           </button>
@@ -245,7 +267,7 @@ export default function KeysPage() {
                         className={`inline-flex items-center gap-1 text-xs font-medium px-2 py-0.5 rounded-full ${
                           blocked
                             ? "bg-[#d05f5f]/10 text-[#d05f5f]"
-                            : "bg-[#38D39F]/10 text-primary"
+                            : "bg-[#38D39F]/10 text-[#38D39F]"
                         }`}
                       >
                         {blocked ? "Disabled" : "Active"}
@@ -300,7 +322,7 @@ export default function KeysPage() {
               value={newKeyName}
               onChange={(e) => setNewKeyName(e.target.value)}
               onKeyDown={(e) => e.key === "Enter" && handleCreate()}
-              className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm placeholder:text-text-muted focus:outline-none focus:border-primary mb-4"
+              className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm placeholder:text-text-muted focus:outline-none focus:border-border-strong mb-4"
               autoFocus
             />
             <div className="flex justify-end gap-2">
