@@ -96,7 +96,7 @@ const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "files";
+type MainTab = "chat" | "logs" | "shell" | "files" | "settings";
 
 // ── Utility functions ──
 
@@ -216,6 +216,10 @@ export default function AgentsPage() {
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
   const [burstAgentId, setBurstAgentId] = useState<string | null>(null);
 
+  // Settings tab state
+  const [settingsName, setSettingsName] = useState("");
+  const [settingsDesc, setSettingsDesc] = useState("");
+
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch agents ──
@@ -271,6 +275,14 @@ export default function AgentsPage() {
   const selectedAgentHostname = selectedAgent?.hostname || null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
+
+  // Sync settings fields when selected agent changes
+  useEffect(() => {
+    if (selectedAgent) {
+      setSettingsName(selectedAgent.name || "");
+      setSettingsDesc(""); // No description field in Agent type yet
+    }
+  }, [selectedAgentId]);
 
   // ── Gateway Chat hook ──
   const chat = useGatewayChat(
@@ -794,8 +806,8 @@ export default function AgentsPage() {
                 {/* Tabs */}
                 <div className="flex-1 flex items-center justify-center">
                   <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "files"] as MainTab[]).map((tab) => {
-                      const icons = { chat: MessageSquare, logs: TerminalSquare, shell: TerminalSquare, files: FileText };
+                    {(["chat", "logs", "shell", "files", "settings"] as MainTab[]).map((tab) => {
+                      const icons = { chat: MessageSquare, logs: TerminalSquare, shell: TerminalSquare, files: FileText, settings: Settings };
                       const Icon = icons[tab];
                       return (
                         <button
@@ -1025,6 +1037,109 @@ export default function AgentsPage() {
                         )}
                       </div>
                     )}
+                  </div>
+                ) : mainTab === "settings" && selectedAgent ? (
+                  /* ── Settings Tab ── */
+                  <div className="flex-1 overflow-y-auto p-6">
+                    <div className="max-w-xl mx-auto space-y-8">
+                      {/* Agent Identity Section */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-foreground mb-4">Agent Identity</h3>
+                        <div className="space-y-4">
+                          <div>
+                            <label className="block text-sm text-text-secondary mb-1">Name</label>
+                            <div className="flex items-center gap-2">
+                              <input
+                                value={settingsName}
+                                onChange={(e) => setSettingsName(e.target.value)}
+                                className="flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+                                placeholder="Agent name"
+                              />
+                            </div>
+                          </div>
+                          <div>
+                            <label className="block text-sm text-text-secondary mb-1">Description</label>
+                            <textarea
+                              value={settingsDesc}
+                              onChange={(e) => setSettingsDesc(e.target.value)}
+                              rows={3}
+                              className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong resize-none"
+                              placeholder="What does this agent do? (optional)"
+                            />
+                          </div>
+                        </div>
+                      </div>
+
+                      {/* Info Section */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-foreground mb-4">Information</h3>
+                        <div className="glass-card p-4 space-y-3">
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-text-secondary">Agent ID</span>
+                            <span className="text-sm text-text-tertiary font-mono">{selectedAgent.id.slice(0, 12)}...</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-text-secondary">Status</span>
+                            <span className={`text-sm font-medium ${
+                              selectedAgent.state === "RUNNING" ? "text-[#38D39F]" :
+                              selectedAgent.state === "FAILED" ? "text-[#d05f5f]" :
+                              selectedAgent.state === "STOPPED" ? "text-text-muted" :
+                              "text-[#f0c56c]"
+                            }`}>{selectedAgent.state}</span>
+                          </div>
+                          <div className="flex items-center justify-between">
+                            <span className="text-sm text-text-secondary">Resources</span>
+                            <span className="text-sm text-text-tertiary">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
+                          </div>
+                          {selectedAgent.hostname && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-text-secondary">Hostname</span>
+                              <span className="text-sm text-text-tertiary font-mono">{selectedAgent.hostname}</span>
+                            </div>
+                          )}
+                          {selectedAgent.created_at && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-text-secondary">Created</span>
+                              <span className="text-sm text-text-tertiary">{new Date(selectedAgent.created_at).toLocaleDateString()}</span>
+                            </div>
+                          )}
+                        </div>
+                      </div>
+
+                      {/* Danger Zone */}
+                      <div>
+                        <h3 className="text-lg font-semibold text-[#d05f5f] mb-4">Danger Zone</h3>
+                        <div className="border border-[#d05f5f]/20 rounded-lg p-4 space-y-3">
+                          {selectedAgent.state === "RUNNING" && (
+                            <div className="flex items-center justify-between">
+                              <div>
+                                <p className="text-sm font-medium text-foreground">Stop Agent</p>
+                                <p className="text-xs text-text-muted">Stop the running agent container</p>
+                              </div>
+                              <button
+                                onClick={() => handleStop(selectedAgent.id)}
+                                disabled={stoppingId === selectedAgent.id}
+                                className="px-3 py-1.5 rounded-lg text-sm border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60"
+                              >
+                                {stoppingId === selectedAgent.id ? "Stopping..." : "Stop"}
+                              </button>
+                            </div>
+                          )}
+                          <div className="flex items-center justify-between">
+                            <div>
+                              <p className="text-sm font-medium text-foreground">Delete Agent</p>
+                              <p className="text-xs text-text-muted">Permanently delete this agent and all its data</p>
+                            </div>
+                            <button
+                              onClick={() => handleDelete(selectedAgent.id)}
+                              className="px-3 py-1.5 rounded-lg text-sm border border-[#d05f5f]/30 text-[#d05f5f] hover:bg-[#d05f5f]/10"
+                            >
+                              Delete
+                            </button>
+                          </div>
+                        </div>
+                      </div>
+                    </div>
                   </div>
                 ) : null}
               </div>
