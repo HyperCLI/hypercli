@@ -402,7 +402,8 @@ class GatewayClient:
 
         Yields ChatEvent objects as the agent responds.
         """
-        params: dict = {"message": message}
+        import uuid as _uuid
+        params: dict = {"message": message, "idempotencyKey": str(_uuid.uuid4())}
         if session_key:
             params["sessionKey"] = session_key
         if agent_id:
