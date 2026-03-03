@@ -71,7 +71,7 @@ interface AgentListResponse {
 
 interface AgentLogsTokenResponse {
   agent_id: string;
-  ws_token: string;
+  jwt: string;
   expires_at: string;
   ws_url?: string;
 }
@@ -338,11 +338,11 @@ export default function AgentsPage() {
         let url = "";
         if (explicitWsUrl) {
           const sep = explicitWsUrl.includes("?") ? "&" : "?";
-          url = `${explicitWsUrl}${sep}ws_token=${encodeURIComponent(stream.ws_token)}&container=reef&tail_lines=400`;
+          url = `${explicitWsUrl}${sep}ws_token=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
         } else {
           const wsBase = configuredWsBase || derivedWsBase;
           if (!wsBase) throw new Error("WebSocket base URL is not configured");
-          url = `${wsBase}/ws/${agentId}?ws_token=${encodeURIComponent(stream.ws_token)}&container=reef&tail_lines=400`;
+          url = `${wsBase}/ws/${agentId}?ws_token=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
         }
         ws = new WebSocket(url);
         ws.onopen = () => { if (!cancelled) { reconnectScheduled = false; setWsStatus("connected"); void fetchAgents(); } };
@@ -399,7 +399,7 @@ export default function AgentsPage() {
     const resizeDisposable = term.onResize(({ cols, rows }) => {
       const ws = shellWsRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(JSON.stringify({ type: "resize", cols, rows }));
+        ws.send(`\x1b[8;${rows};${cols}t`);
       }
     });
     const onResize = () => fitAddon.fit();
@@ -460,7 +460,7 @@ export default function AgentsPage() {
             // Phase 4A: Send initial size after WebSocket connects
             const dims = shellFitAddonRef.current?.proposeDimensions();
             if (dims) {
-              ws.send(JSON.stringify({ type: "resize", cols: dims.cols, rows: dims.rows }));
+              ws.send(`\x1b[8;${dims.rows};${dims.cols}t`);
             }
           }
         };
