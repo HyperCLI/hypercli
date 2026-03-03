@@ -1,6 +1,10 @@
 {
   "$schema": "https://turbo.build/schema.json",
-  "globalDependencies": ["**/.env.*local", ".env", ".env.local"],
+  "globalDependencies": [
+    "**/.env.*local",
+    ".env",
+    ".env.local"
+  ],
   "globalEnv": [
     "NEXT_PUBLIC_MAIN_SITE_URL",
     "NEXT_PUBLIC_CONSOLE_URL",
@@ -24,19 +28,29 @@
     "NEXT_PUBLIC_WALLETCONNECT_PROJECT_ID",
     "NEXT_PUBLIC_CLAW_URL",
     "NEXT_PUBLIC_PRIVY_APP_ID",
-    "NEXT_PUBLIC_CLAW_API_URL"
+    "NEXT_PUBLIC_CLAW_API_URL",
+    "NEXT_PUBLIC_HYPERCLAW_API_URL",
+    "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN",
+    "HYPERCLAW_API_URL"
   ],
   "tasks": {
     "build": {
-      "dependsOn": ["^build"],
-      "outputs": [".next/**", "!.next/cache/**", "dist/**"]
+      "dependsOn": [
+        "^build"
+      ],
+      "outputs": [
+        ".next/**",
+        "dist/**"
+      ]
     },
     "dev": {
       "cache": false,
       "persistent": true
     },
     "lint": {
-      "dependsOn": ["^lint"]
+      "dependsOn": [
+        "^lint"
+      ]
     },
     "clean": {
       "cache": false
