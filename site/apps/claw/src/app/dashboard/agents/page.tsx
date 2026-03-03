@@ -338,11 +338,11 @@ export default function AgentsPage() {
         let url = "";
         if (explicitWsUrl) {
           const sep = explicitWsUrl.includes("?") ? "&" : "?";
-          url = `${explicitWsUrl}${sep}ws_token=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
+          url = `${explicitWsUrl}${sep}jwt=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
         } else {
           const wsBase = configuredWsBase || derivedWsBase;
           if (!wsBase) throw new Error("WebSocket base URL is not configured");
-          url = `${wsBase}/ws/${agentId}?ws_token=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
+          url = `${wsBase}/ws/${agentId}?jwt=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
         }
         ws = new WebSocket(url);
         ws.onopen = () => { if (!cancelled) { reconnectScheduled = false; setWsStatus("connected"); void fetchAgents(); } };
