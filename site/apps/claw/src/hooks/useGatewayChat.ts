@@ -26,6 +26,48 @@ interface Agent {
   openclaw_url?: string | null;
 }
 
+function maybeDecodeMojibake(text: string): string {
+  // Some gateways occasionally emit UTF-8 text decoded as latin1 (e.g. ð, â).
+  if (!/[Ãâð]/.test(text)) return text;
+  try {
+    const bytes = Uint8Array.from(text, (ch) => ch.charCodeAt(0) & 0xff);
+    const decoded = new TextDecoder("utf-8").decode(bytes);
+    if (decoded && decoded !== text) return decoded;
+  } catch {
+    // Fall back to original text on decoding errors.
+  }
+  return text;
+}
+
+function extractChatText(payload: Record<string, unknown>): string {
+  if (typeof payload.text === "string") {
+    return maybeDecodeMojibake(payload.text);
+  }
+
+  const message =
+    payload.message && typeof payload.message === "object"
+      ? (payload.message as Record<string, unknown>)
+      : null;
+  if (!message) return "";
+
+  if (typeof message.content === "string") {
+    return maybeDecodeMojibake(message.content);
+  }
+
+  if (!Array.isArray(message.content)) return "";
+  const parts = message.content
+    .map((entry) => {
+      if (!entry || typeof entry !== "object") return "";
+      const segment = entry as Record<string, unknown>;
+      if (segment.type !== "text") return "";
+      return typeof segment.text === "string" ? segment.text : "";
+    })
+    .filter(Boolean)
+    .join("");
+
+  return maybeDecodeMojibake(parts);
+}
+
 /**
  * Reusable hook for gateway connection + chat logic.
  * Extracted from the console page for use in the chat-first agents layout.
@@ -114,7 +156,36 @@ export function useGatewayChat(
 
       // Set up event handler for streaming chat
       gw.onEvent((event, payload) => {
-        if (event === "chat.content") {
+        if (event === "chat") {
+          const chatPayload = payload as Record<string, unknown>;
+          const nextText = extractChatText(chatPayload);
+          const message =
+            chatPayload.message && typeof chatPayload.message === "object"
+              ? (chatPayload.message as Record<string, unknown>)
+              : null;
+          const role = typeof message?.role === "string" ? message.role : "assistant";
+          const timestamp =
+            typeof message?.timestamp === "number" ? message.timestamp : Date.now();
+
+          if (role === "assistant" && nextText) {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === "assistant") {
+                // Handle both delta streams and snapshot streams.
+                const merged =
+                  nextText.startsWith(last.content) || nextText.length >= last.content.length
+                    ? nextText
+                    : `${last.content}${nextText}`;
+                return [...prev.slice(0, -1), { ...last, content: merged, timestamp }];
+              }
+              return [...prev, { role: "assistant", content: nextText, timestamp }];
+            });
+          }
+
+          if (chatPayload.state === "final") {
+            setSending(false);
+          }
+        } else if (event === "chat.content") {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
             if (last?.role === "assistant") {
@@ -202,10 +273,19 @@ export function useGatewayChat(
       setFiles(filesList);
 
       // Load config + schema
-      const [cfg, schema] = await Promise.all([
+      const [cfg, schemaResp] = await Promise.all([
         gw.configGet(),
         gw.configSchema(),
       ]);
+      const schema = (
+        schemaResp &&
+        typeof schemaResp === "object" &&
+        "schema" in schemaResp &&
+        schemaResp.schema &&
+        typeof schemaResp.schema === "object"
+      )
+        ? (schemaResp.schema as Record<string, unknown>)
+        : (schemaResp as Record<string, unknown>);
       setConfig(cfg);
       setConfigSchema(schema);
     } catch (e: unknown) {

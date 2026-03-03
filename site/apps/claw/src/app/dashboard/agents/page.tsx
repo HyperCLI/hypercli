@@ -354,7 +354,11 @@ export default function AgentsPage() {
     getToken
   );
 
-  const openclawSchemaRoot = useMemo(() => asObject(chat.configSchema), [chat.configSchema]);
+  const openclawSchemaRoot = useMemo(() => {
+    const raw = asObject(chat.configSchema);
+    const wrapped = asObject(raw?.schema);
+    return wrapped ?? raw;
+  }, [chat.configSchema]);
   const openclawSchemaProperties = useMemo(
     () => asObject(openclawSchemaRoot?.properties ?? null),
     [openclawSchemaRoot]
