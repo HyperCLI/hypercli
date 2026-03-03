@@ -62,7 +62,7 @@ export function HeroSection() {
 
       <motion.div
         style={{ y: contentY, opacity: contentOpacity }}
-        className="relative max-w-5xl mx-auto text-center"
+        className="relative max-w-5xl mx-auto text-center w-full overflow-hidden"
       >
         {/* Badge */}
         <motion.div
@@ -101,7 +101,7 @@ export function HeroSection() {
             delay: 0.2,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className="text-lg sm:text-xl text-text-secondary max-w-2xl mx-auto mb-10 leading-relaxed"
+          className="text-base sm:text-lg md:text-xl text-text-secondary max-w-2xl mx-auto mb-10 leading-relaxed px-2"
         >
           AIU (Agent Inference Units) enable 24/7 agent operation with no
           per-token charges. OpenAI-compatible API on NVIDIA B200 GPUs.
@@ -141,7 +141,7 @@ export function HeroSection() {
             delay: 0.4,
             ease: [0.22, 1, 0.36, 1],
           }}
-          className="glass-card p-1 max-w-2xl mx-auto"
+          className="glass-card p-1 max-w-2xl mx-auto w-full"
         >
           <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50">
             <div className="flex gap-1.5">
@@ -151,7 +151,7 @@ export function HeroSection() {
             </div>
             <span className="text-xs text-text-muted ml-2">terminal</span>
           </div>
-          <pre className="p-4 text-left text-sm text-text-secondary overflow-x-auto border-0 bg-transparent">
+          <pre className="p-4 text-left text-xs sm:text-sm text-text-secondary overflow-x-auto border-0 bg-transparent whitespace-pre-wrap break-all sm:whitespace-pre sm:break-normal">
             <code>{codeSnippet}</code>
           </pre>
         </motion.div>
