@@ -26,6 +26,60 @@ interface Agent {
   openclaw_url?: string | null;
 }
 
+function normalizeHistoryMessage(message: unknown): ChatMessage | null {
+  if (!message || typeof message !== "object") return null;
+  const entry = message as Record<string, unknown>;
+  const rawRole = typeof entry.role === "string" ? entry.role.toLowerCase() : "";
+  const role: ChatMessage["role"] =
+    rawRole === "user" || rawRole === "assistant" || rawRole === "system"
+      ? rawRole
+      : "assistant";
+  const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : Date.now();
+
+  const extractContent = (): string => {
+    if (typeof entry.text === "string") return maybeDecodeMojibake(entry.text);
+    if (typeof entry.content === "string") return maybeDecodeMojibake(entry.content);
+    if (!Array.isArray(entry.content)) return "";
+    const parts = entry.content
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const part = item as Record<string, unknown>;
+        if (part.type !== "text") return "";
+        return typeof part.text === "string" ? part.text : "";
+      })
+      .filter(Boolean)
+      .join("");
+    return maybeDecodeMojibake(parts);
+  };
+
+  const content = extractContent();
+  if (!content.trim()) return null;
+
+  let thinking: string | undefined;
+  if (Array.isArray(entry.content)) {
+    const thinkingParts = entry.content
+      .map((item) => {
+        if (!item || typeof item !== "object") return "";
+        const part = item as Record<string, unknown>;
+        if (part.type !== "thinking") return "";
+        return typeof part.thinking === "string" ? part.thinking : "";
+      })
+      .filter(Boolean)
+      .join("\n")
+      .trim();
+    if (thinkingParts) {
+      thinking = maybeDecodeMojibake(thinkingParts);
+    }
+  }
+
+  return {
+    role,
+    content,
+    ...(thinking ? { thinking } : {}),
+    timestamp,
+  };
+}
+
 function maybeDecodeMojibake(text: string): string {
   // Some gateways occasionally emit UTF-8 text decoded as latin1 (e.g. ð, â).
   if (!/[Ãâð]/.test(text)) return text;
@@ -260,6 +314,17 @@ export function useGatewayChat(
       gwRef.current = gw;
       setConnected(true);
       setError(null);
+
+      // Hydrate chat with existing session messages to avoid an empty window on open.
+      const history = await gw.chatHistory("main", 200);
+      const hydrated = history
+        .map((message) => normalizeHistoryMessage(message))
+        .filter((message): message is ChatMessage => message !== null);
+      if (hydrated.length > 0) {
+        setMessages(hydrated);
+      } else {
+        setMessages([]);
+      }
 
       // Load agents list to get gateway agent ID
       const agents = await gw.agentsList();
