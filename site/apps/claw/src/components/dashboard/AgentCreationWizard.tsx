@@ -203,7 +203,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       await clawFetch("/agents", token, {
         method: "POST",
         body: JSON.stringify({
-          name: name || "agent",
+          name: name.trim() || null,
           cpu_millicores: cpu,
           memory_mib: mem,
           start: startImmediately,
@@ -265,7 +265,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
           value={name}
           onChange={(e) => setName(e.target.value)}
           className="w-full px-4 py-3 rounded-xl bg-surface-low border border-border text-foreground text-lg text-center focus:outline-none focus:border-border-strong placeholder:text-text-muted"
-          placeholder="Give your agent a name..."
+          placeholder="Name your agent (or leave blank to auto-generate)"
           autoFocus
         />
       </div>
