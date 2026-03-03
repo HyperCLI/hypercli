@@ -299,12 +299,21 @@ class GatewayClient:
         """Get the JSON schema + uiHints for the config."""
         return await self.call("config.schema")
 
-    async def config_patch(self, patch: dict) -> dict:
+    async def config_patch(self, patch: dict, base_hash: str = None) -> dict:
         """Patch the gateway configuration (merges with existing).
 
+        Fetches current config to get baseHash if not provided.
         The gateway will restart after applying the patch.
         """
-        return await self.call("config.patch", {"patch": patch}, timeout=30)
+        import json as _json
+        if base_hash is None:
+            raw_result = await self.call("config.get")
+            base_hash = raw_result.get("hash") or raw_result.get("baseHash", "")
+        return await self.call(
+            "config.patch",
+            {"raw": _json.dumps(patch), "baseHash": base_hash},
+            timeout=30,
+        )
 
     async def config_apply(self, config: dict) -> dict:
         """Replace the entire gateway configuration.
