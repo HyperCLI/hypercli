@@ -26,7 +26,13 @@ const nextConfig: NextConfig = {
     NEXT_PUBLIC_HYPERCLAW_MODELS_URL:
       process.env.HYPERCLAW_MODELS_URL || process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "",
   },
-  turbopack: {},
+  turbopack: {
+    rules: {
+      // Ignore pino/thread-stream test files (same as webpack null-loader rule)
+      "./node_modules/pino/test/**": { loaders: [], as: "*.js" },
+      "./node_modules/thread-stream/test/**": { loaders: [], as: "*.js" },
+    },
+  },
   webpack: (config) => {
     config.module = config.module || {};
     config.module.rules = config.module.rules || [];
