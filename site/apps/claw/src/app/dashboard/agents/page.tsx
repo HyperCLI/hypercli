@@ -18,6 +18,7 @@ import {
   FileText,
   Send,
   Settings,
+  SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
   X,
@@ -36,6 +37,7 @@ import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard"
 // ── Types ──
 
 type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
+type JsonObject = Record<string, unknown>;
 
 interface Agent {
   id: string;
@@ -96,7 +98,7 @@ const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "files" | "settings";
+type MainTab = "chat" | "logs" | "shell" | "files" | "openclaw" | "settings";
 
 // ── Utility functions ──
 
@@ -168,6 +170,63 @@ function BudgetBar({ label, used, total, format }: { label: string; used: number
   );
 }
 
+function asObject(value: unknown): JsonObject | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
+}
+
+function deepCloneJsonObject(value: JsonObject): JsonObject {
+  return JSON.parse(JSON.stringify(value)) as JsonObject;
+}
+
+function humanizeKey(key: string): string {
+  return key
+    .replace(/[_-]+/g, " ")
+    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
+    .replace(/\s+/g, " ")
+    .trim()
+    .replace(/^./, (ch) => ch.toUpperCase());
+}
+
+function getPathValue(root: JsonObject, path: string[]): unknown {
+  let cursor: unknown = root;
+  for (const key of path) {
+    const obj = asObject(cursor);
+    if (!obj) return undefined;
+    cursor = obj[key];
+  }
+  return cursor;
+}
+
+function setPathValue(root: JsonObject, path: string[], value: unknown): JsonObject {
+  if (path.length === 0) return root;
+  const next = deepCloneJsonObject(root);
+  let cursor: JsonObject = next;
+  for (let i = 0; i < path.length - 1; i += 1) {
+    const key = path[i];
+    const child = asObject(cursor[key]);
+    if (!child) cursor[key] = {};
+    cursor = asObject(cursor[key]) as JsonObject;
+  }
+  cursor[path[path.length - 1]] = value;
+  return next;
+}
+
+function normalizeSchemaNode(schema: JsonObject): JsonObject {
+  const oneOf = Array.isArray(schema.oneOf) ? schema.oneOf : [];
+  const anyOf = Array.isArray(schema.anyOf) ? schema.anyOf : [];
+  const union = [...oneOf, ...anyOf];
+  if (union.length === 0) return schema;
+  const primary = union.find((entry) => {
+    const obj = asObject(entry);
+    if (!obj) return false;
+    const t = obj.type;
+    if (typeof t === "string") return t !== "null";
+    if (Array.isArray(t)) return t.some((v) => v !== "null");
+    return true;
+  });
+  return asObject(primary) ?? schema;
+}
+
 // ── Main component ──
 
 export default function AgentsPage() {
@@ -219,6 +278,11 @@ export default function AgentsPage() {
   // Settings tab state
   const [settingsName, setSettingsName] = useState("");
   const [settingsDesc, setSettingsDesc] = useState("");
+  const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
+  const [openclawSaving, setOpenclawSaving] = useState(false);
+  const [openclawError, setOpenclawError] = useState<string | null>(null);
+  const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
+  const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -289,6 +353,164 @@ export default function AgentsPage() {
     selectedAgent && isSelectedRunning ? selectedAgent : null,
     getToken
   );
+
+  const openclawSchemaRoot = useMemo(() => asObject(chat.configSchema), [chat.configSchema]);
+  const openclawSchemaProperties = useMemo(
+    () => asObject(openclawSchemaRoot?.properties ?? null),
+    [openclawSchemaRoot]
+  );
+
+  const openclawSections = useMemo(
+    () => Object.entries(openclawSchemaProperties ?? {}),
+    [openclawSchemaProperties]
+  );
+
+  useEffect(() => {
+    const cfg = asObject(chat.config);
+    setOpenclawDraft(cfg ? deepCloneJsonObject(cfg) : null);
+    setOpenclawError(null);
+    setOpenclawSuccess(null);
+  }, [selectedAgentId, chat.config]);
+
+  useEffect(() => {
+    if (!activeOpenclawSection && openclawSections.length > 0) {
+      setActiveOpenclawSection(openclawSections[0][0]);
+    }
+    if (activeOpenclawSection && !openclawSections.find(([k]) => k === activeOpenclawSection)) {
+      setActiveOpenclawSection(openclawSections[0]?.[0] ?? null);
+    }
+  }, [openclawSections, activeOpenclawSection]);
+
+  const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
+    setOpenclawDraft((prev) => {
+      const base = prev ? deepCloneJsonObject(prev) : {};
+      return setPathValue(base, path, value);
+    });
+  }, []);
+
+  const saveOpenclawPatch = useCallback(async (patch: JsonObject, successText: string) => {
+    setOpenclawSaving(true);
+    setOpenclawError(null);
+    setOpenclawSuccess(null);
+    try {
+      await chat.saveConfig(patch);
+      setOpenclawSuccess(successText);
+    } catch (err) {
+      setOpenclawError(err instanceof Error ? err.message : "Failed to save OpenClaw config");
+    } finally {
+      setOpenclawSaving(false);
+    }
+  }, [chat]);
+
+  const saveOpenclawSection = useCallback(async (sectionKey: string) => {
+    if (!openclawDraft) return;
+    await saveOpenclawPatch({ [sectionKey]: openclawDraft[sectionKey] }, `Saved section: ${sectionKey}`);
+  }, [openclawDraft, saveOpenclawPatch]);
+
+  const saveAllOpenclaw = useCallback(async () => {
+    if (!openclawDraft) return;
+    await saveOpenclawPatch(openclawDraft, "Saved all OpenClaw settings");
+  }, [openclawDraft, saveOpenclawPatch]);
+
+  const renderOpenclawField = useCallback((schemaRaw: unknown, path: string[], depth = 0) => {
+    const schema = normalizeSchemaNode(asObject(schemaRaw) ?? {});
+    const title = typeof schema.title === "string" ? schema.title : humanizeKey(path[path.length - 1] || "setting");
+    const description = typeof schema.description === "string" ? schema.description : "";
+    const typeRaw = schema.type;
+    const type = Array.isArray(typeRaw)
+      ? (typeRaw.find((entry) => entry !== "null") as string | undefined)
+      : (typeof typeRaw === "string" ? typeRaw : undefined);
+    const enumValues = Array.isArray(schema.enum) ? schema.enum : [];
+    const currentValue = openclawDraft ? getPathValue(openclawDraft, path) : undefined;
+    const key = path.join(".");
+
+    const properties = asObject(schema.properties);
+    if ((type === "object" || properties) && properties) {
+      const entries = Object.entries(properties);
+      if (entries.length === 0) return null;
+      return (
+        <div key={key} className={depth > 0 ? "rounded-lg border border-border p-3 space-y-3" : "space-y-3"}>
+          {depth > 0 && (
+            <div>
+              <p className="text-sm font-semibold text-foreground">{title}</p>
+              {description && <p className="text-xs text-text-muted mt-0.5">{description}</p>}
+            </div>
+          )}
+          {entries.map(([childKey, childSchema]) => renderOpenclawField(childSchema, [...path, childKey], depth + 1))}
+        </div>
+      );
+    }
+
+    const onJsonValueChange = (raw: string) => {
+      try {
+        updateOpenclawPath(path, JSON.parse(raw));
+        setOpenclawError(null);
+      } catch {
+        setOpenclawError(`Invalid JSON at ${path.join(".")}`);
+      }
+    };
+
+    return (
+      <div key={key} className="space-y-1">
+        <label className="block text-sm text-text-secondary">{title}</label>
+        {description && <p className="text-xs text-text-muted">{description}</p>}
+        {enumValues.length > 0 ? (
+          <select
+            value={currentValue == null ? "" : String(currentValue)}
+            onChange={(e) => updateOpenclawPath(path, e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+          >
+            <option value="">(unset)</option>
+            {enumValues.map((value) => (
+              <option key={`${key}-enum-${String(value)}`} value={String(value)}>
+                {String(value)}
+              </option>
+            ))}
+          </select>
+        ) : type === "boolean" ? (
+          <label className="inline-flex items-center gap-2 text-sm text-foreground">
+            <input
+              type="checkbox"
+              checked={Boolean(currentValue)}
+              onChange={(e) => updateOpenclawPath(path, e.target.checked)}
+              className="rounded border-border bg-surface-low"
+            />
+            Enabled
+          </label>
+        ) : type === "number" || type === "integer" ? (
+          <input
+            type="number"
+            value={typeof currentValue === "number" ? String(currentValue) : ""}
+            onChange={(e) => {
+              const raw = e.target.value.trim();
+              if (!raw) {
+                updateOpenclawPath(path, null);
+                return;
+              }
+              const parsed = type === "integer" ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
+              if (!Number.isNaN(parsed)) updateOpenclawPath(path, parsed);
+            }}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+          />
+        ) : type === "array" || type === "object" ? (
+          <textarea
+            value={typeof currentValue === "undefined" ? "" : JSON.stringify(currentValue, null, 2)}
+            onChange={(e) => onJsonValueChange(e.target.value)}
+            rows={6}
+            spellCheck={false}
+            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+          />
+        ) : (
+          <input
+            type="text"
+            value={typeof currentValue === "string" ? currentValue : currentValue == null ? "" : String(currentValue)}
+            onChange={(e) => updateOpenclawPath(path, e.target.value)}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+          />
+        )}
+      </div>
+    );
+  }, [openclawDraft, updateOpenclawPath]);
 
   // Auto-scroll chat
   useEffect(() => {
@@ -806,8 +1028,15 @@ export default function AgentsPage() {
                 {/* Tabs */}
                 <div className="flex-1 flex items-center justify-center">
                   <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "files", "settings"] as MainTab[]).map((tab) => {
-                      const icons = { chat: MessageSquare, logs: TerminalSquare, shell: TerminalSquare, files: FileText, settings: Settings };
+                    {(["chat", "logs", "shell", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
+                      const icons = {
+                        chat: MessageSquare,
+                        logs: TerminalSquare,
+                        shell: TerminalSquare,
+                        files: FileText,
+                        openclaw: SlidersHorizontal,
+                        settings: Settings,
+                      };
                       const Icon = icons[tab];
                       return (
                         <button
@@ -1037,6 +1266,105 @@ export default function AgentsPage() {
                         )}
                       </div>
                     )}
+                  </div>
+                ) : mainTab === "openclaw" ? (
+                  /* ── OpenClaw Tab ── */
+                  <div className="h-full flex min-h-0">
+                    <div className="hidden md:block w-64 border-r border-border overflow-y-auto p-3 space-y-1 bg-surface-low/30">
+                      <button
+                        onClick={() => setActiveOpenclawSection(null)}
+                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                          activeOpenclawSection === null
+                            ? "bg-surface-low text-foreground"
+                            : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                        }`}
+                      >
+                        All Sections
+                      </button>
+                      {openclawSections.map(([sectionKey, sectionSchema]) => (
+                        <button
+                          key={`nav-${sectionKey}`}
+                          onClick={() => setActiveOpenclawSection(sectionKey)}
+                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
+                            activeOpenclawSection === sectionKey
+                              ? "bg-surface-low text-foreground"
+                              : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                          }`}
+                          title={typeof asObject(sectionSchema)?.description === "string" ? String(asObject(sectionSchema)?.description) : sectionKey}
+                        >
+                          {humanizeKey(sectionKey)}
+                        </button>
+                      ))}
+                    </div>
+
+                    <div className="flex-1 overflow-y-auto p-6">
+                      <div className="max-w-5xl mx-auto space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-semibold text-foreground">OpenClaw Config</h3>
+                            <p className="text-sm text-text-muted">
+                              Schema-driven settings from gateway <span className="font-mono">config.schema</span>, applied over websocket.
+                            </p>
+                          </div>
+                          <button
+                            onClick={() => void saveAllOpenclaw()}
+                            disabled={openclawSaving || !chat.connected || !openclawDraft}
+                            className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
+                          >
+                            {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
+                            Save All
+                          </button>
+                        </div>
+
+                        {openclawError && (
+                          <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+                            {openclawError}
+                          </div>
+                        )}
+                        {openclawSuccess && !openclawError && (
+                          <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+                            {openclawSuccess}
+                          </div>
+                        )}
+                        {!chat.connected && (
+                          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+                            Connect the agent gateway to edit OpenClaw settings.
+                          </div>
+                        )}
+                        {!openclawSchemaProperties && (
+                          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+                            No config schema available from gateway.
+                          </div>
+                        )}
+
+                        {openclawSchemaProperties && openclawDraft && (
+                          <div className="space-y-4">
+                            {openclawSections
+                              .filter(([sectionKey]) => activeOpenclawSection === null || activeOpenclawSection === sectionKey)
+                              .map(([sectionKey, sectionSchema]) => (
+                                <div key={`section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
+                                  <div className="flex flex-wrap items-start justify-between gap-3">
+                                    <div>
+                                      <h4 className="text-base font-semibold text-foreground">{humanizeKey(sectionKey)}</h4>
+                                      {typeof asObject(sectionSchema)?.description === "string" && (
+                                        <p className="text-xs text-text-muted mt-1">{String(asObject(sectionSchema)?.description)}</p>
+                                      )}
+                                    </div>
+                                    <button
+                                      onClick={() => void saveOpenclawSection(sectionKey)}
+                                      disabled={openclawSaving || !chat.connected}
+                                      className="px-3 py-1.5 rounded-lg text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50"
+                                    >
+                                      Save Section
+                                    </button>
+                                  </div>
+                                  {renderOpenclawField(sectionSchema, [sectionKey])}
+                                </div>
+                              ))}
+                          </div>
+                        )}
+                      </div>
+                    </div>
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
