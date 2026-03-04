@@ -9,6 +9,8 @@ from rich.table import Table
 
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
+from .stt import app as stt_app
+from .embed import app as embed_app
 
 app = typer.Typer(help="HyperClaw inference commands")
 console = Console()
@@ -16,6 +18,8 @@ console = Console()
 # Register subcommands
 app.command("onboard")(_onboard_fn)
 app.add_typer(voice_app, name="voice")
+app.add_typer(stt_app, name="stt")
+app.add_typer(embed_app, name="embed")
 
 # Check if wallet dependencies are available
 try:
