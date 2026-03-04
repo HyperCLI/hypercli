@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "hypercli-cli"
-version = "1.0.4"
+version = "1.0.5"
 description = "CLI for HyperCLI - GPU orchestration and LLM API"
 readme = "README.md"
 requires-python = ">=3.10"
@@ -33,12 +33,16 @@ wallet = [
     "argon2-cffi>=25.0.0",
     "qrcode[pil]>=7.4.0",
 ]
+stt = [
+    "faster-whisper>=1.1.0",
+]
 all = [
     "hypercli-sdk[comfyui]>=1.0.0",
     "x402[httpx,evm]>=2.0.0",
     "eth-account>=0.13.0",
     "web3>=7.0.0",
     "argon2-cffi>=25.0.0",
+    "faster-whisper>=1.1.0",
 ]
 dev = [
     "pytest>=8.0.0",
