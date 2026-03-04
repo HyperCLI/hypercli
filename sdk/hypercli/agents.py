@@ -343,8 +343,8 @@ class Agents:
         """
         with httpx.Client(timeout=max(timeout + 10, 35)) as client:
             resp = client.post(
-                f"{self._base_url}/api/agents/{pod.agent_id}/exec",
-                headers=self._headers(),
+                f"{self._api_base}/api/agents/{pod.agent_id}/exec",
+                headers=self._headers,
                 json={"command": command, "timeout": timeout},
             )
         if resp.status_code >= 400:
