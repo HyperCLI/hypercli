@@ -658,8 +658,6 @@ export default function AgentsPage() {
     const term = shellTerminalRef.current;
     if (term && shellSessionAgentRef.current !== agentId) {
       term.reset();
-      term.writeln(`Connected to ${agentId}`);
-      term.writeln("");
       shellSessionAgentRef.current = agentId;
     }
     const scheduleReconnect = () => {
@@ -671,7 +669,7 @@ export default function AgentsPage() {
     const connect = async () => {
       try {
         setShellStatus("connecting");
-        shellTerminalRef.current?.writeln("\r\n[connecting shell...]");
+        // Silent reconnect — no terminal noise
         if (!selectedAgentHostname) { scheduleReconnect(); return; }
         await issueAgentAccessToken(agentId, selectedAgentHostname);
         if (cancelled) return;
