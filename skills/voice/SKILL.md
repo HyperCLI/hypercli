@@ -1,54 +1,64 @@
 # Voice — TTS & Voice Cloning
 
-Text-to-speech and voice cloning via HyperClaw API (`hyper claw voice`).
-
-## When to Use
-
-When you need to generate speech audio — narration, voice messages, voice cloning from a reference sample.
+You have `hyper claw voice` installed. It calls the HyperClaw Voice API (GPU-backed Qwen3-TTS) to generate speech audio. No extra setup needed — your API key handles auth automatically.
 
 ## Voice Cloning
 
-Clone a voice from a reference audio file:
+Clone any voice from a short reference audio sample (~5-30s). The model extracts the speaker's voice characteristics and generates new speech in that voice.
 
 ```bash
-# Clone voice (recommended: x-vector-only mode, no ref text bleed)
-hyper claw voice clone "Text to speak" --ref reference.wav -o output.mp3
+# Clone a voice from reference audio
+hyper claw voice clone "Your text here" --ref /path/to/reference.wav -o output.ogg
 
-# Specify language and format
+# Specify language (auto-detected by default)
 hyper claw voice clone "Bonjour le monde" --ref ref.wav -l french -f ogg -o hello.ogg
-
-# Full clone (uses reference text — may bleed into output)
-hyper claw voice clone "Hello" --ref ref.wav --full-clone
 ```
+
+**Reference audio tips:**
+- Any format works: wav, mp3, ogg, m4a
+- 5-30 seconds of clean speech is ideal
+- Less background noise = better clone quality
+- `--x-vector-only` is on by default (recommended — prevents reference text from bleeding into output)
 
 ## Standard TTS (Preset Voices)
 
-Use a built-in voice (no reference audio needed):
+Generate speech with built-in voices (no reference audio needed):
 
 ```bash
-# Default voice (Chelsie)
-hyper claw voice tts "Hello world" -o hello.mp3
-
-# Choose a voice
+hyper claw voice tts "Hello world" -o output.ogg
 hyper claw voice tts "Welcome" --voice Etienne -f opus -o welcome.opus
 ```
 
+Available voices: Chelsie (default), Etienne, and others.
+
 ## Voice Design
 
-Generate speech with a text-described voice (GPU only):
+Describe a voice in text and the model creates it:
 
 ```bash
-hyper claw voice design "Hello" --desc "deep male voice, British accent" -o designed.mp3
+hyper claw voice design "Hello" --desc "deep male voice, British accent, warm tone" -o designed.ogg
+```
+
+## Common Patterns
+
+```bash
+# Generate a voice note for chat (save as .ogg for Telegram/WhatsApp)
+hyper claw voice clone "Status update: deployment complete." --ref ~/voice_ref.wav -f ogg -o /tmp/update.ogg
+
+# Chain with STT: transcribe incoming audio, respond with cloned voice
+hyper claw stt transcribe incoming.ogg > /tmp/transcript.txt
+hyper claw voice clone "$(cat response.txt)" --ref ~/my_voice.wav -f ogg -o reply.ogg
 ```
 
 ## Output Formats
 
-Supported: `wav`, `mp3`, `opus`, `ogg`, `flac`
+`wav` | `mp3` | `opus` | `ogg` | `flac`
 
-## Important
+Use `ogg` for voice messages in chat apps.
 
-- Voice cloning requires a reference audio file (any format: wav, mp3, ogg)
-- Use `--x-vector-only` (default) to prevent reference text from bleeding into output
-- API key is read from `~/.hypercli/claw-key.json` (set via `hyper claw subscribe` or `hyper claw login`)
-- TTS runs on HyperClaw GPU backend — responses typically take 5-15s
-- For sending voice messages in chat, save as `.ogg` format
+## Notes
+
+- API key is read from `~/.hypercli/claw-key.json` (auto-configured on agent boot)
+- Runs on HyperClaw GPU backend — typical response time 5-15s
+- Long text is automatically chunked into ~2 sentence windows for quality
+- For very long text, consider splitting into paragraphs and concatenating with ffmpeg
