@@ -343,7 +343,7 @@ class Agents:
         """
         with httpx.Client(timeout=max(timeout + 10, 35)) as client:
             resp = client.post(
-                f"{self._api_base}/api/agents/{pod.agent_id}/exec",
+                f"{self._api_base}/api/agents/{pod.id}/exec",
                 headers=self._headers,
                 json={"command": command, "timeout": timeout},
             )
