@@ -17,33 +17,19 @@ hyper jobs list -o json
 - `-s, --state` - Filter by state: `pending`, `running`, `succeeded`, `failed`, `canceled`
 - `-o, --output` - Output format: `table` or `json`
 
-## create
+## create jobs
 
-Create a GPU job.
+Job creation is handled by `hyper instances launch` in the current CLI.
 
 ```bash
-hyper jobs create <image> [options]
+# Create a new GPU job
+hyper instances launch <image> [options]
 
-# Examples
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py"
-hyper jobs create nvidia/cuda:12.0 -g h100 -n 8 -c "torchrun train.py" -f
-hyper jobs create myimage -e HF_TOKEN=xxx -p http:8080
+# Validate config and pricing without creating a job
+hyper instances launch <image> [options] --dry-run
 ```
 
-**Arguments:**
-- `image` - Docker image (required)
-
-**Options:**
-- `-g, --gpu` - GPU type: `l40s`, `h100`, `a100`, etc. (default: l40s)
-- `-n, --count` - Number of GPUs (default: 1)
-- `-c, --command` - Command to run
-- `-r, --region` - Region code
-- `-t, --runtime` - Max runtime in seconds
-- `--interruptible/--on-demand` - Use interruptible instances (default: interruptible)
-- `-e, --env` - Environment variables (KEY=VALUE), can repeat
-- `-p, --port` - Port mappings (name:port), can repeat
-- `-f, --follow` - Launch TUI monitor after creation
-- `-o, --output` - Output format: `table` or `json`
+See [`instances` command docs](/cli/commands/instances) for full launch options.
 
 ## get
 
@@ -60,11 +46,13 @@ Get job logs.
 
 ```bash
 hyper jobs logs <job_id>
-hyper jobs logs <job_id> -f   # Stream with TUI
+hyper jobs logs <job_id> -f      # Stream logs
+hyper jobs logs <job_id> --tui   # TUI monitor with metrics
 ```
 
 **Options:**
-- `-f, --follow` - Stream logs with TUI
+- `-f, --follow` - Stream logs
+- `--tui` - Open full-screen job monitor (logs + metrics)
 
 ## metrics
 
@@ -140,14 +128,14 @@ hyper jobs shell <job_id> [--shell /bin/bash]
 **Options:**
 - `-s, --shell` — Shell to use (default: `/bin/bash`)
 
-Press **Ctrl+]** to disconnect.
+Press **Ctrl+D** (or run `exit`) to disconnect.
 
 **Example:**
 ```bash
 $ hyper jobs shell abc123
 root@container:/app# nvidia-smi
 root@container:/app# python train.py
-root@container:/app# ^]  # Ctrl+] to exit
+root@container:/app# exit
 ```
 
 ## extend
