@@ -46,8 +46,8 @@ interface Agent {
   pod_id: string | null;
   pod_name: string | null;
   state: AgentState;
-  cpu_millicores: number;
-  memory_mib: number;
+  cpu: number;
+  memory: number;
   hostname: string | null;
   started_at: string | null;
   stopped_at: string | null;
@@ -962,7 +962,7 @@ export default function AgentsPage() {
                           </motion.span>
                         </div>
                         <p className="text-xs text-text-muted mt-0.5">
-                          {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
+                          {agent.cpu} vCPU · {agent.memory} GiB
                         </p>
                         {agent.last_error && agent.state === "FAILED" && (
                           <p className="text-xs text-[#d05f5f] mt-0.5 truncate">{agent.last_error}</p>
@@ -1424,7 +1424,7 @@ export default function AgentsPage() {
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-text-secondary">Resources</span>
-                            <span className="text-sm text-text-tertiary">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
+                            <span className="text-sm text-text-tertiary">{selectedAgent.cpu} vCPU · {selectedAgent.memory} GiB</span>
                           </div>
                           {selectedAgent.hostname && (
                             <div className="flex items-center justify-between">
