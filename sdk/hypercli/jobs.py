@@ -22,6 +22,7 @@ class Job:
     runtime: int
     hostname: str | None = None
     cold_boot: bool = True
+    message: str | None = None
     created_at: float | None = None
     started_at: float | None = None
     completed_at: float | None = None
@@ -42,6 +43,7 @@ class Job:
             runtime=data.get("runtime", 0),
             hostname=data.get("hostname"),
             cold_boot=data.get("cold_boot", True),
+            message=data.get("message") or data.get("msg"),
             created_at=data.get("created_at"),
             started_at=data.get("started_at"),
             completed_at=data.get("completed_at"),
