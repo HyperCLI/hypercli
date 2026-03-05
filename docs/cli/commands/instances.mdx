@@ -117,9 +117,12 @@ hyper instances launch my-image:latest -g h100 -c "./run.sh"
 | `--runtime` | `-t` | Max runtime in seconds |
 | `--interruptible/--on-demand` | | Use interruptible or on-demand instances |
 | `--env` | `-e` | Environment variables (KEY=VALUE) |
-| `--port` | `-p` | Port mappings (name:port) |
+| `--port` | `-p` | Raw TCP port(s) to expose (repeatable) |
+| `--lb` | | Enable HTTPS load balancer on the given container port |
+| `--lb-auth` | | Require Bearer token auth on the HTTPS load balancer |
+| `--dockerfile` | `-d` | Build this Dockerfile on the GPU node (remote build) |
 | `--follow` | `-f` | Follow logs after launch |
-| `--dry-run` | | Validate config and pricing without launching |
+| `--dry-run` | | Validate config/pricing without creating a job or reserving funds |
 | `--output` | `-o` | Output format: table\|json |
 
 ### Environment Variables
@@ -133,12 +136,25 @@ hyper instances launch my-image:latest \
 
 ### Port Mappings
 
-```bash
-# Expose HTTP port
-hyper instances launch my-image:latest -p http:8080
+`--lb` and `--port` are different surfaces:
 
-# Expose load balancer (HTTPS)
-hyper instances launch my-image:latest -p lb:8080
+- `--lb <container_port>`: creates a public **HTTPS** endpoint at `https://<job.hostname>`.
+- TLS certificate is terminated by Traefik automatically for that hostname.
+- Use this for APIs/webhooks/inference endpoints.
+
+- `-p/--port <port>`: exposes **raw TCP** port(s).
+- Use this for non-HTTP protocols and direct TCP access patterns.
+- No automatic HTTPS/TLS termination is added by `--port`.
+
+```bash
+# HTTPS endpoint via Traefik + TLS cert on job hostname
+hyper instances launch my-image:latest --lb 8080
+
+# Raw TCP exposure (repeat as needed)
+hyper instances launch my-image:latest -p 2222 -p 9090
+
+# Combine both HTTPS and raw TCP on one job
+hyper instances launch my-image:latest --lb 8000 -p 2222
 ```
 
 ### On-Demand vs Interruptible
@@ -201,7 +217,7 @@ hyper instances launch my-training:latest \
 ```bash
 hyper instances launch my-api:latest \
   -g l40s \
-  -p lb:8080 \
+  --lb 8080 \
   -c "uvicorn main:app --host 0.0.0.0 --port 8080"
 ```
 
@@ -210,6 +226,6 @@ hyper instances launch my-api:latest \
 ```bash
 hyper instances launch vllm/vllm-openai:latest \
   -g h100 \
-  -p lb:8000 \
+  --lb 8000 \
   -c "python -m vllm.entrypoints.openai.api_server --model meta-llama/Llama-3.1-8B"
 ```

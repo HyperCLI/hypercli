@@ -231,6 +231,12 @@ def launch(
         if lb:
             ports_dict["lb"] = lb
 
+    raw_tcp_ports = []
+    if ports_dict:
+        raw_tcp_ports = sorted(
+            int(p.split("/")[0]) for p in ports_dict.keys() if p.endswith("/tcp")
+        )
+
     # Build registry auth if provided
     registry_auth = None
     if registry_user and registry_password:
@@ -302,6 +308,13 @@ def launch(
             console.print(f"  Price:      ${job.price_per_hour:.2f}/hr")
             if job.hostname:
                 console.print(f"  Hostname:   {job.hostname}")
+            if lb:
+                console.print(f"  HTTPS LB:   Traefik TLS on https://{job.hostname}")
+                console.print(f"  LB Target:  container port {lb}")
+                if lb_auth:
+                    console.print("  LB Auth:    enabled (Bearer token required)")
+            if raw_tcp_ports:
+                console.print(f"  TCP Ports:  raw TCP exposed: {', '.join(map(str, raw_tcp_ports))}")
             console.print(f"  Access Key: {x402_job.access_key}")
             console.print(f"  Status URL: {x402_job.status_url}")
             console.print(f"  Logs URL:   {x402_job.logs_url}")
@@ -336,6 +349,12 @@ def launch(
                 console.print(f"  Region:   {job.region}")
                 console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
                 console.print(f"  Runtime:  {job.runtime}s")
+                if lb:
+                    console.print(f"  HTTPS LB: Traefik TLS will be provisioned for container port {lb}")
+                    if lb_auth:
+                        console.print("  LB Auth:  enabled (Bearer token required)")
+                if raw_tcp_ports:
+                    console.print(f"  TCP:      raw TCP ports: {', '.join(map(str, raw_tcp_ports))}")
                 # Display cold boot status
                 import sys
                 if job.cold_boot:
@@ -350,6 +369,13 @@ def launch(
                 console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
                 if job.hostname:
                     console.print(f"  Hostname: {job.hostname}")
+                if lb and job.hostname:
+                    console.print(f"  HTTPS LB: Traefik TLS endpoint https://{job.hostname}")
+                    console.print(f"  LB Target: container port {lb}")
+                    if lb_auth:
+                        console.print("  LB Auth:  enabled (Bearer token required)")
+                if raw_tcp_ports:
+                    console.print(f"  TCP:      raw TCP ports: {', '.join(map(str, raw_tcp_ports))}")
                 # Display cold boot status for real launches too
                 if job.cold_boot:
                     console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]")
