@@ -308,8 +308,6 @@ def launch(
             console.print(f"  Price:      ${job.price_per_hour:.2f}/hr")
             if job.hostname:
                 console.print(f"  Hostname:   {job.hostname}")
-            if job.message:
-                console.print(f"  Message:    {job.message}")
             if lb:
                 console.print(f"  HTTPS LB:   Traefik TLS on https://{job.hostname}")
                 console.print(f"  LB Target:  container port {lb}")
@@ -351,8 +349,6 @@ def launch(
                 console.print(f"  Region:   {job.region}")
                 console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
                 console.print(f"  Runtime:  {job.runtime}s")
-                if job.message:
-                    console.print(f"  Message:  {job.message}")
                 if lb:
                     console.print(f"  HTTPS LB: Traefik TLS will be provisioned for container port {lb}")
                     if lb_auth:
@@ -373,8 +369,6 @@ def launch(
                 console.print(f"  Price:    ${job.price_per_hour:.2f}/hr")
                 if job.hostname:
                     console.print(f"  Hostname: {job.hostname}")
-                if job.message:
-                    console.print(f"  Message:  {job.message}")
                 if lb and job.hostname:
                     console.print(f"  HTTPS LB: Traefik TLS endpoint https://{job.hostname}")
                     console.print(f"  LB Target: container port {lb}")
