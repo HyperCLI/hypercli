@@ -82,7 +82,7 @@ export function DashboardNav() {
             </nav>
 
             {/* Desktop right side — avatar dropdown */}
-            <div className="hidden md:flex items-center" ref={userMenuRef}>
+            <div className="hidden md:flex items-center relative" ref={userMenuRef}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-surface-low transition-colors"

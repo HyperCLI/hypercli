@@ -1033,7 +1033,7 @@ export default function AgentsPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex-1 flex items-center justify-center">
+                <div className="flex-1 flex items-center">
                   <div className="inline-flex rounded-lg border border-border overflow-hidden">
                     {(["chat", "logs", "shell", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
