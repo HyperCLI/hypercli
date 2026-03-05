@@ -88,7 +88,7 @@ class GatewayClient:
         gateway_token: str = "traefik-forwarded-auth-not-used",
         client_id: str = "openclaw-control-ui",
         client_mode: str = "webchat",
-        origin: str = "https://hyperclaw.app",
+        origin: str = "",
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.url = url
