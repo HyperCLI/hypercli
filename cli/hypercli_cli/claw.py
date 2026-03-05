@@ -10,6 +10,7 @@ from rich.table import Table
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
 from .stt import app as stt_app
+from .stt import transcribe as _stt_transcribe
 from .embed import app as embed_app
 
 app = typer.Typer(help="HyperClaw inference commands")
@@ -20,6 +21,34 @@ app.command("onboard")(_onboard_fn)
 app.add_typer(voice_app, name="voice")
 app.add_typer(stt_app, name="stt")
 app.add_typer(embed_app, name="embed")
+
+
+@app.command("transcribe")
+def transcribe_alias(
+    audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
+    model: str = typer.Option("turbo", "--model", "-m", help="Whisper model: tiny, base, small, medium, large-v3, turbo"),
+    language: str = typer.Option(None, "--language", "-l", help="Language code (e.g. en, de, fr). Auto-detect if omitted."),
+    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
+    compute_type: str = typer.Option("auto", "--compute", help="Compute type: auto, int8, float16, float32"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON with timestamps"),
+    output: Path = typer.Option(None, "--output", "-o", help="Write transcript to file"),
+):
+    """Alias for `hyper claw stt transcribe` (local faster-whisper)."""
+    _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
+
+
+@app.command("trascribe", hidden=True)
+def trascribe_alias(
+    audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
+    model: str = typer.Option("turbo", "--model", "-m", help="Whisper model: tiny, base, small, medium, large-v3, turbo"),
+    language: str = typer.Option(None, "--language", "-l", help="Language code (e.g. en, de, fr). Auto-detect if omitted."),
+    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
+    compute_type: str = typer.Option("auto", "--compute", help="Compute type: auto, int8, float16, float32"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON with timestamps"),
+    output: Path = typer.Option(None, "--output", "-o", help="Write transcript to file"),
+):
+    """Backward-compatible typo alias for transcribe."""
+    _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
 
 # Check if wallet dependencies are available
 try:
