@@ -331,22 +331,20 @@ class Agents:
         return h
 
     def exec(self, pod: ReefPod, command: str, timeout: int = 30) -> ExecResult:
-        """Execute a one-shot command on a reef pod via the executor API.
+        """Execute a one-shot command on a reef pod via lagoon exec API.
 
         Args:
-            pod: ReefPod to execute on (needs jwt_token).
+            pod: ReefPod to execute on.
             command: Shell command to run.
             timeout: Command timeout in seconds.
 
         Returns:
             ExecResult with exit_code, stdout, stderr.
         """
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL (missing hostname)")
-        with httpx.Client(timeout=max(timeout + 5, 35)) as client:
+        with httpx.Client(timeout=max(timeout + 10, 35)) as client:
             resp = client.post(
-                f"{pod.executor_url}/exec",
-                headers=self._executor_headers(pod),
+                f"{self._api_base}/api/agents/{pod.id}/exec",
+                headers=self._headers,
                 json={"command": command, "timeout": timeout},
             )
         if resp.status_code >= 400:

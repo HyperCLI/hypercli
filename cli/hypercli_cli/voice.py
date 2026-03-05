@@ -1,6 +1,7 @@
 """HyperClaw Voice API commands — TTS, clone, design"""
 import base64
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -18,16 +19,19 @@ DEV_API_BASE = "https://dev-api.hyperclaw.app"
 
 
 def _get_api_key(key: str | None) -> str:
-    """Resolve API key from flag or saved claw key."""
+    """Resolve API key: --key flag > env HYPERCLAW_API_KEY > claw-key.json."""
     if key:
         return key
+    env_key = os.environ.get("HYPERCLAW_API_KEY", "").strip()
+    if env_key:
+        return env_key
     if CLAW_KEY_PATH.exists():
         with open(CLAW_KEY_PATH) as f:
             k = json.load(f).get("key", "")
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Pass [bold]--key sk-...[/bold] or run [bold]hyper claw subscribe[/bold]")
+    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPERCLAW_API_KEY[/bold], or run [bold]hyper claw subscribe[/bold]")
     raise typer.Exit(1)
 
 

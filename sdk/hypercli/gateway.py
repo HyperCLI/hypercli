@@ -88,7 +88,7 @@ class GatewayClient:
         gateway_token: str = "traefik-forwarded-auth-not-used",
         client_id: str = "openclaw-control-ui",
         client_mode: str = "webchat",
-        origin: str = "https://hyperclaw.app",
+        origin: str = "https://sdk.hyperclaw.app",
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.url = url
@@ -270,21 +270,30 @@ class GatewayClient:
                 self._pending.pop(req_id, None)
                 raise GatewayError("TIMEOUT", f"Streaming {method} timed out")
 
-            # Check if final response arrived
+            # Drain any queued events first (before checking done, to avoid dropping buffered content)
+            try:
+                event = await asyncio.wait_for(self._event_queue.get(), timeout=min(remaining, 0.1))
+                if event_filter is None or event.get("event", "").startswith(event_filter):
+                    yield event
+                continue
+            except asyncio.TimeoutError:
+                pass
+
+            # Check if final response arrived (only after queue is drained for this tick)
             if fut.done():
+                # Drain any remaining events that arrived with the response
+                while not self._event_queue.empty():
+                    try:
+                        event = self._event_queue.get_nowait()
+                        if event_filter is None or event.get("event", "").startswith(event_filter):
+                            yield event
+                    except asyncio.QueueEmpty:
+                        break
                 resp = fut.result()
                 if not resp.get("ok"):
                     err = resp.get("error", {})
                     raise GatewayError(err.get("code", "RPC_ERROR"), err.get("message", ""))
                 return
-
-            # Drain events
-            try:
-                event = await asyncio.wait_for(self._event_queue.get(), timeout=min(remaining, 1.0))
-                if event_filter is None or event.get("event", "").startswith(event_filter):
-                    yield event
-            except asyncio.TimeoutError:
-                continue
 
     # -----------------------------------------------------------------------
     # Config
@@ -299,12 +308,21 @@ class GatewayClient:
         """Get the JSON schema + uiHints for the config."""
         return await self.call("config.schema")
 
-    async def config_patch(self, patch: dict) -> dict:
+    async def config_patch(self, patch: dict, base_hash: str = None) -> dict:
         """Patch the gateway configuration (merges with existing).
 
+        Fetches current config to get baseHash if not provided.
         The gateway will restart after applying the patch.
         """
-        return await self.call("config.patch", {"patch": patch}, timeout=30)
+        import json as _json
+        if base_hash is None:
+            raw_result = await self.call("config.get")
+            base_hash = raw_result.get("hash") or raw_result.get("baseHash", "")
+        return await self.call(
+            "config.patch",
+            {"raw": _json.dumps(patch), "baseHash": base_hash},
+            timeout=30,
+        )
 
     async def config_apply(self, config: dict) -> dict:
         """Replace the entire gateway configuration.
@@ -397,40 +415,62 @@ class GatewayClient:
         result = await self.call("chat.history", params)
         return result.get("messages", [])
 
+    async def _listen_events(self, event_name: str, deadline: float) -> AsyncIterator[dict]:
+        """Yield broadcast events matching event_name until deadline."""
+        while asyncio.get_event_loop().time() < deadline:
+            remaining = deadline - asyncio.get_event_loop().time()
+            try:
+                event = await asyncio.wait_for(self._event_queue.get(), timeout=min(remaining, 1.0))
+                if event.get("event") == event_name:
+                    yield event
+            except asyncio.TimeoutError:
+                continue
+
     async def chat_send(self, message: str, session_key: str = None, agent_id: str = None) -> AsyncIterator[ChatEvent]:
         """Send a chat message and stream the response.
 
-        Yields ChatEvent objects as the agent responds.
+        Gateway chat events arrive as broadcast {"event": "chat"} messages with
+        payload.state = "delta" | "final" | "error" | "aborted".
+        The RPC response for chat.send is an immediate ACK; content follows as broadcasts.
         """
         import uuid as _uuid
-        params: dict = {"message": message, "idempotencyKey": str(_uuid.uuid4())}
+        run_id = str(_uuid.uuid4())
+        params: dict = {"message": message, "idempotencyKey": run_id}
         if session_key:
             params["sessionKey"] = session_key
         if agent_id:
             params["agentId"] = agent_id
 
-        async for event in self._call_streaming("chat.send", params, event_filter="chat."):
-            evt = event.get("event", "")
-            payload = event.get("payload", {})
+        # Send RPC and wait for ACK (gateway confirms message queued)
+        ack = await self.call("chat.send", params, timeout=30)
+        if not ack.get("ok", True) is False:
+            pass  # ACK is just confirmation, not content
 
-            if evt == "chat.content":
-                yield ChatEvent(type="content", text=payload.get("text", ""))
-            elif evt == "chat.thinking":
-                yield ChatEvent(type="thinking", text=payload.get("text", ""))
-            elif evt == "chat.tool_call":
-                yield ChatEvent(type="tool_call", data=payload)
-            elif evt == "chat.tool_result":
-                yield ChatEvent(type="tool_result", data=payload)
-            elif evt == "chat.done":
+        # Now listen for broadcast "chat" events matching our runId
+        deadline = asyncio.get_event_loop().time() + CHAT_TIMEOUT
+        async for event in self._listen_events(event_name="chat", deadline=deadline):
+            payload = event.get("payload", {})
+            if payload.get("runId") != run_id:
+                continue  # Different chat run, skip
+
+            state = payload.get("state", "")
+            if state == "delta":
+                # Deltas are incremental streaming tokens — yield for low-latency consumers
+                msg = payload.get("message", {})
+                for part in (msg.get("content") or []):
+                    if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                        yield ChatEvent(type="delta", text=part["text"])
+            elif state == "final":
+                # final has the full accumulated text — yield it as a single content event for reliability
+                msg = payload.get("message", {})
+                for part in (msg.get("content") or []):
+                    if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
+                        yield ChatEvent(type="content", text=part["text"])
                 yield ChatEvent(type="done", data=payload)
                 return
-            elif evt == "chat.error":
-                yield ChatEvent(type="error", text=payload.get("message", ""))
+            elif state in ("error", "aborted"):
+                yield ChatEvent(type="error", text=payload.get("errorMessage", state))
                 return
-            elif evt == "chat.status":
-                yield ChatEvent(type="status", text=payload.get("status", ""))
-            else:
-                yield ChatEvent(type=evt, data=payload)
 
     async def chat_abort(self, session_key: str = None) -> dict:
         """Abort the current chat generation."""

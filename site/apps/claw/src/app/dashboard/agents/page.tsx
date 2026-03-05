@@ -85,6 +85,13 @@ interface AgentDesktopTokenResponse {
   expires_at: string | null;
 }
 
+interface AgentShellTokenResponse {
+  agent_id: string;
+  jwt: string;
+  expires_at: string;
+  ws_url: string;
+}
+
 interface LogEvent {
   event?: string;
   log?: string;
@@ -119,9 +126,7 @@ function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
 
-function buildShellWsUrl(hostname: string): string {
-  return `wss://shell-${hostname}/shell`;
-}
+// Shell now routes through backend WebSocket via lagoon → K8s exec
 
 function setDesktopAuthCookie(name: string, value: string, days: number, domain: string): void {
   const date = new Date();
@@ -658,8 +663,6 @@ export default function AgentsPage() {
     const term = shellTerminalRef.current;
     if (term && shellSessionAgentRef.current !== agentId) {
       term.reset();
-      term.writeln(`Connected to ${agentId}`);
-      term.writeln("");
       shellSessionAgentRef.current = agentId;
     }
     const scheduleReconnect = () => {
@@ -671,11 +674,11 @@ export default function AgentsPage() {
     const connect = async () => {
       try {
         setShellStatus("connecting");
-        shellTerminalRef.current?.writeln("\r\n[connecting shell...]");
-        if (!selectedAgentHostname) { scheduleReconnect(); return; }
-        await issueAgentAccessToken(agentId, selectedAgentHostname);
+        const authToken = await getToken();
         if (cancelled) return;
-        const ws = new WebSocket(buildShellWsUrl(selectedAgentHostname));
+        const shellToken = await clawFetch<AgentShellTokenResponse>(`/agents/${agentId}/shell/token`, authToken, { method: "POST" });
+        if (cancelled) return;
+        const ws = new WebSocket(`${shellToken.ws_url}?jwt=${encodeURIComponent(shellToken.jwt)}`);
         shellWsRef.current = ws;
         ws.onopen = () => {
           if (!cancelled) {
@@ -691,8 +694,8 @@ export default function AgentsPage() {
           }
         };
         ws.onmessage = (event) => { if (!cancelled) { const text = typeof event.data === "string" ? event.data : String(event.data ?? ""); if (text) shellTerminalRef.current?.write(text); } };
-        ws.onclose = () => { if (!cancelled) { shellTerminalRef.current?.writeln("\r\n[disconnected]"); scheduleReconnect(); } };
-        ws.onerror = () => { if (!cancelled) { shellTerminalRef.current?.writeln("\r\n[shell websocket error]"); scheduleReconnect(); } };
+        ws.onclose = () => { if (!cancelled) { setShellStatus("disconnected"); scheduleReconnect(); } };
+        ws.onerror = () => { if (!cancelled) { setShellStatus("disconnected"); scheduleReconnect(); } };
       } catch { if (!cancelled) scheduleReconnect(); }
     };
     void connect();
@@ -703,7 +706,7 @@ export default function AgentsPage() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
       shellWsRef.current = null;
     };
-  }, [mainTab, selectedAgentId, selectedAgentHostname, reconnectNonce, issueAgentAccessToken]);
+  }, [mainTab, selectedAgentId, reconnectNonce, getToken]);
 
   // ── Actions ──
 

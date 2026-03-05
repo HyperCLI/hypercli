@@ -9,6 +9,9 @@ from rich.table import Table
 
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
+from .stt import app as stt_app
+from .stt import transcribe as _stt_transcribe
+from .embed import app as embed_app
 
 app = typer.Typer(help="HyperClaw inference commands")
 console = Console()
@@ -16,6 +19,36 @@ console = Console()
 # Register subcommands
 app.command("onboard")(_onboard_fn)
 app.add_typer(voice_app, name="voice")
+app.add_typer(stt_app, name="stt")
+app.add_typer(embed_app, name="embed")
+
+
+@app.command("transcribe")
+def transcribe_alias(
+    audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
+    model: str = typer.Option("turbo", "--model", "-m", help="Whisper model: tiny, base, small, medium, large-v3, turbo"),
+    language: str = typer.Option(None, "--language", "-l", help="Language code (e.g. en, de, fr). Auto-detect if omitted."),
+    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
+    compute_type: str = typer.Option("auto", "--compute", help="Compute type: auto, int8, float16, float32"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON with timestamps"),
+    output: Path = typer.Option(None, "--output", "-o", help="Write transcript to file"),
+):
+    """Alias for `hyper claw stt transcribe` (local faster-whisper)."""
+    _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
+
+
+@app.command("trascribe", hidden=True)
+def trascribe_alias(
+    audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
+    model: str = typer.Option("turbo", "--model", "-m", help="Whisper model: tiny, base, small, medium, large-v3, turbo"),
+    language: str = typer.Option(None, "--language", "-l", help="Language code (e.g. en, de, fr). Auto-detect if omitted."),
+    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
+    compute_type: str = typer.Option("auto", "--compute", help="Compute type: auto, int8, float16, float32"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON with timestamps"),
+    output: Path = typer.Option(None, "--output", "-o", help="Write transcript to file"),
+):
+    """Backward-compatible typo alias for transcribe."""
+    _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
 
 # Check if wallet dependencies are available
 try:
@@ -582,7 +615,7 @@ def openclaw_setup(
     # Fetch current model list from LiteLLM via API
     models = fetch_models(api_key)
 
-    # Patch only models.providers.hyperclaw
+    # Patch models.providers.hyperclaw + embedding config
     config.setdefault("models", {}).setdefault("providers", {})
     config["models"]["providers"]["hyperclaw"] = {
         "baseUrl": "https://api.hyperclaw.app/v1",
@@ -591,9 +624,20 @@ def openclaw_setup(
         "models": models,
     }
 
+    # Always set embedding provider (reuses same API key)
+    config.setdefault("agents", {}).setdefault("defaults", {})
+    config["agents"]["defaults"]["memorySearch"] = {
+        "provider": "openai",
+        "model": "qwen3-embedding-4b",
+        "remote": {
+            "baseUrl": "https://api.hyperclaw.app/v1/",
+            "apiKey": api_key,
+        }
+    }
+
     # Optionally set default model
     if default:
-        config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})
+        config["agents"]["defaults"].setdefault("model", {})
         config["agents"]["defaults"]["model"]["primary"] = f"hyperclaw/{models[0]['id']}"
 
     # Write back
@@ -630,14 +674,14 @@ def _resolve_api_key(key: str | None) -> str:
     raise typer.Exit(1)
 
 
-def _config_openclaw(api_key: str, models: list[dict]) -> dict:
-    """OpenClaw openclaw.json provider snippet."""
+def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
+    """OpenClaw openclaw.json provider snippet (LLM + embeddings)."""
     return {
         "models": {
             "mode": "merge",
             "providers": {
                 "hyperclaw": {
-                    "baseUrl": "https://api.hyperclaw.app/v1",
+                    "baseUrl": f"{api_base}/v1",
                     "apiKey": api_key,
                     "api": "openai-completions",
                     "models": models,
@@ -648,6 +692,14 @@ def _config_openclaw(api_key: str, models: list[dict]) -> dict:
             "defaults": {
                 "models": {
                     **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in models}
+                },
+                "memorySearch": {
+                    "provider": "openai",
+                    "model": "qwen3-embedding-4b",
+                    "remote": {
+                        "baseUrl": f"{api_base}/v1/",
+                        "apiKey": api_key,
+                    }
                 }
             }
         }
@@ -725,7 +777,7 @@ def config_cmd(
 
     for fmt in formats:
         if fmt == "openclaw":
-            snippet = _config_openclaw(api_key, models)
+            snippet = _config_openclaw(api_key, models, api_base)
             _show_snippet("OpenClaw", "~/.openclaw/openclaw.json", snippet, apply, OPENCLAW_CONFIG_PATH)
         elif fmt == "opencode":
             snippet = _config_opencode(api_key, models)
