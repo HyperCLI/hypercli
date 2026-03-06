@@ -9,7 +9,7 @@ runtime key generation, and DB persistence.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Any, AsyncIterator
 
@@ -41,6 +41,7 @@ class ReefPod:
     last_error: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    ports: list[dict] = field(default_factory=list)
 
     @classmethod
     def from_dict(cls, data: dict) -> ReefPod:
@@ -67,6 +68,7 @@ class ReefPod:
             last_error=data.get("last_error"),
             created_at=_parse_dt(data.get("created_at")),
             updated_at=_parse_dt(data.get("updated_at")),
+            ports=data.get("ports") or [],
         )
 
     @property
@@ -205,6 +207,8 @@ class Agents:
         cpu: int = None,
         memory: int = None,
         config: dict = None,
+        env: dict = None,
+        ports: list = None,
         start: bool = True,
     ) -> ReefPod:
         """Create a new agent (provisions a reef pod via the backend).
@@ -215,6 +219,8 @@ class Agents:
             cpu: Custom CPU in cores (overrides size).
             memory: Custom memory in GB (overrides size).
             config: Optional config overrides.
+            env: Optional environment variables to pass through to the pod.
+            ports: Optional exposed ports config.
             start: Start the agent immediately (default: True).
 
         Returns:
@@ -229,6 +235,10 @@ class Agents:
             body["cpu"] = cpu
         if memory is not None:
             body["memory"] = memory
+        if env is not None:
+            body["env"] = env
+        if ports is not None:
+            body["ports"] = ports
         data = self._post("/api/agents", json=body)
         return ReefPod.from_dict(data)
 

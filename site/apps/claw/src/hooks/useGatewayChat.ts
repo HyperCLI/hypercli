@@ -143,7 +143,7 @@ export function useGatewayChat(
   const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [gwAgentId, setGwAgentId] = useState("main");
 
-  const connectGateway = useCallback(async () => {
+  useEffect(() => {
     if (!agent || agent.state !== "RUNNING" || !agent.hostname) return;
 
     const url = agent.openclaw_url || `wss://openclaw-${agent.hostname}`;
@@ -152,224 +152,241 @@ export function useGatewayChat(
       return;
     }
 
-    try {
-      // Set up auth cookies
-      const subdomain = agent.hostname.split(".")[0];
-      const hostCookie = `${subdomain}-token`;
-      const shellCookie = `shell-${subdomain}-token`;
-      const openclawCookie = `openclaw-${subdomain}-token`;
-      const reefCookie = "reef_token";
-      const hasCookie = (name: string) =>
-        document.cookie
-          .split(";")
-          .some((entry) =>
-            entry.trim().startsWith(`${encodeURIComponent(name)}=`)
+    let cancelled = false;
+    let gw: GatewayClient | null = null;
+
+    async function connect() {
+      try {
+        // Set up auth cookies
+        const subdomain = agent!.hostname!.split(".")[0];
+        const hostCookie = `${subdomain}-token`;
+        const shellCookie = `shell-${subdomain}-token`;
+        const openclawCookie = `openclaw-${subdomain}-token`;
+        const reefCookie = "reef_token";
+        const hasCookie = (name: string) =>
+          document.cookie
+            .split(";")
+            .some((entry) =>
+              entry.trim().startsWith(`${encodeURIComponent(name)}=`)
+            );
+        const configuredCookieDomain = (
+          process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || ""
+        ).trim();
+        const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
+        const currentHost =
+          typeof window !== "undefined" ? window.location.hostname : "";
+        const canUseCrossDomainCookie =
+          normalizedDomain &&
+          (currentHost === normalizedDomain ||
+            currentHost.endsWith(`.${normalizedDomain}`));
+        const cookieDomain = canUseCrossDomainCookie
+          ? configuredCookieDomain || `.${normalizedDomain}`
+          : "";
+
+        if (!hasCookie(hostCookie)) {
+          const authToken = await getToken();
+          if (cancelled) return;
+          const tokenResp = await clawFetch<{ token: string }>(
+            `/agents/${agent!.id}/token`,
+            authToken
           );
-      const configuredCookieDomain = (
-        process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || ""
-      ).trim();
-      const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
-      const currentHost =
-        typeof window !== "undefined" ? window.location.hostname : "";
-      const canUseCrossDomainCookie =
-        normalizedDomain &&
-        (currentHost === normalizedDomain ||
-          currentHost.endsWith(`.${normalizedDomain}`));
-      const cookieDomain = canUseCrossDomainCookie
-        ? configuredCookieDomain || `.${normalizedDomain}`
-        : "";
+          if (cancelled) return;
+          const tokenValue = encodeURIComponent(tokenResp.token);
+          const securePart =
+            window.location.protocol === "https:" ? "; secure" : "";
+          const domainPart = cookieDomain ? `; domain=${cookieDomain}` : "";
+          const expires = new Date(
+            Date.now() + 12 * 60 * 60 * 1000
+          ).toUTCString();
 
-      if (
-        !(
-          hasCookie(hostCookie) ||
-          hasCookie(shellCookie) ||
-          hasCookie(openclawCookie) ||
-          hasCookie(reefCookie)
-        )
-      ) {
-        const authToken = await getToken();
-        const tokenResp = await clawFetch<{ token: string }>(
-          `/agents/${agent.id}/token`,
-          authToken
+          document.cookie = `${hostCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+          document.cookie = `${shellCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+          document.cookie = `${openclawCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+          document.cookie = `${reefCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+        }
+
+        if (cancelled) return;
+        const gatewayTokenResp = await clawFetch<{ gateway_token: string }>(
+          `/agents/${agent!.id}/gateway-token`,
+          await getToken()
         );
-        const tokenValue = encodeURIComponent(tokenResp.token);
-        const securePart =
-          window.location.protocol === "https:" ? "; secure" : "";
-        const domainPart = cookieDomain ? `; domain=${cookieDomain}` : "";
-        const expires = new Date(
-          Date.now() + 12 * 60 * 60 * 1000
-        ).toUTCString();
+        const gatewayToken = gatewayTokenResp.gateway_token;
+        if (cancelled) return;
 
-        document.cookie = `${hostCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-        document.cookie = `${shellCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-        document.cookie = `${openclawCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-        document.cookie = `${reefCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-      }
+        gw = new GatewayClient({ url, token: gatewayToken });
 
-      const gw = new GatewayClient({ url });
+        // Set up event handler for streaming chat
+        gw.onEvent((event, payload) => {
+          if (cancelled) return;
 
-      // Set up event handler for streaming chat
-      gw.onEvent((event, payload) => {
-        if (event === "chat") {
-          const chatPayload = payload as Record<string, unknown>;
-          const nextText = extractChatText(chatPayload);
-          const message =
-            chatPayload.message && typeof chatPayload.message === "object"
-              ? (chatPayload.message as Record<string, unknown>)
-              : null;
-          const role = typeof message?.role === "string" ? message.role : "assistant";
-          const timestamp =
-            typeof message?.timestamp === "number" ? message.timestamp : Date.now();
+          if (event === "chat") {
+            const chatPayload = payload as Record<string, unknown>;
+            const nextText = extractChatText(chatPayload);
+            const message =
+              chatPayload.message && typeof chatPayload.message === "object"
+                ? (chatPayload.message as Record<string, unknown>)
+                : null;
+            const role = typeof message?.role === "string" ? message.role : "assistant";
+            const timestamp =
+              typeof message?.timestamp === "number" ? message.timestamp : Date.now();
 
-          if (role === "assistant" && nextText) {
+            if (role === "assistant" && nextText) {
+              setMessages((prev) => {
+                const last = prev[prev.length - 1];
+                if (last?.role === "assistant") {
+                  const merged =
+                    nextText.startsWith(last.content) || nextText.length >= last.content.length
+                      ? nextText
+                      : `${last.content}${nextText}`;
+                  return [...prev.slice(0, -1), { ...last, content: merged, timestamp }];
+                }
+                return [...prev, { role: "assistant", content: nextText, timestamp }];
+              });
+            }
+
+            if (chatPayload.state === "final") {
+              setSending(false);
+            }
+          } else if (event === "chat.content") {
             setMessages((prev) => {
               const last = prev[prev.length - 1];
               if (last?.role === "assistant") {
-                // Handle both delta streams and snapshot streams.
-                const merged =
-                  nextText.startsWith(last.content) || nextText.length >= last.content.length
-                    ? nextText
-                    : `${last.content}${nextText}`;
-                return [...prev.slice(0, -1), { ...last, content: merged, timestamp }];
+                return [
+                  ...prev.slice(0, -1),
+                  { ...last, content: last.content + ((payload.text as string) ?? "") },
+                ];
               }
-              return [...prev, { role: "assistant", content: nextText, timestamp }];
-            });
-          }
-
-          if (chatPayload.state === "final") {
-            setSending(false);
-          }
-        } else if (event === "chat.content") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
               return [
-                ...prev.slice(0, -1),
-                { ...last, content: last.content + ((payload.text as string) ?? "") },
-              ];
-            }
-            return [
-              ...prev,
-              {
-                role: "assistant",
-                content: (payload.text as string) ?? "",
-                timestamp: Date.now(),
-              },
-            ];
-          });
-        } else if (event === "chat.thinking") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              return [
-                ...prev.slice(0, -1),
+                ...prev,
                 {
-                  ...last,
-                  thinking:
-                    (last.thinking ?? "") + ((payload.text as string) ?? ""),
+                  role: "assistant",
+                  content: (payload.text as string) ?? "",
+                  timestamp: Date.now(),
                 },
               ];
-            }
-            return [
+            });
+          } else if (event === "chat.thinking") {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === "assistant") {
+                return [
+                  ...prev.slice(0, -1),
+                  {
+                    ...last,
+                    thinking:
+                      (last.thinking ?? "") + ((payload.text as string) ?? ""),
+                  },
+                ];
+              }
+              return [
+                ...prev,
+                {
+                  role: "assistant",
+                  content: "",
+                  thinking: (payload.text as string) ?? "",
+                  timestamp: Date.now(),
+                },
+              ];
+            });
+          } else if (event === "chat.tool_call") {
+            setMessages((prev) => {
+              const last = prev[prev.length - 1];
+              if (last?.role === "assistant") {
+                const tc = {
+                  name: (payload as Record<string, unknown>).name as string ?? "?",
+                  args: JSON.stringify(payload),
+                };
+                return [
+                  ...prev.slice(0, -1),
+                  { ...last, toolCalls: [...(last.toolCalls ?? []), tc] },
+                ];
+              }
+              return prev;
+            });
+          } else if (event === "chat.done") {
+            setSending(false);
+          } else if (event === "chat.error") {
+            setSending(false);
+            setMessages((prev) => [
               ...prev,
               {
-                role: "assistant",
-                content: "",
-                thinking: (payload.text as string) ?? "",
+                role: "system",
+                content: `Error: ${(payload as Record<string, unknown>).message ?? "Unknown error"}`,
                 timestamp: Date.now(),
               },
-            ];
-          });
-        } else if (event === "chat.tool_call") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              const tc = {
-                name: (payload as Record<string, unknown>).name as string ?? "?",
-                args: JSON.stringify(payload),
-              };
-              return [
-                ...prev.slice(0, -1),
-                { ...last, toolCalls: [...(last.toolCalls ?? []), tc] },
-              ];
-            }
-            return prev;
-          });
-        } else if (event === "chat.done") {
-          setSending(false);
-        } else if (event === "chat.error") {
-          setSending(false);
-          setMessages((prev) => [
-            ...prev,
-            {
-              role: "system",
-              content: `Error: ${(payload as Record<string, unknown>).message ?? "Unknown error"}`,
-              timestamp: Date.now(),
-            },
-          ]);
+            ]);
+          }
+        });
+
+        await gw.connect();
+        if (cancelled) { gw.close(); return; }
+
+        gwRef.current = gw;
+        setConnected(true);
+        setError(null);
+
+        // Hydrate chat with existing session messages
+        const history = await gw.chatHistory("main", 200);
+        if (cancelled) return;
+        const hydrated = history
+          .map((message) => normalizeHistoryMessage(message))
+          .filter((message): message is ChatMessage => message !== null);
+        setMessages(hydrated.length > 0 ? hydrated : []);
+
+        // Load agents list to get gateway agent ID
+        const agents = await gw.agentsList();
+        if (cancelled) return;
+        if (agents.length > 0) {
+          setGwAgentId(agents[0].id);
         }
-      });
 
-      await gw.connect();
-      gwRef.current = gw;
-      setConnected(true);
-      setError(null);
+        // Load files
+        const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
+        const filesList = await gw.filesList(agentIdForFiles);
+        if (cancelled) return;
+        setFiles(filesList);
 
-      // Hydrate chat with existing session messages to avoid an empty window on open.
-      const history = await gw.chatHistory("main", 200);
-      const hydrated = history
-        .map((message) => normalizeHistoryMessage(message))
-        .filter((message): message is ChatMessage => message !== null);
-      if (hydrated.length > 0) {
-        setMessages(hydrated);
-      } else {
-        setMessages([]);
+        // Load config + schema
+        const [cfg, schemaResp] = await Promise.all([
+          gw.configGet(),
+          gw.configSchema(),
+        ]);
+        if (cancelled) return;
+        const schema = (
+          schemaResp &&
+          typeof schemaResp === "object" &&
+          "schema" in schemaResp &&
+          schemaResp.schema &&
+          typeof schemaResp.schema === "object"
+        )
+          ? (schemaResp.schema as Record<string, unknown>)
+          : (schemaResp as Record<string, unknown>);
+        setConfig(cfg);
+        setConfigSchema(schema);
+      } catch (e: unknown) {
+        if (!cancelled) {
+          setError(e instanceof Error ? e.message : String(e));
+        }
       }
-
-      // Load agents list to get gateway agent ID
-      const agents = await gw.agentsList();
-      if (agents.length > 0) {
-        setGwAgentId(agents[0].id);
-      }
-
-      // Load files
-      const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
-      const filesList = await gw.filesList(agentIdForFiles);
-      setFiles(filesList);
-
-      // Load config + schema
-      const [cfg, schemaResp] = await Promise.all([
-        gw.configGet(),
-        gw.configSchema(),
-      ]);
-      const schema = (
-        schemaResp &&
-        typeof schemaResp === "object" &&
-        "schema" in schemaResp &&
-        schemaResp.schema &&
-        typeof schemaResp.schema === "object"
-      )
-        ? (schemaResp.schema as Record<string, unknown>)
-        : (schemaResp as Record<string, unknown>);
-      setConfig(cfg);
-      setConfigSchema(schema);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : String(e));
     }
-  }, [agent, getToken]);
 
-  useEffect(() => {
-    if (agent?.state === "RUNNING" && !connected) {
-      connectGateway();
-    }
+    connect();
+
     return () => {
+      cancelled = true;
+      gw?.close();
       gwRef.current?.close();
       gwRef.current = null;
       setConnected(false);
+      setMessages([]);
+      setFiles([]);
+      setConfig(null);
+      setConfigSchema(null);
+      setError(null);
+      setSending(false);
+      setGwAgentId("main");
     };
-    // Only reconnect when agent identity/state changes
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [agent?.id, agent?.state]);
+  }, [agent?.id, agent?.state, agent?.hostname, getToken]);
 
   const sendMessage = useCallback(async () => {
     const gw = gwRef.current;

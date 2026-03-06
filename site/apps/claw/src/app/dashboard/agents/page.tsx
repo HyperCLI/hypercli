@@ -6,10 +6,7 @@ import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
-  Download,
   ExternalLink,
-  FolderOpen,
-  HardDrive,
   Loader2,
   MessageSquare,
   Plus,
@@ -24,8 +21,9 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
-  Upload,
   X,
+  ChevronDown,
+  Puzzle,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
@@ -37,6 +35,7 @@ import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard
 import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
+import { IntegrationsPage } from "@/components/dashboard/integrations";
 
 // ── Types ──
 
@@ -50,8 +49,8 @@ interface Agent {
   pod_id: string | null;
   pod_name: string | null;
   state: AgentState;
-  cpu_millicores: number;
-  memory_mib: number;
+  cpu: number;
+  memory: number;
   hostname: string | null;
   started_at: string | null;
   stopped_at: string | null;
@@ -103,26 +102,14 @@ interface LogEvent {
   status?: number;
 }
 
-interface S3FileEntry {
-  name: string;
-  path: string;
-  size?: number;
-}
-
-interface S3FilesResponse {
-  prefix: string;
-  directories: S3FileEntry[];
-  files: S3FileEntry[];
-  truncated: boolean;
-}
-
 // ── Constants ──
 
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "workspace" | "files" | "openclaw" | "settings";
+type MainTab = "chat" | "logs" | "shell" | "files" | "configure";
+type ConfigureTab = "settings" | "openclaw" | "integrations";
 
 // ── Utility functions ──
 
@@ -141,22 +128,6 @@ function wsBaseFromApiBase(apiBase: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
-}
-
-function encodePath(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
-    .join("/");
-}
-
-function formatFileSize(size?: number): string {
-  if (size === undefined || Number.isNaN(size)) return "-";
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
@@ -265,222 +236,6 @@ function normalizeSchemaNode(schema: JsonObject): JsonObject {
   return asObject(primary) ?? schema;
 }
 
-function S3FilesPanel({
-  agentId,
-  getToken,
-}: {
-  agentId: string;
-  getToken: () => Promise<string>;
-}) {
-  const [prefix, setPrefix] = useState("");
-  const [directories, setDirectories] = useState<S3FileEntry[]>([]);
-  const [files, setFiles] = useState<S3FileEntry[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-
-  const loadFiles = useCallback(async (targetPrefix: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      const params = new URLSearchParams();
-      if (targetPrefix) params.set("prefix", targetPrefix);
-      const endpoint = `/agents/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
-      const data = await clawFetch<S3FilesResponse>(endpoint, token);
-      setPrefix(data.prefix || targetPrefix);
-      setDirectories(data.directories || []);
-      setFiles(data.files || []);
-      setTruncated(Boolean(data.truncated));
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load files");
-      setDirectories([]);
-      setFiles([]);
-      setTruncated(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, getToken]);
-
-  useEffect(() => {
-    void loadFiles(prefix);
-  }, [loadFiles, prefix]);
-
-  const goToPrefix = useCallback((nextPrefix: string) => {
-    setPrefix(nextPrefix);
-  }, []);
-
-  const uploadFiles = useCallback(async (uploadList: FileList) => {
-    setUploading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      for (const file of Array.from(uploadList)) {
-        const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/agents/${agentId}/files/upload/${encodePath(uploadPath)}`, {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `Upload failed (${res.status})`);
-        }
-      }
-      await loadFiles(prefix);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  }, [agentId, getToken, loadFiles, prefix]);
-
-  const downloadFile = useCallback(async (path: string) => {
-    setError(null);
-    try {
-      const token = await getToken();
-      const data = await clawFetch<{ url: string }>(`/agents/${agentId}/files/download/${encodePath(path)}`, token);
-      window.open(data.url, "_blank", "noopener,noreferrer");
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Download failed");
-    }
-  }, [agentId, getToken]);
-
-  const deleteFile = useCallback(async (path: string, name: string) => {
-    if (!window.confirm(`Delete "${name}"?`)) return;
-    setError(null);
-    try {
-      const token = await getToken();
-      await clawFetch(`/agents/${agentId}/files/delete/${encodePath(path)}`, token, {
-        method: "DELETE",
-      });
-      await loadFiles(prefix);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
-    }
-  }, [agentId, getToken, loadFiles, prefix]);
-
-  const pathParts = prefix.split("/").filter(Boolean);
-
-  return (
-    <div className="h-full flex flex-col">
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files?.length) {
-              void uploadFiles(e.target.files);
-              e.target.value = "";
-            }
-          }}
-        />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
-        >
-          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-          Upload
-        </button>
-        <button
-          onClick={() => void loadFiles(prefix)}
-          disabled={loading}
-          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
-        <div className="flex-1" />
-        <p className="text-xs text-text-muted">Uploaded files sync to workspace on agent restart.</p>
-      </div>
-
-      <div className="px-4 py-2 border-b border-border bg-surface-low text-xs text-text-muted font-mono flex items-center gap-1 overflow-x-auto">
-        <button onClick={() => goToPrefix("")} className="hover:text-foreground">/</button>
-        {pathParts.map((part, idx) => {
-          const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
-          return (
-            <span key={partPrefix} className="flex items-center gap-1">
-              <span>/</span>
-              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-foreground whitespace-nowrap">{part}</button>
-            </span>
-          );
-        })}
-      </div>
-
-      {error && <div className="px-4 py-2 text-xs text-[#d05f5f] border-b border-border">{error}</div>}
-
-      <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="h-full flex items-center justify-center">
-            <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
-          </div>
-        ) : (
-          <div className="p-2">
-            {directories.map((dir) => {
-              const nextPrefix = dir.path || `${prefix}${dir.name.replace(/\/?$/, "/")}`;
-              return (
-                <button
-                  key={`dir-${dir.path || dir.name}`}
-                  onClick={() => goToPrefix(nextPrefix)}
-                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low text-left"
-                >
-                  <FolderOpen className="w-4 h-4 text-text-muted" />
-                  <span className="text-sm text-foreground font-mono flex-1">{dir.name}</span>
-                </button>
-              );
-            })}
-
-            {files.map((file) => (
-              <div
-                key={`file-${file.path}`}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low"
-              >
-                <FileText className="w-4 h-4 text-text-muted" />
-                <span className="text-sm text-foreground font-mono flex-1">{file.name}</span>
-                <span className="text-xs text-text-muted w-24 text-right">{formatFileSize(file.size)}</span>
-                <button
-                  onClick={() => void downloadFile(file.path)}
-                  className="text-text-muted hover:text-foreground p-1"
-                  title="Download"
-                >
-                  <Download className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => void deleteFile(file.path, file.name)}
-                  className="text-text-muted hover:text-[#d05f5f] p-1"
-                  title="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-
-            {directories.length === 0 && files.length === 0 && (
-              <div className="p-8 text-center text-sm text-text-muted">
-                No files in this directory.
-              </div>
-            )}
-
-            {truncated && (
-              <div className="px-2 py-2 text-xs text-[#f0c56c]">
-                Listing is truncated. Narrow your prefix to see more files.
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
-
 // ── Main component ──
 
 export default function AgentsPage() {
@@ -505,6 +260,9 @@ export default function AgentsPage() {
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [configureTab, setConfigureTab] = useState<ConfigureTab>("settings");
+  const [configureDropdownOpen, setConfigureDropdownOpen] = useState(false);
+  const configureDropdownRef = useRef<HTMLDivElement>(null);
 
   // Logs
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -571,6 +329,25 @@ export default function AgentsPage() {
     const timer = setInterval(() => { void fetchAgents(); }, ms);
     return () => clearInterval(timer);
   }, [fetchAgents, hasTransitioning]);
+
+  // Close configure dropdown on click-outside or Escape
+  useEffect(() => {
+    if (!configureDropdownOpen) return;
+    const handleClickOutside = (e: MouseEvent) => {
+      if (configureDropdownRef.current && !configureDropdownRef.current.contains(e.target as Node)) {
+        setConfigureDropdownOpen(false);
+      }
+    };
+    const handleEscape = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setConfigureDropdownOpen(false);
+    };
+    document.addEventListener("mousedown", handleClickOutside);
+    document.addEventListener("keydown", handleEscape);
+    return () => {
+      document.removeEventListener("mousedown", handleClickOutside);
+      document.removeEventListener("keydown", handleEscape);
+    };
+  }, [configureDropdownOpen]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -1058,35 +835,6 @@ export default function AgentsPage() {
 
   return (
     <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="text-text-muted hover:text-foreground transition-colors lg:block hidden"
-          >
-            {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-          </button>
-          <h1 className="text-xl font-bold text-foreground">Agents</h1>
-        </div>
-        <div className="flex items-center gap-3">
-          {budget && (
-            <div className="hidden md:flex gap-4 mr-3">
-              <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
-              <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
-              <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
-            </div>
-          )}
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New Agent</span>
-          </button>
-        </div>
-      </div>
-
       {/* Error banner */}
       <AnimatePresence>
         {error && (
@@ -1096,7 +844,7 @@ export default function AgentsPage() {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
+            <div className="mx-3 mt-2 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
               <span>{error}</span>
               <button onClick={() => setError(null)} className="ml-2 hover:text-foreground">
                 <X className="w-3.5 h-3.5" />
@@ -1114,18 +862,47 @@ export default function AgentsPage() {
       />
 
       {/* Main layout: Sidebar + Panel */}
-      <div className="flex h-[calc(100vh-8rem)]">
+      <div className="h-[calc(100vh-8.5rem)] md:h-[calc(100vh-3.5rem)] overflow-hidden">
+        <div className={`flex h-full max-lg:w-[200%] transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)] ${
+          mobileShowChat ? "max-lg:-translate-x-1/2" : ""
+        }`}>
         {/* ── Agent Sidebar ── */}
-        <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed ? "w-0 overflow-hidden lg:w-16" : "w-full lg:w-[280px]"
-        } ${mobileShowChat ? "hidden lg:flex" : "flex"} flex-col`}>
+        <div className={`max-lg:w-1/2 border-r border-border bg-background flex-shrink-0 lg:transition-all lg:duration-200 ${
+          sidebarCollapsed ? "lg:w-16" : "lg:w-[280px]"
+        } flex flex-col`}>
 
           {/* Sidebar header */}
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-            {!sidebarCollapsed && <span className="text-xs text-text-muted font-medium uppercase tracking-wider">Agents</span>}
-            <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+          <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+            {!sidebarCollapsed ? (
+              <>
+                <button
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="text-text-muted hover:text-foreground transition-colors p-1 max-lg:hidden"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-text-muted font-medium uppercase tracking-wider flex-1">Agents</span>
+                <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setShowCreateDialog(true)}
+                  className="text-text-muted hover:text-foreground transition-colors p-1"
+                  title="New Agent"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-2 w-full">
+                <button
+                  onClick={() => setSidebarCollapsed(false)}
+                  className="text-text-muted hover:text-foreground transition-colors p-1"
+                >
+                  <PanelLeft className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Agent list */}
@@ -1200,21 +977,16 @@ export default function AgentsPage() {
 
                       {/* Info */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.pod_name || agent.id}</p>
-                          <motion.span
-                            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${stateClass(agent.state)}`}
-                            animate={isTransitioning ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground truncate flex-1">{agent.name || agent.pod_name || agent.id}</p>
+                          <motion.div
+                            className={`w-2 h-2 rounded-full flex-shrink-0 ${stateDotColor(agent.state)}`}
+                            animate={isTransitioning ? { opacity: [0.4, 1, 0.4] } : { opacity: 1 }}
                             transition={isTransitioning ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
-                          >
-                            {agent.state}
-                          </motion.span>
+                          />
                         </div>
-                        <p className="text-xs text-text-muted mt-0.5">
-                          {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
-                        </p>
                         {agent.last_error && agent.state === "FAILED" && (
-                          <p className="text-xs text-[#d05f5f] mt-0.5 truncate">{agent.last_error}</p>
+                          <p className="text-xs text-[var(--error)] mt-0.5 truncate">{agent.last_error}</p>
                         )}
                       </div>
                     </button>
@@ -1237,7 +1009,7 @@ export default function AgentsPage() {
 
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 md:hidden">
+            <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -1246,7 +1018,7 @@ export default function AgentsPage() {
         </div>
 
         {/* ── Main Panel ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden lg:flex" : "flex"}`}>
+        <div className="max-lg:w-1/2 lg:flex-1 flex flex-col min-w-0">
           {!selectedAgent ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -1282,26 +1054,14 @@ export default function AgentsPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "workspace", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
+                <div className="flex-1 flex items-center">
+                  <div className="inline-flex rounded-lg border border-border overflow-visible relative">
+                    {(["chat", "logs", "shell", "files"] as const).map((tab) => {
                       const icons = {
                         chat: MessageSquare,
                         logs: TerminalSquare,
                         shell: TerminalSquare,
-                        workspace: FolderOpen,
-                        files: HardDrive,
-                        openclaw: SlidersHorizontal,
-                        settings: Settings,
-                      };
-                      const labels: Record<MainTab, string> = {
-                        chat: "Chat",
-                        logs: "Logs",
-                        shell: "Shell",
-                        workspace: "Workspace",
-                        files: "Files",
-                        openclaw: "OpenClaw",
-                        settings: "Settings",
+                        files: FileText,
                       };
                       const Icon = icons[tab];
                       return (
@@ -1315,10 +1075,69 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{labels[tab]}</span>
+                          <span className="max-sm:hidden">{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
                         </button>
                       );
                     })}
+                    <div ref={configureDropdownRef} className="relative">
+                      <button
+                        onClick={() => {
+                          if (mainTab === "configure") {
+                            setConfigureDropdownOpen(!configureDropdownOpen);
+                          } else {
+                            setMainTab("configure");
+                            setConfigureDropdownOpen(false);
+                          }
+                        }}
+                        className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors border-l border-border ${
+                          mainTab === "configure"
+                            ? "bg-surface-low text-foreground"
+                            : "bg-transparent text-text-muted hover:text-foreground"
+                        }`}
+                      >
+                        <Settings className="w-3.5 h-3.5" />
+                        <span className="max-sm:hidden">
+                          {mainTab === "configure"
+                            ? configureTab.charAt(0).toUpperCase() + configureTab.slice(1)
+                            : "Configure"}
+                        </span>
+                        <ChevronDown className={`w-3 h-3 transition-transform ${configureDropdownOpen ? "rotate-180" : ""}`} />
+                      </button>
+                      <AnimatePresence>
+                        {configureDropdownOpen && (
+                          <motion.div
+                            initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                            animate={{ opacity: 1, y: 0, scale: 1 }}
+                            exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                            transition={{ duration: 0.15 }}
+                            className="absolute right-0 top-full mt-1 w-44 glass-card p-1 shadow-xl z-50"
+                          >
+                            {([
+                              { key: "settings" as const, icon: Settings, label: "Settings" },
+                              { key: "openclaw" as const, icon: SlidersHorizontal, label: "OpenClaw" },
+                              { key: "integrations" as const, icon: Puzzle, label: "Integrations" },
+                            ]).map(({ key, icon: ItemIcon, label }) => (
+                              <button
+                                key={key}
+                                onClick={() => {
+                                  setMainTab("configure");
+                                  setConfigureTab(key);
+                                  setConfigureDropdownOpen(false);
+                                }}
+                                className={`flex items-center gap-2 px-3 py-2 text-sm w-full rounded-md transition-colors ${
+                                  mainTab === "configure" && configureTab === key
+                                    ? "text-foreground bg-surface-low"
+                                    : "text-text-secondary hover:text-foreground hover:bg-surface-low"
+                                }`}
+                              >
+                                <ItemIcon className="w-4 h-4" />
+                                {label}
+                              </button>
+                            ))}
+                          </motion.div>
+                        )}
+                      </AnimatePresence>
+                    </div>
                   </div>
                 </div>
 
@@ -1481,8 +1300,8 @@ export default function AgentsPage() {
                       <div className="pointer-events-none absolute right-4 top-4 text-xs text-[#8b95a6]">Interactive shell active</div>
                     )}
                   </div>
-                ) : mainTab === "workspace" ? (
-                  /* ── Workspace Tab ── */
+                ) : mainTab === "files" ? (
+                  /* ── Files Tab ── */
                   <div className="h-full flex flex-col">
                     {selectedFile ? (
                       <>
@@ -1533,16 +1352,10 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
-                ) : mainTab === "files" ? (
-                  /* ── Files Tab ── */
-                  <S3FilesPanel
-                    agentId={selectedAgent.id}
-                    getToken={getToken}
-                  />
-                ) : mainTab === "openclaw" ? (
+                ) : mainTab === "configure" && configureTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
                   <div className="h-full flex min-h-0">
-                    <div className="hidden md:block w-64 border-r border-border overflow-y-auto p-3 space-y-1 bg-surface-low/30">
+                    <div className="max-md:hidden w-64 border-r border-border overflow-y-auto p-3 space-y-1 bg-surface-low/30">
                       <button
                         onClick={() => setActiveOpenclawSection(null)}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
@@ -1638,7 +1451,7 @@ export default function AgentsPage() {
                       </div>
                     </div>
                   </div>
-                ) : mainTab === "settings" && selectedAgent ? (
+                ) : mainTab === "configure" && configureTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
                   <div className="flex-1 overflow-y-auto p-6">
                     <div className="max-w-xl mx-auto space-y-8">
@@ -1689,7 +1502,7 @@ export default function AgentsPage() {
                           </div>
                           <div className="flex items-center justify-between">
                             <span className="text-sm text-text-secondary">Resources</span>
-                            <span className="text-sm text-text-tertiary">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
+                            <span className="text-sm text-text-tertiary">{selectedAgent.cpu} vCPU · {selectedAgent.memory} GiB</span>
                           </div>
                           {selectedAgent.hostname && (
                             <div className="flex items-center justify-between">
@@ -1741,10 +1554,17 @@ export default function AgentsPage() {
                       </div>
                     </div>
                   </div>
+                ) : mainTab === "configure" && configureTab === "integrations" && selectedAgent ? (
+                  <IntegrationsPage
+                    config={chat.config}
+                    connected={chat.connected}
+                    onSaveConfig={chat.saveConfig}
+                  />
                 ) : null}
               </div>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>

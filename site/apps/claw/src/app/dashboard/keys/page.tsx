@@ -172,7 +172,7 @@ export default function KeysPage() {
       )}
 
       {/* Keys table */}
-      <div className="glass-card overflow-hidden">
+      <div className="glass-card overflow-auto max-h-[calc(100vh-16rem)]">
         {loading ? (
           <div className="divide-y divide-border">
             {Array.from({ length: 3 }).map((_, i) => (

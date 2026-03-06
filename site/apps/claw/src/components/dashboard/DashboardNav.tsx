@@ -61,7 +61,7 @@ export function DashboardNav() {
             </div>
 
             {/* Desktop nav links */}
-            <nav className="hidden md:flex items-center gap-1">
+            <nav className="max-md:hidden flex items-center gap-1">
               {navItems.map((item) => {
                 const Icon = item.icon;
                 return (
@@ -82,7 +82,7 @@ export function DashboardNav() {
             </nav>
 
             {/* Desktop right side — avatar dropdown */}
-            <div className="hidden md:flex items-center" ref={userMenuRef}>
+            <div className="max-md:hidden flex items-center relative" ref={userMenuRef}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-surface-low transition-colors"

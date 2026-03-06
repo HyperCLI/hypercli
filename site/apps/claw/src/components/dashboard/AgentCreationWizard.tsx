@@ -52,9 +52,9 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
 const SIZES = [
-  { label: "Small", tag: "Starter", desc: "1 CPU · 512 MiB", cpu: 1000, mem: 512 },
-  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", cpu: 2000, mem: 2048 },
-  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", cpu: 4000, mem: 4096 },
+  { label: "Small", tag: "Starter", desc: "1 CPU · 1 GiB", value: "small" },
+  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", value: "medium" },
+  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", value: "large" },
 ];
 
 const TOTAL_STEPS = 3;
@@ -111,8 +111,8 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   // Derived
   const currentHue = HUES[selectedIcon];
   const CurrentIcon = ICONS[selectedIcon].icon;
-  const cpu = showAdvanced ? Number(customCpu) : SIZES[selectedSize].cpu;
-  const mem = showAdvanced ? Number(customMem) : SIZES[selectedSize].mem;
+  const customCpuCores = Math.max(1, Math.round(Number(customCpu) / 1000));
+  const customMemGb = Math.max(1, Math.round(Number(customMem) / 1024));
 
   const budgetRemaining = budget
     ? {
@@ -200,15 +200,20 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
     setError(null);
     try {
       const token = await getToken();
+      const body: Record<string, unknown> = {
+        name: name.trim() || null,
+        start: startImmediately,
+        config: {},
+      };
+      if (showAdvanced) {
+        body.cpu = customCpuCores;
+        body.memory = customMemGb;
+      } else {
+        body.size = SIZES[selectedSize].value;
+      }
       await clawFetch("/agents", token, {
         method: "POST",
-        body: JSON.stringify({
-          name: name.trim() || null,
-          cpu_millicores: cpu,
-          memory_mib: mem,
-          start: startImmediately,
-          config: {},
-        }),
+        body: JSON.stringify(body),
       });
       onCreated();
     } catch (err) {
@@ -501,17 +506,9 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
             <span className="text-text-muted">Size</span>
             <span className="text-foreground">
               {showAdvanced
-                ? `${formatCpu(cpu)} · ${formatMemory(mem)}`
+                ? `${customCpuCores} CPU · ${customMemGb} GiB`
                 : `${SIZES[selectedSize].label} (${SIZES[selectedSize].desc})`}
             </span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-text-muted">CPU</span>
-            <span className="text-foreground">{formatCpu(cpu)}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-text-muted">Memory</span>
-            <span className="text-foreground">{formatMemory(mem)}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-text-muted">Start on creation</span>

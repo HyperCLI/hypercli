@@ -19,7 +19,6 @@ import {
 import Link from "next/link";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch } from "@/lib/api";
-import { formatCpu, formatMemory } from "@/lib/format";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -88,8 +87,8 @@ interface Agent {
   id: string;
   name: string;
   state: AgentState;
-  cpu_millicores: number;
-  memory_mib: number;
+  cpu: number;
+  memory: number;
   hostname: string | null;
   started_at: string | null;
   last_error: string | null;
@@ -263,7 +262,7 @@ export default function DashboardPage() {
                     <div className="min-w-0 flex-1">
                       <p className="text-sm font-semibold text-foreground truncate">{agent.name}</p>
                       <p className="text-xs text-text-muted">
-                        {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
+                        {agent.cpu} vCPU · {agent.memory} GiB
                       </p>
                     </div>
 
