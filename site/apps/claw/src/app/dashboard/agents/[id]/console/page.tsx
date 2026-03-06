@@ -6,18 +6,22 @@ import {
   ArrowLeft,
   Bot,
   ChevronRight,
+  Download,
   File,
   FolderOpen,
   Loader2,
   MessageSquare,
+  RefreshCw,
   Save,
   Send,
   Settings,
+  Trash2,
+  Upload,
   X as XIcon,
 } from "lucide-react";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
-import { clawFetch } from "@/lib/api";
+import { CLAW_API_BASE, clawFetch } from "@/lib/api";
 import { GatewayClient, type ChatEvent } from "@/gateway-client";
 
 // -----------------------------------------------------------------------
@@ -47,7 +51,36 @@ interface WorkspaceFile {
   missing: boolean;
 }
 
-type Panel = "chat" | "files" | "config";
+interface S3FileEntry {
+  name: string;
+  path: string;
+  size?: number;
+}
+
+interface S3FilesResponse {
+  prefix: string;
+  directories: S3FileEntry[];
+  files: S3FileEntry[];
+  truncated: boolean;
+}
+
+type Panel = "chat" | "workspace" | "files" | "config";
+
+function encodePath(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function formatFileSize(size?: number): string {
+  if (size === undefined || Number.isNaN(size)) return "-";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
 
 // -----------------------------------------------------------------------
 // Main component
@@ -360,7 +393,7 @@ export default function AgentConsolePage() {
 
         {/* Panel tabs */}
         <div className="flex gap-1">
-          {(["chat", "files", "config"] as Panel[]).map((p) => (
+          {(["chat", "workspace", "files", "config"] as Panel[]).map((p) => (
             <button
               key={p}
               onClick={() => setActivePanel(p)}
@@ -369,6 +402,7 @@ export default function AgentConsolePage() {
               }`}
             >
               {p === "chat" && <MessageSquare className="w-3.5 h-3.5" />}
+              {p === "workspace" && <FolderOpen className="w-3.5 h-3.5" />}
               {p === "files" && <FolderOpen className="w-3.5 h-3.5" />}
               {p === "config" && <Settings className="w-3.5 h-3.5" />}
               {p.charAt(0).toUpperCase() + p.slice(1)}
@@ -391,8 +425,8 @@ export default function AgentConsolePage() {
           />
         )}
 
-        {activePanel === "files" && (
-          <FilesPanel
+        {activePanel === "workspace" && (
+          <WorkspacePanel
             files={files}
             selectedFile={selectedFile}
             fileContent={fileContent}
@@ -402,6 +436,14 @@ export default function AgentConsolePage() {
             onContentChange={(c) => { setFileContent(c); setFileDirty(true); }}
             onSave={saveFile}
             onClose={() => setSelectedFile(null)}
+          />
+        )}
+
+        {activePanel === "files" && (
+          <S3FilesPanel
+            agentId={agentId}
+            getToken={getToken}
+            active={activePanel === "files"}
           />
         )}
 
@@ -514,10 +556,10 @@ function ChatPanel({
 }
 
 // -----------------------------------------------------------------------
-// Files Panel
+// Workspace Panel
 // -----------------------------------------------------------------------
 
-function FilesPanel({
+function WorkspacePanel({
   files,
   selectedFile,
   fileContent,
@@ -584,6 +626,229 @@ function FilesPanel({
           <ChevronRight className="w-3 h-3 text-text-muted" />
         </button>
       ))}
+    </div>
+  );
+}
+
+// -----------------------------------------------------------------------
+// S3 Files Panel
+// -----------------------------------------------------------------------
+
+function S3FilesPanel({
+  agentId,
+  getToken,
+  active,
+}: {
+  agentId: string;
+  getToken: () => Promise<string>;
+  active: boolean;
+}) {
+  const [prefix, setPrefix] = useState("");
+  const [directories, setDirectories] = useState<S3FileEntry[]>([]);
+  const [files, setFiles] = useState<S3FileEntry[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const loadFiles = useCallback(async (targetPrefix: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const params = new URLSearchParams();
+      if (targetPrefix) params.set("prefix", targetPrefix);
+      const endpoint = `/agents/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const data = await clawFetch<S3FilesResponse>(endpoint, token);
+      setPrefix(data.prefix || targetPrefix);
+      setDirectories(data.directories || []);
+      setFiles(data.files || []);
+      setTruncated(Boolean(data.truncated));
+    } catch (e: any) {
+      setError(e.message || "Failed to load files");
+      setDirectories([]);
+      setFiles([]);
+      setTruncated(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, getToken]);
+
+  useEffect(() => {
+    if (!active) return;
+    void loadFiles(prefix);
+  }, [active, prefix, loadFiles]);
+
+  const goToPrefix = useCallback((nextPrefix: string) => {
+    setPrefix(nextPrefix);
+  }, []);
+
+  const uploadFiles = useCallback(async (uploadList: FileList) => {
+    setUploading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      for (const file of Array.from(uploadList)) {
+        const uploadPath = `${prefix}${file.name}`;
+        const res = await fetch(`${CLAW_API_BASE}/agents/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Upload failed (${res.status})`);
+        }
+      }
+      await loadFiles(prefix);
+    } catch (e: any) {
+      setError(e.message || "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [agentId, getToken, loadFiles, prefix]);
+
+  const downloadFile = useCallback(async (path: string) => {
+    setError(null);
+    try {
+      const token = await getToken();
+      const data = await clawFetch<{ url: string }>(`/agents/${agentId}/files/download/${encodePath(path)}`, token);
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (e: any) {
+      setError(e.message || "Download failed");
+    }
+  }, [agentId, getToken]);
+
+  const deleteFile = useCallback(async (path: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"?`)) return;
+    setError(null);
+    try {
+      const token = await getToken();
+      await clawFetch(`/agents/${agentId}/files/delete/${encodePath(path)}`, token, {
+        method: "DELETE",
+      });
+      await loadFiles(prefix);
+    } catch (e: any) {
+      setError(e.message || "Delete failed");
+    }
+  }, [agentId, getToken, loadFiles, prefix]);
+
+  const pathParts = prefix.split("/").filter(Boolean);
+
+  return (
+    <div className="flex flex-col h-full">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) {
+              void uploadFiles(e.target.files);
+              e.target.value = "";
+            }
+          }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="flex items-center gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 px-3 py-1 rounded transition-colors"
+        >
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          Upload
+        </button>
+        <button
+          onClick={() => void loadFiles(prefix)}
+          disabled={loading}
+          className="flex items-center gap-1 text-xs bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-200 px-3 py-1 rounded transition-colors"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+        <div className="flex-1" />
+        <p className="text-xs text-zinc-500">Uploaded files sync to workspace on agent restart.</p>
+      </div>
+
+      <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50 text-xs text-zinc-400 font-mono flex items-center gap-1 overflow-x-auto">
+        <button onClick={() => goToPrefix("")} className="hover:text-white">/</button>
+        {pathParts.map((part, idx) => {
+          const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
+          return (
+            <span key={partPrefix} className="flex items-center gap-1">
+              <span>/</span>
+              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-white whitespace-nowrap">{part}</button>
+            </span>
+          );
+        })}
+      </div>
+
+      {error && <div className="px-4 py-2 text-xs text-red-400 border-b border-zinc-800">{error}</div>}
+
+      <div className="flex-1 overflow-auto">
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-zinc-500" />
+          </div>
+        ) : (
+          <div className="p-2">
+            {directories.map((dir) => {
+              const nextPrefix = dir.path || `${prefix}${dir.name.replace(/\/?$/, "/")}`;
+              return (
+                <button
+                  key={`dir-${dir.path || dir.name}`}
+                  onClick={() => goToPrefix(nextPrefix)}
+                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-800 text-left"
+                >
+                  <FolderOpen className="w-4 h-4 text-zinc-400" />
+                  <span className="text-sm text-zinc-200 font-mono flex-1">{dir.name}</span>
+                </button>
+              );
+            })}
+
+            {files.map((file) => (
+              <div
+                key={`file-${file.path}`}
+                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-800"
+              >
+                <File className="w-4 h-4 text-zinc-500" />
+                <span className="text-sm text-zinc-200 font-mono flex-1">{file.name}</span>
+                <span className="text-xs text-zinc-500 w-24 text-right">{formatFileSize(file.size)}</span>
+                <button
+                  onClick={() => void downloadFile(file.path)}
+                  className="text-zinc-400 hover:text-white p-1"
+                  title="Download"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => void deleteFile(file.path, file.name)}
+                  className="text-zinc-400 hover:text-red-400 p-1"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+
+            {directories.length === 0 && files.length === 0 && (
+              <div className="p-8 text-center text-sm text-zinc-500">
+                No files in this directory.
+              </div>
+            )}
+
+            {truncated && (
+              <div className="px-2 py-2 text-xs text-yellow-400">
+                Listing is truncated. Narrow your prefix to see more files.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }
