@@ -179,14 +179,7 @@ export function useGatewayChat(
         ? configuredCookieDomain || `.${normalizedDomain}`
         : "";
 
-      if (
-        !(
-          hasCookie(hostCookie) ||
-          hasCookie(shellCookie) ||
-          hasCookie(openclawCookie) ||
-          hasCookie(reefCookie)
-        )
-      ) {
+      if (!hasCookie(hostCookie)) {
         const authToken = await getToken();
         const tokenResp = await clawFetch<{ token: string }>(
           `/agents/${agent.id}/token`,
