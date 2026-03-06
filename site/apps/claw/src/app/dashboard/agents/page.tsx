@@ -835,26 +835,6 @@ export default function AgentsPage() {
 
   return (
     <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8">
-      {/* Header */}
-      <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
-          <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="text-text-muted hover:text-foreground transition-colors max-lg:hidden"
-          >
-            {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
-          </button>
-          <h1 className="text-xl font-bold text-foreground">Agents</h1>
-        </div>
-        <button
-          onClick={() => setShowCreateDialog(true)}
-          className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
-        >
-          <Plus className="w-4 h-4" />
-          <span className="max-sm:hidden">New Agent</span>
-        </button>
-      </div>
-
       {/* Error banner */}
       <AnimatePresence>
         {error && (
@@ -864,7 +844,7 @@ export default function AgentsPage() {
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
-            <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
+            <div className="mx-3 mt-2 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
               <span>{error}</span>
               <button onClick={() => setError(null)} className="ml-2 hover:text-foreground">
                 <X className="w-3.5 h-3.5" />
@@ -882,18 +862,47 @@ export default function AgentsPage() {
       />
 
       {/* Main layout: Sidebar + Panel */}
-      <div className="flex h-[calc(100vh-8rem)]">
+      <div className="h-[calc(100vh-8.5rem)] md:h-[calc(100vh-3.5rem)] overflow-hidden">
+        <div className={`flex h-full max-lg:w-[200%] transition-transform duration-300 ease-[cubic-bezier(0.25,0.1,0.25,1)] ${
+          mobileShowChat ? "max-lg:-translate-x-1/2" : ""
+        }`}>
         {/* ── Agent Sidebar ── */}
-        <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed ? "max-lg:w-0 max-lg:overflow-hidden lg:w-16" : "max-lg:w-full lg:w-[280px]"
-        } flex flex-col ${mobileShowChat ? "max-lg:hidden" : ""}`}>
+        <div className={`max-lg:w-1/2 border-r border-border bg-background flex-shrink-0 lg:transition-all lg:duration-200 ${
+          sidebarCollapsed ? "lg:w-16" : "lg:w-[280px]"
+        } flex flex-col`}>
 
           {/* Sidebar header */}
-          <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-            {!sidebarCollapsed && <span className="text-xs text-text-muted font-medium uppercase tracking-wider">Agents</span>}
-            <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+          <div className="px-3 py-2 border-b border-border flex items-center gap-2">
+            {!sidebarCollapsed ? (
+              <>
+                <button
+                  onClick={() => setSidebarCollapsed(true)}
+                  className="text-text-muted hover:text-foreground transition-colors p-1 max-lg:hidden"
+                >
+                  <PanelLeftClose className="w-4 h-4" />
+                </button>
+                <span className="text-xs text-text-muted font-medium uppercase tracking-wider flex-1">Agents</span>
+                <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
+                  <RefreshCw className="w-3.5 h-3.5" />
+                </button>
+                <button
+                  onClick={() => setShowCreateDialog(true)}
+                  className="text-text-muted hover:text-foreground transition-colors p-1"
+                  title="New Agent"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+              </>
+            ) : (
+              <div className="flex flex-col items-center gap-2 w-full">
+                <button
+                  onClick={() => setSidebarCollapsed(false)}
+                  className="text-text-muted hover:text-foreground transition-colors p-1"
+                >
+                  <PanelLeft className="w-4 h-4" />
+                </button>
+              </div>
+            )}
           </div>
 
           {/* Agent list */}
@@ -968,21 +977,16 @@ export default function AgentsPage() {
 
                       {/* Info */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.pod_name || agent.id}</p>
-                          <motion.span
-                            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${stateClass(agent.state)}`}
-                            animate={isTransitioning ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
+                        <div className="flex items-center gap-2">
+                          <p className="text-sm font-medium text-foreground truncate flex-1">{agent.name || agent.pod_name || agent.id}</p>
+                          <motion.div
+                            className={`w-2 h-2 rounded-full flex-shrink-0 ${stateDotColor(agent.state)}`}
+                            animate={isTransitioning ? { opacity: [0.4, 1, 0.4] } : { opacity: 1 }}
                             transition={isTransitioning ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
-                          >
-                            {agent.state}
-                          </motion.span>
+                          />
                         </div>
-                        <p className="text-xs text-text-muted mt-0.5">
-                          {agent.cpu} vCPU · {agent.memory} GiB
-                        </p>
                         {agent.last_error && agent.state === "FAILED" && (
-                          <p className="text-xs text-[#d05f5f] mt-0.5 truncate">{agent.last_error}</p>
+                          <p className="text-xs text-[var(--error)] mt-0.5 truncate">{agent.last_error}</p>
                         )}
                       </div>
                     </button>
@@ -1014,7 +1018,7 @@ export default function AgentsPage() {
         </div>
 
         {/* ── Main Panel ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "max-lg:hidden" : ""}`}>
+        <div className="max-lg:w-1/2 lg:flex-1 flex flex-col min-w-0">
           {!selectedAgent ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -1560,6 +1564,7 @@ export default function AgentsPage() {
               </div>
             </>
           )}
+        </div>
         </div>
       </div>
     </div>
