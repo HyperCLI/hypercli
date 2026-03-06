@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useEffect, useState } from "react";
 import {
   Send, MessageCircle, Hash, MessageSquareMore, Mail, Phone,
   Volume2, Mic, Eye, Image, Video, Box,
@@ -11,7 +11,6 @@ import { TelegramWizard } from "./TelegramWizard";
 import { TtsPanel } from "./TtsPanel";
 import { SttPanel } from "./SttPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
-import type { GatewayClient } from "../../../gateway-client";
 
 type PanelType =
   | "telegram"
@@ -21,7 +20,9 @@ type PanelType =
   | null;
 
 interface IntegrationsPageProps {
-  gatewayClient: GatewayClient | null;
+  config: Record<string, unknown> | null;
+  connected: boolean;
+  onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
 }
 
 interface ChannelState {
@@ -32,27 +33,32 @@ interface PrefsState {
   voice?: { speaker?: string; format?: string };
 }
 
-export function IntegrationsPage({ gatewayClient }: IntegrationsPageProps) {
-  const [config, setConfig] = useState<Record<string, unknown> | null>(null);
-  const [loading, setLoading] = useState(true);
+function deepMerge(target: Record<string, unknown>, source: Record<string, unknown>): Record<string, unknown> {
+  const result: Record<string, unknown> = { ...target };
+  for (const key of Object.keys(source)) {
+    if (source[key] === null) {
+      delete result[key];
+    } else if (
+      typeof source[key] === "object" && !Array.isArray(source[key]) &&
+      typeof result[key] === "object" && result[key] !== null
+    ) {
+      result[key] = deepMerge(result[key] as Record<string, unknown>, source[key] as Record<string, unknown>);
+    } else {
+      result[key] = source[key];
+    }
+  }
+  return result;
+}
+
+export function IntegrationsPage({ config: initialConfig, connected, onSaveConfig }: IntegrationsPageProps) {
+  const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
 
-  const loadConfig = useCallback(async () => {
-    if (!gatewayClient) return;
-    try {
-      const cfg = await gatewayClient.configGet();
-      setConfig(cfg);
-    } catch {
-      // Config may not exist yet
-    } finally {
-      setLoading(false);
-    }
-  }, [gatewayClient]);
-
+  // Sync when parent config updates
   useEffect(() => {
-    loadConfig();
-  }, [loadConfig]);
+    if (initialConfig) setConfig(initialConfig);
+  }, [initialConfig]);
 
   const channels = (config as any)?.channels as ChannelState | undefined;
   const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
@@ -60,9 +66,10 @@ export function IntegrationsPage({ gatewayClient }: IntegrationsPageProps) {
   const telegramConnected = !!channels?.telegram?.enabled;
 
   const handleConfigPatch = async (patch: Record<string, unknown>) => {
-    if (!gatewayClient) throw new Error("Not connected to agent");
-    await gatewayClient.configPatch(patch);
-    await loadConfig();
+    if (!connected) throw new Error("Not connected to agent");
+    await onSaveConfig(patch);
+    // Optimistically merge patch into local state
+    setConfig(prev => prev ? deepMerge(prev, patch) : patch);
   };
 
   const handleDisconnect = async (channel: string) => {
@@ -86,14 +93,11 @@ export function IntegrationsPage({ gatewayClient }: IntegrationsPageProps) {
 
   const telegramInfo = getTelegramStatus();
 
-  if (loading) {
+  if (!connected) {
     return (
-      <div className="p-6 space-y-6 animate-pulse">
-        <div className="h-4 bg-[var(--surface-low)] rounded w-24" />
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {[...Array(6)].map((_, i) => (
-            <div key={i} className="h-24 bg-[var(--surface-low)] rounded-xl" />
-          ))}
+      <div className="p-6">
+        <div className="rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-text-muted">
+          Waiting for gateway connection...
         </div>
       </div>
     );
@@ -169,10 +173,7 @@ export function IntegrationsPage({ gatewayClient }: IntegrationsPageProps) {
       >
         <TelegramWizard
           onConnect={handleConfigPatch}
-          onClose={() => {
-            setActivePanel(null);
-            loadConfig();
-          }}
+          onClose={() => setActivePanel(null)}
         />
       </SlideOver>
 
