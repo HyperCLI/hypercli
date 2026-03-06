@@ -36,6 +36,7 @@ def test_reef_pod_from_dict():
         "last_error": None,
         "created_at": "2026-02-24T09:00:00Z",
         "updated_at": "2026-02-24T10:00:00Z",
+        "ports": [{"port": 18789, "auth": False, "prefix": "openclaw"}],
     }
 
     pod = ReefPod.from_dict(data)
@@ -57,6 +58,7 @@ def test_reef_pod_from_dict():
     assert pod.last_error is None
     assert isinstance(pod.created_at, datetime)
     assert isinstance(pod.updated_at, datetime)
+    assert pod.ports == [{"port": 18789, "auth": False, "prefix": "openclaw"}]
 
 
 def test_reef_pod_from_dict_minimal():
@@ -76,6 +78,7 @@ def test_reef_pod_from_dict_minimal():
     assert pod.name is None
     assert pod.cpu == 0
     assert pod.memory == 0
+    assert pod.ports == []
 
 
 def test_reef_pod_urls():
@@ -264,6 +267,8 @@ def test_agents_create(agents_client):
             size="medium",
             cpu=4,
             memory=16,
+            env={"FOO": "bar"},
+            ports=[{"port": 18789, "auth": False}],
             start=True,
         )
 
@@ -277,6 +282,8 @@ def test_agents_create(agents_client):
         assert posted_json["size"] == "medium"
         assert posted_json["cpu"] == 4
         assert posted_json["memory"] == 16
+        assert posted_json["env"] == {"FOO": "bar"}
+        assert posted_json["ports"] == [{"port": 18789, "auth": False}]
         assert posted_json["start"] is True
 
         # Verify response parsing
