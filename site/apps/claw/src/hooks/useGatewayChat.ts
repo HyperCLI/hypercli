@@ -213,7 +213,7 @@ export function useGatewayChat(
         const gatewayToken = gatewayTokenResp.gateway_token;
         if (cancelled) return;
 
-        gw = new GatewayClient({ url, token: gatewayToken });
+        gw = new GatewayClient({ url, gatewayToken });
 
         // Set up event handler for streaming chat
         gw.onEvent((event, payload) => {
