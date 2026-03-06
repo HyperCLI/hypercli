@@ -359,6 +359,13 @@ export function useGatewayChat(
       gwRef.current?.close();
       gwRef.current = null;
       setConnected(false);
+      setMessages([]);
+      setFiles([]);
+      setConfig(null);
+      setConfigSchema(null);
+      setError(null);
+      setSending(false);
+      setGwAgentId("main");
     };
     // Only reconnect when agent identity/state changes
     // eslint-disable-next-line react-hooks/exhaustive-deps
