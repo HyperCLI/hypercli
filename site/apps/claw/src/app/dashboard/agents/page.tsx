@@ -6,7 +6,10 @@ import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
+  Download,
   ExternalLink,
+  FolderOpen,
+  HardDrive,
   Loader2,
   MessageSquare,
   Plus,
@@ -21,6 +24,7 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
+  Upload,
   X,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
@@ -99,13 +103,26 @@ interface LogEvent {
   status?: number;
 }
 
+interface S3FileEntry {
+  name: string;
+  path: string;
+  size?: number;
+}
+
+interface S3FilesResponse {
+  prefix: string;
+  directories: S3FileEntry[];
+  files: S3FileEntry[];
+  truncated: boolean;
+}
+
 // ── Constants ──
 
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "files" | "openclaw" | "settings";
+type MainTab = "chat" | "logs" | "shell" | "workspace" | "files" | "openclaw" | "settings";
 
 // ── Utility functions ──
 
@@ -124,6 +141,22 @@ function wsBaseFromApiBase(apiBase: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function encodePath(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function formatFileSize(size?: number): string {
+  if (size === undefined || Number.isNaN(size)) return "-";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
@@ -230,6 +263,222 @@ function normalizeSchemaNode(schema: JsonObject): JsonObject {
     return true;
   });
   return asObject(primary) ?? schema;
+}
+
+function S3FilesPanel({
+  agentId,
+  getToken,
+}: {
+  agentId: string;
+  getToken: () => Promise<string>;
+}) {
+  const [prefix, setPrefix] = useState("");
+  const [directories, setDirectories] = useState<S3FileEntry[]>([]);
+  const [files, setFiles] = useState<S3FileEntry[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const loadFiles = useCallback(async (targetPrefix: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const params = new URLSearchParams();
+      if (targetPrefix) params.set("prefix", targetPrefix);
+      const endpoint = `/agents/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const data = await clawFetch<S3FilesResponse>(endpoint, token);
+      setPrefix(data.prefix || targetPrefix);
+      setDirectories(data.directories || []);
+      setFiles(data.files || []);
+      setTruncated(Boolean(data.truncated));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load files");
+      setDirectories([]);
+      setFiles([]);
+      setTruncated(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, getToken]);
+
+  useEffect(() => {
+    void loadFiles(prefix);
+  }, [loadFiles, prefix]);
+
+  const goToPrefix = useCallback((nextPrefix: string) => {
+    setPrefix(nextPrefix);
+  }, []);
+
+  const uploadFiles = useCallback(async (uploadList: FileList) => {
+    setUploading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      for (const file of Array.from(uploadList)) {
+        const uploadPath = `${prefix}${file.name}`;
+        const res = await fetch(`${CLAW_API_BASE}/agents/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Upload failed (${res.status})`);
+        }
+      }
+      await loadFiles(prefix);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [agentId, getToken, loadFiles, prefix]);
+
+  const downloadFile = useCallback(async (path: string) => {
+    setError(null);
+    try {
+      const token = await getToken();
+      const data = await clawFetch<{ url: string }>(`/agents/${agentId}/files/download/${encodePath(path)}`, token);
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    }
+  }, [agentId, getToken]);
+
+  const deleteFile = useCallback(async (path: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"?`)) return;
+    setError(null);
+    try {
+      const token = await getToken();
+      await clawFetch(`/agents/${agentId}/files/delete/${encodePath(path)}`, token, {
+        method: "DELETE",
+      });
+      await loadFiles(prefix);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  }, [agentId, getToken, loadFiles, prefix]);
+
+  const pathParts = prefix.split("/").filter(Boolean);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) {
+              void uploadFiles(e.target.files);
+              e.target.value = "";
+            }
+          }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
+        >
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          Upload
+        </button>
+        <button
+          onClick={() => void loadFiles(prefix)}
+          disabled={loading}
+          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+        <div className="flex-1" />
+        <p className="text-xs text-text-muted">Uploaded files sync to workspace on agent restart.</p>
+      </div>
+
+      <div className="px-4 py-2 border-b border-border bg-surface-low text-xs text-text-muted font-mono flex items-center gap-1 overflow-x-auto">
+        <button onClick={() => goToPrefix("")} className="hover:text-foreground">/</button>
+        {pathParts.map((part, idx) => {
+          const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
+          return (
+            <span key={partPrefix} className="flex items-center gap-1">
+              <span>/</span>
+              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-foreground whitespace-nowrap">{part}</button>
+            </span>
+          );
+        })}
+      </div>
+
+      {error && <div className="px-4 py-2 text-xs text-[#d05f5f] border-b border-border">{error}</div>}
+
+      <div className="flex-1 overflow-auto">
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
+          </div>
+        ) : (
+          <div className="p-2">
+            {directories.map((dir) => {
+              const nextPrefix = dir.path || `${prefix}${dir.name.replace(/\/?$/, "/")}`;
+              return (
+                <button
+                  key={`dir-${dir.path || dir.name}`}
+                  onClick={() => goToPrefix(nextPrefix)}
+                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low text-left"
+                >
+                  <FolderOpen className="w-4 h-4 text-text-muted" />
+                  <span className="text-sm text-foreground font-mono flex-1">{dir.name}</span>
+                </button>
+              );
+            })}
+
+            {files.map((file) => (
+              <div
+                key={`file-${file.path}`}
+                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low"
+              >
+                <FileText className="w-4 h-4 text-text-muted" />
+                <span className="text-sm text-foreground font-mono flex-1">{file.name}</span>
+                <span className="text-xs text-text-muted w-24 text-right">{formatFileSize(file.size)}</span>
+                <button
+                  onClick={() => void downloadFile(file.path)}
+                  className="text-text-muted hover:text-foreground p-1"
+                  title="Download"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => void deleteFile(file.path, file.name)}
+                  className="text-text-muted hover:text-[#d05f5f] p-1"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+
+            {directories.length === 0 && files.length === 0 && (
+              <div className="p-8 text-center text-sm text-text-muted">
+                No files in this directory.
+              </div>
+            )}
+
+            {truncated && (
+              <div className="px-2 py-2 text-xs text-[#f0c56c]">
+                Listing is truncated. Narrow your prefix to see more files.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
 }
 
 // ── Main component ──
@@ -1035,14 +1284,24 @@ export default function AgentsPage() {
                 {/* Tabs */}
                 <div className="flex-1 flex items-center justify-center">
                   <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
+                    {(["chat", "logs", "shell", "workspace", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
                         chat: MessageSquare,
                         logs: TerminalSquare,
                         shell: TerminalSquare,
-                        files: FileText,
+                        workspace: FolderOpen,
+                        files: HardDrive,
                         openclaw: SlidersHorizontal,
                         settings: Settings,
+                      };
+                      const labels: Record<MainTab, string> = {
+                        chat: "Chat",
+                        logs: "Logs",
+                        shell: "Shell",
+                        workspace: "Workspace",
+                        files: "Files",
+                        openclaw: "OpenClaw",
+                        settings: "Settings",
                       };
                       const Icon = icons[tab];
                       return (
@@ -1056,7 +1315,7 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
+                          <span className="hidden sm:inline">{labels[tab]}</span>
                         </button>
                       );
                     })}
@@ -1222,8 +1481,8 @@ export default function AgentsPage() {
                       <div className="pointer-events-none absolute right-4 top-4 text-xs text-[#8b95a6]">Interactive shell active</div>
                     )}
                   </div>
-                ) : mainTab === "files" ? (
-                  /* ── Files Tab ── */
+                ) : mainTab === "workspace" ? (
+                  /* ── Workspace Tab ── */
                   <div className="h-full flex flex-col">
                     {selectedFile ? (
                       <>
@@ -1274,6 +1533,12 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
+                ) : mainTab === "files" ? (
+                  /* ── Files Tab ── */
+                  <S3FilesPanel
+                    agentId={selectedAgent.id}
+                    getToken={getToken}
+                  />
                 ) : mainTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
                   <div className="h-full flex min-h-0">
