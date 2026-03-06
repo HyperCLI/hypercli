@@ -846,22 +846,13 @@ export default function AgentsPage() {
           </button>
           <h1 className="text-xl font-bold text-foreground">Agents</h1>
         </div>
-        <div className="flex items-center gap-3">
-          {budget && (
-            <div className="max-md:hidden flex gap-4 mr-3">
-              <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
-              <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
-              <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
-            </div>
-          )}
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span className="max-sm:hidden">New Agent</span>
-          </button>
-        </div>
+        <button
+          onClick={() => setShowCreateDialog(true)}
+          className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
+        >
+          <Plus className="w-4 h-4" />
+          <span className="max-sm:hidden">New Agent</span>
+        </button>
       </div>
 
       {/* Error banner */}
@@ -1014,7 +1005,7 @@ export default function AgentsPage() {
 
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 md:hidden">
+            <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
