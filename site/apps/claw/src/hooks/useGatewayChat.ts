@@ -206,8 +206,14 @@ export function useGatewayChat(
         }
 
         if (cancelled) return;
+        const gatewayTokenResp = await clawFetch<{ gateway_token: string }>(
+          `/agents/${agent!.id}/gateway-token`,
+          await getToken()
+        );
+        const gatewayToken = gatewayTokenResp.gateway_token;
+        if (cancelled) return;
 
-        gw = new GatewayClient({ url });
+        gw = new GatewayClient({ url, token: gatewayToken });
 
         // Set up event handler for streaming chat
         gw.onEvent((event, payload) => {
