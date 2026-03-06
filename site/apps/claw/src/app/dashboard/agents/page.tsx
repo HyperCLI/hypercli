@@ -122,7 +122,7 @@ const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "workspace" | "files" | "openclaw" | "settings";
+type MainTab = "chat" | "logs" | "shell" | "files" | "workspace" | "openclaw" | "settings";
 
 // ── Utility functions ──
 
@@ -1284,7 +1284,7 @@ export default function AgentsPage() {
                 {/* Tabs */}
                 <div className="flex-1 flex items-center justify-center">
                   <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "workspace", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
+                    {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
                         chat: MessageSquare,
                         logs: TerminalSquare,
