@@ -95,7 +95,7 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
               >
                 {step > i + 1 ? <Check className="w-3 h-3" /> : i + 1}
               </span>
-              <span className="hidden sm:inline">{label}</span>
+              <span className="max-sm:hidden">{label}</span>
             </div>
           </div>
         ))}

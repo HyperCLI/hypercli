@@ -72,7 +72,7 @@ export function ClawHeader() {
           </a>
 
           {/* Desktop Nav */}
-          <nav className="hidden md:flex items-center gap-8">
+          <nav className="max-md:hidden flex items-center gap-8">
             {navLinks.map((link) => (
               <a
                 key={link.label}
@@ -88,7 +88,7 @@ export function ClawHeader() {
           </nav>
 
           {/* Desktop Auth */}
-          <div className="hidden md:flex items-center gap-3">
+          <div className="max-md:hidden flex items-center gap-3">
             {isLoading ? (
               <div className="w-[100px] h-[36px] rounded-lg bg-surface-low animate-pulse" />
             ) : isAuthenticated ? (

@@ -840,7 +840,7 @@ export default function AgentsPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="text-text-muted hover:text-foreground transition-colors lg:block hidden"
+            className="text-text-muted hover:text-foreground transition-colors max-lg:hidden"
           >
             {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -848,7 +848,7 @@ export default function AgentsPage() {
         </div>
         <div className="flex items-center gap-3">
           {budget && (
-            <div className="hidden md:flex gap-4 mr-3">
+            <div className="max-md:hidden flex gap-4 mr-3">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -859,7 +859,7 @@ export default function AgentsPage() {
             className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New Agent</span>
+            <span className="max-sm:hidden">New Agent</span>
           </button>
         </div>
       </div>
@@ -894,8 +894,8 @@ export default function AgentsPage() {
       <div className="flex h-[calc(100vh-8rem)]">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed ? "w-0 overflow-hidden lg:w-16" : "w-full lg:w-[280px]"
-        } ${mobileShowChat ? "hidden lg:flex" : "flex"} flex-col`}>
+          sidebarCollapsed ? "max-lg:w-0 max-lg:overflow-hidden lg:w-16" : "max-lg:w-full lg:w-[280px]"
+        } flex flex-col ${mobileShowChat ? "max-lg:hidden" : ""}`}>
 
           {/* Sidebar header */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between">
@@ -1023,7 +1023,7 @@ export default function AgentsPage() {
         </div>
 
         {/* ── Main Panel ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden lg:flex" : "flex"}`}>
+        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "max-lg:hidden" : ""}`}>
           {!selectedAgent ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -1080,7 +1080,7 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
+                          <span className="max-sm:hidden">{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
                         </button>
                       );
                     })}
@@ -1101,7 +1101,7 @@ export default function AgentsPage() {
                         }`}
                       >
                         <Settings className="w-3.5 h-3.5" />
-                        <span className="hidden sm:inline">
+                        <span className="max-sm:hidden">
                           {mainTab === "configure"
                             ? configureTab.charAt(0).toUpperCase() + configureTab.slice(1)
                             : "Configure"}
@@ -1360,7 +1360,7 @@ export default function AgentsPage() {
                 ) : mainTab === "configure" && configureTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
                   <div className="h-full flex min-h-0">
-                    <div className="hidden md:block w-64 border-r border-border overflow-y-auto p-3 space-y-1 bg-surface-low/30">
+                    <div className="max-md:hidden w-64 border-r border-border overflow-y-auto p-3 space-y-1 bg-surface-low/30">
                       <button
                         onClick={() => setActiveOpenclawSection(null)}
                         className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
