@@ -14,8 +14,7 @@ console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
 CLAW_KEY_PATH = HYPERCLI_DIR / "claw-key.json"
-PROD_API_BASE = "https://api.hyperclaw.app"
-DEV_API_BASE = "https://dev-api.hyperclaw.app"
+DEFAULT_API_BASE = "https://api.hyperclaw.app"
 
 
 def _get_api_key(key: str | None) -> str:
@@ -35,15 +34,25 @@ def _get_api_key(key: str | None) -> str:
     raise typer.Exit(1)
 
 
+def _resolve_api_base(base_url: str | None) -> str:
+    """Resolve API base: --base-url > HYPERCLAW_API_BASE env > default."""
+    if base_url:
+        return base_url.rstrip("/")
+    env_base = os.environ.get("HYPERCLAW_API_BASE", "").strip()
+    if env_base:
+        return env_base.rstrip("/")
+    return DEFAULT_API_BASE
+
+
 def _post_voice(
     endpoint: str,
     payload: dict,
     api_key: str,
     output: Path,
-    dev: bool = False,
+    base_url: str | None = None,
 ):
     """POST to voice endpoint and save audio output."""
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = _resolve_api_base(base_url)
     url = f"{api_base}/voice/{endpoint}"
 
     console.print(f"[dim]→ POST {url}[/dim]")
@@ -83,10 +92,10 @@ def tts(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hyperclaw.app)"),
 ):
     """Generate speech from text using a preset voice.
-    
+
     Examples:
       hyper claw voice tts "Hello world"
       hyper claw voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
@@ -100,7 +109,7 @@ def tts(
         "language": language,
         "response_format": format,
     }
-    _post_voice("tts", payload, api_key, output, dev)
+    _post_voice("tts", payload, api_key, output, base_url)
 
 
 @app.command("clone")
@@ -112,10 +121,10 @@ def clone(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hyperclaw.app)"),
 ):
     """Clone a voice from reference audio.
-    
+
     Examples:
       hyper claw voice clone "Hello" --ref voice.wav
       hyper claw voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
@@ -140,7 +149,7 @@ def clone(
         "x_vector_only": x_vector_only,
         "response_format": format,
     }
-    _post_voice("clone", payload, api_key, output, dev)
+    _post_voice("clone", payload, api_key, output, base_url)
 
 
 @app.command("design")
@@ -151,10 +160,10 @@ def design(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hyperclaw.app)"),
 ):
     """Design a voice from a text description.
-    
+
     Examples:
       hyper claw voice design "Hello" --desc "deep male voice, British accent"
       hyper claw voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
@@ -168,4 +177,4 @@ def design(
         "language": language,
         "response_format": format,
     }
-    _post_voice("design", payload, api_key, output, dev)
+    _post_voice("design", payload, api_key, output, base_url)
