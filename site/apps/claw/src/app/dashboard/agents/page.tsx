@@ -1300,12 +1300,20 @@ export default function AgentsPage() {
                     );
                   })()}
                   <span className="text-sm font-semibold text-foreground truncate">{selectedAgent.name || selectedAgent.pod_name}</span>
-                  {chat.connected && <span className="text-[10px] text-[#38D39F]">Gateway</span>}
+                  {chat.connected && (
+                    <>
+                      <span className="hidden md:inline text-[10px] text-[#38D39F]">Gateway</span>
+                      <span className="md:hidden w-2 h-2 rounded-full bg-[#38D39F]" />
+                    </>
+                  )}
                   {!chat.connected && chat.connecting && (
-                    <span className="text-[10px] text-[#f0c56c] flex items-center gap-1">
-                      <Loader2 className="w-3 h-3 animate-spin" />
-                      Connecting
-                    </span>
+                    <>
+                      <span className="hidden md:inline text-[10px] text-[#38D39F] flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Connecting
+                      </span>
+                      <Loader2 className="md:hidden w-3 h-3 animate-spin text-[#38D39F]" />
+                    </>
                   )}
                 </div>
 
@@ -1367,7 +1375,7 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleStop(selectedAgent.id)}
                           disabled={stoppingId === selectedAgent.id}
-                          className="px-2 py-1 rounded text-xs border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60 flex items-center gap-1"
+                          className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                         >
                           {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
                           Stop
@@ -1401,7 +1409,7 @@ export default function AgentsPage() {
                           <button
                             onClick={() => handleStop(selectedAgent.id)}
                             disabled={stoppingId === selectedAgent.id}
-                            className="px-2 py-1 rounded text-xs border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60 flex items-center gap-1"
+                            className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                           >
                             {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
                             Stop
@@ -1849,7 +1857,7 @@ export default function AgentsPage() {
                               <button
                                 onClick={() => handleStop(selectedAgent.id)}
                                 disabled={stoppingId === selectedAgent.id}
-                                className="px-3 py-1.5 rounded-lg text-sm border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60"
+                                className="px-3 py-1.5 rounded-lg text-sm border border-border text-foreground hover:bg-surface-low disabled:opacity-60"
                               >
                                 {stoppingId === selectedAgent.id ? "Stopping..." : "Stop"}
                               </button>
