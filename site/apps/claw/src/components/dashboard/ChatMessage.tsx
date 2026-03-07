@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react";
+import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType } from "@/hooks/useGatewayChat";
 
 interface ChatMessageProps {
@@ -98,8 +99,42 @@ export function ChatMessageBubble({ message }: ChatMessageProps) {
 
         {/* Content */}
         {message.content && (
-          <div className="whitespace-pre-wrap leading-relaxed">
-            {message.content}
+          <div className="leading-relaxed prose-chat">
+            <Markdown
+              components={{
+                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                em: ({ children }) => <em className="italic">{children}</em>,
+                code: ({ children, className }) => {
+                  const isBlock = className?.includes("language-");
+                  return isBlock ? (
+                    <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
+                      <code>{children}</code>
+                    </pre>
+                  ) : (
+                    <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+                  );
+                },
+                pre: ({ children }) => <>{children}</>,
+                ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                li: ({ children }) => <li>{children}</li>,
+                a: ({ href, children }) => (
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                    {children}
+                  </a>
+                ),
+                h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
+                ),
+                hr: () => <hr className="border-border my-3" />,
+              }}
+            >
+              {message.content}
+            </Markdown>
           </div>
         )}
 
