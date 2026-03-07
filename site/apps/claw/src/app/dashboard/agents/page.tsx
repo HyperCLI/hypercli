@@ -1066,44 +1066,67 @@ export default function AgentsPage() {
 
   // Audio recording
   const [recording, setRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
 
-  const toggleRecording = useCallback(async () => {
-    if (recording) {
-      // Stop recording
-      mediaRecorderRef.current?.stop();
-      setRecording(false);
-      return;
-    }
+  const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
       audioChunksRef.current = [];
+      setRecordingDuration(0);
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
-      mediaRecorder.onstop = async () => {
+      mediaRecorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
-        const reader = new FileReader();
-        reader.onloadend = () => {
-          const base64 = (reader.result as string).split(",")[1];
-          if (base64) {
-            chat.addAttachments(
-              Object.assign([new File([blob], "voice.webm", { type: "audio/webm" })], { length: 1 }) as unknown as FileList
-            );
-          }
-        };
-        reader.readAsDataURL(blob);
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
       };
       mediaRecorderRef.current = mediaRecorder;
       mediaRecorder.start();
       setRecording(true);
+      recordingTimerRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
     } catch {
-      // Mic permission denied or unavailable
+      // Mic permission denied
     }
-  }, [recording, chat]);
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  }, []);
+
+  const discardAudio = useCallback(() => {
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setRecordingDuration(0);
+  }, [audioUrl]);
+
+  const sendAudio = useCallback(async () => {
+    if (!audioBlob) return;
+    // Convert blob to a File and add as attachment, then send
+    const file = new File([audioBlob], "voice.webm", { type: "audio/webm" });
+    const dt = new DataTransfer();
+    dt.items.add(file);
+    chat.addAttachments(dt.files);
+    // Set a default message if none, then trigger send on next tick
+    if (!chat.input.trim()) {
+      chat.setInput("🎤 Voice message");
+    }
+    discardAudio();
+    // Send on next tick after state updates
+    setTimeout(() => chat.sendMessage(), 50);
+  }, [audioBlob, chat, discardAudio]);
+
+  const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
     chat.sendMessage();
@@ -1588,67 +1611,102 @@ export default function AgentsPage() {
                           ))}
                         </div>
                       )}
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={chat.input}
-                          onChange={(e) => chat.setInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-                          onPaste={(e) => {
-                            const items = e.clipboardData?.items;
-                            if (!items) return;
-                            const imageFiles: File[] = [];
-                            for (const item of Array.from(items)) {
-                              if (item.type.startsWith("image/")) {
-                                const file = item.getAsFile();
-                                if (file) imageFiles.push(file);
-                              }
-                            }
-                            if (imageFiles.length > 0) {
-                              e.preventDefault();
-                              const dt = new DataTransfer();
-                              imageFiles.forEach((f) => dt.items.add(f));
-                              chat.addAttachments(dt.files);
-                            }
-                          }}
-                          placeholder={chat.connected ? "Type a message..." : "Waiting for gateway connection..."}
-                          disabled={!chat.connected || chat.sending}
-                          className="flex-1 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
-                        />
-                        <label className="px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors">
-                          <Paperclip className="w-4 h-4" />
-                          <input
-                            type="file"
-                            accept="image/*"
-                            multiple
-                            className="hidden"
-                            onChange={(e) => {
-                              if (e.target.files?.length) {
-                                chat.addAttachments(e.target.files);
-                                e.target.value = "";
-                              }
-                            }}
-                          />
-                        </label>
-                        <button
-                          onClick={toggleRecording}
-                          disabled={!chat.connected}
-                          className={`px-2 py-2 rounded-lg border flex items-center justify-center transition-colors ${
-                            recording
-                              ? "border-[#d05f5f] text-[#d05f5f] bg-[#d05f5f]/10 animate-pulse"
-                              : "border-border text-text-muted hover:text-foreground hover:bg-surface-low"
-                          }`}
-                          title={recording ? "Stop recording" : "Record audio"}
-                        >
-                          {recording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
-                        </button>
-                        <button
-                          onClick={handleSendChat}
-                          disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0)}
-                          className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
+                      <div className="flex gap-2 items-center">
+                        {recording ? (
+                          /* Recording mode: show timer + stop button */
+                          <>
+                            <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
+                              <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] animate-pulse" />
+                              <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
+                              <span className="text-xs text-text-muted">Recording...</span>
+                            </div>
+                            <button
+                              onClick={stopRecording}
+                              className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors"
+                            >
+                              <Square className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : audioUrl ? (
+                          /* Audio preview: player + discard + send */
+                          <>
+                            <audio src={audioUrl} controls className="flex-1 h-9 [&::-webkit-media-controls-panel]:bg-surface-low" />
+                            <button
+                              onClick={discardAudio}
+                              className="px-2 py-2 rounded-lg border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors"
+                              title="Discard"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={sendAudio}
+                              disabled={!chat.connected || chat.sending}
+                              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : (
+                          /* Normal text mode */
+                          <>
+                            <input
+                              type="text"
+                              value={chat.input}
+                              onChange={(e) => chat.setInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                              onPaste={(e) => {
+                                const items = e.clipboardData?.items;
+                                if (!items) return;
+                                const imageFiles: File[] = [];
+                                for (const item of Array.from(items)) {
+                                  if (item.type.startsWith("image/")) {
+                                    const file = item.getAsFile();
+                                    if (file) imageFiles.push(file);
+                                  }
+                                }
+                                if (imageFiles.length > 0) {
+                                  e.preventDefault();
+                                  const dt = new DataTransfer();
+                                  imageFiles.forEach((f) => dt.items.add(f));
+                                  chat.addAttachments(dt.files);
+                                }
+                              }}
+                              placeholder={chat.connected ? "Type a message..." : "Waiting for gateway..."}
+                              disabled={!chat.connected || chat.sending}
+                              className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                            />
+                            <label className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors">
+                              <Paperclip className="w-4 h-4" />
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.length) {
+                                    chat.addAttachments(e.target.files);
+                                    e.target.value = "";
+                                  }
+                                }}
+                              />
+                            </label>
+                            <button
+                              onClick={startRecording}
+                              disabled={!chat.connected}
+                              className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low flex items-center justify-center transition-colors"
+                              title="Record audio"
+                            >
+                              <Mic className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={handleSendChat}
+                              disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0)}
+                              className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
