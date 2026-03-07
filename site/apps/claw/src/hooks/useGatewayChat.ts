@@ -170,6 +170,8 @@ export function useGatewayChat(
 ) {
   const gwRef = useRef<GatewayClient | null>(null);
   const [connected, setConnected] = useState(false);
+  const [connecting, setConnecting] = useState(false);
+  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -192,8 +194,12 @@ export function useGatewayChat(
 
     let cancelled = false;
     let gw: GatewayClient | null = null;
+    const RECONNECT_INTERVAL = 5000;
 
     async function connect() {
+      if (cancelled) return;
+      setConnecting(true);
+      setError(null);
       try {
         // Set up auth cookies
         const subdomain = agent!.hostname!.split(".")[0];
@@ -381,11 +387,24 @@ export function useGatewayChat(
           }
         });
 
+        // Set up auto-reconnect on disconnect
+        gw.onDisconnect = () => {
+          if (cancelled) return;
+          setConnected(false);
+          setConnecting(true);
+          gwRef.current = null;
+          // Schedule reconnect
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!cancelled) connect();
+          }, RECONNECT_INTERVAL);
+        };
+
         await gw.connect();
         if (cancelled) { gw.close(); return; }
 
         gwRef.current = gw;
         setConnected(true);
+        setConnecting(false);
         setError(null);
 
         // Hydrate chat with existing session messages
@@ -429,6 +448,11 @@ export function useGatewayChat(
       } catch (e: unknown) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
+          setConnecting(false);
+          // Schedule reconnect on error
+          reconnectTimerRef.current = setTimeout(() => {
+            if (!cancelled) connect();
+          }, RECONNECT_INTERVAL);
         }
       }
     }
@@ -437,10 +461,15 @@ export function useGatewayChat(
 
     return () => {
       cancelled = true;
+      if (reconnectTimerRef.current) {
+        clearTimeout(reconnectTimerRef.current);
+        reconnectTimerRef.current = null;
+      }
       gw?.close();
       gwRef.current?.close();
       gwRef.current = null;
       setConnected(false);
+      setConnecting(false);
       setMessages([]);
       setFiles([]);
       setConfig(null);
@@ -537,6 +566,7 @@ export function useGatewayChat(
     setInput,
     sending,
     connected,
+    connecting,
     error,
     files,
     config,

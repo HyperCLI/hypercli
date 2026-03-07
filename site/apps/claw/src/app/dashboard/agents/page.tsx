@@ -1301,6 +1301,12 @@ export default function AgentsPage() {
                   })()}
                   <span className="text-sm font-semibold text-foreground truncate">{selectedAgent.name || selectedAgent.pod_name}</span>
                   {chat.connected && <span className="text-[10px] text-[#38D39F]">Gateway</span>}
+                  {!chat.connected && chat.connecting && (
+                    <span className="text-[10px] text-[#f0c56c] flex items-center gap-1">
+                      <Loader2 className="w-3 h-3 animate-spin" />
+                      Connecting
+                    </span>
+                  )}
                 </div>
 
                 {/* Tabs */}
@@ -1453,15 +1459,25 @@ export default function AgentsPage() {
                     <div className="flex-1 overflow-y-auto p-4 space-y-4">
                       {chat.messages.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-text-muted">
-                          <MessageSquare className="w-8 h-8 mb-2" />
-                          <p className="text-sm">
-                            {chat.connected
-                              ? "Send a message to start chatting with your agent"
-                              : isSelectedRunning
-                                ? "Connecting to gateway..."
-                                : "Start the agent to begin chatting"
-                            }
-                          </p>
+                          {chat.connecting ? (
+                            <>
+                              <Loader2 className="w-8 h-8 mb-2 animate-spin" />
+                              <p className="text-sm">Connecting to gateway...</p>
+                              <p className="text-xs mt-1 text-text-muted/60">Retrying every 5s</p>
+                            </>
+                          ) : chat.connected ? (
+                            <>
+                              <MessageSquare className="w-8 h-8 mb-2" />
+                              <p className="text-sm">Send a message to start chatting with your agent</p>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="w-8 h-8 mb-2" />
+                              <p className="text-sm">
+                                {isSelectedRunning ? "Connecting to gateway..." : "Start the agent to begin chatting"}
+                              </p>
+                            </>
+                          )}
                         </div>
                       )}
 
