@@ -1,6 +1,7 @@
 """HyperClaw inference commands"""
 import asyncio
 import json
+import os
 from pathlib import Path
 from datetime import datetime, timedelta
 import typer
@@ -346,29 +347,47 @@ def models(
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
-    """List available HyperClaw models from the public /models endpoint."""
+    """List available HyperClaw models."""
     import httpx
 
     api_base = DEV_API_BASE if dev else PROD_API_BASE
-    url = f"{api_base}/models"
+    key = os.getenv("HYPERCLAW_API_KEY")
+    headers = {"Authorization": f"Bearer {key}"} if key else {}
 
-    try:
-        response = httpx.get(url, timeout=15)
-        response.raise_for_status()
-        payload = response.json()
-    except Exception as e:
-        console.print(f"[red]❌ Failed to fetch models from {url}: {e}[/red]")
+    # Prefer OpenAI-compatible endpoint, then fallback to legacy.
+    urls = [f"{api_base}/v1/models", f"{api_base}/models"]
+    payload = None
+    source_url = None
+    for url in urls:
+        try:
+            response = httpx.get(url, headers=headers, timeout=15)
+            if response.status_code >= 400:
+                continue
+            payload = response.json()
+            source_url = url
+            break
+        except Exception:
+            continue
+
+    if payload is None:
+        console.print(
+            f"[red]❌ Failed to fetch models from {urls[0]} or {urls[1]} "
+            "(set HYPERCLAW_API_KEY if endpoint requires auth)[/red]"
+        )
         raise typer.Exit(1)
 
-    models_data = payload.get("models")
-    if not isinstance(models_data, list):
-        console.print("[red]❌ Unexpected /models response shape (expected top-level models list)[/red]")
+    if isinstance(payload, dict) and isinstance(payload.get("data"), list):
+        models_data = payload.get("data", [])
+    elif isinstance(payload, dict) and isinstance(payload.get("models"), list):
+        models_data = payload.get("models", [])
+    else:
+        console.print("[red]❌ Unexpected models response shape[/red]")
         if json_output:
             console.print_json(json.dumps(payload))
         raise typer.Exit(1)
 
     if json_output:
-        console.print_json(json.dumps(payload))
+        console.print_json(json.dumps({"models": models_data}))
         return
 
     table = Table(title="HyperClaw Models")
@@ -389,7 +408,7 @@ def models(
     console.print()
     console.print(table)
     console.print()
-    console.print(f"Source: {url}")
+    console.print(f"Source: {source_url}")
 
 
 @app.command("login")
