@@ -776,15 +776,30 @@ export default function AgentsPage() {
     );
   }, [openclawDraft, updateOpenclawPath]);
 
-  // Auto-scroll chat — only on new messages, not streaming updates
+  // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
   const lastMsgCountRef = useRef(0);
+
+  const handleChatScroll = useCallback(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    // Consider "near bottom" if within 100px of the end
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }, []);
+
   useEffect(() => {
     const count = chat.messages.length;
     if (count !== lastMsgCountRef.current) {
       lastMsgCountRef.current = count;
-      // Small delay to let DOM settle
+      // Always scroll on new message (user sent or agent started replying)
       requestAnimationFrame(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    } else if (isNearBottomRef.current) {
+      // Streaming update — only scroll if already near bottom
+      requestAnimationFrame(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "auto" });
       });
     }
   }, [chat.messages]);
@@ -1067,15 +1082,39 @@ export default function AgentsPage() {
   // Audio recording
   const [recording, setRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const levelAnimRef = useRef<number>(0);
 
   const startRecording = useCallback(async () => {
     try {
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Set up audio analyser for volume visualization
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      // Volume level animation loop
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLevel = () => {
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        setAudioLevel(Math.min(avg / 128, 1)); // normalize to 0-1
+        levelAnimRef.current = requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
+
       const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
       audioChunksRef.current = [];
       setRecordingDuration(0);
@@ -1084,7 +1123,10 @@ export default function AgentsPage() {
       };
       mediaRecorder.onstop = () => {
         stream.getTracks().forEach((t) => t.stop());
+        cancelAnimationFrame(levelAnimRef.current);
+        audioCtx.close();
         if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+        setAudioLevel(0);
         const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
@@ -1111,20 +1153,29 @@ export default function AgentsPage() {
   }, [audioUrl]);
 
   const sendAudio = useCallback(async () => {
-    if (!audioBlob) return;
-    // Convert blob to a File and add as attachment, then send
-    const file = new File([audioBlob], "voice.webm", { type: "audio/webm" });
-    const dt = new DataTransfer();
-    dt.items.add(file);
-    chat.addAttachments(dt.files);
-    // Set a default message if none, then trigger send on next tick
-    if (!chat.input.trim()) {
-      chat.setInput("🎤 Voice message");
+    if (!audioBlob || !selectedAgent) return;
+    try {
+      const token = await getToken();
+      const timestamp = Date.now();
+      const filename = `voice-${timestamp}.webm`;
+      const uploadPath = `workspace/${filename}`;
+      // Upload audio to agent's filesystem
+      const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodeURIComponent(uploadPath)}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/webm" },
+        body: audioBlob,
+      });
+      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
+      const agentPath = `/home/ubuntu/${uploadPath}`;
+      // Send chat message with file path so agent can find it
+      const msg = chat.input.trim() || `Voice message recorded. Audio file saved to: ${agentPath}`;
+      chat.setInput(msg.includes(agentPath) ? msg : `${msg}\n\nAudio file: ${agentPath}`);
+      discardAudio();
+      setTimeout(() => chat.sendMessage(), 50);
+    } catch (e) {
+      console.error("Audio upload failed:", e);
     }
-    discardAudio();
-    // Send on next tick after state updates
-    setTimeout(() => chat.sendMessage(), 50);
-  }, [audioBlob, chat, discardAudio]);
+  }, [audioBlob, chat, discardAudio, selectedAgent, getToken]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
@@ -1538,7 +1589,7 @@ export default function AgentsPage() {
                 ) : mainTab === "chat" ? (
                   /* ── Chat Tab ── */
                   <div className="flex flex-col h-full min-h-0">
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                    <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
                       {chat.messages.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-text-muted">
                           {chat.connecting ? (
@@ -1616,9 +1667,24 @@ export default function AgentsPage() {
                           /* Recording mode: show timer + stop button */
                           <>
                             <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
-                              <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] animate-pulse" />
+                              <span
+                                className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75"
+                                style={{ transform: `scale(${1 + audioLevel * 1.5})` }}
+                              />
                               <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
-                              <span className="text-xs text-text-muted">Recording...</span>
+                              {/* Volume bars */}
+                              <div className="flex items-center gap-0.5 flex-1">
+                                {Array.from({ length: 20 }).map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-1 rounded-full transition-all duration-75"
+                                    style={{
+                                      height: `${Math.max(4, Math.min(20, audioLevel * 24 * (0.5 + Math.random() * 0.5)))}px`,
+                                      backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
+                                    }}
+                                  />
+                                ))}
+                              </div>
                             </div>
                             <button
                               onClick={stopRecording}
