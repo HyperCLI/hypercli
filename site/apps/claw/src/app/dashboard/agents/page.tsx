@@ -1433,7 +1433,22 @@ export default function AgentsPage() {
                     </div>
 
                     {/* Chat input */}
-                    <div className="border-t border-border p-3">
+                    <div
+                      className="border-t border-border p-3"
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.dataTransfer.files?.length) {
+                          const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+                          if (imageFiles.length > 0) {
+                            const dt = new DataTransfer();
+                            imageFiles.forEach(f => dt.items.add(f));
+                            chat.addAttachments(dt.files);
+                          }
+                        }
+                      }}
+                    >
                       {/* Pending image attachments preview */}
                       {chat.pendingAttachments.length > 0 && (
                         <div className="flex gap-2 mb-2 flex-wrap">
