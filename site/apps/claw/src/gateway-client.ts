@@ -44,6 +44,7 @@ export class GatewayClient {
   private _connected = false;
   private _version: string | null = null;
   private _protocol: number | null = null;
+  onDisconnect: (() => void) | null = null;
 
   constructor(config: GatewayConfig) {
     this.config = {
@@ -135,6 +136,8 @@ export class GatewayClient {
           rej(new Error("Connection closed"));
         }
         this.pending.clear();
+        // Notify disconnect handler
+        this.onDisconnect?.();
       };
     });
   }
