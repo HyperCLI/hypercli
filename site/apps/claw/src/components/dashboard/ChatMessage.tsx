@@ -1,12 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Loader2, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  inlineAudioUrl?: string | null;
 }
 
 function formatTime(ts?: number): string {
@@ -17,9 +18,36 @@ function formatTime(ts?: number): string {
   });
 }
 
-export function ChatMessageBubble({ message }: ChatMessageProps) {
+export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessageProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
+  const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
+  const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (!inlineAudioUrl) return;
+    const audio = new Audio(inlineAudioUrl);
+    audio.addEventListener("ended", () => setInlineAudioPlaying(false));
+    audio.addEventListener("pause", () => setInlineAudioPlaying(false));
+    audio.addEventListener("play", () => setInlineAudioPlaying(true));
+    inlineAudioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.src = "";
+      inlineAudioRef.current = null;
+      setInlineAudioPlaying(false);
+    };
+  }, [inlineAudioUrl]);
+
+  const toggleInlineAudio = useCallback(() => {
+    const audio = inlineAudioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      void audio.play();
+      return;
+    }
+    audio.pause();
+  }, []);
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -189,6 +217,17 @@ export function ChatMessageBubble({ message }: ChatMessageProps) {
               {message.content}
             </Markdown>
           </div>
+        )}
+
+        {inlineAudioUrl && (
+          <button
+            type="button"
+            onClick={toggleInlineAudio}
+            className="mt-2 inline-flex items-center justify-center rounded-md border border-border bg-background/50 p-1.5 text-text-muted hover:text-foreground"
+            title={inlineAudioPlaying ? "Pause voice message" : "Play voice message"}
+          >
+            {inlineAudioPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+          </button>
         )}
 
         {/* Timestamp on hover */}

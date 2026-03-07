@@ -502,12 +502,14 @@ export function useGatewayChat(
     setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
   }, []);
 
-  const sendMessage = useCallback(async () => {
+  const sendMessage = useCallback(async (overrideInput?: string) => {
     const gw = gwRef.current;
-    if (!gw || (!input.trim() && pendingAttachments.length === 0) || sending) return;
+    const nextInput = typeof overrideInput === "string" ? overrideInput : input;
+    const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
+    if (!gw || (!nextInput.trim() && nextAttachments.length === 0) || sending) return;
 
-    const msg = input.trim();
-    const attachments = [...pendingAttachments];
+    const msg = nextInput.trim();
+    const attachments = [...nextAttachments];
     setInput("");
     setPendingAttachments([]);
     setSending(true);
