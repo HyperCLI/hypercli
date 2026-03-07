@@ -26,6 +26,8 @@ import {
   PanelLeft,
   Upload,
   Paperclip,
+  Mic,
+  MicOff,
   X,
   ImageIcon,
 } from "lucide-react";
@@ -774,9 +776,17 @@ export default function AgentsPage() {
     );
   }, [openclawDraft, updateOpenclawPath]);
 
-  // Auto-scroll chat
+  // Auto-scroll chat — only on new messages, not streaming updates
+  const lastMsgCountRef = useRef(0);
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const count = chat.messages.length;
+    if (count !== lastMsgCountRef.current) {
+      lastMsgCountRef.current = count;
+      // Small delay to let DOM settle
+      requestAnimationFrame(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
   }, [chat.messages]);
 
   // ── Auth token for desktop / shell ──
@@ -1053,6 +1063,47 @@ export default function AgentsPage() {
       setSavingFile(false);
     }
   };
+
+  // Audio recording
+  const [recording, setRecording] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const toggleRecording = useCallback(async () => {
+    if (recording) {
+      // Stop recording
+      mediaRecorderRef.current?.stop();
+      setRecording(false);
+      return;
+    }
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      audioChunksRef.current = [];
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mediaRecorder.onstop = async () => {
+        stream.getTracks().forEach((t) => t.stop());
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const reader = new FileReader();
+        reader.onloadend = () => {
+          const base64 = (reader.result as string).split(",")[1];
+          if (base64) {
+            chat.addAttachments(
+              Object.assign([new File([blob], "voice.webm", { type: "audio/webm" })], { length: 1 }) as unknown as FileList
+            );
+          }
+        };
+        reader.readAsDataURL(blob);
+      };
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setRecording(true);
+    } catch {
+      // Mic permission denied or unavailable
+    }
+  }, [recording, chat]);
 
   const handleSendChat = () => {
     chat.sendMessage();
@@ -1579,6 +1630,18 @@ export default function AgentsPage() {
                             }}
                           />
                         </label>
+                        <button
+                          onClick={toggleRecording}
+                          disabled={!chat.connected}
+                          className={`px-2 py-2 rounded-lg border flex items-center justify-center transition-colors ${
+                            recording
+                              ? "border-[#d05f5f] text-[#d05f5f] bg-[#d05f5f]/10 animate-pulse"
+                              : "border-border text-text-muted hover:text-foreground hover:bg-surface-low"
+                          }`}
+                          title={recording ? "Stop recording" : "Record audio"}
+                        >
+                          {recording ? <MicOff className="w-4 h-4" /> : <Mic className="w-4 h-4" />}
+                        </button>
                         <button
                           onClick={handleSendChat}
                           disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0)}
