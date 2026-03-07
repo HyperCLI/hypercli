@@ -649,6 +649,8 @@ function S3FilesPanel({
   const [truncated, setTruncated] = useState(false);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [isDragging, setIsDragging] = useState(false);
+  const dragCounter = useRef(0);
   const [error, setError] = useState<string | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
 
@@ -739,8 +741,51 @@ function S3FilesPanel({
 
   const pathParts = prefix.split("/").filter(Boolean);
 
+  const handleDragEnter = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current++;
+    if (e.dataTransfer.types.includes("Files")) setIsDragging(true);
+  }, []);
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    dragCounter.current--;
+    if (dragCounter.current === 0) setIsDragging(false);
+  }, []);
+
+  const handleDragOver = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+  }, []);
+
+  const handleDrop = useCallback((e: React.DragEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    setIsDragging(false);
+    dragCounter.current = 0;
+    if (e.dataTransfer.files?.length) {
+      void uploadFiles(e.dataTransfer.files);
+    }
+  }, [uploadFiles]);
+
   return (
-    <div className="flex flex-col h-full">
+    <div
+      className="flex flex-col h-full relative"
+      onDragEnter={handleDragEnter}
+      onDragLeave={handleDragLeave}
+      onDragOver={handleDragOver}
+      onDrop={handleDrop}
+    >
+      {isDragging && (
+        <div className="absolute inset-0 z-50 bg-zinc-900/80 border-2 border-dashed border-blue-500 rounded flex items-center justify-center pointer-events-none">
+          <div className="text-blue-400 text-sm font-medium flex items-center gap-2">
+            <Upload className="w-5 h-5" />
+            Drop files to upload
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-zinc-800">
         <input
           ref={fileInputRef}
@@ -771,7 +816,9 @@ function S3FilesPanel({
           Refresh
         </button>
         <div className="flex-1" />
-        <p className="text-xs text-zinc-500">Uploaded files sync to workspace on agent restart.</p>
+        <p className="text-xs text-zinc-500">
+          {uploading ? "Uploading..." : "Drag & drop files or click Upload"}
+        </p>
       </div>
 
       <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50 text-xs text-zinc-400 font-mono flex items-center gap-1 overflow-x-auto">
