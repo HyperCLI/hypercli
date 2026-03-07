@@ -1114,7 +1114,8 @@ export default function AgentsPage() {
       />
 
       {/* Main layout: Sidebar + Panel */}
-      <div className="flex h-[calc(100vh-8rem)]">
+      {/* dvh handles mobile browser chrome. Mobile has bottom tab bar (5rem extra). */}
+      <div className="flex h-[calc(100dvh-12rem)] md:h-[calc(100dvh-7rem)]">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
           sidebarCollapsed ? "w-0 overflow-hidden lg:w-16" : "w-full lg:w-[280px]"
