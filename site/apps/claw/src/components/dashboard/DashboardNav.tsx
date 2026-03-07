@@ -39,6 +39,10 @@ export function DashboardNav() {
     }
   }, [userMenuOpen]);
 
+  useEffect(() => {
+    setMobileMenuOpen(false);
+  }, [pathname]);
+
   const emailInitial = user?.email ? user.email[0].toUpperCase() : "?";
 
   return (
@@ -165,6 +169,27 @@ export function DashboardNav() {
                   </div>
                 </div>
 
+                <div className="space-y-1 mb-3 pb-3 border-b border-border">
+                  {navItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors ${
+                          isActive(item.href)
+                            ? "text-foreground bg-surface-low"
+                            : "text-text-tertiary hover:text-foreground hover:bg-surface-low"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+
                 <button
                   onClick={() => {
                     setMobileMenuOpen(false);
@@ -177,35 +202,9 @@ export function DashboardNav() {
                 </button>
               </div>
             </motion.div>
-          )}
-        </AnimatePresence>
+        )}
+      </AnimatePresence>
       </header>
-
-      {/* Mobile bottom tab bar */}
-      <nav className="md:hidden fixed bottom-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-t border-border">
-        <div className="flex items-center justify-around h-16 px-1">
-          {navItems.map((item) => {
-            const Icon = item.icon;
-            const active = isActive(item.href);
-            return (
-              <Link
-                key={item.href}
-                href={item.href}
-                className={`flex flex-col items-center justify-center gap-0.5 flex-1 py-1 transition-colors ${
-                  active
-                    ? "text-foreground"
-                    : "text-text-tertiary"
-                }`}
-              >
-                <Icon className="w-5 h-5" />
-                <span className="text-[10px] font-medium">
-                  {"mobileLabel" in item ? item.mobileLabel : item.label}
-                </span>
-              </Link>
-            );
-          })}
-        </div>
-      </nav>
     </>
   );
 }
