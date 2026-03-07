@@ -1059,7 +1059,7 @@ export default function AgentsPage() {
   // ── Render ──
 
   return (
-    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8">
+    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100dvh-3.5rem)] md:min-h-0 flex flex-col">
       {/* Header */}
       <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
         <div className="flex items-center gap-3">
@@ -1116,8 +1116,7 @@ export default function AgentsPage() {
       />
 
       {/* Main layout: Sidebar + Panel */}
-      {/* dvh handles mobile browser chrome. Mobile has bottom tab bar (5rem extra). */}
-      <div className="flex h-[calc(100dvh-12rem)] md:h-[calc(100dvh-7rem)]">
+      <div className="flex flex-1 min-h-0 md:h-[calc(100dvh-7rem)] md:flex-none">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
           sidebarCollapsed ? "w-0 overflow-hidden lg:w-16" : "w-full lg:w-[280px]"
@@ -1260,7 +1259,7 @@ export default function AgentsPage() {
           ) : (
             <>
               {/* Agent header + tabs */}
-              <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+              <div className="px-4 py-3 border-b border-border flex items-center gap-3 min-w-0">
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
@@ -1285,8 +1284,8 @@ export default function AgentsPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="inline-flex rounded-lg border border-border overflow-hidden">
+                <div className="flex-1 min-w-0 flex items-center md:justify-center overflow-x-auto">
+                  <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
                     {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
                         chat: MessageSquare,
@@ -1318,7 +1317,7 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{labels[tab]}</span>
+                          <span className="hidden md:inline">{labels[tab]}</span>
                         </button>
                       );
                     })}
@@ -1434,7 +1433,7 @@ export default function AgentsPage() {
 
                     {/* Chat input */}
                     <div
-                      className="border-t border-border p-3"
+                      className="border-t border-border px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:p-3"
                       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                       onDrop={(e) => {
                         e.preventDefault();
