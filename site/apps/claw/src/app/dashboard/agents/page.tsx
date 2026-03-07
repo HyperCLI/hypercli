@@ -25,7 +25,9 @@ import {
   PanelLeftClose,
   PanelLeft,
   Upload,
+  Paperclip,
   X,
+  ImageIcon,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
@@ -1432,19 +1434,71 @@ export default function AgentsPage() {
 
                     {/* Chat input */}
                     <div className="border-t border-border p-3">
+                      {/* Pending image attachments preview */}
+                      {chat.pendingAttachments.length > 0 && (
+                        <div className="flex gap-2 mb-2 flex-wrap">
+                          {chat.pendingAttachments.map((att, i) => (
+                            <div key={i} className="relative group">
+                              <img
+                                src={`data:${att.mimeType};base64,${att.content}`}
+                                alt={att.fileName || "attachment"}
+                                className="w-16 h-16 rounded-md object-cover border border-border"
+                              />
+                              <button
+                                onClick={() => chat.removeAttachment(i)}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-3 h-3 text-white" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
                       <div className="flex gap-2">
                         <input
                           type="text"
                           value={chat.input}
                           onChange={(e) => chat.setInput(e.target.value)}
                           onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                          onPaste={(e) => {
+                            const items = e.clipboardData?.items;
+                            if (!items) return;
+                            const imageFiles: File[] = [];
+                            for (const item of Array.from(items)) {
+                              if (item.type.startsWith("image/")) {
+                                const file = item.getAsFile();
+                                if (file) imageFiles.push(file);
+                              }
+                            }
+                            if (imageFiles.length > 0) {
+                              e.preventDefault();
+                              const dt = new DataTransfer();
+                              imageFiles.forEach((f) => dt.items.add(f));
+                              chat.addAttachments(dt.files);
+                            }
+                          }}
                           placeholder={chat.connected ? "Type a message..." : "Waiting for gateway connection..."}
                           disabled={!chat.connected || chat.sending}
                           className="flex-1 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
                         />
+                        <label className="px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors">
+                          <Paperclip className="w-4 h-4" />
+                          <input
+                            type="file"
+                            accept="image/*"
+                            multiple
+                            className="hidden"
+                            onChange={(e) => {
+                              if (e.target.files?.length) {
+                                chat.addAttachments(e.target.files);
+                                e.target.value = "";
+                              }
+                            }}
+                          />
+                        </label>
                         <button
                           onClick={handleSendChat}
-                          disabled={!chat.connected || chat.sending || !chat.input.trim()}
+                          disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0)}
                           className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
                         >
                           <Send className="w-4 h-4" />

@@ -4,11 +4,20 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { GatewayClient } from "@/gateway-client";
 import { clawFetch } from "@/lib/api";
 
+export interface ChatAttachment {
+  type: string;
+  mimeType: string;
+  content: string; // base64
+  fileName?: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   thinking?: string;
   toolCalls?: Array<{ name: string; args: string; result?: string }>;
+  mediaUrls?: string[];
+  attachments?: ChatAttachment[]; // user-sent images
   timestamp?: number;
 }
 
@@ -72,10 +81,39 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
     }
   }
 
+  // Extract media URLs from message
+  const mediaUrls: string[] = [];
+  if (Array.isArray(entry.content)) {
+    for (const item of entry.content) {
+      if (!item || typeof item !== "object") continue;
+      const part = item as Record<string, unknown>;
+      // Handle image content blocks (base64 inline or URL)
+      if (part.type === "image") {
+        if (typeof part.source === "object" && part.source) {
+          const source = part.source as Record<string, unknown>;
+          if (source.type === "url" && typeof source.url === "string") {
+            mediaUrls.push(source.url);
+          } else if (source.type === "base64" && typeof source.data === "string") {
+            const mime = (source.media_type as string) || "image/png";
+            mediaUrls.push(`data:${mime};base64,${source.data}`);
+          }
+        }
+      }
+    }
+  }
+  // Also check top-level mediaUrl/mediaUrls
+  if (typeof entry.mediaUrl === "string") mediaUrls.push(entry.mediaUrl);
+  if (Array.isArray(entry.mediaUrls)) {
+    for (const u of entry.mediaUrls) {
+      if (typeof u === "string") mediaUrls.push(u);
+    }
+  }
+
   return {
     role,
     content,
     ...(thinking ? { thinking } : {}),
+    ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
     timestamp,
   };
 }
@@ -230,7 +268,18 @@ export function useGatewayChat(
             const timestamp =
               typeof message?.timestamp === "number" ? message.timestamp : Date.now();
 
-            if (role === "assistant" && nextText) {
+            // Extract media URLs from the message payload
+            const eventMediaUrls: string[] = [];
+            if (message) {
+              if (typeof message.mediaUrl === "string") eventMediaUrls.push(message.mediaUrl);
+              if (Array.isArray(message.mediaUrls)) {
+                for (const u of message.mediaUrls) {
+                  if (typeof u === "string") eventMediaUrls.push(u);
+                }
+              }
+            }
+
+            if (role === "assistant" && (nextText || eventMediaUrls.length > 0)) {
               setMessages((prev) => {
                 const last = prev[prev.length - 1];
                 if (last?.role === "assistant") {
@@ -238,9 +287,23 @@ export function useGatewayChat(
                     nextText.startsWith(last.content) || nextText.length >= last.content.length
                       ? nextText
                       : `${last.content}${nextText}`;
-                  return [...prev.slice(0, -1), { ...last, content: merged, timestamp }];
+                  const mergedMedia = [
+                    ...(last.mediaUrls ?? []),
+                    ...eventMediaUrls.filter((u) => !(last.mediaUrls ?? []).includes(u)),
+                  ];
+                  return [...prev.slice(0, -1), {
+                    ...last,
+                    content: merged,
+                    timestamp,
+                    ...(mergedMedia.length > 0 ? { mediaUrls: mergedMedia } : {}),
+                  }];
                 }
-                return [...prev, { role: "assistant", content: nextText, timestamp }];
+                return [...prev, {
+                  role: "assistant" as const,
+                  content: nextText,
+                  timestamp,
+                  ...(eventMediaUrls.length > 0 ? { mediaUrls: eventMediaUrls } : {}),
+                }];
               });
             }
 
@@ -388,20 +451,46 @@ export function useGatewayChat(
     };
   }, [agent?.id, agent?.state, agent?.hostname, getToken]);
 
+  const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+
+  const addAttachments = useCallback((files: FileList) => {
+    Array.from(files).forEach((file) => {
+      if (!file.type.startsWith("image/")) return;
+      const reader = new FileReader();
+      reader.onload = () => {
+        const base64 = (reader.result as string).split(",")[1];
+        if (!base64) return;
+        setPendingAttachments((prev) => [
+          ...prev,
+          { type: "image", mimeType: file.type, content: base64, fileName: file.name },
+        ]);
+      };
+      reader.readAsDataURL(file);
+    });
+  }, []);
+
+  const removeAttachment = useCallback((index: number) => {
+    setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
+  }, []);
+
   const sendMessage = useCallback(async () => {
     const gw = gwRef.current;
-    if (!gw || !input.trim() || sending) return;
+    if (!gw || (!input.trim() && pendingAttachments.length === 0) || sending) return;
 
     const msg = input.trim();
+    const attachments = [...pendingAttachments];
     setInput("");
+    setPendingAttachments([]);
     setSending(true);
-    setMessages((prev) => [
-      ...prev,
-      { role: "user", content: msg, timestamp: Date.now() },
-    ]);
+
+    const userMsg: ChatMessage = { role: "user", content: msg, timestamp: Date.now() };
+    if (attachments.length > 0) {
+      userMsg.attachments = attachments;
+    }
+    setMessages((prev) => [...prev, userMsg]);
 
     try {
-      await gw.chatSend(msg);
+      await gw.chatSend(msg || "What's in this image?", undefined, undefined, attachments.length > 0 ? attachments : undefined);
     } catch (e: unknown) {
       setMessages((prev) => [
         ...prev,
@@ -413,7 +502,7 @@ export function useGatewayChat(
       ]);
       setSending(false);
     }
-  }, [input, sending]);
+  }, [input, sending, pendingAttachments]);
 
   // File operations
   const openFile = useCallback(
@@ -455,5 +544,8 @@ export function useGatewayChat(
     openFile,
     saveFile,
     saveConfig,
+    pendingAttachments,
+    addAttachments,
+    removeAttachment,
   };
 }

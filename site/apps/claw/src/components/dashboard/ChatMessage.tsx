@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
-import type { ChatMessage as ChatMessageType } from "@/hooks/useGatewayChat";
+import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 
 interface ChatMessageProps {
   message: ChatMessageType;
@@ -96,6 +96,54 @@ export function ChatMessageBubble({ message }: ChatMessageProps) {
             )}
           </div>
         ))}
+
+        {/* User-sent image attachments */}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {message.attachments.map((att, i) => (
+              <img
+                key={i}
+                src={`data:${att.mimeType};base64,${att.content}`}
+                alt={att.fileName || "attachment"}
+                className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
+                onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Agent-sent media (URLs) */}
+        {message.mediaUrls && message.mediaUrls.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {message.mediaUrls.map((url, i) => {
+              const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
+              if (isImage) {
+                return (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={url}
+                      alt="media"
+                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                      loading="lazy"
+                    />
+                  </a>
+                );
+              }
+              // Non-image media: render as link
+              return (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline text-xs"
+                >
+                  📎 {url.split("/").pop() || "media"}
+                </a>
+              );
+            })}
+          </div>
+        )}
 
         {/* Content */}
         {message.content && (
