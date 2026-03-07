@@ -39,6 +39,7 @@ import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard
 import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
+import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
 
@@ -124,7 +125,7 @@ const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "files" | "workspace" | "openclaw" | "settings";
+type MainTab = AgentMainTab;
 
 // ── Utility functions ──
 
@@ -487,6 +488,7 @@ function S3FilesPanel({
 
 export default function AgentsPage() {
   const { getToken } = useClawAuth();
+  const { setAgentMenu } = useDashboardMobileAgentMenu();
 
   // Agent data
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -1056,6 +1058,24 @@ export default function AgentsPage() {
     chat.sendMessage();
   };
 
+  useEffect(() => {
+    if (!selectedAgent) {
+      setAgentMenu(null);
+      return;
+    }
+    setAgentMenu({
+      selectedAgentId: selectedAgent.id,
+      activeTab: mainTab,
+      onSelectTab: (tab) => {
+        setMainTab(tab);
+        setMobileShowChat(true);
+      },
+      onDelete: () => { void handleDelete(selectedAgent.id); },
+      deleting: deletingId === selectedAgent.id,
+    });
+    return () => setAgentMenu(null);
+  }, [selectedAgent, mainTab, deletingId, setAgentMenu]);
+
   // ── Render ──
 
   return (
@@ -1284,7 +1304,7 @@ export default function AgentsPage() {
                 </div>
 
                 {/* Tabs */}
-                <div className="flex-1 min-w-0 flex items-center md:justify-center overflow-x-auto">
+                <div className="hidden md:flex flex-1 min-w-0 items-center justify-center overflow-x-auto">
                   <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
                     {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
@@ -1326,17 +1346,7 @@ export default function AgentsPage() {
 
                 {/* Right actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {(mainTab === "logs" || mainTab === "shell") && (
-                    <span className={`text-xs font-medium ${
-                      (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
-                      (mainTab === "logs" ? wsStatus : shellStatus) === "connecting" ? "text-[#f0c56c]" : "text-text-muted"
-                    }`}>
-                      {mainTab === "logs" ? wsStatus : shellStatus}
-                    </span>
-                  )}
-
-                  {/* Agent actions dropdown */}
-                  <div className="flex items-center gap-1">
+                  <div className="md:hidden flex items-center gap-1">
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
@@ -1358,36 +1368,71 @@ export default function AgentsPage() {
                         </button>
                       )
                     ) : null}
+                  </div>
 
-                    {isSelectedRunning && selectedAgent.hostname && (
-                      <button
-                        onClick={() => handleOpenDesktop(selectedAgent)}
-                        disabled={openingDesktopId === selectedAgent.id}
-                        className="px-2 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                      >
-                        {openingDesktopId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
-                        Desktop
-                      </button>
-                    )}
-
+                  <div className="hidden md:flex items-center gap-2">
                     {(mainTab === "logs" || mainTab === "shell") && (
-                      <button
-                        onClick={() => setReconnectNonce((n) => n + 1)}
-                        className="p-1 text-text-muted hover:text-foreground transition-colors"
-                        title="Reconnect"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
+                      <span className={`text-xs font-medium ${
+                        (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
+                        (mainTab === "logs" ? wsStatus : shellStatus) === "connecting" ? "text-[#f0c56c]" : "text-text-muted"
+                      }`}>
+                        {mainTab === "logs" ? wsStatus : shellStatus}
+                      </span>
                     )}
 
-                    <button
-                      onClick={() => handleDelete(selectedAgent.id)}
-                      disabled={deletingId === selectedAgent.id}
-                      className="p-1 text-text-muted hover:text-[#d05f5f] transition-colors"
-                      title="Delete agent"
-                    >
-                      {deletingId === selectedAgent.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
+                        <button
+                          onClick={() => handleStart(selectedAgent.id)}
+                          disabled={startingId === selectedAgent.id}
+                          className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                        >
+                          {startingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          Start
+                        </button>
+                      ) : isSelectedRunning || isSelectedTransitioning ? (
+                        selectedAgent.state !== "STOPPING" && (
+                          <button
+                            onClick={() => handleStop(selectedAgent.id)}
+                            disabled={stoppingId === selectedAgent.id}
+                            className="px-2 py-1 rounded text-xs border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60 flex items-center gap-1"
+                          >
+                            {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+                            Stop
+                          </button>
+                        )
+                      ) : null}
+
+                      {isSelectedRunning && selectedAgent.hostname && (
+                        <button
+                          onClick={() => handleOpenDesktop(selectedAgent)}
+                          disabled={openingDesktopId === selectedAgent.id}
+                          className="px-2 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                        >
+                          {openingDesktopId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
+                          Desktop
+                        </button>
+                      )}
+
+                      {(mainTab === "logs" || mainTab === "shell") && (
+                        <button
+                          onClick={() => setReconnectNonce((n) => n + 1)}
+                          className="p-1 text-text-muted hover:text-foreground transition-colors"
+                          title="Reconnect"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => handleDelete(selectedAgent.id)}
+                        disabled={deletingId === selectedAgent.id}
+                        className="p-1 text-text-muted hover:text-[#d05f5f] transition-colors"
+                        title="Delete agent"
+                      >
+                        {deletingId === selectedAgent.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>

@@ -1,11 +1,29 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, type ComponentType } from "react";
 import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
-import { LayoutDashboard, Key, CreditCard, Settings, LogOut, Bot, Menu, X, ChevronDown } from "lucide-react";
+import {
+  LayoutDashboard,
+  Key,
+  CreditCard,
+  Settings,
+  LogOut,
+  Bot,
+  Menu,
+  X,
+  ChevronDown,
+  MessageSquare,
+  TerminalSquare,
+  FolderOpen,
+  HardDrive,
+  SlidersHorizontal,
+  Trash2,
+  Loader2,
+} from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
+import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 const navItems = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
@@ -18,6 +36,7 @@ const navItems = [
 export function DashboardNav() {
   const pathname = usePathname();
   const { user, logout } = useClawAuth();
+  const { agentMenu } = useDashboardMobileAgentMenu();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
@@ -44,6 +63,15 @@ export function DashboardNav() {
   }, [pathname]);
 
   const emailInitial = user?.email ? user.email[0].toUpperCase() : "?";
+  const agentTabItems: Array<{ key: AgentMainTab; label: string; icon: ComponentType<{ className?: string }> }> = [
+    { key: "chat", label: "Chat", icon: MessageSquare },
+    { key: "logs", label: "Logs", icon: TerminalSquare },
+    { key: "shell", label: "Shell", icon: TerminalSquare },
+    { key: "files", label: "Files", icon: HardDrive },
+    { key: "workspace", label: "Workspace", icon: FolderOpen },
+    { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
+    { key: "settings", label: "Settings", icon: Settings },
+  ];
 
   return (
     <>
@@ -189,6 +217,43 @@ export function DashboardNav() {
                     );
                   })}
                 </div>
+
+                {agentMenu?.selectedAgentId && (
+                  <div className="space-y-1 mb-3 pb-3 border-b border-border">
+                    <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">Agent</p>
+                    {agentTabItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <button
+                          key={item.key}
+                          onClick={() => {
+                            agentMenu.onSelectTab(item.key);
+                            setMobileMenuOpen(false);
+                          }}
+                          className={`w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors ${
+                            agentMenu.activeTab === item.key
+                              ? "text-foreground bg-surface-low"
+                              : "text-text-tertiary hover:text-foreground hover:bg-surface-low"
+                          }`}
+                        >
+                          <Icon className="w-4 h-4" />
+                          <span>{item.label}</span>
+                        </button>
+                      );
+                    })}
+                    <button
+                      onClick={() => {
+                        agentMenu.onDelete();
+                        setMobileMenuOpen(false);
+                      }}
+                      disabled={agentMenu.deleting}
+                      className="w-full flex items-center gap-2 px-2 py-2 rounded-md text-sm text-text-tertiary hover:text-[#d05f5f] hover:bg-surface-low transition-colors disabled:opacity-60"
+                    >
+                      {agentMenu.deleting ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      <span>Delete</span>
+                    </button>
+                  </div>
+                )}
 
                 <button
                   onClick={() => {
