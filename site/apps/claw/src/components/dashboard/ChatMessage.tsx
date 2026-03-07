@@ -179,6 +179,11 @@ export function ChatMessageBubble({ message }: ChatMessageProps) {
                   <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
                 ),
                 hr: () => <hr className="border-border my-3" />,
+                img: ({ src, alt }) => typeof src === "string" && src ? (
+                  <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
+                    <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
+                  </a>
+                ) : null,
               }}
             >
               {message.content}
