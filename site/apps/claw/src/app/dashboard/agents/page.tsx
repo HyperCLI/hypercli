@@ -29,6 +29,7 @@ import {
   Mic,
   MicOff,
   X,
+  Pause,
   ImageIcon,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
@@ -162,6 +163,14 @@ function formatFileSize(size?: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function extractVoicePathFromMessage(content: string): string | null {
+  const absoluteMatch = content.match(/\/home\/ubuntu\/workspace\/voice-[\w.-]+\.webm\b/i);
+  if (absoluteMatch?.[0]) return absoluteMatch[0];
+  const fileMatch = content.match(/\bvoice-[\w.-]+\.webm\b/i);
+  if (!fileMatch?.[0]) return null;
+  return `/home/ubuntu/workspace/${fileMatch[0]}`;
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
@@ -1085,7 +1094,11 @@ export default function AgentsPage() {
   const [audioLevel, setAudioLevel] = useState(0);
   const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
   const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioPreviewDuration, setAudioPreviewDuration] = useState(0);
+  const [audioPreviewPlaying, setAudioPreviewPlaying] = useState(false);
+  const [sendingAudio, setSendingAudio] = useState(false);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
   const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
   const analyserRef = useRef<AnalyserNode | null>(null);
@@ -1146,36 +1159,88 @@ export default function AgentsPage() {
   }, []);
 
   const discardAudio = useCallback(() => {
+    if (audioPreviewRef.current) {
+      audioPreviewRef.current.pause();
+    }
     if (audioUrl) URL.revokeObjectURL(audioUrl);
     setAudioBlob(null);
     setAudioUrl(null);
+    setAudioPreviewDuration(0);
+    setAudioPreviewPlaying(false);
     setRecordingDuration(0);
   }, [audioUrl]);
 
+  useEffect(() => {
+    if (!audioUrl) return;
+    const previewAudio = new Audio(audioUrl);
+    previewAudio.preload = "metadata";
+    const syncDuration = () => {
+      if (Number.isFinite(previewAudio.duration) && previewAudio.duration > 0) {
+        setAudioPreviewDuration(Math.round(previewAudio.duration));
+      }
+    };
+    const onPlay = () => setAudioPreviewPlaying(true);
+    const onPause = () => setAudioPreviewPlaying(false);
+    previewAudio.addEventListener("loadedmetadata", syncDuration);
+    previewAudio.addEventListener("durationchange", syncDuration);
+    previewAudio.addEventListener("play", onPlay);
+    previewAudio.addEventListener("pause", onPause);
+    previewAudio.addEventListener("ended", onPause);
+    audioPreviewRef.current = previewAudio;
+    return () => {
+      previewAudio.pause();
+      previewAudio.removeEventListener("loadedmetadata", syncDuration);
+      previewAudio.removeEventListener("durationchange", syncDuration);
+      previewAudio.removeEventListener("play", onPlay);
+      previewAudio.removeEventListener("pause", onPause);
+      previewAudio.removeEventListener("ended", onPause);
+      previewAudio.src = "";
+      audioPreviewRef.current = null;
+      setAudioPreviewPlaying(false);
+    };
+  }, [audioUrl]);
+
+  const toggleAudioPreviewPlayback = useCallback(() => {
+    const previewAudio = audioPreviewRef.current;
+    if (!previewAudio) return;
+    if (previewAudio.paused) {
+      void previewAudio.play();
+      return;
+    }
+    previewAudio.pause();
+  }, []);
+
   const sendAudio = useCallback(async () => {
-    if (!audioBlob || !selectedAgent) return;
+    if (!audioBlob || !selectedAgent || sendingAudio || !chat.connected) return;
+    setSendingAudio(true);
     try {
       const token = await getToken();
       const timestamp = Date.now();
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
+      const agentPath = `/home/ubuntu/${uploadPath}`;
+      const voiceMessage = `Voice message: ${agentPath}`;
       // Upload audio to agent's filesystem
-      const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodeURIComponent(uploadPath)}`, {
+      const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/webm" },
         body: audioBlob,
       });
-      if (!res.ok) throw new Error(`Upload failed: ${res.status}`);
-      const agentPath = `/home/ubuntu/${uploadPath}`;
-      // Send chat message with file path so agent can find it
-      const msg = chat.input.trim() || `Voice message recorded. Audio file saved to: ${agentPath}`;
-      chat.setInput(msg.includes(agentPath) ? msg : `${msg}\n\nAudio file: ${agentPath}`);
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Upload failed: ${res.status}`);
+      }
+      // Keep input state in sync and send in one action.
+      chat.setInput(voiceMessage);
+      await chat.sendMessage(voiceMessage);
       discardAudio();
-      setTimeout(() => chat.sendMessage(), 50);
     } catch (e) {
       console.error("Audio upload failed:", e);
+      setError(e instanceof Error ? e.message : "Audio upload failed");
+    } finally {
+      setSendingAudio(false);
     }
-  }, [audioBlob, chat, discardAudio, selectedAgent, getToken]);
+  }, [audioBlob, chat, discardAudio, selectedAgent, getToken, sendingAudio]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
@@ -1614,9 +1679,13 @@ export default function AgentsPage() {
                         </div>
                       )}
 
-                      {chat.messages.map((msg, i) => (
-                        <ChatMessageBubble key={i} message={msg} />
-                      ))}
+                      {chat.messages.map((msg, i) => {
+                        const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
+                        const inlineAudioUrl = voicePath && selectedAgent
+                          ? `${CLAW_API_BASE}/agents/${selectedAgent.id}/files/download/${encodeURIComponent(voicePath)}`
+                          : null;
+                        return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
+                      })}
 
                       {chat.sending && chat.messages[chat.messages.length - 1]?.role !== "assistant" && (
                         <ChatThinkingIndicator />
@@ -1694,22 +1763,36 @@ export default function AgentsPage() {
                             </button>
                           </>
                         ) : audioUrl ? (
-                          /* Audio preview: player + discard + send */
+                          /* Audio preview: compact custom player */
                           <>
-                            <audio src={audioUrl} controls className="flex-1 h-9 [&::-webkit-media-controls-panel]:bg-surface-low" />
+                            <div className="min-w-0 flex-1 flex items-center gap-1 rounded-lg border border-border bg-surface-low px-2 py-1.5">
+                              <button
+                                onClick={toggleAudioPreviewPlayback}
+                                type="button"
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-text-muted hover:text-foreground hover:bg-background/50"
+                                title={audioPreviewPlaying ? "Pause" : "Play"}
+                              >
+                                {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                              </button>
+                              <span className="min-w-0 truncate text-xs font-mono text-text-secondary">
+                                {formatDuration(audioPreviewDuration || recordingDuration)}
+                              </span>
+                            </div>
                             <button
                               onClick={discardAudio}
                               className="px-2 py-2 rounded-lg border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors"
                               title="Discard"
+                              type="button"
                             >
                               <X className="w-4 h-4" />
                             </button>
                             <button
                               onClick={sendAudio}
-                              disabled={!chat.connected || chat.sending}
+                              disabled={!chat.connected || chat.sending || sendingAudio}
                               className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                              type="button"
                             >
-                              <Send className="w-4 h-4" />
+                              {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                             </button>
                           </>
                         ) : (
