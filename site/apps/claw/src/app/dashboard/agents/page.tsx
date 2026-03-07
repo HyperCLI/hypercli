@@ -1079,7 +1079,7 @@ export default function AgentsPage() {
   // ── Render ──
 
   return (
-    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 min-h-[calc(100dvh-3.5rem)] md:min-h-0 flex flex-col">
+    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 h-[calc(100dvh-3.5rem)] md:h-auto md:min-h-0 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
         <div className="flex items-center gap-3">
@@ -1502,7 +1502,7 @@ export default function AgentsPage() {
 
                     {/* Chat input */}
                     <div
-                      className="flex-shrink-0 border-t border-border px-3 pt-3 pb-[calc(0.75rem+env(safe-area-inset-bottom))] md:p-3"
+                      className="flex-shrink-0 border-t border-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3"
                       onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
                       onDrop={(e) => {
                         e.preventDefault();
