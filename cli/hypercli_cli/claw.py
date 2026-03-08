@@ -746,6 +746,28 @@ def _config_env(api_key: str, models: list[dict]) -> str:
     return "\n".join(lines)
 
 
+@app.command("exec")
+def exec_cmd(
+    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    command: str = typer.Argument(..., help="Command to execute"),
+    timeout: int = typer.Option(30, "--timeout", "-t", help="Command timeout (seconds)"),
+):
+    """Execute a command on a HyperClaw agent container."""
+    from . import agents
+
+    agents.exec_cmd(agent_id=agent_id, command=command, timeout=timeout)
+
+
+@app.command("shell")
+def shell_cmd(
+    agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+):
+    """Open an interactive shell on a HyperClaw agent container."""
+    from . import agents
+
+    agents.shell(agent_id=agent_id)
+
+
 FORMAT_CHOICES = ["openclaw", "opencode", "env"]
 
 

@@ -28,6 +28,11 @@ hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi"
 hyper jobs list
 hyper jobs logs <job_id>
 hyper jobs metrics <job_id>
+hyper jobs exec <job_id> "nvidia-smi"
+hyper jobs shell <job_id>
+
+# Dry-run launch validation
+hyper instances launch nvidia/cuda:12.6.3-base-ubuntu22.04 -g l4 -c "nvidia-smi" --dry-run
 
 # Flows (recommended media path)
 hyper flow text-to-image "a cinematic portrait"
@@ -37,6 +42,8 @@ hyper flow text-to-image "a cinematic portrait" --x402
 hyper claw plans
 hyper claw subscribe 1aiu
 hyper claw config env
+hyper claw exec <agent_id> "ls -la"
+hyper claw shell <agent_id>
 ```
 
 ## Notes

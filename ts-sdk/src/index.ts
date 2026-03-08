@@ -33,6 +33,7 @@ export {
   type GPUMetrics,
   type SystemMetrics,
   type JobMetrics,
+  type ExecResult,
   type CreateJobOptions,
   findJob,
   findById,
@@ -91,6 +92,11 @@ export {
   type ClawPlan,
   type ClawModel,
 } from './claw.js';
+
+export {
+  Agents,
+  type AgentExecResult,
+} from './agents.js';
 
 // Job helpers
 export {

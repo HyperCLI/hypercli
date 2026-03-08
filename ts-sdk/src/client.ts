@@ -11,6 +11,7 @@ import { Renders } from './renders.js';
 import { Files } from './files.js';
 import { Claw } from './claw.js';
 import { KeysAPI } from './keys.js';
+import { Agents } from './agents.js';
 
 export interface HyperCLIOptions {
   apiKey?: string;
@@ -60,6 +61,7 @@ export class HyperCLI {
   public readonly files: Files;
   public readonly keys: KeysAPI;
   public readonly claw: Claw;
+  public readonly agents: Agents;
 
   constructor(options: HyperCLIOptions = {}) {
     // Handle explicit undefined vs explicitly passed empty string
@@ -84,6 +86,7 @@ export class HyperCLI {
     this.files = new Files(this._http);
     this.keys = new KeysAPI(this._http);
     this.claw = new Claw(this._http, options.clawApiKey, options.clawDev);
+    this.agents = new Agents(this._http, options.clawApiKey);
   }
 
   get apiUrl(): string {

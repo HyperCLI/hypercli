@@ -33,6 +33,7 @@ const job = await client.jobs.create({
   gpuType: 'l40s',
   gpuCount: 1,
   command: 'python train.py',
+  dryRun: true,
   env: { MODEL: 'llama-3' },
 });
 
@@ -80,6 +81,24 @@ const logs = await client.jobs.logs(jobId);
 
 // Get metrics
 const metrics = await client.jobs.metrics(jobId);
+
+// Non-interactive exec
+const execResult = await client.jobs.exec(jobId, 'nvidia-smi');
+
+// Interactive shell WebSocket
+const ws = await client.jobs.shellConnect(jobId, '/bin/bash');
+ws.close();
+```
+
+### HyperClaw Agent Exec/Shell
+
+```typescript
+// Execute command in a HyperClaw (reef) container
+const agentExec = await client.agents.exec(agentId, 'ls -la');
+
+// Interactive shell for HyperClaw container
+const agentWs = await client.agents.shellConnect(agentId);
+agentWs.close();
 ```
 
 ### Renders (Managed AI Workflows)
@@ -171,6 +190,7 @@ const response = await fetch(`${comfy.baseUrl}/prompt`, {
 - `client.files` - File upload/download
 - `client.keys` - API keys management
 - `client.claw` - HyperClaw inference API
+- `client.agents` - HyperClaw agent container exec/shell API
 
 ### Job Helpers
 
