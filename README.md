@@ -1,4 +1,5 @@
 # HyperCLI
+![Build](https://github.com/HyperCLI/hypercli/actions/workflows/build.yml/badge.svg)
 
 HyperCLI is the SDK/CLI/docs workspace for:
 

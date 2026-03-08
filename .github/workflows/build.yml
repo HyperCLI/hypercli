@@ -1,0 +1,129 @@
+name: Build
+
+on:
+  push:
+    branches: [main, dev]
+  workflow_dispatch:
+
+jobs:
+  build-site:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          submodules: recursive
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build site
+        working-directory: site
+        run: |
+          npm ci
+          npm run build
+
+  audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Audit ts-sdk (high+)
+        working-directory: ts-sdk
+        run: npm audit --audit-level=high
+
+      - name: Audit site (high+)
+        working-directory: site
+        run: npm audit --audit-level=high
+
+  test-cli:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install SDK + CLI
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          pip install -e sdk/ -e cli/
+
+      - name: CLI smoke tests (dry-run)
+        env:
+          HYPERCLAW_API_KEY: ${{ secrets.HYPERCLAW_API_KEY }}
+          HYPERCLI_API_KEY: ${{ secrets.HYPERCLAW_API_KEY }}
+        run: |
+          source .venv/bin/activate
+          hyper --version
+          hyper models
+
+  test-ts-sdk:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Test TypeScript SDK
+        working-directory: ts-sdk
+        run: |
+          npm ci
+          npm test
+
+  notify:
+    runs-on: ubuntu-latest
+    if: always()
+    needs: [build-site, audit, test-cli, test-ts-sdk]
+    steps:
+      - name: Notify CI result
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+          BUILD_SITE_RESULT: ${{ needs.build-site.result }}
+          AUDIT_RESULT: ${{ needs.audit.result }}
+          TEST_CLI_RESULT: ${{ needs.test-cli.result }}
+          TEST_TS_SDK_RESULT: ${{ needs.test-ts-sdk.result }}
+          STATUS: ${{ needs.build-site.result == 'success' && needs.audit.result == 'success' && needs.test-cli.result == 'success' && needs.test-ts-sdk.result == 'success' && 'success' || 'failure' }}
+          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+        run: |
+          PAYLOAD=$(python3 - <<'PY'
+          import json
+          import os
+          payload = {
+              "category": "github",
+              "severity": "info" if os.environ["STATUS"] == "success" else "error",
+              "message": "HyperCLI build completed",
+              "meta": {
+                  "repo": os.environ["GITHUB_REPOSITORY"],
+                  "sha": os.environ["GITHUB_SHA"],
+                  "run_id": os.environ["GITHUB_RUN_ID"],
+                  "run_url": os.environ["RUN_URL"],
+                  "status": os.environ["STATUS"],
+                  "smoke_results": {
+                      "test_cli": os.environ["TEST_CLI_RESULT"],
+                      "test_ts_sdk": os.environ["TEST_TS_SDK_RESULT"],
+                  },
+                  "build_results": {
+                      "build_site": os.environ["BUILD_SITE_RESULT"],
+                      "audit": os.environ["AUDIT_RESULT"],
+                  },
+              },
+          }
+          print(json.dumps(payload))
+          PY
+          )
+
+          curl -sf -X POST \
+            "https://api.hypercli.com/notify" \
+            -H "X-BACKEND-API-KEY: ${NOTIFY_API_KEY}" \
+            -H "Content-Type: application/json" \
+            -d "${PAYLOAD}" || echo "Notify webhook failed (non-fatal)"
