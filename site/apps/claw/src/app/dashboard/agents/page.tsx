@@ -1219,7 +1219,7 @@ export default function AgentsPage() {
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
       const agentPath = `/home/ubuntu/${uploadPath}`;
-      const voiceMessage = `Voice message: ${agentPath}`;
+      const voiceMessage = `Voice message recorded at ${agentPath}\nTranscribe it with: hyper claw transcribe ${agentPath}`;
       // Upload audio to agent's filesystem
       const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
         method: "PUT",
@@ -1230,34 +1230,9 @@ export default function AgentsPage() {
         const text = await res.text();
         throw new Error(text || `Upload failed: ${res.status}`);
       }
-      let messageToSend = voiceMessage;
-      try {
-        const execRes = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/exec`, {
-          method: "POST",
-          headers: { Authorization: `Bearer ${token}`, "Content-Type": "application/json" },
-          body: JSON.stringify({
-            command: `hyper claw transcribe ${agentPath}`,
-            timeout: 30,
-          }),
-        });
-        if (execRes.ok) {
-          const execJson = await execRes.json() as { stdout?: string; stderr?: string; exit_code?: number };
-          const transcription = execJson.stdout?.trim() ?? "";
-          if (execJson.exit_code === 0 && transcription) {
-            messageToSend = transcription;
-          } else {
-            console.error("Audio transcription failed:", execJson.stderr || "No transcription output");
-          }
-        } else {
-          const execErr = await execRes.text();
-          console.error("Audio transcription exec failed:", execErr || `Exec failed: ${execRes.status}`);
-        }
-      } catch (execError) {
-        console.error("Audio transcription request failed:", execError);
-      }
       // Keep input state in sync and send in one action.
-      chat.setInput(messageToSend);
-      await chat.sendMessage(messageToSend);
+      chat.setInput(voiceMessage);
+      await chat.sendMessage(voiceMessage);
       discardAudio();
     } catch (e) {
       console.error("Audio upload failed:", e);
@@ -1814,17 +1789,10 @@ export default function AgentsPage() {
                             <button
                               onClick={sendAudio}
                               disabled={!chat.connected || chat.sending || sendingAudio}
-                              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center gap-1.5"
+                              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
                               type="button"
                             >
-                              {sendingAudio ? (
-                                <>
-                                  <Loader2 className="w-4 h-4 animate-spin" />
-                                  <span className="text-xs">Transcribing...</span>
-                                </>
-                              ) : (
-                                <Send className="w-4 h-4" />
-                              )}
+                              {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                             </button>
                           </>
                         ) : (
