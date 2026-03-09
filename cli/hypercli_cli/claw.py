@@ -546,6 +546,7 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "reasoning": MODEL_META.get(m["id"], {}).get("reasoning", False),
                 "input": ["text"],
                 "contextWindow": MODEL_META.get(m["id"], {}).get("contextWindow", 200000),
+                **({"mode": m["mode"]} if m.get("mode") else {}),
             }
             for m in data
             if m.get("id")
@@ -607,17 +608,25 @@ def openclaw_setup(
 
     # Patch models.providers.hyperclaw + embedding config
     config.setdefault("models", {}).setdefault("providers", {})
+    chat_models = [m for m in models if m.get("mode") != "embedding"]
+    embedding_models = [m for m in models if m.get("mode") == "embedding"]
     config["models"]["providers"]["hyperclaw"] = {
+        "baseUrl": "https://api.hyperclaw.app",
+        "apiKey": api_key,
+        "api": "anthropic-messages",
+        "models": chat_models,
+    }
+    config["models"]["providers"]["hyperclaw-embed"] = {
         "baseUrl": "https://api.hyperclaw.app/v1",
         "apiKey": api_key,
         "api": "openai-completions",
-        "models": models,
+        "models": embedding_models,
     }
 
     # Always set embedding provider (reuses same API key)
     config.setdefault("agents", {}).setdefault("defaults", {})
     config["agents"]["defaults"]["memorySearch"] = {
-        "provider": "openai",
+        "provider": "hyperclaw-embed",
         "model": "qwen3-embedding-4b",
         "remote": {
             "baseUrl": "https://api.hyperclaw.app/v1/",
@@ -628,7 +637,8 @@ def openclaw_setup(
     # Optionally set default model
     if default:
         config["agents"]["defaults"].setdefault("model", {})
-        config["agents"]["defaults"]["model"]["primary"] = f"hyperclaw/{models[0]['id']}"
+        if chat_models:
+            config["agents"]["defaults"]["model"]["primary"] = f"hyperclaw/{chat_models[0]['id']}"
 
     # Write back
     OPENCLAW_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -638,10 +648,14 @@ def openclaw_setup(
 
     console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
     console.print(f"   provider: hyperclaw  key: {api_key[:16]}...")
-    for m in models:
+    if embedding_models:
+        console.print("   embedding provider: hyperclaw-embed")
+    for m in chat_models:
         console.print(f"   model: hyperclaw/{m['id']}")
-    if default:
-        console.print(f"   default model: hyperclaw/{models[0]['id']}")
+    for m in embedding_models:
+        console.print(f"   model: hyperclaw-embed/{m['id']}")
+    if default and chat_models:
+        console.print(f"   default model: hyperclaw/{chat_models[0]['id']}")
     console.print("\nRun: [bold]openclaw gateway restart[/bold]")
 
 
@@ -666,25 +680,34 @@ def _resolve_api_key(key: str | None) -> str:
 
 def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM + embeddings)."""
+    chat_models = [m for m in models if m.get("mode") != "embedding"]
+    embedding_models = [m for m in models if m.get("mode") == "embedding"]
     return {
         "models": {
             "mode": "merge",
             "providers": {
                 "hyperclaw": {
+                    "baseUrl": api_base,
+                    "apiKey": api_key,
+                    "api": "anthropic-messages",
+                    "models": chat_models,
+                },
+                "hyperclaw-embed": {
                     "baseUrl": f"{api_base}/v1",
                     "apiKey": api_key,
                     "api": "openai-completions",
-                    "models": models,
-                }
+                    "models": embedding_models,
+                },
             }
         },
         "agents": {
             "defaults": {
                 "models": {
-                    **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in models}
+                    **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in chat_models},
+                    **{f"hyperclaw-embed/{m['id']}": {"alias": m['id'].split('-')[0]} for m in embedding_models},
                 },
                 "memorySearch": {
-                    "provider": "openai",
+                    "provider": "hyperclaw-embed",
                     "model": "qwen3-embedding-4b",
                     "remote": {
                         "baseUrl": f"{api_base}/v1/",
