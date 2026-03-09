@@ -25,6 +25,8 @@ class DummyHTTP:
             "price_per_hour": 1.2,
             "price_per_second": 0.0003,
             "docker_image": "nvidia/cuda",
+            "command": "ZWNobyBoaQ==",
+            "env_vars": {"FOO": "bar"},
             "runtime": 120,
             "cold_boot": False,
         }
@@ -42,6 +44,8 @@ class DummyHTTP:
                 "price_per_hour": 1.2,
                 "price_per_second": 0.0003,
                 "docker_image": "nvidia/cuda",
+                "command": "ZWNobyBoaQ==",
+                "env_vars": {"FOO": "bar"},
                 "runtime": 120,
             }
         return {}
@@ -68,6 +72,16 @@ def test_jobs_exec():
     assert result.exit_code == 0
     assert result.stdout == "ok\n"
     assert http.calls[0][1] == "/api/jobs/job-1/exec"
+
+
+def test_jobs_get_decodes_command_and_preserves_env():
+    http = DummyHTTP()
+    jobs = Jobs(http)
+
+    job = jobs.get("job-1")
+
+    assert job.command == "echo hi"
+    assert job.env_vars == {"FOO": "bar"}
 
 
 @pytest.mark.asyncio

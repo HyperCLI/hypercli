@@ -20,6 +20,8 @@ class Job:
     price_per_second: float
     docker_image: str
     runtime: int
+    command: str | None = None
+    env_vars: dict[str, str] | None = None
     hostname: str | None = None
     cold_boot: bool = True
     created_at: float | None = None
@@ -28,6 +30,13 @@ class Job:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Job":
+        command_b64 = data.get("command")
+        command = None
+        if isinstance(command_b64, str) and command_b64:
+            try:
+                command = base64.b64decode(command_b64).decode()
+            except Exception:
+                command = command_b64
         return cls(
             job_id=data.get("job_id", ""),
             job_key=data.get("job_key", ""),
@@ -39,6 +48,8 @@ class Job:
             price_per_hour=data.get("price_per_hour", 0),
             price_per_second=data.get("price_per_second", 0),
             docker_image=data.get("docker_image", ""),
+            command=command,
+            env_vars=data.get("env_vars"),
             runtime=data.get("runtime", 0),
             hostname=data.get("hostname"),
             cold_boot=data.get("cold_boot", True),
