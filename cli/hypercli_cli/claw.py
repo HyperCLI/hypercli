@@ -706,12 +706,14 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
             "mode": "merge",
             "providers": {
                 "hyperclaw": {
+                    # OpenClaw/pi-ai appends /v1/messages for anthropic-messages.
                     "baseUrl": api_base,
                     "apiKey": api_key,
                     "api": "anthropic-messages",
                     "models": chat_models,
                 },
                 "hyperclaw-embed": {
+                    # Embeddings go through the OpenAI-compatible /v1 endpoints.
                     "baseUrl": f"{api_base}/v1",
                     "apiKey": api_key,
                     "api": "openai-completions",
