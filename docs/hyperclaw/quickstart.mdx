@@ -22,15 +22,30 @@ Go to [API Keys](https://hyperclaw.app/dashboard/keys) and click **Create Key**.
 
 ### 4. Make a Request
 
+Use the Anthropic Messages API as the default endpoint for chat models. HyperClaw also supports the OpenAI-compatible API at `/v1`, but tool calling quality is better with the Anthropic format.
+
 ```bash
 export HYPERCLAW_API_KEY="sk-..."
 
-curl https://api.hyperclaw.app/v1/chat/completions \
+curl https://api.hyperclaw.app/v1/messages \
   -H "Authorization: Bearer $HYPERCLAW_API_KEY" \
+  -H "x-api-key: $HYPERCLAW_API_KEY" \
+  -H "anthropic-version: 2023-06-01" \
   -H "Content-Type: application/json" \
   -d '{
     "model": "kimi-k2.5",
-    "messages": [{"role": "user", "content": "What is x402?"}]
+    "max_tokens": 512,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          {
+            "type": "text",
+            "text": "What is x402?"
+          }
+        ]
+      }
+    ]
   }'
 ```
 
@@ -52,6 +67,8 @@ response = client.chat.completions.create(
 )
 print(response.choices[0].message.content)
 ```
+
+`hyper claw config openclaw --apply` already configures both the Anthropic and OpenAI-compatible HyperClaw endpoints automatically.
 
 ## Option 2: CLI
 

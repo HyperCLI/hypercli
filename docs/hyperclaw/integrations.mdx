@@ -3,7 +3,39 @@ title: Agent Integrations
 description: Configure your AI agent or coding tool to use HyperClaw as an LLM provider
 ---
 
-HyperClaw exposes an **OpenAI-compatible API** at `https://api.hyperclaw.app/v1`. Any tool that supports custom OpenAI base URLs works out of the box.
+HyperClaw exposes two chat surfaces:
+
+- **Primary recommended:** Anthropic Messages API at `https://api.hyperclaw.app`
+- **Compatibility option:** OpenAI-compatible API at `https://api.hyperclaw.app/v1`
+
+For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
+
+`hyper claw config openclaw --apply` already configures both endpoints automatically.
+
+## Anthropic Messages API
+
+Use this when your tool or SDK supports Anthropic-compatible providers:
+
+```bash
+curl https://api.hyperclaw.app/v1/messages \
+  -H "x-api-key: sk-YOUR-API-KEY" \
+  -H "anthropic-version: 2023-06-01" \
+  -H "content-type: application/json" \
+  -d '{
+    "model": "kimi-k2.5",
+    "max_tokens": 512,
+    "messages": [
+      {
+        "role": "user",
+        "content": [
+          { "type": "text", "text": "Hello!" }
+        ]
+      }
+    ]
+  }'
+```
+
+Use the OpenAI-compatible `/v1` endpoint below only when your integration requires it.
 
 ## OpenCode
 
@@ -181,6 +213,7 @@ curl https://api.hyperclaw.app/v1/models \
 
 | Purpose | URL |
 |---------|-----|
+| **Chat Inference** (Anthropic Messages, recommended) | `https://api.hyperclaw.app` |
 | **LLM Inference** (OpenAI-compatible) | `https://api.hyperclaw.app/v1` |
 | **Account/Billing API** | `https://api.hyperclaw.app/api` |
 | **Dashboard** | `https://hyperclaw.app` |
