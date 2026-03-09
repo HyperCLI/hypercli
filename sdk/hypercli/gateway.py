@@ -446,8 +446,14 @@ class GatewayClient:
         if not ack.get("ok", True) is False:
             pass  # ACK is just confirmation, not content
 
-        # Now listen for broadcast "chat" events matching our runId
+        # Now listen for broadcast "chat" events matching our runId.
+        # The gateway may emit multiple "final" events for a single run:
+        #   1. An intermediate final with no text (tool-call turn, agent used exec/tools)
+        #   2. The real final with the assistant's text response after tool execution
+        # We keep listening until we get a final with actual text content, or an
+        # empty final that isn't followed by more events (simple text-only response).
         deadline = asyncio.get_event_loop().time() + CHAT_TIMEOUT
+        got_text = False
         async for event in self._listen_events(event_name="chat", deadline=deadline):
             payload = event.get("payload", {})
             if payload.get("runId") != run_id:
@@ -460,14 +466,21 @@ class GatewayClient:
                 for part in (msg.get("content") or []):
                     if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
                         yield ChatEvent(type="delta", text=part["text"])
+                        got_text = True
             elif state == "final":
-                # final has the full accumulated text — yield it as a single content event for reliability
                 msg = payload.get("message", {})
+                has_text = False
                 for part in (msg.get("content") or []):
                     if isinstance(part, dict) and part.get("type") == "text" and part.get("text"):
                         yield ChatEvent(type="content", text=part["text"])
-                yield ChatEvent(type="done", data=payload)
-                return
+                        has_text = True
+
+                if has_text or got_text:
+                    # Real final with content (or we already streamed deltas) — done
+                    yield ChatEvent(type="done", data=payload)
+                    return
+                # Empty final (tool-call turn) — keep listening for the real response
+                yield ChatEvent(type="tool_call", data=payload)
             elif state in ("error", "aborted"):
                 yield ChatEvent(type="error", text=payload.get("errorMessage", state))
                 return
