@@ -11,7 +11,7 @@ def get_client() -> HyperCLI:
     return HyperCLI()
 
 
-def _parse_tags(tag_args: tuple[str, ...]) -> dict[str, str]:
+def _parse_tags(tag_args: list[str]) -> dict[str, str]:
     tags: dict[str, str] = {}
     for tag in tag_args:
         key, sep, value = tag.partition("=")
@@ -43,7 +43,7 @@ def _resolve_job_id(client: HyperCLI, job_id: str) -> str:
 @app.command("list")
 def list_jobs(
     state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
-    tag: tuple[str, ...] = typer.Option((), "--tag", help="Filter by tag as KEY=VALUE", metavar="KEY=VALUE"),
+    tag: list[str] = typer.Option([], "--tag", help="Filter by tag as KEY=VALUE", metavar="KEY=VALUE"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List all jobs"""
