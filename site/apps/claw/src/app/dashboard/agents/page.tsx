@@ -1219,7 +1219,7 @@ export default function AgentsPage() {
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
       const agentPath = `/home/ubuntu/${uploadPath}`;
-      const voiceMessage = `Voice message recorded at ${agentPath}\nTranscribe it with: hyper claw transcribe ${agentPath}`;
+      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper claw transcribe ${agentPath}\``;
       // Upload audio to agent's filesystem
       const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
         method: "PUT",
