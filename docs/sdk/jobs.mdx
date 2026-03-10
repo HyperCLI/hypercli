@@ -21,6 +21,7 @@ job = client.jobs.create(
     env={"KEY": "value"},   # optional
     ports={"lb": 8080},     # optional: expose ports
     auth=False,             # enable token auth on load balancer
+    tags={"team": "ml", "env": "prod"},  # optional
 )
 
 print(f"Job: {job.job_id}")
@@ -42,6 +43,25 @@ print(f"Price: ${job.price_per_hour}/hr")
 | `env` | dict | None | Environment variables |
 | `ports` | dict | None | Port mappings (see below) |
 | `auth` | bool | False | Enable token auth on load balancer |
+| `tags` | dict[str, str] | None | Optional string tags for organizing and filtering jobs |
+
+## Tags
+
+Jobs can include an optional `tags` dictionary of string key-value pairs.
+
+```python
+job = client.jobs.create(
+    image="nvidia/cuda:12.0",
+    command="python train.py",
+    gpu_type="l40s",
+    tags={"team": "ml", "env": "prod"},
+)
+
+jobs = client.jobs.list(tags={"team": "ml", "env": "prod"})
+print(job.tags)
+```
+
+The SDK sends tag filters as repeated `tag=key:value` query params to `GET /api/jobs`, and job responses include `tags` when present.
 
 ## Connecting to Your Instance
 
@@ -171,6 +191,8 @@ See [Log Streaming](/sdk/logs) for the full async API.
 ```python
 jobs = client.jobs.list()
 jobs = client.jobs.list(state="running")
+jobs = client.jobs.list(tags={"team": "ml"})
+jobs = client.jobs.list(state="running", tags={"team": "ml", "env": "prod"})
 
 for job in jobs:
     print(f"{job.job_id}: {job.state}")
@@ -197,6 +219,7 @@ job = client.jobs.get("job_id")
 | `price_per_hour` | float | Price per hour |
 | `price_per_second` | float | Price per second |
 | `docker_image` | str | Docker image |
+| `tags` | dict[str, str] | Optional string tags returned when set on the job |
 | `runtime` | int | Max runtime in seconds |
 | `created_at` | float | Created timestamp |
 | `started_at` | float | Started timestamp |
