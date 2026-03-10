@@ -58,7 +58,11 @@ def list_jobs(
         if not jobs:
             console.print("[dim]No jobs found[/dim]")
             return
-        output(jobs, "table", ["job_id", "state", "gpu_type", "gpu_count", "region", "hostname"])
+        output(
+            jobs,
+            "table",
+            ["job_id", "state", "gpu_type", "gpu_count", "region", "time_left", "runtime", "hostname"],
+        )
 
 
 @app.command("get")

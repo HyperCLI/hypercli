@@ -14,7 +14,7 @@ from .shell import ShellSession, shell_connect
 from .claw import Claw, ClawKey, ClawPlan, ClawModel
 from .gateway import GatewayClient, GatewayError, ChatEvent
 
-__version__ = "1.0.0"
+__version__ = "2026.3.8"
 __all__ = [
     "HyperCLI",
     "configure",

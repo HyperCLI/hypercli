@@ -20,6 +20,8 @@ class Job:
     price_per_second: float
     docker_image: str
     runtime: int
+    elapsed: int = 0
+    time_left: int = 0
     command: str | None = None
     env_vars: dict[str, str] | None = None
     tags: dict[str, str] | None = None
@@ -53,6 +55,8 @@ class Job:
             env_vars=data.get("env_vars"),
             tags=data.get("tags"),
             runtime=data.get("runtime", 0),
+            elapsed=data.get("elapsed", 0),
+            time_left=data.get("time_left", 0),
             hostname=data.get("hostname"),
             cold_boot=data.get("cold_boot", True),
             created_at=data.get("created_at"),
