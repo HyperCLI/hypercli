@@ -1,5 +1,21 @@
 // Utils
 export { cn } from './utils/cn';
+export {
+  AuthContext as PrivyAuthContext,
+  AuthProvider as PrivyAuthProvider,
+  useAuth as usePrivyAuth,
+  getStoredToken,
+  setStoredToken,
+  clearStoredToken,
+  isTokenExpired,
+  exchangePrivyToken,
+  getAppToken,
+} from './auth/AuthProvider';
+export type {
+  AuthContextType as PrivyAuthContextType,
+  AuthProviderProps as PrivyAuthProviderProps,
+  AuthUser as PrivyAuthUser,
+} from './auth/AuthProvider';
 
 // UI Components - Core
 export { Button, buttonVariants } from './components/ui/button';

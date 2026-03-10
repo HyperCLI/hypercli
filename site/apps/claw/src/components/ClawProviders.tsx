@@ -2,7 +2,11 @@
 
 import { ReactNode } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
-import { ClawAuthProvider, ClawAuthContext } from "./ClawAuthProvider";
+import {
+  PrivyAuthContext as ClawAuthContext,
+  PrivyAuthProvider as SharedAuthProvider,
+} from "@hypercli/shared-ui";
+import { CLAW_API_BASE } from "@/lib/api";
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 
@@ -59,7 +63,9 @@ export function ClawProviders({ children }: { children: ReactNode }) {
         },
       }}
     >
-      <ClawAuthProvider>{children}</ClawAuthProvider>
+      <SharedAuthProvider apiBaseUrl={CLAW_API_BASE} tokenStorageKey="claw_auth_token">
+        {children}
+      </SharedAuthProvider>
     </PrivyProvider>
   );
 }
