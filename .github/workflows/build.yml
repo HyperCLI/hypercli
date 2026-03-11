@@ -77,8 +77,8 @@ jobs:
           PY
 
           cat > tests/claw/.env <<EOF
-          TEST_BASE_URL=${CI_TEST_BASE_URL:-http://127.0.0.1:4003}
-          TEST_HOSTNAME=${CI_TEST_HOSTNAME:-127.0.0.1}
+          TEST_BASE_URL=${CI_TEST_BASE_URL:-https://gilfoyle.hypercli.com}
+          TEST_HOSTNAME=${CI_TEST_HOSTNAME:-gilfoyle.hypercli.com}
           TEST_EMAIL=${CI_TEST_EMAIL}
           TEST_IMAP_HOST=${CI_TEST_IMAP_HOST:-imap.fastmail.com}
           TEST_IMAP_USER=${CI_TEST_IMAP_USER}
