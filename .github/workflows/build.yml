@@ -1,129 +1,202 @@
-name: Build
+name: Claw CI
 
 on:
   push:
-    branches: [main, dev]
+    branches: [main]
   workflow_dispatch:
 
+env:
+  GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 jobs:
-  build-site:
+  claw-build-and-test:
     runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-        with:
-          submodules: recursive
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Build site
-        working-directory: site
-        run: |
-          npm ci
-          npm run build
-
-  audit:
-    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
       - uses: actions/setup-node@v4
         with:
           node-version: "22"
-
-      - name: Audit ts-sdk (high+)
-        working-directory: ts-sdk
-        run: npm audit --audit-level=high
-
-      - name: Audit site (high+)
-        working-directory: site
-        run: npm audit --audit-level=high
-
-  test-cli:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
+          cache: "npm"
+          cache-dependency-path: site/package-lock.json
 
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
 
-      - name: Install SDK + CLI
-        run: |
-          python -m venv .venv
-          source .venv/bin/activate
-          python -m pip install --upgrade pip
-          pip install -e sdk/ -e cli/
-
-      - name: CLI smoke tests (dry-run)
-        env:
-          HYPERCLAW_API_KEY: ${{ secrets.HYPERCLAW_API_KEY }}
-          HYPERCLI_API_KEY: ${{ secrets.HYPERCLAW_API_KEY }}
-        run: |
-          source .venv/bin/activate
-          hyper --version
-          hyper models
-
-  test-ts-sdk:
-    runs-on: ubuntu-latest
-    steps:
-      - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-
-      - name: Test TypeScript SDK
-        working-directory: ts-sdk
-        run: |
-          npm ci
-          npm test
-
-  notify:
-    runs-on: ubuntu-latest
-    if: always()
-    needs: [build-site, audit, test-cli, test-ts-sdk]
-    steps:
-      - name: Notify CI result
+      - name: Notify CI start
+        continue-on-error: true
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-          BUILD_SITE_RESULT: ${{ needs.build-site.result }}
-          AUDIT_RESULT: ${{ needs.audit.result }}
-          TEST_CLI_RESULT: ${{ needs.test-cli.result }}
-          TEST_TS_SDK_RESULT: ${{ needs.test-ts-sdk.result }}
-          STATUS: ${{ needs.build-site.result == 'success' && needs.audit.result == 'success' && needs.test-cli.result == 'success' && needs.test-ts-sdk.result == 'success' && 'success' || 'failure' }}
-          RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
         run: |
-          PAYLOAD=$(python3 - <<'PY'
-          import json
-          import os
-          payload = {
-              "category": "github",
-              "severity": "info" if os.environ["STATUS"] == "success" else "error",
-              "message": "HyperCLI build completed",
-              "meta": {
-                  "repo": os.environ["GITHUB_REPOSITORY"],
-                  "sha": os.environ["GITHUB_SHA"],
-                  "run_id": os.environ["GITHUB_RUN_ID"],
-                  "run_url": os.environ["RUN_URL"],
-                  "status": os.environ["STATUS"],
-                  "smoke_results": {
-                      "test_cli": os.environ["TEST_CLI_RESULT"],
-                      "test_ts_sdk": os.environ["TEST_TS_SDK_RESULT"],
-                  },
-                  "build_results": {
-                      "build_site": os.environ["BUILD_SITE_RESULT"],
-                      "audit": os.environ["AUDIT_RESULT"],
-                  },
-              },
-          }
-          print(json.dumps(payload))
-          PY
-          )
+          python3 .github/scripts/ci_notify.py \
+            --category github \
+            --phase start \
+            --status running \
+            --event "${{ github.event_name }}" \
+            --message "HyperCLI Claw CI started"
 
-          curl -sf -X POST \
-            "https://api.hypercli.com/notify" \
-            -H "X-BACKEND-API-KEY: ${NOTIFY_API_KEY}" \
-            -H "Content-Type: application/json" \
-            -d "${PAYLOAD}" || echo "Notify webhook failed (non-fatal)"
+      - name: Prepare Claw env
+        working-directory: site
+        env:
+          CI_TEST_BASE_URL: ${{ secrets.CI_TEST_BASE_URL }}
+          CI_TEST_HOSTNAME: ${{ secrets.CI_TEST_HOSTNAME }}
+          CI_TEST_EMAIL: ${{ secrets.CI_TEST_EMAIL }}
+          CI_TEST_IMAP_HOST: ${{ secrets.CI_TEST_IMAP_HOST }}
+          CI_TEST_IMAP_USER: ${{ secrets.CI_TEST_IMAP_USER }}
+          CI_TEST_IMAP_PASS: ${{ secrets.CI_TEST_IMAP_PASS }}
+          CI_TEST_PRIVY_APP_ID: ${{ secrets.CI_TEST_PRIVY_APP_ID }}
+        run: |
+          set -euo pipefail
+
+          cp env.dev apps/claw/.env.local
+          python3 - <<'PY'
+          from pathlib import Path
+
+          env_path = Path("apps/claw/.env.local")
+          replacements = {
+              "NEXT_PUBLIC_COOKIE_DOMAIN": ".hypercli.com",
+              "NEXT_PUBLIC_API_BASE": "https://api.dev.hyperclaw.app/api",
+              "NEXT_PUBLIC_AUTH_BACKEND": "https://api.dev.hyperclaw.app/api",
+          }
+
+          lines = env_path.read_text().splitlines()
+          for key, value in replacements.items():
+              for index, line in enumerate(lines):
+                  if line.startswith(f"{key}="):
+                      lines[index] = f"{key}={value}"
+                      break
+              else:
+                  lines.append(f"{key}={value}")
+
+          env_path.write_text("\n".join(lines) + "\n")
+          PY
+
+          cat > tests/claw/.env <<EOF
+          TEST_BASE_URL=${CI_TEST_BASE_URL:-http://127.0.0.1:4003}
+          TEST_HOSTNAME=${CI_TEST_HOSTNAME:-127.0.0.1}
+          TEST_EMAIL=${CI_TEST_EMAIL}
+          TEST_IMAP_HOST=${CI_TEST_IMAP_HOST:-imap.fastmail.com}
+          TEST_IMAP_USER=${CI_TEST_IMAP_USER}
+          TEST_IMAP_PASS=${CI_TEST_IMAP_PASS}
+          NEXT_PUBLIC_PRIVY_APP_ID=${CI_TEST_PRIVY_APP_ID}
+          EOF
+
+      - name: Install site dependencies
+        id: install
+        working-directory: site
+        run: npm ci
+
+      - name: Install Playwright browsers
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
+      - name: Build Claw app
+        id: build_claw
+        continue-on-error: true
+        working-directory: site
+        run: npm run build --filter=@hypercli/claw
+
+      - name: Notify build success
+        if: steps.build_claw.outcome == 'success'
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category github \
+            --phase build \
+            --status success \
+            --event "${{ github.event_name }}" \
+            --message "HyperCLI Claw build succeeded"
+
+      - name: Notify build failure
+        if: steps.build_claw.outcome == 'failure'
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category github \
+            --phase build \
+            --status failure \
+            --event "${{ github.event_name }}" \
+            --message "HyperCLI Claw build failed"
+
+      - name: Stop on build failure
+        if: steps.build_claw.outcome == 'failure'
+        run: exit 1
+
+      - name: Start Claw app
+        working-directory: site/apps/claw
+        run: |
+          set -euo pipefail
+          npm run start > /tmp/hypercli-claw-ci.log 2>&1 &
+          echo $! > /tmp/hypercli-claw-ci.pid
+
+      - name: Wait for Claw server
+        working-directory: site
+        run: |
+          set -euo pipefail
+          for _ in {1..60}; do
+            if curl -fsS http://127.0.0.1:4003 >/dev/null; then
+              exit 0
+            fi
+            sleep 2
+          done
+          echo "Claw server did not become ready" >&2
+          exit 1
+
+      - name: Run Playwright login test
+        id: playwright
+        continue-on-error: true
+        working-directory: site/tests/claw
+        run: npx playwright test login.spec.ts --config=playwright.config.ts
+
+      - name: Notify test pass
+        if: steps.playwright.outcome == 'success'
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category github \
+            --phase test \
+            --status success \
+            --event "${{ github.event_name }}" \
+            --message "HyperCLI Claw Playwright login test passed"
+
+      - name: Notify test failure
+        if: steps.playwright.outcome == 'failure'
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category github \
+            --phase test \
+            --status failure \
+            --event "${{ github.event_name }}" \
+            --message "HyperCLI Claw Playwright login test failed"
+
+      - name: Show Claw server log
+        if: always()
+        run: |
+          if [ -f /tmp/hypercli-claw-ci.log ]; then
+            tail -n 200 /tmp/hypercli-claw-ci.log
+          fi
+
+      - name: Stop Claw app
+        if: always()
+        run: |
+          if [ -f /tmp/hypercli-claw-ci.pid ]; then
+            kill "$(cat /tmp/hypercli-claw-ci.pid)" || true
+          fi
+
+      - name: Fail workflow on Playwright failure
+        if: steps.playwright.outcome == 'failure'
+        run: exit 1

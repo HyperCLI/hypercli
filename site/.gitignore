@@ -39,9 +39,15 @@ yarn-error.log*
 .env.development.local
 .env.test.local
 .env.production.local
+tests/claw/.env
 
 # Vercel
 .vercel
+
+# Playwright artifacts
+tests/claw/screenshots/
+test-results/
+playwright-report/
 
 # TypeScript
 *.tsbuildinfo
