@@ -148,4 +148,4 @@ async def test_agents_shell_connect(monkeypatch):
 
     ws = await agents.shell_connect("agent-1")
     assert ws == "agent-ws"
-    assert captured["url"] == "wss://api.hypercli.com/ws/shell/agent-1?jwt=jwt-abc"
+    assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc"

@@ -12,6 +12,7 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from typing import Optional, Any, AsyncIterator
+from urllib.parse import urlsplit
 
 import httpx
 
@@ -19,6 +20,43 @@ from .http import HTTPClient, APIError
 
 
 CLAW_API_BASE = "https://api.hypercli.com"
+AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
+DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
+
+
+def _to_ws_base_url(base_url: str) -> str:
+    base = (base_url or "").rstrip("/")
+    if not base:
+        return ""
+    if base.startswith("https://"):
+        return f"wss://{base[len('https://'):]}"
+    if base.startswith("http://"):
+        return f"ws://{base[len('http://'):]}"
+    return base
+
+
+def _normalize_agents_ws_url(url: str) -> str:
+    base = _to_ws_base_url(url)
+    if not base:
+        return ""
+    return base if base.endswith("/ws") else f"{base}/ws"
+
+
+def _default_agents_ws_url(api_base: str) -> str:
+    raw = (api_base or "").strip()
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    host = parsed.netloc.lower()
+    if host in {"api.hypercli.com", "api.hyperclaw.app"}:
+        return AGENTS_WS_URL
+    if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
+        return DEV_AGENTS_WS_URL
+    return _normalize_agents_ws_url(raw)
+
+
+def _is_legacy_openclaw_ws_url(url: str | None) -> bool:
+    if not url:
+        return False
+    return urlsplit(url).netloc.lower().startswith("openclaw-")
 
 
 @dataclass
@@ -34,6 +72,7 @@ class ReefPod:
     memory: int = 0           # GB
     hostname: Optional[str] = None
     openclaw_url: Optional[str] = None
+    agents_ws_url: Optional[str] = None
     jwt_token: Optional[str] = None
     jwt_expires_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
@@ -98,7 +137,9 @@ class ReefPod:
         Returns an unconnected client — use `async with pod.gateway() as gw:`.
         """
         from .gateway import GatewayClient
-        if not self.openclaw_url:
+        if self.agents_ws_url:
+            url = self.agents_ws_url
+        elif not self.openclaw_url:
             if self.hostname:
                 url = f"wss://openclaw-{self.hostname}"
             else:
@@ -151,10 +192,24 @@ class Agents:
         client.agents.stop(pod.id)
     """
 
-    def __init__(self, http: HTTPClient, agent_api_key: str = None, agent_api_base: str = None):
+    def __init__(
+        self,
+        http: HTTPClient,
+        agent_api_key: str = None,
+        agent_api_base: str = None,
+        agents_ws_url: str = None,
+    ):
         self._http = http
         self._api_key = agent_api_key or http.api_key
         self._api_base = (agent_api_base or CLAW_API_BASE).rstrip("/")
+        self._agents_ws_url = _normalize_agents_ws_url(agents_ws_url) if agents_ws_url else _default_agents_ws_url(self._api_base)
+
+    def _hydrate_pod(self, data: dict) -> ReefPod:
+        pod = ReefPod.from_dict(data)
+        pod.agents_ws_url = self._agents_ws_url
+        if not pod.openclaw_url or _is_legacy_openclaw_ws_url(pod.openclaw_url):
+            pod.openclaw_url = self._agents_ws_url
+        return pod
 
     @property
     def _headers(self) -> dict:
@@ -240,7 +295,7 @@ class Agents:
         if ports is not None:
             body["ports"] = ports
         data = self._post("/api/agents", json=body)
-        return ReefPod.from_dict(data)
+        return self._hydrate_pod(data)
 
     def budget(self) -> dict:
         """Get the user's current agent resource budget and usage.
@@ -269,7 +324,7 @@ class Agents:
         """
         data = self._get("/api/agents")
         items = data.get("items", data) if isinstance(data, dict) else data
-        return [ReefPod.from_dict(p) for p in items]
+        return [self._hydrate_pod(p) for p in items]
 
     def get(self, agent_id: str) -> ReefPod:
         """Get agent details by ID (refreshes status from Lagoon).
@@ -281,7 +336,7 @@ class Agents:
             ReefPod with current status.
         """
         data = self._get(f"/api/agents/{agent_id}")
-        return ReefPod.from_dict(data)
+        return self._hydrate_pod(data)
 
     def start(self, agent_id: str) -> ReefPod:
         """Start a previously stopped agent.
@@ -293,7 +348,7 @@ class Agents:
             ReefPod with new pod details.
         """
         data = self._post(f"/api/agents/{agent_id}/start")
-        return ReefPod.from_dict(data)
+        return self._hydrate_pod(data)
 
     def stop(self, agent_id: str) -> ReefPod:
         """Stop an agent (tears down pod, keeps DB record).
@@ -305,7 +360,7 @@ class Agents:
             ReefPod in stopped state.
         """
         data = self._post(f"/api/agents/{agent_id}/stop")
-        return ReefPod.from_dict(data)
+        return self._hydrate_pod(data)
 
     def delete(self, agent_id: str) -> dict:
         """Delete an agent entirely (pod + DB record).
@@ -512,9 +567,7 @@ class Agents:
         token_data = self.refresh_token(agent_id)
         jwt = token_data["token"]
 
-        # Convert HTTP base to WebSocket base
-        ws_base = self._api_base.replace("https://", "wss://").replace("http://", "ws://")
-        url = f"{ws_base}/ws/{agent_id}?jwt={jwt}&container={container}&tail_lines={tail_lines}"
+        url = f"{self._agents_ws_url}/{agent_id}?jwt={jwt}&container={container}&tail_lines={tail_lines}"
 
         async with websockets.connect(url) as ws:
             async for msg in ws:
@@ -538,8 +591,6 @@ class Agents:
         token_data = self._post(f"/api/agents/{agent_id}/shell/token")
         jwt = token_data["token"]
 
-        # Convert HTTP base to WebSocket base
-        ws_base = self._api_base.replace("https://", "wss://").replace("http://", "ws://")
-        url = f"{ws_base}/ws/shell/{agent_id}?jwt={jwt}"
+        url = f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}"
 
         return await websockets.connect(url, ping_interval=20, ping_timeout=20)

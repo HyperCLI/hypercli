@@ -8,7 +8,7 @@ from unittest.mock import Mock, MagicMock, patch, AsyncMock
 import pytest
 import httpx
 
-from hypercli.agents import Agents, ReefPod, ExecResult
+from hypercli.agents import Agents, ReefPod, ExecResult, AGENTS_WS_URL, DEV_AGENTS_WS_URL
 from hypercli.http import HTTPClient, APIError
 
 
@@ -28,7 +28,7 @@ def test_reef_pod_from_dict():
         "cpu": 4,
         "memory": 16,
         "hostname": "test.hypercli.com",
-        "openclaw_url": "wss://openclaw-test.hypercli.com",
+        "openclaw_url": AGENTS_WS_URL,
         "jwt_token": "jwt123",
         "jwt_expires_at": "2026-03-01T12:00:00Z",
         "started_at": "2026-02-24T10:00:00Z",
@@ -50,7 +50,7 @@ def test_reef_pod_from_dict():
     assert pod.cpu == 4
     assert pod.memory == 16
     assert pod.hostname == "test.hypercli.com"
-    assert pod.openclaw_url == "wss://openclaw-test.hypercli.com"
+    assert pod.openclaw_url == AGENTS_WS_URL
     assert pod.jwt_token == "jwt123"
     assert isinstance(pod.jwt_expires_at, datetime)
     assert isinstance(pod.started_at, datetime)
@@ -196,6 +196,50 @@ def test_reef_pod_gateway_uses_openclaw_url():
 
     gw = pod.gateway()
     assert gw.url == "wss://custom-openclaw.hypercli.com"
+
+
+def test_agents_client_applies_default_agents_ws_url():
+    agents = Agents(http=Mock(api_key="test-key"), agent_api_key="sk-test123", agent_api_base="https://api.hypercli.com")
+    pod = agents._hydrate_pod({
+        "id": "agent-123",
+        "user_id": "user-456",
+        "pod_id": "pod-789",
+        "pod_name": "test-pod",
+        "state": "running",
+        "hostname": "test.hypercli.com",
+        "openclaw_url": "wss://openclaw-test.hypercli.com",
+        "jwt_token": "jwt123",
+    })
+
+    assert pod.agents_ws_url == AGENTS_WS_URL
+    assert pod.openclaw_url == AGENTS_WS_URL
+    assert pod.gateway().url == AGENTS_WS_URL
+
+
+def test_agents_client_supports_custom_agents_ws_url():
+    agents = Agents(
+        http=Mock(api_key="test-key"),
+        agent_api_key="sk-test123",
+        agent_api_base="https://api.dev.hypercli.com",
+        agents_ws_url="wss://custom.example/ws",
+    )
+    pod = agents._hydrate_pod({
+        "id": "agent-123",
+        "user_id": "user-456",
+        "pod_id": "pod-789",
+        "pod_name": "test-pod",
+        "state": "running",
+        "jwt_token": "jwt123",
+    })
+
+    assert agents._agents_ws_url == "wss://custom.example/ws"
+    assert pod.openclaw_url == "wss://custom.example/ws"
+    assert pod.gateway().url == "wss://custom.example/ws"
+
+
+def test_agents_client_uses_dev_ws_default():
+    agents = Agents(http=Mock(api_key="test-key"), agent_api_key="sk-test123", agent_api_base="https://api.dev.hypercli.com")
+    assert agents._agents_ws_url == DEV_AGENTS_WS_URL
 
 
 def test_exec_result_from_dict():
