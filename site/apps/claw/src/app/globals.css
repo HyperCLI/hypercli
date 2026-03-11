@@ -241,6 +241,33 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--foreground);
 }
 
+/*
+  Keep landing-header visibility independent of Tailwind utility ordering.
+  This avoids cases where `.hidden` wins over `md:flex` in split CSS chunks.
+*/
+.claw-header-desktop {
+  display: none;
+}
+
+.claw-header-mobile-toggle {
+  display: inline-flex;
+}
+
+.claw-header-mobile-menu {
+  display: block;
+}
+
+@media (min-width: 48rem) {
+  .claw-header-desktop {
+    display: flex;
+  }
+
+  .claw-header-mobile-toggle,
+  .claw-header-mobile-menu {
+    display: none;
+  }
+}
+
 .glow-green {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }

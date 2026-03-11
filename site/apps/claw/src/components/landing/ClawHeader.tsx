@@ -73,7 +73,7 @@ export function ClawHeader() {
           </a>
 
           {/* Desktop Nav */}
-          <div className="hidden md:flex flex-1 justify-center">
+          <div className="claw-header-desktop flex-1 justify-center">
             <nav className="flex items-center gap-8">
               {navLinks.map((link) => (
                 <a
@@ -91,7 +91,7 @@ export function ClawHeader() {
           </div>
 
           {/* Desktop Auth */}
-          <div className="hidden md:flex min-w-fit items-center justify-end gap-3">
+          <div className="claw-header-desktop min-w-fit items-center justify-end gap-3">
             {showAuthenticatedNav ? (
               <div className="flex items-center gap-3">
                 <button
@@ -151,7 +151,7 @@ export function ClawHeader() {
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden ml-auto p-2 text-text-secondary hover:text-foreground transition-colors"
+            className="claw-header-mobile-toggle ml-auto p-2 text-text-secondary hover:text-foreground transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
           >
             {mobileOpen ? (
@@ -164,7 +164,7 @@ export function ClawHeader() {
 
         {/* Mobile Menu */}
         {mobileOpen && (
-          <div className="md:hidden pb-4 border-t border-border mt-2 pt-4 bg-background">
+          <div className="claw-header-mobile-menu pb-4 border-t border-border mt-2 pt-4 bg-background">
             <nav className="flex flex-col gap-3">
               {navLinks.map((link) => (
                 <a

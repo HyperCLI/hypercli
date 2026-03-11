@@ -16,7 +16,13 @@ for (const envVar of requiredEnvVars) {
 }
 
 const nextConfig: NextConfig = {
-  transpilePackages: ["@hypercli/shared-ui"],
+  transpilePackages: [
+    "@hypercli/shared-ui",
+    "viem",
+    "wagmi",
+    "@wagmi/core",
+    "@privy-io/react-auth",
+  ],
   skipTrailingSlashRedirect: true,
   env: {
     NEXT_PUBLIC_IS_MAIN_SITE: "false",

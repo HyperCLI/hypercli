@@ -1,0 +1,7 @@
+export { HeroSection } from "./HeroSection"
+export { CTASection } from "./CTASection"
+export { ComparisonTable } from "./ComparisonTable"
+export { SocialProof } from "./SocialProof"
+export { RiskSection } from "./RiskSection"
+export { UseCasesGrid } from "./UseCasesGrid"
+export { IndustryPage } from "./IndustryPage"

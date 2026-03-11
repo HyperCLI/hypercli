@@ -11,6 +11,7 @@ export {
   exchangePrivyToken,
   getAppToken,
 } from './auth/AuthProvider';
+export { PrivyAuthBoundary } from './auth/PrivyAuthBoundary';
 export type {
   AuthContextType as PrivyAuthContextType,
   AuthProviderProps as PrivyAuthProviderProps,

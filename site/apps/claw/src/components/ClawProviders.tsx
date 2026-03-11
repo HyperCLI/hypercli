@@ -1,12 +1,11 @@
 "use client";
 
 import { ReactNode } from "react";
-import { PrivyProvider } from "@privy-io/react-auth";
 import {
+  PrivyAuthBoundary,
   PrivyAuthContext as ClawAuthContext,
-  PrivyAuthProvider as SharedAuthProvider,
 } from "@hypercli/shared-ui";
-import { CLAW_API_BASE } from "@/lib/api";
+import { AUTH_API_BASE } from "@/lib/api";
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 
@@ -47,25 +46,13 @@ export function ClawProviders({ children }: { children: ReactNode }) {
   }
 
   return (
-    <PrivyProvider
+    <PrivyAuthBoundary
       appId={PRIVY_APP_ID!}
-      config={{
-        loginMethods: ["email", "wallet", "google"],
-        appearance: {
-          theme: "dark",
-          accentColor: "#38D39F",
-          logo: "https://hyperclaw.app/logo-horizontal-white.png",
-        },
-        embeddedWallets: {
-          ethereum: {
-            createOnLogin: "off",
-          },
-        },
-      }}
+      apiBaseUrl={AUTH_API_BASE}
+      tokenStorageKey="claw_auth_token"
+      logo="https://hyperclaw.app/logo-horizontal-white.png"
     >
-      <SharedAuthProvider apiBaseUrl={CLAW_API_BASE} tokenStorageKey="claw_auth_token">
-        {children}
-      </SharedAuthProvider>
-    </PrivyProvider>
+      {children}
+    </PrivyAuthBoundary>
   );
 }
