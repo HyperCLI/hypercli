@@ -20,7 +20,7 @@ Agents are ideal for running autonomous AI workflows, development environments, 
 Client (CLI / SDK)
     │
     ▼
-HyperClaw Backend API (api.hyperclaw.app)
+HyperClaw Backend API (api.hypercli.com)
     │  Auth, plan enforcement, DB persistence
     ▼
 Lagoon (pod orchestrator)
@@ -40,9 +40,9 @@ Each agent gets three public endpoints based on its pod name:
 
 | Service  | URL Pattern                              | Protocol   |
 |----------|------------------------------------------|------------|
-| Desktop  | `https://{name}.hyperclaw.app`           | HTTPS/VNC  |
-| Shell    | `https://shell-{name}.hyperclaw.app`     | HTTPS/WS   |
-| Gateway  | `wss://openclaw-{name}.hyperclaw.app`    | WebSocket  |
+| Desktop  | `https://{name}.hypercli.com`           | HTTPS/VNC  |
+| Shell    | `https://shell-{name}.hypercli.com`     | HTTPS/WS   |
+| Gateway  | `wss://openclaw-{name}.hypercli.com`    | WebSocket  |
 
 All endpoints are secured via Traefik ForwardAuth with JWT tokens.
 

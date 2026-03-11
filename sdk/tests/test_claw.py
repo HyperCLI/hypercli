@@ -92,7 +92,7 @@ class TestHyperAgentClient:
             
             mock_openai.assert_called_once_with(
                 api_key="sk-test",
-                base_url="https://dev-api.hyperclaw.app/v1",
+                base_url="https://api.dev.hypercli.com/v1",
             )
     
     def test_chat_uses_openai_client(self, mock_http):

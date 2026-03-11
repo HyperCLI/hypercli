@@ -6,7 +6,7 @@ Set up HyperClaw LLM API access for OpenClaw agents.
 > 
 > These are **two different things**:
 > - **HyperCLI API Key** — Used for GPU orchestration, job management, and billing at `api.hypercli.com`
-> - **HyperClaw API Key** — Used for LLM inference (chat completions) at `api.hyperclaw.app`
+> - **HyperClaw API Key** — Used for LLM inference (chat completions) at `api.hypercli.com`
 > 
 > This guide sets up a **HyperClaw** API key for LLM access. HyperClaw keys start with `sk-`.
 
@@ -104,7 +104,7 @@ openclaw gateway restart
 ### 6. Verify
 
 ```bash
-curl -s https://api.hyperclaw.app/v1/models \
+curl -s https://api.hypercli.com/v1/models \
   -H "Authorization: Bearer $(jq -r '.key' ~/.hypercli/claw-key.json)"
 ```
 
@@ -169,5 +169,5 @@ Run `hyper claw status` to check expiration. Renew with `hyper claw subscribe`.
 
 | Service | Endpoint | Purpose |
 |---------|----------|---------|
-| HyperClaw | `https://api.hyperclaw.app/v1` | LLM inference (chat completions) |
+| HyperClaw | `https://api.hypercli.com/v1` | LLM inference (chat completions) |
 | HyperCLI | `https://api.hypercli.com` | GPU orchestration & billing |

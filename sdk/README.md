@@ -92,7 +92,7 @@ plans = sdk.agent.plans()
 
 client = OpenAI(
     api_key="your_hyperagent_api_key",
-    base_url="https://api.hyperclaw.app/v1"
+    base_url="https://api.hypercli.com/v1"
 )
 
 response = client.chat.completions.create(

@@ -1,0 +1,20 @@
+services:
+  traefik:
+    image: traefik:v3.3
+    restart: unless-stopped
+    network_mode: host
+    command:
+      - --api.dashboard=true
+      - --api.insecure=false
+      - --providers.file.filename=/etc/traefik/dynamic.yml
+      - --providers.file.watch=true
+      - --entrypoints.web.address=:80
+      - --entrypoints.websecure.address=:443
+      - --certificatesresolvers.letsencrypt.acme.tlschallenge=true
+      - --certificatesresolvers.letsencrypt.acme.email=${LETSENCRYPT_EMAIL}
+      - --certificatesresolvers.letsencrypt.acme.storage=/.acme/acme.json
+      - --log.level=INFO
+      - --accesslog=true
+    volumes:
+      - ./dynamic.yml:/etc/traefik/dynamic.yml:ro
+      - ./.acme:/.acme

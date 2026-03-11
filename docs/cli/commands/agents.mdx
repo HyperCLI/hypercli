@@ -22,7 +22,7 @@ hyper agents create [OPTIONS]
 ```
 
 **Options:**
-- `--name`, `-n` — Agent name (auto-generated if omitted; becomes `{name}.hyperclaw.app`)
+- `--name`, `-n` — Agent name (auto-generated if omitted; becomes `{name}.hypercli.com`)
 - `--size`, `-s` — Size preset: `small`, `medium`, `large`
 - `--cpu` — Custom CPU in cores (overrides size)
 - `--memory` — Custom memory in GB (overrides size)
@@ -38,8 +38,8 @@ Creating agent pod...
   Name:     my-agent
   Size:     2 CPU, 4 GB
   State:    pending
-  Desktop:  https://my-agent.hyperclaw.app
-  Shell:    https://shell-my-agent.hyperclaw.app
+  Desktop:  https://my-agent.hypercli.com
+  Shell:    https://shell-my-agent.hypercli.com
 
 Waiting for pod to start...
   [5s] State: starting
@@ -48,7 +48,7 @@ Waiting for pod to start...
 
 Exec:    hyper agents exec a1b2c3d4 'echo hello'
 Shell:   hyper agents shell a1b2c3d4
-Desktop: https://my-agent.hyperclaw.app
+Desktop: https://my-agent.hypercli.com
 ```
 
 ### list

@@ -1,0 +1,28 @@
+http:
+  routers:
+    claw-dev-http:
+      rule: "Host(`gilfoyle.hypercli.com`) || Host(`gilfoyle.hyperclaw.app`)"
+      entryPoints:
+        - web
+      middlewares:
+        - https-redirect
+      service: claw-dev
+
+    claw-dev-https:
+      rule: "Host(`gilfoyle.hypercli.com`) || Host(`gilfoyle.hyperclaw.app`)"
+      entryPoints:
+        - websecure
+      service: claw-dev
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
+
+  services:
+    claw-dev:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4003"

@@ -28,7 +28,7 @@ export class Agents {
     agentApiBase?: string
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
-    this.apiBase = (agentApiBase || process.env.HYPERCLAW_API_BASE || 'https://api.hyperclaw.app').replace(/\/$/, '');
+    this.apiBase = (agentApiBase || process.env.HYPERCLAW_API_BASE || 'https://api.hypercli.com').replace(/\/$/, '');
   }
 
   /**

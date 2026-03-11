@@ -24,7 +24,7 @@ Agents(http: HTTPClient, claw_api_key: str = None, claw_api_base: str = None)
 |----------------|--------------------------------------------------|-------------------------------|
 | `http`         | HTTPClient instance                              | Required                      |
 | `claw_api_key` | HyperClaw API key (`sk-...`)                     | Falls back to `http.api_key`  |
-| `claw_api_base`| Backend API base URL                             | `https://api.hyperclaw.app`   |
+| `claw_api_base`| Backend API base URL                             | `https://api.hypercli.com`   |
 
 ## Lifecycle Methods
 
@@ -93,7 +93,7 @@ Returns `{"agent_id": "...", "pod_id": "...", "token": "...", "expires_at": "...
 
 ## Executor Methods (Direct to Pod)
 
-These methods talk directly to the reef pod's executor at `https://shell-{name}.hyperclaw.app`. The pod must be running with a valid JWT token.
+These methods talk directly to the reef pod's executor at `https://shell-{name}.hypercli.com`. The pod must be running with a valid JWT token.
 
 ### exec()
 

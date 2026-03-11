@@ -18,7 +18,7 @@ Job tags are optional string key-value pairs you can attach at creation time:
 
 - Orchestra `POST https://api.hypercli.com/api/jobs` accepts `tags`
 - Orchestra `GET https://api.hypercli.com/api/jobs` filters with repeated `tag=key:value`
-- HyperClaw `POST https://api.hyperclaw.app/api/x402/job` also accepts `tags`
+- HyperClaw `POST https://api.hypercli.com/api/x402/job` also accepts `tags`
 - Job responses include `tags` when present
 
 ## Create A Tagged Job
@@ -39,7 +39,7 @@ curl -X POST https://api.hypercli.com/api/jobs \
   }'
 ```
 
-Use the same `tags` object with HyperClaw x402 job creation at `POST https://api.hyperclaw.app/api/x402/job`.
+Use the same `tags` object with HyperClaw x402 job creation at `POST https://api.hypercli.com/api/x402/job`.
 
 ## Filter Jobs By Tag
 

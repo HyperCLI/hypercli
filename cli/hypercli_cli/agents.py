@@ -42,7 +42,7 @@ def _get_agents_client() -> Agents:
     """Create an Agents client using the HyperClaw API key."""
     from hypercli.http import HTTPClient
     api_key = _get_agent_api_key()
-    api_base = os.environ.get("HYPERCLAW_API_BASE", "https://api.hyperclaw.app")
+    api_base = os.environ.get("HYPERCLAW_API_BASE", "https://api.hypercli.com")
     http = HTTPClient(api_base, api_key)
     return Agents(http, agent_api_key=api_key, agent_api_base=api_base)
 
@@ -202,7 +202,7 @@ def budget():
 
 @app.command("create")
 def create(
-    name: str = typer.Option(None, "--name", "-n", help="Agent name (auto-generated if omitted, becomes {name}.hyperclaw.app)"),
+    name: str = typer.Option(None, "--name", "-n", help="Agent name (auto-generated if omitted, becomes {name}.hypercli.com)"),
     size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
     cpu: int = typer.Option(None, "--cpu", help="Custom CPU in cores"),
     memory: int = typer.Option(None, "--memory", help="Custom memory in GB"),

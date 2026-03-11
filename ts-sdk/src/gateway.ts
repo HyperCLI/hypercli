@@ -8,7 +8,7 @@
  */
 
 export interface GatewayOptions {
-  /** WebSocket URL (wss://openclaw-{agent}.hyperclaw.app) */
+  /** WebSocket URL (wss://openclaw-{agent}.hypercli.com) */
   url: string;
   /** JWT Bearer token for authentication */
   token: string;
@@ -18,7 +18,7 @@ export interface GatewayOptions {
   clientId?: string;
   /** Client mode (default: "webchat") */
   clientMode?: string;
-  /** Origin header (default: "https://hyperclaw.app") */
+  /** Origin header (default: "https://hypercli.com") */
   origin?: string;
   /** Default RPC timeout in ms (default: 15000) */
   timeout?: number;
@@ -72,7 +72,7 @@ export class GatewayClient {
     this.gatewayToken = options.gatewayToken ?? 'traefik-forwarded-auth-not-used';
     this.clientId = options.clientId ?? 'openclaw-control-ui';
     this.clientMode = options.clientMode ?? 'webchat';
-    this.origin = options.origin ?? 'https://hyperclaw.app';
+    this.origin = options.origin ?? 'https://hypercli.com';
     this.defaultTimeout = options.timeout ?? DEFAULT_TIMEOUT;
   }
 

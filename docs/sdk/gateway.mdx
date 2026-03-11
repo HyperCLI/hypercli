@@ -11,7 +11,7 @@ description: WebSocket RPC client for the OpenClaw Gateway protocol v3
 from hypercli.gateway import GatewayClient
 
 async with GatewayClient(
-    url="wss://openclaw-myagent.hyperclaw.app",
+    url="wss://openclaw-myagent.hypercli.com",
     token="jwt..."
 ) as gw:
     config = await gw.config_get()
@@ -28,7 +28,7 @@ The easiest way to get a `GatewayClient` is via `ReefPod.gateway()` — see the 
 
 ```python
 GatewayClient(
-    url: str,                    # wss://openclaw-{name}.hyperclaw.app
+    url: str,                    # wss://openclaw-{name}.hypercli.com
     token: str,                  # JWT token for Traefik ForwardAuth
     gateway_token: str = "...",  # Gateway auth token (challenge-response)
     client_id: str = "gateway-client",

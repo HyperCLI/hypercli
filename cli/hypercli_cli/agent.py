@@ -53,8 +53,8 @@ except ImportError:
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
-DEV_API_BASE = "https://dev-api.hyperclaw.app"
-PROD_API_BASE = "https://api.hyperclaw.app"
+DEV_API_BASE = "https://api.dev.hypercli.com"
+PROD_API_BASE = "https://api.hypercli.com"
 
 
 def require_x402_deps():
@@ -70,7 +70,7 @@ def require_x402_deps():
 def subscribe(
     plan_id: str = typer.Argument("1aiu", help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu (default: 1aiu)"),
     amount: str = typer.Argument(None, help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally."),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API (dev-api.hyperclaw.app)")
+    dev: bool = typer.Option(False, "--dev", help="Use dev API (api.dev.hypercli.com)")
 ):
     """Subscribe to a HyperClaw plan via x402 payment.
     
@@ -635,13 +635,13 @@ def openclaw_setup(
     chat_models = [m for m in models if m.get("mode") != "embedding"]
     embedding_models = [m for m in models if m.get("mode") == "embedding"]
     config["models"]["providers"]["hyperclaw"] = {
-        "baseUrl": "https://api.hyperclaw.app",
+        "baseUrl": "https://api.hypercli.com",
         "apiKey": api_key,
         "api": "anthropic-messages",
         "models": chat_models,
     }
     config["models"]["providers"]["hyperclaw-embed"] = {
-        "baseUrl": "https://api.hyperclaw.app/v1",
+        "baseUrl": "https://api.hypercli.com/v1",
         "apiKey": api_key,
         "api": "openai-completions",
         "models": embedding_models,
@@ -653,7 +653,7 @@ def openclaw_setup(
         "provider": "openai",
         "model": "qwen3-embedding-4b",
         "remote": {
-            "baseUrl": "https://api.hyperclaw.app/v1/",
+            "baseUrl": "https://api.hypercli.com/v1/",
             "apiKey": api_key,
         }
     }
@@ -821,7 +821,7 @@ def config_cmd(
       hyper agent config                          # Show all configs
       hyper agent config openclaw                 # OpenClaw snippet
       hyper agent config opencode --key sk-...    # OpenCode with explicit key
-      hyper agent config openclaw --base-url https://dev-api.hyperclaw.app
+      hyper agent config openclaw --base-url https://api.dev.hypercli.com
       hyper agent config openclaw --apply         # Write directly to openclaw.json
       hyper agent config env                      # Shell export lines
     """

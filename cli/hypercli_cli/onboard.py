@@ -25,8 +25,8 @@ WALLET_PATH = HYPERCLI_DIR / "wallet.json"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
-PROD_API_BASE = "https://api.hyperclaw.app"
-DEV_API_BASE = "https://dev-api.hyperclaw.app"
+PROD_API_BASE = "https://api.hypercli.com"
+DEV_API_BASE = "https://api.dev.hypercli.com"
 
 BASE_RPC = "https://mainnet.base.org"
 USDC_CONTRACT = "0x833589fCD6eDb6E08f4c7C32D4f71b54bdA02913"

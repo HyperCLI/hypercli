@@ -115,8 +115,8 @@ class HyperAgent:
         )
     """
 
-    AGENT_API_BASE = "https://api.hyperclaw.app/v1"
-    DEV_API_BASE = "https://dev-api.hyperclaw.app/v1"
+    AGENT_API_BASE = "https://api.hypercli.com/v1"
+    DEV_API_BASE = "https://api.dev.hypercli.com/v1"
 
     def __init__(self, http: HTTPClient, agent_api_key: str = None, dev: bool = False):
         self._http = http

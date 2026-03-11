@@ -819,7 +819,7 @@ export default function AgentsPage() {
       const authToken = await getToken();
       const tokenData = await clawFetch<AgentDesktopTokenResponse>(`/agents/${agentId}/token`, authToken);
       const subdomain = hostname.split(".")[0];
-      const cookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hyperclaw.app";
+      const cookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hypercli.com";
       setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
       setDesktopAuthCookie(`shell-${subdomain}-token`, tokenData.token, 2, cookieDomain);
       setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);

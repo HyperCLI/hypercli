@@ -14,7 +14,7 @@ console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
-DEFAULT_API_BASE = "https://api.hyperclaw.app"
+DEFAULT_API_BASE = "https://api.hypercli.com"
 
 
 def _get_api_key(key: str | None) -> str:
@@ -92,7 +92,7 @@ def tts(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hyperclaw.app)"),
+    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Generate speech from text using a preset voice.
 
@@ -121,7 +121,7 @@ def clone(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hyperclaw.app)"),
+    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Clone a voice from reference audio.
 
@@ -160,7 +160,7 @@ def design(
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
-    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hyperclaw.app)"),
+    base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
     """Design a voice from a text description.
 

@@ -2,7 +2,7 @@
 OpenClaw Gateway Client — WebSocket RPC client for the OpenClaw Gateway protocol.
 
 Connects to an OpenClaw Gateway running inside a reef pod via the
-`wss://openclaw-{agent}.hyperclaw.app` endpoint with JWT auth.
+`wss://openclaw-{agent}.hypercli.com` endpoint with JWT auth.
 
 Implements protocol v3: challenge-response handshake, request/response,
 and server-sent events.
@@ -10,7 +10,7 @@ and server-sent events.
 Usage:
     from hypercli.gateway import GatewayClient
 
-    async with GatewayClient(url="wss://openclaw-myagent.hyperclaw.app", token="jwt...") as gw:
+    async with GatewayClient(url="wss://openclaw-myagent.hypercli.com", token="jwt...") as gw:
         config = await gw.config_get()
         schema = await gw.config_schema()
         await gw.config_patch({"models": {"providers": {"openai": {"apiKey": "sk-..."}}}})
@@ -73,7 +73,7 @@ class GatewayClient:
     Async WebSocket client for the OpenClaw Gateway protocol v3.
 
     Args:
-        url: WebSocket URL (wss://openclaw-{name}.hyperclaw.app)
+        url: WebSocket URL (wss://openclaw-{name}.hypercli.com)
         token: JWT token for Traefik ForwardAuth
         gateway_token: Gateway auth token (for challenge-response)
         client_id: Client identifier (default: gateway-client)
@@ -88,7 +88,7 @@ class GatewayClient:
         gateway_token: str = "traefik-forwarded-auth-not-used",
         client_id: str = "openclaw-control-ui",
         client_mode: str = "webchat",
-        origin: str = "https://sdk.hyperclaw.app",
+        origin: str = "https://sdk.hypercli.com",
         timeout: float = DEFAULT_TIMEOUT,
     ):
         self.url = url

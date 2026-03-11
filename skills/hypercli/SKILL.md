@@ -72,6 +72,6 @@ hyper claw config openclaw --key <api_key> --dev --apply  # Dev mode (local API)
 
 ## API
 
-- **Production**: `https://api.hyperclaw.app`
+- **Production**: `https://api.hypercli.com`
 - **Models**: Kimi K2.5, GLM-5, Minimax M2.5, Qwen3 Embedding
 - **Auth**: Bearer token (sk-xxx) or wallet SIWE

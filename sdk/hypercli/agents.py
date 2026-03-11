@@ -2,7 +2,7 @@
 HyperClaw Agents API — Reef Pod Management
 
 Client for HyperClaw backend agent endpoints. Manages OpenClaw desktop containers
-(reef pods) via the authenticated backend API at api.hyperclaw.app/api/agents.
+(reef pods) via the authenticated backend API at api.hypercli.com/api/agents.
 
 The backend proxies to Lagoon internally, handles auth, plan enforcement,
 runtime key generation, and DB persistence.
@@ -18,7 +18,7 @@ import httpx
 from .http import HTTPClient, APIError
 
 
-CLAW_API_BASE = "https://api.hyperclaw.app"
+CLAW_API_BASE = "https://api.hypercli.com"
 
 
 @dataclass
@@ -130,7 +130,7 @@ class Agents:
     """
     HyperClaw Agents API — manage reef pods (OpenClaw desktop containers).
 
-    Uses the authenticated backend API (api.hyperclaw.app/api/agents).
+    Uses the authenticated backend API (api.hypercli.com/api/agents).
     Auth: pass your HyperClaw API key (sk-...) as the agent_api_key.
 
     Usage:

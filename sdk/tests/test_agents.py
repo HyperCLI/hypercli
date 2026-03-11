@@ -27,8 +27,8 @@ def test_reef_pod_from_dict():
         "name": "My Agent",
         "cpu": 4,
         "memory": 16,
-        "hostname": "test.hyperclaw.app",
-        "openclaw_url": "wss://openclaw-test.hyperclaw.app",
+        "hostname": "test.hypercli.com",
+        "openclaw_url": "wss://openclaw-test.hypercli.com",
         "jwt_token": "jwt123",
         "jwt_expires_at": "2026-03-01T12:00:00Z",
         "started_at": "2026-02-24T10:00:00Z",
@@ -49,8 +49,8 @@ def test_reef_pod_from_dict():
     assert pod.name == "My Agent"
     assert pod.cpu == 4
     assert pod.memory == 16
-    assert pod.hostname == "test.hyperclaw.app"
-    assert pod.openclaw_url == "wss://openclaw-test.hyperclaw.app"
+    assert pod.hostname == "test.hypercli.com"
+    assert pod.openclaw_url == "wss://openclaw-test.hypercli.com"
     assert pod.jwt_token == "jwt123"
     assert isinstance(pod.jwt_expires_at, datetime)
     assert isinstance(pod.started_at, datetime)
@@ -89,12 +89,12 @@ def test_reef_pod_urls():
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
-        hostname="test.hyperclaw.app",
+        hostname="test.hypercli.com",
     )
 
-    assert pod.vnc_url == "https://test.hyperclaw.app"
-    assert pod.shell_url == "https://shell-test.hyperclaw.app"
-    assert pod.executor_url == "https://shell-test.hyperclaw.app"
+    assert pod.vnc_url == "https://test.hypercli.com"
+    assert pod.shell_url == "https://shell-test.hypercli.com"
+    assert pod.executor_url == "https://shell-test.hypercli.com"
 
 
 def test_reef_pod_urls_no_hostname():
@@ -141,13 +141,13 @@ def test_reef_pod_gateway():
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
-        hostname="test.hyperclaw.app",
+        hostname="test.hypercli.com",
         jwt_token="jwt123",
     )
 
     gw = pod.gateway()
     assert gw is not None
-    assert gw.url == "wss://openclaw-test.hyperclaw.app"
+    assert gw.url == "wss://openclaw-test.hypercli.com"
     assert gw.token == "jwt123"
 
 
@@ -159,7 +159,7 @@ def test_reef_pod_gateway_no_token():
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
-        hostname="test.hyperclaw.app",
+        hostname="test.hypercli.com",
     )
 
     with pytest.raises(ValueError, match="no JWT token"):
@@ -189,13 +189,13 @@ def test_reef_pod_gateway_uses_openclaw_url():
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
-        hostname="test.hyperclaw.app",
-        openclaw_url="wss://custom-openclaw.hyperclaw.app",
+        hostname="test.hypercli.com",
+        openclaw_url="wss://custom-openclaw.hypercli.com",
         jwt_token="jwt123",
     )
 
     gw = pod.gateway()
-    assert gw.url == "wss://custom-openclaw.hyperclaw.app"
+    assert gw.url == "wss://custom-openclaw.hypercli.com"
 
 
 def test_exec_result_from_dict():
@@ -239,7 +239,7 @@ def mock_http():
 @pytest.fixture
 def agents_client(mock_http):
     """Agents client with mock HTTP."""
-    return Agents(http=mock_http, agent_api_key="sk-test123", agent_api_base="https://api.test.hyperclaw.app")
+    return Agents(http=mock_http, agent_api_key="sk-test123", agent_api_base="https://api.test.hypercli.com")
 
 
 def test_agents_create(agents_client):
@@ -275,7 +275,7 @@ def test_agents_create(agents_client):
         # Verify POST call
         assert mock_client.post.called
         call_args = mock_client.post.call_args
-        assert call_args[0][0] == "https://api.test.hyperclaw.app/api/agents"
+        assert call_args[0][0] == "https://api.test.hypercli.com/api/agents"
         
         posted_json = call_args[1]["json"]
         assert posted_json["name"] == "test-agent"
@@ -351,13 +351,13 @@ def test_agents_start_stop_delete(agents_client):
 
         pod = agents_client.start("agent-123")
         assert pod.state == "starting"
-        assert mock_client.post.call_args[0][0] == "https://api.test.hyperclaw.app/api/agents/agent-123/start"
+        assert mock_client.post.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/start"
 
         # Test stop
         mock_response.json.return_value["state"] = "stopping"
         pod = agents_client.stop("agent-123")
         assert pod.state == "stopping"
-        assert mock_client.post.call_args[0][0] == "https://api.test.hyperclaw.app/api/agents/agent-123/stop"
+        assert mock_client.post.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/stop"
 
         # Test delete
         mock_response = Mock()
@@ -367,7 +367,7 @@ def test_agents_start_stop_delete(agents_client):
         
         result = agents_client.delete("agent-123")
         assert result["status"] == "deleted"
-        assert mock_client.delete.call_args[0][0] == "https://api.test.hyperclaw.app/api/agents/agent-123"
+        assert mock_client.delete.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123"
 
 
 def test_agents_budget(agents_client):
@@ -428,7 +428,7 @@ def test_agents_refresh_token(agents_client):
 
         assert result["token"] == "jwt-new-token"
         assert result["agent_id"] == "agent-123"
-        assert mock_client.get.call_args[0][0] == "https://api.test.hyperclaw.app/api/agents/agent-123/token"
+        assert mock_client.get.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/token"
 
 
 def test_agents_api_error(agents_client):
@@ -461,7 +461,7 @@ async def test_agents_integration_lifecycle():
     """Integration test: create agent, verify running, exec command, delete.
 
     Requires HYPERCLAW_API_KEY environment variable to be set.
-    Connects to https://api.dev.hyperclaw.app
+    Connects to https://api.dev.hypercli.com
     """
     api_key = os.environ.get("HYPERCLAW_API_KEY")
     if not api_key:
@@ -471,8 +471,8 @@ async def test_agents_integration_lifecycle():
     import time
 
     # Create client
-    http = HTTPClient(api_base="https://api.dev.hyperclaw.app", api_key=api_key)
-    agents = Agents(http, agent_api_key=api_key, agent_api_base="https://api.dev.hyperclaw.app")
+    http = HTTPClient(api_base="https://api.dev.hypercli.com", api_key=api_key)
+    agents = Agents(http, agent_api_key=api_key, agent_api_base="https://api.dev.hypercli.com")
 
     # Create agent
     print("\n[Integration] Creating agent...")

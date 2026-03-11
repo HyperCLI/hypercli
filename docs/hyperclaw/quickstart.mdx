@@ -7,18 +7,18 @@ description: Subscribe to HyperClaw and start making requests in minutes
 
 ### 1. Create an Account
 
-Sign up at [hyperclaw.app](https://hyperclaw.app) with email or wallet.
+Sign up at [hypercli.com](https://hypercli.com) with email or wallet.
 
 ### 2. Subscribe to a Plan
 
-From the [plans page](https://hyperclaw.app/dashboard/plans), choose a plan and pay with:
+From the [plans page](https://hypercli.com/dashboard/plans), choose a plan and pay with:
 
 - **Credit card** — via Stripe, takes 30 seconds
 - **USDC on Base** — via browser wallet (MetaMask, Coinbase Wallet, etc.)
 
 ### 3. Create an API Key
 
-Go to [API Keys](https://hyperclaw.app/dashboard/keys) and click **Create Key**. Copy the key immediately — it won't be shown again.
+Go to [API Keys](https://hypercli.com/dashboard/keys) and click **Create Key**. Copy the key immediately — it won't be shown again.
 
 ### 4. Make a Request
 
@@ -27,7 +27,7 @@ Use the Anthropic Messages API as the default endpoint for chat models. HyperCla
 ```bash
 export HYPERCLAW_API_KEY="sk-..."
 
-curl https://api.hyperclaw.app/v1/messages \
+curl https://api.hypercli.com/v1/messages \
   -H "Authorization: Bearer $HYPERCLAW_API_KEY" \
   -H "x-api-key: $HYPERCLAW_API_KEY" \
   -H "anthropic-version: 2023-06-01" \
@@ -58,7 +58,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="sk-...",
-    base_url="https://api.hyperclaw.app/v1"
+    base_url="https://api.hypercli.com/v1"
 )
 
 response = client.chat.completions.create(
@@ -103,7 +103,7 @@ For servers or CI/CD environments without a browser:
 
 ```bash
 # Install x402-wallet
-curl -L https://hyperclaw.app/binaries/x402-wallet -o x402-wallet
+curl -L https://hypercli.com/binaries/x402-wallet -o x402-wallet
 chmod +x x402-wallet
 
 # Create and fund a wallet
@@ -124,16 +124,16 @@ See the [x402 wallet guide](/hyperclaw/x402-wallet) for the full flow.
 ### List Models
 
 ```bash
-curl https://api.hyperclaw.app/v1/models \
+curl https://api.hypercli.com/v1/models \
   -H "Authorization: Bearer $HYPERCLAW_API_KEY"
 ```
 
 ### Check Your Plan
 
-From the dashboard at [hyperclaw.app/dashboard](https://hyperclaw.app/dashboard), or via API:
+From the dashboard at [hypercli.com/dashboard](https://hypercli.com/dashboard), or via API:
 
 ```bash
-curl https://api.hyperclaw.app/api/plans/current \
+curl https://api.hypercli.com/api/plans/current \
   -H "Authorization: Bearer <jwt-token>"
 ```
 

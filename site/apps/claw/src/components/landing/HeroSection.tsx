@@ -4,7 +4,7 @@ import { useRef } from "react";
 import { motion, useScroll, useTransform, useSpring } from "framer-motion";
 import { useClawAuth } from "@/hooks/useClawAuth";
 
-const codeSnippet = `curl https://api.hyperclaw.app/v1/chat/completions \\
+const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
   -H "Content-Type: application/json" \\
   -d '{

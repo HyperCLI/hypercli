@@ -243,7 +243,7 @@ export default function SettingsPage() {
       const { token: jwt } = await tokenRes.json();
 
       const pod = pods.find((p) => p.pod_id === podId);
-      const wsUrl = pod?.openclaw_url ?? `wss://openclaw-${podId}.hyperclaw.app`;
+      const wsUrl = pod?.openclaw_url ?? `wss://openclaw-${podId}.hypercli.com`;
 
       const gw = new GatewayWS();
       gwRef.current = gw;

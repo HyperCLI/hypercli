@@ -7,9 +7,9 @@ description: Checkout and account API for HyperClaw inference
 
 | Surface | URL |
 |---------|-----|
-| Inference (OpenAI-compatible) | `https://api.hyperclaw.app/v1` |
-| Account + billing API | `https://api.hyperclaw.app/api` |
-| Product UI | `https://hyperclaw.app` |
+| Inference (OpenAI-compatible) | `https://api.hypercli.com/v1` |
+| Account + billing API | `https://api.hypercli.com/api` |
+| Product UI | `https://hypercli.com` |
 
 <Note>
 In production, routes are served under `/api` (for example `/api/stripe/{plan_id}` and `/api/x402/{plan_id}`).
@@ -26,13 +26,13 @@ In production, routes are served under `/api` (for example `/api/stripe/{plan_id
 List plans:
 
 ```bash
-curl https://api.hyperclaw.app/api/plans
+curl https://api.hypercli.com/api/plans
 ```
 
 Get current plan (JWT required):
 
 ```bash
-curl https://api.hyperclaw.app/api/plans/current \
+curl https://api.hypercli.com/api/plans/current \
   -H "Authorization: Bearer <jwt>"
 ```
 
@@ -45,12 +45,12 @@ Endpoint: `POST /api/stripe/{plan_id}`
 - Webhook (`/api/stripe/hook`) activates subscription and applies team limits
 
 ```bash
-curl -X POST https://api.hyperclaw.app/api/stripe/1aiu \
+curl -X POST https://api.hypercli.com/api/stripe/1aiu \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
-    "success_url": "https://hyperclaw.app/dashboard/plans?session_id={CHECKOUT_SESSION_ID}",
-    "cancel_url": "https://hyperclaw.app/dashboard/plans?cancelled=true"
+    "success_url": "https://hypercli.com/dashboard/plans?session_id={CHECKOUT_SESSION_ID}",
+    "cancel_url": "https://hypercli.com/dashboard/plans?cancelled=true"
   }'
 ```
 
@@ -71,10 +71,10 @@ Endpoint: `POST /api/x402/{plan_id}`
 
 ```bash
 # Step 1
-curl -X POST https://api.hyperclaw.app/api/x402/1aiu
+curl -X POST https://api.hypercli.com/api/x402/1aiu
 
 # Step 2: retry with x402 payment payload
-curl -X POST https://api.hyperclaw.app/api/x402/1aiu \
+curl -X POST https://api.hypercli.com/api/x402/1aiu \
   -H "X-PAYMENT: <signed-payment-payload>"
 ```
 
@@ -112,7 +112,7 @@ So exact plan price gives base duration, and higher amounts increase duration pr
 HyperClaw's x402 job creation endpoint accepts the same optional `tags` object used by Orchestra jobs:
 
 ```bash
-curl -X POST https://api.hyperclaw.app/api/x402/job \
+curl -X POST https://api.hypercli.com/api/x402/job \
   -H "Content-Type: application/json" \
   -H "X-PAYMENT: <signed-payment-payload>" \
   -d '{

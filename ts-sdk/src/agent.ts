@@ -87,8 +87,8 @@ function hyperAgentModelFromDict(data: any): HyperAgentModel {
  * ```
  */
 export class HyperAgent {
-  static readonly AGENT_API_BASE = 'https://api.hyperclaw.app/v1';
-  static readonly DEV_API_BASE = 'https://dev-api.hyperclaw.app/v1';
+  static readonly AGENT_API_BASE = 'https://api.hypercli.com/v1';
+  static readonly DEV_API_BASE = 'https://api.dev.hypercli.com/v1';
 
   public readonly apiKey: string;
   public readonly baseUrl: string;

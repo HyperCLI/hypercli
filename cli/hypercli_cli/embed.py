@@ -12,8 +12,8 @@ console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
-PROD_API_BASE = "https://api.hyperclaw.app"
-DEV_API_BASE = "https://api.dev.hyperclaw.app"
+PROD_API_BASE = "https://api.hypercli.com"
+DEV_API_BASE = "https://api.dev.hypercli.com"
 
 
 def _get_api_key(key: str | None) -> str:

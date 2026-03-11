@@ -120,12 +120,12 @@ describe('Exec/Shell/DryRun integration (mock)', () => {
       json: async () => ({ exit_code: 0, stdout: 'done', stderr: '' }),
     });
     vi.stubGlobal('fetch', fetchMock);
-    const agents = new Agents({ apiKey: 'hyper_api_x' } as any, 'sk-claw', 'https://api.hyperclaw.app');
+    const agents = new Agents({ apiKey: 'hyper_api_x' } as any, 'sk-claw', 'https://api.hypercli.com');
 
     const result = await agents.exec('agent-1', 'ls', 20);
 
     expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.hyperclaw.app/api/agents/agent-1/exec',
+      'https://api.hypercli.com/api/agents/agent-1/exec',
       expect.objectContaining({ method: 'POST' })
     );
     expect(result.exitCode).toBe(0);
@@ -140,11 +140,11 @@ describe('Exec/Shell/DryRun integration (mock)', () => {
         json: async () => ({ token: 'jwt-abc' }),
       });
     vi.stubGlobal('fetch', fetchMock);
-    const agents = new Agents({ apiKey: 'hyper_api_x' } as any, 'sk-claw', 'https://api.hyperclaw.app');
+    const agents = new Agents({ apiKey: 'hyper_api_x' } as any, 'sk-claw', 'https://api.hypercli.com');
 
     const ws = await agents.shellConnect('agent-1');
 
     expect(ws).toBeDefined();
-    expect(wsState.wsInstances[0].url).toBe('wss://api.hyperclaw.app/ws/shell/agent-1?jwt=jwt-abc');
+    expect(wsState.wsInstances[0].url).toBe('wss://api.hypercli.com/ws/shell/agent-1?jwt=jwt-abc');
   });
 });

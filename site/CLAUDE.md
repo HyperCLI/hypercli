@@ -186,9 +186,9 @@ Export new components from `src/index.ts`.
 
 | Env | Frontend | API | Deploys From | Env File |
 |-----|----------|-----|-------------|----------|
-| prod | `hyperclaw.app` | `api.hyperclaw.app` | `main` branch | `env.prod` |
-| feat | `feat.hyperclaw.app` | `api.dev.hyperclaw.app` | `feat-claw` branch | `env.feat` |
-| dev | `dev.hyperclaw.app` | `api.dev.hyperclaw.app` | (manual) | `env.dev` |
+| prod | `hypercli.com` | `api.hypercli.com` | `main` branch | `env.prod` |
+| feat | `feat.hypercli.com` | `api.dev.hypercli.com` | `feat-claw` branch | `env.feat` |
+| dev | `dev.hypercli.com` | `api.dev.hypercli.com` | (manual) | `env.dev` |
 | local | `localhost:4003` | `localhost:8000` | — | `env.sample` |
 
 Netlify builds via `@netlify/plugin-nextjs`. Build commands set per Netlify site (e.g., `cp env.feat apps/claw/.env.local && npm run build -- --filter=@hypercli/claw`).
@@ -196,4 +196,4 @@ Netlify builds via `@netlify/plugin-nextjs`. Build commands set per Netlify site
 **Required env vars** (validated at build time in `apps/claw/next.config.ts`):
 `NEXT_PUBLIC_CLAW_URL`, `NEXT_PUBLIC_COOKIE_DOMAIN`, `NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN`, `NEXT_PUBLIC_CLAW_API_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`
 
-**Key insight for feat-claw**: Frontend is at `feat.hyperclaw.app` but backend is `api.dev.hyperclaw.app`. Gateway cookies need `domain=.hyperclaw.app` to reach `openclaw-{name}.dev.hyperclaw.app`. The `useGatewayChat` hook handles cross-domain cookie logic automatically.
+**Key insight for feat-claw**: Frontend is at `feat.hypercli.com` but backend is `api.dev.hypercli.com`. Gateway cookies need `domain=.hypercli.com` to reach `openclaw-{name}.dev.hypercli.com`. The `useGatewayChat` hook handles cross-domain cookie logic automatically.

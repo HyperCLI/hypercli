@@ -31,7 +31,7 @@ hyper claw subscribe <plan_id>
 - `plan_id` - Plan identifier: `1aiu`, `2aiu`, `5aiu`, `10aiu`
 
 **Options:**
-- `--dev` - Use dev API (dev-api.hyperclaw.app) for testing
+- `--dev` - Use dev API (api.dev.hypercli.com) for testing
 
 **Requirements:**
 - Wallet created (`hyper wallet create`)
@@ -52,12 +52,12 @@ $ hyper claw subscribe 1aiu
 
 Subscribing to HyperClaw plan: 1aiu
 
-API: https://api.hyperclaw.app
+API: https://api.hypercli.com
 ✓ Loaded wallet: 0x5D4631C26CFA3Ef9E25351d3E8E810737fed8f54
 
 Setting up x402 v2 client...
 
-→ Requesting: POST https://api.hyperclaw.app/x402/1aiu
+→ Requesting: POST https://api.hypercli.com/x402/1aiu
 
 ✓ Response status: 200
 
@@ -188,7 +188,7 @@ $ hyper claw config env
     "mode": "merge",
     "providers": {
       "hyperclaw": {
-        "baseUrl": "https://api.hyperclaw.app/v1",
+        "baseUrl": "https://api.hypercli.com/v1",
         "apiKey": "sk-...",
         "api": "openai-completions",
         "models": [
@@ -222,7 +222,7 @@ $ hyper claw config env
       "npm": "@ai-sdk/openai-compatible",
       "name": "HyperCLI",
       "options": {
-        "baseURL": "https://api.hyperclaw.app/v1",
+        "baseURL": "https://api.hypercli.com/v1",
         "apiKey": "sk-..."
       },
       "models": {
@@ -236,7 +236,7 @@ $ hyper claw config env
 **Output — env:**
 ```bash
 export OPENAI_API_KEY="sk-..."
-export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
+export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 # Available models: kimi-k2.5, glm-5
 ```
 
@@ -336,7 +336,7 @@ Once subscribed, use your key with any OpenAI-compatible client:
 from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://api.hyperclaw.app/v1",
+    base_url="https://api.hypercli.com/v1",
     api_key="sk-XHAWG8ywjaZ0behp-LC_BQ"
 )
 
@@ -348,7 +348,7 @@ response = client.chat.completions.create(
 
 **cURL:**
 ```bash
-curl https://api.hyperclaw.app/v1/chat/completions \
+curl https://api.hypercli.com/v1/chat/completions \
   -H "Authorization: Bearer sk-XHAWG8ywjaZ0behp-LC_BQ" \
   -H "Content-Type: application/json" \
   -d '{

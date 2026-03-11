@@ -31,7 +31,7 @@ const specs = [
 const sdkSnippet = `from openai import OpenAI
 
 client = OpenAI(
-    base_url="https://api.hyperclaw.app/v1",
+    base_url="https://api.hypercli.com/v1",
     api_key="YOUR_API_KEY",
 )
 

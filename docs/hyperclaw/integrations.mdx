@@ -5,8 +5,8 @@ description: Configure your AI agent or coding tool to use HyperClaw as an LLM p
 
 HyperClaw exposes two chat surfaces:
 
-- **Primary recommended:** Anthropic Messages API at `https://api.hyperclaw.app`
-- **Compatibility option:** OpenAI-compatible API at `https://api.hyperclaw.app/v1`
+- **Primary recommended:** Anthropic Messages API at `https://api.hypercli.com`
+- **Compatibility option:** OpenAI-compatible API at `https://api.hypercli.com/v1`
 
 For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
 
@@ -17,7 +17,7 @@ For chat models, prefer the Anthropic Messages format. The OpenAI-compatible end
 Use this when your tool or SDK supports Anthropic-compatible providers:
 
 ```bash
-curl https://api.hyperclaw.app/v1/messages \
+curl https://api.hypercli.com/v1/messages \
   -H "x-api-key: sk-YOUR-API-KEY" \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
@@ -49,7 +49,7 @@ Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
       "npm": "@ai-sdk/openai-compatible",
       "name": "HyperCLI",
       "options": {
-        "baseURL": "https://api.hyperclaw.app/v1",
+        "baseURL": "https://api.hypercli.com/v1",
         "apiKey": "sk-YOUR-API-KEY"
       },
       "models": {
@@ -77,7 +77,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
     "mode": "merge",
     "providers": {
       "hyperclaw": {
-        "baseUrl": "https://api.hyperclaw.app/v1",
+        "baseUrl": "https://api.hypercli.com/v1",
         "apiKey": "sk-YOUR-API-KEY",
         "api": "openai-completions",
         "models": [
@@ -129,7 +129,7 @@ Use environment variables — no config file needed:
 
 ```bash
 export OPENAI_API_KEY="sk-YOUR-API-KEY"
-export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
+export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 
 # Claude Code
 claude --model kimi-k2.5
@@ -145,7 +145,7 @@ from openai import OpenAI
 
 client = OpenAI(
     api_key="sk-YOUR-API-KEY",
-    base_url="https://api.hyperclaw.app/v1"
+    base_url="https://api.hypercli.com/v1"
 )
 
 response = client.chat.completions.create(
@@ -162,7 +162,7 @@ import OpenAI from 'openai';
 
 const client = new OpenAI({
   apiKey: 'sk-YOUR-API-KEY',
-  baseURL: 'https://api.hyperclaw.app/v1'
+  baseURL: 'https://api.hypercli.com/v1'
 });
 
 const response = await client.chat.completions.create({
@@ -174,7 +174,7 @@ const response = await client.chat.completions.create({
 ## cURL
 
 ```bash
-curl https://api.hyperclaw.app/v1/chat/completions \
+curl https://api.hypercli.com/v1/chat/completions \
   -H "Authorization: Bearer sk-YOUR-API-KEY" \
   -H "Content-Type: application/json" \
   -d '{
@@ -192,7 +192,7 @@ model_list:
     litellm_params:
       model: openai/kimi-k2.5
       api_key: sk-YOUR-API-KEY
-      api_base: https://api.hyperclaw.app/v1
+      api_base: https://api.hypercli.com/v1
 ```
 
 ## Available Models
@@ -205,7 +205,7 @@ model_list:
 Check available models at any time:
 
 ```bash
-curl https://api.hyperclaw.app/v1/models \
+curl https://api.hypercli.com/v1/models \
   -H "Authorization: Bearer sk-YOUR-API-KEY"
 ```
 
@@ -213,12 +213,12 @@ curl https://api.hyperclaw.app/v1/models \
 
 | Purpose | URL |
 |---------|-----|
-| **Chat Inference** (Anthropic Messages, recommended) | `https://api.hyperclaw.app` |
-| **LLM Inference** (OpenAI-compatible) | `https://api.hyperclaw.app/v1` |
-| **Account/Billing API** | `https://api.hyperclaw.app/api` |
-| **Dashboard** | `https://hyperclaw.app` |
+| **Chat Inference** (Anthropic Messages, recommended) | `https://api.hypercli.com` |
+| **LLM Inference** (OpenAI-compatible) | `https://api.hypercli.com/v1` |
+| **Account/Billing API** | `https://api.hypercli.com/api` |
+| **Dashboard** | `https://hypercli.com` |
 | **Docs** | `https://docs.hypercli.com` |
 
 <Note>
-Both `api.hyperclaw.app` and `api.hypercli.com` point to the same backend. Use `api.hyperclaw.app` for direct access.
+Use `api.hypercli.com` for direct access.
 </Note>
