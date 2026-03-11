@@ -20,6 +20,7 @@ export function ClawHeader() {
   const { isAuthenticated, isLoading, login, logout, user } = useClawAuth();
   const router = useRouter();
   const emailInitial = user?.email ? user.email[0].toUpperCase() : "?";
+  const showAuthenticatedNav = !isLoading && isAuthenticated;
 
   useEffect(() => {
     const handleScroll = () => setScrolled(window.scrollY > 10);
@@ -62,7 +63,7 @@ export function ClawHeader() {
       }`}
     >
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-        <div className="flex items-center justify-between h-16">
+        <div className="flex items-center h-16 gap-6">
           {/* Logo */}
           <a href="/" className="flex items-center gap-2">
             <span className="text-xl font-bold">
@@ -72,26 +73,26 @@ export function ClawHeader() {
           </a>
 
           {/* Desktop Nav */}
-          <nav className="max-md:hidden flex items-center gap-8">
-            {navLinks.map((link) => (
-              <a
-                key={link.label}
-                href={link.href}
-                className="nav-link text-sm font-medium"
-                {...(link.external
-                  ? { target: "_blank", rel: "noopener noreferrer" }
-                  : {})}
-              >
-                {link.label}
-              </a>
-            ))}
-          </nav>
+          <div className="hidden md:flex flex-1 justify-center">
+            <nav className="flex items-center gap-8">
+              {navLinks.map((link) => (
+                <a
+                  key={link.label}
+                  href={link.href}
+                  className="nav-link text-sm font-medium"
+                  {...(link.external
+                    ? { target: "_blank", rel: "noopener noreferrer" }
+                    : {})}
+                >
+                  {link.label}
+                </a>
+              ))}
+            </nav>
+          </div>
 
           {/* Desktop Auth */}
-          <div className="max-md:hidden flex items-center gap-3">
-            {isLoading ? (
-              <div className="w-[100px] h-[36px] rounded-lg bg-surface-low animate-pulse" />
-            ) : isAuthenticated ? (
+          <div className="hidden md:flex min-w-fit items-center justify-end gap-3">
+            {showAuthenticatedNav ? (
               <div className="flex items-center gap-3">
                 <button
                   onClick={() => router.push("/dashboard")}
@@ -135,12 +136,14 @@ export function ClawHeader() {
                 <button
                   onClick={login}
                   className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
+                  disabled={isLoading}
                 >
                   Sign In
                 </button>
                 <button
                   onClick={login}
                   className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
+                  disabled={isLoading}
                 >
                   Get Started
                 </button>
@@ -150,7 +153,7 @@ export function ClawHeader() {
 
           {/* Mobile Menu Button */}
           <button
-            className="md:hidden p-2 text-text-secondary hover:text-foreground transition-colors"
+            className="md:hidden ml-auto p-2 text-text-secondary hover:text-foreground transition-colors"
             onClick={() => setMobileOpen(!mobileOpen)}
           >
             {mobileOpen ? (
@@ -180,7 +183,7 @@ export function ClawHeader() {
               ))}
             </nav>
             <div className="mt-4 flex flex-col gap-2">
-              {isAuthenticated ? (
+              {showAuthenticatedNav ? (
                 <>
                   <button
                     onClick={() => { setMobileOpen(false); router.push("/dashboard"); }}
@@ -196,15 +199,28 @@ export function ClawHeader() {
                   </button>
                 </>
               ) : (
-                <button
-                  onClick={() => {
-                    setMobileOpen(false);
-                    login();
-                  }}
-                  className="btn-primary px-4 py-2 rounded-lg text-sm font-medium w-full"
-                >
-                  Get Started
-                </button>
+                <>
+                  <button
+                    onClick={() => {
+                      setMobileOpen(false);
+                      login();
+                    }}
+                    className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium w-full"
+                    disabled={isLoading}
+                  >
+                    Sign In
+                  </button>
+                  <button
+                    onClick={() => {
+                      setMobileOpen(false);
+                      login();
+                    }}
+                    className="btn-primary px-4 py-2 rounded-lg text-sm font-medium w-full"
+                    disabled={isLoading}
+                  >
+                    Get Started
+                  </button>
+                </>
               )}
             </div>
           </div>
