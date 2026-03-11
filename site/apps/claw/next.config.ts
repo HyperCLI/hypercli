@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 // Build-time validation of required environment variables
 const requiredEnvVars = [
@@ -41,6 +42,7 @@ const nextConfig: NextConfig = {
       process.env.HYPERCLAW_MODELS_URL || process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "",
   },
   turbopack: {
+    root: path.join(__dirname, "../.."),
     resolveAlias: {
       "viem/accounts": "viem/_esm/accounts/index.js",
       "viem/chains": "viem/_esm/chains/index.js",
