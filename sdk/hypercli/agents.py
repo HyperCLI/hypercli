@@ -137,15 +137,15 @@ class ReefPod:
         Returns an unconnected client — use `async with pod.gateway() as gw:`.
         """
         from .gateway import GatewayClient
-        if self.agents_ws_url:
-            url = self.agents_ws_url
+        if self.openclaw_url:
+            url = self.openclaw_url
+        elif self.agents_ws_url and self.id:
+            url = f"{self.agents_ws_url}/{self.id}"
         elif not self.openclaw_url:
             if self.hostname:
                 url = f"wss://openclaw-{self.hostname}"
             else:
                 raise ValueError("Pod has no openclaw_url or hostname")
-        else:
-            url = self.openclaw_url
         if not self.jwt_token:
             raise ValueError("Pod has no JWT token — refresh it first")
         return GatewayClient(url=url, token=self.jwt_token, **kwargs)
@@ -207,8 +207,8 @@ class Agents:
     def _hydrate_pod(self, data: dict) -> ReefPod:
         pod = ReefPod.from_dict(data)
         pod.agents_ws_url = self._agents_ws_url
-        if not pod.openclaw_url or _is_legacy_openclaw_ws_url(pod.openclaw_url):
-            pod.openclaw_url = self._agents_ws_url
+        if pod.id and (not pod.openclaw_url or _is_legacy_openclaw_ws_url(pod.openclaw_url)):
+            pod.openclaw_url = f"{self._agents_ws_url}/{pod.id}"
         return pod
 
     @property

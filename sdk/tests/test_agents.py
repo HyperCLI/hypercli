@@ -212,8 +212,8 @@ def test_agents_client_applies_default_agents_ws_url():
     })
 
     assert pod.agents_ws_url == AGENTS_WS_URL
-    assert pod.openclaw_url == AGENTS_WS_URL
-    assert pod.gateway().url == AGENTS_WS_URL
+    assert pod.openclaw_url == f"{AGENTS_WS_URL}/agent-123"
+    assert pod.gateway().url == f"{AGENTS_WS_URL}/agent-123"
 
 
 def test_agents_client_supports_custom_agents_ws_url():
@@ -233,8 +233,8 @@ def test_agents_client_supports_custom_agents_ws_url():
     })
 
     assert agents._agents_ws_url == "wss://custom.example/ws"
-    assert pod.openclaw_url == "wss://custom.example/ws"
-    assert pod.gateway().url == "wss://custom.example/ws"
+    assert pod.openclaw_url == "wss://custom.example/ws/agent-123"
+    assert pod.gateway().url == "wss://custom.example/ws/agent-123"
 
 
 def test_agents_client_uses_dev_ws_default():

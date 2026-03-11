@@ -2,7 +2,7 @@
 OpenClaw Gateway Client — WebSocket RPC client for the OpenClaw Gateway protocol.
 
 Connects to the agents WebSocket ingress via the
-`wss://api.agents.hypercli.com/ws` endpoint with JWT auth.
+`wss://api.agents.hypercli.com/ws/{agent_id}` endpoint with JWT auth.
 
 Implements protocol v3: challenge-response handshake, request/response,
 and server-sent events.
@@ -10,7 +10,7 @@ and server-sent events.
 Usage:
     from hypercli.gateway import GatewayClient
 
-    async with GatewayClient(url="wss://api.agents.hypercli.com/ws", token="jwt...") as gw:
+    async with GatewayClient(url="wss://api.agents.hypercli.com/ws/agent-123", token="jwt...") as gw:
         config = await gw.config_get()
         schema = await gw.config_schema()
         await gw.config_patch({"models": {"providers": {"openai": {"apiKey": "sk-..."}}}})
@@ -73,7 +73,7 @@ class GatewayClient:
     Async WebSocket client for the OpenClaw Gateway protocol v3.
 
     Args:
-        url: WebSocket URL (for example, wss://api.agents.hypercli.com/ws)
+        url: WebSocket URL (for example, wss://api.agents.hypercli.com/ws/agent-123)
         token: JWT token for Traefik ForwardAuth
         gateway_token: Gateway auth token (for challenge-response)
         client_id: Client identifier (default: gateway-client)
