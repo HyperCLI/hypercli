@@ -16,7 +16,10 @@ for (const envVar of requiredEnvVars) {
 }
 
 const nextConfig: NextConfig = {
-  allowedDevOrigins: ["gilfoyle.hypercli.com"],
+  // Only allow dev proxy origins in development — never in production builds
+  ...(process.env.NODE_ENV !== "production" && {
+    allowedDevOrigins: ["gilfoyle.hypercli.com"],
+  }),
   transpilePackages: [
     "@hypercli/shared-ui",
     "@rainbow-me/rainbowkit",
