@@ -1,5 +1,5 @@
 import type { Metadata } from "next"
-import { LandingContent } from "./landing-content"
+import { LandingContent } from "./LandingContent"
 
 export const metadata: Metadata = {
   title: "Private AI Platform | HyperCLI",

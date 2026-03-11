@@ -39,14 +39,14 @@ export function HeroSection({
         <div className="flex flex-wrap gap-4 mb-10">
           <Link
             href={primaryCTA.href}
-            className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors flex items-center gap-2"
+            className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             {primaryCTA.label}
             <ArrowRight className="w-5 h-5" />
           </Link>
           <Link
             href={secondaryCTA.href}
-            className="px-8 py-4 bg-surface-low/40 text-white rounded-lg hover:bg-surface-low/60 transition-colors border border-border-medium/50"
+            className="px-8 py-4 bg-surface-low/40 text-white rounded-lg hover:bg-surface-low/60 transition-colors border border-border-medium/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
           >
             {secondaryCTA.label}
           </Link>
