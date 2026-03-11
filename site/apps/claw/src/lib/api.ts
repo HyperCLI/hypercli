@@ -27,10 +27,10 @@ export const AUTH_API_BASE = trimTrailingSlash(rawAuthApiBase || rawClawApiBase)
 export const HYPERCLAW_MODELS_ENDPOINT = rawHyperclawModelsUrl
   ? trimTrailingSlash(rawHyperclawModelsUrl)
   : rawHyperclawApiBase
-    ? `${trimTrailingSlash(rawHyperclawApiBase)}/models`
+    ? `${trimTrailingSlash(rawHyperclawApiBase)}/api/models`
     : rawClawApiBase
-      ? `${stripApiSuffix(rawClawApiBase)}/models`
-      : "/models";
+      ? `${trimTrailingSlash(rawClawApiBase)}/models`
+      : "/api/models";
 
 const TOKEN_KEY = "claw_auth_token";
 
