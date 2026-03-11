@@ -650,7 +650,7 @@ def openclaw_setup(
     # Always set embedding provider (reuses same API key)
     config.setdefault("agents", {}).setdefault("defaults", {})
     config["agents"]["defaults"]["memorySearch"] = {
-        "provider": "hyperclaw-embed",
+        "provider": "openai",
         "model": "qwen3-embedding-4b",
         "remote": {
             "baseUrl": "https://api.hyperclaw.app/v1/",
@@ -734,7 +734,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
                     **{f"hyperclaw-embed/{m['id']}": {"alias": m['id'].split('-')[0]} for m in embedding_models},
                 },
                 "memorySearch": {
-                    "provider": "hyperclaw-embed",
+                    "provider": "openai",
                     "model": "qwen3-embedding-4b",
                     "remote": {
                         "baseUrl": f"{api_base}/v1/",
