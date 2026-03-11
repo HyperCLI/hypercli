@@ -34,10 +34,11 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
           python3 .github/scripts/ci_notify.py \
-            --category github \
+            --category frontend \
             --phase start \
             --status running \
             --event "${{ github.event_name }}" \
+            --workflow "${{ github.workflow }}" \
             --message "HyperCLI Claw CI started"
 
       - name: Prepare Claw env
@@ -60,8 +61,8 @@ jobs:
           env_path = Path("apps/claw/.env.local")
           replacements = {
               "NEXT_PUBLIC_COOKIE_DOMAIN": ".hypercli.com",
-              "NEXT_PUBLIC_API_BASE": "https://api.dev.hyperclaw.app/api",
-              "NEXT_PUBLIC_AUTH_BACKEND": "https://api.dev.hyperclaw.app/api",
+              "NEXT_PUBLIC_API_BASE": "https://api.dev.hypercli.com/api",
+              "NEXT_PUBLIC_AUTH_BACKEND": "https://api.dev.hypercli.com/api",
           }
 
           lines = env_path.read_text().splitlines()
@@ -108,10 +109,11 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
           python3 .github/scripts/ci_notify.py \
-            --category github \
+            --category frontend \
             --phase build \
             --status success \
             --event "${{ github.event_name }}" \
+            --workflow "${{ github.workflow }}" \
             --message "HyperCLI Claw build succeeded"
 
       - name: Notify build failure
@@ -121,10 +123,11 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
           python3 .github/scripts/ci_notify.py \
-            --category github \
+            --category frontend \
             --phase build \
             --status failure \
             --event "${{ github.event_name }}" \
+            --workflow "${{ github.workflow }}" \
             --message "HyperCLI Claw build failed"
 
       - name: Stop on build failure
@@ -164,10 +167,11 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
           python3 .github/scripts/ci_notify.py \
-            --category github \
+            --category frontend \
             --phase test \
             --status success \
             --event "${{ github.event_name }}" \
+            --workflow "${{ github.workflow }}" \
             --message "HyperCLI Claw Playwright login test passed"
 
       - name: Notify test failure
@@ -177,10 +181,11 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
           python3 .github/scripts/ci_notify.py \
-            --category github \
+            --category frontend \
             --phase test \
             --status failure \
             --event "${{ github.event_name }}" \
+            --workflow "${{ github.workflow }}" \
             --message "HyperCLI Claw Playwright login test failed"
 
       - name: Show Claw server log

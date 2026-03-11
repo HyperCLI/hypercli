@@ -66,6 +66,7 @@ def send_notification(args: argparse.Namespace) -> None:
             "run_id": args.run_id,
             "run_url": args.run_url,
             "actor": args.actor,
+            "workflow": args.workflow,
             "status": status,
             "phase": args.phase,
             "event": args.event,
@@ -105,6 +106,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-id", default=os.getenv("GITHUB_RUN_ID", ""))
     parser.add_argument("--run-url", default=os.getenv("GITHUB_RUN_URL", ""))
     parser.add_argument("--actor", default=os.getenv("GITHUB_ACTOR", ""))
+    parser.add_argument("--workflow", default=os.getenv("GITHUB_WORKFLOW", ""))
     return parser
 
 
