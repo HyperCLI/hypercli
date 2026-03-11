@@ -40,9 +40,9 @@ def transcribe(
     """Transcribe audio to text using faster-whisper (runs locally).
 
     Examples:
-      hyper claw stt transcribe voice.ogg
-      hyper claw stt transcribe meeting.mp3 --model large-v3 --language en
-      hyper claw stt transcribe audio.wav --json -o transcript.json
+      hyper agent stt transcribe voice.ogg
+      hyper agent stt transcribe meeting.mp3 --model large-v3 --language en
+      hyper agent stt transcribe audio.wav --json -o transcript.json
     """
     if not audio_file.exists():
         console.print(f"[red]❌ File not found: {audio_file}[/red]")

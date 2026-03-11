@@ -13,24 +13,24 @@ app = typer.Typer(help="Voice API — text-to-speech, voice cloning, voice desig
 console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
-CLAW_KEY_PATH = HYPERCLI_DIR / "claw-key.json"
+AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEFAULT_API_BASE = "https://api.hyperclaw.app"
 
 
 def _get_api_key(key: str | None) -> str:
-    """Resolve API key: --key flag > env HYPERCLAW_API_KEY > claw-key.json."""
+    """Resolve API key: --key flag > env HYPERCLAW_API_KEY > agent-key.json."""
     if key:
         return key
     env_key = os.environ.get("HYPERCLAW_API_KEY", "").strip()
     if env_key:
         return env_key
-    if CLAW_KEY_PATH.exists():
-        with open(CLAW_KEY_PATH) as f:
+    if AGENT_KEY_PATH.exists():
+        with open(AGENT_KEY_PATH) as f:
             k = json.load(f).get("key", "")
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPERCLAW_API_KEY[/bold], or run [bold]hyper claw subscribe[/bold]")
+    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPERCLAW_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
     raise typer.Exit(1)
 
 
@@ -97,8 +97,8 @@ def tts(
     """Generate speech from text using a preset voice.
 
     Examples:
-      hyper claw voice tts "Hello world"
-      hyper claw voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
+      hyper agent voice tts "Hello world"
+      hyper agent voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
     """
     api_key = _get_api_key(key)
     if output is None:
@@ -126,8 +126,8 @@ def clone(
     """Clone a voice from reference audio.
 
     Examples:
-      hyper claw voice clone "Hello" --ref voice.wav
-      hyper claw voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
+      hyper agent voice clone "Hello" --ref voice.wav
+      hyper agent voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
     """
     api_key = _get_api_key(key)
     if output is None:
@@ -165,8 +165,8 @@ def design(
     """Design a voice from a text description.
 
     Examples:
-      hyper claw voice design "Hello" --desc "deep male voice, British accent"
-      hyper claw voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
+      hyper agent voice design "Hello" --desc "deep male voice, British accent"
+      hyper agent voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
     """
     api_key = _get_api_key(key)
     if output is None:

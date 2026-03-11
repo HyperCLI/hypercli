@@ -22,7 +22,7 @@ ONBOARD_DIR = HYPERCLI_DIR / "onboard"
 STATE_PATH = ONBOARD_DIR / "state.json"
 QR_PATH = ONBOARD_DIR / "wallet_qr.png"
 WALLET_PATH = HYPERCLI_DIR / "wallet.json"
-CLAW_KEY_PATH = HYPERCLI_DIR / "claw-key.json"
+AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 PROD_API_BASE = "https://api.hyperclaw.app"
@@ -321,7 +321,7 @@ def step_subscribe(state: dict, json_mode: bool, api_base: str) -> dict:
         return state
 
     from .wallet import load_wallet
-    from .claw import _subscribe_async
+    from .agent import _subscribe_async
 
     plan_data = state["steps"]["plan"]
     plan_id = plan_data["plan"]
@@ -343,7 +343,7 @@ def step_subscribe(state: dict, json_mode: bool, api_base: str) -> dict:
 
     # Save key
     HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
-    with open(CLAW_KEY_PATH, "w") as f:
+    with open(AGENT_KEY_PATH, "w") as f:
         json.dump(result, f, indent=2)
 
     # Save to key history
@@ -358,7 +358,7 @@ def step_subscribe(state: dict, json_mode: bool, api_base: str) -> dict:
             "tpm_limit": result.get("tpm_limit", 0),
             "rpm_limit": result.get("rpm_limit", 0),
         }
-        keys_path = HYPERCLI_DIR / "claw-keys.yaml"
+        keys_path = HYPERCLI_DIR / "agent-keys.yaml"
         if keys_path.exists():
             with open(keys_path) as f:
                 keys_data = yaml.safe_load(f) or {"keys": []}
@@ -376,7 +376,7 @@ def step_subscribe(state: dict, json_mode: bool, api_base: str) -> dict:
         console.print(f"  Plan:    {result['plan_id']}")
         console.print(f"  Expires: {result.get('expires_at', 'N/A')}")
         console.print(f"  Limits:  {result.get('tpm_limit', 0):,} TPM / {result.get('rpm_limit', 0):,} RPM")
-        console.print(f"\n[green]✓[/green] Key saved to {CLAW_KEY_PATH}")
+        console.print(f"\n[green]✓[/green] Key saved to {AGENT_KEY_PATH}")
 
     _mark_step(state, "subscribe", {
         "key": result["key"],
@@ -418,7 +418,7 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
         console.print("Detected OpenClaw config at ~/.openclaw/openclaw.json")
         console.print("Fetching available models... ", end="")
 
-    from .claw import fetch_models
+    from .agent import fetch_models
     models = fetch_models(api_key, api_base)
 
     if not json_mode:
@@ -519,7 +519,7 @@ def step_verify(state: dict, json_mode: bool, api_base: str) -> dict:
         if not json_mode:
             console.print(f"[yellow]⚠[/yellow] Inference test failed: {e}")
             console.print("  Key may need a moment to propagate. Try:")
-            console.print("    hyper claw onboard")
+            console.print("    hyper agent onboard")
         _mark_step(state, "verify", {"status": "complete", "error": str(e)})
 
     # Restart OpenClaw
@@ -556,7 +556,7 @@ def step_verify(state: dict, json_mode: bool, api_base: str) -> dict:
         console.print(f"  Model:   kimi-k2.5")
         console.print(f"  Key:     {sub['key'][:20]}...")
         console.print(f"  Expires: {sub['expires']}")
-        console.print(f"\n  Check status:  [bold]hyper claw status[/bold]")
+        console.print(f"\n  Check status:  [bold]hyper agent status[/bold]")
         console.print(f"\n{'─' * 40}")
 
     state["current_step"] = "done"
@@ -678,9 +678,9 @@ def _run_dry(api_base: str, plan_override: str = None, amount_override: str = No
     # Step 4: Subscribe
     _step_header(4, "Subscribe")
     console.print("[yellow]→[/yellow] Would sign x402 payment and submit")
-    console.print("[yellow]→[/yellow] Would save key to ~/.hypercli/claw-key.json")
-    if CLAW_KEY_PATH.exists():
-        with open(CLAW_KEY_PATH) as f:
+    console.print("[yellow]→[/yellow] Would save key to ~/.hypercli/agent-key.json")
+    if AGENT_KEY_PATH.exists():
+        with open(AGENT_KEY_PATH) as f:
             existing = json.load(f)
         console.print(f"  [dim]Existing key: {existing.get('key', '?')[:20]}...[/dim]")
 
@@ -702,5 +702,5 @@ def _run_dry(api_base: str, plan_override: str = None, amount_override: str = No
     # Summary
     console.print(f"\n{'─' * 40}")
     console.print(f"\n  [bold]Dry run complete.[/bold] No changes made.")
-    console.print(f"  Run [bold]hyper claw onboard[/bold] to start for real.\n")
+    console.print(f"  Run [bold]hyper agent onboard[/bold] to start for real.\n")
     console.print(f"{'─' * 40}")

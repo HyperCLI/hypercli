@@ -1,16 +1,16 @@
 """
-Tests for HyperClaw SDK client
+Tests for HyperAgent SDK client
 """
 import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
-from hypercli.claw import Claw, ClawKey, ClawPlan, ClawModel
+from hypercli.agent import HyperAgent, HyperAgentKey, HyperAgentPlan, HyperAgentModel
 
 
-class TestClawDataclasses:
-    """Tests for Claw dataclasses."""
+class TestHyperAgentDataclasses:
+    """Tests for HyperAgent dataclasses."""
     
-    def test_claw_key_from_dict(self):
+    def test_agent_key_from_dict(self):
         data = {
             "key": "sk-test-123",
             "plan_id": "5aiu",
@@ -19,13 +19,13 @@ class TestClawDataclasses:
             "rpm_limit": 5000,
             "user_id": "user-123"
         }
-        key = ClawKey.from_dict(data)
+        key = HyperAgentKey.from_dict(data)
         assert key.key == "sk-test-123"
         assert key.plan_id == "5aiu"
         assert key.tpm_limit == 250000
         assert key.rpm_limit == 5000
     
-    def test_claw_plan_from_dict(self):
+    def test_agent_plan_from_dict(self):
         data = {
             "id": "5aiu",
             "name": "5 Agents",
@@ -33,11 +33,11 @@ class TestClawDataclasses:
             "tpm_limit": 250000,
             "rpm_limit": 5000
         }
-        plan = ClawPlan.from_dict(data)
+        plan = HyperAgentPlan.from_dict(data)
         assert plan.id == "5aiu"
         assert plan.price_usd == 3.0
     
-    def test_claw_model_from_dict(self):
+    def test_agent_model_from_dict(self):
         data = {
             "id": "kimi-k2.5",
             "name": "Kimi K2.5",
@@ -48,15 +48,15 @@ class TestClawDataclasses:
                 "supports_tool_choice": True
             }
         }
-        model = ClawModel.from_dict(data)
+        model = HyperAgentModel.from_dict(data)
         assert model.id == "kimi-k2.5"
         assert model.context_length == 262144
         assert model.supports_vision is True
         assert model.supports_function_calling is True
 
 
-class TestClawClient:
-    """Tests for Claw client methods."""
+class TestHyperAgentClient:
+    """Tests for HyperAgent client methods."""
     
     @pytest.fixture
     def mock_http(self):
@@ -74,8 +74,8 @@ class TestClawClient:
         }
         mock_http._session.get.return_value.raise_for_status = Mock()
         
-        claw = Claw(mock_http, dev=True)
-        result = claw.discovery_health()
+        agent = HyperAgent(mock_http, dev=True)
+        result = agent.discovery_health()
         
         assert result["status"] == "ok"
         assert result["hosts_total"] == 1
@@ -83,12 +83,12 @@ class TestClawClient:
     
     def test_openai_client_creation(self, mock_http):
         """Test that OpenAI client is created with correct config."""
-        claw = Claw(mock_http, claw_api_key="sk-test", dev=True)
+        agent = HyperAgent(mock_http, agent_api_key="sk-test", dev=True)
         
         # Access openai property to trigger creation
-        with patch('hypercli.claw.OpenAI') as mock_openai:
+        with patch('hypercli.agent.OpenAI') as mock_openai:
             mock_openai.return_value = MagicMock()
-            client = claw.openai
+            client = agent.openai
             
             mock_openai.assert_called_once_with(
                 api_key="sk-test",
@@ -97,13 +97,13 @@ class TestClawClient:
     
     def test_chat_uses_openai_client(self, mock_http):
         """Test that chat method uses OpenAI client."""
-        claw = Claw(mock_http, claw_api_key="sk-test", dev=True)
+        agent = HyperAgent(mock_http, agent_api_key="sk-test", dev=True)
         
-        with patch('hypercli.claw.OpenAI') as mock_openai:
+        with patch('hypercli.agent.OpenAI') as mock_openai:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
             
-            claw.chat(
+            agent.chat(
                 model="kimi-k2.5",
                 messages=[{"role": "user", "content": "Hello"}],
                 temperature=0.7,
@@ -117,35 +117,34 @@ class TestClawClient:
                 max_tokens=100
             )
 
-
-class TestClawIntegration:
-    """Integration tests for Claw client (require running service)."""
+class TestHyperAgentIntegration:
+    """Integration tests for HyperAgent client (require running service)."""
     
     @pytest.fixture
-    def claw_client(self):
-        """Create a Claw client for integration tests."""
+    def agent_client(self):
+        """Create a HyperAgent client for integration tests."""
         api_key = os.getenv("HYPERCLAW_API_KEY")
         if not api_key:
             pytest.skip("HYPERCLAW_API_KEY not set")
         
-        # Create minimal mock http for standalone claw
+        # Create minimal mock http for standalone client
         http = Mock()
         http._api_key = api_key
         import requests
         http._session = requests.Session()
         
-        return Claw(http, claw_api_key=api_key, dev=True)
+        return HyperAgent(http, agent_api_key=api_key, dev=True)
     
     @pytest.mark.integration
-    def test_discovery_health_integration(self, claw_client):
-        result = claw_client.discovery_health()
+    def test_discovery_health_integration(self, agent_client):
+        result = agent_client.discovery_health()
         assert "status" in result
         assert result["status"] == "ok"
     
     @pytest.mark.integration
-    def test_chat_integration(self, claw_client):
+    def test_chat_integration(self, agent_client):
         """Test actual chat completion (requires running service + credits)."""
-        response = claw_client.chat(
+        response = agent_client.chat(
             model="kimi-k2.5",
             messages=[{"role": "user", "content": "Say 'hello' and nothing else."}],
             max_tokens=10

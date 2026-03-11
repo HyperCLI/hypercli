@@ -39,14 +39,14 @@ hyper flow text-to-image "a cinematic portrait"
 hyper flow text-to-image "a cinematic portrait" --x402
 
 # HyperClaw checkout/config
-hyper claw plans
-hyper claw subscribe 1aiu
-hyper claw config env
-hyper claw exec <agent_id> "ls -la"
-hyper claw shell <agent_id>
+hyper agent plans
+hyper agent subscribe 1aiu
+hyper agent config env
+hyper agent exec <agent_id> "ls -la"
+hyper agent shell <agent_id>
 ```
 
 ## Notes
 
 - `hyper llm` command surface has been removed.
-- For inference setup, use HyperClaw (`hyper claw config ...`) and your agent/client's OpenAI-compatible configuration.
+- For inference setup, use HyperClaw (`hyper agent config ...`) and your agent/client's OpenAI-compatible configuration.

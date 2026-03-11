@@ -24,11 +24,11 @@ export class Agents {
 
   constructor(
     private http: HTTPClient,
-    clawApiKey?: string,
-    clawApiBase?: string
+    agentApiKey?: string,
+    agentApiBase?: string
   ) {
-    this.apiKey = clawApiKey || (http as any).apiKey;
-    this.apiBase = (clawApiBase || process.env.HYPERCLAW_API_BASE || 'https://api.hyperclaw.app').replace(/\/$/, '');
+    this.apiKey = agentApiKey || (http as any).apiKey;
+    this.apiBase = (agentApiBase || process.env.HYPERCLAW_API_BASE || 'https://api.hyperclaw.app').replace(/\/$/, '');
   }
 
   /**

@@ -98,7 +98,7 @@ def test_instances_launch_dry_run_mock(monkeypatch):
     assert "job-dryrun" in result.stdout
 
 
-def test_claw_exec_alias(monkeypatch):
+def test_agent_exec_command(monkeypatch):
     called = {}
 
     def fake_exec_cmd(agent_id, command, timeout=30):
@@ -108,13 +108,13 @@ def test_claw_exec_alias(monkeypatch):
 
     monkeypatch.setattr("hypercli_cli.agents.exec_cmd", fake_exec_cmd)
 
-    result = runner.invoke(app, ["claw", "exec", "agent-1", "echo ok", "--timeout", "7"])
+    result = runner.invoke(app, ["agent", "exec", "agent-1", "echo ok", "--timeout", "7"])
 
     assert result.exit_code == 0
     assert called == {"agent_id": "agent-1", "command": "echo ok", "timeout": 7}
 
 
-def test_claw_shell_alias(monkeypatch):
+def test_agent_shell_command(monkeypatch):
     called = {}
 
     def fake_shell(agent_id):
@@ -122,7 +122,7 @@ def test_claw_shell_alias(monkeypatch):
 
     monkeypatch.setattr("hypercli_cli.agents.shell", fake_shell)
 
-    result = runner.invoke(app, ["claw", "shell", "agent-xyz"])
+    result = runner.invoke(app, ["agent", "shell", "agent-xyz"])
 
     assert result.exit_code == 0
     assert called["agent_id"] == "agent-xyz"

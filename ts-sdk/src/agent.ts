@@ -1,12 +1,12 @@
 /**
- * HyperClaw API client - AI agent inference using OpenAI-compatible API
- * 
+ * HyperAgent API client - AI agent inference using OpenAI-compatible API
+ *
  * Note: OpenAI client integration is not included in this SDK.
  * Use the OpenAI Node.js SDK directly with HyperClaw endpoints.
  */
 import type { HTTPClient } from './http.js';
 
-export interface ClawKey {
+export interface HyperAgentKey {
   key: string;
   planId: string;
   expiresAt: Date;
@@ -15,7 +15,7 @@ export interface ClawKey {
   userId: string | null;
 }
 
-export interface ClawPlan {
+export interface HyperAgentPlan {
   id: string;
   name: string;
   priceUsd: number;
@@ -23,7 +23,7 @@ export interface ClawPlan {
   rpmLimit: number;
 }
 
-export interface ClawModel {
+export interface HyperAgentModel {
   id: string;
   name: string;
   contextLength: number;
@@ -32,7 +32,7 @@ export interface ClawModel {
   supportsToolChoice: boolean;
 }
 
-function clawKeyFromDict(data: any): ClawKey {
+function hyperAgentKeyFromDict(data: any): HyperAgentKey {
   let expiresAt: Date;
   if (typeof data.expires_at === 'string') {
     expiresAt = new Date(data.expires_at.replace('Z', '+00:00'));
@@ -50,7 +50,7 @@ function clawKeyFromDict(data: any): ClawKey {
   };
 }
 
-function clawPlanFromDict(data: any): ClawPlan {
+function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   return {
     id: data.id,
     name: data.name,
@@ -60,7 +60,7 @@ function clawPlanFromDict(data: any): ClawPlan {
   };
 }
 
-function clawModelFromDict(data: any): ClawModel {
+function hyperAgentModelFromDict(data: any): HyperAgentModel {
   const caps = data.capabilities || {};
   return {
     id: data.id,
@@ -73,26 +73,21 @@ function clawModelFromDict(data: any): ClawModel {
 }
 
 /**
- * HyperClaw API Client
- * 
+ * HyperAgent API Client
+ *
  * For chat completions, use the OpenAI Node.js SDK directly:
- * 
+ *
  * ```typescript
  * import OpenAI from 'openai';
- * 
+ *
  * const openai = new OpenAI({
- *   apiKey: client.claw.apiKey,
- *   baseURL: client.claw.baseUrl,
- * });
- * 
- * const response = await openai.chat.completions.create({
- *   model: 'kimi-k2.5',
- *   messages: [{ role: 'user', content: 'Hello!' }],
+ *   apiKey: client.agent.apiKey,
+ *   baseURL: client.agent.baseUrl,
  * });
  * ```
  */
-export class Claw {
-  static readonly CLAW_API_BASE = 'https://api.hyperclaw.app/v1';
+export class HyperAgent {
+  static readonly AGENT_API_BASE = 'https://api.hyperclaw.app/v1';
   static readonly DEV_API_BASE = 'https://dev-api.hyperclaw.app/v1';
 
   public readonly apiKey: string;
@@ -100,24 +95,21 @@ export class Claw {
 
   constructor(
     private http: HTTPClient,
-    clawApiKey?: string,
+    agentApiKey?: string,
     dev: boolean = false
   ) {
-    this.apiKey = clawApiKey || http['apiKey'];
-    this.baseUrl = dev ? Claw.DEV_API_BASE : Claw.CLAW_API_BASE;
+    this.apiKey = agentApiKey || http['apiKey'];
+    this.baseUrl = dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE;
   }
 
   private get baseUrlWithoutV1(): string {
     return this.baseUrl.replace('/v1', '');
   }
 
-  /**
-   * Get current API key status and subscription details
-   */
-  async keyStatus(): Promise<ClawKey> {
+  async keyStatus(): Promise<HyperAgentKey> {
     const response = await fetch(`${this.baseUrlWithoutV1}/api/keys/status`, {
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
     });
 
@@ -126,16 +118,13 @@ export class Claw {
     }
 
     const data = await response.json();
-    return clawKeyFromDict(data);
+    return hyperAgentKeyFromDict(data);
   }
 
-  /**
-   * List available subscription plans
-   */
-  async plans(): Promise<ClawPlan[]> {
+  async plans(): Promise<HyperAgentPlan[]> {
     const response = await fetch(`${this.baseUrlWithoutV1}/api/plans`, {
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
     });
 
@@ -144,16 +133,13 @@ export class Claw {
     }
 
     const data: any = await response.json();
-    return (data.plans || []).map(clawPlanFromDict);
+    return (data.plans || []).map(hyperAgentPlanFromDict);
   }
 
-  /**
-   * List available models
-   */
-  async models(): Promise<ClawModel[]> {
+  async models(): Promise<HyperAgentModel[]> {
     const response = await fetch(`${this.baseUrl}/models`, {
       headers: {
-        'Authorization': `Bearer ${this.apiKey}`,
+        Authorization: `Bearer ${this.apiKey}`,
       },
     });
 
@@ -162,17 +148,16 @@ export class Claw {
     }
 
     const data: any = await response.json();
-    return (data.data || []).map((m: any) => clawModelFromDict({
-      id: m.id,
-      name: m.name || m.id,
-      context_length: m.context_length || 0,
-      capabilities: m.capabilities || {},
-    }));
+    return (data.data || []).map((model: any) =>
+      hyperAgentModelFromDict({
+        id: model.id,
+        name: model.name || model.id,
+        context_length: model.context_length || 0,
+        capabilities: model.capabilities || {},
+      }),
+    );
   }
 
-  /**
-   * Get discovery service health status
-   */
   async discoveryHealth(): Promise<{
     hostsTotal: number;
     hostsHealthy: number;
@@ -187,9 +172,6 @@ export class Claw {
     return (await response.json()) as any;
   }
 
-  /**
-   * Get discovery service configuration (requires API key)
-   */
   async discoveryConfig(apiKey?: string): Promise<any> {
     const headers: Record<string, string> = {};
     if (apiKey) {

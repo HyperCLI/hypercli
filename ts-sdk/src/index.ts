@@ -85,13 +85,13 @@ export {
   fetchLogs,
 } from './logs.js';
 
-// HyperClaw
+// HyperAgent
 export {
-  Claw,
-  type ClawKey,
-  type ClawPlan,
-  type ClawModel,
-} from './claw.js';
+  HyperAgent,
+  type HyperAgentKey,
+  type HyperAgentPlan,
+  type HyperAgentModel,
+} from './agent.js';
 
 export {
   Agents,

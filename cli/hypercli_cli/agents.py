@@ -17,34 +17,34 @@ app = typer.Typer(help="Manage OpenClaw agent pods (reef containers)")
 console = Console()
 
 # Config — uses HyperClaw API key (sk-...) for backend auth
-CLAW_KEY_PATH = Path.home() / ".hypercli" / "claw-key.json"
+AGENT_KEY_PATH = Path.home() / ".hypercli" / "agent-key.json"
 STATE_DIR = Path.home() / ".hypercli"
 AGENTS_STATE = STATE_DIR / "agents.json"
 
 
-def _get_claw_api_key() -> str:
+def _get_agent_api_key() -> str:
     """Resolve HyperClaw API key from env or saved key file."""
     key = os.environ.get("HYPERCLAW_API_KEY", "")
     if key:
         return key
-    if CLAW_KEY_PATH.exists():
-        with open(CLAW_KEY_PATH) as f:
+    if AGENT_KEY_PATH.exists():
+        with open(AGENT_KEY_PATH) as f:
             data = json.load(f)
         key = data.get("key", "")
         if key:
             return key
     console.print("[red]❌ No HyperClaw API key found.[/red]")
-    console.print("Set HYPERCLAW_API_KEY or subscribe: [bold]hyper claw subscribe 1aiu[/bold]")
+    console.print("Set HYPERCLAW_API_KEY or subscribe: [bold]hyper agent subscribe 1aiu[/bold]")
     raise typer.Exit(1)
 
 
 def _get_agents_client() -> Agents:
     """Create an Agents client using the HyperClaw API key."""
     from hypercli.http import HTTPClient
-    api_key = _get_claw_api_key()
+    api_key = _get_agent_api_key()
     api_base = os.environ.get("HYPERCLAW_API_BASE", "https://api.hyperclaw.app")
     http = HTTPClient(api_base, api_key)
-    return Agents(http, claw_api_key=api_key, claw_api_base=api_base)
+    return Agents(http, agent_api_key=api_key, agent_api_base=api_base)
 
 
 def _save_pod_state(pod: ReefPod):

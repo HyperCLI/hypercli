@@ -93,6 +93,8 @@ ws.close();
 ### HyperClaw Agent Exec/Shell
 
 ```typescript
+const models = await client.agent.models();
+
 // Execute command in a HyperClaw (reef) container
 const agentExec = await client.agents.exec(agentId, 'ls -la');
 
@@ -189,7 +191,7 @@ const response = await fetch(`${comfy.baseUrl}/prompt`, {
 - `client.renders` - Render API
 - `client.files` - File upload/download
 - `client.keys` - API keys management
-- `client.claw` - HyperClaw inference API
+- `client.agent` - HyperClaw inference API
 - `client.agents` - HyperClaw agent container exec/shell API
 
 ### Job Helpers

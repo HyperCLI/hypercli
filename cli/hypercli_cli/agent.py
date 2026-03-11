@@ -1,4 +1,4 @@
-"""HyperClaw inference commands"""
+"""HyperAgent inference commands"""
 import asyncio
 import json
 import os
@@ -13,7 +13,7 @@ from .voice import app as voice_app
 from .stt import transcribe as _stt_transcribe
 from .embed import app as embed_app
 
-app = typer.Typer(help="HyperClaw inference commands")
+app = typer.Typer(help="HyperAgent inference commands")
 console = Console()
 
 # Register subcommands
@@ -35,9 +35,9 @@ def transcribe(
     """Transcribe audio to text using faster-whisper (runs locally).
 
     Examples:
-      hyper claw transcribe voice.ogg
-      hyper claw transcribe meeting.mp3 --model large-v3 --language en
-      hyper claw transcribe audio.wav --json -o transcript.json
+      hyper agent transcribe voice.ogg
+      hyper agent transcribe meeting.mp3 --model large-v3 --language en
+      hyper agent transcribe audio.wav --json -o transcript.json
     """
     _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
 
@@ -52,7 +52,7 @@ except ImportError:
     X402_AVAILABLE = False
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
-CLAW_KEY_PATH = HYPERCLI_DIR / "claw-key.json"
+AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEV_API_BASE = "https://dev-api.hyperclaw.app"
 PROD_API_BASE = "https://api.hyperclaw.app"
 
@@ -80,9 +80,9 @@ def subscribe(
       - $1 → ~1.3 days
     
     Examples:
-      hyper claw subscribe 1aiu 25     # Pay $25 for 32 days
-      hyper claw subscribe 1aiu 50     # Pay $50 for 64 days
-      hyper claw subscribe 5aiu 100    # Pay $100 for 5aiu plan
+      hyper agent subscribe 1aiu 25     # Pay $25 for 32 days
+      hyper agent subscribe 1aiu 50     # Pay $50 for 64 days
+      hyper agent subscribe 5aiu 100    # Pay $100 for 5aiu plan
     """
     require_x402_deps()
     
@@ -109,7 +109,7 @@ def subscribe(
         
         # Save key (current)
         HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
-        with open(CLAW_KEY_PATH, "w") as f:
+        with open(AGENT_KEY_PATH, "w") as f:
             json.dump(result, f, indent=2)
         
         # Build history entry with key info
@@ -128,7 +128,7 @@ def subscribe(
         }
         
         # Load existing keys or start fresh
-        keys_history_path = HYPERCLI_DIR / "claw-keys.yaml"
+        keys_history_path = HYPERCLI_DIR / "agent-keys.yaml"
         if keys_history_path.exists():
             with open(keys_history_path) as f:
                 keys_data = yaml.safe_load(f) or {"keys": []}
@@ -147,9 +147,9 @@ def subscribe(
         console.print(f"Duration: [bold]{result.get('duration_days', 30):.2f} days[/bold]")
         console.print(f"Expires: {result['expires_at']}")
         console.print(f"Limits: {result['tpm_limit']:,} TPM / {result['rpm_limit']:,} RPM")
-        console.print(f"\n[green]✓[/green] Key saved to [bold]{CLAW_KEY_PATH}[/bold]")
+        console.print(f"\n[green]✓[/green] Key saved to [bold]{AGENT_KEY_PATH}[/bold]")
         console.print(f"[green]✓[/green] Key history: [bold]{keys_history_path}[/bold]")
-        console.print("\nConfigure OpenClaw with: [bold]hyper claw openclaw-setup[/bold]")
+        console.print("\nConfigure OpenClaw with: [bold]hyper agent openclaw-setup[/bold]")
 
 
 async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = None):
@@ -220,8 +220,8 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
             payment_headers = http_client.encode_payment_signature_header(payment_payload)
             console.print(f"[green]✓[/green] Payment signed")
             
-            # Step 6: Retry with payment (include JWT if available from claw login)
-            jwt_path = HYPERCLI_DIR / "claw-jwt.json"
+            # Step 6: Retry with payment (include JWT if available from agent login)
+            jwt_path = HYPERCLI_DIR / "agent-jwt.json"
             if jwt_path.exists():
                 try:
                     with open(jwt_path) as f:
@@ -229,7 +229,7 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
                     jwt_token = jwt_data.get("token", "")
                     if jwt_token:
                         payment_headers["Authorization"] = f"Bearer {jwt_token}"
-                        console.print("[green]✓[/green] Attaching user auth (from claw login)")
+                        console.print("[green]✓[/green] Attaching user auth (from agent login)")
                 except Exception:
                     pass
 
@@ -259,12 +259,12 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
 def status():
     """Show current HyperClaw key status"""
     
-    if not CLAW_KEY_PATH.exists():
+    if not AGENT_KEY_PATH.exists():
         console.print("[yellow]No HyperClaw key found.[/yellow]")
-        console.print("Subscribe with: [bold]hyper claw subscribe <aiu>[/bold]")
+        console.print("Subscribe with: [bold]hyper agent subscribe <aiu>[/bold]")
         raise typer.Exit(0)
     
-    with open(CLAW_KEY_PATH) as f:
+    with open(AGENT_KEY_PATH) as f:
         key_data = json.load(f)
     
     # Parse expiry
@@ -339,7 +339,7 @@ def plans(
     console.print()
     console.print(table)
     console.print()
-    console.print("Subscribe with: [bold]hyper claw subscribe <plan_id> <amount>[/bold]")
+    console.print("Subscribe with: [bold]hyper agent subscribe <plan_id> <amount>[/bold]")
 
 
 @app.command("models")
@@ -426,12 +426,12 @@ def login(
       1. Signs a challenge with your wallet private key
       2. Backend verifies signature, creates/finds your user
       3. Creates an API key bound to your user account
-      4. Saves the key to ~/.hypercli/claw-key.json
+      4. Saves the key to ~/.hypercli/agent-key.json
 
     After login, you can use:
       hyper agents create    Launch an OpenClaw agent pod
       hyper agents list      List your agents
-      hyper claw config      Generate provider configs
+      hyper agent config      Generate provider configs
     """
     try:
         from eth_account.messages import encode_defunct
@@ -492,17 +492,17 @@ def login(
     team_id = login_data.get("team_id", "")
     wallet_addr = login_data.get("wallet_address", account.address)
 
-    # Step 5: Create a claw API key using the JWT
+    # Step 5: Create an agent API key using the JWT
     console.print("[bold]Creating API key...[/bold]")
     with httpx.Client(timeout=15) as client:
         resp = client.post(
             f"{base_url}/api/keys",
-            json={"name": "claw-cli"},
+            json={"name": "agent-cli"},
             headers={"Authorization": f"Bearer {jwt_token}"},
         )
         if resp.status_code != 200:
             # Save JWT anyway so user can still auth
-            jwt_path = HYPERCLI_DIR / "claw-jwt.json"
+            jwt_path = HYPERCLI_DIR / "agent-jwt.json"
             HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
             with open(jwt_path, "w") as f:
                 json.dump({"token": jwt_token, "user_id": user_id, "team_id": team_id}, f, indent=2)
@@ -514,9 +514,9 @@ def login(
 
     api_key = key_data.get("api_key", key_data.get("key", ""))
 
-    # Step 6: Save as claw key
+    # Step 6: Save as agent key
     HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
-    claw_key_data = {
+    agent_key_data = {
         "key": api_key,
         "plan_id": login_data.get("plan_id", "free"),
         "user_id": user_id,
@@ -526,17 +526,17 @@ def login(
         "rpm_limit": 0,
         "expires_at": "",
     }
-    with open(CLAW_KEY_PATH, "w") as f:
-        json.dump(claw_key_data, f, indent=2)
+    with open(AGENT_KEY_PATH, "w") as f:
+        json.dump(agent_key_data, f, indent=2)
 
-    console.print(f"[green]✓[/green] API key saved to [bold]{CLAW_KEY_PATH}[/bold]\n")
+    console.print(f"[green]✓[/green] API key saved to [bold]{AGENT_KEY_PATH}[/bold]\n")
     console.print(f"  User:    {user_id[:12]}...")
     console.print(f"  Team:    {team_id[:12]}...")
     console.print(f"  Key:     {api_key[:20]}...")
     console.print(f"  Wallet:  {wallet_addr}")
     console.print(f"\n[green]You're all set![/green]")
     console.print(f"  Launch agent:   [bold]hyper agents create[/bold]")
-    console.print(f"  Configure:      [bold]hyper claw config openclaw --apply[/bold]")
+    console.print(f"  Configure:      [bold]hyper agent config openclaw --apply[/bold]")
 
 
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
@@ -602,18 +602,18 @@ def openclaw_setup(
 ):
     """Patch OpenClaw config with your HyperClaw API key.
 
-    Reads key from ~/.hypercli/claw-key.json, patches only the
+    Reads key from ~/.hypercli/agent-key.json, patches only the
     models.providers.hyperclaw section in ~/.openclaw/openclaw.json.
     Everything else in the config is left untouched.
     """
 
     # Load HyperClaw key
-    if not CLAW_KEY_PATH.exists():
+    if not AGENT_KEY_PATH.exists():
         console.print("[red]❌ No HyperClaw key found.[/red]")
-        console.print("Run: [bold]hyper claw subscribe 1aiu <amount>[/bold]")
+        console.print("Run: [bold]hyper agent subscribe 1aiu <amount>[/bold]")
         raise typer.Exit(1)
 
-    with open(CLAW_KEY_PATH) as f:
+    with open(AGENT_KEY_PATH) as f:
         api_key = json.load(f).get("key", "")
 
     if not api_key:
@@ -684,21 +684,21 @@ def openclaw_setup(
 
 
 # ---------------------------------------------------------------------------
-# hyper claw config — generate / apply provider configs for various tools
+# hyper agent config — generate / apply provider configs for various tools
 # ---------------------------------------------------------------------------
 
 def _resolve_api_key(key: str | None) -> str:
-    """Resolve API key from --key flag or ~/.hypercli/claw-key.json."""
+    """Resolve API key from --key flag or ~/.hypercli/agent-key.json."""
     if key:
         return key
-    if CLAW_KEY_PATH.exists():
-        with open(CLAW_KEY_PATH) as f:
+    if AGENT_KEY_PATH.exists():
+        with open(AGENT_KEY_PATH) as f:
             k = json.load(f).get("key", "")
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
     console.print("Either pass [bold]--key sk-...[/bold] or subscribe first:")
-    console.print("  [bold]hyper claw subscribe 1aiu[/bold]")
+    console.print("  [bold]hyper agent subscribe 1aiu[/bold]")
     raise typer.Exit(1)
 
 
@@ -810,7 +810,7 @@ def config_cmd(
         None,
         help=f"Output format: {', '.join(FORMAT_CHOICES)}. Omit to show all.",
     ),
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/claw-key.json"),
+    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json"),
     base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPERCLAW_API_BASE, then --dev/prod defaults"),
     apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
@@ -818,12 +818,12 @@ def config_cmd(
     """Generate provider configs for OpenClaw, OpenCode, and other tools.
 
     Examples:
-      hyper claw config                          # Show all configs
-      hyper claw config openclaw                 # OpenClaw snippet
-      hyper claw config opencode --key sk-...    # OpenCode with explicit key
-      hyper claw config openclaw --base-url https://dev-api.hyperclaw.app
-      hyper claw config openclaw --apply         # Write directly to openclaw.json
-      hyper claw config env                      # Shell export lines
+      hyper agent config                          # Show all configs
+      hyper agent config openclaw                 # OpenClaw snippet
+      hyper agent config opencode --key sk-...    # OpenCode with explicit key
+      hyper agent config openclaw --base-url https://dev-api.hyperclaw.app
+      hyper agent config openclaw --apply         # Write directly to openclaw.json
+      hyper agent config env                      # Shell export lines
     """
     api_key = _resolve_api_key(key)
     api_base = _resolve_api_base(base_url, dev)

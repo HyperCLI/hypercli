@@ -78,16 +78,21 @@ user = client.user.get()
 print(f"User: {user.email}")
 ```
 
-## LLM API
+## HyperAgent API
 
-For LLM access, use the OpenAI SDK with C3's base URL:
+Use `client.agent` for discovery and plan metadata, and point the OpenAI SDK at
+the HyperClaw inference base URL for chat completions:
 
 ```python
+from hypercli import HyperCLI
 from openai import OpenAI
 
+sdk = HyperCLI(api_key="hyper_api_key", agent_api_key="sk-agent")
+plans = sdk.agent.plans()
+
 client = OpenAI(
-    api_key="your_hypercli_api_key",
-    base_url="https://api.hypercli.com/v1"
+    api_key="your_hyperagent_api_key",
+    base_url="https://api.hyperclaw.app/v1"
 )
 
 response = client.chat.completions.create(

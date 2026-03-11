@@ -239,7 +239,7 @@ def mock_http():
 @pytest.fixture
 def agents_client(mock_http):
     """Agents client with mock HTTP."""
-    return Agents(http=mock_http, claw_api_key="sk-test123", claw_api_base="https://api.test.hyperclaw.app")
+    return Agents(http=mock_http, agent_api_key="sk-test123", agent_api_base="https://api.test.hyperclaw.app")
 
 
 def test_agents_create(agents_client):
@@ -472,7 +472,7 @@ async def test_agents_integration_lifecycle():
 
     # Create client
     http = HTTPClient(api_base="https://api.dev.hyperclaw.app", api_key=api_key)
-    agents = Agents(http, claw_api_key=api_key, claw_api_base="https://api.dev.hyperclaw.app")
+    agents = Agents(http, agent_api_key=api_key, agent_api_base="https://api.dev.hyperclaw.app")
 
     # Create agent
     print("\n[Integration] Creating agent...")

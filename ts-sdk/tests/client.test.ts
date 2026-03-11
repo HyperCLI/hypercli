@@ -6,6 +6,7 @@ describe('HyperCLI Client', () => {
   it('should construct client with env var/config file', () => {
     const client = new HyperCLI();
     expect(client).toBeDefined();
+    expect(client.agent).toBeDefined();
     expect(client.jobs).toBeDefined();
     expect(client.billing).toBeDefined();
     expect(client.instances).toBeDefined();

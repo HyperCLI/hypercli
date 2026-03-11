@@ -9,15 +9,15 @@ import { UserAPI } from './user.js';
 import { Instances } from './instances.js';
 import { Renders } from './renders.js';
 import { Files } from './files.js';
-import { Claw } from './claw.js';
+import { HyperAgent } from './agent.js';
 import { KeysAPI } from './keys.js';
 import { Agents } from './agents.js';
 
 export interface HyperCLIOptions {
   apiKey?: string;
   apiUrl?: string;
-  clawApiKey?: string;
-  clawDev?: boolean;
+  agentApiKey?: string;
+  agentDev?: boolean;
   timeout?: number;
 }
 
@@ -60,7 +60,7 @@ export class HyperCLI {
   public readonly renders: Renders;
   public readonly files: Files;
   public readonly keys: KeysAPI;
-  public readonly claw: Claw;
+  public readonly agent: HyperAgent;
   public readonly agents: Agents;
 
   constructor(options: HyperCLIOptions = {}) {
@@ -85,8 +85,8 @@ export class HyperCLI {
     this.renders = new Renders(this._http);
     this.files = new Files(this._http);
     this.keys = new KeysAPI(this._http);
-    this.claw = new Claw(this._http, options.clawApiKey, options.clawDev);
-    this.agents = new Agents(this._http, options.clawApiKey);
+    this.agent = new HyperAgent(this._http, options.agentApiKey, options.agentDev);
+    this.agents = new Agents(this._http, options.agentApiKey);
   }
 
   get apiUrl(): string {

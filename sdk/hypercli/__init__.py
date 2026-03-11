@@ -11,7 +11,7 @@ from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Agents, ReefPod, ExecResult
 from .shell import ShellSession, shell_connect
-from .claw import Claw, ClawKey, ClawPlan, ClawModel
+from .agent import HyperAgent, HyperAgentKey, HyperAgentPlan, HyperAgentModel
 from .gateway import GatewayClient, GatewayError, ChatEvent
 
 __version__ = "2026.3.10"
@@ -74,11 +74,11 @@ __all__ = [
     # Shell
     "ShellSession",
     "shell_connect",
-    # HyperClaw
-    "Claw",
-    "ClawKey",
-    "ClawPlan",
-    "ClawModel",
+    # HyperAgent
+    "HyperAgent",
+    "HyperAgentKey",
+    "HyperAgentPlan",
+    "HyperAgentModel",
     # OpenClaw Gateway
     "GatewayClient",
     "GatewayError",

@@ -11,25 +11,25 @@ app = typer.Typer(help="Text embeddings via HyperClaw API (qwen3-embedding-4b)")
 console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
-CLAW_KEY_PATH = HYPERCLI_DIR / "claw-key.json"
+AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 PROD_API_BASE = "https://api.hyperclaw.app"
 DEV_API_BASE = "https://api.dev.hyperclaw.app"
 
 
 def _get_api_key(key: str | None) -> str:
-    """Resolve API key: --key flag > env HYPERCLAW_API_KEY > claw-key.json."""
+    """Resolve API key: --key flag > env HYPERCLAW_API_KEY > agent-key.json."""
     if key:
         return key
     env_key = os.environ.get("HYPERCLAW_API_KEY", "").strip()
     if env_key:
         return env_key
-    if CLAW_KEY_PATH.exists():
-        with open(CLAW_KEY_PATH) as f:
+    if AGENT_KEY_PATH.exists():
+        with open(AGENT_KEY_PATH) as f:
             k = json.load(f).get("key", "")
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPERCLAW_API_KEY[/bold], or run [bold]hyper claw subscribe[/bold]")
+    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPERCLAW_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
     raise typer.Exit(1)
 
 
@@ -45,9 +45,9 @@ def embed_text(
     """Generate embeddings for text.
 
     Examples:
-      hyper claw embed text "Hello world"
-      hyper claw embed text "Test" --json
-      hyper claw embed text "Document chunk" -o embedding.json
+      hyper agent embed text "Hello world"
+      hyper agent embed text "Test" --json
+      hyper agent embed text "Document chunk" -o embedding.json
     """
     api_key = _get_api_key(key)
     api_base = DEV_API_BASE if dev else PROD_API_BASE
@@ -95,8 +95,8 @@ def embed_test(
     """Quick test to verify embedding endpoint works.
 
     Examples:
-      hyper claw embed test
-      hyper claw embed test --dev
+      hyper agent embed test
+      hyper agent embed test --dev
     """
     api_key = _get_api_key(key)
     api_base = DEV_API_BASE if dev else PROD_API_BASE

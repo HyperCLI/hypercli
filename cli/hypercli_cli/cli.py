@@ -7,7 +7,7 @@ from rich.prompt import Prompt
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import agents, billing, claw, comfyui, flow, instances, jobs, keys, user, wallet
+from . import agent, agents, billing, comfyui, flow, instances, jobs, keys, user, wallet
 
 console = Console()
 
@@ -57,8 +57,8 @@ app = typer.Typer(
 
 # Register subcommands
 app.add_typer(agents.app, name="agents")
+app.add_typer(agent.app, name="agent")
 app.add_typer(billing.app, name="billing")
-app.add_typer(claw.app, name="claw")
 app.add_typer(comfyui.app, name="comfyui")
 app.add_typer(flow.app, name="flow")
 app.add_typer(instances.app, name="instances")
@@ -130,7 +130,7 @@ def main(
         hyper instances list      Browse available GPUs
         hyper instances launch    Launch a GPU instance
         hyper jobs list           View your running jobs
-        hyper claw plans          View HyperClaw plans
+        hyper agent plans         View HyperClaw plans
     """
     if version:
         from . import __version__

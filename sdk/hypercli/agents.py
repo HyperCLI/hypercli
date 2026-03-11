@@ -131,11 +131,11 @@ class Agents:
     HyperClaw Agents API — manage reef pods (OpenClaw desktop containers).
 
     Uses the authenticated backend API (api.hyperclaw.app/api/agents).
-    Auth: pass your HyperClaw API key (sk-...) as the claw_api_key.
+    Auth: pass your HyperClaw API key (sk-...) as the agent_api_key.
 
     Usage:
         from hypercli import HyperCLI
-        client = HyperCLI(api_key="...", claw_api_key="sk-...")
+        client = HyperCLI(api_key="...", agent_api_key="sk-...")
 
         # Launch
         pod = client.agents.create()
@@ -151,10 +151,10 @@ class Agents:
         client.agents.stop(pod.id)
     """
 
-    def __init__(self, http: HTTPClient, claw_api_key: str = None, claw_api_base: str = None):
+    def __init__(self, http: HTTPClient, agent_api_key: str = None, agent_api_base: str = None):
         self._http = http
-        self._api_key = claw_api_key or http.api_key
-        self._api_base = (claw_api_base or CLAW_API_BASE).rstrip("/")
+        self._api_key = agent_api_key or http.api_key
+        self._api_base = (agent_api_base or CLAW_API_BASE).rstrip("/")
 
     @property
     def _headers(self) -> dict:
