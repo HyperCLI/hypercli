@@ -20,6 +20,11 @@ class Job:
     price_per_second: float
     docker_image: str
     runtime: int
+    elapsed: int = 0
+    time_left: int = 0
+    command: str | None = None
+    env_vars: dict[str, str] | None = None
+    tags: dict[str, str] | None = None
     hostname: str | None = None
     cold_boot: bool = True
     created_at: float | None = None
@@ -28,6 +33,13 @@ class Job:
 
     @classmethod
     def from_dict(cls, data: dict) -> "Job":
+        command_b64 = data.get("command")
+        command = None
+        if isinstance(command_b64, str) and command_b64:
+            try:
+                command = base64.b64decode(command_b64).decode()
+            except Exception:
+                command = command_b64
         return cls(
             job_id=data.get("job_id", ""),
             job_key=data.get("job_key", ""),
@@ -39,7 +51,12 @@ class Job:
             price_per_hour=data.get("price_per_hour", 0),
             price_per_second=data.get("price_per_second", 0),
             docker_image=data.get("docker_image", ""),
+            command=command,
+            env_vars=data.get("env_vars"),
+            tags=data.get("tags"),
             runtime=data.get("runtime", 0),
+            elapsed=data.get("elapsed", 0),
+            time_left=data.get("time_left", 0),
             hostname=data.get("hostname"),
             cold_boot=data.get("cold_boot", True),
             created_at=data.get("created_at"),
@@ -127,9 +144,15 @@ class Jobs:
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
-    def list(self, state: str = None) -> list[Job]:
+    def list(self, state: str = None, tags: dict[str, str] | None = None) -> list[Job]:
         """List all jobs"""
-        params = {"state": state} if state else None
+        params = {}
+        if state:
+            params["state"] = state
+        if tags:
+            params["tag"] = [f"{key}:{value}" for key, value in tags.items()]
+        if not params:
+            params = None
         data = self._http.get("/api/jobs", params=params)
         # API returns {"jobs": [...], "total_count": ...}
         jobs = data.get("jobs", []) if isinstance(data, dict) else data
@@ -153,6 +176,7 @@ class Jobs:
         ports: dict[str, int] = None,
         auth: bool = False,
         registry_auth: dict[str, str] = None,
+        tags: dict[str, str] = None,
         dockerfile: str = None,
         dry_run: bool = False,
     ) -> Job:
@@ -192,6 +216,8 @@ class Jobs:
             payload["auth"] = auth
         if registry_auth:
             payload["registry_auth"] = registry_auth
+        if tags:
+            payload["tags"] = tags
         if dockerfile:
             payload["dockerfile"] = dockerfile
         if dry_run:

@@ -5,6 +5,7 @@ import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
+import { DashboardMobileAgentMenuProvider } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { Skeleton } from "@/components/dashboard/Skeleton";
 
 function FullPageSkeleton() {
@@ -52,27 +53,29 @@ export default function DashboardLayout({
   }, [isLoading, isAuthenticated, router]);
 
   return (
-    <div className="min-h-screen bg-background">
-      <DashboardNav />
-      <main className="pt-14 pb-20 md:pb-0">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
-          {isLoading ? (
-            <FullPageSkeleton />
-          ) : !isAuthenticated ? null : (
-            <AnimatePresence mode="wait">
-              <motion.div
-                key={pathname}
-                initial={{ opacity: 0, y: 6 }}
-                animate={{ opacity: 1, y: 0 }}
-                exit={{ opacity: 0, y: -6 }}
-                transition={{ duration: 0.2, ease: "easeOut" }}
-              >
-                {children}
-              </motion.div>
-            </AnimatePresence>
-          )}
-        </div>
-      </main>
-    </div>
+    <DashboardMobileAgentMenuProvider>
+      <div className="min-h-screen bg-background">
+        <DashboardNav />
+        <main className="pt-14 pb-0">
+          <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+            {isLoading ? (
+              <FullPageSkeleton />
+            ) : !isAuthenticated ? null : (
+              <AnimatePresence mode="wait">
+                <motion.div
+                  key={pathname}
+                  initial={{ opacity: 0, y: 6 }}
+                  animate={{ opacity: 1, y: 0 }}
+                  exit={{ opacity: 0, y: -6 }}
+                  transition={{ duration: 0.2, ease: "easeOut" }}
+                >
+                  {children}
+                </motion.div>
+              </AnimatePresence>
+            )}
+          </div>
+        </main>
+      </div>
+    </DashboardMobileAgentMenuProvider>
   );
 }

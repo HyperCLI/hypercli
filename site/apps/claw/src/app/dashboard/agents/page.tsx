@@ -6,7 +6,10 @@ import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
+  Download,
   ExternalLink,
+  FolderOpen,
+  HardDrive,
   Loader2,
   MessageSquare,
   Plus,
@@ -21,7 +24,13 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
+  Upload,
+  Paperclip,
+  Mic,
+  MicOff,
   X,
+  Pause,
+  ImageIcon,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
@@ -33,6 +42,7 @@ import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard
 import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
+import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
 
@@ -99,13 +109,26 @@ interface LogEvent {
   status?: number;
 }
 
+interface S3FileEntry {
+  name: string;
+  path: string;
+  size?: number;
+}
+
+interface S3FilesResponse {
+  prefix: string;
+  directories: S3FileEntry[];
+  files: S3FileEntry[];
+  truncated: boolean;
+}
+
 // ── Constants ──
 
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-type MainTab = "chat" | "logs" | "shell" | "files" | "openclaw" | "settings";
+type MainTab = AgentMainTab;
 
 // ── Utility functions ──
 
@@ -124,6 +147,30 @@ function wsBaseFromApiBase(apiBase: string): string {
 
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
+}
+
+function encodePath(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
+
+function formatFileSize(size?: number): string {
+  if (size === undefined || Number.isNaN(size)) return "-";
+  if (size < 1024) return `${size} B`;
+  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
+  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
+  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function extractVoicePathFromMessage(content: string): string | null {
+  const absoluteMatch = content.match(/\/home\/ubuntu\/workspace\/voice-[\w.-]+\.webm\b/i);
+  if (absoluteMatch?.[0]) return absoluteMatch[0];
+  const fileMatch = content.match(/\bvoice-[\w.-]+\.webm\b/i);
+  if (!fileMatch?.[0]) return null;
+  return `/home/ubuntu/workspace/${fileMatch[0]}`;
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
@@ -232,10 +279,227 @@ function normalizeSchemaNode(schema: JsonObject): JsonObject {
   return asObject(primary) ?? schema;
 }
 
+function S3FilesPanel({
+  agentId,
+  getToken,
+}: {
+  agentId: string;
+  getToken: () => Promise<string>;
+}) {
+  const [prefix, setPrefix] = useState("");
+  const [directories, setDirectories] = useState<S3FileEntry[]>([]);
+  const [files, setFiles] = useState<S3FileEntry[]>([]);
+  const [truncated, setTruncated] = useState(false);
+  const [loading, setLoading] = useState(false);
+  const [uploading, setUploading] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const fileInputRef = useRef<HTMLInputElement | null>(null);
+
+  const loadFiles = useCallback(async (targetPrefix: string) => {
+    setLoading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      const params = new URLSearchParams();
+      if (targetPrefix) params.set("prefix", targetPrefix);
+      const endpoint = `/agents/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const data = await clawFetch<S3FilesResponse>(endpoint, token);
+      setPrefix(data.prefix || targetPrefix);
+      setDirectories(data.directories || []);
+      setFiles(data.files || []);
+      setTruncated(Boolean(data.truncated));
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Failed to load files");
+      setDirectories([]);
+      setFiles([]);
+      setTruncated(false);
+    } finally {
+      setLoading(false);
+    }
+  }, [agentId, getToken]);
+
+  useEffect(() => {
+    void loadFiles(prefix);
+  }, [loadFiles, prefix]);
+
+  const goToPrefix = useCallback((nextPrefix: string) => {
+    setPrefix(nextPrefix);
+  }, []);
+
+  const uploadFiles = useCallback(async (uploadList: FileList) => {
+    setUploading(true);
+    setError(null);
+    try {
+      const token = await getToken();
+      for (const file of Array.from(uploadList)) {
+        const uploadPath = `${prefix}${file.name}`;
+        const res = await fetch(`${CLAW_API_BASE}/agents/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+          method: "PUT",
+          headers: {
+            Authorization: `Bearer ${token}`,
+            "Content-Type": file.type || "application/octet-stream",
+          },
+          body: file,
+        });
+        if (!res.ok) {
+          const text = await res.text();
+          throw new Error(text || `Upload failed (${res.status})`);
+        }
+      }
+      await loadFiles(prefix);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Upload failed");
+    } finally {
+      setUploading(false);
+    }
+  }, [agentId, getToken, loadFiles, prefix]);
+
+  const downloadFile = useCallback(async (path: string) => {
+    setError(null);
+    try {
+      const token = await getToken();
+      const data = await clawFetch<{ url: string }>(`/agents/${agentId}/files/download/${encodePath(path)}`, token);
+      window.open(data.url, "_blank", "noopener,noreferrer");
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Download failed");
+    }
+  }, [agentId, getToken]);
+
+  const deleteFile = useCallback(async (path: string, name: string) => {
+    if (!window.confirm(`Delete "${name}"?`)) return;
+    setError(null);
+    try {
+      const token = await getToken();
+      await clawFetch(`/agents/${agentId}/files/delete/${encodePath(path)}`, token, {
+        method: "DELETE",
+      });
+      await loadFiles(prefix);
+    } catch (e: unknown) {
+      setError(e instanceof Error ? e.message : "Delete failed");
+    }
+  }, [agentId, getToken, loadFiles, prefix]);
+
+  const pathParts = prefix.split("/").filter(Boolean);
+
+  return (
+    <div className="h-full flex flex-col">
+      <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
+        <input
+          ref={fileInputRef}
+          type="file"
+          multiple
+          className="hidden"
+          onChange={(e) => {
+            if (e.target.files?.length) {
+              void uploadFiles(e.target.files);
+              e.target.value = "";
+            }
+          }}
+        />
+        <button
+          onClick={() => fileInputRef.current?.click()}
+          disabled={uploading}
+          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
+        >
+          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+          Upload
+        </button>
+        <button
+          onClick={() => void loadFiles(prefix)}
+          disabled={loading}
+          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
+        >
+          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+          Refresh
+        </button>
+        <div className="flex-1" />
+        <p className="text-xs text-text-muted">Uploaded files sync to workspace on agent restart.</p>
+      </div>
+
+      <div className="px-4 py-2 border-b border-border bg-surface-low text-xs text-text-muted font-mono flex items-center gap-1 overflow-x-auto">
+        <button onClick={() => goToPrefix("")} className="hover:text-foreground">/</button>
+        {pathParts.map((part, idx) => {
+          const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
+          return (
+            <span key={partPrefix} className="flex items-center gap-1">
+              <span>/</span>
+              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-foreground whitespace-nowrap">{part}</button>
+            </span>
+          );
+        })}
+      </div>
+
+      {error && <div className="px-4 py-2 text-xs text-[#d05f5f] border-b border-border">{error}</div>}
+
+      <div className="flex-1 overflow-auto">
+        {loading ? (
+          <div className="h-full flex items-center justify-center">
+            <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
+          </div>
+        ) : (
+          <div className="p-2">
+            {directories.map((dir) => {
+              const nextPrefix = dir.path || `${prefix}${dir.name.replace(/\/?$/, "/")}`;
+              return (
+                <button
+                  key={`dir-${dir.path || dir.name}`}
+                  onClick={() => goToPrefix(nextPrefix)}
+                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low text-left"
+                >
+                  <FolderOpen className="w-4 h-4 text-text-muted" />
+                  <span className="text-sm text-foreground font-mono flex-1">{dir.name}</span>
+                </button>
+              );
+            })}
+
+            {files.map((file) => (
+              <div
+                key={`file-${file.path}`}
+                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low"
+              >
+                <FileText className="w-4 h-4 text-text-muted" />
+                <span className="text-sm text-foreground font-mono flex-1">{file.name}</span>
+                <span className="text-xs text-text-muted w-24 text-right">{formatFileSize(file.size)}</span>
+                <button
+                  onClick={() => void downloadFile(file.path)}
+                  className="text-text-muted hover:text-foreground p-1"
+                  title="Download"
+                >
+                  <Download className="w-4 h-4" />
+                </button>
+                <button
+                  onClick={() => void deleteFile(file.path, file.name)}
+                  className="text-text-muted hover:text-[#d05f5f] p-1"
+                  title="Delete"
+                >
+                  <Trash2 className="w-4 h-4" />
+                </button>
+              </div>
+            ))}
+
+            {directories.length === 0 && files.length === 0 && (
+              <div className="p-8 text-center text-sm text-text-muted">
+                No files in this directory.
+              </div>
+            )}
+
+            {truncated && (
+              <div className="px-2 py-2 text-xs text-[#f0c56c]">
+                Listing is truncated. Narrow your prefix to see more files.
+              </div>
+            )}
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ── Main component ──
 
 export default function AgentsPage() {
   const { getToken } = useClawAuth();
+  const { setAgentMenu } = useDashboardMobileAgentMenu();
 
   // Agent data
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -521,9 +785,32 @@ export default function AgentsPage() {
     );
   }, [openclawDraft, updateOpenclawPath]);
 
-  // Auto-scroll chat
+  // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
+  const chatScrollRef = useRef<HTMLDivElement>(null);
+  const isNearBottomRef = useRef(true);
+  const lastMsgCountRef = useRef(0);
+
+  const handleChatScroll = useCallback(() => {
+    const el = chatScrollRef.current;
+    if (!el) return;
+    // Consider "near bottom" if within 100px of the end
+    isNearBottomRef.current = el.scrollHeight - el.scrollTop - el.clientHeight < 100;
+  }, []);
+
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+    const count = chat.messages.length;
+    if (count !== lastMsgCountRef.current) {
+      lastMsgCountRef.current = count;
+      // Always scroll on new message (user sent or agent started replying)
+      requestAnimationFrame(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    } else if (isNearBottomRef.current) {
+      // Streaming update — only scroll if already near bottom
+      requestAnimationFrame(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "auto" });
+      });
+    }
   }, [chat.messages]);
 
   // ── Auth token for desktop / shell ──
@@ -801,14 +1088,188 @@ export default function AgentsPage() {
     }
   };
 
+  // Audio recording
+  const [recording, setRecording] = useState(false);
+  const [recordingDuration, setRecordingDuration] = useState(0);
+  const [audioLevel, setAudioLevel] = useState(0);
+  const [audioBlob, setAudioBlob] = useState<Blob | null>(null);
+  const [audioUrl, setAudioUrl] = useState<string | null>(null);
+  const [audioPreviewDuration, setAudioPreviewDuration] = useState(0);
+  const [audioPreviewPlaying, setAudioPreviewPlaying] = useState(false);
+  const [sendingAudio, setSendingAudio] = useState(false);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioPreviewRef = useRef<HTMLAudioElement | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+  const recordingTimerRef = useRef<ReturnType<typeof setInterval> | null>(null);
+  const analyserRef = useRef<AnalyserNode | null>(null);
+  const audioContextRef = useRef<AudioContext | null>(null);
+  const levelAnimRef = useRef<number>(0);
+
+  const startRecording = useCallback(async () => {
+    try {
+      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      
+      // Set up audio analyser for volume visualization
+      const audioCtx = new AudioContext();
+      const source = audioCtx.createMediaStreamSource(stream);
+      const analyser = audioCtx.createAnalyser();
+      analyser.fftSize = 256;
+      source.connect(analyser);
+      audioContextRef.current = audioCtx;
+      analyserRef.current = analyser;
+
+      // Volume level animation loop
+      const dataArray = new Uint8Array(analyser.frequencyBinCount);
+      const updateLevel = () => {
+        analyser.getByteFrequencyData(dataArray);
+        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+        setAudioLevel(Math.min(avg / 128, 1)); // normalize to 0-1
+        levelAnimRef.current = requestAnimationFrame(updateLevel);
+      };
+      updateLevel();
+
+      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      audioChunksRef.current = [];
+      setRecordingDuration(0);
+      mediaRecorder.ondataavailable = (e) => {
+        if (e.data.size > 0) audioChunksRef.current.push(e.data);
+      };
+      mediaRecorder.onstop = () => {
+        stream.getTracks().forEach((t) => t.stop());
+        cancelAnimationFrame(levelAnimRef.current);
+        audioCtx.close();
+        if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+        setAudioLevel(0);
+        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        setAudioBlob(blob);
+        setAudioUrl(URL.createObjectURL(blob));
+      };
+      mediaRecorderRef.current = mediaRecorder;
+      mediaRecorder.start();
+      setRecording(true);
+      recordingTimerRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
+    } catch {
+      // Mic permission denied
+    }
+  }, []);
+
+  const stopRecording = useCallback(() => {
+    mediaRecorderRef.current?.stop();
+    setRecording(false);
+  }, []);
+
+  const discardAudio = useCallback(() => {
+    if (audioPreviewRef.current) {
+      audioPreviewRef.current.pause();
+    }
+    if (audioUrl) URL.revokeObjectURL(audioUrl);
+    setAudioBlob(null);
+    setAudioUrl(null);
+    setAudioPreviewDuration(0);
+    setAudioPreviewPlaying(false);
+    setRecordingDuration(0);
+  }, [audioUrl]);
+
+  useEffect(() => {
+    if (!audioUrl) return;
+    const previewAudio = new Audio(audioUrl);
+    previewAudio.preload = "metadata";
+    const syncDuration = () => {
+      if (Number.isFinite(previewAudio.duration) && previewAudio.duration > 0) {
+        setAudioPreviewDuration(Math.round(previewAudio.duration));
+      }
+    };
+    const onPlay = () => setAudioPreviewPlaying(true);
+    const onPause = () => setAudioPreviewPlaying(false);
+    previewAudio.addEventListener("loadedmetadata", syncDuration);
+    previewAudio.addEventListener("durationchange", syncDuration);
+    previewAudio.addEventListener("play", onPlay);
+    previewAudio.addEventListener("pause", onPause);
+    previewAudio.addEventListener("ended", onPause);
+    audioPreviewRef.current = previewAudio;
+    return () => {
+      previewAudio.pause();
+      previewAudio.removeEventListener("loadedmetadata", syncDuration);
+      previewAudio.removeEventListener("durationchange", syncDuration);
+      previewAudio.removeEventListener("play", onPlay);
+      previewAudio.removeEventListener("pause", onPause);
+      previewAudio.removeEventListener("ended", onPause);
+      previewAudio.src = "";
+      audioPreviewRef.current = null;
+      setAudioPreviewPlaying(false);
+    };
+  }, [audioUrl]);
+
+  const toggleAudioPreviewPlayback = useCallback(() => {
+    const previewAudio = audioPreviewRef.current;
+    if (!previewAudio) return;
+    if (previewAudio.paused) {
+      void previewAudio.play();
+      return;
+    }
+    previewAudio.pause();
+  }, []);
+
+  const sendAudio = useCallback(async () => {
+    if (!audioBlob || !selectedAgent || sendingAudio || !chat.connected) return;
+    setSendingAudio(true);
+    try {
+      const token = await getToken();
+      const timestamp = Date.now();
+      const filename = `voice-${timestamp}.webm`;
+      const uploadPath = `workspace/${filename}`;
+      const agentPath = `/home/ubuntu/${uploadPath}`;
+      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper claw transcribe ${agentPath}\``;
+      // Upload audio to agent's filesystem
+      const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
+        method: "PUT",
+        headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/webm" },
+        body: audioBlob,
+      });
+      if (!res.ok) {
+        const text = await res.text();
+        throw new Error(text || `Upload failed: ${res.status}`);
+      }
+      // Keep input state in sync and send in one action.
+      chat.setInput(voiceMessage);
+      await chat.sendMessage(voiceMessage);
+      discardAudio();
+    } catch (e) {
+      console.error("Audio upload failed:", e);
+      setError(e instanceof Error ? e.message : "Audio upload failed");
+    } finally {
+      setSendingAudio(false);
+    }
+  }, [audioBlob, chat, discardAudio, selectedAgent, getToken, sendingAudio]);
+
+  const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
+
   const handleSendChat = () => {
     chat.sendMessage();
   };
 
+  useEffect(() => {
+    if (!selectedAgent) {
+      setAgentMenu(null);
+      return;
+    }
+    setAgentMenu({
+      selectedAgentId: selectedAgent.id,
+      activeTab: mainTab,
+      onSelectTab: (tab) => {
+        setMainTab(tab);
+        setMobileShowChat(true);
+      },
+      onDelete: () => { void handleDelete(selectedAgent.id); },
+      deleting: deletingId === selectedAgent.id,
+    });
+    return () => setAgentMenu(null);
+  }, [selectedAgent, mainTab, deletingId, setAgentMenu]);
+
   // ── Render ──
 
   return (
-    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8">
+    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 h-[calc(100dvh-3.5rem)] md:h-auto md:min-h-0 flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
         <div className="flex items-center gap-3">
@@ -865,7 +1326,7 @@ export default function AgentsPage() {
       />
 
       {/* Main layout: Sidebar + Panel */}
-      <div className="flex h-[calc(100vh-8rem)]">
+      <div className="flex flex-1 min-h-0 md:h-[calc(100dvh-7rem)] md:flex-none">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
           sidebarCollapsed ? "w-0 overflow-hidden lg:w-16" : "w-full lg:w-[280px]"
@@ -1008,7 +1469,7 @@ export default function AgentsPage() {
           ) : (
             <>
               {/* Agent header + tabs */}
-              <div className="px-4 py-3 border-b border-border flex items-center gap-3">
+              <div className="px-4 py-3 border-b border-border flex items-center gap-3 min-w-0">
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
@@ -1029,20 +1490,44 @@ export default function AgentsPage() {
                     );
                   })()}
                   <span className="text-sm font-semibold text-foreground truncate">{selectedAgent.name || selectedAgent.pod_name}</span>
-                  {chat.connected && <span className="text-[10px] text-[#38D39F]">Gateway</span>}
+                  {chat.connected && (
+                    <>
+                      <span className="hidden md:inline text-[10px] text-[#38D39F]">Gateway</span>
+                      <span className="md:hidden w-2 h-2 rounded-full bg-[#38D39F]" />
+                    </>
+                  )}
+                  {!chat.connected && chat.connecting && (
+                    <>
+                      <span className="hidden md:inline text-[10px] text-[#38D39F] flex items-center gap-1">
+                        <Loader2 className="w-3 h-3 animate-spin" />
+                        Connecting
+                      </span>
+                      <Loader2 className="md:hidden w-3 h-3 animate-spin text-[#38D39F]" />
+                    </>
+                  )}
                 </div>
 
                 {/* Tabs */}
-                <div className="flex-1 flex items-center justify-center">
-                  <div className="inline-flex rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "files", "openclaw", "settings"] as MainTab[]).map((tab) => {
+                <div className="hidden md:flex flex-1 min-w-0 items-center justify-center overflow-x-auto">
+                  <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
+                    {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
                         chat: MessageSquare,
                         logs: TerminalSquare,
                         shell: TerminalSquare,
-                        files: FileText,
+                        workspace: FolderOpen,
+                        files: HardDrive,
                         openclaw: SlidersHorizontal,
                         settings: Settings,
+                      };
+                      const labels: Record<MainTab, string> = {
+                        chat: "Chat",
+                        logs: "Logs",
+                        shell: "Shell",
+                        workspace: "Workspace",
+                        files: "Files",
+                        openclaw: "OpenClaw",
+                        settings: "Settings",
                       };
                       const Icon = icons[tab];
                       return (
@@ -1056,7 +1541,7 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{tab.charAt(0).toUpperCase() + tab.slice(1)}</span>
+                          <span className="hidden md:inline">{labels[tab]}</span>
                         </button>
                       );
                     })}
@@ -1065,17 +1550,7 @@ export default function AgentsPage() {
 
                 {/* Right actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  {(mainTab === "logs" || mainTab === "shell") && (
-                    <span className={`text-xs font-medium ${
-                      (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
-                      (mainTab === "logs" ? wsStatus : shellStatus) === "connecting" ? "text-[#f0c56c]" : "text-text-muted"
-                    }`}>
-                      {mainTab === "logs" ? wsStatus : shellStatus}
-                    </span>
-                  )}
-
-                  {/* Agent actions dropdown */}
-                  <div className="flex items-center gap-1">
+                  <div className="md:hidden flex items-center gap-1">
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
@@ -1090,49 +1565,84 @@ export default function AgentsPage() {
                         <button
                           onClick={() => handleStop(selectedAgent.id)}
                           disabled={stoppingId === selectedAgent.id}
-                          className="px-2 py-1 rounded text-xs border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60 flex items-center gap-1"
+                          className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                         >
                           {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
                           Stop
                         </button>
                       )
                     ) : null}
+                  </div>
 
-                    {isSelectedRunning && selectedAgent.hostname && (
-                      <button
-                        onClick={() => handleOpenDesktop(selectedAgent)}
-                        disabled={openingDesktopId === selectedAgent.id}
-                        className="px-2 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                      >
-                        {openingDesktopId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
-                        Desktop
-                      </button>
-                    )}
-
+                  <div className="hidden md:flex items-center gap-2">
                     {(mainTab === "logs" || mainTab === "shell") && (
-                      <button
-                        onClick={() => setReconnectNonce((n) => n + 1)}
-                        className="p-1 text-text-muted hover:text-foreground transition-colors"
-                        title="Reconnect"
-                      >
-                        <RefreshCw className="w-3.5 h-3.5" />
-                      </button>
+                      <span className={`text-xs font-medium ${
+                        (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
+                        (mainTab === "logs" ? wsStatus : shellStatus) === "connecting" ? "text-[#f0c56c]" : "text-text-muted"
+                      }`}>
+                        {mainTab === "logs" ? wsStatus : shellStatus}
+                      </span>
                     )}
 
-                    <button
-                      onClick={() => handleDelete(selectedAgent.id)}
-                      disabled={deletingId === selectedAgent.id}
-                      className="p-1 text-text-muted hover:text-[#d05f5f] transition-colors"
-                      title="Delete agent"
-                    >
-                      {deletingId === selectedAgent.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                    </button>
+                    <div className="flex items-center gap-1">
+                      {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
+                        <button
+                          onClick={() => handleStart(selectedAgent.id)}
+                          disabled={startingId === selectedAgent.id}
+                          className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                        >
+                          {startingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          Start
+                        </button>
+                      ) : isSelectedRunning || isSelectedTransitioning ? (
+                        selectedAgent.state !== "STOPPING" && (
+                          <button
+                            onClick={() => handleStop(selectedAgent.id)}
+                            disabled={stoppingId === selectedAgent.id}
+                            className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                          >
+                            {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+                            Stop
+                          </button>
+                        )
+                      ) : null}
+
+                      {isSelectedRunning && selectedAgent.hostname && (
+                        <button
+                          onClick={() => handleOpenDesktop(selectedAgent)}
+                          disabled={openingDesktopId === selectedAgent.id}
+                          className="px-2 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                        >
+                          {openingDesktopId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
+                          Desktop
+                        </button>
+                      )}
+
+                      {(mainTab === "logs" || mainTab === "shell") && (
+                        <button
+                          onClick={() => setReconnectNonce((n) => n + 1)}
+                          className="p-1 text-text-muted hover:text-foreground transition-colors"
+                          title="Reconnect"
+                        >
+                          <RefreshCw className="w-3.5 h-3.5" />
+                        </button>
+                      )}
+
+                      <button
+                        onClick={() => handleDelete(selectedAgent.id)}
+                        disabled={deletingId === selectedAgent.id}
+                        className="p-1 text-text-muted hover:text-[#d05f5f] transition-colors"
+                        title="Delete agent"
+                      >
+                        {deletingId === selectedAgent.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
               </div>
 
               {/* Panel content */}
-              <div className="flex-1 overflow-hidden">
+              <div className="flex-1 min-h-0 overflow-hidden">
                 {/* Hatching animation for transitioning agents */}
                 {(isSelectedTransitioning || burstAgentId === selectedAgent.id) ? (
                   <div className="h-full flex items-center justify-center">
@@ -1143,25 +1653,39 @@ export default function AgentsPage() {
                   </div>
                 ) : mainTab === "chat" ? (
                   /* ── Chat Tab ── */
-                  <div className="flex flex-col h-full">
-                    <div className="flex-1 overflow-y-auto p-4 space-y-4">
+                  <div className="flex flex-col h-full min-h-0">
+                    <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
                       {chat.messages.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-text-muted">
-                          <MessageSquare className="w-8 h-8 mb-2" />
-                          <p className="text-sm">
-                            {chat.connected
-                              ? "Send a message to start chatting with your agent"
-                              : isSelectedRunning
-                                ? "Connecting to gateway..."
-                                : "Start the agent to begin chatting"
-                            }
-                          </p>
+                          {chat.connecting ? (
+                            <>
+                              <Loader2 className="w-8 h-8 mb-2 animate-spin" />
+                              <p className="text-sm">Connecting to gateway...</p>
+                              <p className="text-xs mt-1 text-text-muted/60">Retrying every 5s</p>
+                            </>
+                          ) : chat.connected ? (
+                            <>
+                              <MessageSquare className="w-8 h-8 mb-2" />
+                              <p className="text-sm">Send a message to start chatting with your agent</p>
+                            </>
+                          ) : (
+                            <>
+                              <MessageSquare className="w-8 h-8 mb-2" />
+                              <p className="text-sm">
+                                {isSelectedRunning ? "Connecting to gateway..." : "Start the agent to begin chatting"}
+                              </p>
+                            </>
+                          )}
                         </div>
                       )}
 
-                      {chat.messages.map((msg, i) => (
-                        <ChatMessageBubble key={i} message={msg} />
-                      ))}
+                      {chat.messages.map((msg, i) => {
+                        const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
+                        const inlineAudioUrl = voicePath && selectedAgent
+                          ? `${CLAW_API_BASE}/agents/${selectedAgent.id}/files/download/${encodeURIComponent(voicePath)}`
+                          : null;
+                        return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
+                      })}
 
                       {chat.sending && chat.messages[chat.messages.length - 1]?.role !== "assistant" && (
                         <ChatThinkingIndicator />
@@ -1171,24 +1695,167 @@ export default function AgentsPage() {
                     </div>
 
                     {/* Chat input */}
-                    <div className="border-t border-border p-3">
-                      <div className="flex gap-2">
-                        <input
-                          type="text"
-                          value={chat.input}
-                          onChange={(e) => chat.setInput(e.target.value)}
-                          onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
-                          placeholder={chat.connected ? "Type a message..." : "Waiting for gateway connection..."}
-                          disabled={!chat.connected || chat.sending}
-                          className="flex-1 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
-                        />
-                        <button
-                          onClick={handleSendChat}
-                          disabled={!chat.connected || chat.sending || !chat.input.trim()}
-                          className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
-                        >
-                          <Send className="w-4 h-4" />
-                        </button>
+                    <div
+                      className="flex-shrink-0 border-t border-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3"
+                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
+                      onDrop={(e) => {
+                        e.preventDefault();
+                        e.stopPropagation();
+                        if (e.dataTransfer.files?.length) {
+                          const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
+                          if (imageFiles.length > 0) {
+                            const dt = new DataTransfer();
+                            imageFiles.forEach(f => dt.items.add(f));
+                            chat.addAttachments(dt.files);
+                          }
+                        }
+                      }}
+                    >
+                      {/* Pending image attachments preview */}
+                      {chat.pendingAttachments.length > 0 && (
+                        <div className="flex gap-2 mb-2 flex-wrap">
+                          {chat.pendingAttachments.map((att, i) => (
+                            <div key={i} className="relative group">
+                              <img
+                                src={`data:${att.mimeType};base64,${att.content}`}
+                                alt={att.fileName || "attachment"}
+                                className="w-16 h-16 rounded-md object-cover border border-border"
+                              />
+                              <button
+                                onClick={() => chat.removeAttachment(i)}
+                                className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
+                              >
+                                <X className="w-3 h-3 text-white" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      <div className="flex gap-2 items-center">
+                        {recording ? (
+                          /* Recording mode: show timer + stop button */
+                          <>
+                            <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
+                              <span
+                                className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75"
+                                style={{ transform: `scale(${1 + audioLevel * 1.5})` }}
+                              />
+                              <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
+                              {/* Volume bars */}
+                              <div className="flex items-center gap-0.5 flex-1">
+                                {Array.from({ length: 20 }).map((_, i) => (
+                                  <div
+                                    key={i}
+                                    className="w-1 rounded-full transition-all duration-75"
+                                    style={{
+                                      height: `${Math.max(4, Math.min(20, audioLevel * 24 * (0.5 + Math.random() * 0.5)))}px`,
+                                      backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
+                                    }}
+                                  />
+                                ))}
+                              </div>
+                            </div>
+                            <button
+                              onClick={stopRecording}
+                              className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors"
+                            >
+                              <Square className="w-4 h-4" />
+                            </button>
+                          </>
+                        ) : audioUrl ? (
+                          /* Audio preview: compact custom player */
+                          <>
+                            <div className="min-w-0 flex-1 flex items-center gap-1 rounded-lg border border-border bg-surface-low px-2 py-1.5">
+                              <button
+                                onClick={toggleAudioPreviewPlayback}
+                                type="button"
+                                className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border text-text-muted hover:text-foreground hover:bg-background/50"
+                                title={audioPreviewPlaying ? "Pause" : "Play"}
+                              >
+                                {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                              </button>
+                              <span className="min-w-0 truncate text-xs font-mono text-text-secondary">
+                                {formatDuration(audioPreviewDuration || recordingDuration)}
+                              </span>
+                            </div>
+                            <button
+                              onClick={discardAudio}
+                              className="px-2 py-2 rounded-lg border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors"
+                              title="Discard"
+                              type="button"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={sendAudio}
+                              disabled={!chat.connected || chat.sending || sendingAudio}
+                              className="btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                              type="button"
+                            >
+                              {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                            </button>
+                          </>
+                        ) : (
+                          /* Normal text mode */
+                          <>
+                            <input
+                              type="text"
+                              value={chat.input}
+                              onChange={(e) => chat.setInput(e.target.value)}
+                              onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
+                              onPaste={(e) => {
+                                const items = e.clipboardData?.items;
+                                if (!items) return;
+                                const imageFiles: File[] = [];
+                                for (const item of Array.from(items)) {
+                                  if (item.type.startsWith("image/")) {
+                                    const file = item.getAsFile();
+                                    if (file) imageFiles.push(file);
+                                  }
+                                }
+                                if (imageFiles.length > 0) {
+                                  e.preventDefault();
+                                  const dt = new DataTransfer();
+                                  imageFiles.forEach((f) => dt.items.add(f));
+                                  chat.addAttachments(dt.files);
+                                }
+                              }}
+                              placeholder={chat.connected ? "Type a message..." : "Waiting for gateway..."}
+                              disabled={!chat.connected || chat.sending}
+                              className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                            />
+                            <label className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors">
+                              <Paperclip className="w-4 h-4" />
+                              <input
+                                type="file"
+                                accept="image/*"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.length) {
+                                    chat.addAttachments(e.target.files);
+                                    e.target.value = "";
+                                  }
+                                }}
+                              />
+                            </label>
+                            <button
+                              onClick={startRecording}
+                              disabled={!chat.connected}
+                              className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low flex items-center justify-center transition-colors"
+                              title="Record audio"
+                            >
+                              <Mic className="w-4 h-4" />
+                            </button>
+                            <button
+                              onClick={handleSendChat}
+                              disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0)}
+                              className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                            >
+                              <Send className="w-4 h-4" />
+                            </button>
+                          </>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -1222,8 +1889,8 @@ export default function AgentsPage() {
                       <div className="pointer-events-none absolute right-4 top-4 text-xs text-[#8b95a6]">Interactive shell active</div>
                     )}
                   </div>
-                ) : mainTab === "files" ? (
-                  /* ── Files Tab ── */
+                ) : mainTab === "workspace" ? (
+                  /* ── Workspace Tab ── */
                   <div className="h-full flex flex-col">
                     {selectedFile ? (
                       <>
@@ -1274,6 +1941,12 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
+                ) : mainTab === "files" ? (
+                  /* ── Files Tab ── */
+                  <S3FilesPanel
+                    agentId={selectedAgent.id}
+                    getToken={getToken}
+                  />
                 ) : mainTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
                   <div className="h-full flex min-h-0">
@@ -1454,7 +2127,7 @@ export default function AgentsPage() {
                               <button
                                 onClick={() => handleStop(selectedAgent.id)}
                                 disabled={stoppingId === selectedAgent.id}
-                                className="px-3 py-1.5 rounded-lg text-sm border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60"
+                                className="px-3 py-1.5 rounded-lg text-sm border border-border text-foreground hover:bg-surface-low disabled:opacity-60"
                               >
                                 {stoppingId === selectedAgent.id ? "Stopping..." : "Stop"}
                               </button>

@@ -1,11 +1,13 @@
 "use client";
 
-import { useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react";
-import type { ChatMessage as ChatMessageType } from "@/hooks/useGatewayChat";
+import { useCallback, useEffect, useRef, useState } from "react";
+import { ChevronDown, ChevronRight, Loader2, Pause, Play, Wrench } from "lucide-react";
+import Markdown from "react-markdown";
+import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 
 interface ChatMessageProps {
   message: ChatMessageType;
+  inlineAudioUrl?: string | null;
 }
 
 function formatTime(ts?: number): string {
@@ -16,9 +18,36 @@ function formatTime(ts?: number): string {
   });
 }
 
-export function ChatMessageBubble({ message }: ChatMessageProps) {
+export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessageProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
+  const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
+  const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
+
+  useEffect(() => {
+    if (!inlineAudioUrl) return;
+    const audio = new Audio(inlineAudioUrl);
+    audio.addEventListener("ended", () => setInlineAudioPlaying(false));
+    audio.addEventListener("pause", () => setInlineAudioPlaying(false));
+    audio.addEventListener("play", () => setInlineAudioPlaying(true));
+    inlineAudioRef.current = audio;
+    return () => {
+      audio.pause();
+      audio.src = "";
+      inlineAudioRef.current = null;
+      setInlineAudioPlaying(false);
+    };
+  }, [inlineAudioUrl]);
+
+  const toggleInlineAudio = useCallback(() => {
+    const audio = inlineAudioRef.current;
+    if (!audio) return;
+    if (audio.paused) {
+      void audio.play();
+      return;
+    }
+    audio.pause();
+  }, []);
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -96,11 +125,109 @@ export function ChatMessageBubble({ message }: ChatMessageProps) {
           </div>
         ))}
 
+        {/* User-sent image attachments */}
+        {message.attachments && message.attachments.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {message.attachments.map((att, i) => (
+              <img
+                key={i}
+                src={`data:${att.mimeType};base64,${att.content}`}
+                alt={att.fileName || "attachment"}
+                className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
+                onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Agent-sent media (URLs) */}
+        {message.mediaUrls && message.mediaUrls.length > 0 && (
+          <div className="flex flex-wrap gap-2 mb-2">
+            {message.mediaUrls.map((url, i) => {
+              const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
+              if (isImage) {
+                return (
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={url}
+                      alt="media"
+                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                      loading="lazy"
+                    />
+                  </a>
+                );
+              }
+              // Non-image media: render as link
+              return (
+                <a
+                  key={i}
+                  href={url}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="text-accent hover:underline text-xs"
+                >
+                  📎 {url.split("/").pop() || "media"}
+                </a>
+              );
+            })}
+          </div>
+        )}
+
         {/* Content */}
         {message.content && (
-          <div className="whitespace-pre-wrap leading-relaxed">
-            {message.content}
+          <div className="leading-relaxed prose-chat">
+            <Markdown
+              components={{
+                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                em: ({ children }) => <em className="italic">{children}</em>,
+                code: ({ children, className }) => {
+                  const isBlock = className?.includes("language-");
+                  return isBlock ? (
+                    <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
+                      <code>{children}</code>
+                    </pre>
+                  ) : (
+                    <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+                  );
+                },
+                pre: ({ children }) => <>{children}</>,
+                ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                li: ({ children }) => <li>{children}</li>,
+                a: ({ href, children }) => (
+                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                    {children}
+                  </a>
+                ),
+                h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+                h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+                h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+                blockquote: ({ children }) => (
+                  <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
+                ),
+                hr: () => <hr className="border-border my-3" />,
+                img: ({ src, alt }) => typeof src === "string" && src ? (
+                  <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
+                    <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
+                  </a>
+                ) : null,
+              }}
+            >
+              {message.content}
+            </Markdown>
           </div>
+        )}
+
+        {inlineAudioUrl && (
+          <button
+            type="button"
+            onClick={toggleInlineAudio}
+            className="mt-2 inline-flex items-center justify-center rounded-md border border-border bg-background/50 p-1.5 text-text-muted hover:text-foreground"
+            title={inlineAudioPlaying ? "Pause voice message" : "Play voice message"}
+          >
+            {inlineAudioPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+          </button>
         )}
 
         {/* Timestamp on hover */}

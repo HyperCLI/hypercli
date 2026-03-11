@@ -125,6 +125,10 @@ print(response.choices[0].message.content)
 
 The model supports reasoning (thinking) mode — reasoning content appears in `message.reasoning_content`.
 
+<Note>
+For the hosted HyperClaw chat API, prefer the Anthropic Messages endpoint at `https://api.hyperclaw.app` when you care about tool calling quality. The OpenAI-compatible `/v1` route still works, but Anthropic-format routing is the recommended default.
+</Note>
+
 ## Performance
 
 Observed on 8x H200 (Stockholm):

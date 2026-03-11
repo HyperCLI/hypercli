@@ -106,3 +106,25 @@ So exact plan price gives base duration, and higher amounts increase duration pr
   "rpm_limit": 3000
 }
 ```
+
+## Job Tags
+
+HyperClaw's x402 job creation endpoint accepts the same optional `tags` object used by Orchestra jobs:
+
+```bash
+curl -X POST https://api.hyperclaw.app/api/x402/job \
+  -H "Content-Type: application/json" \
+  -H "X-PAYMENT: <signed-payment-payload>" \
+  -d '{
+    "gpu_type": "l40s",
+    "gpu_count": 1,
+    "docker_image": "nvidia/cuda:12.0",
+    "command": "cHl0aG9uIHRyYWluLnB5",
+    "tags": {
+      "team": "ml",
+      "env": "prod"
+    }
+  }'
+```
+
+When tags are set, they are returned on the nested `job` object in the response. HyperClaw's current public spec exposes x402 job creation, not a separate job listing endpoint.

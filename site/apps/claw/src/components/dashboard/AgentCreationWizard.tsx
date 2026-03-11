@@ -52,9 +52,9 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
 const SIZES = [
-  { label: "Small", tag: "Starter", desc: "1 CPU · 512 MiB", cpu: 1000, mem: 512 },
-  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", cpu: 2000, mem: 2048 },
-  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", cpu: 4000, mem: 4096 },
+  { label: "Small", tag: "Starter", desc: "1 CPU · 1 GiB", value: "small" },
+  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", value: "medium" },
+  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", value: "large" },
 ];
 
 const TOTAL_STEPS = 3;
@@ -111,8 +111,8 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   // Derived
   const currentHue = HUES[selectedIcon];
   const CurrentIcon = ICONS[selectedIcon].icon;
-  const cpu = showAdvanced ? Number(customCpu) : SIZES[selectedSize].cpu;
-  const mem = showAdvanced ? Number(customMem) : SIZES[selectedSize].mem;
+  const customCpuCores = Math.max(1, Math.round(Number(customCpu) / 1000));
+  const customMemGb = Math.max(1, Math.round(Number(customMem) / 1024));
 
   const budgetRemaining = budget
     ? {
@@ -200,15 +200,20 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
     setError(null);
     try {
       const token = await getToken();
+      const body: Record<string, unknown> = {
+        name: name.trim() || null,
+        start: startImmediately,
+        config: {},
+      };
+      if (showAdvanced) {
+        body.cpu = customCpuCores;
+        body.memory = customMemGb;
+      } else {
+        body.size = SIZES[selectedSize].value;
+      }
       await clawFetch("/agents", token, {
         method: "POST",
-        body: JSON.stringify({
-          name: name.trim() || null,
-          cpu_millicores: cpu,
-          memory_mib: mem,
-          start: startImmediately,
-          config: {},
-        }),
+        body: JSON.stringify(body),
       });
       onCreated();
     } catch (err) {
@@ -264,7 +269,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         <input
           value={name}
           onChange={(e) => setName(e.target.value)}
-          className="w-full px-4 py-3 rounded-xl bg-surface-low border border-border text-foreground text-lg text-center focus:outline-none focus:border-border-strong placeholder:text-text-muted"
+          className="w-full px-4 py-3 rounded-xl bg-surface-low border border-border text-foreground text-base text-center focus:outline-none focus:border-border-strong placeholder:text-text-muted"
           placeholder="Name your agent (or leave blank to auto-generate)"
           autoFocus
         />
@@ -273,7 +278,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       {/* Avatar picker */}
       <div>
         <label className="block text-sm text-text-secondary mb-3">Choose an avatar</label>
-        <div className="grid grid-cols-8 gap-2">
+        <div className="grid grid-cols-8 gap-1 sm:gap-1.5">
           {ICONS.map((item, i) => {
             const hue = HUES[i];
             const Icon = item.icon;
@@ -296,7 +301,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                 title={item.name}
               >
                 <Icon
-                  size={18}
+                  size={14}
                   style={{ color: `hsl(${hue} 70% 70%)` }}
                 />
               </button>
@@ -353,7 +358,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         <div className="flex items-center gap-3">
           {renderAvatar("sm")}
           <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">
+            <p className="text-base font-medium text-foreground truncate">
               {name || "Unnamed Agent"}
             </p>
             {description && (
@@ -396,7 +401,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                     {s.tag}
                   </span>
                 )}
-                <div className="text-base font-semibold mt-1">{s.label}</div>
+                <div className="text-sm font-semibold mt-1">{s.label}</div>
                 <div className="text-xs text-text-muted mt-1">{s.desc}</div>
               </button>
             );
@@ -426,7 +431,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
             </div>
             <div className="grid grid-cols-2 gap-4">
               <div>
-                <label className="block text-xs text-text-muted mb-1.5">CPU (millicores)</label>
+                <label className="block text-sm text-text-muted mb-1.5">CPU (millicores)</label>
                 <input
                   value={customCpu}
                   onChange={(e) => setCustomCpu(e.target.value)}
@@ -436,7 +441,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                 />
               </div>
               <div>
-                <label className="block text-xs text-text-muted mb-1.5">Memory (MiB)</label>
+                <label className="block text-sm text-text-muted mb-1.5">Memory (MiB)</label>
                 <input
                   value={customMem}
                   onChange={(e) => setCustomMem(e.target.value)}
@@ -488,9 +493,9 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       <div className="border border-border rounded-xl p-6 bg-surface-low/50">
         <div className="flex flex-col items-center text-center mb-6">
           {renderAvatar("lg")}
-          <h3 className="text-xl font-semibold text-foreground mt-4">
+          <p className="text-base font-medium text-foreground mt-4">
             {name || "Unnamed Agent"}
-          </h3>
+          </p>
           {description && (
             <p className="text-sm text-text-secondary mt-1 max-w-xs">{description}</p>
           )}
@@ -501,17 +506,9 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
             <span className="text-text-muted">Size</span>
             <span className="text-foreground">
               {showAdvanced
-                ? `${formatCpu(cpu)} · ${formatMemory(mem)}`
+                ? `${customCpuCores} CPU · ${customMemGb} GiB`
                 : `${SIZES[selectedSize].label} (${SIZES[selectedSize].desc})`}
             </span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-text-muted">CPU</span>
-            <span className="text-foreground">{formatCpu(cpu)}</span>
-          </div>
-          <div className="flex items-center justify-between text-sm">
-            <span className="text-text-muted">Memory</span>
-            <span className="text-foreground">{formatMemory(mem)}</span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-text-muted">Start on creation</span>
@@ -548,7 +545,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         animate={{ opacity: 1, scale: 1, y: 0 }}
         exit={{ opacity: 0, scale: 0.95, y: 10 }}
         transition={{ duration: 0.2 }}
-        className="relative glass-card max-w-lg w-full mx-auto p-6 rounded-2xl shadow-2xl max-h-[90vh] flex flex-col"
+        className="relative glass-card max-w-lg w-full mx-auto p-4 sm:p-6 rounded-2xl shadow-2xl max-h-[90vh] flex flex-col"
       >
         {/* Close button */}
         <button

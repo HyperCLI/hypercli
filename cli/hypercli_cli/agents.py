@@ -107,6 +107,71 @@ def _get_pod_with_token(agent_id: str) -> ReefPod:
     return pod
 
 
+def _parse_env_vars(values: list[str] | None) -> dict | None:
+    """Parse repeated --env KEY=VALUE options into a dict."""
+    if not values:
+        return None
+    env: dict[str, str] = {}
+    for item in values:
+        if "=" not in item:
+            raise typer.BadParameter(f"Invalid --env '{item}'. Expected KEY=VALUE.")
+        key, value = item.split("=", 1)
+        if not key:
+            raise typer.BadParameter(f"Invalid --env '{item}'. KEY cannot be empty.")
+        env[key] = value
+    return env
+
+
+def _parse_ports(values: list[str] | None) -> list[dict] | None:
+    """Parse repeated --port PORT[:noauth] options."""
+    if not values:
+        return None
+    ports: list[dict] = []
+    for item in values:
+        if ":" in item:
+            port_text, suffix = item.split(":", 1)
+            if suffix != "noauth":
+                raise typer.BadParameter(
+                    f"Invalid --port '{item}'. Expected PORT or PORT:noauth."
+                )
+            auth = False
+        else:
+            port_text = item
+            auth = True
+
+        try:
+            port_num = int(port_text)
+        except ValueError as e:
+            raise typer.BadParameter(
+                f"Invalid --port '{item}'. PORT must be an integer."
+            ) from e
+
+        if port_num < 1 or port_num > 65535:
+            raise typer.BadParameter(
+                f"Invalid --port '{item}'. PORT must be between 1 and 65535."
+            )
+
+        ports.append({"port": port_num, "auth": auth})
+    return ports
+
+
+def _port_url(pod: ReefPod, port: dict) -> str:
+    if port.get("url"):
+        return str(port["url"])
+    hostname = pod.hostname or ""
+    prefix = port.get("prefix")
+    if hostname and prefix:
+        return f"https://{prefix}-{hostname}"
+    if hostname:
+        return f"https://{hostname}"
+    return ""
+
+
+def _port_summary(port: dict) -> str:
+    auth_text = "auth" if port.get("auth", True) else "noauth"
+    return f"{port.get('port', '?')} ({auth_text})"
+
+
 @app.command("budget")
 def budget():
     """Show your agent resource budget and usage."""
@@ -141,16 +206,28 @@ def create(
     size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
     cpu: int = typer.Option(None, "--cpu", help="Custom CPU in cores"),
     memory: int = typer.Option(None, "--memory", help="Custom memory in GB"),
+    env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable (KEY=VALUE). Repeatable."),
+    port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
 ):
     """Create a new OpenClaw agent pod."""
     agents = _get_agents_client()
+    env_dict = _parse_env_vars(env)
+    ports_list = _parse_ports(port)
 
     console.print("\n[bold]Creating agent pod...[/bold]")
 
     try:
-        pod = agents.create(name=name, size=size, cpu=cpu, memory=memory, start=not no_start)
+        pod = agents.create(
+            name=name,
+            size=size,
+            cpu=cpu,
+            memory=memory,
+            env=env_dict,
+            ports=ports_list,
+            start=not no_start,
+        )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
         raise typer.Exit(1)
@@ -163,6 +240,10 @@ def create(
     console.print(f"  State:    {pod.state}")
     console.print(f"  Desktop:  {pod.vnc_url}")
     console.print(f"  Shell:    {pod.shell_url}")
+    display_ports = pod.ports or ports_list or []
+    for p in display_ports:
+        auth_text = "auth" if p.get("auth", True) else "noauth"
+        console.print(f"  Port {p.get('port')}:  {_port_url(pod, p)} ({auth_text})")
 
     if wait:
         console.print("\n[dim]Waiting for pod to start...[/dim]")
@@ -210,6 +291,7 @@ def list_agents(
         console.print_json(json.dumps([{
             "id": p.id, "pod_name": p.pod_name, "state": p.state,
             "hostname": p.hostname, "vnc_url": p.vnc_url,
+            "ports": p.ports,
         } for p in pods], indent=2, default=str))
         return
 
@@ -224,20 +306,27 @@ def list_agents(
     table.add_column("Size")
     table.add_column("State")
     table.add_column("Desktop URL")
+    has_ports = any(pod.ports for pod in pods)
+    if has_ports:
+        table.add_column("Ports")
     table.add_column("Created")
 
     for pod in pods:
         style = {"running": "green", "pending": "yellow", "starting": "yellow"}.get(pod.state, "red")
         created = pod.created_at.strftime("%Y-%m-%d %H:%M") if pod.created_at else ""
         size_str = f"{pod.cpu}c/{pod.memory}G" if pod.cpu else ""
-        table.add_row(
+        row = [
             pod.id[:12],
             pod.name or pod.pod_name or "",
             size_str,
             f"[{style}]{pod.state}[/{style}]",
             pod.vnc_url or "",
-            created,
-        )
+        ]
+        if has_ports:
+            ports_text = ", ".join(_port_summary(p) for p in pod.ports) if pod.ports else ""
+            row.append(ports_text)
+        row.append(created)
+        table.add_row(*row)
         _save_pod_state(pod)
 
     console.print()

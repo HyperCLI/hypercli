@@ -2,6 +2,7 @@
  * Jobs API - GPU job management
  */
 import type { HTTPClient } from './http.js';
+import WebSocket from 'ws';
 
 export interface Job {
   jobId: string;
@@ -16,9 +17,17 @@ export interface Job {
   dockerImage: string;
   runtime: number;
   hostname: string | null;
+  coldBoot: boolean;
   createdAt: number | null;
   startedAt: number | null;
   completedAt: number | null;
+}
+
+export interface ExecResult {
+  jobId: string;
+  stdout: string;
+  stderr: string;
+  exitCode: number;
 }
 
 export interface GPUMetrics {
@@ -59,6 +68,8 @@ export interface CreateJobOptions {
     username: string;
     password: string;
   };
+  dockerfile?: string;
+  dryRun?: boolean;
 }
 
 function jobFromDict(data: any): Job {
@@ -75,9 +86,19 @@ function jobFromDict(data: any): Job {
     dockerImage: data.docker_image || '',
     runtime: data.runtime || 0,
     hostname: data.hostname || null,
+    coldBoot: data.cold_boot ?? true,
     createdAt: data.created_at || null,
     startedAt: data.started_at || null,
     completedAt: data.completed_at || null,
+  };
+}
+
+function execResultFromDict(data: any): ExecResult {
+  return {
+    jobId: data.job_id || '',
+    stdout: data.stdout || '',
+    stderr: data.stderr || '',
+    exitCode: data.exit_code ?? -1,
   };
 }
 
@@ -152,6 +173,8 @@ export class Jobs {
       ports,
       auth,
       registryAuth,
+      dockerfile,
+      dryRun = false,
     } = options;
 
     const payload: any = {
@@ -168,6 +191,8 @@ export class Jobs {
     if (ports) payload.ports = ports;
     if (auth) payload.auth = auth;
     if (registryAuth) payload.registry_auth = registryAuth;
+    if (dockerfile) payload.dockerfile = dockerfile;
+    if (dryRun) payload.dry_run = true;
 
     const data = await this.http.post('/api/jobs', payload);
     return jobFromDict(data);
@@ -210,6 +235,39 @@ export class Jobs {
   async token(jobId: string): Promise<string> {
     const data = await this.http.get(`/api/jobs/${jobId}/token`);
     return data.token || '';
+  }
+
+  /**
+   * Execute a command non-interactively on a running job container.
+   */
+  async exec(jobId: string, command: string, timeout: number = 30): Promise<ExecResult> {
+    const data = await this.http.post(`/api/jobs/${jobId}/exec`, {
+      command,
+      timeout,
+    });
+    return execResultFromDict(data);
+  }
+
+  /**
+   * Connect to a job shell via director WebSocket proxy.
+   */
+  async shellConnect(jobId: string, shell: string = '/bin/bash'): Promise<WebSocket> {
+    const job = await this.get(jobId);
+    const wsBase = (this.http as any).baseUrl
+      .replace('https://', 'wss://')
+      .replace('http://', 'ws://')
+      .replace(/\/api$/, '');
+    const url = `${wsBase}/orchestra/ws/shell/${jobId}?token=${encodeURIComponent(job.jobKey)}&shell=${encodeURIComponent(shell)}`;
+
+    return await new Promise<WebSocket>((resolve, reject) => {
+      const ws = new WebSocket(url);
+      const onError = (err: Error) => reject(err);
+      ws.once('error', onError);
+      ws.once('open', () => {
+        ws.off('error', onError);
+        resolve(ws);
+      });
+    });
   }
 }
 

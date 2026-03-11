@@ -134,6 +134,10 @@ hyper instances launch my-image:latest \
   -c "python app.py"
 ```
 
+### Tags
+
+Job tags are supported by the API and SDK through the optional `tags` object, and tagged jobs are returned with `tags` in job responses. The CLI currently supports tag filtering with `hyper jobs list --tag KEY=VALUE`; creation-time tag assignment is not yet exposed on `hyper instances launch`.
+
 ### Port Mappings
 
 `--lb` and `--port` are different surfaces:

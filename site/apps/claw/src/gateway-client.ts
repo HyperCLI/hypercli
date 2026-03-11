@@ -44,6 +44,7 @@ export class GatewayClient {
   private _connected = false;
   private _version: string | null = null;
   private _protocol: number | null = null;
+  onDisconnect: (() => void) | null = null;
 
   constructor(config: GatewayConfig) {
     this.config = {
@@ -135,6 +136,8 @@ export class GatewayClient {
           rej(new Error("Connection closed"));
         }
         this.pending.clear();
+        // Notify disconnect handler
+        this.onDisconnect?.();
       };
     });
   }
@@ -284,13 +287,19 @@ export class GatewayClient {
    * Events emitted: chat.content, chat.thinking, chat.tool_call,
    * chat.tool_result, chat.done, chat.error, chat.status
    */
-  async chatSend(message: string, sessionKey?: string, agentId?: string): Promise<any> {
+  async chatSend(
+    message: string,
+    sessionKey?: string,
+    agentId?: string,
+    attachments?: Array<{ type: string; mimeType: string; content: string; fileName?: string }>,
+  ): Promise<any> {
     const params: Record<string, unknown> = {
       message,
       sessionKey: sessionKey ?? "main",
       idempotencyKey: crypto.randomUUID(),
     };
     if (agentId) params.agentId = agentId;
+    if (attachments && attachments.length > 0) params.attachments = attachments;
     return this.call("chat.send", params, CHAT_TIMEOUT);
   }
 

@@ -11,6 +11,17 @@ def get_client() -> HyperCLI:
     return HyperCLI()
 
 
+def _parse_tags(tag_args: list[str]) -> dict[str, str]:
+    tags: dict[str, str] = {}
+    for tag in tag_args:
+        key, sep, value = tag.partition("=")
+        if not sep or not key or not value:
+            console.print(f"[red]Error:[/red] Invalid tag '{tag}'. Expected KEY=VALUE.")
+            raise typer.Exit(1)
+        tags[key] = value
+    return tags
+
+
 def _resolve_job_id(client: HyperCLI, job_id: str) -> str:
     """Resolve a partial job ID prefix to a full UUID."""
     if len(job_id) == 36:
@@ -32,12 +43,14 @@ def _resolve_job_id(client: HyperCLI, job_id: str) -> str:
 @app.command("list")
 def list_jobs(
     state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
+    tag: list[str] = typer.Option([], "--tag", help="Filter by tag as KEY=VALUE", metavar="KEY=VALUE"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List all jobs"""
     client = get_client()
+    tags = _parse_tags(tag) if tag else None
     with spinner("Fetching jobs..."):
-        jobs = client.jobs.list(state=state)
+        jobs = client.jobs.list(state=state, tags=tags)
 
     if fmt == "json":
         output(jobs, "json")
@@ -45,7 +58,11 @@ def list_jobs(
         if not jobs:
             console.print("[dim]No jobs found[/dim]")
             return
-        output(jobs, "table", ["job_id", "state", "gpu_type", "gpu_count", "region", "hostname"])
+        output(
+            jobs,
+            "table",
+            ["job_id", "state", "gpu_type", "gpu_count", "region", "time_left", "runtime", "hostname"],
+        )
 
 
 @app.command("get")

@@ -1,1 +1,1 @@
-export { useClawAuth } from "@/components/ClawAuthProvider";
+export { usePrivyAuth as useClawAuth } from "@hypercli/shared-ui";

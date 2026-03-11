@@ -53,12 +53,13 @@ class ClawPlan:
     
     @classmethod
     def from_dict(cls, data: dict) -> "ClawPlan":
+        price = data.get("price_usd", data.get("price", 0))
         return cls(
             id=data["id"],
-            name=data["name"],
-            price_usd=data["price_usd"],
-            tpm_limit=data["tpm_limit"],
-            rpm_limit=data["rpm_limit"],
+            name=data.get("name", data["id"]),
+            price_usd=float(price or 0),
+            tpm_limit=int(data.get("tpm_limit", 0)),
+            rpm_limit=int(data.get("rpm_limit", 0)),
         )
 
 

@@ -10,11 +10,13 @@ List jobs.
 ```bash
 hyper jobs list
 hyper jobs list -s running
+hyper jobs list --tag team=ml --tag env=prod
 hyper jobs list -o json
 ```
 
 **Options:**
 - `-s, --state` - Filter by state: `pending`, `running`, `succeeded`, `failed`, `canceled`
+- `--tag KEY=VALUE` - Filter by exact job tag match; repeat for multiple tags
 - `-o, --output` - Output format: `table` or `json`
 
 ## create jobs
@@ -30,6 +32,16 @@ hyper instances launch <image> [options] --dry-run
 ```
 
 See [`instances` command docs](/cli/commands/instances) for full launch options.
+
+## Tags
+
+The CLI supports tag filtering on `hyper jobs list`:
+
+```bash
+hyper jobs list --tag team=ml --tag env=prod
+```
+
+This maps to repeated `tag=key:value` query params on `GET /api/jobs`. Tag assignment happens at job creation in the API and SDK via the optional `tags` object, and tagged jobs return `tags` in JSON output when present.
 
 ## get
 

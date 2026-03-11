@@ -1,3 +1,12 @@
+import {
+  clearStoredToken as clearSharedStoredToken,
+  exchangePrivyToken,
+  getAppToken as getSharedAppToken,
+  getStoredToken as getSharedStoredToken,
+  isTokenExpired as isSharedTokenExpired,
+  setStoredToken as setSharedStoredToken,
+} from "@hypercli/shared-ui";
+
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -25,68 +34,31 @@ const TOKEN_KEY = "claw_auth_token";
 
 // Token management
 export function getStoredToken(): string | null {
-  if (typeof window === "undefined") return null;
-  return localStorage.getItem(TOKEN_KEY);
+  return getSharedStoredToken(TOKEN_KEY);
 }
 
 export function setStoredToken(token: string): void {
-  if (typeof window === "undefined") return;
-  localStorage.setItem(TOKEN_KEY, token);
+  setSharedStoredToken(token, TOKEN_KEY);
 }
 
 export function clearStoredToken(): void {
-  if (typeof window === "undefined") return;
-  localStorage.removeItem(TOKEN_KEY);
+  clearSharedStoredToken(TOKEN_KEY);
 }
 
 export function isTokenExpired(token: string): boolean {
-  try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
-    const exp = payload.exp;
-    if (!exp) return true;
-    // 60 second buffer before expiry
-    return Date.now() >= exp * 1000 - 60000;
-  } catch {
-    return true;
-  }
+  return isSharedTokenExpired(token);
 }
 
 // Exchange Privy access token for HyperClaw app JWT
 export async function exchangeToken(privyToken: string): Promise<string> {
-  const response = await fetch(`${CLAW_API_BASE}/auth/login`, {
-    method: "POST",
-    headers: {
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ privy_token: privyToken }),
-  });
-
-  if (!response.ok) {
-    const errorText = await response.text();
-    throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
-  }
-
-  const data: { app_token: string; user_id: string; team_id: string } =
-    await response.json();
-  setStoredToken(data.app_token);
-  return data.app_token;
+  return exchangePrivyToken(CLAW_API_BASE, privyToken, TOKEN_KEY);
 }
 
 // Get valid app token (from storage or exchange new one)
 export async function getAppToken(
   getPrivyToken: () => Promise<string | null>
 ): Promise<string> {
-  const storedToken = getStoredToken();
-  if (storedToken && !isTokenExpired(storedToken)) {
-    return storedToken;
-  }
-
-  const privyToken = await getPrivyToken();
-  if (!privyToken) {
-    throw new Error("Not authenticated");
-  }
-
-  return exchangeToken(privyToken);
+  return getSharedAppToken(CLAW_API_BASE, getPrivyToken, TOKEN_KEY);
 }
 
 // Authenticated fetch wrapper for HyperClaw API
