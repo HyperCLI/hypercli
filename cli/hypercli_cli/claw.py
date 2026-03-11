@@ -542,6 +542,11 @@ def login(
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 
+def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
+    """Resolve API base from flag/env, then fall back to dev/prod defaults."""
+    return (base_url or os.environ.get("HYPERCLAW_API_BASE") or (DEV_API_BASE if dev else PROD_API_BASE)).rstrip("/")
+
+
 def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
     """Fetch available models from LiteLLM /v1/models (served by HyperClaw)."""
     import httpx
@@ -699,6 +704,7 @@ def _resolve_api_key(key: str | None) -> str:
 
 def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM + embeddings)."""
+    api_base = api_base.rstrip("/")
     chat_models = [m for m in models if m.get("mode") != "embedding"]
     embedding_models = [m for m in models if m.get("mode") == "embedding"]
     return {
@@ -740,8 +746,9 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
     }
 
 
-def _config_opencode(api_key: str, models: list[dict]) -> dict:
+def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
     """OpenCode opencode.json provider snippet."""
+    api_base = api_base.rstrip("/")
     model_entries = {}
     for m in models:
         model_entries[m["id"]] = {"name": m["id"]}
@@ -752,7 +759,7 @@ def _config_opencode(api_key: str, models: list[dict]) -> dict:
                 "npm": "@ai-sdk/openai-compatible",
                 "name": "HyperCLI",
                 "options": {
-                    "baseURL": "https://api.hyperclaw.app/v1",
+                    "baseURL": f"{api_base}/v1",
                     "apiKey": api_key,
                 },
                 "models": model_entries,
@@ -761,11 +768,12 @@ def _config_opencode(api_key: str, models: list[dict]) -> dict:
     }
 
 
-def _config_env(api_key: str, models: list[dict]) -> str:
+def _config_env(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> str:
     """Shell env vars for generic OpenAI-compatible tools."""
+    api_base = api_base.rstrip("/")
     lines = [
         f'export OPENAI_API_KEY="{api_key}"',
-        'export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"',
+        f'export OPENAI_BASE_URL="{api_base}/v1"',
         f'# Available models: {", ".join(m["id"] for m in models)}',
     ]
     return "\n".join(lines)
@@ -803,6 +811,7 @@ def config_cmd(
         help=f"Output format: {', '.join(FORMAT_CHOICES)}. Omit to show all.",
     ),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/claw-key.json"),
+    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPERCLAW_API_BASE, then --dev/prod defaults"),
     apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
@@ -812,11 +821,12 @@ def config_cmd(
       hyper claw config                          # Show all configs
       hyper claw config openclaw                 # OpenClaw snippet
       hyper claw config opencode --key sk-...    # OpenCode with explicit key
+      hyper claw config openclaw --base-url https://dev-api.hyperclaw.app
       hyper claw config openclaw --apply         # Write directly to openclaw.json
       hyper claw config env                      # Shell export lines
     """
     api_key = _resolve_api_key(key)
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = _resolve_api_base(base_url, dev)
 
     # Validate key & fetch models
     console.print(f"[dim]Validating key against {api_base}...[/dim]")
@@ -836,12 +846,12 @@ def config_cmd(
             snippet = _config_openclaw(api_key, models, api_base)
             _show_snippet("OpenClaw", "~/.openclaw/openclaw.json", snippet, apply, OPENCLAW_CONFIG_PATH)
         elif fmt == "opencode":
-            snippet = _config_opencode(api_key, models)
+            snippet = _config_opencode(api_key, models, api_base)
             target = Path.cwd() / "opencode.json"
             _show_snippet("OpenCode", "opencode.json", snippet, apply, target)
         elif fmt == "env":
             console.print("[bold]── Shell Environment ──[/bold]")
-            console.print(_config_env(api_key, models))
+            console.print(_config_env(api_key, models, api_base))
             console.print()
 
 
