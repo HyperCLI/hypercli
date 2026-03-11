@@ -136,14 +136,12 @@ export function ClawHeader() {
                 <button
                   onClick={login}
                   className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
-                  disabled={isLoading}
                 >
                   Sign In
                 </button>
                 <button
                   onClick={login}
                   className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
-                  disabled={isLoading}
                 >
                   Get Started
                 </button>
@@ -206,7 +204,6 @@ export function ClawHeader() {
                       login();
                     }}
                     className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium w-full"
-                    disabled={isLoading}
                   >
                     Sign In
                   </button>
@@ -216,7 +213,6 @@ export function ClawHeader() {
                       login();
                     }}
                     className="btn-primary px-4 py-2 rounded-lg text-sm font-medium w-full"
-                    disabled={isLoading}
                   >
                     Get Started
                   </button>

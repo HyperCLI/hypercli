@@ -17,10 +17,12 @@ function stripApiSuffix(value: string): string {
 }
 
 const rawClawApiBase = process.env.NEXT_PUBLIC_CLAW_API_URL || "";
+const rawAuthApiBase = process.env.NEXT_PUBLIC_AUTH_BACKEND || "";
 const rawHyperclawApiBase = process.env.NEXT_PUBLIC_HYPERCLAW_API_URL || "";
 const rawHyperclawModelsUrl = process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "";
 
 export const CLAW_API_BASE = trimTrailingSlash(rawClawApiBase);
+export const AUTH_API_BASE = trimTrailingSlash(rawAuthApiBase || rawClawApiBase);
 
 export const HYPERCLAW_MODELS_ENDPOINT = rawHyperclawModelsUrl
   ? trimTrailingSlash(rawHyperclawModelsUrl)
