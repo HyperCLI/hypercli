@@ -188,6 +188,64 @@ $ hyper claw config env
     "mode": "merge",
     "providers": {
       "hyperclaw": {
+        "baseUrl": "https://api.hypercli.com",
+        "apiKey": "sk-...",
+        "api": "anthropic-messages",
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 200000
+          }
+        ]
+      },
+      "hyperclaw-embed": {
+        "baseUrl": "https://api.hypercli.com/v1",
+        "apiKey": "sk-...",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "qwen3-embedding-4b",
+            "name": "Qwen3 Embedding 4B",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 32768,
+            "mode": "embedding"
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "models": {
+        "hyperclaw/kimi-k2.5": { "alias": "kimi" }
+      },
+      "memorySearch": {
+        "provider": "openai",
+        "model": "qwen3-embedding-4b",
+        "remote": {
+          "baseUrl": "https://api.hypercli.com/v1/",
+          "apiKey": "sk-..."
+        }
+      }
+    }
+  }
+}
+```
+
+OpenClaw uses the Anthropic-compatible provider above for chat and appends `/v1/messages` itself. The `hyperclaw-embed` provider remains OpenAI-compatible for embeddings.
+
+If you need legacy compatibility with an OpenAI-style OpenClaw setup, you can still point chat at the OpenAI-compatible endpoint, but it is not recommended:
+
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hyperclaw": {
         "baseUrl": "https://api.hypercli.com/v1",
         "apiKey": "sk-...",
         "api": "openai-completions",
@@ -200,13 +258,6 @@ $ hyper claw config env
             "contextWindow": 200000
           }
         ]
-      }
-    }
-  },
-  "agents": {
-    "defaults": {
-      "models": {
-        "hyperclaw/kimi-k2.5": { "alias": "kimi" }
       }
     }
   }

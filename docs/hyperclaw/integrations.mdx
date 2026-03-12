@@ -77,9 +77,9 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
     "mode": "merge",
     "providers": {
       "hyperclaw": {
-        "baseUrl": "https://api.hypercli.com/v1",
+        "baseUrl": "https://api.hypercli.com",
         "apiKey": "sk-YOUR-API-KEY",
-        "api": "openai-completions",
+        "api": "anthropic-messages",
         "models": [
           {
             "id": "kimi-k2.5",
@@ -95,6 +95,51 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
             "reasoning": true,
             "input": ["text"],
             "contextWindow": 202752,
+            "maxTokens": 8192
+          }
+        ]
+      },
+      "hyperclaw-embed": {
+        "baseUrl": "https://api.hypercli.com/v1",
+        "apiKey": "sk-YOUR-API-KEY",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "qwen3-embedding-4b",
+            "name": "Qwen3 Embedding 4B",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 32768,
+            "maxTokens": 8192,
+            "mode": "embedding"
+          }
+        ]
+      }
+    }
+  }
+}
+```
+
+For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
+
+If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
+
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hyperclaw": {
+        "baseUrl": "https://api.hypercli.com/v1",
+        "apiKey": "sk-YOUR-API-KEY",
+        "api": "openai-completions",
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": false,
+            "input": ["text"],
+            "contextWindow": 262144,
             "maxTokens": 8192
           }
         ]
