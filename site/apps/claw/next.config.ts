@@ -22,6 +22,7 @@ const nextConfig: NextConfig = {
     allowedDevOrigins: ["gilfoyle.hypercli.com"],
   }),
   transpilePackages: [
+    "@hypercli/sdk",
     "@hypercli/shared-ui",
     "@rainbow-me/rainbowkit",
     "@coinbase/cdp-sdk",
@@ -38,11 +39,13 @@ const nextConfig: NextConfig = {
     // Allow Netlify to set non-public HYPERCLAW_* vars and map them into client-safe names.
     NEXT_PUBLIC_HYPERCLAW_API_URL:
       process.env.HYPERCLAW_API_URL || process.env.NEXT_PUBLIC_HYPERCLAW_API_URL || "",
+    NEXT_PUBLIC_AGENTS_WS_URL:
+      process.env.AGENTS_WS_URL || process.env.NEXT_PUBLIC_AGENTS_WS_URL || "",
     NEXT_PUBLIC_HYPERCLAW_MODELS_URL:
       process.env.HYPERCLAW_MODELS_URL || process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "",
   },
   turbopack: {
-    root: path.join(__dirname, "../.."),
+    root: path.join(__dirname, "../../.."),
     resolveAlias: {
       "viem/accounts": "viem/_esm/accounts/index.js",
       "viem/chains": "viem/_esm/chains/index.js",

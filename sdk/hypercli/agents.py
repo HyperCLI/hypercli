@@ -1,11 +1,8 @@
 """
-HyperClaw Agents API — Reef Pod Management
+HyperClaw Deployments API — runtime management for agent containers.
 
-Client for HyperClaw backend agent endpoints. Manages OpenClaw desktop containers
-(reef pods) via the authenticated backend API at api.hypercli.com/api/agents.
-
-The backend proxies to Lagoon internally, handles auth, plan enforcement,
-runtime key generation, and DB persistence.
+Client for HyperClaw backend deployment endpoints. Manages OpenClaw desktop
+containers and arbitrary agent runtimes via the authenticated backend API.
 """
 from __future__ import annotations
 
@@ -22,7 +19,8 @@ import httpx
 from .http import HTTPClient, APIError
 
 
-CLAW_API_BASE = "https://api.hypercli.com"
+AGENTS_API_BASE = "https://api.hypercli.com"
+AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 
@@ -157,7 +155,7 @@ class Agent:
     entrypoint: list[str] = field(default_factory=list)
     ports: list[dict] = field(default_factory=list)
     dry_run: bool = False
-    _agents: Any = field(default=None, repr=False, compare=False)
+    _deployments: Any = field(default=None, repr=False, compare=False)
 
     @classmethod
     def from_dict(cls, data: dict) -> "Agent":
@@ -187,53 +185,53 @@ class Agent:
     def is_running(self) -> bool:
         return self.state == "running"
 
-    def _require_agents(self) -> "Agents":
-        if self._agents is None:
-            raise ValueError("Agent is not bound to an Agents client")
-        return self._agents
+    def _require_deployments(self) -> "Deployments":
+        if self._deployments is None:
+            raise ValueError("Agent is not bound to a Deployments client")
+        return self._deployments
 
     def refresh_token(self) -> dict:
-        data = self._require_agents().refresh_token(self.id)
+        data = self._require_deployments().refresh_token(self.id)
         self.jwt_token = data.get("token") or data.get("jwt")
         self.jwt_expires_at = _parse_dt(data.get("expires_at"))
         return data
 
-    def exec(self, command: str, timeout: int = 30) -> "ExecResult":
-        return self._require_agents().exec(self, command, timeout=timeout)
+    def exec(self, command: str, timeout: int = 30, dry_run: bool = False) -> "ExecResult":
+        return self._require_deployments().exec(self, command, timeout=timeout, dry_run=dry_run)
 
     def health(self) -> dict:
-        return self._require_agents().health(self)
+        return self._require_deployments().health(self)
 
     def files_list(self, path: str = "") -> list[dict]:
-        return self._require_agents().files_list(self, path)
+        return self._require_deployments().files_list(self, path)
 
     def file_read_bytes(self, path: str) -> bytes:
-        return self._require_agents().file_read_bytes(self, path)
+        return self._require_deployments().file_read_bytes(self, path)
 
     def file_read(self, path: str) -> str:
-        return self._require_agents().file_read(self, path)
+        return self._require_deployments().file_read(self, path)
 
     def file_write_bytes(self, path: str, content: bytes) -> dict:
-        return self._require_agents().file_write_bytes(self, path, content)
+        return self._require_deployments().file_write_bytes(self, path, content)
 
     def file_write(self, path: str, content: str) -> dict:
-        return self._require_agents().file_write(self, path, content)
+        return self._require_deployments().file_write(self, path, content)
 
     def cp_to(self, local_path: str | Path, remote_path: str) -> dict:
-        return self._require_agents().cp_to(self, local_path, remote_path)
+        return self._require_deployments().cp_to(self, local_path, remote_path)
 
     def cp_from(self, remote_path: str, local_path: str | Path) -> Path:
-        return self._require_agents().cp_from(self, remote_path, local_path)
+        return self._require_deployments().cp_from(self, remote_path, local_path)
 
     def logs_stream(self, lines: int = 100, follow: bool = True):
-        return self._require_agents().logs_stream(self, lines=lines, follow=follow)
+        return self._require_deployments().logs_stream(self, lines=lines, follow=follow)
 
     async def logs_stream_ws(self, tail_lines: int = 100, container: str = "reef") -> AsyncIterator[str]:
-        async for line in self._require_agents().logs_stream_ws(self.id, tail_lines=tail_lines, container=container):
+        async for line in self._require_deployments().logs_stream_ws(self.id, tail_lines=tail_lines, container=container):
             yield line
 
     async def shell_connect(self, shell: str | None = None):
-        return await self._require_agents().shell_connect(self.id, shell=shell)
+        return await self._require_deployments().shell_connect(self.id, shell=shell)
 
 
 @dataclass
@@ -377,41 +375,38 @@ class ExecResult:
         )
 
 
-class Agents:
+class Deployments:
     """
-    HyperClaw Agents API — manage reef pods (OpenClaw desktop containers).
-
-    Uses the authenticated backend API (api.hypercli.com/api/agents).
-    Auth: pass your HyperClaw API key (sk-...) as the agent_api_key.
+    HyperClaw deployments API — manage agent runtimes.
 
     Usage:
         from hypercli import HyperCLI
         client = HyperCLI(api_key="...", agent_api_key="sk-...")
 
         # Launch
-        pod = client.agents.create()
+        pod = client.deployments.create()
         print(f"Desktop: {pod.vnc_url}")
 
         # Execute a command
-        result = client.agents.exec(pod, "echo hello")
+        result = client.deployments.exec(pod, "echo hello")
 
         # List
-        pods = client.agents.list()
+        pods = client.deployments.list()
 
         # Stop
-        client.agents.stop(pod.id)
+        client.deployments.stop(pod.id)
     """
 
     def __init__(
         self,
         http: HTTPClient,
-        agent_api_key: str = None,
-        agent_api_base: str = None,
+        api_key: str = None,
+        api_base: str = None,
         agents_ws_url: str = None,
     ):
         self._http = http
-        self._api_key = agent_api_key or http.api_key
-        self._api_base = (agent_api_base or CLAW_API_BASE).rstrip("/")
+        self._api_key = api_key or http.api_key
+        self._api_base = (api_base or AGENTS_API_BASE).rstrip("/")
         self._agents_ws_url = _normalize_agents_ws_url(agents_ws_url) if agents_ws_url else _default_agents_ws_url(self._api_base)
 
     def _hydrate_agent(self, data: dict) -> Agent:
@@ -419,7 +414,7 @@ class Agents:
             agent = OpenClawAgent.from_dict(data)
         else:
             agent = Agent.from_dict(data)
-        agent._agents = self
+        agent._deployments = self
         return agent
 
     @property
@@ -546,7 +541,7 @@ class Agents:
             body["cpu"] = cpu
         if memory is not None:
             body["memory"] = memory
-        data = self._post("/api/agents", json=body)
+        data = self._post(AGENTS_API_PREFIX, json=body)
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
@@ -561,7 +556,7 @@ class Agents:
         Returns:
             Dict with budget, used, available (all in cores/GB).
         """
-        return self._get("/api/agents/budget")
+        return self._get(f"{AGENTS_API_PREFIX}/budget")
 
     def metrics(self, agent_id: str) -> dict:
         """Get live CPU/memory metrics for a running agent.
@@ -572,7 +567,7 @@ class Agents:
         Returns:
             Dict with container metrics from k8s metrics-server.
         """
-        return self._get(f"/api/agents/{agent_id}/metrics")
+        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/metrics")
 
     def list(self) -> list[Agent]:
         """List all agents for the authenticated user.
@@ -580,7 +575,7 @@ class Agents:
         Returns:
             List of Agent objects.
         """
-        data = self._get("/api/agents")
+        data = self._get(AGENTS_API_PREFIX)
         items = data.get("items", data) if isinstance(data, dict) else data
         return [self._hydrate_agent(p) for p in items]
 
@@ -593,7 +588,7 @@ class Agents:
         Returns:
             Agent with current status.
         """
-        data = self._get(f"/api/agents/{agent_id}")
+        data = self._get(f"{AGENTS_API_PREFIX}/{agent_id}")
         return self._hydrate_agent(data)
 
     def start(
@@ -634,7 +629,7 @@ class Agents:
         body: dict[str, Any] = {"config": prepared_config}
         if dry_run:
             body["dry_run"] = True
-        data = self._post(f"/api/agents/{agent_id}/start", json=body)
+        data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/start", json=body)
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
@@ -652,7 +647,7 @@ class Agents:
         Returns:
             Agent in stopped state.
         """
-        data = self._post(f"/api/agents/{agent_id}/stop")
+        data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/stop")
         return self._hydrate_agent(data)
 
     def delete(self, agent_id: str) -> dict:
@@ -664,7 +659,7 @@ class Agents:
         Returns:
             Deletion status dict.
         """
-        return self._delete(f"/api/agents/{agent_id}")
+        return self._delete(f"{AGENTS_API_PREFIX}/{agent_id}")
 
     def refresh_token(self, agent_id: str) -> dict:
         """Refresh the JWT token for an agent.
@@ -675,7 +670,7 @@ class Agents:
         Returns:
             Dict with agent_id, pod_id, token, expires_at.
         """
-        return self._get(f"/api/agents/{agent_id}/token")
+        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/token")
 
     # -----------------------------------------------------------------------
     # Executor API (direct to reef pod via shell-{hostname})
@@ -688,7 +683,7 @@ class Agents:
             h["Cookie"] = f"{pod.pod_name}-token={pod.jwt_token}"
         return h
 
-    def exec(self, pod: Agent, command: str, timeout: int = 30) -> ExecResult:
+    def exec(self, pod: Agent, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
         """Execute a one-shot command on a reef pod via lagoon exec API.
 
         Args:
@@ -701,9 +696,9 @@ class Agents:
         """
         with httpx.Client(timeout=max(timeout + 10, 35)) as client:
             resp = client.post(
-                f"{self._api_base}/api/agents/{pod.id}/exec",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{pod.id}/exec",
                 headers=self._headers,
-                json={"command": command, "timeout": timeout},
+                json={"command": command, "timeout": timeout, **({"dry_run": True} if dry_run else {})},
             )
         if resp.status_code >= 400:
             try:
@@ -731,7 +726,7 @@ class Agents:
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
-                f"{self._api_base}/api/agents/{agent_id}/files",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files",
                 headers=self._file_headers(),
                 params={"prefix": path},
             )
@@ -745,7 +740,7 @@ class Agents:
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
-                f"{self._api_base}/api/agents/{agent_id}/files/download/{self._encode_file_path(path)}",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/download/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
                 params={"source": "pod"},
                 follow_redirects=True,
@@ -763,7 +758,7 @@ class Agents:
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.put(
-                f"{self._api_base}/api/agents/{agent_id}/files/upload/{self._encode_file_path(path)}",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/upload/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),
                 content=content,
             )
@@ -884,7 +879,7 @@ class Agents:
             async for msg in ws:
                 yield msg
 
-    async def shell_connect(self, agent_id: str, shell: str | None = None):
+    async def shell_connect(self, agent_id: str, shell: str | None = None, dry_run: bool = False):
         """Connect to agent shell via backend WebSocket proxy.
 
         Connects to the HyperClaw backend shell WebSocket which proxies
@@ -901,9 +896,11 @@ class Agents:
         selected_shell = shell or self._detect_shell(agent_id)
 
         # Get shell token
-        token_data = self._post(f"/api/agents/{agent_id}/shell/token")
+        payload: dict[str, Any] = {"shell": selected_shell}
+        if dry_run:
+            payload["dry_run"] = True
+        token_data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/shell/token", json=payload)
         jwt = token_data["jwt"]
-
-        url = f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}&shell={selected_shell}"
+        url = token_data.get("ws_url") or f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}&shell={selected_shell}"
 
         return await websockets.connect(url, ping_interval=20, ping_timeout=20)

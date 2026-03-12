@@ -36,6 +36,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
+import { createClawClient } from "@/lib/hyperclaw";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
@@ -302,7 +303,7 @@ function S3FilesPanel({
       const token = await getToken();
       const params = new URLSearchParams();
       if (targetPrefix) params.set("prefix", targetPrefix);
-      const endpoint = `/agents/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const endpoint = `/deployments/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
       const data = await clawFetch<S3FilesResponse>(endpoint, token);
       setPrefix(data.prefix || targetPrefix);
       setDirectories(data.directories || []);
@@ -333,7 +334,7 @@ function S3FilesPanel({
       const token = await getToken();
       for (const file of Array.from(uploadList)) {
         const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/agents/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/upload/${encodePath(uploadPath)}`, {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -358,7 +359,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const data = await clawFetch<{ url: string }>(`/agents/${agentId}/files/download/${encodePath(path)}`, token);
+      const data = await clawFetch<{ url: string }>(`/deployments/${agentId}/files/download/${encodePath(path)}`, token);
       window.open(data.url, "_blank", "noopener,noreferrer");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Download failed");
@@ -370,7 +371,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/agents/${agentId}/files/delete/${encodePath(path)}`, token, {
+      await clawFetch(`/deployments/${agentId}/files/delete/${encodePath(path)}`, token, {
         method: "DELETE",
       });
       await loadFiles(prefix);
@@ -559,7 +560,7 @@ export default function AgentsPage() {
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
-      const data = await clawFetch<AgentListResponse>("/agents", token);
+      const data = await clawFetch<AgentListResponse>("/deployments", token);
       const items = data.items || [];
       setAgents(items);
       setBudget(data.budget || null);
@@ -817,7 +818,7 @@ export default function AgentsPage() {
   const issueAgentAccessToken = useCallback(
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
-      const tokenData = await clawFetch<AgentDesktopTokenResponse>(`/agents/${agentId}/token`, authToken);
+      const tokenData = await clawFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
       const subdomain = hostname.split(".")[0];
       const cookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hypercli.com";
       setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
@@ -849,7 +850,7 @@ export default function AgentsPage() {
         setWsStatus("connecting");
         const token = await getToken();
         if (cancelled) return;
-        const stream = await clawFetch<AgentLogsTokenResponse>(`/agents/${agentId}/logs/token`, token, { method: "POST" });
+        const stream = await clawFetch<AgentLogsTokenResponse>(`/deployments/${agentId}/logs/token`, token, { method: "POST" });
         const explicitWsUrl = (stream.ws_url || "").trim();
         const configuredWsBase = trimTrailingSlash((process.env.NEXT_PUBLIC_WS_URL || "").trim());
         const derivedWsBase = trimTrailingSlash(wsBaseFromApiBase(CLAW_API_BASE));
@@ -963,7 +964,7 @@ export default function AgentsPage() {
         setShellStatus("connecting");
         const authToken = await getToken();
         if (cancelled) return;
-        const shellToken = await clawFetch<AgentShellTokenResponse>(`/agents/${agentId}/shell/token`, authToken, { method: "POST" });
+        const shellToken = await clawFetch<AgentShellTokenResponse>(`/deployments/${agentId}/shell/token`, authToken, { method: "POST" });
         if (cancelled) return;
         const ws = new WebSocket(`${shellToken.ws_url}?jwt=${encodeURIComponent(shellToken.jwt)}`);
         shellWsRef.current = ws;
@@ -1002,7 +1003,7 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch<unknown>(`/agents/${agentId}/start`, token, { method: "POST" });
+      await createClawClient(token).deployments.start(agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start agent");
@@ -1016,7 +1017,7 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch<unknown>(`/agents/${agentId}/stop`, token, { method: "POST" });
+      await createClawClient(token).deployments.stop(agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
@@ -1031,7 +1032,7 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch<{ ok: boolean; id: string }>(`/agents/${agentId}`, token, { method: "DELETE" });
+      await createClawClient(token).deployments.delete(agentId);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
       await fetchAgents();
     } catch (err) {
@@ -1221,7 +1222,7 @@ export default function AgentsPage() {
       const agentPath = `/home/ubuntu/${uploadPath}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper claw transcribe ${agentPath}\``;
       // Upload audio to agent's filesystem
-      const res = await fetch(`${CLAW_API_BASE}/agents/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
+      const res = await fetch(`${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/webm" },
         body: audioBlob,
@@ -1682,7 +1683,7 @@ export default function AgentsPage() {
                       {chat.messages.map((msg, i) => {
                         const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
                         const inlineAudioUrl = voicePath && selectedAgent
-                          ? `${CLAW_API_BASE}/agents/${selectedAgent.id}/files/download/${encodeURIComponent(voicePath)}`
+                          ? `${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/download/${encodeURIComponent(voicePath)}`
                           : null;
                         return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
                       })}

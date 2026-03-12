@@ -94,8 +94,20 @@ export {
 } from './agent.js';
 
 export {
-  Agents,
+  Deployments,
+  Agent,
+  OpenClawAgent,
+  buildAgentConfig,
   type AgentExecResult,
+  type AgentTokenResponse,
+  type AgentShellTokenResponse,
+  type AgentListResponse,
+  type AgentRouteConfig,
+  type RegistryAuth,
+  type BuildAgentConfigOptions,
+  type CreateAgentOptions,
+  type StartAgentOptions,
+  type AgentExecOptions,
 } from './agents.js';
 
 // Job helpers

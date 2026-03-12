@@ -10,6 +10,7 @@
     "clean": "rm -rf .next"
   },
   "dependencies": {
+    "@hypercli/sdk": "file:../../../ts-sdk",
     "@hypercli/shared-ui": "*",
     "@privy-io/react-auth": "^3.13.1",
     "@x402/axios": "^2.0.0",

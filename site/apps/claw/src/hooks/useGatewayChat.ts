@@ -231,7 +231,7 @@ export function useGatewayChat(
           const authToken = await getToken();
           if (cancelled) return;
           const tokenResp = await clawFetch<{ token: string }>(
-            `/agents/${agent!.id}/token`,
+            `/deployments/${agent!.id}/token`,
             authToken
           );
           if (cancelled) return;
@@ -251,7 +251,7 @@ export function useGatewayChat(
 
         if (cancelled) return;
         const gatewayTokenResp = await clawFetch<{ gateway_token: string }>(
-          `/agents/${agent!.id}/gateway-token`,
+          `/deployments/${agent!.id}/gateway-token`,
           await getToken()
         );
         const gatewayToken = gatewayTokenResp.gateway_token;

@@ -8,7 +8,7 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from hypercli.agents import Agent, Agents, OpenClawAgent, ExecResult, _build_agent_config
+from hypercli.agents import Agent, Deployments, OpenClawAgent, ExecResult, _build_agent_config
 from hypercli.http import APIError, HTTPClient
 
 
@@ -134,11 +134,11 @@ def test_bound_agent_methods_delegate_to_agents(tmp_path):
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
-        _agents=manager,
+        _deployments=manager,
     )
 
     assert agent.exec("ls").stdout == "done"
-    manager.exec.assert_called_once_with(agent, "ls", timeout=30)
+    manager.exec.assert_called_once_with(agent, "ls", timeout=30, dry_run=False)
 
     token_data = agent.refresh_token()
     assert token_data["token"] == "jwt-new"
@@ -178,7 +178,7 @@ def mock_http():
 
 @pytest.fixture
 def agents_client(mock_http):
-    return Agents(http=mock_http, agent_api_key="sk-test123", agent_api_base="https://api.test.hypercli.com")
+    return Deployments(http=mock_http, api_key="sk-hyper-test123", api_base="https://api.test.hypercli.com")
 
 
 def test_agents_create_returns_openclaw_agent(agents_client):
@@ -226,7 +226,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token == "gw-token-123"
         assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-        assert agent._agents is agents_client
+        assert agent._deployments is agents_client
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
@@ -250,7 +250,7 @@ def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client
         agent = agents_client.get("agent-123")
         assert isinstance(agent, Agent)
         assert not isinstance(agent, OpenClawAgent)
-        assert agent._agents is agents_client
+        assert agent._deployments is agents_client
 
 
 def test_agents_file_ops_use_backend_file_api(agents_client):
@@ -275,15 +275,15 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             return False
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
-            if url.endswith("/api/agents/agent-123/files"):
+            if url.endswith("/deployments/agent-123/files"):
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
-            if url.endswith("/api/agents/agent-123/files/download/workspace/a.txt"):
+            if url.endswith("/deployments/agent-123/files/download/workspace/a.txt"):
                 assert params == {"source": "pod"}
                 return FakeResponse(content=b"hello")
             raise AssertionError(url)
 
         def put(self, url, headers=None, content=None):
-            assert url.endswith("/api/agents/agent-123/files/upload/workspace/a.txt")
+            assert url.endswith("/deployments/agent-123/files/upload/workspace/a.txt")
             assert content == b"payload"
             return FakeResponse(json_data={"status": "ok"})
 
@@ -329,7 +329,7 @@ def test_agents_list(agents_client):
         assert len(agents) == 2
         assert agents[0].id == "agent-1"
         assert agents[1].state == "stopped"
-        assert all(agent._agents is agents_client for agent in agents)
+        assert all(agent._deployments is agents_client for agent in agents)
 
 
 def test_agents_start_stop_delete(agents_client):
@@ -449,7 +449,7 @@ async def test_agents_integration_lifecycle():
     import time
 
     http = HTTPClient(api_base="https://api.dev.hypercli.com", api_key=api_key)
-    agents = Agents(http, agent_api_key=api_key, agent_api_base="https://api.dev.hypercli.com")
+    agents = Deployments(http, api_key=api_key, api_base="https://api.dev.hypercli.com")
 
     agent = agents.create(name="test-integration", size="small", start=True)
     assert agent.id is not None
@@ -477,4 +477,3 @@ async def test_agents_integration_lifecycle():
         assert log_count > 0
     finally:
         agents.delete(agent.id)
-

@@ -19,6 +19,7 @@ import {
 import Link from "next/link";
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { clawFetch } from "@/lib/api";
+import { createClawClient } from "@/lib/hyperclaw";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -144,7 +145,7 @@ export default function DashboardPage() {
           clawFetch<UsageInfo>("/usage", token),
           clawFetch<HistoryResponse>("/usage/history?days=7", token),
           clawFetch<KeyUsageResponse>("/usage/keys?days=7", token),
-          clawFetch<AgentListResponse>("/agents", token),
+          clawFetch<AgentListResponse>("/deployments", token),
         ]);
 
       if (planData.status === "fulfilled") setPlan(planData.value);
@@ -165,7 +166,7 @@ export default function DashboardPage() {
     setStartingId(agentId);
     try {
       const token = await getToken();
-      await clawFetch<unknown>(`/agents/${agentId}/start`, token, { method: "POST" });
+      await createClawClient(token).deployments.start(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStartingId(null);
@@ -176,7 +177,7 @@ export default function DashboardPage() {
     setStoppingId(agentId);
     try {
       const token = await getToken();
-      await clawFetch<unknown>(`/agents/${agentId}/stop`, token, { method: "POST" });
+      await createClawClient(token).deployments.stop(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStoppingId(null);

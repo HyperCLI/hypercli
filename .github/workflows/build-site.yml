@@ -17,6 +17,12 @@ jobs:
         with:
           node-version: '22'
 
+      - name: Build TS SDK
+        working-directory: ts-sdk
+        run: |
+          npm ci
+          npm run build
+
       - name: Install and build
         working-directory: site
         run: |

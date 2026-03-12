@@ -12,7 +12,7 @@ class TestHyperAgentDataclasses:
     
     def test_agent_key_from_dict(self):
         data = {
-            "key": "sk-test-123",
+            "key": "sk-hyper-test-123",
             "plan_id": "5aiu",
             "expires_at": "2026-03-07T12:00:00Z",
             "tpm_limit": 250000,
@@ -20,7 +20,7 @@ class TestHyperAgentDataclasses:
             "user_id": "user-123"
         }
         key = HyperAgentKey.from_dict(data)
-        assert key.key == "sk-test-123"
+        assert key.key == "sk-hyper-test-123"
         assert key.plan_id == "5aiu"
         assert key.tpm_limit == 250000
         assert key.rpm_limit == 5000
@@ -83,7 +83,7 @@ class TestHyperAgentClient:
     
     def test_openai_client_creation(self, mock_http):
         """Test that OpenAI client is created with correct config."""
-        agent = HyperAgent(mock_http, agent_api_key="sk-test", dev=True)
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", dev=True)
         
         # Access openai property to trigger creation
         with patch('hypercli.agent.OpenAI') as mock_openai:
@@ -91,13 +91,13 @@ class TestHyperAgentClient:
             client = agent.openai
             
             mock_openai.assert_called_once_with(
-                api_key="sk-test",
+                api_key="sk-hyper-test",
                 base_url="https://api.dev.hypercli.com/v1",
             )
     
     def test_chat_uses_openai_client(self, mock_http):
         """Test that chat method uses OpenAI client."""
-        agent = HyperAgent(mock_http, agent_api_key="sk-test", dev=True)
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", dev=True)
         
         with patch('hypercli.agent.OpenAI') as mock_openai:
             mock_client = MagicMock()

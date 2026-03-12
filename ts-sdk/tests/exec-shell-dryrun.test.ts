@@ -1,150 +1,195 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
-const wsState = vi.hoisted(() => ({ wsInstances: [] as any[] }));
+import {
+  Agent,
+  Deployments,
+  OpenClawAgent,
+  buildAgentConfig,
+} from '../src/agents.js';
 
-vi.mock('ws', () => {
-  class MockWebSocket {
-    public readonly url: string;
-    private handlers: Record<string, Array<(...args: any[]) => void>> = {};
+class MockWebSocket {
+  public readonly url: string;
+  public onopen: (() => void) | null = null;
+  public onerror: (() => void) | null = null;
 
-    constructor(url: string) {
-      this.url = url;
-      wsState.wsInstances.push(this);
-      queueMicrotask(() => this.emit('open'));
-    }
-
-    on(event: string, cb: (...args: any[]) => void) {
-      this.handlers[event] = this.handlers[event] || [];
-      this.handlers[event].push(cb);
-    }
-
-    once(event: string, cb: (...args: any[]) => void) {
-      const wrapped = (...args: any[]) => {
-        this.off(event, wrapped);
-        cb(...args);
-      };
-      this.on(event, wrapped);
-    }
-
-    off(event: string, cb: (...args: any[]) => void) {
-      this.handlers[event] = (this.handlers[event] || []).filter(h => h !== cb);
-    }
-
-    emit(event: string, ...args: any[]) {
-      for (const cb of this.handlers[event] || []) cb(...args);
-    }
+  constructor(url: string) {
+    this.url = url;
+    queueMicrotask(() => this.onopen?.());
   }
-  return { default: MockWebSocket };
-});
+}
 
-import { Jobs } from '../src/jobs.js';
-import { Agents } from '../src/agents.js';
-
-describe('Exec/Shell/DryRun integration (mock)', () => {
+describe('HyperClaw agents SDK', () => {
   beforeEach(() => {
-    wsState.wsInstances.length = 0;
     vi.restoreAllMocks();
+    vi.stubGlobal('WebSocket', MockWebSocket as any);
+    vi.stubGlobal('crypto', {
+      getRandomValues: (values: Uint8Array) => {
+        values.fill(0xab);
+        return values;
+      },
+      randomUUID: () => 'uuid-123',
+    } as any);
   });
 
-  it('jobs.create sends dry_run payload', async () => {
-    const post = vi.fn().mockResolvedValue({
-      job_id: 'job-123',
-      job_key: 'jk',
-      state: 'validated',
-      gpu_type: 'l40s',
-      gpu_count: 1,
-      region: 'us-east-1',
-      interruptible: true,
-      price_per_hour: 1.2,
-      price_per_second: 0.0003,
-      docker_image: 'nvidia/cuda',
-      runtime: 300,
-      cold_boot: false,
-    });
-    const jobs = new Jobs({ post, get: vi.fn() } as any);
+  it('buildAgentConfig injects gateway token and preserves launch fields', () => {
+    const { config, gatewayToken } = buildAgentConfig(
+      { env: { FOO: 'bar' } },
+      {
+        command: ['echo', 'hello'],
+        entrypoint: ['/bin/sh', '-c'],
+        routes: { openclaw: { port: 18789, auth: false } },
+        image: 'ghcr.io/acme/reef:test',
+      },
+    );
 
-    await jobs.create({
-      image: 'nvidia/cuda',
-      command: 'echo hi',
-      dryRun: true,
+    expect(gatewayToken).toMatch(/^ab+/);
+    expect(config.env).toEqual({
+      FOO: 'bar',
+      OPENCLAW_GATEWAY_TOKEN: gatewayToken,
     });
-
-    const [, payload] = post.mock.calls[0];
-    expect(payload.dry_run).toBe(true);
-    expect(payload.command).toBeTypeOf('string');
+    expect(config.command).toEqual(['echo', 'hello']);
+    expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
+    expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
+    expect(config.image).toBe('ghcr.io/acme/reef:test');
   });
 
-  it('jobs.exec calls /api/jobs/{id}/exec and maps response', async () => {
-    const post = vi.fn().mockResolvedValue({
-      job_id: 'job-123',
-      stdout: 'ok\n',
-      stderr: '',
-      exit_code: 0,
-    });
-    const jobs = new Jobs({ post, get: vi.fn() } as any);
-
-    const result = await jobs.exec('job-123', 'echo ok', 15);
-
-    expect(post).toHaveBeenCalledWith('/api/jobs/job-123/exec', { command: 'echo ok', timeout: 15 });
-    expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe('ok\n');
-  });
-
-  it('jobs.shellConnect builds websocket URL from API base', async () => {
-    const get = vi.fn().mockResolvedValue({
-      job_id: 'job-123',
-      job_key: 'job-key-xyz',
+  it('hydrates generic and OpenClaw agents correctly', () => {
+    const generic = Agent.fromDict({
+      id: 'agent-1',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-name',
       state: 'running',
-      gpu_type: 'l40s',
-      gpu_count: 1,
-      region: 'oh',
-      interruptible: true,
-      price_per_hour: 1.0,
-      price_per_second: 0.1,
-      docker_image: 'x',
-      runtime: 1,
+      hostname: 'agent.dev.hyperclaw.app',
     });
-    const jobs = new Jobs({ get, baseUrl: 'https://api.hypercli.com/api' } as any);
 
-    const ws = await jobs.shellConnect('job-123', '/bin/sh');
+    const openclaw = OpenClawAgent.fromDict({
+      id: 'agent-2',
+      user_id: 'user-1',
+      pod_id: 'pod-2',
+      pod_name: 'pod-name-2',
+      state: 'running',
+      hostname: 'agent2.dev.hyperclaw.app',
+      openclaw_url: 'wss://openclaw-agent2.dev.hyperclaw.app',
+      gateway_token: 'gw-123',
+      jwt_token: 'jwt-123',
+      command: ['sleep', '3600'],
+      entrypoint: ['/bin/sh', '-c'],
+    });
 
-    expect(ws).toBeDefined();
-    expect(wsState.wsInstances[0].url).toBe(
-      'wss://api.hypercli.com/orchestra/ws/shell/job-123?token=job-key-xyz&shell=%2Fbin%2Fsh'
-    );
+    expect(generic.publicUrl).toBe('https://agent.dev.hyperclaw.app');
+    expect(generic.shellUrl).toBe('https://shell-agent.dev.hyperclaw.app');
+    expect(openclaw.gatewayUrl).toBe('wss://openclaw-agent2.dev.hyperclaw.app');
+    expect(openclaw.gatewayToken).toBe('gw-123');
+    expect(openclaw.command).toEqual(['sleep', '3600']);
+    expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('agents.exec posts command for HyperClaw containers', async () => {
-    const fetchMock = vi.fn().mockResolvedValue({
-      ok: true,
-      json: async () => ({ exit_code: 0, stdout: 'done', stderr: '' }),
+  it('create posts config and returns bound OpenClawAgent', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-1',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-name',
+      state: 'starting',
+      openclaw_url: 'wss://openclaw-pod-name.dev.hyperclaw.app',
     });
-    vi.stubGlobal('fetch', fetchMock);
-    const agents = new Agents({ apiKey: 'hyper_api_x' } as any, 'sk-claw', 'https://api.hypercli.com');
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hyperclaw.app');
 
-    const result = await agents.exec('agent-1', 'ls', 20);
+    const agent = await agents.create({
+      name: 'smoke',
+      cpu: 4,
+      memory: 16,
+      dryRun: true,
+      command: ['nginx', '-g', 'daemon off;'],
+      entrypoint: ['/docker-entrypoint.sh'],
+      env: { FOO: 'bar' },
+    });
 
-    expect(fetchMock).toHaveBeenCalledWith(
-      'https://api.hypercli.com/api/agents/agent-1/exec',
-      expect.objectContaining({ method: 'POST' })
+    expect(post).toHaveBeenCalledWith(
+      '/deployments',
+      expect.objectContaining({
+        name: 'smoke',
+        cpu: 4,
+        memory: 16,
+        dry_run: true,
+        start: true,
+        config: expect.objectContaining({
+          env: expect.objectContaining({
+            FOO: 'bar',
+            OPENCLAW_GATEWAY_TOKEN: expect.any(String),
+          }),
+          command: ['nginx', '-g', 'daemon off;'],
+          entrypoint: ['/docker-entrypoint.sh'],
+        }),
+      }),
     );
+    expect(agent).toBeInstanceOf(OpenClawAgent);
+    expect((agent as OpenClawAgent).gatewayToken).toMatch(/^ab+/);
+  });
+
+  it('list returns hydrated items and budget', async () => {
+    const get = vi.fn().mockResolvedValue({
+      items: [
+        {
+          id: 'agent-1',
+          user_id: 'user-1',
+          pod_id: 'pod-1',
+          pod_name: 'pod-name',
+          state: 'running',
+        },
+      ],
+      budget: { total_cpu: 8 },
+    });
+    const agents = new Deployments({ post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hyperclaw.app');
+
+    const result = await agents.list();
+
+    expect(result.items).toHaveLength(1);
+    expect(result.items[0]).toBeInstanceOf(Agent);
+    expect(result.budget).toEqual({ total_cpu: 8 });
+  });
+
+  it('exec forwards dry_run payload', async () => {
+    const post = vi.fn().mockResolvedValue({
+      exit_code: 0,
+      stdout: 'preview\n',
+      stderr: '',
+      dry_run: true,
+    });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.hypercli.com');
+
+    const result = await agents.exec('agent-1', 'ls -la', { timeout: 20, dryRun: true });
+
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/exec', {
+      command: 'ls -la',
+      timeout: 20,
+      dry_run: true,
+    });
     expect(result.exitCode).toBe(0);
-    expect(result.stdout).toBe('done');
+    expect(result.stdout).toBe('preview\n');
   });
 
-  it('agents.shellConnect fetches token then connects websocket', async () => {
-    const fetchMock = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        json: async () => ({ token: 'jwt-abc' }),
-      });
-    vi.stubGlobal('fetch', fetchMock);
-    const agents = new Agents({ apiKey: 'hyper_api_x' } as any, 'sk-claw', 'https://api.hypercli.com');
+  it('shellToken and shellConnect use backend response shape', async () => {
+    const post = vi.fn().mockResolvedValue({
+      jwt: 'jwt-abc',
+      ws_url: 'wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh',
+      shell: '/bin/sh',
+      dry_run: true,
+    });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
 
-    const ws = await agents.shellConnect('agent-1');
+    const token = await agents.shellToken('agent-1', '/bin/sh', true);
+    const ws = await agents.shellConnect('agent-1', '/bin/sh');
 
-    expect(ws).toBeDefined();
-    expect(wsState.wsInstances[0].url).toBe('wss://api.hypercli.com/ws/shell/agent-1?jwt=jwt-abc');
+    expect(token.jwt).toBe('jwt-abc');
+    expect(post).toHaveBeenNthCalledWith(1, '/deployments/agent-1/shell/token', {
+      shell: '/bin/sh',
+      dry_run: true,
+    });
+    expect(post).toHaveBeenNthCalledWith(2, '/deployments/agent-1/shell/token', {
+      shell: '/bin/sh',
+    });
+    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh');
   });
 });

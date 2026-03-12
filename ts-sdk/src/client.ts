@@ -11,13 +11,14 @@ import { Renders } from './renders.js';
 import { Files } from './files.js';
 import { HyperAgent } from './agent.js';
 import { KeysAPI } from './keys.js';
-import { Agents } from './agents.js';
+import { Deployments } from './agents.js';
 
 export interface HyperCLIOptions {
   apiKey?: string;
   apiUrl?: string;
   agentApiKey?: string;
   agentDev?: boolean;
+  agentsWsUrl?: string;
   timeout?: number;
 }
 
@@ -61,7 +62,7 @@ export class HyperCLI {
   public readonly files: Files;
   public readonly keys: KeysAPI;
   public readonly agent: HyperAgent;
-  public readonly agents: Agents;
+  public readonly deployments: Deployments;
 
   constructor(options: HyperCLIOptions = {}) {
     // Handle explicit undefined vs explicitly passed empty string
@@ -86,7 +87,12 @@ export class HyperCLI {
     this.files = new Files(this._http);
     this.keys = new KeysAPI(this._http);
     this.agent = new HyperAgent(this._http, options.agentApiKey, options.agentDev);
-    this.agents = new Agents(this._http, options.agentApiKey);
+    this.deployments = new Deployments(
+      this._http,
+      options.agentApiKey,
+      this._apiUrl,
+      options.agentsWsUrl,
+    );
   }
 
   get apiUrl(): string {

@@ -130,7 +130,7 @@ export default function AgentConsolePage() {
   const fetchAgent = useCallback(async () => {
     try {
       const token = await getToken();
-      const resp = await clawFetch<Agent>(`/agents/${agentId}`, token);
+      const resp = await clawFetch<Agent>(`/deployments/${agentId}`, token);
       setAgent(resp);
       setError(null);
     } catch (e: any) {
@@ -175,7 +175,7 @@ export default function AgentConsolePage() {
 
       if (!(hasCookie(hostCookie) || hasCookie(shellCookie) || hasCookie(openclawCookie) || hasCookie(reefCookie))) {
         const authToken = await getToken();
-        const tokenResp = await clawFetch<{ token: string }>(`/agents/${agentId}/token`, authToken);
+        const tokenResp = await clawFetch<{ token: string }>(`/deployments/${agentId}/token`, authToken);
         const tokenValue = encodeURIComponent(tokenResp.token);
         const securePart = window.location.protocol === "https:" ? "; secure" : "";
         const domainPart = cookieDomain ? `; domain=${cookieDomain}` : "";
@@ -661,7 +661,7 @@ function S3FilesPanel({
       const token = await getToken();
       const params = new URLSearchParams();
       if (targetPrefix) params.set("prefix", targetPrefix);
-      const endpoint = `/agents/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const endpoint = `/deployments/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
       const data = await clawFetch<S3FilesResponse>(endpoint, token);
       setPrefix(data.prefix || targetPrefix);
       setDirectories(data.directories || []);
@@ -693,7 +693,7 @@ function S3FilesPanel({
       const token = await getToken();
       for (const file of Array.from(uploadList)) {
         const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/agents/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/upload/${encodePath(uploadPath)}`, {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -718,7 +718,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const data = await clawFetch<{ url: string }>(`/agents/${agentId}/files/download/${encodePath(path)}`, token);
+      const data = await clawFetch<{ url: string }>(`/deployments/${agentId}/files/download/${encodePath(path)}`, token);
       window.open(data.url, "_blank", "noopener,noreferrer");
     } catch (e: any) {
       setError(e.message || "Download failed");
@@ -730,7 +730,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/agents/${agentId}/files/delete/${encodePath(path)}`, token, {
+      await clawFetch(`/deployments/${agentId}/files/delete/${encodePath(path)}`, token, {
         method: "DELETE",
       });
       await loadFiles(prefix);

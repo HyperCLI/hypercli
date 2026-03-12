@@ -7,7 +7,7 @@ from .user import UserAPI
 from .instances import Instances
 from .renders import Renders
 from .files import Files
-from .agents import Agents
+from .agents import Deployments
 from .agent import HyperAgent
 from .keys import KeysAPI
 
@@ -45,6 +45,7 @@ class HyperCLI:
         api_url: str = None,
         agent_api_key: str = None,
         agent_dev: bool = False,
+        agents_ws_url: str = None,
     ):
         self._api_key = api_key or get_api_key()
         if not self._api_key:
@@ -57,7 +58,7 @@ class HyperCLI:
         self._http = HTTPClient(self._api_url, self._api_key)
 
         # API namespaces
-        self.agents = Agents(self._http, agent_api_key=agent_api_key)
+        self.deployments = Deployments(self._http, api_key=agent_api_key, api_base=self._api_url, agents_ws_url=agents_ws_url)
         self.billing = Billing(self._http)
         self.jobs = Jobs(self._http)
         self.user = UserAPI(self._http)

@@ -1,4 +1,4 @@
-"""HyperClaw Agents — Reef Pod Management CLI"""
+"""HyperClaw deployments CLI."""
 from __future__ import annotations
 
 import json
@@ -12,15 +12,32 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli.agents import Agent, Agents, OpenClawAgent
+from hypercli.agents import Agent, Deployments, OpenClawAgent
 
 app = typer.Typer(help="Manage OpenClaw agent pods (reef containers)")
 console = Console()
+PROD_API_BASE = "https://api.hypercli.com"
+DEV_API_BASE = "https://api.dev.hypercli.com"
+PROD_AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
+DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
+_GLOBAL_DEV = False
+_GLOBAL_AGENTS_WS_URL: str | None = None
 
 # Config — uses HyperClaw API key (sk-...) for backend auth
 AGENT_KEY_PATH = Path.home() / ".hypercli" / "agent-key.json"
 STATE_DIR = Path.home() / ".hypercli"
 AGENTS_STATE = STATE_DIR / "agents.json"
+
+
+@app.callback()
+def agents_root(
+    dev: bool = typer.Option(False, "--dev", help="Use the dev HyperClaw agents API"),
+    agents_ws_url: str = typer.Option(None, "--agents-ws-url", help="Direct agents WebSocket base URL"),
+):
+    """Global options for agents commands."""
+    global _GLOBAL_DEV, _GLOBAL_AGENTS_WS_URL
+    _GLOBAL_DEV = dev
+    _GLOBAL_AGENTS_WS_URL = agents_ws_url
 
 
 def _get_agent_api_key() -> str:
@@ -39,13 +56,18 @@ def _get_agent_api_key() -> str:
     raise typer.Exit(1)
 
 
-def _get_agents_client() -> Agents:
-    """Create an Agents client using the HyperClaw API key."""
+def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
+    """Create a Deployments client using the HyperClaw API key."""
     from hypercli.http import HTTPClient
     api_key = _get_agent_api_key()
-    api_base = os.environ.get("HYPERCLAW_API_BASE", "https://api.hypercli.com")
+    api_base = os.environ.get("HYPERCLI_API_URL") or (DEV_API_BASE if _GLOBAL_DEV else PROD_API_BASE)
+    resolved_agents_ws_url = agents_ws_url or _GLOBAL_AGENTS_WS_URL or os.environ.get("AGENTS_WS_URL")
+    if _GLOBAL_DEV and not resolved_agents_ws_url:
+        resolved_agents_ws_url = DEV_AGENTS_WS_URL
+    if not _GLOBAL_DEV and not resolved_agents_ws_url and os.environ.get("HYPERCLI_API_URL", "").strip() == "":
+        resolved_agents_ws_url = PROD_AGENTS_WS_URL
     http = HTTPClient(api_base, api_key)
-    return Agents(http, agent_api_key=api_key, agent_api_base=api_base)
+    return Deployments(http, api_key=api_key, api_base=api_base, agents_ws_url=resolved_agents_ws_url)
 
 
 def _save_pod_state(pod: Agent):
@@ -103,7 +125,7 @@ def _resolve_agent(agent_id: str) -> str:
 
 def _get_pod_with_token(agent_id: str) -> Agent:
     """Get an agent, filling JWT from local state if needed."""
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
     pod = agents.get(agent_id)
     state = _load_state()
     local = state.get(agent_id, {})
@@ -217,7 +239,7 @@ def _port_summary(port: dict) -> str:
 @app.command("budget")
 def budget():
     """Show your agent resource budget and usage."""
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         data = agents.budget()
@@ -262,7 +284,7 @@ def create(
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
 ):
     """Create a new OpenClaw agent pod."""
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
     env_dict = _parse_env_vars(env)
     ports_list = _parse_ports(port)
     command_argv = _parse_argv_option(command, "--command")
@@ -343,7 +365,7 @@ def list_agents(
     json_output: bool = typer.Option(False, "--json", help="JSON output"),
 ):
     """List all agent pods."""
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         pods = agents.list()
@@ -404,7 +426,7 @@ def status(
 ):
     """Get detailed status of an agent."""
     agent_id = _resolve_agent(agent_id)
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         pod = agents.get(agent_id)
@@ -457,7 +479,7 @@ def start(
 ):
     """Start a previously stopped agent."""
     agent_id = _resolve_agent(agent_id)
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
     state = _load_state()
     local = state.get(agent_id, {})
     env_dict = _parse_env_vars(env)
@@ -508,7 +530,7 @@ def stop(
         if not confirm:
             raise typer.Exit(0)
 
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         pod = agents.stop(agent_id)
@@ -534,7 +556,7 @@ def delete(
         if not confirm:
             raise typer.Exit(0)
 
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         agents.delete(agent_id)
@@ -561,7 +583,7 @@ def exec_cmd(
         console.print(f"[red]❌ Failed to get agent: {e}[/red]")
         raise typer.Exit(1)
 
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         result = agents.exec(pod, command, timeout=timeout)
@@ -593,7 +615,7 @@ def cp(
     if bool(src_agent_id) == bool(dst_agent_id):
         raise typer.BadParameter("Exactly one side must be remote (AGENT_ID:PATH).")
 
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         if dst_agent_id:
@@ -618,7 +640,7 @@ def shell(
     Connects via the HyperClaw backend WebSocket proxy. Press Ctrl+] to disconnect.
     """
     agent_id = _resolve_agent(agent_id)
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     console.print(f"[dim]Connecting to shell...[/dim]")
 
@@ -700,7 +722,7 @@ def logs(
 ):
     """Stream logs from an agent pod."""
     agent_id = _resolve_agent(agent_id)
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     if ws:
         # WebSocket mode via backend
@@ -756,7 +778,7 @@ def chat(
         console.print(f"[red]❌ Failed to get agent: {e}[/red]")
         raise typer.Exit(1)
 
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
     messages = []
 
     console.print(f"\n[bold]Chat with agent {pod.pod_name}[/bold] (model: {model})")
@@ -803,7 +825,7 @@ def token(
 ):
     """Refresh the JWT token for an agent."""
     agent_id = _resolve_agent(agent_id)
-    agents = _get_agents_client()
+    agents = _get_deployments_client()
 
     try:
         result = agents.refresh_token(agent_id)

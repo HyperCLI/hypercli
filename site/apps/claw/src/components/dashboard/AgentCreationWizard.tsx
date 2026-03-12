@@ -9,7 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useClawAuth } from "@/hooks/useClawAuth";
-import { clawFetch } from "@/lib/api";
+import { createClawClient } from "@/lib/hyperclaw";
 import { formatCpu, formatMemory } from "@/lib/format";
 
 // ── Types ──
@@ -211,9 +211,13 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       } else {
         body.size = SIZES[selectedSize].value;
       }
-      await clawFetch("/agents", token, {
-        method: "POST",
-        body: JSON.stringify(body),
+      await createClawClient(token).deployments.create({
+        name: typeof body.name === "string" ? body.name : undefined,
+        start: Boolean(body.start),
+        size: typeof body.size === "string" ? body.size : undefined,
+        cpu: typeof body.cpu === "number" ? body.cpu : undefined,
+        memory: typeof body.memory === "number" ? body.memory : undefined,
+        config: {},
       });
       onCreated();
     } catch (err) {

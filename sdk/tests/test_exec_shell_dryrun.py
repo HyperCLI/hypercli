@@ -1,12 +1,12 @@
 import pytest
 
 from hypercli.jobs import Jobs
-from hypercli.agents import Agent, Agents
+from hypercli.agents import Agent, Deployments
 
 
 class DummyHTTP:
     def __init__(self):
-        self.api_key = "hyper_api_test"
+        self.api_key = "hyper_api_test_key"
         self.base_url = "https://api.hypercli.com"
         self.calls = []
 
@@ -103,6 +103,8 @@ async def test_jobs_shell_connect(monkeypatch):
 
 
 def test_agents_exec(monkeypatch):
+    seen = {}
+
     class FakeResponse:
         status_code = 200
 
@@ -120,24 +122,36 @@ def test_agents_exec(monkeypatch):
             return False
 
         def post(self, url, headers=None, json=None):
-            assert url.endswith("/api/agents/agent-1/exec")
+            seen["json"] = json
+            assert url.endswith("/deployments/agent-1/exec")
             assert json["command"] == "ls"
             return FakeResponse()
 
     monkeypatch.setattr("hypercli.agents.httpx.Client", FakeClient)
 
-    agents = Agents(DummyHTTP(), agent_api_key="sk-test")
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
     pod = Agent(id="agent-1", user_id="u1", pod_id="p1", pod_name="pod", state="running")
 
-    result = agents.exec(pod, "ls", timeout=10)
+    result = agents.exec(pod, "ls", timeout=10, dry_run=True)
     assert result.exit_code == 0
     assert result.stdout == "done"
+    assert seen["json"]["dry_run"] is True
 
 
 @pytest.mark.asyncio
 async def test_agents_shell_connect(monkeypatch):
-    agents = Agents(DummyHTTP(), agent_api_key="sk-test")
-    monkeypatch.setattr(agents, "_post", lambda path, json=None: {"jwt": "jwt-abc"})
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
+    captured_post = {}
+
+    def fake_post(path, json=None):
+        captured_post["path"] = path
+        captured_post["json"] = json
+        return {
+            "jwt": "jwt-abc",
+            "ws_url": "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=/bin/sh",
+        }
+
+    monkeypatch.setattr(agents, "_post", fake_post)
     monkeypatch.setattr(agents, "_detect_shell", lambda agent_id: "/bin/sh")
     captured = {}
 
@@ -147,13 +161,15 @@ async def test_agents_shell_connect(monkeypatch):
 
     monkeypatch.setattr("websockets.connect", fake_connect)
 
-    ws = await agents.shell_connect("agent-1")
+    ws = await agents.shell_connect("agent-1", dry_run=True)
     assert ws == "agent-ws"
     assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=/bin/sh"
+    assert captured_post["path"] == "/deployments/agent-1/shell/token"
+    assert captured_post["json"] == {"shell": "/bin/sh", "dry_run": True}
 
 
 def test_agents_detect_shell_prefers_bash(monkeypatch):
-    agents = Agents(DummyHTTP(), agent_api_key="sk-test")
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
     monkeypatch.setattr(
         agents,
         "exec",
