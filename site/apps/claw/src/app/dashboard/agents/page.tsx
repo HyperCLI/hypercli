@@ -861,7 +861,7 @@ export default function AgentsPage() {
         } else {
           const wsBase = configuredWsBase || derivedWsBase;
           if (!wsBase) throw new Error("WebSocket base URL is not configured");
-          url = `${wsBase}/ws/${agentId}?jwt=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
+          url = `${wsBase}/ws/logs/${agentId}?jwt=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
         }
         ws = new WebSocket(url);
         ws.onopen = () => { if (!cancelled) { reconnectScheduled = false; setWsStatus("connected"); void fetchAgents(); } };
@@ -1276,7 +1276,7 @@ export default function AgentsPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="text-text-muted hover:text-foreground transition-colors lg:block hidden"
+            className="hidden text-text-muted transition-colors hover:text-foreground md:block"
           >
             {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -1330,8 +1330,8 @@ export default function AgentsPage() {
       <div className="flex flex-1 min-h-0 md:h-[calc(100dvh-7rem)] md:flex-none">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed ? "w-0 overflow-hidden lg:w-16" : "w-full lg:w-[280px]"
-        } ${mobileShowChat ? "hidden lg:flex" : "flex"} flex-col`}>
+          sidebarCollapsed ? "w-0 overflow-hidden md:w-16" : "w-full md:w-[280px]"
+        } ${mobileShowChat ? "hidden md:flex" : "flex"} flex-col`}>
 
           {/* Sidebar header */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between">
@@ -1459,7 +1459,7 @@ export default function AgentsPage() {
         </div>
 
         {/* ── Main Panel ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden lg:flex" : "flex"}`}>
+        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden md:flex" : "flex"}`}>
           {!selectedAgent ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -1474,7 +1474,7 @@ export default function AgentsPage() {
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
-                  className="lg:hidden text-text-muted hover:text-foreground"
+                  className="text-text-muted hover:text-foreground md:hidden"
                 >
                   <PanelLeft className="w-5 h-5" />
                 </button>
