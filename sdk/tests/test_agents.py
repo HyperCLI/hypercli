@@ -3,12 +3,13 @@ from __future__ import annotations
 
 import os
 from datetime import datetime
+from pathlib import Path
 from unittest.mock import Mock, MagicMock, patch, AsyncMock
 
 import pytest
 import httpx
 
-from hypercli.agents import Agents, ReefPod, ExecResult, AGENTS_WS_URL, DEV_AGENTS_WS_URL
+from hypercli.agents import Agents, ReefPod, ExecResult, AGENTS_WS_URL, DEV_AGENTS_WS_URL, _build_agent_config
 from hypercli.http import HTTPClient, APIError
 
 
@@ -29,6 +30,7 @@ def test_reef_pod_from_dict():
         "memory": 16,
         "hostname": "test.hypercli.com",
         "openclaw_url": AGENTS_WS_URL,
+        "gateway_token": "gw123",
         "jwt_token": "jwt123",
         "jwt_expires_at": "2026-03-01T12:00:00Z",
         "started_at": "2026-02-24T10:00:00Z",
@@ -36,6 +38,9 @@ def test_reef_pod_from_dict():
         "last_error": None,
         "created_at": "2026-02-24T09:00:00Z",
         "updated_at": "2026-02-24T10:00:00Z",
+        "routes": {"openclaw": {"port": 18789, "prefix": "openclaw"}},
+        "command": ["sleep", "3600"],
+        "entrypoint": ["/bin/sh", "-c"],
         "ports": [{"port": 18789, "auth": False, "prefix": "openclaw"}],
     }
 
@@ -51,6 +56,7 @@ def test_reef_pod_from_dict():
     assert pod.memory == 16
     assert pod.hostname == "test.hypercli.com"
     assert pod.openclaw_url == AGENTS_WS_URL
+    assert pod.gateway_token == "gw123"
     assert pod.jwt_token == "jwt123"
     assert isinstance(pod.jwt_expires_at, datetime)
     assert isinstance(pod.started_at, datetime)
@@ -58,6 +64,9 @@ def test_reef_pod_from_dict():
     assert pod.last_error is None
     assert isinstance(pod.created_at, datetime)
     assert isinstance(pod.updated_at, datetime)
+    assert pod.routes == {"openclaw": {"port": 18789, "prefix": "openclaw"}}
+    assert pod.command == ["sleep", "3600"]
+    assert pod.entrypoint == ["/bin/sh", "-c"]
     assert pod.ports == [{"port": 18789, "auth": False, "prefix": "openclaw"}]
 
 
@@ -142,6 +151,7 @@ def test_reef_pod_gateway():
         pod_name="test-pod",
         state="running",
         hostname="test.hypercli.com",
+        gateway_token="gw123",
         jwt_token="jwt123",
     )
 
@@ -149,6 +159,7 @@ def test_reef_pod_gateway():
     assert gw is not None
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert gw.token == "jwt123"
+    assert gw.gateway_token == "gw123"
 
 
 def test_reef_pod_gateway_no_token():
@@ -212,8 +223,8 @@ def test_agents_client_applies_default_agents_ws_url():
     })
 
     assert pod.agents_ws_url == AGENTS_WS_URL
-    assert pod.openclaw_url == f"{AGENTS_WS_URL}/agent-123"
-    assert pod.gateway().url == f"{AGENTS_WS_URL}/agent-123"
+    assert pod.openclaw_url == "wss://openclaw-test.hypercli.com"
+    assert pod.gateway().url == "wss://openclaw-test.hypercli.com"
 
 
 def test_agents_client_supports_custom_agents_ws_url():
@@ -268,6 +279,41 @@ def test_exec_result_from_dict_defaults():
     assert result.stderr == ""
 
 
+def test_build_agent_config_includes_command_and_entrypoint():
+    config, gateway_token = _build_agent_config(
+        {"env": {"FOO": "bar"}},
+        command=["echo", "hello"],
+        entrypoint=["/bin/sh", "-c"],
+        routes={"web": {"port": 80, "prefix": ""}},
+        gateway_token="gw-token",
+    )
+
+    assert gateway_token == "gw-token"
+    assert config["env"] == {"FOO": "bar", "OPENCLAW_GATEWAY_TOKEN": "gw-token"}
+    assert config["command"] == ["echo", "hello"]
+    assert config["entrypoint"] == ["/bin/sh", "-c"]
+    assert config["routes"] == {"web": {"port": 80, "prefix": ""}}
+
+
+def test_cp_to_and_cp_from(tmp_path, agents_client):
+    local_source = tmp_path / "source.txt"
+    local_source.write_bytes(b"hello-bytes")
+    local_dest = tmp_path / "nested" / "dest.txt"
+
+    with patch.object(agents_client, "file_write_bytes") as mock_write, patch.object(
+        agents_client, "file_read_bytes", return_value=b"downloaded"
+    ) as mock_read:
+        pod = ReefPod(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
+
+        agents_client.cp_to(pod, local_source, "workspace/source.txt")
+        mock_write.assert_called_once_with(pod, "workspace/source.txt", b"hello-bytes")
+
+        result_path = agents_client.cp_from(pod, "workspace/remote.txt", local_dest)
+        mock_read.assert_called_once_with(pod, "workspace/remote.txt")
+        assert result_path == local_dest
+        assert local_dest.read_bytes() == b"downloaded"
+
+
 # ---------------------------------------------------------------------------
 # Agents Client Tests (Mocked HTTP)
 # ---------------------------------------------------------------------------
@@ -288,7 +334,7 @@ def agents_client(mock_http):
 
 def test_agents_create(agents_client):
     """Test agents.create() sends correct POST body."""
-    with patch("httpx.Client") as mock_client_class:
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
@@ -313,6 +359,11 @@ def test_agents_create(agents_client):
             memory=16,
             env={"FOO": "bar"},
             ports=[{"port": 18789, "auth": False}],
+            command=["nginx", "-g", "daemon off;"],
+            entrypoint=["/docker-entrypoint.sh"],
+            image="ghcr.io/acme/reef:test",
+            registry_url="ghcr.io",
+            registry_auth={"username": "u", "password": "p"},
             start=True,
         )
 
@@ -326,13 +377,68 @@ def test_agents_create(agents_client):
         assert posted_json["size"] == "medium"
         assert posted_json["cpu"] == 4
         assert posted_json["memory"] == 16
-        assert posted_json["env"] == {"FOO": "bar"}
-        assert posted_json["ports"] == [{"port": 18789, "auth": False}]
+        assert posted_json["config"]["env"] == {
+            "FOO": "bar",
+            "OPENCLAW_GATEWAY_TOKEN": "gw-token-123",
+        }
+        assert posted_json["config"]["ports"] == [{"port": 18789, "auth": False}]
+        assert posted_json["config"]["command"] == ["nginx", "-g", "daemon off;"]
+        assert posted_json["config"]["entrypoint"] == ["/docker-entrypoint.sh"]
+        assert posted_json["config"]["image"] == "ghcr.io/acme/reef:test"
+        assert posted_json["config"]["registry_url"] == "ghcr.io"
+        assert posted_json["config"]["registry_auth"] == {"username": "u", "password": "p"}
         assert posted_json["start"] is True
 
         # Verify response parsing
         assert pod.id == "agent-123"
         assert pod.state == "starting"
+        assert pod.gateway_token == "gw-token-123"
+        assert pod.command == ["nginx", "-g", "daemon off;"]
+        assert pod.entrypoint == ["/docker-entrypoint.sh"]
+        assert pod.launch_config == posted_json["config"]
+
+
+def test_agents_file_ops_use_backend_file_api(agents_client):
+    class FakeResponse:
+        def __init__(self, status_code=200, json_data=None, text="", content=b""):
+            self.status_code = status_code
+            self._json_data = json_data or {}
+            self.text = text
+            self.content = content
+
+        def json(self):
+            return self._json_data
+
+    class FakeClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, headers=None, params=None, follow_redirects=None):
+            if url.endswith("/api/agents/agent-123/files"):
+                return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
+            if url.endswith("/api/agents/agent-123/files/download/workspace/a.txt"):
+                assert params == {"source": "pod"}
+                return FakeResponse(content=b"hello")
+            raise AssertionError(url)
+
+        def put(self, url, headers=None, content=None):
+            assert url.endswith("/api/agents/agent-123/files/upload/workspace/a.txt")
+            assert content == b"payload"
+            return FakeResponse(json_data={"status": "ok"})
+
+    with patch("hypercli.agents.httpx.Client", FakeClient):
+        pod = ReefPod(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
+
+        entries = agents_client.files_list(pod, "workspace")
+        assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
+        assert agents_client.file_read(pod, "workspace/a.txt") == "hello"
+        assert agents_client.file_write_bytes(pod, "workspace/a.txt", b"payload") == {"status": "ok"}
 
 
 def test_agents_list(agents_client):
@@ -375,7 +481,7 @@ def test_agents_list(agents_client):
 
 def test_agents_start_stop_delete(agents_client):
     """Test agents start, stop, and delete methods."""
-    with patch("httpx.Client") as mock_client_class:
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-456"):
         mock_client = MagicMock()
         
         # Test start
@@ -393,9 +499,25 @@ def test_agents_start_stop_delete(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        pod = agents_client.start("agent-123")
+        pod = agents_client.start(
+            "agent-123",
+            config={"image": "ghcr.io/acme/reef:test"},
+            command=["echo", "hello"],
+            entrypoint=["/bin/sh", "-c"],
+        )
         assert pod.state == "starting"
         assert mock_client.post.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/start"
+        assert mock_client.post.call_args[1]["json"] == {
+            "config": {
+                "image": "ghcr.io/acme/reef:test",
+                "command": ["echo", "hello"],
+                "entrypoint": ["/bin/sh", "-c"],
+                "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
+            }
+        }
+        assert pod.gateway_token == "gw-token-456"
+        assert pod.command == ["echo", "hello"]
+        assert pod.entrypoint == ["/bin/sh", "-c"]
 
         # Test stop
         mock_response.json.return_value["state"] = "stopping"

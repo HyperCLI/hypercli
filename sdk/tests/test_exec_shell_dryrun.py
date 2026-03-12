@@ -138,6 +138,7 @@ def test_agents_exec(monkeypatch):
 async def test_agents_shell_connect(monkeypatch):
     agents = Agents(DummyHTTP(), agent_api_key="sk-test")
     monkeypatch.setattr(agents, "_post", lambda path, json=None: {"token": "jwt-abc"})
+    monkeypatch.setattr(agents, "_detect_shell", lambda agent_id: "/bin/sh")
     captured = {}
 
     async def fake_connect(url, ping_interval=20, ping_timeout=20):
@@ -148,4 +149,14 @@ async def test_agents_shell_connect(monkeypatch):
 
     ws = await agents.shell_connect("agent-1")
     assert ws == "agent-ws"
-    assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc"
+    assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=/bin/sh"
+
+
+def test_agents_detect_shell_prefers_bash(monkeypatch):
+    agents = Agents(DummyHTTP(), agent_api_key="sk-test")
+    monkeypatch.setattr(
+        agents,
+        "exec",
+        lambda pod, command, timeout=15: type("R", (), {"stdout": "/bin/bash", "stderr": "", "exit_code": 0})(),
+    )
+    assert agents._detect_shell("agent-1") == "/bin/bash"

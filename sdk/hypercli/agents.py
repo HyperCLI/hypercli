@@ -11,8 +11,10 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime
+from pathlib import Path
+import secrets
 from typing import Optional, Any, AsyncIterator
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 import httpx
 
@@ -53,10 +55,47 @@ def _default_agents_ws_url(api_base: str) -> str:
     return _normalize_agents_ws_url(raw)
 
 
-def _is_legacy_openclaw_ws_url(url: str | None) -> bool:
-    if not url:
-        return False
-    return urlsplit(url).netloc.lower().startswith("openclaw-")
+def _build_agent_config(
+    config: dict | None = None,
+    *,
+    env: dict | None = None,
+    ports: list | None = None,
+    routes: dict | None = None,
+    command: list[str] | None = None,
+    entrypoint: list[str] | None = None,
+    image: str | None = None,
+    registry_url: str | None = None,
+    registry_auth: dict | None = None,
+    gateway_token: str | None = None,
+) -> tuple[dict, str]:
+    prepared = dict(config or {})
+
+    env_map = dict(prepared.get("env") or {})
+    if env:
+        env_map.update(env)
+
+    effective_gateway_token = gateway_token or str(env_map.get("OPENCLAW_GATEWAY_TOKEN") or "").strip()
+    if not effective_gateway_token:
+        effective_gateway_token = secrets.token_hex(32)
+    env_map["OPENCLAW_GATEWAY_TOKEN"] = effective_gateway_token
+    prepared["env"] = env_map
+
+    if ports is not None:
+        prepared["ports"] = ports
+    if routes is not None:
+        prepared["routes"] = routes
+    if command is not None:
+        prepared["command"] = command
+    if entrypoint is not None:
+        prepared["entrypoint"] = entrypoint
+    if image is not None:
+        prepared["image"] = image
+    if registry_url is not None:
+        prepared["registry_url"] = registry_url
+    if registry_auth is not None:
+        prepared["registry_auth"] = registry_auth
+
+    return prepared, effective_gateway_token
 
 
 @dataclass
@@ -74,12 +113,17 @@ class ReefPod:
     openclaw_url: Optional[str] = None
     agents_ws_url: Optional[str] = None
     jwt_token: Optional[str] = None
+    gateway_token: Optional[str] = None
     jwt_expires_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
     stopped_at: Optional[datetime] = None
     last_error: Optional[str] = None
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
+    launch_config: Optional[dict] = None
+    routes: dict[str, dict] = field(default_factory=dict)
+    command: list[str] = field(default_factory=list)
+    entrypoint: list[str] = field(default_factory=list)
     ports: list[dict] = field(default_factory=list)
 
     @classmethod
@@ -101,12 +145,17 @@ class ReefPod:
             hostname=data.get("hostname"),
             openclaw_url=data.get("openclaw_url"),
             jwt_token=data.get("jwt_token"),
+            gateway_token=data.get("gateway_token"),
             jwt_expires_at=_parse_dt(data.get("jwt_expires_at")),
             started_at=_parse_dt(data.get("started_at")),
             stopped_at=_parse_dt(data.get("stopped_at")),
             last_error=data.get("last_error"),
             created_at=_parse_dt(data.get("created_at")),
             updated_at=_parse_dt(data.get("updated_at")),
+            launch_config=data.get("launch_config"),
+            routes=data.get("routes") or {},
+            command=data.get("command") or [],
+            entrypoint=data.get("entrypoint") or [],
             ports=data.get("ports") or [],
         )
 
@@ -148,6 +197,8 @@ class ReefPod:
                 raise ValueError("Pod has no openclaw_url or hostname")
         if not self.jwt_token:
             raise ValueError("Pod has no JWT token — refresh it first")
+        if self.gateway_token and "gateway_token" not in kwargs:
+            kwargs["gateway_token"] = self.gateway_token
         return GatewayClient(url=url, token=self.jwt_token, **kwargs)
 
 
@@ -207,7 +258,7 @@ class Agents:
     def _hydrate_pod(self, data: dict) -> ReefPod:
         pod = ReefPod.from_dict(data)
         pod.agents_ws_url = self._agents_ws_url
-        if pod.id and (not pod.openclaw_url or _is_legacy_openclaw_ws_url(pod.openclaw_url)):
+        if pod.id and not pod.openclaw_url:
             pod.openclaw_url = f"{self._agents_ws_url}/{pod.id}"
         return pod
 
@@ -251,6 +302,29 @@ class Agents:
             raise APIError(resp.status_code, detail)
         return resp.json()
 
+    def _agent_id_for_target(self, target: ReefPod | str) -> str:
+        if isinstance(target, ReefPod):
+            return target.id
+        return str(target)
+
+    def _file_headers(self, *, content_type: str | None = None) -> dict[str, str]:
+        headers = {"Authorization": f"Bearer {self._api_key}"}
+        if content_type:
+            headers["Content-Type"] = content_type
+        return headers
+
+    def _encode_file_path(self, path: str) -> str:
+        return quote(path.lstrip("/"), safe="/")
+
+    def _detect_shell(self, agent_id: str) -> str:
+        probe = "if command -v bash >/dev/null 2>&1; then printf /bin/bash; else printf /bin/sh; fi"
+        try:
+            result = self.exec(ReefPod(id=agent_id, user_id="", pod_id="", pod_name="", state="running"), probe, timeout=15)
+        except Exception:
+            return "/bin/sh"
+        shell = (result.stdout or "").strip()
+        return shell if shell in {"/bin/bash", "/bin/sh"} else "/bin/sh"
+
     # -----------------------------------------------------------------------
     # Agent lifecycle (HyperClaw backend → Lagoon)
     # -----------------------------------------------------------------------
@@ -264,6 +338,13 @@ class Agents:
         config: dict = None,
         env: dict = None,
         ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        gateway_token: str = None,
         start: bool = True,
     ) -> ReefPod:
         """Create a new agent (provisions a reef pod via the backend).
@@ -281,7 +362,19 @@ class Agents:
         Returns:
             ReefPod with connection details.
         """
-        body: dict = {"config": config or {}, "start": start}
+        prepared_config, effective_gateway_token = _build_agent_config(
+            config,
+            env=env,
+            ports=ports,
+            routes=routes,
+            command=command,
+            entrypoint=entrypoint,
+            image=image,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
+        )
+        body: dict = {"config": prepared_config, "start": start}
         if name:
             body["name"] = name
         if size:
@@ -290,12 +383,13 @@ class Agents:
             body["cpu"] = cpu
         if memory is not None:
             body["memory"] = memory
-        if env is not None:
-            body["env"] = env
-        if ports is not None:
-            body["ports"] = ports
         data = self._post("/api/agents", json=body)
-        return self._hydrate_pod(data)
+        pod = self._hydrate_pod(data)
+        pod.gateway_token = effective_gateway_token
+        pod.launch_config = prepared_config
+        pod.command = list(prepared_config.get("command") or [])
+        pod.entrypoint = list(prepared_config.get("entrypoint") or [])
+        return pod
 
     def budget(self) -> dict:
         """Get the user's current agent resource budget and usage.
@@ -338,7 +432,20 @@ class Agents:
         data = self._get(f"/api/agents/{agent_id}")
         return self._hydrate_pod(data)
 
-    def start(self, agent_id: str) -> ReefPod:
+    def start(
+        self,
+        agent_id: str,
+        config: dict = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        gateway_token: str = None,
+    ) -> ReefPod:
         """Start a previously stopped agent.
 
         Args:
@@ -347,8 +454,25 @@ class Agents:
         Returns:
             ReefPod with new pod details.
         """
-        data = self._post(f"/api/agents/{agent_id}/start")
-        return self._hydrate_pod(data)
+        prepared_config, effective_gateway_token = _build_agent_config(
+            config,
+            env=env,
+            ports=ports,
+            routes=routes,
+            command=command,
+            entrypoint=entrypoint,
+            image=image,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
+        )
+        data = self._post(f"/api/agents/{agent_id}/start", json={"config": prepared_config})
+        pod = self._hydrate_pod(data)
+        pod.gateway_token = effective_gateway_token
+        pod.launch_config = prepared_config
+        pod.command = list(prepared_config.get("command") or [])
+        pod.entrypoint = list(prepared_config.get("entrypoint") or [])
+        return pod
 
     def stop(self, agent_id: str) -> ReefPod:
         """Stop an agent (tears down pod, keeps DB record).
@@ -433,48 +557,66 @@ class Agents:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
 
-    def files_list(self, pod: ReefPod, path: str = ".") -> list[dict]:
-        """List files on a pod."""
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL")
+    def files_list(self, pod: ReefPod | str, path: str = "") -> list[dict]:
+        """List files on an agent via the backend file API."""
+        agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
-                f"{pod.executor_url}/files",
-                headers=self._executor_headers(pod),
-                params={"path": path},
+                f"{self._api_base}/api/agents/{agent_id}/files",
+                headers=self._file_headers(),
+                params={"prefix": path},
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
-        return resp.json().get("entries", [])
+        payload = resp.json()
+        return [*(payload.get("directories") or []), *(payload.get("files") or [])]
 
-    def file_read(self, pod: ReefPod, path: str) -> str:
-        """Read a file from a pod."""
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL")
+    def file_read_bytes(self, pod: ReefPod | str, path: str) -> bytes:
+        """Read a file from an agent via the backend file API."""
+        agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
-                f"{pod.executor_url}/files/read",
-                headers=self._executor_headers(pod),
-                params={"path": path},
+                f"{self._api_base}/api/agents/{agent_id}/files/download/{self._encode_file_path(path)}",
+                headers=self._file_headers(),
+                params={"source": "pod"},
+                follow_redirects=True,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
-        return resp.text
+        return resp.content
 
-    def file_write(self, pod: ReefPod, path: str, content: str) -> dict:
-        """Write a file to a pod."""
-        if not pod.executor_url:
-            raise ValueError("Pod has no executor URL")
+    def file_read(self, pod: ReefPod | str, path: str) -> str:
+        """Read a UTF-8 text file from an agent."""
+        return self.file_read_bytes(pod, path).decode(errors="replace")
+
+    def file_write_bytes(self, pod: ReefPod | str, path: str, content: bytes) -> dict:
+        """Write raw bytes to an agent via the backend file API."""
+        agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.put(
-                f"{pod.executor_url}/files/write",
-                headers=self._executor_headers(pod),
-                params={"path": path},
-                content=content.encode(),
+                f"{self._api_base}/api/agents/{agent_id}/files/upload/{self._encode_file_path(path)}",
+                headers=self._file_headers(content_type="application/octet-stream"),
+                content=content,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
+
+    def file_write(self, pod: ReefPod | str, path: str, content: str) -> dict:
+        """Write a UTF-8 text file to an agent."""
+        return self.file_write_bytes(pod, path, content.encode())
+
+    def cp_to(self, pod: ReefPod | str, local_path: str | Path, remote_path: str) -> dict:
+        """Copy a local file to an agent."""
+        source = Path(local_path)
+        return self.file_write_bytes(pod, remote_path, source.read_bytes())
+
+    def cp_from(self, pod: ReefPod | str, remote_path: str, local_path: str | Path) -> Path:
+        """Copy a file from an agent to the local filesystem."""
+        dest = Path(local_path)
+        dest.parent.mkdir(parents=True, exist_ok=True)
+        dest.write_bytes(self.file_read_bytes(pod, remote_path))
+        return dest
 
     def chat_stream(self, pod: ReefPod, messages: list[dict], model: str = "hyperclaw/kimi-k2.5"):
         """Stream chat completions from the pod's OpenClaw gateway via executor proxy.
@@ -573,7 +715,7 @@ class Agents:
             async for msg in ws:
                 yield msg
 
-    async def shell_connect(self, agent_id: str):
+    async def shell_connect(self, agent_id: str, shell: str | None = None):
         """Connect to agent shell via backend WebSocket proxy.
 
         Connects to the HyperClaw backend shell WebSocket which proxies
@@ -587,10 +729,12 @@ class Agents:
         """
         import websockets
 
+        selected_shell = shell or self._detect_shell(agent_id)
+
         # Get shell token
         token_data = self._post(f"/api/agents/{agent_id}/shell/token")
         jwt = token_data["token"]
 
-        url = f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}"
+        url = f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}&shell={selected_shell}"
 
         return await websockets.connect(url, ping_interval=20, ping_timeout=20)

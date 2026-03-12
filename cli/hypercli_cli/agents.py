@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import json
 import os
+import shlex
 import sys
 import time
 from pathlib import Path
@@ -51,13 +52,17 @@ def _save_pod_state(pod: ReefPod):
     """Save pod info locally for quick reference."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = _load_state()
+    existing = state.get(pod.id, {})
     state[pod.id] = {
         "id": pod.id,
         "pod_id": pod.pod_id,
         "pod_name": pod.pod_name,
         "user_id": pod.user_id,
         "hostname": pod.hostname,
-        "jwt_token": pod.jwt_token,
+        "openclaw_url": pod.openclaw_url or existing.get("openclaw_url"),
+        "jwt_token": pod.jwt_token or existing.get("jwt_token"),
+        "gateway_token": pod.gateway_token or existing.get("gateway_token"),
+        "launch_config": pod.launch_config if pod.launch_config is not None else existing.get("launch_config"),
         "state": pod.state,
     }
     with open(AGENTS_STATE, "w") as f:
@@ -99,11 +104,16 @@ def _get_pod_with_token(agent_id: str) -> ReefPod:
     """Get a ReefPod, filling JWT from local state if needed."""
     agents = _get_agents_client()
     pod = agents.get(agent_id)
-    if not pod.jwt_token:
-        state = _load_state()
-        local = state.get(agent_id, {})
-        if local.get("jwt_token"):
-            pod.jwt_token = local["jwt_token"]
+    state = _load_state()
+    local = state.get(agent_id, {})
+    if not pod.jwt_token and local.get("jwt_token"):
+        pod.jwt_token = local["jwt_token"]
+    if not pod.gateway_token and local.get("gateway_token"):
+        pod.gateway_token = local["gateway_token"]
+    if not pod.openclaw_url and local.get("openclaw_url"):
+        pod.openclaw_url = local["openclaw_url"]
+    if pod.launch_config is None and local.get("launch_config") is not None:
+        pod.launch_config = local["launch_config"]
     return pod
 
 
@@ -153,6 +163,32 @@ def _parse_ports(values: list[str] | None) -> list[dict] | None:
 
         ports.append({"port": port_num, "auth": auth})
     return ports
+
+
+def _build_registry_auth(username: str | None, password: str | None) -> dict | None:
+    if not username and not password:
+        return None
+    if not username or not password:
+        raise typer.BadParameter("Both --registry-username and --registry-password are required together.")
+    return {"username": username, "password": password}
+
+
+def _parse_argv_option(value: str | None, option_name: str) -> list[str] | None:
+    if value is None:
+        return None
+    try:
+        return shlex.split(value)
+    except ValueError as e:
+        raise typer.BadParameter(f"Invalid {option_name}: {e}") from e
+
+
+def _parse_cp_target(value: str) -> tuple[str | None, str]:
+    if ":" not in value:
+        return None, value
+    agent_id, remote_path = value.split(":", 1)
+    if not agent_id or not remote_path:
+        raise typer.BadParameter("Remote paths must use AGENT_ID:PATH")
+    return _resolve_agent(agent_id), remote_path
 
 
 def _port_url(pod: ReefPod, port: dict) -> str:
@@ -208,6 +244,13 @@ def create(
     memory: int = typer.Option(None, "--memory", help="Custom memory in GB"),
     env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable (KEY=VALUE). Repeatable."),
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
+    command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
+    entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
+    image: str = typer.Option(None, "--image", help="Override the default reef image"),
+    registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
+    registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
+    registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
+    gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
     no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
 ):
@@ -215,6 +258,9 @@ def create(
     agents = _get_agents_client()
     env_dict = _parse_env_vars(env)
     ports_list = _parse_ports(port)
+    command_argv = _parse_argv_option(command, "--command")
+    entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
+    registry_auth = _build_registry_auth(registry_username, registry_password)
 
     console.print("\n[bold]Creating agent pod...[/bold]")
 
@@ -226,6 +272,12 @@ def create(
             memory=memory,
             env=env_dict,
             ports=ports_list,
+            command=command_argv,
+            entrypoint=entrypoint_argv,
+            image=image,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
             start=not no_start,
         )
     except Exception as e:
@@ -380,13 +432,42 @@ def status(
 @app.command("start")
 def start(
     agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
+    env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable override (KEY=VALUE). Repeatable."),
+    port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
+    command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
+    entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
+    image: str = typer.Option(None, "--image", help="Override the default reef image"),
+    registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
+    registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
+    registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
+    gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
 ):
     """Start a previously stopped agent."""
     agent_id = _resolve_agent(agent_id)
     agents = _get_agents_client()
+    state = _load_state()
+    local = state.get(agent_id, {})
+    env_dict = _parse_env_vars(env)
+    ports_list = _parse_ports(port)
+    command_argv = _parse_argv_option(command, "--command")
+    entrypoint_argv = _parse_argv_option(entrypoint, "--entrypoint")
+    registry_auth = _build_registry_auth(registry_username, registry_password)
+    launch_config = dict(local.get("launch_config") or {})
+    effective_gateway_token = gateway_token or local.get("gateway_token")
 
     try:
-        pod = agents.start(agent_id)
+        pod = agents.start(
+            agent_id,
+            config=launch_config,
+            env=env_dict,
+            ports=ports_list,
+            command=command_argv,
+            entrypoint=entrypoint_argv,
+            image=image,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=effective_gateway_token,
+        )
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")
         raise typer.Exit(1)
@@ -480,6 +561,34 @@ def exec_cmd(
             sys.stderr.write("\n")
 
     raise typer.Exit(result.exit_code)
+
+
+@app.command("cp")
+def cp(
+    source: str = typer.Argument(..., help="Local path or AGENT_ID:remote_path"),
+    destination: str = typer.Argument(..., help="Local path or AGENT_ID:remote_path"),
+):
+    """Copy files to or from an agent."""
+    src_agent_id, src_path = _parse_cp_target(source)
+    dst_agent_id, dst_path = _parse_cp_target(destination)
+
+    if bool(src_agent_id) == bool(dst_agent_id):
+        raise typer.BadParameter("Exactly one side must be remote (AGENT_ID:PATH).")
+
+    agents = _get_agents_client()
+
+    try:
+        if dst_agent_id:
+            pod = _get_pod_with_token(dst_agent_id)
+            agents.cp_to(pod, src_path, dst_path)
+            console.print(f"[green]✓[/green] Copied [bold]{src_path}[/bold] to [bold]{dst_agent_id[:12]}:{dst_path}[/bold]")
+        else:
+            pod = _get_pod_with_token(src_agent_id)
+            local_path = agents.cp_from(pod, src_path, dst_path)
+            console.print(f"[green]✓[/green] Copied [bold]{src_agent_id[:12]}:{src_path}[/bold] to [bold]{local_path}[/bold]")
+    except Exception as e:
+        console.print(f"[red]❌ Copy failed: {e}[/red]")
+        raise typer.Exit(1)
 
 
 @app.command("shell")
