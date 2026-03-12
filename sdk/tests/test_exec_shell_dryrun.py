@@ -137,7 +137,7 @@ def test_agents_exec(monkeypatch):
 @pytest.mark.asyncio
 async def test_agents_shell_connect(monkeypatch):
     agents = Agents(DummyHTTP(), agent_api_key="sk-test")
-    monkeypatch.setattr(agents, "_post", lambda path, json=None: {"token": "jwt-abc"})
+    monkeypatch.setattr(agents, "_post", lambda path, json=None: {"jwt": "jwt-abc"})
     monkeypatch.setattr(agents, "_detect_shell", lambda agent_id: "/bin/sh")
     captured = {}
 

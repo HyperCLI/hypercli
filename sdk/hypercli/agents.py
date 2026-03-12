@@ -876,7 +876,7 @@ class Agents:
 
         # Get JWT token
         token_data = self.refresh_token(agent_id)
-        jwt = token_data["token"]
+        jwt = token_data["jwt"]
 
         url = f"{self._agents_ws_url}/{agent_id}?jwt={jwt}&container={container}&tail_lines={tail_lines}"
 
@@ -902,7 +902,7 @@ class Agents:
 
         # Get shell token
         token_data = self._post(f"/api/agents/{agent_id}/shell/token")
-        jwt = token_data["token"]
+        jwt = token_data["jwt"]
 
         url = f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}&shell={selected_shell}"
 
