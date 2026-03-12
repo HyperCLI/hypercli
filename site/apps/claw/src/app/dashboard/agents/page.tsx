@@ -1276,7 +1276,7 @@ export default function AgentsPage() {
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="hidden text-text-muted transition-colors hover:text-foreground md:block"
+            className="hidden text-text-muted transition-colors hover:text-foreground sm:block"
           >
             {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -1284,7 +1284,7 @@ export default function AgentsPage() {
         </div>
         <div className="flex items-center gap-3">
           {budget && (
-            <div className="hidden md:flex gap-4 mr-3">
+            <div className="hidden sm:flex gap-4 mr-3">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -1330,8 +1330,8 @@ export default function AgentsPage() {
       <div className="flex flex-1 min-h-0 md:h-[calc(100dvh-7rem)] md:flex-none">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed ? "w-0 overflow-hidden md:w-16" : "w-full md:w-[280px]"
-        } ${mobileShowChat ? "hidden md:flex" : "flex"} flex-col`}>
+          sidebarCollapsed ? "w-0 overflow-hidden sm:w-16" : "w-full sm:w-[280px]"
+        } ${mobileShowChat ? "hidden sm:flex" : "flex"} flex-col`}>
 
           {/* Sidebar header */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between">
@@ -1450,7 +1450,7 @@ export default function AgentsPage() {
 
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 md:hidden">
+            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 sm:hidden">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -1459,7 +1459,7 @@ export default function AgentsPage() {
         </div>
 
         {/* ── Main Panel ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden md:flex" : "flex"}`}>
+        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden sm:flex" : "flex"}`}>
           {!selectedAgent ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -1474,7 +1474,7 @@ export default function AgentsPage() {
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
-                  className="text-text-muted hover:text-foreground md:hidden"
+                  className="text-text-muted hover:text-foreground sm:hidden"
                 >
                   <PanelLeft className="w-5 h-5" />
                 </button>
@@ -1493,23 +1493,23 @@ export default function AgentsPage() {
                   <span className="text-sm font-semibold text-foreground truncate">{selectedAgent.name || selectedAgent.pod_name}</span>
                   {chat.connected && (
                     <>
-                      <span className="hidden md:inline text-[10px] text-[#38D39F]">Gateway</span>
-                      <span className="md:hidden w-2 h-2 rounded-full bg-[#38D39F]" />
+                      <span className="hidden sm:inline text-[10px] text-[#38D39F]">Gateway</span>
+                      <span className="sm:hidden w-2 h-2 rounded-full bg-[#38D39F]" />
                     </>
                   )}
                   {!chat.connected && chat.connecting && (
                     <>
-                      <span className="hidden md:inline text-[10px] text-[#38D39F] flex items-center gap-1">
+                      <span className="hidden sm:inline text-[10px] text-[#38D39F] flex items-center gap-1">
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Connecting
                       </span>
-                      <Loader2 className="md:hidden w-3 h-3 animate-spin text-[#38D39F]" />
+                      <Loader2 className="sm:hidden w-3 h-3 animate-spin text-[#38D39F]" />
                     </>
                   )}
                 </div>
 
                 {/* Tabs */}
-                <div className="hidden md:flex flex-1 min-w-0 items-center justify-center overflow-x-auto">
+                <div className="hidden sm:flex flex-1 min-w-0 items-center justify-center overflow-x-auto">
                   <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
                     {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
@@ -1542,7 +1542,7 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden md:inline">{labels[tab]}</span>
+                          <span className="hidden sm:inline">{labels[tab]}</span>
                         </button>
                       );
                     })}
@@ -1551,7 +1551,7 @@ export default function AgentsPage() {
 
                 {/* Right actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="md:hidden flex items-center gap-1">
+                  <div className="sm:hidden flex items-center gap-1">
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
@@ -1575,7 +1575,7 @@ export default function AgentsPage() {
                     ) : null}
                   </div>
 
-                  <div className="hidden md:flex items-center gap-2">
+                  <div className="hidden sm:flex items-center gap-2">
                     {(mainTab === "logs" || mainTab === "shell") && (
                       <span className={`text-xs font-medium ${
                         (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
