@@ -501,6 +501,7 @@ function S3FilesPanel({
 export default function AgentsPage() {
   const { getToken } = useClawAuth();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
+  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
   // Agent data
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -544,6 +545,15 @@ export default function AgentsPage() {
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
   const [burstAgentId, setBurstAgentId] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    const mediaQuery = window.matchMedia("(min-width: 640px)");
+    const apply = () => setIsDesktopViewport(mediaQuery.matches);
+    apply();
+    mediaQuery.addEventListener("change", apply);
+    return () => mediaQuery.removeEventListener("change", apply);
+  }, []);
 
   // Settings tab state
   const [settingsName, setSettingsName] = useState("");
@@ -1270,13 +1280,13 @@ export default function AgentsPage() {
   // ── Render ──
 
   return (
-    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 h-[calc(100dvh-3.5rem)] md:h-auto md:min-h-0 flex flex-col overflow-hidden">
+    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 h-[calc(100dvh-3.5rem)] min-h-[calc(100dvh-3.5rem)] flex flex-col overflow-hidden">
       {/* Header */}
       <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className="hidden text-text-muted transition-colors hover:text-foreground sm:block"
+            className={`${isDesktopViewport ? "block" : "hidden"} text-text-muted transition-colors hover:text-foreground`}
           >
             {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
@@ -1284,7 +1294,7 @@ export default function AgentsPage() {
         </div>
         <div className="flex items-center gap-3">
           {budget && (
-            <div className="hidden sm:flex gap-4 mr-3">
+            <div className={`${isDesktopViewport ? "flex" : "hidden"} gap-4 mr-3`}>
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -1295,7 +1305,7 @@ export default function AgentsPage() {
             className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
           >
             <Plus className="w-4 h-4" />
-            <span className="hidden sm:inline">New Agent</span>
+            <span className={isDesktopViewport ? "inline" : "hidden"}>New Agent</span>
           </button>
         </div>
       </div>
@@ -1327,11 +1337,13 @@ export default function AgentsPage() {
       />
 
       {/* Main layout: Sidebar + Panel */}
-      <div className="flex flex-1 min-h-0 md:h-[calc(100dvh-7rem)] md:flex-none">
+      <div className="flex flex-1 min-h-0">
         {/* ── Agent Sidebar ── */}
         <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed ? "w-0 overflow-hidden sm:w-16" : "w-full sm:w-[280px]"
-        } ${mobileShowChat ? "hidden sm:flex" : "flex"} flex-col`}>
+          sidebarCollapsed
+            ? (isDesktopViewport ? "w-16 overflow-hidden" : "w-0 overflow-hidden")
+            : (isDesktopViewport ? "w-[280px]" : "w-full")
+        } ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}>
 
           {/* Sidebar header */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between">
@@ -1450,7 +1462,7 @@ export default function AgentsPage() {
 
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 sm:hidden">
+            <div className={`px-3 py-3 border-t border-border flex flex-col gap-2 ${isDesktopViewport ? "hidden" : "flex"}`}>
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -1459,7 +1471,7 @@ export default function AgentsPage() {
         </div>
 
         {/* ── Main Panel ── */}
-        <div className={`flex-1 flex flex-col min-w-0 ${!mobileShowChat ? "hidden sm:flex" : "flex"}`}>
+        <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
           {!selectedAgent ? (
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
@@ -1474,7 +1486,7 @@ export default function AgentsPage() {
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
-                  className="text-text-muted hover:text-foreground sm:hidden"
+                  className={`${isDesktopViewport ? "hidden" : "block"} text-text-muted hover:text-foreground`}
                 >
                   <PanelLeft className="w-5 h-5" />
                 </button>
@@ -1493,23 +1505,23 @@ export default function AgentsPage() {
                   <span className="text-sm font-semibold text-foreground truncate">{selectedAgent.name || selectedAgent.pod_name}</span>
                   {chat.connected && (
                     <>
-                      <span className="hidden sm:inline text-[10px] text-[#38D39F]">Gateway</span>
-                      <span className="sm:hidden w-2 h-2 rounded-full bg-[#38D39F]" />
+                      <span className={`${isDesktopViewport ? "inline" : "hidden"} text-[10px] text-[#38D39F]`}>Gateway</span>
+                      <span className={`${isDesktopViewport ? "hidden" : "block"} w-2 h-2 rounded-full bg-[#38D39F]`} />
                     </>
                   )}
                   {!chat.connected && chat.connecting && (
                     <>
-                      <span className="hidden sm:inline text-[10px] text-[#38D39F] flex items-center gap-1">
+                      <span className={`${isDesktopViewport ? "flex" : "hidden"} text-[10px] text-[#38D39F] items-center gap-1`}>
                         <Loader2 className="w-3 h-3 animate-spin" />
                         Connecting
                       </span>
-                      <Loader2 className="sm:hidden w-3 h-3 animate-spin text-[#38D39F]" />
+                      <Loader2 className={`${isDesktopViewport ? "hidden" : "block"} w-3 h-3 animate-spin text-[#38D39F]`} />
                     </>
                   )}
                 </div>
 
                 {/* Tabs */}
-                <div className="hidden sm:flex flex-1 min-w-0 items-center justify-center overflow-x-auto">
+                <div className={`${isDesktopViewport ? "flex" : "hidden"} flex-1 min-w-0 items-center justify-center overflow-x-auto`}>
                   <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
                     {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
                       const icons = {
@@ -1542,7 +1554,7 @@ export default function AgentsPage() {
                           } ${tab !== "chat" ? "border-l border-border" : ""}`}
                         >
                           <Icon className="w-3.5 h-3.5" />
-                          <span className="hidden sm:inline">{labels[tab]}</span>
+                          <span>{labels[tab]}</span>
                         </button>
                       );
                     })}
@@ -1551,7 +1563,7 @@ export default function AgentsPage() {
 
                 {/* Right actions */}
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <div className="sm:hidden flex items-center gap-1">
+                  <div className={`${isDesktopViewport ? "hidden" : "flex"} items-center gap-1`}>
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
@@ -1575,7 +1587,7 @@ export default function AgentsPage() {
                     ) : null}
                   </div>
 
-                  <div className="hidden sm:flex items-center gap-2">
+                  <div className={`${isDesktopViewport ? "flex" : "hidden"} items-center gap-2`}>
                     {(mainTab === "logs" || mainTab === "shell") && (
                       <span className={`text-xs font-medium ${
                         (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
