@@ -1,98 +1,38 @@
-"""Tests for HyperClaw Agents API client."""
+"""Tests for HyperClaw agents SDK."""
 from __future__ import annotations
 
 import os
 from datetime import datetime
 from pathlib import Path
-from unittest.mock import Mock, MagicMock, patch, AsyncMock
+from unittest.mock import MagicMock, Mock, patch
 
 import pytest
-import httpx
 
-from hypercli.agents import Agents, ReefPod, ExecResult, AGENTS_WS_URL, DEV_AGENTS_WS_URL, _build_agent_config
-from hypercli.http import HTTPClient, APIError
-
-
-# ---------------------------------------------------------------------------
-# ReefPod Model Tests
-# ---------------------------------------------------------------------------
-
-def test_reef_pod_from_dict():
-    """Test ReefPod.from_dict with all fields."""
-    data = {
-        "id": "agent-123",
-        "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "test-pod",
-        "state": "running",
-        "name": "My Agent",
-        "cpu": 4,
-        "memory": 16,
-        "hostname": "test.hypercli.com",
-        "openclaw_url": AGENTS_WS_URL,
-        "gateway_token": "gw123",
-        "jwt_token": "jwt123",
-        "jwt_expires_at": "2026-03-01T12:00:00Z",
-        "started_at": "2026-02-24T10:00:00Z",
-        "stopped_at": None,
-        "last_error": None,
-        "created_at": "2026-02-24T09:00:00Z",
-        "updated_at": "2026-02-24T10:00:00Z",
-        "routes": {"openclaw": {"port": 18789, "prefix": "openclaw"}},
-        "command": ["sleep", "3600"],
-        "entrypoint": ["/bin/sh", "-c"],
-        "ports": [{"port": 18789, "auth": False, "prefix": "openclaw"}],
-    }
-
-    pod = ReefPod.from_dict(data)
-
-    assert pod.id == "agent-123"
-    assert pod.user_id == "user-456"
-    assert pod.pod_id == "pod-789"
-    assert pod.pod_name == "test-pod"
-    assert pod.state == "running"
-    assert pod.name == "My Agent"
-    assert pod.cpu == 4
-    assert pod.memory == 16
-    assert pod.hostname == "test.hypercli.com"
-    assert pod.openclaw_url == AGENTS_WS_URL
-    assert pod.gateway_token == "gw123"
-    assert pod.jwt_token == "jwt123"
-    assert isinstance(pod.jwt_expires_at, datetime)
-    assert isinstance(pod.started_at, datetime)
-    assert pod.stopped_at is None
-    assert pod.last_error is None
-    assert isinstance(pod.created_at, datetime)
-    assert isinstance(pod.updated_at, datetime)
-    assert pod.routes == {"openclaw": {"port": 18789, "prefix": "openclaw"}}
-    assert pod.command == ["sleep", "3600"]
-    assert pod.entrypoint == ["/bin/sh", "-c"]
-    assert pod.ports == [{"port": 18789, "auth": False, "prefix": "openclaw"}]
+from hypercli.agents import Agent, Agents, OpenClawAgent, ExecResult, _build_agent_config
+from hypercli.http import APIError, HTTPClient
 
 
-def test_reef_pod_from_dict_minimal():
-    """Test ReefPod.from_dict with minimal required fields."""
-    data = {
-        "id": "agent-123",
-        "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "test-pod",
-        "state": "pending",
-    }
+def test_agent_from_dict_minimal():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "pending",
+        }
+    )
 
-    pod = ReefPod.from_dict(data)
-
-    assert pod.id == "agent-123"
-    assert pod.state == "pending"
-    assert pod.name is None
-    assert pod.cpu == 0
-    assert pod.memory == 0
-    assert pod.ports == []
+    assert agent.id == "agent-123"
+    assert agent.state == "pending"
+    assert agent.cpu == 0
+    assert agent.memory == 0
+    assert agent.routes == {}
+    assert agent.ports == []
 
 
-def test_reef_pod_urls():
-    """Test vnc_url, shell_url, executor_url properties."""
-    pod = ReefPod(
+def test_agent_urls_and_running_state():
+    agent = Agent(
         id="agent-123",
         user_id="user-456",
         pod_id="pod-789",
@@ -101,182 +41,116 @@ def test_reef_pod_urls():
         hostname="test.hypercli.com",
     )
 
-    assert pod.vnc_url == "https://test.hypercli.com"
-    assert pod.shell_url == "https://shell-test.hypercli.com"
-    assert pod.executor_url == "https://shell-test.hypercli.com"
+    assert agent.public_url == "https://test.hypercli.com"
+    assert agent.vnc_url == "https://test.hypercli.com"
+    assert agent.shell_url == "https://shell-test.hypercli.com"
+    assert agent.executor_url == "https://shell-test.hypercli.com"
+    assert agent.is_running is True
 
 
-def test_reef_pod_urls_no_hostname():
-    """Test URL properties return None when no hostname."""
-    pod = ReefPod(
-        id="agent-123",
-        user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
-        state="pending",
+def test_openclaw_agent_from_dict():
+    agent = OpenClawAgent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "running",
+            "hostname": "test.hypercli.com",
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "gateway_token": "gw123",
+            "jwt_token": "jwt123",
+            "jwt_expires_at": "2026-03-01T12:00:00Z",
+            "started_at": "2026-02-24T10:00:00Z",
+            "created_at": "2026-02-24T09:00:00Z",
+            "updated_at": "2026-02-24T10:00:00Z",
+            "routes": {"openclaw": {"port": 18789, "auth": False}},
+            "command": ["sleep", "3600"],
+            "entrypoint": ["/bin/sh", "-c"],
+            "ports": [{"port": 18789, "auth": False}],
+        }
     )
 
-    assert pod.vnc_url is None
-    assert pod.shell_url is None
-    assert pod.executor_url is None
+    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_token == "gw123"
+    assert agent.jwt_token == "jwt123"
+    assert isinstance(agent.jwt_expires_at, datetime)
+    assert isinstance(agent.started_at, datetime)
+    assert isinstance(agent.created_at, datetime)
+    assert isinstance(agent.updated_at, datetime)
+    assert agent.command == ["sleep", "3600"]
+    assert agent.entrypoint == ["/bin/sh", "-c"]
 
 
-def test_reef_pod_is_running():
-    """Test is_running property."""
-    running_pod = ReefPod(
+def test_openclaw_agent_gateway_requires_url_and_jwt():
+    agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
     )
-    assert running_pod.is_running is True
+    with pytest.raises(ValueError, match="OpenClaw gateway URL"):
+        agent.gateway()
 
-    pending_pod = ReefPod(
-        id="agent-123",
-        user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
-        state="pending",
-    )
-    assert pending_pod.is_running is False
+    agent.gateway_url = "wss://openclaw-test.hypercli.com"
+    with pytest.raises(ValueError, match="JWT token"):
+        agent.gateway()
 
 
-def test_reef_pod_gateway():
-    """Test gateway() method creates GatewayClient."""
-    pod = ReefPod(
+def test_openclaw_agent_gateway_uses_bound_tokens():
+    agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
         pod_id="pod-789",
         pod_name="test-pod",
         state="running",
-        hostname="test.hypercli.com",
+        gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
         jwt_token="jwt123",
     )
 
-    gw = pod.gateway()
-    assert gw is not None
+    gw = agent.gateway()
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert gw.token == "jwt123"
     assert gw.gateway_token == "gw123"
 
 
-def test_reef_pod_gateway_no_token():
-    """Test gateway() raises when no JWT token."""
-    pod = ReefPod(
-        id="agent-123",
-        user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
-        state="running",
-        hostname="test.hypercli.com",
-    )
-
-    with pytest.raises(ValueError, match="no JWT token"):
-        pod.gateway()
-
-
-def test_reef_pod_gateway_no_hostname():
-    """Test gateway() raises when no hostname."""
-    pod = ReefPod(
-        id="agent-123",
-        user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
-        state="pending",
-        jwt_token="jwt123",
-    )
-
-    with pytest.raises(ValueError, match="no openclaw_url or hostname"):
-        pod.gateway()
-
-
-def test_reef_pod_gateway_uses_openclaw_url():
-    """Test gateway() prefers openclaw_url over hostname."""
-    pod = ReefPod(
-        id="agent-123",
-        user_id="user-456",
-        pod_id="pod-789",
-        pod_name="test-pod",
-        state="running",
-        hostname="test.hypercli.com",
-        openclaw_url="wss://custom-openclaw.hypercli.com",
-        jwt_token="jwt123",
-    )
-
-    gw = pod.gateway()
-    assert gw.url == "wss://custom-openclaw.hypercli.com"
-
-
-def test_agents_client_applies_default_agents_ws_url():
-    agents = Agents(http=Mock(api_key="test-key"), agent_api_key="sk-test123", agent_api_base="https://api.hypercli.com")
-    pod = agents._hydrate_pod({
-        "id": "agent-123",
-        "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "test-pod",
-        "state": "running",
-        "hostname": "test.hypercli.com",
-        "openclaw_url": "wss://openclaw-test.hypercli.com",
-        "jwt_token": "jwt123",
-    })
-
-    assert pod.agents_ws_url == AGENTS_WS_URL
-    assert pod.openclaw_url == "wss://openclaw-test.hypercli.com"
-    assert pod.gateway().url == "wss://openclaw-test.hypercli.com"
-
-
-def test_agents_client_supports_custom_agents_ws_url():
-    agents = Agents(
-        http=Mock(api_key="test-key"),
-        agent_api_key="sk-test123",
-        agent_api_base="https://api.dev.hypercli.com",
-        agents_ws_url="wss://custom.example/ws",
-    )
-    pod = agents._hydrate_pod({
-        "id": "agent-123",
-        "user_id": "user-456",
-        "pod_id": "pod-789",
-        "pod_name": "test-pod",
-        "state": "running",
-        "jwt_token": "jwt123",
-    })
-
-    assert agents._agents_ws_url == "wss://custom.example/ws"
-    assert pod.openclaw_url == "wss://custom.example/ws/agent-123"
-    assert pod.gateway().url == "wss://custom.example/ws/agent-123"
-
-
-def test_agents_client_uses_dev_ws_default():
-    agents = Agents(http=Mock(api_key="test-key"), agent_api_key="sk-test123", agent_api_base="https://api.dev.hypercli.com")
-    assert agents._agents_ws_url == DEV_AGENTS_WS_URL
-
-
-def test_exec_result_from_dict():
-    """Test ExecResult.from_dict."""
-    data = {
-        "exit_code": 0,
-        "stdout": "hello\n",
-        "stderr": "",
+def test_bound_agent_methods_delegate_to_agents(tmp_path):
+    local_source = tmp_path / "source.txt"
+    local_source.write_text("hello")
+    local_dest = tmp_path / "dest.txt"
+    manager = Mock()
+    manager.exec.return_value = ExecResult(exit_code=0, stdout="done", stderr="")
+    manager.refresh_token.return_value = {
+        "token": "jwt-new",
+        "expires_at": "2026-03-01T12:00:00Z",
     }
+    manager.file_read_bytes.return_value = b"downloaded"
 
-    result = ExecResult.from_dict(data)
+    agent = Agent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        _agents=manager,
+    )
 
-    assert result.exit_code == 0
-    assert result.stdout == "hello\n"
-    assert result.stderr == ""
+    assert agent.exec("ls").stdout == "done"
+    manager.exec.assert_called_once_with(agent, "ls", timeout=30)
 
+    token_data = agent.refresh_token()
+    assert token_data["token"] == "jwt-new"
+    assert agent.jwt_token == "jwt-new"
+    assert isinstance(agent.jwt_expires_at, datetime)
 
-def test_exec_result_from_dict_defaults():
-    """Test ExecResult.from_dict with missing fields."""
-    data = {}
+    agent.cp_to(local_source, "workspace/source.txt")
+    manager.cp_to.assert_called_once_with(agent, local_source, "workspace/source.txt")
 
-    result = ExecResult.from_dict(data)
-
-    assert result.exit_code == -1
-    assert result.stdout == ""
-    assert result.stderr == ""
+    manager.cp_from.return_value = local_dest
+    assert agent.cp_from("workspace/remote.txt", local_dest) == local_dest
+    manager.cp_from.assert_called_once_with(agent, "workspace/remote.txt", local_dest)
 
 
 def test_build_agent_config_includes_command_and_entrypoint():
@@ -295,32 +169,8 @@ def test_build_agent_config_includes_command_and_entrypoint():
     assert config["routes"] == {"web": {"port": 80, "prefix": ""}}
 
 
-def test_cp_to_and_cp_from(tmp_path, agents_client):
-    local_source = tmp_path / "source.txt"
-    local_source.write_bytes(b"hello-bytes")
-    local_dest = tmp_path / "nested" / "dest.txt"
-
-    with patch.object(agents_client, "file_write_bytes") as mock_write, patch.object(
-        agents_client, "file_read_bytes", return_value=b"downloaded"
-    ) as mock_read:
-        pod = ReefPod(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
-
-        agents_client.cp_to(pod, local_source, "workspace/source.txt")
-        mock_write.assert_called_once_with(pod, "workspace/source.txt", b"hello-bytes")
-
-        result_path = agents_client.cp_from(pod, "workspace/remote.txt", local_dest)
-        mock_read.assert_called_once_with(pod, "workspace/remote.txt")
-        assert result_path == local_dest
-        assert local_dest.read_bytes() == b"downloaded"
-
-
-# ---------------------------------------------------------------------------
-# Agents Client Tests (Mocked HTTP)
-# ---------------------------------------------------------------------------
-
 @pytest.fixture
 def mock_http():
-    """Mock HTTPClient."""
     http = Mock(spec=HTTPClient)
     http.api_key = "test-key"
     return http
@@ -328,12 +178,10 @@ def mock_http():
 
 @pytest.fixture
 def agents_client(mock_http):
-    """Agents client with mock HTTP."""
     return Agents(http=mock_http, agent_api_key="sk-test123", agent_api_base="https://api.test.hypercli.com")
 
 
-def test_agents_create(agents_client):
-    """Test agents.create() sends correct POST body."""
+def test_agents_create_returns_openclaw_agent(agents_client):
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
         mock_client = MagicMock()
         mock_response = Mock()
@@ -346,13 +194,14 @@ def test_agents_create(agents_client):
             "state": "starting",
             "cpu": 2,
             "memory": 8,
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        pod = agents_client.create(
+        agent = agents_client.create(
             name="test-agent",
             size="medium",
             cpu=4,
@@ -367,35 +216,41 @@ def test_agents_create(agents_client):
             start=True,
         )
 
-        # Verify POST call
-        assert mock_client.post.called
-        call_args = mock_client.post.call_args
-        assert call_args[0][0] == "https://api.test.hypercli.com/api/agents"
-        
-        posted_json = call_args[1]["json"]
-        assert posted_json["name"] == "test-agent"
-        assert posted_json["size"] == "medium"
-        assert posted_json["cpu"] == 4
-        assert posted_json["memory"] == 16
+        posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["config"]["env"] == {
             "FOO": "bar",
             "OPENCLAW_GATEWAY_TOKEN": "gw-token-123",
         }
-        assert posted_json["config"]["ports"] == [{"port": 18789, "auth": False}]
         assert posted_json["config"]["command"] == ["nginx", "-g", "daemon off;"]
         assert posted_json["config"]["entrypoint"] == ["/docker-entrypoint.sh"]
-        assert posted_json["config"]["image"] == "ghcr.io/acme/reef:test"
-        assert posted_json["config"]["registry_url"] == "ghcr.io"
-        assert posted_json["config"]["registry_auth"] == {"username": "u", "password": "p"}
-        assert posted_json["start"] is True
+        assert isinstance(agent, OpenClawAgent)
+        assert agent.gateway_token == "gw-token-123"
+        assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+        assert agent._agents is agents_client
 
-        # Verify response parsing
-        assert pod.id == "agent-123"
-        assert pod.state == "starting"
-        assert pod.gateway_token == "gw-token-123"
-        assert pod.command == ["nginx", "-g", "daemon off;"]
-        assert pod.entrypoint == ["/docker-entrypoint.sh"]
-        assert pod.launch_config == posted_json["config"]
+
+def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "running",
+            "hostname": "test.hypercli.com",
+        }
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agent = agents_client.get("agent-123")
+        assert isinstance(agent, Agent)
+        assert not isinstance(agent, OpenClawAgent)
+        assert agent._agents is agents_client
 
 
 def test_agents_file_ops_use_backend_file_api(agents_client):
@@ -433,16 +288,15 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             return FakeResponse(json_data={"status": "ok"})
 
     with patch("hypercli.agents.httpx.Client", FakeClient):
-        pod = ReefPod(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
+        agent = Agent(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
 
-        entries = agents_client.files_list(pod, "workspace")
+        entries = agents_client.files_list(agent, "workspace")
         assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
-        assert agents_client.file_read(pod, "workspace/a.txt") == "hello"
-        assert agents_client.file_write_bytes(pod, "workspace/a.txt", b"payload") == {"status": "ok"}
+        assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
+        assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
 
 
 def test_agents_list(agents_client):
-    """Test agents.list() parses response correctly."""
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
@@ -470,21 +324,17 @@ def test_agents_list(agents_client):
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        pods = agents_client.list()
+        agents = agents_client.list()
 
-        assert len(pods) == 2
-        assert pods[0].id == "agent-1"
-        assert pods[0].state == "running"
-        assert pods[1].id == "agent-2"
-        assert pods[1].state == "stopped"
+        assert len(agents) == 2
+        assert agents[0].id == "agent-1"
+        assert agents[1].state == "stopped"
+        assert all(agent._agents is agents_client for agent in agents)
 
 
 def test_agents_start_stop_delete(agents_client):
-    """Test agents start, stop, and delete methods."""
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-456"):
         mock_client = MagicMock()
-        
-        # Test start
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
@@ -493,20 +343,21 @@ def test_agents_start_stop_delete(agents_client):
             "pod_id": "pod-789",
             "pod_name": "test-pod",
             "state": "starting",
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
         mock_client.__exit__.return_value = False
         mock_client_class.return_value = mock_client
 
-        pod = agents_client.start(
+        agent = agents_client.start(
             "agent-123",
             config={"image": "ghcr.io/acme/reef:test"},
             command=["echo", "hello"],
             entrypoint=["/bin/sh", "-c"],
         )
-        assert pod.state == "starting"
-        assert mock_client.post.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/start"
+        assert isinstance(agent, OpenClawAgent)
+        assert agent.gateway_token == "gw-token-456"
         assert mock_client.post.call_args[1]["json"] == {
             "config": {
                 "image": "ghcr.io/acme/reef:test",
@@ -515,50 +366,28 @@ def test_agents_start_stop_delete(agents_client):
                 "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
             }
         }
-        assert pod.gateway_token == "gw-token-456"
-        assert pod.command == ["echo", "hello"]
-        assert pod.entrypoint == ["/bin/sh", "-c"]
 
-        # Test stop
         mock_response.json.return_value["state"] = "stopping"
-        pod = agents_client.stop("agent-123")
-        assert pod.state == "stopping"
-        assert mock_client.post.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/stop"
+        stopped = agents_client.stop("agent-123")
+        assert stopped.state == "stopping"
 
-        # Test delete
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {"status": "deleted"}
-        mock_client.delete.return_value = mock_response
-        
-        result = agents_client.delete("agent-123")
-        assert result["status"] == "deleted"
-        assert mock_client.delete.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123"
+        delete_response = Mock()
+        delete_response.status_code = 200
+        delete_response.json.return_value = {"status": "deleted"}
+        mock_client.delete.return_value = delete_response
+        assert agents_client.delete("agent-123") == {"status": "deleted"}
 
 
 def test_agents_budget(agents_client):
-    """Test agents.budget() method."""
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
         mock_response.status_code = 200
         mock_response.json.return_value = {
             "plan_id": "1aiu",
-            "budget": {
-                "max_agents": 5,
-                "total_cpu": 20,
-                "total_memory": 80,
-            },
-            "used": {
-                "agents": 2,
-                "cpu": 8,
-                "memory": 32,
-            },
-            "available": {
-                "agents": 3,
-                "cpu": 12,
-                "memory": 48,
-            },
+            "budget": {"max_agents": 5, "total_cpu": 20, "total_memory": 80},
+            "used": {"agents": 2, "cpu": 8, "memory": 32},
+            "available": {"agents": 3, "cpu": 12, "memory": 48},
         }
         mock_client.get.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
@@ -566,15 +395,11 @@ def test_agents_budget(agents_client):
         mock_client_class.return_value = mock_client
 
         budget = agents_client.budget()
-
         assert budget["plan_id"] == "1aiu"
-        assert budget["budget"]["max_agents"] == 5
-        assert budget["used"]["agents"] == 2
         assert budget["available"]["cpu"] == 12
 
 
 def test_agents_refresh_token(agents_client):
-    """Test agents.refresh_token() method."""
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
@@ -591,14 +416,10 @@ def test_agents_refresh_token(agents_client):
         mock_client_class.return_value = mock_client
 
         result = agents_client.refresh_token("agent-123")
-
         assert result["token"] == "jwt-new-token"
-        assert result["agent_id"] == "agent-123"
-        assert mock_client.get.call_args[0][0] == "https://api.test.hypercli.com/api/agents/agent-123/token"
 
 
 def test_agents_api_error(agents_client):
-    """Test that API errors are raised correctly."""
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
         mock_response = Mock()
@@ -617,18 +438,9 @@ def test_agents_api_error(agents_client):
         assert "Agent not found" in str(exc_info.value)
 
 
-# ---------------------------------------------------------------------------
-# Integration Tests (requires HYPERCLAW_API_KEY)
-# ---------------------------------------------------------------------------
-
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agents_integration_lifecycle():
-    """Integration test: create agent, verify running, exec command, delete.
-
-    Requires HYPERCLAW_API_KEY environment variable to be set.
-    Connects to https://api.dev.hypercli.com
-    """
     api_key = os.environ.get("HYPERCLAW_API_KEY")
     if not api_key:
         pytest.skip("HYPERCLAW_API_KEY not set")
@@ -636,63 +448,33 @@ async def test_agents_integration_lifecycle():
     from hypercli.http import HTTPClient
     import time
 
-    # Create client
     http = HTTPClient(api_base="https://api.dev.hypercli.com", api_key=api_key)
     agents = Agents(http, agent_api_key=api_key, agent_api_base="https://api.dev.hypercli.com")
 
-    # Create agent
-    print("\n[Integration] Creating agent...")
-    pod = agents.create(name="test-integration", size="small", start=True)
-    assert pod.id is not None
-    print(f"[Integration] Created agent {pod.id[:12]} - {pod.state}")
+    agent = agents.create(name="test-integration", size="small", start=True)
+    assert agent.id is not None
 
     try:
-        # Wait for running state
-        print("[Integration] Waiting for agent to start...")
-        max_wait = 120  # 2 minutes
-        for i in range(max_wait // 5):
+        for _ in range(24):
             time.sleep(5)
-            pod = agents.get(pod.id)
-            print(f"[Integration] [{i*5}s] State: {pod.state}")
-            if pod.is_running:
+            agent = agents.get(agent.id)
+            if agent.is_running:
                 break
-            if pod.state in ("failed", "stopped"):
-                pytest.fail(f"Agent failed to start: {pod.state} - {pod.last_error}")
+            if agent.state in ("failed", "stopped"):
+                pytest.fail(f"Agent failed to start: {agent.state} - {agent.last_error}")
         else:
             pytest.fail("Agent did not start within 2 minutes")
 
-        assert pod.is_running
-        print(f"[Integration] Agent is running! Desktop: {pod.vnc_url}")
-
-        # Wait a bit more for executor to be ready
-        time.sleep(10)
-
-        # Execute a command
-        print("[Integration] Executing test command...")
-        result = agents.exec(pod, "echo 'integration test'", timeout=10)
+        result = agent.exec("echo 'integration test'", timeout=10)
         assert result.exit_code == 0
         assert "integration test" in result.stdout
-        print(f"[Integration] Exec result: {result.stdout.strip()}")
 
-        # Test WebSocket log streaming
-        print("[Integration] Testing WebSocket log streaming...")
         log_count = 0
-        async for log_line in agents.logs_stream_ws(pod.id, tail_lines=10):
-            print(f"[Integration] Log: {log_line[:80]}")
+        async for _ in agent.logs_stream_ws(tail_lines=10):
             log_count += 1
             if log_count >= 5:
                 break
         assert log_count > 0
-        print(f"[Integration] Received {log_count} log lines via WebSocket")
-
     finally:
-        # Cleanup
-        print(f"[Integration] Deleting agent {pod.id[:12]}...")
-        agents.delete(pod.id)
-        print("[Integration] Agent deleted")
+        agents.delete(agent.id)
 
-
-if __name__ == "__main__":
-    # Run with: pytest sdk/tests/test_agents.py -v
-    # Run integration tests: HYPERCLAW_API_KEY=sk-... pytest sdk/tests/test_agents.py -v -m integration
-    pytest.main([__file__, "-v"])

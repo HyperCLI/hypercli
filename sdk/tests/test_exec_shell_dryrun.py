@@ -1,7 +1,7 @@
 import pytest
 
 from hypercli.jobs import Jobs
-from hypercli.agents import Agents, ReefPod
+from hypercli.agents import Agent, Agents
 
 
 class DummyHTTP:
@@ -127,7 +127,7 @@ def test_agents_exec(monkeypatch):
     monkeypatch.setattr("hypercli.agents.httpx.Client", FakeClient)
 
     agents = Agents(DummyHTTP(), agent_api_key="sk-test")
-    pod = ReefPod(id="agent-1", user_id="u1", pod_id="p1", pod_name="pod", state="running")
+    pod = Agent(id="agent-1", user_id="u1", pod_id="p1", pod_name="pod", state="running")
 
     result = agents.exec(pod, "ls", timeout=10)
     assert result.exit_code == 0

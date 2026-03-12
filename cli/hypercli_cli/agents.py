@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli.agents import Agents, ReefPod
+from hypercli.agents import Agent, Agents, OpenClawAgent
 
 app = typer.Typer(help="Manage OpenClaw agent pods (reef containers)")
 console = Console()
@@ -48,7 +48,7 @@ def _get_agents_client() -> Agents:
     return Agents(http, agent_api_key=api_key, agent_api_base=api_base)
 
 
-def _save_pod_state(pod: ReefPod):
+def _save_pod_state(pod: Agent):
     """Save pod info locally for quick reference."""
     STATE_DIR.mkdir(parents=True, exist_ok=True)
     state = _load_state()
@@ -59,9 +59,10 @@ def _save_pod_state(pod: ReefPod):
         "pod_name": pod.pod_name,
         "user_id": pod.user_id,
         "hostname": pod.hostname,
-        "openclaw_url": pod.openclaw_url or existing.get("openclaw_url"),
         "jwt_token": pod.jwt_token or existing.get("jwt_token"),
-        "gateway_token": pod.gateway_token or existing.get("gateway_token"),
+        "gateway_token": (
+            pod.gateway_token if isinstance(pod, OpenClawAgent) else existing.get("gateway_token")
+        ),
         "launch_config": pod.launch_config if pod.launch_config is not None else existing.get("launch_config"),
         "state": pod.state,
     }
@@ -100,21 +101,26 @@ def _resolve_agent(agent_id: str) -> str:
     return agent_id
 
 
-def _get_pod_with_token(agent_id: str) -> ReefPod:
-    """Get a ReefPod, filling JWT from local state if needed."""
+def _get_pod_with_token(agent_id: str) -> Agent:
+    """Get an agent, filling JWT from local state if needed."""
     agents = _get_agents_client()
     pod = agents.get(agent_id)
     state = _load_state()
     local = state.get(agent_id, {})
     if not pod.jwt_token and local.get("jwt_token"):
         pod.jwt_token = local["jwt_token"]
-    if not pod.gateway_token and local.get("gateway_token"):
+    if isinstance(pod, OpenClawAgent) and not pod.gateway_token and local.get("gateway_token"):
         pod.gateway_token = local["gateway_token"]
-    if not pod.openclaw_url and local.get("openclaw_url"):
-        pod.openclaw_url = local["openclaw_url"]
     if pod.launch_config is None and local.get("launch_config") is not None:
         pod.launch_config = local["launch_config"]
     return pod
+
+
+def _require_openclaw_agent(agent: Agent) -> OpenClawAgent:
+    if isinstance(agent, OpenClawAgent):
+        return agent
+    console.print("[red]❌ Agent is not an OpenClaw-backed agent.[/red]")
+    raise typer.Exit(1)
 
 
 def _parse_env_vars(values: list[str] | None) -> dict | None:
@@ -191,7 +197,7 @@ def _parse_cp_target(value: str) -> tuple[str | None, str]:
     return _resolve_agent(agent_id), remote_path
 
 
-def _port_url(pod: ReefPod, port: dict) -> str:
+def _port_url(pod: Agent, port: dict) -> str:
     if port.get("url"):
         return str(port["url"])
     hostname = pod.hostname or ""
@@ -251,6 +257,7 @@ def create(
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without creating the agent or pod"),
     no_start: bool = typer.Option(False, "--no-start", help="Create without starting"),
     wait: bool = typer.Option(True, "--wait/--no-wait", help="Wait for pod to be running"),
 ):
@@ -278,15 +285,17 @@ def create(
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            dry_run=dry_run,
             start=not no_start,
         )
     except Exception as e:
         console.print(f"[red]❌ Create failed: {e}[/red]")
         raise typer.Exit(1)
 
-    _save_pod_state(pod)
+    if not pod.dry_run:
+        _save_pod_state(pod)
 
-    console.print(f"[green]✓[/green] Agent created: [bold]{pod.id[:12]}[/bold]")
+    console.print(f"[green]✓[/green] {'Agent launch validated' if pod.dry_run else 'Agent created'}: [bold]{pod.id[:12]}[/bold]")
     console.print(f"  Name:     {pod.name or pod.pod_name}")
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
@@ -297,7 +306,7 @@ def create(
         auth_text = "auth" if p.get("auth", True) else "noauth"
         console.print(f"  Port {p.get('port')}:  {_port_url(pod, p)} ({auth_text})")
 
-    if wait:
+    if wait and not pod.dry_run:
         console.print("\n[dim]Waiting for pod to start...[/dim]")
         for i in range(60):
             time.sleep(5)
@@ -321,9 +330,12 @@ def create(
         else:
             console.print("[yellow]⚠ Timed out (5 min). Pod may still be starting.[/yellow]")
 
-    console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
-    console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
-    console.print(f"Desktop: {pod.vnc_url}")
+    if pod.dry_run:
+        console.print("\n[dim]Dry run only. No agent or pod was created.[/dim]")
+    else:
+        console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
+        console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
+        console.print(f"Desktop: {pod.vnc_url}")
 
 
 @app.command("list")
@@ -441,6 +453,7 @@ def start(
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
     gateway_token: str = typer.Option(None, "--gateway-token", help="OpenClaw gateway token override"),
+    dry_run: bool = typer.Option(False, "--dry-run", help="Validate launch configuration without starting the agent"),
 ):
     """Start a previously stopped agent."""
     agent_id = _resolve_agent(agent_id)
@@ -467,14 +480,19 @@ def start(
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=effective_gateway_token,
+            dry_run=dry_run,
         )
     except Exception as e:
         console.print(f"[red]❌ Failed to start agent: {e}[/red]")
         raise typer.Exit(1)
 
-    _save_pod_state(pod)
-    console.print(f"[green]✓[/green] Agent starting: {pod.pod_name}")
-    console.print(f"  Desktop: {pod.vnc_url}")
+    if not pod.dry_run:
+        _save_pod_state(pod)
+    console.print(f"[green]✓[/green] {'Agent start validated' if pod.dry_run else 'Agent starting'}: {pod.pod_name}")
+    if pod.dry_run:
+        console.print("  No pod was created.")
+    else:
+        console.print(f"  Desktop: {pod.vnc_url}")
 
 
 @app.command("stop")
@@ -819,17 +837,11 @@ def gateway_config(
     schema: bool = typer.Option(False, "--schema", help="Show config schema instead of current config"),
 ):
     """Get the OpenClaw gateway config for an agent."""
-    from hypercli.gateway import GatewayClient
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async with pod.gateway() as gw:
-            if schema:
-                result = await gw.config_schema()
-            else:
-                result = await gw.config_get()
-            console.print_json(json.dumps(result, default=str))
+        result = await (pod.config_schema() if schema else pod.config_get())
+        console.print_json(json.dumps(result, default=str))
 
     _run_async(_run())
 
@@ -840,15 +852,12 @@ def gateway_config_patch(
     patch: str = typer.Argument(..., help="JSON patch to apply"),
 ):
     """Patch the OpenClaw gateway config (merges with existing). Restarts gateway."""
-    from hypercli.gateway import GatewayClient
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
     patch_data = json.loads(patch)
 
     async def _run():
-        async with pod.gateway() as gw:
-            result = await gw.config_patch(patch_data)
-            console.print("[green]✅ Config patched. Gateway restarting.[/green]")
+        await pod.config_patch(patch_data)
+        console.print("[green]✅ Config patched. Gateway restarting.[/green]")
 
     _run_async(_run())
 
@@ -858,19 +867,16 @@ def gateway_models(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),
 ):
     """List available models on an agent's gateway."""
-    from hypercli.gateway import GatewayClient
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async with pod.gateway() as gw:
-            models = await gw.models_list()
-            if not models:
-                console.print("[dim]No models configured[/dim]")
-                return
-            for m in models:
-                ctx = m.get("contextWindow", "?")
-                console.print(f"  {m['provider']}/{m['name']}  (ctx={ctx})")
+        models = await pod.models_list()
+        if not models:
+            console.print("[dim]No models configured[/dim]")
+            return
+        for m in models:
+            ctx = m.get("contextWindow", "?")
+            console.print(f"  {m['provider']}/{m['name']}  (ctx={ctx})")
 
     _run_async(_run())
 
@@ -882,35 +888,28 @@ def gateway_files(
     set_file: str = typer.Option(None, "--set", help="Write a file (name=content)"),
 ):
     """List or read/write workspace files on an agent via Gateway."""
-    from hypercli.gateway import GatewayClient
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async with pod.gateway() as gw:
-            # Get the default agent ID from the gateway
-            agents = await gw.agents_list()
-            gw_agent_id = agents[0]["id"] if agents else "main"
-
-            if get:
-                content = await gw.file_get(gw_agent_id, get)
-                console.print(content)
-            elif set_file:
-                name, _, content = set_file.partition("=")
-                if not content:
-                    console.print("[red]Usage: --set 'SOUL.md=# My Agent'[/red]")
-                    raise typer.Exit(1)
-                await gw.file_set(gw_agent_id, name, content)
-                console.print(f"[green]✅ Written {name}[/green]")
-            else:
-                files = await gw.files_list(gw_agent_id)
-                if not files:
-                    console.print("[dim]No workspace files[/dim]")
-                    return
-                for f in files:
-                    icon = "📄" if not f.get("missing") else "❌"
-                    size = f.get("size", 0)
-                    console.print(f"  {icon} {f['name']:30s} {size:>8,} bytes")
+        if get:
+            content = await pod.file_get(get)
+            console.print(content)
+        elif set_file:
+            name, _, content = set_file.partition("=")
+            if not content:
+                console.print("[red]Usage: --set 'SOUL.md=# My Agent'[/red]")
+                raise typer.Exit(1)
+            await pod.file_set(name, content)
+            console.print(f"[green]✅ Written {name}[/green]")
+        else:
+            _, files = await pod.workspace_files()
+            if not files:
+                console.print("[dim]No workspace files[/dim]")
+                return
+            for f in files:
+                icon = "📄" if not f.get("missing") else "❌"
+                size = f.get("size", 0)
+                console.print(f"  {icon} {f['name']:30s} {size:>8,} bytes")
 
     _run_async(_run())
 
@@ -921,18 +920,15 @@ def gateway_sessions(
     limit: int = typer.Option(20, "--limit", "-n"),
 ):
     """List chat sessions on an agent's gateway."""
-    from hypercli.gateway import GatewayClient
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async with pod.gateway() as gw:
-            sessions = await gw.sessions_list(limit=limit)
-            if not sessions:
-                console.print("[dim]No sessions[/dim]")
-                return
-            for s in sessions:
-                console.print(f"  {s.get('key','?'):20s}  {s.get('status','?'):10s}  {s.get('lastActivity','')}")
+        sessions = await pod.sessions_list(limit=limit)
+        if not sessions:
+            console.print("[dim]No sessions[/dim]")
+            return
+        for s in sessions:
+            console.print(f"  {s.get('key','?'):20s}  {s.get('status','?'):10s}  {s.get('lastActivity','')}")
 
     _run_async(_run())
 
@@ -942,19 +938,16 @@ def gateway_cron(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),
 ):
     """List cron jobs on an agent's gateway."""
-    from hypercli.gateway import GatewayClient
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async with pod.gateway() as gw:
-            jobs = await gw.cron_list()
-            if not jobs:
-                console.print("[dim]No cron jobs[/dim]")
-                return
-            for j in jobs:
-                enabled = "✅" if j.get("enabled", True) else "⏸️"
-                console.print(f"  {enabled} {j.get('id','?'):20s}  {j.get('name','unnamed'):20s}  {j.get('schedule','')}")
+        jobs = await pod.cron_list()
+        if not jobs:
+            console.print("[dim]No cron jobs[/dim]")
+            return
+        for j in jobs:
+            enabled = "✅" if j.get("enabled", True) else "⏸️"
+            console.print(f"  {enabled} {j.get('id','?'):20s}  {j.get('name','unnamed'):20s}  {j.get('schedule','')}")
 
     _run_async(_run())
 
@@ -965,23 +958,20 @@ def gateway_chat(
     message: str = typer.Argument(..., help="Message to send"),
 ):
     """Send a chat message to an agent via the Gateway and stream the response."""
-    from hypercli.gateway import GatewayClient, ChatEvent
-
-    pod = _get_pod_with_token(agent_id)
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async with pod.gateway() as gw:
-            async for event in gw.chat_send(message):
-                if event.type == "content":
-                    print(event.text, end="", flush=True)
-                elif event.type == "thinking":
-                    console.print(f"[dim]{event.text}[/dim]", end="")
-                elif event.type == "tool_call":
-                    console.print(f"\n[yellow]🔧 {event.data}[/yellow]")
-                elif event.type == "error":
-                    console.print(f"\n[red]❌ {event.text}[/red]")
-                elif event.type == "done":
-                    print()
-            print()
+        async for event in pod.chat_send(message):
+            if event.type == "content":
+                print(event.text, end="", flush=True)
+            elif event.type == "thinking":
+                console.print(f"[dim]{event.text}[/dim]", end="")
+            elif event.type == "tool_call":
+                console.print(f"\n[yellow]🔧 {event.data}[/yellow]")
+            elif event.type == "error":
+                console.print(f"\n[red]❌ {event.text}[/red]")
+            elif event.type == "done":
+                print()
+        print()
 
     _run_async(_run())
