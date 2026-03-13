@@ -46,6 +46,7 @@
   "author": "Compute3 AI",
   "license": "MIT",
   "dependencies": {
+    "@noble/ed25519": "^3.0.0",
     "ws": "^8.16.0"
   },
   "devDependencies": {
