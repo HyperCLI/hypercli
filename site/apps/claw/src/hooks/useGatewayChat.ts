@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
-import { clawFetch } from "@/lib/api";
+import { CLAW_API_BASE, clawFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 export interface ChatAttachment {
@@ -206,6 +206,9 @@ export function useGatewayChat(
       setConnecting(true);
       setError(null);
       try {
+        const authToken = await getTokenRef.current();
+        if (cancelled) return;
+
         // Set up auth cookies
         const subdomain = agent!.hostname!.split(".")[0];
         const hostCookie = `${subdomain}-token`;
@@ -233,8 +236,6 @@ export function useGatewayChat(
           : "";
 
         if (!hasCookie(hostCookie)) {
-          const authToken = await getTokenRef.current();
-          if (cancelled) return;
           const tokenResp = await clawFetch<{ token: string }>(
             `/deployments/${agent!.id}/token`,
             authToken
@@ -260,7 +261,7 @@ export function useGatewayChat(
           try {
             const envResp = await clawFetch<{ env: Record<string, string> }>(
               `/deployments/${agent!.id}/env`,
-              await getTokenRef.current()
+              authToken
             );
             gatewayToken = envResp.env?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
             if (gatewayToken) storeGatewayToken(agent!.id, gatewayToken);
@@ -272,6 +273,10 @@ export function useGatewayChat(
         gw = new GatewayClient({
           url,
           gatewayToken,
+          deploymentId: agent!.id,
+          apiKey: authToken,
+          apiBase: CLAW_API_BASE,
+          autoApprovePairing: true,
           onHello: () => {
             if (cancelled) return;
             setConnected(true);
@@ -293,6 +298,15 @@ export function useGatewayChat(
           onGap: ({ expected, received }) => {
             if (cancelled) return;
             setError(`Gateway event gap detected (expected ${expected}, got ${received})`);
+          },
+          onPairing: (pairing) => {
+            if (cancelled || !pairing) return;
+            if (pairing.status === "failed" && pairing.error) {
+              setError(pairing.error);
+              return;
+            }
+            setConnecting(true);
+            setError(null);
           },
         });
         gwRef.current = gw;

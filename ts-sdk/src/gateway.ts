@@ -16,6 +16,14 @@ export interface GatewayOptions {
   token?: string;
   /** Shared gateway auth token used in the WebSocket connect handshake. */
   gatewayToken?: string;
+  /** Deployment id used for trusted pairing approval via agent exec. */
+  deploymentId?: string;
+  /** HyperCLI API bearer token used for trusted pairing approval via agent exec. */
+  apiKey?: string;
+  /** HyperCLI API base URL used for trusted pairing approval via agent exec. */
+  apiBase?: string;
+  /** Automatically approve first-time browser pairing using trusted agent exec. */
+  autoApprovePairing?: boolean;
   /** Client ID (default: "openclaw-control-ui") */
   clientId?: string;
   /** Client mode (default: "webchat") */
@@ -40,6 +48,8 @@ export interface GatewayOptions {
   onClose?: (info: GatewayCloseInfo) => void;
   /** Called when an event sequence gap is detected */
   onGap?: (info: { expected: number; received: number }) => void;
+  /** Called when a browser device pairing request is pending or updated. */
+  onPairing?: (pairing: GatewayPairingState | null) => void;
 }
 
 export interface GatewayEvent {
@@ -68,6 +78,16 @@ export interface GatewayCloseInfo {
   error?: GatewayErrorShape | null;
 }
 
+export interface GatewayPairingState {
+  requestId: string;
+  role: string;
+  gatewayUrl: string;
+  deviceId?: string;
+  status: "pending" | "approving" | "approved" | "failed";
+  updatedAtMs: number;
+  error?: string;
+}
+
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 
 type PendingRequest = {
@@ -90,6 +110,7 @@ type DeviceAuthStore = {
   privateKey?: string;
   createdAtMs?: number;
   tokens?: Record<string, DeviceTokenEntry>;
+  pendingPairings?: Record<string, GatewayPairingState>;
 };
 
 type DeviceIdentityRecord = {
@@ -205,6 +226,58 @@ function resolvePlatform(value: string | undefined): string {
   return "web";
 }
 
+function inferBrowserName(userAgent: string | undefined): string | null {
+  const ua = userAgent ?? "";
+  if (!ua) return null;
+  if (/Firefox\//i.test(ua)) return "Firefox";
+  if (/Edg\//i.test(ua)) return "Edge";
+  if (/Chrome\//i.test(ua) && !/Edg\//i.test(ua)) return "Chrome";
+  if (/Safari\//i.test(ua) && !/Chrome\//i.test(ua)) return "Safari";
+  return null;
+}
+
+function inferPlatformName(platform: string): string | null {
+  const normalized = platform.trim().toLowerCase();
+  if (!normalized) return null;
+  if (normalized.includes("mac")) return "macOS";
+  if (normalized.includes("win")) return "Windows";
+  if (normalized.includes("linux")) return "Linux";
+  if (normalized.includes("iphone") || normalized.includes("ipad") || normalized.includes("ios")) {
+    return "iOS";
+  }
+  if (normalized.includes("android")) return "Android";
+  return platform.trim();
+}
+
+function resolveBrowserHost(): string | null {
+  const browserWindow = (globalThis as typeof globalThis & {
+    window?: { location?: { hostname?: string } };
+  }).window;
+  const hostname = browserWindow?.location?.hostname?.trim();
+  return hostname || null;
+}
+
+function resolveClientDisplayName(value: string | undefined, platform: string): string {
+  const provided = value?.trim();
+  if (provided) return provided;
+  const browserName = inferBrowserName(resolveUserAgent());
+  const platformName = inferPlatformName(platform);
+  const host = resolveBrowserHost();
+  const details = [browserName, platformName ? `on ${platformName}` : null]
+    .filter(Boolean)
+    .join(" ");
+  if (details && host) {
+    return `Hyper Agent Web (${details}, ${host})`;
+  }
+  if (details) {
+    return `Hyper Agent Web (${details})`;
+  }
+  if (host) {
+    return `Hyper Agent Web (${host})`;
+  }
+  return "Hyper Agent Web";
+}
+
 function normalizeScopes(scopes: string[] | undefined): string[] {
   if (!Array.isArray(scopes)) {
     return [];
@@ -247,6 +320,7 @@ function writeDeviceAuthStore(store: DeviceAuthStore): void {
     ...(store.privateKey ? { privateKey: store.privateKey } : {}),
     ...(typeof store.createdAtMs === "number" ? { createdAtMs: store.createdAtMs } : {}),
     ...(store.tokens ? { tokens: store.tokens } : {}),
+    ...(store.pendingPairings ? { pendingPairings: store.pendingPairings } : {}),
   };
   const storage = getStorage();
   if (!storage) {
@@ -281,6 +355,7 @@ function storeStoredDeviceToken(params: {
     ...(existing?.publicKey ? { publicKey: existing.publicKey } : {}),
     ...(existing?.privateKey ? { privateKey: existing.privateKey } : {}),
     ...(typeof existing?.createdAtMs === "number" ? { createdAtMs: existing.createdAtMs } : {}),
+    ...(existing?.pendingPairings ? { pendingPairings: existing.pendingPairings } : {}),
     tokens: {
       ...(existing?.tokens ?? {}),
       [role]: {
@@ -311,7 +386,54 @@ function clearStoredDeviceToken(deviceId: string, role: string): void {
     ...(store.publicKey ? { publicKey: store.publicKey } : {}),
     ...(store.privateKey ? { privateKey: store.privateKey } : {}),
     ...(typeof store.createdAtMs === "number" ? { createdAtMs: store.createdAtMs } : {}),
+    ...(store.pendingPairings ? { pendingPairings: store.pendingPairings } : {}),
     tokens: nextTokens,
+  });
+}
+
+function pairingStoreKey(gatewayUrl: string, role: string): string {
+  return `${gatewayUrl.trim()}|${role.trim()}`;
+}
+
+function loadPendingPairing(gatewayUrl: string, role: string): GatewayPairingState | null {
+  const store = readDeviceAuthStore();
+  const key = pairingStoreKey(gatewayUrl, role);
+  return store?.pendingPairings?.[key] ?? null;
+}
+
+function storePendingPairing(pairing: GatewayPairingState): GatewayPairingState {
+  const existing = readDeviceAuthStore();
+  const key = pairingStoreKey(pairing.gatewayUrl, pairing.role);
+  writeDeviceAuthStore({
+    version: 1,
+    ...(existing?.deviceId ? { deviceId: existing.deviceId } : {}),
+    ...(existing?.publicKey ? { publicKey: existing.publicKey } : {}),
+    ...(existing?.privateKey ? { privateKey: existing.privateKey } : {}),
+    ...(typeof existing?.createdAtMs === "number" ? { createdAtMs: existing.createdAtMs } : {}),
+    ...(existing?.tokens ? { tokens: existing.tokens } : {}),
+    pendingPairings: {
+      ...(existing?.pendingPairings ?? {}),
+      [key]: pairing,
+    },
+  });
+  return pairing;
+}
+
+function clearPendingPairing(gatewayUrl: string, role: string): void {
+  const store = readDeviceAuthStore();
+  if (!store?.pendingPairings) return;
+  const key = pairingStoreKey(gatewayUrl, role);
+  if (!store.pendingPairings[key]) return;
+  const nextPendingPairings = { ...store.pendingPairings };
+  delete nextPendingPairings[key];
+  writeDeviceAuthStore({
+    version: 1,
+    ...(store.deviceId ? { deviceId: store.deviceId } : {}),
+    ...(store.publicKey ? { publicKey: store.publicKey } : {}),
+    ...(store.privateKey ? { privateKey: store.privateKey } : {}),
+    ...(typeof store.createdAtMs === "number" ? { createdAtMs: store.createdAtMs } : {}),
+    ...(store.tokens ? { tokens: store.tokens } : {}),
+    ...(Object.keys(nextPendingPairings).length > 0 ? { pendingPairings: nextPendingPairings } : {}),
   });
 }
 
@@ -468,6 +590,14 @@ function readConnectErrorCode(error: unknown): string | null {
   return typeof code === "string" && code.trim() ? code.trim() : null;
 }
 
+function readConnectPairingRequestId(error: unknown): string | null {
+  if (!(error instanceof GatewayRequestError)) return null;
+  const details = error.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return null;
+  const requestId = (details as { requestId?: unknown }).requestId;
+  return typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
+}
+
 function isSocketOpen(ws: WebSocket | null): boolean {
   return Boolean(ws && ws.readyState === 1);
 }
@@ -484,6 +614,10 @@ export class GatewayClient {
   private url: string;
   private token?: string;
   private gatewayToken?: string;
+  private deploymentId?: string;
+  private apiKey?: string;
+  private apiBase?: string;
+  private autoApprovePairing: boolean;
   private clientId: string;
   private clientMode: string;
   private clientDisplayName?: string;
@@ -504,6 +638,8 @@ export class GatewayClient {
   private connectNonce: string | null = null;
   private connectSent = false;
   private pendingConnectError: GatewayErrorShape | null = null;
+  private pairingState: GatewayPairingState | null = null;
+  private autoApproveAttemptedRequestIds = new Set<string>();
   private lastSeq: number | null = null;
   private connectPromise: Promise<void> | null = null;
   private resolveConnectPromise: (() => void) | null = null;
@@ -516,11 +652,15 @@ export class GatewayClient {
     this.url = options.url;
     this.token = options.token?.trim() || undefined;
     this.gatewayToken = options.gatewayToken?.trim() || undefined;
+    this.deploymentId = options.deploymentId?.trim() || undefined;
+    this.apiKey = options.apiKey?.trim() || undefined;
+    this.apiBase = options.apiBase?.trim().replace(/\/$/, "") || undefined;
+    this.autoApprovePairing = options.autoApprovePairing === true;
     this.clientId = normalizeClientId(options.clientId);
     this.clientMode = normalizeClientMode(options.clientMode);
-    this.clientDisplayName = options.clientDisplayName?.trim() || undefined;
     this.clientVersion = options.clientVersion?.trim() || DEFAULT_CLIENT_VERSION;
     this.clientPlatform = resolvePlatform(options.platform);
+    this.clientDisplayName = resolveClientDisplayName(options.clientDisplayName, this.clientPlatform);
     this.clientInstanceId = options.instanceId?.trim() || makeId();
     this.caps = Array.isArray(options.caps)
       ? options.caps.map((cap) => cap.trim()).filter(Boolean)
@@ -530,11 +670,14 @@ export class GatewayClient {
     this.onHello = options.onHello;
     this.onClose = options.onClose;
     this.onGap = options.onGap;
+    this.onPairing = options.onPairing;
+    this.pairingState = loadPendingPairing(this.url, OPERATOR_ROLE);
   }
 
   private readonly onHello?: (hello: Record<string, any>) => void;
   private readonly onClose?: (info: GatewayCloseInfo) => void;
   private readonly onGap?: (info: { expected: number; received: number }) => void;
+  private readonly onPairing?: (pairing: GatewayPairingState | null) => void;
 
   get version() {
     return this._version;
@@ -546,6 +689,10 @@ export class GatewayClient {
 
   get isConnected() {
     return this.connected;
+  }
+
+  get pendingPairing() {
+    return this.pairingState;
   }
 
   /** Subscribe to server-sent events */
@@ -605,6 +752,59 @@ export class GatewayClient {
     this.connectPromise = null;
     this.resolveConnectPromise = null;
     this.rejectConnectPromise = null;
+  }
+
+  private updatePairingState(pairing: GatewayPairingState | null): void {
+    this.pairingState = pairing;
+    if (pairing) {
+      storePendingPairing(pairing);
+    } else {
+      clearPendingPairing(this.url, OPERATOR_ROLE);
+    }
+    this.onPairing?.(pairing);
+  }
+
+  private canAutoApprovePairing(): boolean {
+    return Boolean(
+      this.autoApprovePairing &&
+      this.deploymentId &&
+      this.apiKey &&
+      this.apiBase &&
+      typeof fetch === "function",
+    );
+  }
+
+  private async approvePairingRequest(requestId: string): Promise<void> {
+    if (!this.canAutoApprovePairing()) {
+      throw new Error("autoApprovePairing requires deploymentId, apiKey, apiBase, and fetch()");
+    }
+    const response = await fetch(
+      `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec`,
+      {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${this.apiKey}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          command: `openclaw devices approve ${requestId}`,
+          timeout: 30,
+        }),
+      },
+    );
+    if (!response.ok) {
+      const errorText = await response.text();
+      throw new Error(`Pairing approval failed: ${response.status} ${errorText}`);
+    }
+    const payload = await response.json() as {
+      exitCode?: number;
+      exit_code?: number;
+      stdout?: string;
+      stderr?: string;
+    };
+    if ((payload.exitCode ?? payload.exit_code ?? 1) !== 0) {
+      throw new Error(payload.stderr?.trim() || payload.stdout?.trim() || "pairing approval command failed");
+    }
   }
 
   private openSocket(): void {
@@ -792,6 +992,7 @@ export class GatewayClient {
       this.connected = true;
       this.pendingConnectError = null;
       this.backoffMs = INITIAL_BACKOFF_MS;
+      this.updatePairingState(null);
 
       if (this.resolveConnectPromise) {
         this.resolveConnectPromise();
@@ -804,12 +1005,60 @@ export class GatewayClient {
     } catch (error) {
       this.pendingConnectError = toCloseError(error);
       const detailCode = readConnectErrorCode(error);
+      const requestId = readConnectPairingRequestId(error);
       if (
         identity &&
         (detailCode === CONNECT_ERROR_PAIRING_REQUIRED ||
           detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH)
       ) {
         clearStoredDeviceToken(identity.deviceId, OPERATOR_ROLE);
+      }
+      if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED && requestId) {
+        this.updatePairingState({
+          requestId,
+          role: OPERATOR_ROLE,
+          gatewayUrl: this.url,
+          ...(identity ? { deviceId: identity.deviceId } : {}),
+          status: "pending",
+          updatedAtMs: Date.now(),
+        });
+        if (this.canAutoApprovePairing() && !this.autoApproveAttemptedRequestIds.has(requestId)) {
+          this.autoApproveAttemptedRequestIds.add(requestId);
+          try {
+            this.updatePairingState({
+              requestId,
+              role: OPERATOR_ROLE,
+              gatewayUrl: this.url,
+              ...(identity ? { deviceId: identity.deviceId } : {}),
+              status: "approving",
+              updatedAtMs: Date.now(),
+            });
+            await this.approvePairingRequest(requestId);
+            this.updatePairingState({
+              requestId,
+              role: OPERATOR_ROLE,
+              gatewayUrl: this.url,
+              ...(identity ? { deviceId: identity.deviceId } : {}),
+              status: "approved",
+              updatedAtMs: Date.now(),
+            });
+            this.pendingConnectError = {
+              code: "PAIRING_APPROVED",
+              message: "Pairing approved, reconnecting",
+            };
+          } catch (approvalError) {
+            this.pendingConnectError = toCloseError(approvalError);
+            this.updatePairingState({
+              requestId,
+              role: OPERATOR_ROLE,
+              gatewayUrl: this.url,
+              ...(identity ? { deviceId: identity.deviceId } : {}),
+              status: "failed",
+              updatedAtMs: Date.now(),
+              error: approvalError instanceof Error ? approvalError.message : String(approvalError),
+            });
+          }
+        }
       }
       if (this.ws) {
         this.ws.close(RECONNECT_CLOSE_CODE, "connect failed");

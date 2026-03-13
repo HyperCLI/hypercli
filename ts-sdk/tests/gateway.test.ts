@@ -85,7 +85,12 @@ class MockWebSocket {
     });
   }
 
-  emitConnectError(id: string, code: string, message = "connect failed") {
+  emitConnectError(
+    id: string,
+    code: string,
+    message = "connect failed",
+    details: Record<string, unknown> = { code },
+  ) {
     this.emit({
       type: "res",
       id,
@@ -93,7 +98,7 @@ class MockWebSocket {
       error: {
         code: "INVALID_REQUEST",
         message,
-        details: { code },
+        details,
       },
     });
   }
@@ -132,6 +137,7 @@ describe("GatewayClient", () => {
     vi.stubGlobal("WebSocket", MockWebSocket as any);
     vi.stubGlobal("localStorage", new MockLocalStorage() as any);
     vi.stubGlobal("crypto", webcrypto as any);
+    vi.useRealTimers();
   });
 
   async function connectClient(client = new GatewayClient({
@@ -240,5 +246,80 @@ describe("GatewayClient", () => {
     await flushMicrotasks();
 
     expect(onDisconnect).not.toHaveBeenCalled();
+  });
+
+  it("auto-approves pairing through trusted exec and reconnects", async () => {
+    const fetchMock = vi.fn().mockResolvedValue({
+      ok: true,
+      json: async () => ({ exit_code: 0, stdout: "approved", stderr: "" }),
+    });
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing first websocket instance");
+    firstSocket.emitChallenge("nonce-pair");
+    await waitForSentFrame(firstSocket);
+    const firstRequest = JSON.parse(firstSocket.sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, any>;
+    };
+    firstSocket.emitConnectError(
+      firstRequest.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-1", reason: "not-paired" },
+    );
+    await flushMicrotasks();
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://api.dev.hypercli.com/deployments/deployment-123/exec",
+      expect.objectContaining({
+        method: "POST",
+        headers: expect.objectContaining({
+          Authorization: "Bearer app-token",
+          "Content-Type": "application/json",
+        }),
+      }),
+    );
+
+    const storedAfterPairingError = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(storedAfterPairingError.pendingPairings).toBeTruthy();
+
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    await flushMicrotasks();
+
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) {
+      throw new Error("Missing reconnect websocket instance");
+    }
+    secondSocket.emitChallenge("nonce-reconnect");
+    await waitForSentFrame(secondSocket);
+    const secondRequest = JSON.parse(secondSocket.sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, any>;
+    };
+    secondSocket.emitHello(secondRequest.id, "device-token-after-pair");
+    await connectPromise;
+
+    expect(client.isConnected).toBe(true);
+    expect(client.pendingPairing).toBeNull();
+
+    const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
+    expect(stored.pendingPairings).toBeUndefined();
+    expect(stored.tokens.operator.token).toBe("device-token-after-pair");
   });
 });

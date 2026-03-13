@@ -158,6 +158,8 @@ export default function AgentConsolePage() {
     }
 
     try {
+      const authToken = await getToken();
+
       const subdomain = agent.hostname.split(".")[0];
       const hostCookie = `${subdomain}-token`;
       const shellCookie = `shell-${subdomain}-token`;
@@ -176,7 +178,6 @@ export default function AgentConsolePage() {
         : "";
 
       if (!(hasCookie(hostCookie) || hasCookie(shellCookie) || hasCookie(openclawCookie) || hasCookie(reefCookie))) {
-        const authToken = await getToken();
         const tokenResp = await clawFetch<{ token: string }>(`/deployments/${agentId}/token`, authToken);
         const tokenValue = encodeURIComponent(tokenResp.token);
         const securePart = window.location.protocol === "https:" ? "; secure" : "";
@@ -194,7 +195,7 @@ export default function AgentConsolePage() {
         try {
           const envResp = await clawFetch<{ env: Record<string, string> }>(
             `/deployments/${agent.id}/env`,
-            await getToken()
+            authToken
           );
           gatewayToken = envResp.env?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
           if (gatewayToken) storeGatewayToken(agent.id, gatewayToken);
@@ -206,6 +207,10 @@ export default function AgentConsolePage() {
       const gw = new GatewayClient({
         url,
         gatewayToken,
+        deploymentId: agent.id,
+        apiKey: authToken,
+        apiBase: CLAW_API_BASE,
+        autoApprovePairing: true,
         onHello: () => {
           setGwConnected(true);
           setGwError(null);
@@ -222,6 +227,14 @@ export default function AgentConsolePage() {
         },
         onGap: ({ expected, received }) => {
           setGwError(`Gateway event gap detected (expected ${expected}, got ${received})`);
+        },
+        onPairing: (pairing) => {
+          if (!pairing) return;
+          if (pairing.status === "failed" && pairing.error) {
+            setGwError(pairing.error);
+            return;
+          }
+          setGwError("Authorizing this browser...");
         },
       });
 
