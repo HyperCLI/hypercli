@@ -132,6 +132,7 @@ export class GatewayClient {
   private ws: WebSocket | null = null;
   private pending: Map<string, { resolve: (v: any) => void; reject: (e: any) => void; timer: ReturnType<typeof setTimeout> }> = new Map();
   private eventHandlers: Set<GatewayEventHandler> = new Set();
+  private expectedCloseSockets = new WeakSet<WebSocket>();
   private connected = false;
   private _version: string | null = null;
   private _protocol: number | null = null;
@@ -185,6 +186,7 @@ export class GatewayClient {
           // Expect connect.challenge
           if (msg.event !== 'connect.challenge') {
             reject(new Error(`Expected connect.challenge, got ${msg.event}`));
+            this.expectedCloseSockets.add(ws);
             ws.close();
             return;
           }
@@ -227,6 +229,7 @@ export class GatewayClient {
               resolve();
             } else {
               reject(new Error(`Gateway connect failed: ${msg.error?.message ?? JSON.stringify(msg.error)}`));
+              this.expectedCloseSockets.add(ws);
               ws.close();
             }
           }
@@ -239,23 +242,36 @@ export class GatewayClient {
       };
 
       ws.onclose = () => {
-        this.connected = false;
-        // Reject all pending requests
-        for (const [id, p] of this.pending) {
-          clearTimeout(p.timer);
-          p.reject(new Error('Connection closed'));
+        const expectedClose = this.expectedCloseSockets.has(ws);
+        this.expectedCloseSockets.delete(ws);
+        const shouldFinalizeCurrentConnection =
+          this.ws === ws || (expectedClose && this.ws === null);
+
+        if (shouldFinalizeCurrentConnection) {
+          this.connected = false;
+          this.ws = null;
+          for (const [id, p] of this.pending) {
+            clearTimeout(p.timer);
+            p.reject(new Error('Connection closed'));
+          }
+          this.pending.clear();
         }
-        this.pending.clear();
-        this.onDisconnect?.();
+
+        if (!expectedClose && shouldFinalizeCurrentConnection) {
+          this.onDisconnect?.();
+        }
       };
     });
   }
 
   /** Close the connection */
   close(): void {
+    const ws = this.ws;
     this.connected = false;
-    this.ws?.close();
     this.ws = null;
+    if (!ws) return;
+    this.expectedCloseSockets.add(ws);
+    ws.close();
   }
 
   // ---------------------------------------------------------------------------

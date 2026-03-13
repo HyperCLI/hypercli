@@ -169,6 +169,7 @@ export function useGatewayChat(
   getToken: () => Promise<string>
 ) {
   const gwRef = useRef<GatewayClient | null>(null);
+  const getTokenRef = useRef(getToken);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
   const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -182,6 +183,10 @@ export function useGatewayChat(
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
   const [gwAgentId, setGwAgentId] = useState("main");
+
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
 
   useEffect(() => {
     if (!agent || agent.state !== "RUNNING" || !agent.hostname) return;
@@ -228,7 +233,7 @@ export function useGatewayChat(
           : "";
 
         if (!hasCookie(hostCookie)) {
-          const authToken = await getToken();
+          const authToken = await getTokenRef.current();
           if (cancelled) return;
           const tokenResp = await clawFetch<{ token: string }>(
             `/deployments/${agent!.id}/token`,
@@ -252,11 +257,10 @@ export function useGatewayChat(
         if (cancelled) return;
         const gatewayTokenResp = await clawFetch<{ gateway_token: string }>(
           `/deployments/${agent!.id}/gateway-token`,
-          await getToken()
+          await getTokenRef.current()
         );
         const gatewayToken = gatewayTokenResp.gateway_token;
         if (cancelled) return;
-
         gw = new GatewayClient({ url, gatewayToken });
 
         // Set up event handler for streaming chat
@@ -478,7 +482,11 @@ export function useGatewayChat(
       setSending(false);
       setGwAgentId("main");
     };
-  }, [agent?.id, agent?.state, agent?.hostname, getToken]);
+  }, [
+    agent?.hostname,
+    agent?.id,
+    agent?.state,
+  ]);
 
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
 
