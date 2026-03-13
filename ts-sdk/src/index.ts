@@ -136,5 +136,6 @@ export {
   type GatewayOptions,
   type GatewayEvent,
   type ChatEvent,
+  type ChatAttachment,
   type GatewayEventHandler,
 } from './gateway.js';

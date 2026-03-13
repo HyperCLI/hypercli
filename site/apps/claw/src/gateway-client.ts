@@ -1,24 +1,27 @@
 /**
- * OpenClaw Gateway Client — Browser WebSocket client for OpenClaw Gateway protocol v3.
+ * Browser wrapper around the shared TS SDK gateway client.
  *
- * Thin client (~200 lines) implementing the core RPC + event streaming protocol.
- * Designed for the HyperClaw frontend three-panel UI.
+ * The app keeps its existing convenience methods, but the WebSocket handshake
+ * and auth behavior come from the tested SDK implementation.
  */
 
-const PROTOCOL_VERSION = 3;
-const DEFAULT_TIMEOUT = 15_000;
+import {
+  GatewayClient as SDKGatewayClient,
+  type ChatAttachment,
+  type ChatEvent,
+  type GatewayEvent,
+  type GatewayOptions,
+} from "@hypercli/sdk";
+
 const CHAT_TIMEOUT = 300_000;
+const DEFAULT_TIMEOUT = 15_000;
+
+export type { ChatEvent };
 
 export interface GatewayError {
   code: string;
   message: string;
   details?: Record<string, unknown>;
-}
-
-export interface ChatEvent {
-  type: "content" | "thinking" | "tool_call" | "tool_result" | "done" | "error" | "status";
-  text?: string;
-  data?: Record<string, unknown>;
 }
 
 export interface GatewayConfig {
@@ -30,191 +33,74 @@ export interface GatewayConfig {
 }
 
 type EventHandler = (event: string, payload: Record<string, unknown>) => void;
-type ResolvedGatewayConfig = GatewayConfig & {
-  gatewayToken: string;
-  clientId: string;
-  clientMode: string;
-};
 
 export class GatewayClient {
-  private ws: WebSocket | null = null;
-  private pending = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void; timer: ReturnType<typeof setTimeout> }>();
-  private eventHandlers: EventHandler[] = [];
-  private config: ResolvedGatewayConfig;
-  private _connected = false;
-  private _version: string | null = null;
-  private _protocol: number | null = null;
-  onDisconnect: (() => void) | null = null;
+  private readonly sdk: SDKGatewayClient;
 
   constructor(config: GatewayConfig) {
-    this.config = {
-      gatewayToken: "traefik-forwarded-auth-not-used",
-      clientId: "openclaw-control-ui",
-      clientMode: "ui",
-      ...config,
+    const options: GatewayOptions = {
+      url: config.url,
+      token: config.token,
+      gatewayToken: config.gatewayToken,
+      clientId: config.clientId,
+      clientMode: config.clientMode,
+      timeout: DEFAULT_TIMEOUT,
     };
+    this.sdk = new SDKGatewayClient(options);
   }
 
-  get connected() { return this._connected; }
-  get version() { return this._version; }
-  get protocol() { return this._protocol; }
+  get connected() {
+    return this.sdk.isConnected;
+  }
 
-  // -----------------------------------------------------------------------
-  // Connection
-  // -----------------------------------------------------------------------
+  get version() {
+    return this.sdk.version;
+  }
+
+  get protocol() {
+    return this.sdk.protocol;
+  }
+
+  get onDisconnect() {
+    return this.sdk.onDisconnect;
+  }
+
+  set onDisconnect(handler: (() => void) | null) {
+    this.sdk.onDisconnect = handler;
+  }
 
   connect(): Promise<void> {
-    return new Promise((resolve, reject) => {
-      // Browser WS auth is handled by host-scoped cookies (ForwardAuth).
-      this.ws = new WebSocket(this.config.url);
-
-      let handshakePhase: "challenge" | "hello" | "done" = "challenge";
-      const timeout = setTimeout(() => {
-        reject(new Error("Gateway handshake timeout"));
-        this.ws?.close();
-      }, DEFAULT_TIMEOUT);
-
-      this.ws.onmessage = (ev) => {
-        const msg = JSON.parse(ev.data);
-
-        if (handshakePhase === "challenge") {
-          if (msg.event !== "connect.challenge") {
-            clearTimeout(timeout);
-            reject(new Error(`Expected connect.challenge, got ${msg.event}`));
-            return;
-          }
-          handshakePhase = "hello";
-          this.ws!.send(JSON.stringify({
-            type: "req",
-            id: this.makeId(),
-            method: "connect",
-            params: {
-              minProtocol: PROTOCOL_VERSION,
-              maxProtocol: PROTOCOL_VERSION,
-              client: {
-                id: this.config.clientId,
-                version: "hyperclaw-frontend",
-                platform: "browser",
-                mode: this.config.clientMode,
-              },
-              auth: { token: this.config.gatewayToken },
-              role: "operator",
-              scopes: ["operator.admin"],
-              caps: ["tool-events"],
-            },
-          }));
-          return;
-        }
-
-        if (handshakePhase === "hello" && msg.type === "res") {
-          clearTimeout(timeout);
-          if (msg.ok) {
-            this._connected = true;
-            this._version = msg.payload?.version ?? null;
-            this._protocol = msg.payload?.protocol ?? null;
-            handshakePhase = "done";
-            // Switch to normal message handler
-            this.ws!.onmessage = (ev2) => this.handleMessage(JSON.parse(ev2.data));
-            resolve();
-          } else {
-            reject(new Error(msg.error?.message ?? "Connection rejected"));
-          }
-          return;
-        }
-      };
-
-      this.ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error("WebSocket error"));
-      };
-
-      this.ws.onclose = () => {
-        this._connected = false;
-        // Reject all pending
-        for (const [, { reject: rej, timer }] of this.pending) {
-          clearTimeout(timer);
-          rej(new Error("Connection closed"));
-        }
-        this.pending.clear();
-        // Notify disconnect handler
-        this.onDisconnect?.();
-      };
-    });
+    return this.sdk.connect();
   }
 
   close() {
-    this._connected = false;
-    this.ws?.close();
+    this.sdk.close();
   }
 
   onEvent(handler: EventHandler) {
-    this.eventHandlers.push(handler);
-    return () => {
-      this.eventHandlers = this.eventHandlers.filter(h => h !== handler);
-    };
-  }
-
-  // -----------------------------------------------------------------------
-  // Internals
-  // -----------------------------------------------------------------------
-
-  private makeId(): string {
-    return crypto.randomUUID();
-  }
-
-  private handleMessage(msg: any) {
-    if (msg.type === "res") {
-      const entry = this.pending.get(msg.id);
-      if (entry) {
-        clearTimeout(entry.timer);
-        this.pending.delete(msg.id);
-        entry.resolve(msg);
-      }
-    } else if (msg.type === "event") {
-      for (const h of this.eventHandlers) {
-        try { h(msg.event, msg.payload ?? {}); } catch { /* ignore */ }
-      }
-    }
-  }
-
-  // -----------------------------------------------------------------------
-  // RPC
-  // -----------------------------------------------------------------------
-
-  async call<T = any>(method: string, params?: Record<string, unknown>, timeout = DEFAULT_TIMEOUT): Promise<T> {
-    if (!this._connected || !this.ws) throw new Error("Not connected");
-
-    const id = this.makeId();
-    const req = { type: "req", id, method, ...(params ? { params } : {}) };
-
-    return new Promise<T>((resolve, reject) => {
-      const timer = setTimeout(() => {
-        this.pending.delete(id);
-        reject(new Error(`RPC ${method} timed out`));
-      }, timeout);
-
-      this.pending.set(id, {
-        resolve: (resp: any) => {
-          if (resp.ok) resolve(resp.payload);
-          else reject(new Error(resp.error?.message ?? `RPC ${method} failed`));
-        },
-        reject,
-        timer,
-      });
-
-      this.ws!.send(JSON.stringify(req));
+    return this.sdk.onEvent((event: GatewayEvent) => {
+      handler(event.event, event.payload ?? {});
     });
   }
 
-  // -----------------------------------------------------------------------
-  // Config
-  // -----------------------------------------------------------------------
+  async call<T = any>(
+    method: string,
+    params?: Record<string, unknown>,
+    timeout = DEFAULT_TIMEOUT,
+  ): Promise<T> {
+    return this.sdk.request<T>(method, params ?? {}, timeout);
+  }
 
   async configGet(): Promise<Record<string, unknown>> {
     const r = await this.call<any>("config.get");
-    // Gateway returns {path, exists, raw, parsed} — raw is JSON string, parsed is object
     if (r.parsed) return r.parsed;
-    if (r.raw) try { return JSON.parse(r.raw); } catch { /* */ }
+    if (r.raw) {
+      try {
+        return JSON.parse(r.raw);
+      } catch {
+        // fall through
+      }
+    }
     return r.config ?? r;
   }
 
@@ -226,29 +112,16 @@ export class GatewayClient {
     await this.call("config.patch", { patch }, 30_000);
   }
 
-  // -----------------------------------------------------------------------
-  // Models
-  // -----------------------------------------------------------------------
-
   async modelsList(): Promise<any[]> {
     const r = await this.call<any>("models.list");
     return r.models ?? [];
   }
 
-  // -----------------------------------------------------------------------
-  // Agents
-  // -----------------------------------------------------------------------
-
   async agentsList(): Promise<any[]> {
     const r = await this.call<any>("agents.list");
-    // Normalize: Gateway returns agentId, we expose as id for convenience
     const agents = r.agents ?? [];
     return agents.map((a: any) => ({ ...a, id: a.agentId ?? a.id }));
   }
-
-  // -----------------------------------------------------------------------
-  // Files
-  // -----------------------------------------------------------------------
 
   async filesList(agentId: string): Promise<any[]> {
     const r = await this.call<any>("agents.files.list", { agentId });
@@ -264,10 +137,6 @@ export class GatewayClient {
     await this.call("agents.files.set", { agentId, name, content });
   }
 
-  // -----------------------------------------------------------------------
-  // Sessions / Chat
-  // -----------------------------------------------------------------------
-
   async sessionsList(limit = 20): Promise<any[]> {
     const r = await this.call<any>("sessions.list", { limit });
     return r.sessions ?? [];
@@ -280,27 +149,18 @@ export class GatewayClient {
     return r.messages ?? [];
   }
 
-  /**
-   * Send a chat message. Subscribe to events before calling this
-   * to receive streaming content.
-   *
-   * Events emitted: chat.content, chat.thinking, chat.tool_call,
-   * chat.tool_result, chat.done, chat.error, chat.status
-   */
   async chatSend(
     message: string,
     sessionKey?: string,
     agentId?: string,
     attachments?: Array<{ type: string; mimeType: string; content: string; fileName?: string }>,
   ): Promise<any> {
-    const params: Record<string, unknown> = {
+    return this.sdk.sendChat(
       message,
-      sessionKey: sessionKey ?? "main",
-      idempotencyKey: crypto.randomUUID(),
-    };
-    if (agentId) params.agentId = agentId;
-    if (attachments && attachments.length > 0) params.attachments = attachments;
-    return this.call("chat.send", params, CHAT_TIMEOUT);
+      sessionKey ?? "main",
+      agentId,
+      attachments as ChatAttachment[] | undefined,
+    );
   }
 
   async chatAbort(sessionKey?: string): Promise<void> {
@@ -308,10 +168,6 @@ export class GatewayClient {
     if (sessionKey) params.sessionKey = sessionKey;
     await this.call("chat.abort", params);
   }
-
-  // -----------------------------------------------------------------------
-  // Cron
-  // -----------------------------------------------------------------------
 
   async cronList(): Promise<any[]> {
     const r = await this.call<any>("cron.list");
@@ -325,10 +181,6 @@ export class GatewayClient {
   async cronRemove(jobId: string): Promise<void> {
     await this.call("cron.remove", { jobId });
   }
-
-  // -----------------------------------------------------------------------
-  // Exec approvals
-  // -----------------------------------------------------------------------
 
   async execApprove(execId: string): Promise<void> {
     await this.call("exec.approve", { execId });

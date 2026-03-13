@@ -23,6 +23,7 @@ import {
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
 import { GatewayClient, type ChatEvent } from "@/gateway-client";
+import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 // -----------------------------------------------------------------------
 // Types
@@ -35,6 +36,7 @@ interface Agent {
   hostname: string | null;
   jwt_token?: string | null;
   openclaw_url?: string | null;
+  gatewayToken?: string | null;
 }
 
 interface ChatMessage {
@@ -187,8 +189,23 @@ export default function AgentConsolePage() {
         document.cookie = `${reefCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
       }
 
+      let gatewayToken = agent.gatewayToken ?? getStoredGatewayToken(agent.id) ?? undefined;
+      if (!gatewayToken) {
+        try {
+          const envResp = await clawFetch<{ env: Record<string, string> }>(
+            `/deployments/${agent.id}/env`,
+            await getToken()
+          );
+          gatewayToken = envResp.env?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
+          if (gatewayToken) storeGatewayToken(agent.id, gatewayToken);
+        } catch {
+          // Keep the real SDK error if the gateway token is still unavailable.
+        }
+      }
+
       const gw = new GatewayClient({
         url,
+        gatewayToken,
       });
 
       // Set up event handler for streaming chat
