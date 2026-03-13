@@ -9,7 +9,7 @@ import {
   type OpenClawConfigSchemaResponse,
 } from './gateway.js';
 
-const AGENTS_API_BASE = 'https://api.hypercli.com';
+const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
