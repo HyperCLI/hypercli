@@ -1,22 +1,15 @@
 import type { NextConfig } from "next";
 import path from "path";
 
-// Build-time validation of required environment variables
 const requiredEnvVars = [
   "NEXT_PUBLIC_MAIN_SITE_URL",
   "NEXT_PUBLIC_CONSOLE_URL",
   "NEXT_PUBLIC_AGENTS_URL",
-  "NEXT_PUBLIC_COOKIE_DOMAIN",
-  "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN",
-  "NEXT_PUBLIC_AGENTS_API_URL",
-  "NEXT_PUBLIC_AGENTS_WS_URL",
-  "NEXT_PUBLIC_HYPERCLAW_API_URL",
-  "NEXT_PUBLIC_HYPERCLAW_MODELS_URL",
   "NEXT_PUBLIC_PRIVY_APP_ID",
 ] as const;
 
 for (const envVar of requiredEnvVars) {
-  if (!process.env[envVar]) {
+  if (!process.env[envVar]?.trim()) {
     throw new Error(`Missing required environment variable: ${envVar}`);
   }
 }

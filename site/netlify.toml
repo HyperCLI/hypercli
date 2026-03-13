@@ -11,11 +11,6 @@
 [[plugins]]
   package = "@netlify/plugin-nextjs"
 
-
-[build.environment]
-  NODE_VERSION = "22"
-  NODE_OPTIONS = "--max-old-space-size=4096"
-
 # Cache control headers for static assets
 [[headers]]
   for = "/*"
