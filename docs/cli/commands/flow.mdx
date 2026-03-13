@@ -1,18 +1,9 @@
 ---
 title: hyper flow
-description: Flow commands for image, video, speech, and transcription with optional x402 pay-per-use
+description: Recommended media generation commands, with optional x402 pay-per-use support.
 ---
 
-## Overview
-
 `hyper flow` is the recommended CLI surface for media generation.
-
-It supports both:
-
-- account billing (default)
-- x402 pay-per-use (`--x402`)
-
-When `--x402` is used, the CLI reads fixed flow pricing from `GET /flows`, creates an x402 payment with the embedded wallet, and calls `/api/x402/flow/{flow_type}`.
 
 ## Commands
 
@@ -22,33 +13,48 @@ hyper flow text-to-image-hidream <prompt>
 hyper flow text-to-video <prompt>
 hyper flow image-to-video <prompt> --image <url-or-path>
 hyper flow speaking-video <prompt> --image <url-or-path> --audio <url-or-path>
-hyper flow image-to-image <prompt> --image <url-or-path> [--image <url-or-path> ...]
+hyper flow image-to-image <prompt> --image <url-or-path>
 hyper flow first-last-frame-video <prompt> --start <url-or-path> --end <url-or-path>
-hyper flow text-to-speech <text>
 hyper flow audio-to-text <audio-url-or-path>
+hyper flow text-to-speech <text>
 ```
+
+## Shared Options
+
+Most flow commands support combinations of:
+
+- `--negative`, `-n`
+- `--width`, `-W`
+- `--height`, `-H`
+- `--notify`
+- `--output`, `-o`
+- `--x402`
+- `--amount`
+
+## Local Files
+
+When you pass a local path to an image or audio argument, the CLI uploads it automatically before creating the render.
 
 ## x402 Usage
 
 ```bash
-# Uses fixed flow price from /flows
 hyper flow text-to-image "a cyberpunk alley" --x402
-
-# Explicit amount is optional, but must match fixed price exactly
 hyper flow text-to-image "a cyberpunk alley" --x402 --amount 0.10
 ```
 
-Successful `--x402` responses include:
+For x402 flows:
 
-- `render.id`
-- `access_key` (`hypercli_access_...`)
-- `status_url`
-- `cancel_url`
+- the CLI reads the fixed price from the flow catalog
+- `--amount` must match that fixed price exactly
+- the result includes an access key plus status and cancel URLs
 
-Use that access key as Bearer token for polling/cancel calls (or from your agent runtime).
+## x402 Render History
 
-## Notes
+The CLI stores pay-per-use render history in `~/.hypercli/x402_renders.jsonl`.
 
-- `hyper renders create --x402` is intentionally disabled.
-- For pay-per-use, use `hyper flow ... --x402`.
-- Local files are auto-uploaded when passed to image/audio options.
+Inspect it with:
+
+```bash
+hyper flow renders
+hyper flow renders --check
+```

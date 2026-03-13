@@ -1,0 +1,121 @@
+---
+title: Jobs
+description: Launch GPU jobs, inspect them, stream output, and open shells from the TypeScript SDK.
+---
+
+## Create a Job
+
+```ts
+const job = await client.jobs.create({
+  image: "nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+  command: "python train.py",
+  gpuType: "l40s",
+  gpuCount: 1,
+  runtime: 3600,
+  interruptible: true,
+  env: {
+    HF_TOKEN: process.env.HF_TOKEN ?? "",
+  },
+});
+```
+
+### Create Options
+
+| Field | Type | Notes |
+| --- | --- | --- |
+| `image` | `string` | Required Docker image |
+| `command` | `string` | Sent base64-encoded by the SDK |
+| `gpuType` | `string` | Defaults to `l40s` |
+| `gpuCount` | `number` | Defaults to `1` |
+| `region` | `string` | Optional region code |
+| `runtime` | `number` | Max runtime in seconds |
+| `interruptible` | `boolean` | Defaults to `true` |
+| `env` | `Record<string, string>` | Container environment variables |
+| `ports` | `Record<string, number>` | Port exposure config |
+| `auth` | `boolean` | Require bearer auth on the load balancer |
+| `registryAuth` | `{ username, password }` | Private registry credentials |
+| `dockerfile` | `string` | Base64-encoded Dockerfile payload |
+| `dryRun` | `boolean` | Validate without creating the job |
+
+## Port Exposure
+
+The SDK forwards the `ports` map directly to the API.
+
+```ts
+const apiJob = await client.jobs.create({
+  image: "my-api:latest",
+  gpuType: "l40s",
+  ports: {
+    lb: 8000,
+    "2222/tcp": 2222,
+  },
+  auth: true,
+  command: "uvicorn app:app --host 0.0.0.0 --port 8000",
+});
+```
+
+- Use `lb` for a public HTTPS endpoint on the job hostname.
+- Use `"<port>/tcp"` keys for raw TCP exposure.
+
+## Inspect and Filter Jobs
+
+```ts
+const running = await client.jobs.list("running");
+const details = await client.jobs.get(job.jobId);
+```
+
+The SDK currently exposes state filtering only. If you need tag-based filtering, call the REST API directly or use the Python SDK/CLI for now.
+
+## Logs and Metrics
+
+```ts
+const logs = await client.jobs.logs(job.jobId);
+const metrics = await client.jobs.metrics(job.jobId);
+```
+
+`metrics()` returns:
+
+- `gpus`: utilization, VRAM, temperature, power draw
+- `system`: CPU and memory usage when available
+
+## Bearer Token for Protected Services
+
+```ts
+const token = await client.jobs.token(job.jobId);
+```
+
+Use the returned token with services exposed through `ports.lb` when `auth: true`.
+
+## Exec and Interactive Shells
+
+```ts
+const result = await client.jobs.exec(job.jobId, "nvidia-smi", 30);
+console.log(result.exitCode, result.stdout);
+
+const ws = await client.jobs.shellConnect(job.jobId, "/bin/bash");
+ws.send("pwd\n");
+ws.close();
+```
+
+## Update or Stop a Job
+
+```ts
+await client.jobs.extend(job.jobId, 7200);
+await client.jobs.cancel(job.jobId);
+```
+
+## Lookup Helpers
+
+The package exports several helpers for resolving jobs:
+
+```ts
+import {
+  findJob,
+  findById,
+  findByHostname,
+  findByIp,
+  isUuid,
+} from "@hypercli.com/sdk";
+```
+
+These are useful when you accept job IDs, hostnames, or IP addresses from user input.

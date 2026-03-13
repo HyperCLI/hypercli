@@ -54,10 +54,10 @@ Specify region when creating jobs:
 
 ```bash
 # Create in Sweden
-hyper jobs create nvidia/cuda:12.0 -g l40s -r se -c "python train.py"
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -r se -c "python train.py"
 
 # Create in Virginia
-hyper jobs create nvidia/cuda:12.0 -g h100 -r va -c "python train.py"
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g h100 -r va -c "python train.py"
 ```
 
 If no region specified, the system selects based on availability and pricing.

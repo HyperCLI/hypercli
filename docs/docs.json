@@ -105,17 +105,34 @@
         "tab": "SDK",
         "groups": [
           {
+            "group": "TypeScript SDK",
+            "pages": [
+              "ts-sdk/index",
+              "ts-sdk/configuration",
+              "ts-sdk/jobs",
+              "ts-sdk/renders",
+              "ts-sdk/files",
+              "ts-sdk/agents",
+              "ts-sdk/workflows",
+              "ts-sdk/gateway",
+              "ts-sdk/reference"
+            ]
+          },
+          {
             "group": "Python SDK",
             "pages": [
               "sdk/index",
+              "sdk/configuration",
               "sdk/billing",
               "sdk/jobs",
+              "sdk/instances",
               "sdk/renders",
               "sdk/files",
               "sdk/logs",
               "sdk/comfyui",
               "sdk/agents",
               "sdk/gateway",
+              "sdk/x402",
               "sdk/reference"
             ]
           }
@@ -159,12 +176,13 @@
           {
             "group": "Commands",
             "pages": [
+              "cli/commands/agent",
               "cli/commands/agents",
               "cli/commands/billing",
-              "cli/commands/claw",
               "cli/commands/comfyui",
               "cli/commands/instances",
               "cli/commands/jobs",
+              "cli/commands/keys",
               "cli/commands/flow",
               "cli/commands/renders",
               "cli/commands/user",

@@ -1,0 +1,111 @@
+---
+title: Renders And Flows
+description: Use the TypeScript SDK for managed render jobs and high-level media flow endpoints.
+---
+
+The SDK exposes both low-level render creation and higher-level flow helpers.
+
+## Low-Level Render API
+
+```ts
+const render = await client.renders.create(
+  {
+    template: "hidream_i1_full",
+    prompt: "a product hero image",
+    gpu_type: "L40S",
+  },
+  "comfyui",
+);
+```
+
+Core methods:
+
+```ts
+await client.renders.list({ state: "completed" });
+await client.renders.get(render.renderId);
+await client.renders.status(render.renderId);
+await client.renders.cancel(render.renderId);
+```
+
+## Recommended Flow Helpers
+
+Use these when you do not want to manage templates or per-workflow parameter shapes yourself.
+
+### Text to Image
+
+```ts
+await client.renders.textToImage({
+  prompt: "a photo-real product shot",
+  width: 1536,
+  height: 1024,
+});
+
+await client.renders.textToImageHidream({
+  prompt: "a highly detailed fantasy landscape",
+});
+```
+
+### Video Generation
+
+```ts
+await client.renders.textToVideo({
+  prompt: "a slow drone shot over a glacier",
+  width: 832,
+  height: 480,
+});
+```
+
+### Image And Audio Conditioned Flows
+
+```ts
+const image = await client.files.upload("./face.png");
+const audio = await client.files.upload("./speech.wav");
+
+await client.renders.imageToVideo({
+  prompt: "the character waves at the camera",
+  fileIds: [image.id],
+});
+
+await client.renders.speakingVideo({
+  prompt: "a presenter speaking naturally",
+  fileIds: [image.id, audio.id],
+});
+```
+
+Available helpers:
+
+- `textToImage`
+- `textToImageHidream`
+- `textToVideo`
+- `imageToVideo`
+- `speakingVideo`
+- `speakingVideoWan`
+- `imageToImage`
+- `firstLastFrameVideo`
+- `audioToText`
+- `textToSpeech`
+
+## Poll For Completion
+
+```ts
+let status = await client.renders.status(render.renderId);
+
+while (!["completed", "failed", "cancelled"].includes(status.state)) {
+  await new Promise((resolve) => setTimeout(resolve, 2000));
+  status = await client.renders.status(render.renderId);
+}
+
+const finalRender = await client.renders.get(render.renderId);
+console.log(finalRender.resultUrl, finalRender.error);
+```
+
+## Webhook Notifications
+
+Most helpers accept `notifyUrl`, which the backend uses for completion callbacks.
+
+```ts
+await client.renders.textToSpeech({
+  text: "Hello from HyperCLI",
+  notifyUrl: "https://example.com/webhooks/render",
+});
+```

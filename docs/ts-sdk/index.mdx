@@ -1,0 +1,115 @@
+---
+title: TypeScript SDK
+description: Use @hypercli.com/sdk from Node.js to manage jobs, renders, files, and HyperClaw agents.
+---
+
+The TypeScript SDK is the Node.js client for the HyperCLI API. It wraps the core REST endpoints, adds typed helpers for common workflows, and includes WebSocket clients for shells, logs, and OpenClaw gateway sessions.
+
+## Install
+
+```bash
+npm install @hypercli.com/sdk
+```
+
+Requirements:
+
+- Node.js 18 or newer
+- ESM-compatible runtime
+
+## Quick Start
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI();
+
+const balance = await client.billing.balance();
+console.log(balance.total);
+
+const job = await client.jobs.create({
+  image: "nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+  gpuType: "l40s",
+  command: "nvidia-smi",
+  dryRun: true,
+});
+
+console.log(job.jobId, job.state);
+```
+
+## Authentication
+
+`HyperCLI` resolves credentials in this order:
+
+1. `apiKey` passed to the constructor
+2. `HYPERCLI_API_KEY`
+3. `~/.hypercli/config`
+
+```ts
+const client = new HyperCLI({
+  apiKey: process.env.HYPERCLI_API_KEY,
+  apiUrl: "https://api.hypercli.com",
+});
+```
+
+Use `configure()` to write the shared config file:
+
+```ts
+import { configure } from "@hypercli.com/sdk";
+
+configure("hyper_...", "https://api.hypercli.com");
+```
+
+## Client Namespaces
+
+`client.billing`
+- Account balance and transaction history.
+
+`client.jobs`
+- GPU job lifecycle, logs, metrics, exec, and shell access.
+
+`client.instances`
+- GPU catalog, regions, pricing, and capacity discovery.
+
+`client.renders`
+- Managed render jobs and high-level media flow helpers.
+
+`client.files`
+- Asset uploads for render workflows.
+
+`client.keys`
+- API key management.
+
+`client.user`
+- Current user metadata.
+
+`client.agent`
+- HyperClaw plan, key, and model discovery.
+
+`client.deployments`
+- OpenClaw and agent container lifecycle, files, logs, exec, shell, and gateway access.
+
+## Constructor Options
+
+| Option | Type | Purpose |
+| --- | --- | --- |
+| `apiKey` | `string` | Main HyperCLI API key |
+| `apiUrl` | `string` | Override the REST API base URL |
+| `agentApiKey` | `string` | Separate HyperClaw key for `client.agent` and `client.deployments` |
+| `agentDev` | `boolean` | Use the dev inference metadata endpoints |
+| `agentsWsUrl` | `string` | Override the backend WebSocket base used by deployments |
+| `timeout` | `number` | HTTP timeout in milliseconds |
+
+## Workflow Helpers
+
+The package also exports higher-level helpers:
+
+- `BaseJob`
+- `ComfyUIJob`
+- `GradioJob`
+- `applyParams()`
+- `applyGraphModes()`
+- `graphToApi()`
+- `GatewayClient`
+- `LogStream`
+
+Use the pages in this section for API details and usage patterns.

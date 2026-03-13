@@ -1,0 +1,89 @@
+---
+title: x402
+description: Launch pay-per-use jobs and flow renders without a normal account balance.
+---
+
+`X402Client` wraps the x402 payment flow for one-off usage. This is useful when you want to pay for a job or media flow directly from a wallet instead of pre-funding an account.
+
+## Install
+
+```bash
+pip install "x402[httpx,evm]" eth-account
+```
+
+## Create A Client
+
+```python
+from eth_account import Account
+from hypercli import X402Client
+
+account = Account.from_key("0x...")
+x402 = X402Client()
+```
+
+## Public Flow Catalog
+
+```python
+catalog = x402.get_flow_catalog()
+price = x402.get_flow_price("text-to-image")
+```
+
+Each `FlowCatalogItem` includes:
+
+- `flow_type`
+- `price_usd`
+- `template`
+- `type`
+- `regions`
+- `interruptible`
+
+## Launch A Pay-Per-Use Job
+
+```python
+launch = x402.create_job(
+    amount=1.50,
+    account=account,
+    image="nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+    command="nvidia-smi",
+    gpu_type="l40s",
+    gpu_count=1,
+    interruptible=True,
+)
+
+print(launch.job.job_id)
+print(launch.access_key)
+print(launch.status_url)
+```
+
+`X402JobLaunch` returns:
+
+- `job`
+- `access_key`
+- `status_url`
+- `logs_url`
+- `cancel_url`
+
+## Launch A Pay-Per-Use Flow
+
+```python
+result = x402.create_flow(
+    flow_type="text-to-image",
+    amount=x402.get_flow_price("text-to-image"),
+    account=account,
+    params={"prompt": "a studio portrait"},
+)
+
+print(result.render.render_id)
+print(result.access_key)
+```
+
+`X402FlowCreate` returns:
+
+- `render`
+- `access_key`
+- `status_url`
+- `cancel_url`
+
+## Deprecated Render Endpoint
+
+`create_render()` is intentionally disabled and raises an error. Use `create_flow()` instead.

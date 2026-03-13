@@ -68,7 +68,7 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-`hyper claw config openclaw --apply` already configures both the Anthropic and OpenAI-compatible HyperClaw endpoints automatically.
+`hyper agent config openclaw --apply` already configures both the Anthropic and OpenAI-compatible HyperClaw endpoints automatically.
 
 ## Option 2: CLI
 
@@ -85,17 +85,17 @@ hyper wallet create
 hyper wallet balance
 
 # Subscribe
-hyper claw subscribe 1aiu
+hyper agent subscribe 1aiu
 
 # Get your key
-hyper claw status
+hyper agent status
 ```
 
 <Note>
-If you used the CLI, your key is saved at `~/.hypercli/claw-key.json`. No need to create one from the dashboard.
+If you used the CLI, your key is saved at `~/.hypercli/agent-key.json`. No need to create one from the dashboard.
 </Note>
 
-See [CLI commands](/cli/commands/claw) for details.
+See [CLI commands](/cli/commands/agent) for details.
 
 ## Option 3: x402-wallet (Headless)
 
@@ -141,4 +141,4 @@ curl https://api.hypercli.com/api/plans/current \
 
 - [API Reference](/hyperclaw/api) — full REST API docs
 - [x402 Wallet](/hyperclaw/x402-wallet) — headless USDC payments
-- [CLI Commands](/cli/commands/claw) — manage subscriptions from the terminal
+- [CLI Commands](/cli/commands/agent) — manage subscriptions from the terminal

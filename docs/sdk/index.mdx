@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: hypercli-sdk Python package
+description: Use hypercli-sdk to manage jobs, renders, files, HyperClaw metadata, and OpenClaw deployments from Python.
 ---
 
 ## Install
@@ -9,43 +9,81 @@ description: hypercli-sdk Python package
 pip install hypercli-sdk
 ```
 
-## Usage
+Optional extras:
+
+```bash
+pip install "hypercli-sdk[comfyui]"
+```
+
+## Quick Start
 
 ```python
 from hypercli import HyperCLI
 
-hyper = HyperCLI()  # Uses HYPERCLI_API_KEY env var or ~/.hypercli/config
+client = HyperCLI()
 
-# Billing
 balance = client.billing.balance()
-transactions = client.billing.transactions()
+print(balance.total)
 
-# Jobs
-job = client.jobs.create(image="nvidia/cuda:12.0", gpu_type="l40s", command="python train.py")
-jobs = client.jobs.list()
-logs = client.jobs.logs(job.job_id)
-metrics = client.jobs.metrics(job.job_id)
+job = client.jobs.create(
+    image="nvidia/cuda:12.6.3-runtime-ubuntu22.04",
+    gpu_type="l40s",
+    command="nvidia-smi",
+    dry_run=True,
+)
 
-# User
-user = client.user.get()
+print(job.job_id, job.state)
 ```
 
-## Authentication
+## Authentication And Config
 
-Three options (in priority order):
+Configuration is resolved in this order:
 
-1. **Environment variable**: `export HYPERCLI_API_KEY=your_key`
-2. **Config file**: `~/.hypercli/config` with `HYPERCLI_API_KEY=your_key`
-3. **Direct**: `HyperCLI(api_key="your_key")`
+1. `HyperCLI(api_key="...")`
+2. `HYPERCLI_API_KEY`
+3. `~/.hypercli/config`
+
+```python
+client = HyperCLI(api_key="hyper_...")
+```
+
+## Client Namespaces
+
+`client.billing`
+- Balance and transaction history.
+
+`client.jobs`
+- GPU job lifecycle, logs, metrics, tokens, exec, and shell-related helpers.
+
+`client.instances`
+- GPU types, pricing, region metadata, and capacity.
+
+`client.renders`
+- Managed render jobs and high-level media flow helpers.
+
+`client.files`
+- File uploads for render inputs.
+
+`client.keys`
+- API key management.
+
+`client.user`
+- Current user metadata.
+
+`client.agent`
+- HyperClaw plan, key, and model discovery, plus convenience chat helpers.
+
+`client.deployments`
+- OpenClaw and generic agent runtime lifecycle, files, exec, logs, shells, and gateway sessions.
 
 ## Error Handling
 
 ```python
-from hypercli import HyperCLI,  APIError
+from hypercli import APIError, HyperCLI
 
 try:
-    hyper = HyperCLI()
-    balance = client.billing.balance()
+    client = HyperCLI()
+    client.jobs.get("missing-id")
 except APIError as e:
-    print(f"Error {e.status_code}: {e.detail}")
+    print(e.status_code, e.detail)
 ```

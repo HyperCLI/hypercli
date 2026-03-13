@@ -107,5 +107,5 @@ Efficient inference-optimized GPUs.
 hyper billing gpus
 
 # Create job with specific GPU
-hyper jobs create nvidia/cuda:12.0 -g h100 -c "python train.py"
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g h100 -c "python train.py"
 ```

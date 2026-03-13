@@ -1,16 +1,13 @@
 ---
 title: hyper user
-description: User commands
+description: Show the current authenticated user.
 ---
 
 ## user
 
-Get current user info.
-
 ```bash
 hyper user
-hyper user -o json
+hyper user --output json
 ```
 
-**Options:**
-- `-o, --output` - Output format: `table` or `json`
+`hyper user` is implemented as the command group's callback, so running the group itself prints the current user record.

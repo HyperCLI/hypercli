@@ -1,14 +1,14 @@
 ---
 title: Billing
-description: SDK billing methods
+description: Check balances and inspect transaction history from the Python SDK.
 ---
 
-## Get Balance
+## Balance
 
 ```python
 from hypercli import HyperCLI
 
-hyper = HyperCLI()
+client = HyperCLI()
 balance = client.billing.balance()
 
 print(f"Total: ${balance.total}")
@@ -17,16 +17,16 @@ print(f"Rewards: ${balance.rewards}")
 print(f"Paid: ${balance.paid}")
 ```
 
-### Balance Object
+### Balance Fields
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `total` | str | Total balance (USD) |
-| `available` | str | Available after reservations |
-| `rewards` | str | Rewards balance |
-| `paid` | str | Paid balance |
+| --- | --- | --- |
+| `total` | `str` | Total balance in USD |
+| `available` | `str` | Spendable balance after reservations |
+| `rewards` | `str` | Rewards balance |
+| `paid` | `str` | Paid balance |
 
-## List Transactions
+## Transactions
 
 ```python
 transactions = client.billing.transactions(limit=50, page=1)
@@ -35,21 +35,21 @@ for tx in transactions:
     print(f"{tx.transaction_type}: ${tx.amount_usd} ({tx.status})")
 ```
 
-### Transaction Object
-
-| Field | Type | Description |
-|-------|------|-------------|
-| `id` | str | Transaction ID |
-| `amount` | int | Amount in smallest units |
-| `amount_usd` | float | Amount in USD |
-| `transaction_type` | str | `top_up`, `job`, `llm`, `refund`, etc. |
-| `status` | str | `PENDING`, `COMPLETED`, `FAILED` |
-| `rewards` | bool | Whether from rewards balance |
-| `job_id` | str | Associated job ID (if applicable) |
-| `created_at` | str | Timestamp |
-
-## Get Transaction
+Fetch one transaction directly:
 
 ```python
 tx = client.billing.get_transaction("transaction_id")
 ```
+
+### Transaction Fields
+
+| Field | Type | Description |
+| --- | --- | --- |
+| `id` | `str` | Transaction ID |
+| `amount` | `int` | Amount in smallest units |
+| `amount_usd` | `float` | USD amount |
+| `transaction_type` | `str` | `top_up`, `job`, `llm`, `refund`, and related values |
+| `status` | `str` | `PENDING`, `COMPLETED`, `FAILED` |
+| `rewards` | `bool` | Whether rewards balance was used |
+| `job_id` | `str` | Associated job ID when present |
+| `created_at` | `str` | Creation timestamp |

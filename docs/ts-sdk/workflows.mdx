@@ -1,0 +1,95 @@
+---
+title: Workflow Helpers
+description: Use BaseJob, ComfyUIJob, and GradioJob to manage higher-level GPU services.
+---
+
+## BaseJob
+
+`BaseJob` wraps a normal GPU job with convenience lifecycle helpers.
+
+```ts
+import { BaseJob } from "@hypercli.com/sdk";
+
+const job = await BaseJob.create(client, {
+  image: "my-service:latest",
+  gpuType: "l40s",
+  runtime: 3600,
+});
+
+await job.waitReady();
+```
+
+Useful methods:
+
+- `refresh()`
+- `waitForRunning()`
+- `waitExisting()`
+- `waitReady()`
+- `checkHealth()`
+- `extend()`
+- `shutdown()`
+
+Lookup helpers:
+
+- `BaseJob.getRunning()`
+- `BaseJob.getByInstance()`
+- `BaseJob.getOrCreate()`
+
+## ComfyUIJob
+
+`ComfyUIJob` packages a GPU job plus ComfyUI-specific HTTP helpers.
+
+```ts
+import { ComfyUIJob, applyParams } from "@hypercli.com/sdk";
+
+const comfy = await ComfyUIJob.createForTemplate(client, "flux_schnell", {
+  gpuType: "l40s",
+  lb: 8188,
+  auth: true,
+});
+
+await comfy.waitReady();
+await comfy.jobToken();
+
+const graph = await fetch("https://example.com/workflow.json").then((r) => r.json());
+applyParams(graph, { prompt: "a clean product render" });
+```
+
+Key helpers:
+
+- `createForTemplate()`
+- `jobToken()`
+- `getObjectInfo()`
+- `convertWorkflow()`
+- `uploadImage()`
+- `uploadAudio()`
+
+Exported workflow utilities:
+
+- `findNode()`
+- `findNodes()`
+- `applyParams()`
+- `applyGraphModes()`
+- `graphToApi()`
+- `DEFAULT_OBJECT_INFO`
+
+## GradioJob
+
+Use `GradioJob` when you want the same lifecycle helpers for a Gradio-based service.
+
+```ts
+import { GradioJob } from "@hypercli.com/sdk";
+
+const gradio = await GradioJob.createForService(client, {
+  image: "my-gradio-app:latest",
+  gpuType: "l4",
+  lb: 7860,
+  auth: true,
+});
+
+await gradio.waitReady();
+await gradio.jobToken();
+console.log(gradio.baseUrl);
+```
+
+`connect()` is intentionally not implemented in the TS SDK. Use the service's HTTP API directly once the job is ready.

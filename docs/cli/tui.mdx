@@ -1,42 +1,41 @@
 ---
 title: TUI
-description: Terminal UI features
+description: Follow jobs with live logs and metrics from the terminal UI.
 ---
 
-The CLI includes a Textual-based TUI for monitoring jobs.
+The CLI includes a full-screen job monitor driven by the `hyper jobs logs --tui` path.
 
-## Job Monitor
-
-Launch with `-f` flag on create or logs:
+## Launch The TUI
 
 ```bash
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
-hyper jobs logs <job_id> -f
+hyper jobs logs <job_id> --tui
 ```
 
-### Features
-
-- **Job Info Panel**: State, GPU type, region, price, hostname
-- **GPU Metrics**: Real-time utilization bars, VRAM, temperature, power
-- **Live Logs**: Streaming container logs
-
-### Keyboard Shortcuts
-
-| Key | Action |
-|-----|--------|
-| `q` | Quit |
-| `c` | Cancel job |
-
-## Metrics Watch
-
-Watch GPU metrics live:
+Optional behavior:
 
 ```bash
-hyper jobs metrics <job_id> -w
+hyper jobs logs <job_id> --tui --cancel-on-exit
 ```
 
-Displays:
-- GPU utilization with progress bars
-- VRAM usage
-- Temperature (color-coded: green/yellow/red)
-- Power draw
+## What It Shows
+
+- current job state
+- elapsed runtime
+- hostname and websocket status
+- CPU and memory usage
+- per-GPU utilization, VRAM, temperature, and power
+- live container logs
+
+## Related Live Views
+
+For a simpler metrics-only view:
+
+```bash
+hyper jobs metrics <job_id> --watch
+```
+
+For a plain streaming log view:
+
+```bash
+hyper jobs logs <job_id> --follow
+```

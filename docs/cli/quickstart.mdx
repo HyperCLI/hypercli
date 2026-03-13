@@ -1,46 +1,83 @@
 ---
 title: CLI Quickstart
-description: Get started with jobs, flows, x402, and HyperClaw from the CLI
+description: Install the CLI, configure credentials, launch a GPU job, and run media flows.
 ---
 
-## Install and Configure
+## Install
 
 ```bash
 pip install hypercli-cli
+```
+
+Add extras when you need them:
+
+- wallet and x402: `pip install 'hypercli-cli[wallet]'`
+- ComfyUI workflows: `pip install 'hypercli-cli[comfyui]'`
+- local transcription: `pip install 'hypercli-cli[stt]'`
+
+## Configure The Main API Key
+
+```bash
 hyper configure
 ```
 
-## Launch a GPU Job
+Test it:
 
 ```bash
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "nvidia-smi"
+hyper billing balance
+hyper instances list
 ```
 
-## Run a Flow
+## Launch A GPU Job
+
+```bash
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 \
+  -g l40s \
+  -c "nvidia-smi"
+```
+
+Then inspect it:
+
+```bash
+hyper jobs list
+hyper jobs logs <job_id> -f
+hyper jobs shell <job_id>
+```
+
+## Run A Managed Flow
 
 ```bash
 hyper flow text-to-image "a mountain lake at dawn"
+hyper flow text-to-video "a slow cinematic flyover of a glacier"
 ```
 
-## x402 Pay-Per-Use Flow
+## Use x402 Pay-Per-Use
+
+Create and fund a wallet first:
+
+```bash
+hyper wallet create
+hyper wallet address
+```
+
+Then run a pay-per-use flow:
 
 ```bash
 hyper flow text-to-image "a mountain lake at dawn" --x402
 ```
 
-## HyperClaw Inference
+## Set Up HyperClaw
 
 ```bash
-export HYPERCLI_API_URL="https://api.hypercli.com"
-export HYPERCLI_API_KEY="sk-..."
-hyper claw plans
-hyper claw config env
+hyper agent plans
+hyper agent subscribe 1aiu
+hyper agent config env
 ```
 
-## HyperClaw Plan Checkout
+## Launch An OpenClaw Agent
 
 ```bash
-hyper claw plans
-hyper claw subscribe 1aiu
-hyper claw status
+hyper agents create --name my-agent --size medium
+hyper agents list
+hyper agents shell <agent_id>
 ```

@@ -1,6 +1,6 @@
 ---
 title: CLI
-description: hypercli-cli command-line interface
+description: Use the HyperCLI command-line interface for jobs, flows, HyperClaw plans, and OpenClaw deployments.
 ---
 
 ## Install
@@ -9,41 +9,65 @@ description: hypercli-cli command-line interface
 pip install hypercli-cli
 ```
 
+Optional extras:
+
+```bash
+pip install "hypercli-cli[wallet]"
+pip install "hypercli-cli[comfyui]"
+pip install "hypercli-cli[stt]"
+```
+
 ## Configure
 
 ```bash
 hyper configure
 ```
 
-Or set:
+Or set the main API key directly:
 
 ```bash
-export HYPERCLI_API_KEY=your_key
+export HYPERCLI_API_KEY=hyper_...
 ```
 
-## Common Commands
+## Command Groups
+
+`hyper instances`
+- Browse GPU inventory and launch jobs.
+
+`hyper jobs`
+- Inspect running jobs, stream logs, collect metrics, and open shells.
+
+`hyper flow`
+- Run the recommended media generation endpoints.
+
+`hyper renders`
+- Use the lower-level managed render API.
+
+`hyper billing`
+- Check account balance and transactions.
+
+`hyper keys`
+- Create, list, and disable API keys.
+
+`hyper agent`
+- Manage HyperClaw subscriptions and generate client configs.
+
+`hyper agents`
+- Manage OpenClaw or agent containers.
+
+`hyper wallet`
+- Create and fund the embedded wallet used for x402 payments.
+
+`hyper comfyui`
+- Run templated ComfyUI workflows on GPU jobs.
+
+## Quick Examples
 
 ```bash
-# Billing
-hyper billing balance
-
-# GPU jobs
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "nvidia-smi"
-hyper jobs list
-hyper jobs logs <job_id>
-
-# Flows (recommended media API)
-hyper flow text-to-image "a cinematic portrait"
-hyper flow text-to-image "a cinematic portrait" --x402
-
-# LLM via HyperClaw (set HYPERCLI_API_URL first)
-export HYPERCLI_API_URL="https://api.hypercli.com"
-hyper claw plans
-hyper claw plans
-hyper claw config env
+hyper instances list
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
+hyper jobs logs <job_id> -f
+hyper flow text-to-image "a product hero image"
+hyper agent plans
+hyper agents create --name docs-demo
 ```
-
-## Notes
-
-- `hyper renders create --x402` is not supported; use `hyper flow ... --x402`.
-- `hyper claw *` commands are for HyperClaw plan checkout and key management.

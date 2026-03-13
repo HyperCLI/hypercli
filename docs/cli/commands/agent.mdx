@@ -1,0 +1,137 @@
+---
+title: hyper agent
+description: HyperClaw subscription, configuration, local audio utilities, and convenience wrappers for agent containers.
+---
+
+`hyper agent` is the CLI surface for HyperClaw account setup and client configuration. It also includes local transcription plus `voice` and `embed` subcommands.
+
+## Subscription And Account Commands
+
+### subscribe
+
+Pay for a HyperClaw plan with the embedded wallet.
+
+```bash
+hyper agent subscribe 1aiu
+hyper agent subscribe 1aiu 25
+hyper agent subscribe 5aiu 100 --dev
+```
+
+Requirements:
+
+- wallet dependencies installed: `pip install 'hypercli-cli[wallet]'`
+- a wallet created with `hyper wallet create`
+- sufficient USDC on Base
+
+The command stores the resulting key in `~/.hypercli/agent-key.json`.
+
+### status
+
+Show the currently saved HyperClaw key, limits, and expiry.
+
+```bash
+hyper agent status
+```
+
+### plans
+
+List plan IDs, price, duration, and rate limits.
+
+```bash
+hyper agent plans
+hyper agent plans --dev
+```
+
+### models
+
+List available inference models from the OpenAI-compatible models endpoint.
+
+```bash
+hyper agent models
+hyper agent models --json
+hyper agent models --dev
+```
+
+### login
+
+Authenticate with a wallet challenge and create a user-bound agent API key.
+
+```bash
+hyper agent login
+hyper agent login --api-url https://api.dev.hypercli.com
+```
+
+This is the wallet-based login path for agent management. It saves the key to `~/.hypercli/agent-key.json`.
+
+## Client Configuration
+
+### config
+
+Generate config snippets for OpenClaw, OpenCode, or plain shell env vars.
+
+```bash
+hyper agent config
+hyper agent config openclaw
+hyper agent config opencode --key sk-...
+hyper agent config env
+hyper agent config openclaw --apply
+```
+
+Supported formats:
+
+- `openclaw`
+- `opencode`
+- `env`
+
+Important flags:
+
+- `--key`, `-k`
+- `--base-url`
+- `--apply`
+- `--dev`
+
+### openclaw-setup
+
+Patch `~/.openclaw/openclaw.json` directly using the saved HyperClaw key.
+
+```bash
+hyper agent openclaw-setup
+hyper agent openclaw-setup --default
+```
+
+## Container Convenience Commands
+
+These forward to the `hyper agents` command group:
+
+```bash
+hyper agent exec <agent_id> "ls -la"
+hyper agent shell <agent_id>
+```
+
+## Local Audio Utilities
+
+### transcribe
+
+Run faster-whisper locally, without using the API.
+
+```bash
+hyper agent transcribe meeting.mp3
+hyper agent transcribe meeting.mp3 --model large-v3 --language en
+hyper agent transcribe audio.wav --json -o transcript.json
+```
+
+### voice
+
+Voice generation helpers live under:
+
+```bash
+hyper agent voice --help
+```
+
+### embed
+
+Embedding helpers live under:
+
+```bash
+hyper agent embed --help
+```

@@ -1,0 +1,68 @@
+---
+title: Configuration
+description: Configure the Python SDK with environment variables, shared config files, and constructor overrides.
+---
+
+## Resolution Order
+
+The Python SDK resolves config in this order:
+
+1. Explicit constructor arguments
+2. Environment variables
+3. `~/.hypercli/config`
+4. Built-in defaults
+
+## Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `HYPERCLI_API_KEY` | Main HyperCLI API key |
+| `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPERCLI_WS_URL` | Optional override for log and shell WebSocket base URLs |
+
+## Shared Config File
+
+Path:
+
+```text
+~/.hypercli/config
+```
+
+Example:
+
+```bash
+HYPERCLI_API_KEY=hyper_...
+HYPERCLI_API_URL=https://api.hypercli.com
+```
+
+Use the SDK helper to write it:
+
+```python
+from hypercli import configure
+
+configure("hyper_...")
+configure("hyper_...", "https://api.dev.hypercli.com")
+```
+
+## Constructor Overrides
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(
+    api_key="hyper_...",
+    api_url="https://api.hypercli.com",
+    agent_api_key="sk-...",
+    agent_dev=False,
+    agents_ws_url="wss://api.agents.hypercli.com/ws",
+)
+```
+
+## Exported Constants
+
+```python
+from hypercli import GHCR_IMAGES, COMFYUI_IMAGE
+```
+
+- `GHCR_IMAGES`: base GitHub Container Registry namespace
+- `COMFYUI_IMAGE`: default image used by `ComfyUIJob`

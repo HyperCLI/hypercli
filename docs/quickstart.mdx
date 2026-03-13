@@ -1,6 +1,6 @@
 ---
 title: Quickstart
-description: Get started with HyperCLI jobs, flows, and HyperClaw inference
+description: Get started with HyperCLI jobs, flows, HyperClaw plans, and OpenClaw agents.
 ---
 
 ## 1. Install
@@ -19,15 +19,16 @@ hyper configure
 
 ```bash
 hyper billing balance
+hyper instances list
 ```
 
-## 4. Launch a GPU Job
+## 4. Launch A GPU Job
 
 ```bash
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "nvidia-smi"
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
 ```
 
-## 5. Run a Flow
+## 5. Run A Flow
 
 ```bash
 hyper flow text-to-image "a cinematic landscape"
@@ -36,17 +37,20 @@ hyper flow text-to-image "a cinematic landscape"
 ## 6. Optional: x402 Pay-Per-Use
 
 ```bash
-# Uses embedded wallet and fixed flow pricing from /flows
+hyper wallet create
 hyper flow text-to-image "a cinematic landscape" --x402
 ```
 
-## 7. Inference via HyperClaw
+## 7. HyperClaw
 
 ```bash
-export HYPERCLI_API_URL="https://api.hypercli.com"
-export HYPERCLI_API_KEY="sk-..."
-hyper claw plans
-hyper claw config env
+hyper agent plans
+hyper agent config env
 ```
 
-See [Flows](/flows/index), [x402 Top-Ups and Flow Checkout](/flows/x402), and [HyperClaw for Agents](/hyperclaw/provider).
+## 8. OpenClaw Agents
+
+```bash
+hyper agents create --name my-agent --size medium
+hyper agents shell <agent_id>
+```

@@ -1,32 +1,32 @@
 ---
 title: hyper billing
-description: Billing commands
+description: Balance and transaction commands.
 ---
 
 ## balance
 
-Get account balance.
+Get the current account balance.
 
 ```bash
 hyper billing balance
-hyper billing balance -o json
+hyper billing balance --output json
 ```
-
-**Options:**
-- `-o, --output` - Output format: `table` (default) or `json`
 
 ## transactions
 
-List transactions.
+List account transactions.
 
 ```bash
 hyper billing transactions
-hyper billing transactions -n 50
-hyper billing transactions -p 2
-hyper billing transactions -o json
+hyper billing transactions --limit 50
+hyper billing transactions --page 2
+hyper billing transactions --output json
 ```
 
-**Options:**
-- `-n, --limit` - Number of transactions (default: 20)
-- `-p, --page` - Page number (default: 1)
-- `-o, --output` - Output format: `table` or `json`
+## invoices
+
+```bash
+hyper billing invoices
+```
+
+The CLI exposes the command, but the backing SDK support is still marked TODO and currently prints a placeholder message.

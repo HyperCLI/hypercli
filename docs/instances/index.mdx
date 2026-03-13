@@ -11,10 +11,10 @@ HyperCLI provides on-demand and spot GPU instances across multiple regions world
 
 ```bash
 # Create a job with L40S GPU
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py"
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "python train.py"
 
 # Create with H100 GPU
-hyper jobs create nvidia/cuda:12.0 -g h100 -c "torchrun --nproc_per_node=8 train.py" -n 8
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g h100 -c "torchrun --nproc_per_node=8 train.py" -n 8
 ```
 
 ## Instance Types
@@ -56,10 +56,10 @@ hyper jobs create nvidia/cuda:12.0 -g h100 -c "torchrun --nproc_per_node=8 train
 
 ```bash
 # Spot (default)
-hyper jobs create nvidia/cuda:12.0 -g l40s --spot
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s --interruptible
 
 # On-demand
-hyper jobs create nvidia/cuda:12.0 -g l40s --on-demand
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s --on-demand
 ```
 
 ## API Endpoints

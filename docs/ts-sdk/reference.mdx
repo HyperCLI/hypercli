@@ -1,0 +1,87 @@
+---
+title: Reference
+description: Reference summary for the main TypeScript SDK exports.
+---
+
+## Top-Level Exports
+
+```ts
+import {
+  HyperCLI,
+  configure,
+  APIError,
+  Billing,
+  Jobs,
+  Instances,
+  Renders,
+  Files,
+  UserAPI,
+  KeysAPI,
+  HyperAgent,
+  Deployments,
+  Agent,
+  OpenClawAgent,
+  BaseJob,
+  ComfyUIJob,
+  GradioJob,
+  LogStream,
+  GatewayClient,
+} from "@hypercli.com/sdk";
+```
+
+## Main Client
+
+```ts
+const client = new HyperCLI({
+  apiKey: "hyper_...",
+  agentApiKey: "sk-...",
+});
+```
+
+Properties:
+
+- `billing`
+- `jobs`
+- `instances`
+- `renders`
+- `files`
+- `keys`
+- `user`
+- `agent`
+- `deployments`
+
+## Errors
+
+The HTTP layer throws `APIError` for non-success responses.
+
+```ts
+try {
+  await client.jobs.get("missing-id");
+} catch (error) {
+  if (error instanceof APIError) {
+    console.error(error.statusCode, error.detail);
+  }
+}
+```
+
+## Logs Helpers
+
+```ts
+import { LogStream, streamLogs, fetchLogs } from "@hypercli.com/sdk";
+```
+
+- `LogStream`: stateful WebSocket log client
+- `streamLogs()`: convenience helper that pushes log lines to a callback
+- `fetchLogs()`: fetch a job's existing logs as lines
+
+## Config Helpers
+
+```ts
+import {
+  getApiKey,
+  getApiUrl,
+  getWsUrl,
+  GHCR_IMAGES,
+  COMFYUI_IMAGE,
+} from "@hypercli.com/sdk";
+```

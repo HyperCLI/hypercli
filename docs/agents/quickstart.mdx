@@ -1,128 +1,97 @@
 ---
 title: Agents Quickstart
-description: Create and control an OpenClaw agent pod in 2 minutes
+description: Create and control an OpenClaw agent pod in a few commands.
 ---
 
 ## Prerequisites
 
-1. **HyperClaw API key** — subscribe via CLI or the [dashboard](https://console.hypercli.com):
+1. A HyperClaw key:
+
    ```bash
-   hyper claw subscribe 1aiu
+   hyper agent subscribe 1aiu
    ```
-2. **HyperCLI installed** with the agents extra:
+
+2. The CLI installed:
+
    ```bash
    pip install hypercli-cli
    ```
 
 ## Environment Variables
 
-| Variable             | Description                              | Default                        |
-|----------------------|------------------------------------------|--------------------------------|
-| `HYPERCLAW_API_KEY`  | Your HyperClaw API key (`sk-...`)        | Read from `~/.hypercli/claw-key.json` |
-| `HYPERCLAW_API_BASE` | Backend API URL                          | `https://api.hypercli.com`    |
+| Variable | Description | Default |
+| --- | --- | --- |
+| `HYPERCLAW_API_KEY` | HyperClaw API key used by `hyper agents` | Read from `~/.hypercli/agent-key.json` |
+| `HYPERCLAW_API_BASE` | HyperClaw backend base URL | `https://api.hypercli.com` |
+| `AGENTS_WS_URL` | Backend WebSocket override | Derived automatically |
 
-## Create an Agent (CLI)
+## Create An Agent With The CLI
 
 ```bash
-# Create a medium agent and wait for it to start
 hyper agents create --name my-agent --size medium --wait
-
-# Check status
 hyper agents status my-agent
-
-# Run a command
-hyper agents exec my-agent 'echo hello world'
-
-# Open an interactive shell
+hyper agents exec my-agent "echo hello world"
 hyper agents shell my-agent
-
-# Chat with the agent's AI
 hyper agents chat my-agent
-
-# Stop when done
 hyper agents stop my-agent --force
 ```
 
 <Tip>
-All commands support **ID prefix matching** — type just the first few characters of the agent ID instead of the full UUID.
+The CLI supports ID prefix matching from cached state in `~/.hypercli/agents.json`.
 </Tip>
 
-## Create an Agent (Python SDK)
+## Create An Agent With The Python SDK
 
 ```python
 import time
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="...", claw_api_key="sk-...")
+client = HyperCLI(api_key="...", agent_api_key="sk-...")
 
-# Create and start
-pod = client.agents.create(name="my-agent", size="medium")
-print(f"Agent created: {pod.id[:12]}")
-print(f"Desktop: {pod.vnc_url}")
+agent = client.deployments.create(name="my-agent", size="medium")
+print(agent.id, agent.vnc_url)
 
-# Wait for running
-while not pod.is_running:
+while not agent.is_running:
     time.sleep(5)
-    pod = client.agents.get(pod.id)
-    print(f"  State: {pod.state}")
+    agent = client.deployments.get(agent.id)
+    print(agent.state)
 
-# Execute a command
-result = client.agents.exec(pod, "echo hello world")
-print(result.stdout)  # "hello world\n"
+result = client.deployments.exec(agent, "echo hello world")
+print(result.stdout)
 
-# Read/write files
-client.agents.file_write(pod, "/tmp/test.txt", "Hello from SDK!")
-content = client.agents.file_read(pod, "/tmp/test.txt")
+client.deployments.file_write(agent, "/tmp/test.txt", "Hello from SDK!")
+content = client.deployments.file_read(agent, "/tmp/test.txt")
+print(content)
 
-# Stop
-client.agents.stop(pod.id)
+client.deployments.stop(agent.id)
 ```
 
-## Use the Gateway (Advanced)
-
-The OpenClaw Gateway gives you full control over the AI agent running inside the pod:
+## Use The Gateway
 
 ```python
 import asyncio
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="...", claw_api_key="sk-...")
+client = HyperCLI(api_key="...", agent_api_key="sk-...")
 
 async def main():
-    pod = client.agents.get("your-agent-id")
+    agent = client.deployments.get("your-agent-id")
+    token = client.deployments.refresh_token(agent.id)
+    agent.jwt_token = token["token"]
 
-    # Refresh JWT if needed
-    token = client.agents.refresh_token(pod.id)
-    pod.jwt_token = token["token"]
-
-    async with pod.gateway() as gw:
-        # Configure the agent
-        config = await gw.config_get()
+    async with agent.connect() as gw:
         await gw.config_patch({
             "models": {"providers": {"openai": {"apiKey": "sk-..."}}}
         })
 
-        # Chat with the AI
         async for event in gw.chat_send("What files are in the workspace?"):
-            if event.type == "content":
-                print(event.text, end="", flush=True)
-        print()
-
-        # Manage workspace files
-        files = await gw.files_list("main")
-        for f in files:
-            print(f"  {f['name']} ({f.get('size', 0)} bytes)")
+            print(event)
 
 asyncio.run(main())
 ```
 
-<Note>
-`pod.gateway()` returns an unconnected `GatewayClient`. Use it as an async context manager (`async with`) to connect and authenticate automatically.
-</Note>
-
 ## Next Steps
 
-- [CLI Reference](/cli/commands/agents) — All `hyper agents` subcommands
-- [SDK Reference](/sdk/agents) — Full Python SDK API
-- [Gateway Client](/sdk/gateway) — WebSocket RPC reference
-- [Agents Overview](/agents/index) — Architecture and concepts
+- [CLI Reference](/cli/commands/agents)
+- [Python SDK Agents](/sdk/agents)
+- [Gateway Client](/sdk/gateway)

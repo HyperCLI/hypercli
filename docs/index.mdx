@@ -1,56 +1,58 @@
 ---
 title: HyperCLI
-description: GPU orchestration, media flows, and HyperClaw inference
+description: GPU orchestration, media flows, HyperClaw inference, and OpenClaw agents.
 ---
 
 HyperCLI provides:
 
-- GPU job orchestration (`/api/jobs`)
-- Media generation flows (`/api/flow/*`)
-- Pay-per-use x402 launches for jobs/flows (`/api/x402/*`)
-- Agent inference via HyperClaw (`https://hypercli.com`)
+- GPU job orchestration through jobs and instance launches
+- Managed media flows for image, video, speech, and transcription
+- x402 pay-per-use launches for jobs and flows
+- HyperClaw inference plans and model discovery
+- OpenClaw and agent container deployments
 
 ## Install
 
 ```bash
 pip install hypercli-sdk hypercli-cli
+npm install @hypercli.com/sdk
 ```
 
 ## Configure
 
 ```bash
 hyper configure
-# or
-export HYPERCLI_API_KEY=your_key
 ```
 
-Get your API key at [console.hypercli.com](https://console.hypercli.com).
+Or set the API key directly:
+
+```bash
+export HYPERCLI_API_KEY=hyper_...
+```
 
 ## Quick Examples
 
-### Launch a GPU Job
+### Launch A GPU Job
 
 ```bash
-hyper jobs create nvidia/cuda:12.0 -g l40s -c "python train.py" -f
+hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
 ```
 
-### Run a Flow
+### Run A Flow
 
 ```bash
 hyper flow text-to-image "a product hero image"
 ```
 
-### x402 Pay-Per-Use Flow
+### x402 Pay-Per-Use
 
 ```bash
 hyper flow text-to-image "a product hero image" --x402
 ```
 
-### HyperClaw Inference
+### HyperClaw
 
 ```bash
-export HYPERCLI_API_URL="https://api.hypercli.com"
-export HYPERCLI_API_KEY="sk-..."
-hyper claw plans
-hyper claw config env
+hyper agent plans
+hyper agent config env
 ```

@@ -1,71 +1,60 @@
 ---
 title: Reference
-description: Core HyperCLI SDK classes and x402 helpers
+description: Reference summary for the Python SDK client, major namespaces, and helper exports.
 ---
 
 ## HyperCLI
 
-Main SDK client.
-
 ```python
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key=None, api_url=None)
+client = HyperCLI(
+    api_key=None,
+    api_url=None,
+    agent_api_key=None,
+    agent_dev=False,
+    agents_ws_url=None,
+)
 ```
+
+Namespaces:
 
 - `client.billing`
 - `client.jobs`
+- `client.instances`
 - `client.renders`
 - `client.files`
+- `client.keys`
 - `client.user`
+- `client.agent`
+- `client.deployments`
 
-## X402Client
-
-Use `X402Client` for pay-per-use x402 launches without a full account billing setup.
+## x402
 
 ```python
-from eth_account import Account
 from hypercli import X402Client
-
-acct = Account.from_key("0x...")
-x402 = X402Client(api_url="https://api.hypercli.com")
 ```
 
-### Methods
+Primary helpers:
 
-```python
-x402.get_flow_catalog() -> list[FlowCatalogItem]
-x402.get_flow_price(flow_type: str) -> float
+- `get_flow_catalog()`
+- `get_flow_price()`
+- `create_job()`
+- `create_flow()`
 
-x402.create_job(
-  amount: float,
-  account,
-  image: str,
-  command: str | None = None,
-  gpu_type: str = "l40s",
-  gpu_count: int = 1,
-  region: str | None = None,
-  interruptible: bool = True,
-  ...
-) -> X402JobLaunch
-
-x402.create_flow(
-  flow_type: str,
-  amount: float,
-  account,
-  params: dict | None = None,
-  notify_url: str | None = None,
-) -> X402FlowCreate
-```
-
-## Key Data Objects
+## Data Objects
 
 - `Job`
+- `JobMetrics`
 - `Render`
 - `RenderStatus`
+- `File`
 - `FlowCatalogItem`
 - `X402JobLaunch`
 - `X402FlowCreate`
+- `Agent`
+- `OpenClawAgent`
+- `ExecResult`
 
 ## Errors
 
@@ -78,3 +67,24 @@ except APIError as e:
     print(e.status_code)
     print(e.detail)
 ```
+
+## Workflow And Streaming Helpers
+
+The package also exports:
+
+- `BaseJob`
+- `ComfyUIJob`
+- `GradioJob`
+- `apply_params`
+- `apply_graph_modes`
+- `find_node`
+- `find_nodes`
+- `load_template`
+- `graph_to_api`
+- `expand_subgraphs`
+- `LogStream`
+- `stream_logs`
+- `fetch_logs`
+- `ShellSession`
+- `shell_connect`
+- `GatewayClient`

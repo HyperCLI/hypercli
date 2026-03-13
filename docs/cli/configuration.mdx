@@ -1,6 +1,6 @@
 ---
 title: Configuration
-description: Configure the HyperCLI CLI
+description: Configure HyperCLI credentials, API URLs, and local state files used by the CLI.
 ---
 
 ## Interactive Setup
@@ -9,26 +9,55 @@ description: Configure the HyperCLI CLI
 hyper configure
 ```
 
-This prompts for your API key and saves it to `~/.hypercli/config`.
+This writes the shared config file at `~/.hypercli/config`.
 
 ## Environment Variables
 
 | Variable | Description |
-|----------|-------------|
-| `HYPERCLI_API_KEY` | Your API key |
-| `HYPERCLI_API_URL` | API URL (default: https://api.hypercli.com) |
+| --- | --- |
+| `HYPERCLI_API_KEY` | Main HyperCLI API key |
+| `HYPERCLI_API_URL` | REST API base URL |
+| `HYPERCLAW_API_KEY` | HyperClaw key used by `hyper agents` and model discovery |
+| `HYPERCLAW_API_BASE` | Override HyperClaw base URL for `hyper agent config` |
+| `AGENTS_WS_URL` | Override backend WebSocket URL for `hyper agents` |
+| `HYPERCLI_WALLET_PASSPHRASE` | Skip wallet passphrase prompts |
 
-## Config File
+## Shared Config File
 
-Location: `~/.hypercli/config`
+Location:
 
-Format:
+```text
+~/.hypercli/config
 ```
-HYPERCLI_API_KEY=your_key
+
+Example:
+
+```bash
+HYPERCLI_API_KEY=hyper_...
 HYPERCLI_API_URL=https://api.hypercli.com
 ```
 
-## Priority
+## Local State Files
 
-1. Environment variables
-2. Config file
+The CLI stores additional state in `~/.hypercli/`:
+
+- `config`: shared API key and base URL
+- `agent-key.json`: saved HyperClaw key from `hyper agent subscribe` or `hyper agent login`
+- `agent-keys.yaml`: key history written by `hyper agent subscribe`
+- `agent-jwt.json`: wallet-auth JWT used during agent login flows
+- `agents.json`: cached agent metadata for ID prefix resolution
+- `wallet.json`: encrypted wallet keystore
+- `x402_renders.jsonl`: saved x402 render history used by `hyper flow renders`
+
+## Priority Rules
+
+The main CLI resolves configuration in this order:
+
+1. Explicit flags
+2. Environment variables
+3. `~/.hypercli/config`
+
+The `hyper agents` command group resolves agent auth in this order:
+
+1. `HYPERCLAW_API_KEY`
+2. `~/.hypercli/agent-key.json`

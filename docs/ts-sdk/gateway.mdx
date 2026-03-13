@@ -1,0 +1,92 @@
+---
+title: Gateway Client
+description: Connect to an OpenClaw gateway over WebSocket from the TypeScript SDK.
+---
+
+`GatewayClient` is the low-level WebSocket client for the OpenClaw gateway protocol. In most applications you will reach it through an `OpenClawAgent`, but it can also be instantiated directly.
+
+## Create A Client
+
+```ts
+import { GatewayClient } from "@hypercli.com/sdk";
+
+const gateway = new GatewayClient({
+  url: "wss://openclaw-example.hypercli.com",
+  token: "jwt...",
+  gatewayToken: "gateway-secret",
+});
+```
+
+## Connect And Listen
+
+```ts
+const unsubscribe = gateway.onEvent((event) => {
+  console.log(event.type, event);
+});
+
+await gateway.connect();
+```
+
+Lifecycle methods:
+
+- `connect()` / `start()`
+- `close()` / `stop()`
+- `onEvent(handler)`
+
+## Configuration
+
+```ts
+await gateway.configGet();
+await gateway.configSchema();
+await gateway.configPatch({
+  models: {
+    providers: {
+      openai: { apiKey: "sk-..." },
+    },
+  },
+});
+```
+
+Also available:
+
+- `configSet()`
+- `status()`
+
+## Chat And Sessions
+
+```ts
+const events = await gateway.sendChat({
+  message: "Summarize this repository",
+  sessionKey: "docs-session",
+});
+```
+
+Session helpers:
+
+- `sessionsList()`
+- `sessionsPreview()`
+- `sessionsReset()`
+- `chatHistory()`
+- `chatAbort()`
+
+## Files, Agents, And Cron
+
+```ts
+await gateway.filesList("main");
+await gateway.fileGet("main", "README.md");
+await gateway.fileSet("main", "notes.txt", "hello");
+
+await gateway.agentsList();
+await gateway.cronList();
+await gateway.cronAdd({ name: "nightly", schedule: "0 2 * * *" });
+await gateway.cronRemove("job-id");
+```
+
+## Exec Approval
+
+If the gateway is configured for approval-driven execution, you can respond to pending exec requests:
+
+```ts
+await gateway.execApprove("exec-id");
+await gateway.execDeny("exec-id");
+```

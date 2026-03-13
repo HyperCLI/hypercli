@@ -1,159 +1,82 @@
 ---
 title: hyper jobs
-description: Job management commands
+description: Inspect jobs, stream logs, watch metrics, exec commands, and open shells.
 ---
 
 ## list
 
-List jobs.
-
 ```bash
 hyper jobs list
-hyper jobs list -s running
+hyper jobs list --state running
 hyper jobs list --tag team=ml --tag env=prod
-hyper jobs list -o json
+hyper jobs list --output json
 ```
 
-**Options:**
-- `-s, --state` - Filter by state: `pending`, `running`, `succeeded`, `failed`, `canceled`
-- `--tag KEY=VALUE` - Filter by exact job tag match; repeat for multiple tags
-- `-o, --output` - Output format: `table` or `json`
-
-## create jobs
-
-Job creation is handled by `hyper instances launch` in the current CLI.
-
-```bash
-# Create a new GPU job
-hyper instances launch <image> [options]
-
-# Validate config and pricing without creating a job
-hyper instances launch <image> [options] --dry-run
-```
-
-See [`instances` command docs](/cli/commands/instances) for full launch options.
-
-## Tags
-
-The CLI supports tag filtering on `hyper jobs list`:
-
-```bash
-hyper jobs list --tag team=ml --tag env=prod
-```
-
-This maps to repeated `tag=key:value` query params on `GET /api/jobs`. Tag assignment happens at job creation in the API and SDK via the optional `tags` object, and tagged jobs return `tags` in JSON output when present.
+The CLI resolves repeated `--tag KEY=VALUE` flags into API tag filters.
 
 ## get
 
-Get job details.
-
 ```bash
 hyper jobs get <job_id>
-hyper jobs get <job_id> -o json
+hyper jobs get <job_id> --output json
 ```
+
+Job IDs can be full UUIDs or recent prefixes when the prefix is unambiguous.
 
 ## logs
 
-Get job logs.
-
 ```bash
 hyper jobs logs <job_id>
-hyper jobs logs <job_id> -f      # Stream logs
-hyper jobs logs <job_id> --tui   # TUI monitor with metrics
+hyper jobs logs <job_id> --tail 200
+hyper jobs logs <job_id> --follow
+hyper jobs logs <job_id> --tui
+hyper jobs logs <job_id> --tui --cancel-on-exit
 ```
-
-**Options:**
-- `-f, --follow` - Stream logs
-- `--tui` - Open full-screen job monitor (logs + metrics)
 
 ## metrics
 
-Get GPU metrics.
-
 ```bash
 hyper jobs metrics <job_id>
-hyper jobs metrics <job_id> -w   # Watch live
-hyper jobs metrics <job_id> -o json
+hyper jobs metrics <job_id> --watch
+hyper jobs metrics <job_id> --output json
 ```
 
-**Options:**
-- `-w, --watch` - Watch metrics live
-- `-o, --output` - Output format: `table` or `json`
+## exec
+
+```bash
+hyper jobs exec <job_id> "nvidia-smi"
+hyper jobs exec <job_id> "python -c 'import torch; print(torch.cuda.device_count())'"
+```
+
+Important flag:
+
+- `--timeout`, `-t`
+
+## shell
+
+```bash
+hyper jobs shell <job_id>
+hyper jobs shell <job_id> --shell /bin/sh
+```
+
+This opens an interactive PTY over WebSocket.
+
+## extend
+
+```bash
+hyper jobs extend <job_id> 7200
+```
 
 ## cancel
-
-Cancel a job.
 
 ```bash
 hyper jobs cancel <job_id>
 ```
 
-## exec
+## Creating Jobs
 
-Execute a command non-interactively on a running job container. Returns stdout, stderr, and exit code.
-
-```bash
-hyper jobs exec <job_id> <command> [--timeout 30]
-```
-
-**Arguments:**
-- `job_id` — Job ID (full or prefix)
-- `command` — Command to execute
-
-**Options:**
-- `-t, --timeout` — Timeout in seconds (default: 30)
-
-**Examples:**
-```bash
-# Check GPU
-hyper jobs exec abc123 "nvidia-smi --query-gpu=name,memory.total --format=csv,noheader"
-NVIDIA H200, 141120 MiB
-
-# Run a script
-hyper jobs exec abc123 "python -c 'import torch; print(torch.cuda.device_count())'"
-8
-
-# Check container OS
-hyper jobs exec abc123 "cat /etc/os-release | head -3"
-PRETTY_NAME="Ubuntu 22.04.5 LTS"
-NAME="Ubuntu"
-VERSION_ID="22.04"
-```
-
-Exit code is forwarded to the shell — use `$?` to check success/failure.
-
-<Tip>
-For interactive shells, use `hyper jobs shell` instead. `exec` is designed for scripting and automation.
-</Tip>
-
-## shell
-
-Open an interactive PTY shell on a running job container via WebSocket.
+New job creation lives under:
 
 ```bash
-hyper jobs shell <job_id> [--shell /bin/bash]
-```
-
-**Arguments:**
-- `job_id` — Job ID (full or prefix)
-
-**Options:**
-- `-s, --shell` — Shell to use (default: `/bin/bash`)
-
-Press **Ctrl+D** (or run `exit`) to disconnect.
-
-**Example:**
-```bash
-$ hyper jobs shell abc123
-root@container:/app# nvidia-smi
-root@container:/app# python train.py
-root@container:/app# exit
-```
-
-## extend
-
-Extend job runtime.
-
-```bash
-hyper jobs extend <job_id> <seconds>
+hyper instances launch ...
 ```

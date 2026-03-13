@@ -1,0 +1,79 @@
+---
+title: Configuration
+description: Configure the TypeScript SDK and shared HyperCLI credentials.
+---
+
+## Resolution Order
+
+The SDK reads configuration using the same precedence as the CLI:
+
+1. Environment variables
+2. `~/.hypercli/config`
+3. SDK defaults
+
+## Environment Variables
+
+| Variable | Description |
+| --- | --- |
+| `HYPERCLI_API_KEY` | Main REST API key used by `HyperCLI` |
+| `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPERCLI_WS_URL` | Override the derived WebSocket base URL |
+
+## Shared Config File
+
+Path:
+
+```text
+~/.hypercli/config
+```
+
+Format:
+
+```bash
+HYPERCLI_API_KEY=hyper_...
+HYPERCLI_API_URL=https://api.hypercli.com
+```
+
+`configure()` creates the directory if needed and writes the file with `0600` permissions when the platform supports it.
+
+```ts
+import { configure } from "@hypercli.com/sdk";
+
+configure("hyper_...");
+configure("hyper_...", "https://api.dev.hypercli.com");
+```
+
+## Runtime Helpers
+
+```ts
+import {
+  getApiKey,
+  getApiUrl,
+  getWsUrl,
+  DEFAULT_API_URL,
+  DEFAULT_WS_URL,
+} from "@hypercli.com/sdk";
+```
+
+## Constructor Overrides
+
+Constructor values win over env vars and the config file.
+
+```ts
+const client = new HyperCLI({
+  apiKey: "hyper_...",
+  apiUrl: "https://api.hypercli.com",
+  timeout: 30_000,
+});
+```
+
+## Image Constants
+
+The SDK exports a few image helpers used by the workflow wrappers:
+
+```ts
+import { GHCR_IMAGES, COMFYUI_IMAGE } from "@hypercli.com/sdk";
+```
+
+- `GHCR_IMAGES`: base GitHub Container Registry namespace
+- `COMFYUI_IMAGE`: default image used by `ComfyUIJob`

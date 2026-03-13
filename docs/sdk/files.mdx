@@ -1,110 +1,76 @@
 ---
 title: Files
-description: Upload files for use in renders
+description: Upload local files, bytes, URLs, and base64 payloads for use in render workflows.
 ---
 
-Upload images, audio, and video files to use in render workflows.
+Uploaded files are primarily intended for use inside HyperCLI workflows. The returned `url` is an internal storage reference, not a public download URL.
 
-## Upload File
+## Upload From Disk
 
 ```python
 from hypercli import HyperCLI
 
-hyper = HyperCLI()
-
-# Upload a local file
+client = HyperCLI()
 file = client.files.upload("./face.png")
 
-print(f"File ID: {file.id}")
-print(f"URL: {file.url}")  # s3://bucket/key - for use in renders
+print(file.id)
+print(file.url)
 ```
 
-The returned URL is an S3 reference that can be passed to render methods.
-
-### From Bytes
+## Upload From Bytes
 
 ```python
-# Upload from bytes
 file = client.files.upload_bytes(
     content=image_bytes,
     filename="generated.png",
-    content_type="image/png"
+    content_type="image/png",
 )
 ```
 
-### Supported Types
+## Async URL And Base64 Imports
 
-| Type | Extensions | Content Types |
-|------|------------|---------------|
-| Images | .png, .jpg, .jpeg, .webp, .gif | image/png, image/jpeg, image/webp, image/gif |
-| Audio | .mp3, .wav | audio/mpeg, audio/wav, audio/mp3, audio/x-wav |
-| Video | .mp4, .webm | video/mp4, video/webm |
-
-Max file size: 100MB
-
-## Use with Renders
+`upload_url()` and `upload_b64()` return immediately and usually start in `processing` state.
 
 ```python
-from hypercli import HyperCLI
+file = client.files.upload_url("https://example.com/image.png")
+file = client.files.wait_ready(file.id)
+```
 
-hyper = HyperCLI()
+```python
+file = client.files.upload_b64(base64_payload, "image.png", "image/png")
+file = client.files.wait_ready(file.id, timeout=30)
+```
 
-# Upload files
-face = client.files.upload("./face.png")
+## Use With Renders
+
+```python
+image = client.files.upload("./face.png")
 audio = client.files.upload("./speech.wav")
 
-# Use in render flow
 render = client.renders.speaking_video(
     prompt="A person speaking naturally",
-    image_url=face.url,
+    image_url=image.url,
     audio_url=audio.url,
 )
-
-# Poll for completion
-while render.state not in ("completed", "failed"):
-    render = client.renders.get(render.render_id)
-    time.sleep(2)
-
-print(render.result_url)
 ```
 
-## List Files
+## Metadata And Deletion
 
 ```python
-files = client.files.list()
-
-for f in files:
-    print(f"{f.filename}: {f.file_size} bytes")
+current = client.files.get(file.id)
+client.files.delete(file.id)
 ```
 
-### List Parameters
-
-| Parameter | Type | Default | Description |
-|-----------|------|---------|-------------|
-| `limit` | int | 50 | Max results (1-100) |
-| `offset` | int | 0 | Pagination offset |
-
-## Get File
-
-```python
-file = client.files.get("file-uuid")
-print(f"URL: {file.url}")
-```
-
-## Delete File
-
-```python
-client.files.delete("file-uuid")
-```
-
-## File Object
+## File Fields
 
 | Field | Type | Description |
-|-------|------|-------------|
-| `id` | str | File UUID |
-| `user_id` | str | Owner user ID |
-| `filename` | str | Original filename |
-| `content_type` | str | MIME type |
-| `file_size` | int | Size in bytes |
-| `url` | str | S3 reference URL (for renders) |
-| `created_at` | datetime | Upload timestamp |
+| --- | --- | --- |
+| `id` | `str` | File UUID |
+| `user_id` | `str` | Owner user ID |
+| `filename` | `str` | Original filename |
+| `content_type` | `str` | MIME type |
+| `file_size` | `int` | Size in bytes |
+| `url` | `str` | Internal S3 reference used by HyperCLI workflows |
+| `state` | `str \| None` | `processing`, `done`, or `failed` for async uploads |
+| `error` | `str \| None` | Backend error for failed async uploads |
+| `created_at` | `str \| None` | Upload timestamp |
