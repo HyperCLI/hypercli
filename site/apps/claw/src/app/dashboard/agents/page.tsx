@@ -1,6 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import type { Agent as SdkAgent } from "@hypercli/sdk/agents";
+import { getGatewayToken, setGatewayToken } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -66,6 +68,7 @@ interface Agent {
   created_at: string | null;
   updated_at: string | null;
   openclaw_url?: string | null;
+  gatewayToken?: string | null;
 }
 
 interface AgentBudget {
@@ -77,30 +80,11 @@ interface AgentBudget {
   used_memory: number;
 }
 
-interface AgentListResponse {
-  items: Agent[];
-  budget?: AgentBudget;
-}
-
-interface AgentLogsTokenResponse {
-  agent_id: string;
-  jwt: string;
-  expires_at: string;
-  ws_url?: string;
-}
-
 interface AgentDesktopTokenResponse {
   agent_id: string;
   pod_id: string;
   token: string;
   expires_at: string | null;
-}
-
-interface AgentShellTokenResponse {
-  agent_id: string;
-  jwt: string;
-  expires_at: string;
-  ws_url: string;
 }
 
 interface LogEvent {
@@ -133,19 +117,6 @@ type MainTab = AgentMainTab;
 
 // ── Utility functions ──
 
-function wsBaseFromApiBase(apiBase: string): string {
-  const base = apiBase.trim().replace(/\/+$/, "");
-  const withoutApiSuffix = base.endsWith("/api") ? base.slice(0, -4) : base;
-  if (withoutApiSuffix) {
-    if (withoutApiSuffix.startsWith("https://")) return `wss://${withoutApiSuffix.slice(8)}`;
-    if (withoutApiSuffix.startsWith("http://")) return `ws://${withoutApiSuffix.slice(7)}`;
-    return withoutApiSuffix;
-  }
-  if (typeof window === "undefined") return "";
-  const wsProtocol = window.location.protocol === "https:" ? "wss:" : "ws:";
-  return `${wsProtocol}//${window.location.host}`;
-}
-
 function trimTrailingSlash(value: string): string {
   return value.replace(/\/+$/, "");
 }
@@ -156,6 +127,41 @@ function encodePath(path: string): string {
     .filter(Boolean)
     .map((part) => encodeURIComponent(part))
     .join("/");
+}
+
+function downloadBrowserFile(content: BlobPart, filename: string, mimeType = "application/octet-stream") {
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
+function sdkAgentToPageAgent(agent: SdkAgent): Agent {
+  const openclawUrl =
+    "gatewayUrl" in agent && typeof agent.gatewayUrl === "string"
+      ? agent.gatewayUrl
+      : null;
+  return {
+    id: agent.id,
+    name: agent.name ?? agent.id,
+    user_id: agent.userId,
+    pod_id: agent.podId || null,
+    pod_name: agent.podName || null,
+    state: (agent.state || "STOPPED").toUpperCase() as AgentState,
+    cpu_millicores: Math.round((agent.cpu || 0) * 1000),
+    memory_mib: Math.round((agent.memory || 0) * 1024),
+    hostname: agent.hostname ?? null,
+    started_at: agent.startedAt?.toISOString() ?? null,
+    stopped_at: agent.stoppedAt?.toISOString() ?? null,
+    last_error: agent.lastError ?? null,
+    created_at: agent.createdAt?.toISOString() ?? null,
+    updated_at: agent.updatedAt?.toISOString() ?? null,
+    openclaw_url: openclawUrl,
+  };
 }
 
 function formatFileSize(size?: number): string {
@@ -184,6 +190,34 @@ function setDesktopAuthCookie(name: string, value: string, days: number, domain:
   const domainPart = domain ? `; domain=${domain}` : "";
   const encodedValue = encodeURIComponent(value);
   document.cookie = `${name}=${encodedValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+}
+
+function clearDesktopAuthCookie(name: string, domain: string): void {
+  const securePart = window.location.protocol === "https:" ? "; secure" : "";
+  const expires = "Thu, 01 Jan 1970 00:00:00 GMT";
+  document.cookie = `${name}=; expires=${expires}; path=/${securePart}; samesite=lax`;
+  if (domain) {
+    document.cookie = `${name}=; expires=${expires}; path=/; domain=${domain}${securePart}; samesite=lax`;
+  }
+}
+
+function clearAgentAccessCookies(hostname: string | null | undefined): void {
+  if (!hostname || typeof window === "undefined") return;
+  const subdomain = hostname.split(".")[0];
+  const configuredCookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim();
+  const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
+  const currentHost = window.location.hostname;
+  const canUseCrossDomainCookie =
+    normalizedDomain &&
+    (currentHost === normalizedDomain || currentHost.endsWith(`.${normalizedDomain}`));
+  const cookieDomain = canUseCrossDomainCookie
+    ? (configuredCookieDomain || `.${normalizedDomain}`)
+    : "";
+
+  clearDesktopAuthCookie(`${subdomain}-token`, cookieDomain);
+  clearDesktopAuthCookie(`shell-${subdomain}-token`, cookieDomain);
+  clearDesktopAuthCookie(`openclaw-${subdomain}-token`, cookieDomain);
+  clearDesktopAuthCookie("reef_token", cookieDomain);
 }
 
 function stateClass(state: AgentState): string {
@@ -280,6 +314,10 @@ function normalizeSchemaNode(schema: JsonObject): JsonObject {
   return asObject(primary) ?? schema;
 }
 
+function isHiddenEntry(name: string): boolean {
+  return name.startsWith(".");
+}
+
 function S3FilesPanel({
   agentId,
   getToken,
@@ -301,9 +339,8 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const params = new URLSearchParams();
-      if (targetPrefix) params.set("prefix", targetPrefix);
-      const endpoint = `/deployments/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const encodedPrefix = encodePath(targetPrefix);
+      const endpoint = `/deployments/${agentId}/files${encodedPrefix ? `/${encodedPrefix}` : ""}`;
       const data = await clawFetch<S3FilesResponse>(endpoint, token);
       setPrefix(data.prefix || targetPrefix);
       setDirectories(data.directories || []);
@@ -334,7 +371,7 @@ function S3FilesPanel({
       const token = await getToken();
       for (const file of Array.from(uploadList)) {
         const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(uploadPath)}`, {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -359,8 +396,15 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const data = await clawFetch<{ url: string }>(`/deployments/${agentId}/files/download/${encodePath(path)}`, token);
-      window.open(data.url, "_blank", "noopener,noreferrer");
+      const response = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(path)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Download failed (${response.status})`);
+      }
+      const content = await response.arrayBuffer();
+      downloadBrowserFile(content, path.split("/").filter(Boolean).pop() || "download");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Download failed");
     }
@@ -371,7 +415,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/deployments/${agentId}/files/delete/${encodePath(path)}`, token, {
+      await clawFetch(`/deployments/${agentId}/files/${encodePath(path)}`, token, {
         method: "DELETE",
       });
       await loadFiles(prefix);
@@ -381,6 +425,9 @@ function S3FilesPanel({
   }, [agentId, getToken, loadFiles, prefix]);
 
   const pathParts = prefix.split("/").filter(Boolean);
+  const hiddenDirectoryCount = directories.filter((dir) => isHiddenEntry(dir.name)).length;
+  const hiddenFileCount = files.filter((file) => isHiddenEntry(file.name)).length;
+  const hiddenEntryCount = hiddenDirectoryCount + hiddenFileCount;
 
   return (
     <div className="h-full flex flex-col">
@@ -413,6 +460,11 @@ function S3FilesPanel({
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </button>
+        {hiddenEntryCount > 0 && (
+          <span className="rounded-full border border-border bg-surface-low px-2 py-1 text-[11px] text-text-muted">
+            {hiddenEntryCount} hidden
+          </span>
+        )}
         <div className="flex-1" />
         <p className="text-xs text-text-muted">Uploaded files sync to workspace on agent restart.</p>
       </div>
@@ -445,10 +497,17 @@ function S3FilesPanel({
                 <button
                   key={`dir-${dir.path || dir.name}`}
                   onClick={() => goToPrefix(nextPrefix)}
-                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low text-left"
+                  className={`w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low text-left ${
+                    isHiddenEntry(dir.name) ? "opacity-80" : ""
+                  }`}
                 >
                   <FolderOpen className="w-4 h-4 text-text-muted" />
                   <span className="text-sm text-foreground font-mono flex-1">{dir.name}</span>
+                  {isHiddenEntry(dir.name) && (
+                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                      hidden
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -456,10 +515,17 @@ function S3FilesPanel({
             {files.map((file) => (
               <div
                 key={`file-${file.path}`}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low"
+                className={`w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low ${
+                  isHiddenEntry(file.name) ? "opacity-80" : ""
+                }`}
               >
                 <FileText className="w-4 h-4 text-text-muted" />
                 <span className="text-sm text-foreground font-mono flex-1">{file.name}</span>
+                {isHiddenEntry(file.name) && (
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                    hidden
+                  </span>
+                )}
                 <span className="text-xs text-text-muted w-24 text-right">{formatFileSize(file.size)}</span>
                 <button
                   onClick={() => void downloadFile(file.path)}
@@ -481,6 +547,12 @@ function S3FilesPanel({
             {directories.length === 0 && files.length === 0 && (
               <div className="p-8 text-center text-sm text-text-muted">
                 No files in this directory.
+              </div>
+            )}
+
+            {hiddenEntryCount > 0 && directories.length + files.length === hiddenEntryCount && (
+              <div className="px-2 py-3 text-center text-xs text-text-muted">
+                This directory currently only contains hidden entries.
               </div>
             )}
 
@@ -515,6 +587,7 @@ export default function AgentsPage() {
 
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const gatewayTokensRef = useRef<Record<string, string>>({});
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -570,10 +643,10 @@ export default function AgentsPage() {
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
-      const data = await clawFetch<AgentListResponse>("/deployments", token);
-      const items = data.items || [];
+      const data = await createClawClient(token).deployments.list();
+      const items = (data.items || []).map(sdkAgentToPageAgent);
       setAgents(items);
-      setBudget(data.budget || null);
+      setBudget((data.budget as AgentBudget | undefined) || null);
       if (!selectedAgentId && items.length > 0) {
         setSelectedAgentId(items[0].id);
       }
@@ -612,10 +685,14 @@ export default function AgentsPage() {
     prevStatesRef.current = next;
   }, [agents]);
 
-  const selectedAgent = useMemo(
-    () => agents.find((item) => item.id === selectedAgentId) || null,
-    [agents, selectedAgentId]
-  );
+  const selectedAgent = useMemo(() => {
+    const agent = agents.find((item) => item.id === selectedAgentId) || null;
+    if (agent && !agent.gatewayToken) {
+      const token = gatewayTokensRef.current[agent.id] || getGatewayToken(agent.id);
+      if (token) return { ...agent, gatewayToken: token };
+    }
+    return agent;
+  }, [agents, selectedAgentId]);
   const selectedAgentHostname = selectedAgent?.hostname || null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
@@ -860,22 +937,16 @@ export default function AgentsPage() {
         setWsStatus("connecting");
         const token = await getToken();
         if (cancelled) return;
-        const stream = await clawFetch<AgentLogsTokenResponse>(`/deployments/${agentId}/logs/token`, token, { method: "POST" });
-        const explicitWsUrl = (stream.ws_url || "").trim();
-        const configuredWsBase = trimTrailingSlash((process.env.NEXT_PUBLIC_WS_URL || "").trim());
-        const derivedWsBase = trimTrailingSlash(wsBaseFromApiBase(CLAW_API_BASE));
-        let url = "";
-        if (explicitWsUrl) {
-          const sep = explicitWsUrl.includes("?") ? "&" : "?";
-          url = `${explicitWsUrl}${sep}jwt=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
-        } else {
-          const wsBase = configuredWsBase || derivedWsBase;
-          if (!wsBase) throw new Error("WebSocket base URL is not configured");
-          url = `${wsBase}/ws/logs/${agentId}?jwt=${encodeURIComponent(stream.jwt)}&container=reef&tail_lines=400`;
+        const liveWs = await createClawClient(token).deployments.logsConnect(agentId, { container: "reef", tailLines: 400 });
+        ws = liveWs;
+        if (cancelled) {
+          liveWs.close();
+          return;
         }
-        ws = new WebSocket(url);
-        ws.onopen = () => { if (!cancelled) { reconnectScheduled = false; setWsStatus("connected"); void fetchAgents(); } };
-        ws.onmessage = (event) => {
+        reconnectScheduled = false;
+        setWsStatus("connected");
+        void fetchAgents();
+        liveWs.onmessage = (event) => {
           if (cancelled) return;
           try {
             const msg = JSON.parse(event.data as string) as LogEvent;
@@ -891,8 +962,8 @@ export default function AgentsPage() {
             setLogs((prev) => { const next = [...prev, String(event.data ?? "")]; return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next; });
           }
         };
-        ws.onclose = () => { if (!cancelled) scheduleReconnect(); };
-        ws.onerror = () => { if (!cancelled) scheduleReconnect(); };
+        liveWs.onclose = () => { if (!cancelled) scheduleReconnect(); };
+        liveWs.onerror = () => { if (!cancelled) scheduleReconnect(); };
       } catch { if (!cancelled) scheduleReconnect(); }
     };
     void connect();
@@ -974,23 +1045,20 @@ export default function AgentsPage() {
         setShellStatus("connecting");
         const authToken = await getToken();
         if (cancelled) return;
-        const shellToken = await clawFetch<AgentShellTokenResponse>(`/deployments/${agentId}/shell/token`, authToken, { method: "POST" });
-        if (cancelled) return;
-        const ws = new WebSocket(`${shellToken.ws_url}?jwt=${encodeURIComponent(shellToken.jwt)}`);
+        const ws = await createClawClient(authToken).deployments.shellConnect(agentId);
+        if (cancelled) {
+          ws.close();
+          return;
+        }
         shellWsRef.current = ws;
-        ws.onopen = () => {
-          if (!cancelled) {
-            reconnectScheduled = false;
-            setShellStatus("connected");
-            shellFitAddonRef.current?.fit();
-            shellTerminalRef.current?.focus();
-            // Phase 4A: Send initial size after WebSocket connects
-            const dims = shellFitAddonRef.current?.proposeDimensions();
-            if (dims) {
-              ws.send(`\x1b[8;${dims.rows};${dims.cols}t`);
-            }
-          }
-        };
+        reconnectScheduled = false;
+        setShellStatus("connected");
+        shellFitAddonRef.current?.fit();
+        shellTerminalRef.current?.focus();
+        const dims = shellFitAddonRef.current?.proposeDimensions();
+        if (dims) {
+          ws.send(`\x1b[8;${dims.rows};${dims.cols}t`);
+        }
         ws.onmessage = (event) => { if (!cancelled) { const text = typeof event.data === "string" ? event.data : String(event.data ?? ""); if (text) shellTerminalRef.current?.write(text); } };
         ws.onclose = () => { if (!cancelled) { setShellStatus("disconnected"); scheduleReconnect(); } };
         ws.onerror = () => { if (!cancelled) { setShellStatus("disconnected"); scheduleReconnect(); } };
@@ -1026,8 +1094,10 @@ export default function AgentsPage() {
     setStoppingId(agentId);
     setError(null);
     try {
+      const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
       await createClawClient(token).deployments.stop(agentId);
+      clearAgentAccessCookies(agent?.hostname);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
@@ -1041,8 +1111,10 @@ export default function AgentsPage() {
     setDeletingId(agentId);
     setError(null);
     try {
+      const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
       await createClawClient(token).deployments.delete(agentId);
+      clearAgentAccessCookies(agent?.hostname);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
       await fetchAgents();
     } catch (err) {
@@ -1232,7 +1304,7 @@ export default function AgentsPage() {
       const agentPath = `/home/ubuntu/${uploadPath}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper claw transcribe ${agentPath}\``;
       // Upload audio to agent's filesystem
-      const res = await fetch(`${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/upload/${encodePath(uploadPath)}`, {
+      const res = await fetch(`${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/${encodePath(uploadPath)}`, {
         method: "PUT",
         headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/webm" },
         body: audioBlob,
@@ -1332,7 +1404,14 @@ export default function AgentsPage() {
       <AgentCreationWizard
         open={showCreateDialog}
         onClose={() => setShowCreateDialog(false)}
-        onCreated={() => { setShowCreateDialog(false); fetchAgents(); }}
+        onCreated={(agentId, gwToken) => {
+          if (agentId && gwToken) {
+            gatewayTokensRef.current[agentId] = gwToken;
+            setGatewayToken(agentId, gwToken);
+          }
+          setShowCreateDialog(false);
+          fetchAgents();
+        }}
         budget={budget}
       />
 
@@ -1695,7 +1774,7 @@ export default function AgentsPage() {
                       {chat.messages.map((msg, i) => {
                         const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
                         const inlineAudioUrl = voicePath && selectedAgent
-                          ? `${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/download/${encodeURIComponent(voicePath)}`
+                          ? `${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
                           : null;
                         return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
                       })}

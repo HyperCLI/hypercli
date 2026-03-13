@@ -196,6 +196,11 @@ class Agent:
         self.jwt_expires_at = _parse_dt(data.get("expires_at"))
         return data
 
+    def env(self) -> dict[str, str]:
+        """Fetch runtime environment from the pod's K8s secret."""
+        data = self._require_deployments().env(self.id)
+        return data.get("env", {})
+
     def exec(self, command: str, timeout: int = 30, dry_run: bool = False) -> "ExecResult":
         return self._require_deployments().exec(self, command, timeout=timeout, dry_run=dry_run)
 
@@ -216,6 +221,9 @@ class Agent:
 
     def file_write(self, path: str, content: str) -> dict:
         return self._require_deployments().file_write(self, path, content)
+
+    def file_delete(self, path: str, recursive: bool = False) -> dict:
+        return self._require_deployments().file_delete(self, path, recursive)
 
     def cp_to(self, local_path: str | Path, remote_path: str) -> dict:
         return self._require_deployments().cp_to(self, local_path, remote_path)
@@ -248,6 +256,14 @@ class OpenClawAgent(Agent):
             gateway_token=data.get("gateway_token"),
         )
 
+    def resolve_gateway_token(self) -> str | None:
+        """Resolve the gateway token. Fetches from pod env if not set locally."""
+        if self.gateway_token:
+            return self.gateway_token
+        env_data = self.env()
+        self.gateway_token = env_data.get("OPENCLAW_GATEWAY_TOKEN")
+        return self.gateway_token
+
     def gateway(self, **kwargs) -> "GatewayClient":
         """Create a GatewayClient for this OpenClaw agent."""
         from .gateway import GatewayClient
@@ -255,8 +271,11 @@ class OpenClawAgent(Agent):
             raise ValueError("Agent has no OpenClaw gateway URL")
         if not self.jwt_token:
             raise ValueError("Agent has no JWT token — refresh it first")
-        if self.gateway_token and "gateway_token" not in kwargs:
-            kwargs["gateway_token"] = self.gateway_token
+        if "gateway_token" not in kwargs:
+            if not self.gateway_token:
+                self.resolve_gateway_token()
+            if self.gateway_token:
+                kwargs["gateway_token"] = self.gateway_token
         return GatewayClient(url=self.gateway_url, token=self.jwt_token, **kwargs)
 
     @asynccontextmanager
@@ -672,6 +691,14 @@ class Deployments:
         """
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/token")
 
+    def logs_token(self, agent_id: str) -> dict:
+        """Mint a short-lived JWT token for backend log streaming."""
+        return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/logs/token")
+
+    def env(self, agent_id: str) -> dict:
+        """Fetch runtime environment from the pod's K8s secret."""
+        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/env")
+
     # -----------------------------------------------------------------------
     # Executor API (direct to reef pod via shell-{hostname})
     # -----------------------------------------------------------------------
@@ -726,9 +753,10 @@ class Deployments:
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}"
+                if path
+                else f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files",
                 headers=self._file_headers(),
-                params={"prefix": path},
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
@@ -740,10 +768,8 @@ class Deployments:
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/download/{self._encode_file_path(path)}",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
-                params={"source": "pod"},
-                follow_redirects=True,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
@@ -758,7 +784,7 @@ class Deployments:
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.put(
-                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/upload/{self._encode_file_path(path)}",
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),
                 content=content,
             )
@@ -769,6 +795,19 @@ class Deployments:
     def file_write(self, pod: Agent | str, path: str, content: str) -> dict:
         """Write a UTF-8 text file to an agent."""
         return self.file_write_bytes(pod, path, content.encode())
+
+    def file_delete(self, pod: Agent | str, path: str, recursive: bool = False) -> dict:
+        """Delete a file or directory from an agent."""
+        agent_id = self._agent_id_for_target(pod)
+        with httpx.Client(timeout=10) as client:
+            resp = client.delete(
+                f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
+                headers=self._file_headers(),
+                params={"recursive": "true"} if recursive else None,
+            )
+        if resp.status_code >= 400:
+            raise APIError(resp.status_code, resp.text)
+        return resp.json()
 
     def cp_to(self, pod: Agent | str, local_path: str | Path, remote_path: str) -> dict:
         """Copy a local file to an agent."""
@@ -870,10 +909,15 @@ class Deployments:
         import websockets
 
         # Get JWT token
-        token_data = self.refresh_token(agent_id)
+        token_data = self.logs_token(agent_id)
         jwt = token_data["jwt"]
 
-        url = f"{self._agents_ws_url}/{agent_id}?jwt={jwt}&container={container}&tail_lines={tail_lines}"
+        url = (
+            f"{self._agents_ws_url}/logs/{agent_id}"
+            f"?jwt={quote(jwt, safe='')}"
+            f"&container={quote(container, safe='')}"
+            f"&tail_lines={tail_lines}"
+        )
 
         async with websockets.connect(url) as ws:
             async for msg in ws:
@@ -901,6 +945,11 @@ class Deployments:
             payload["dry_run"] = True
         token_data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/shell/token", json=payload)
         jwt = token_data["jwt"]
-        url = token_data.get("ws_url") or f"{self._agents_ws_url}/shell/{agent_id}?jwt={jwt}&shell={selected_shell}"
+        resolved_shell = token_data.get("shell") or selected_shell
+        url = (
+            f"{self._agents_ws_url}/shell/{agent_id}"
+            f"?jwt={quote(jwt, safe='')}"
+            f"&shell={quote(resolved_shell, safe='')}"
+        )
 
         return await websockets.connect(url, ping_interval=20, ping_timeout=20)

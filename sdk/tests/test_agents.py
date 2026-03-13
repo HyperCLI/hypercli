@@ -276,15 +276,20 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
             if url.endswith("/deployments/agent-123/files"):
+                assert params is None
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
-            if url.endswith("/deployments/agent-123/files/download/workspace/a.txt"):
-                assert params == {"source": "pod"}
+            if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
                 return FakeResponse(content=b"hello")
             raise AssertionError(url)
 
         def put(self, url, headers=None, content=None):
-            assert url.endswith("/deployments/agent-123/files/upload/workspace/a.txt")
+            assert url.endswith("/deployments/agent-123/files/workspace/a.txt")
             assert content == b"payload"
+            return FakeResponse(json_data={"status": "ok"})
+
+        def delete(self, url, headers=None, params=None):
+            assert url.endswith("/deployments/agent-123/files/workspace/a.txt")
+            assert params is None
             return FakeResponse(json_data={"status": "ok"})
 
     with patch("hypercli.agents.httpx.Client", FakeClient):
@@ -294,6 +299,7 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
         assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
+        assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
 
 
 def test_agents_list(agents_client):

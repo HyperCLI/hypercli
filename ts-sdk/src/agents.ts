@@ -5,6 +5,7 @@ import type { HTTPClient } from './http.js';
 import { GatewayClient, type ChatEvent, type GatewayOptions } from './gateway.js';
 
 const AGENTS_API_BASE = 'https://api.hypercli.com';
+const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
@@ -164,15 +165,27 @@ function normalizeAgentsWsUrl(url: string): string {
   return base.endsWith('/ws') ? base : `${base}/ws`;
 }
 
-function defaultAgentsWsUrl(apiBase: string): string {
+export function resolveAgentsApiBase(apiBase: string): string {
   const raw = (apiBase || '').trim();
+  if (!raw) return AGENTS_API_BASE;
   const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  const host = parsed.host.toLowerCase();
+  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_API_BASE;
+  if (host === 'api.dev.hypercli.com' || host === 'api.dev.hyperclaw.app' || host === 'dev-api.hyperclaw.app') {
+    return DEV_AGENTS_API_BASE;
+  }
+  return raw.replace(/\/$/, '');
+}
+
+function defaultAgentsWsUrl(apiBase: string): string {
+  const resolvedApiBase = resolveAgentsApiBase(apiBase);
+  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
   const host = parsed.host.toLowerCase();
   if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_WS_URL;
   if (host === 'api.dev.hypercli.com' || host === 'api.dev.hyperclaw.app' || host === 'dev-api.hyperclaw.app') {
     return DEV_AGENTS_WS_URL;
   }
-  return normalizeAgentsWsUrl(raw);
+  return normalizeAgentsWsUrl(resolvedApiBase);
 }
 
 function randomHexToken(bytes: number): string {
@@ -396,6 +409,10 @@ export class Agent {
     return this.requireDeployments().fileWrite(this, path, content);
   }
 
+  async fileDelete(path: string, options: { recursive?: boolean } = {}): Promise<Record<string, any>> {
+    return this.requireDeployments().fileDelete(this, path, options);
+  }
+
   async cpTo(localPath: string, remotePath: string): Promise<Record<string, any>> {
     return this.requireDeployments().cpTo(this, localPath, remotePath);
   }
@@ -531,7 +548,7 @@ export class Deployments {
     agentsWsUrl?: string,
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
-    this.apiBase = (agentApiBase || process.env.HYPERCLI_API_URL || AGENTS_API_BASE).replace(/\/$/, '');
+    this.apiBase = resolveAgentsApiBase(agentApiBase || process.env.HYPERCLI_API_URL || AGENTS_API_BASE);
     this.agentsWsUrl = agentsWsUrl ? normalizeAgentsWsUrl(agentsWsUrl) : defaultAgentsWsUrl(this.apiBase);
   }
 
@@ -665,9 +682,8 @@ export class Deployments {
   }
 
   async filesList(target: Agent | string, path: string = ''): Promise<any[]> {
-    const params = new URLSearchParams();
-    if (path) params.set('prefix', path);
-    const suffix = params.toString() ? `?${params.toString()}` : '';
+    const encodedPath = encodeFilePath(path);
+    const suffix = encodedPath ? `/${encodedPath}` : '';
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}`);
     const payload = (await response.json()) as { directories?: any[]; files?: any[] };
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
@@ -675,10 +691,9 @@ export class Deployments {
 
   async fileReadBytes(target: Agent | string, path: string): Promise<Uint8Array> {
     const encodedPath = encodeFilePath(path);
-    const response = await this.fetchRaw(
-      `${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/download/${encodedPath}?source=pod`,
-      { redirect: 'follow' },
-    );
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}`, {
+      redirect: 'follow',
+    });
     return new Uint8Array(await response.arrayBuffer());
   }
 
@@ -691,7 +706,7 @@ export class Deployments {
     path: string,
     content: Uint8Array | ArrayBuffer | string,
   ): Promise<Record<string, any>> {
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/upload/${encodeFilePath(path)}`, {
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodeFilePath(path)}`, {
       method: 'PUT',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: toUint8Array(content),
@@ -701,6 +716,22 @@ export class Deployments {
 
   async fileWrite(target: Agent | string, path: string, content: string): Promise<Record<string, any>> {
     return this.fileWriteBytes(target, path, content);
+  }
+
+  async fileDelete(
+    target: Agent | string,
+    path: string,
+    options: { recursive?: boolean } = {},
+  ): Promise<Record<string, any>> {
+    const encodedPath = encodeFilePath(path);
+    const params = new URLSearchParams();
+    if (options.recursive) params.set('recursive', 'true');
+    const suffix = params.toString() ? `?${params.toString()}` : '';
+    const response = await this.fetchRaw(
+      `${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}${suffix}`,
+      { method: 'DELETE' },
+    );
+    return (await response.json()) as Record<string, any>;
   }
 
   async cpTo(target: Agent | string, localPath: string, remotePath: string): Promise<Record<string, any>> {
@@ -758,11 +789,11 @@ export class Deployments {
   async shellConnect(agentId: string, shell?: string): Promise<WebSocket> {
     const connectWithShell = async (requestedShell: string): Promise<WebSocket> => {
       const tokenData = await this.shellToken(agentId, requestedShell);
+      const baseUrl = `${this.agentsWsUrl}/shell/${agentId}`;
+      const separator = baseUrl.includes("?") ? "&" : "?";
       const wsUrl =
-        tokenData.ws_url ||
-        `${this.agentsWsUrl}/shell/${agentId}` +
-          `?jwt=${encodeURIComponent(tokenData.jwt)}` +
-          `&shell=${encodeURIComponent(tokenData.shell || requestedShell)}`;
+        `${baseUrl}${separator}jwt=${encodeURIComponent(tokenData.jwt)}` +
+        `&shell=${encodeURIComponent(tokenData.shell || requestedShell)}`;
       const ws = new WebSocket(wsUrl);
       return await new Promise<WebSocket>((resolve, reject) => {
         let settled = false;

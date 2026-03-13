@@ -76,6 +76,17 @@ function encodePath(path: string): string {
     .join("/");
 }
 
+function downloadBrowserFile(content: BlobPart, filename: string, mimeType = "application/octet-stream") {
+  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+  const link = document.createElement("a");
+  link.href = url;
+  link.download = filename;
+  document.body.appendChild(link);
+  link.click();
+  link.remove();
+  URL.revokeObjectURL(url);
+}
+
 function formatFileSize(size?: number): string {
   if (size === undefined || Number.isNaN(size)) return "-";
   if (size < 1024) return `${size} B`;
@@ -700,6 +711,10 @@ function WorkspacePanel({
 // S3 Files Panel
 // -----------------------------------------------------------------------
 
+function isHiddenEntry(name: string): boolean {
+  return name.startsWith(".");
+}
+
 function S3FilesPanel({
   agentId,
   getToken,
@@ -725,9 +740,8 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const params = new URLSearchParams();
-      if (targetPrefix) params.set("prefix", targetPrefix);
-      const endpoint = `/deployments/${agentId}/files${params.toString() ? `?${params.toString()}` : ""}`;
+      const encodedPrefix = encodePath(targetPrefix);
+      const endpoint = `/deployments/${agentId}/files${encodedPrefix ? `/${encodedPrefix}` : ""}`;
       const data = await clawFetch<S3FilesResponse>(endpoint, token);
       setPrefix(data.prefix || targetPrefix);
       setDirectories(data.directories || []);
@@ -759,7 +773,7 @@ function S3FilesPanel({
       const token = await getToken();
       for (const file of Array.from(uploadList)) {
         const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/upload/${encodePath(uploadPath)}`, {
+        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(uploadPath)}`, {
           method: "PUT",
           headers: {
             Authorization: `Bearer ${token}`,
@@ -784,8 +798,15 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const data = await clawFetch<{ url: string }>(`/deployments/${agentId}/files/download/${encodePath(path)}`, token);
-      window.open(data.url, "_blank", "noopener,noreferrer");
+      const response = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(path)}`, {
+        headers: { Authorization: `Bearer ${token}` },
+      });
+      if (!response.ok) {
+        const text = await response.text();
+        throw new Error(text || `Download failed (${response.status})`);
+      }
+      const content = await response.arrayBuffer();
+      downloadBrowserFile(content, path.split("/").filter(Boolean).pop() || "download");
     } catch (e: any) {
       setError(e.message || "Download failed");
     }
@@ -796,7 +817,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/deployments/${agentId}/files/delete/${encodePath(path)}`, token, {
+      await clawFetch(`/deployments/${agentId}/files/${encodePath(path)}`, token, {
         method: "DELETE",
       });
       await loadFiles(prefix);
@@ -806,6 +827,9 @@ function S3FilesPanel({
   }, [agentId, getToken, loadFiles, prefix]);
 
   const pathParts = prefix.split("/").filter(Boolean);
+  const hiddenDirectoryCount = directories.filter((dir) => isHiddenEntry(dir.name)).length;
+  const hiddenFileCount = files.filter((file) => isHiddenEntry(file.name)).length;
+  const hiddenEntryCount = hiddenDirectoryCount + hiddenFileCount;
 
   const handleDragEnter = useCallback((e: React.DragEvent) => {
     e.preventDefault();
@@ -881,6 +905,11 @@ function S3FilesPanel({
           <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
           Refresh
         </button>
+        {hiddenEntryCount > 0 && (
+          <span className="rounded-full border border-zinc-700 bg-zinc-900 px-2 py-1 text-[11px] text-zinc-500">
+            {hiddenEntryCount} hidden
+          </span>
+        )}
         <div className="flex-1" />
         <p className="text-xs text-zinc-500">
           {uploading ? "Uploading..." : "Drag & drop files or click Upload"}
@@ -915,10 +944,17 @@ function S3FilesPanel({
                 <button
                   key={`dir-${dir.path || dir.name}`}
                   onClick={() => goToPrefix(nextPrefix)}
-                  className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-800 text-left"
+                  className={`w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-800 text-left ${
+                    isHiddenEntry(dir.name) ? "opacity-80" : ""
+                  }`}
                 >
                   <FolderOpen className="w-4 h-4 text-zinc-400" />
                   <span className="text-sm text-zinc-200 font-mono flex-1">{dir.name}</span>
+                  {isHiddenEntry(dir.name) && (
+                    <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                      hidden
+                    </span>
+                  )}
                 </button>
               );
             })}
@@ -926,10 +962,17 @@ function S3FilesPanel({
             {files.map((file) => (
               <div
                 key={`file-${file.path}`}
-                className="w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-800"
+                className={`w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-zinc-800 ${
+                  isHiddenEntry(file.name) ? "opacity-80" : ""
+                }`}
               >
                 <File className="w-4 h-4 text-zinc-500" />
                 <span className="text-sm text-zinc-200 font-mono flex-1">{file.name}</span>
+                {isHiddenEntry(file.name) && (
+                  <span className="rounded-full border border-zinc-700 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-zinc-500">
+                    hidden
+                  </span>
+                )}
                 <span className="text-xs text-zinc-500 w-24 text-right">{formatFileSize(file.size)}</span>
                 <button
                   onClick={() => void downloadFile(file.path)}
@@ -951,6 +994,12 @@ function S3FilesPanel({
             {directories.length === 0 && files.length === 0 && (
               <div className="p-8 text-center text-sm text-zinc-500">
                 No files in this directory.
+              </div>
+            )}
+
+            {hiddenEntryCount > 0 && directories.length + files.length === hiddenEntryCount && (
+              <div className="px-2 py-3 text-center text-xs text-zinc-500">
+                This directory currently only contains hidden entries.
               </div>
             )}
 
