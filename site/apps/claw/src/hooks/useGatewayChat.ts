@@ -1,8 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GatewayClient } from "@/gateway-client";
+import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
 import { clawFetch } from "@/lib/api";
+import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 export interface ChatAttachment {
   type: string;
@@ -33,6 +34,7 @@ interface Agent {
   state: string;
   hostname: string | null;
   openclaw_url?: string | null;
+  gatewayToken?: string | null;
 }
 
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
@@ -172,7 +174,6 @@ export function useGatewayChat(
   const getTokenRef = useRef(getToken);
   const [connected, setConnected] = useState(false);
   const [connecting, setConnecting] = useState(false);
-  const reconnectTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const [error, setError] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -199,7 +200,6 @@ export function useGatewayChat(
 
     let cancelled = false;
     let gw: GatewayClient | null = null;
-    const RECONNECT_INTERVAL = 5000;
 
     async function connect() {
       if (cancelled) return;
@@ -255,17 +255,53 @@ export function useGatewayChat(
         }
 
         if (cancelled) return;
-        const gatewayTokenResp = await clawFetch<{ gateway_token: string }>(
-          `/deployments/${agent!.id}/gateway-token`,
-          await getTokenRef.current()
-        );
-        const gatewayToken = gatewayTokenResp.gateway_token;
+        let gatewayToken = agent!.gatewayToken ?? getStoredGatewayToken(agent!.id) ?? undefined;
+        if (!gatewayToken) {
+          try {
+            const envResp = await clawFetch<{ env: Record<string, string> }>(
+              `/deployments/${agent!.id}/env`,
+              await getTokenRef.current()
+            );
+            gatewayToken = envResp.env?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
+            if (gatewayToken) storeGatewayToken(agent!.id, gatewayToken);
+          } catch {
+            // Keep the SDK error if the gateway token is still unavailable.
+          }
+        }
         if (cancelled) return;
-        gw = new GatewayClient({ url, gatewayToken });
+        gw = new GatewayClient({
+          url,
+          gatewayToken,
+          onHello: () => {
+            if (cancelled) return;
+            setConnected(true);
+            setConnecting(false);
+            setError(null);
+          },
+          onClose: ({ error: closeError, code, reason }) => {
+            if (cancelled) return;
+            setConnected(false);
+            setConnecting(true);
+            if (closeError?.message) {
+              setError(closeError.message);
+              return;
+            }
+            if (code !== 1000 && reason) {
+              setError(`Disconnected: ${reason}`);
+            }
+          },
+          onGap: ({ expected, received }) => {
+            if (cancelled) return;
+            setError(`Gateway event gap detected (expected ${expected}, got ${received})`);
+          },
+        });
+        gwRef.current = gw;
 
         // Set up event handler for streaming chat
-        gw.onEvent((event, payload) => {
+        gw.onEvent((gatewayEvent: GatewayEvent) => {
           if (cancelled) return;
+          const event = gatewayEvent.event;
+          const payload = gatewayEvent.payload ?? {};
 
           if (event === "chat") {
             const chatPayload = payload as Record<string, unknown>;
@@ -391,22 +427,9 @@ export function useGatewayChat(
           }
         });
 
-        // Set up auto-reconnect on disconnect
-        gw.onDisconnect = () => {
-          if (cancelled) return;
-          setConnected(false);
-          setConnecting(true);
-          gwRef.current = null;
-          // Schedule reconnect
-          reconnectTimerRef.current = setTimeout(() => {
-            if (!cancelled) connect();
-          }, RECONNECT_INTERVAL);
-        };
-
         await gw.connect();
         if (cancelled) { gw.close(); return; }
 
-        gwRef.current = gw;
         setConnected(true);
         setConnecting(false);
         setError(null);
@@ -453,10 +476,6 @@ export function useGatewayChat(
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
           setConnecting(false);
-          // Schedule reconnect on error
-          reconnectTimerRef.current = setTimeout(() => {
-            if (!cancelled) connect();
-          }, RECONNECT_INTERVAL);
         }
       }
     }
@@ -465,10 +484,6 @@ export function useGatewayChat(
 
     return () => {
       cancelled = true;
-      if (reconnectTimerRef.current) {
-        clearTimeout(reconnectTimerRef.current);
-        reconnectTimerRef.current = null;
-      }
       gw?.close();
       gwRef.current?.close();
       gwRef.current = null;
@@ -483,6 +498,7 @@ export function useGatewayChat(
       setGwAgentId("main");
     };
   }, [
+    agent?.gatewayToken,
     agent?.hostname,
     agent?.id,
     agent?.state,
@@ -529,7 +545,12 @@ export function useGatewayChat(
     setMessages((prev) => [...prev, userMsg]);
 
     try {
-      await gw.chatSend(msg || "What's in this image?", undefined, undefined, attachments.length > 0 ? attachments : undefined);
+      await gw.sendChat(
+        msg || "What's in this image?",
+        "main",
+        undefined,
+        attachments.length > 0 ? attachments : undefined,
+      );
     } catch (e: unknown) {
       setMessages((prev) => [
         ...prev,

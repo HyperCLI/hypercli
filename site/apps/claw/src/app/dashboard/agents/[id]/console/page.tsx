@@ -22,7 +22,7 @@ import {
 
 import { useClawAuth } from "@/hooks/useClawAuth";
 import { CLAW_API_BASE, clawFetch } from "@/lib/api";
-import { GatewayClient, type ChatEvent } from "@/gateway-client";
+import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 // -----------------------------------------------------------------------
@@ -149,7 +149,7 @@ export default function AgentConsolePage() {
   // -----------------------------------------------------------------------
 
   const connectGateway = useCallback(async () => {
-    if (!agent || agent.state !== "RUNNING" || !agent.hostname) return;
+    if (!agent || agent.state !== "RUNNING" || !agent.hostname || gwRef.current) return;
 
     const url = agent.openclaw_url || `wss://openclaw-${agent.hostname}`;
     if (!url) {
@@ -206,10 +206,29 @@ export default function AgentConsolePage() {
       const gw = new GatewayClient({
         url,
         gatewayToken,
+        onHello: () => {
+          setGwConnected(true);
+          setGwError(null);
+        },
+        onClose: ({ error: closeError, code, reason }) => {
+          setGwConnected(false);
+          if (closeError?.message) {
+            setGwError(closeError.message);
+            return;
+          }
+          if (code !== 1000 && reason) {
+            setGwError(`Disconnected: ${reason}`);
+          }
+        },
+        onGap: ({ expected, received }) => {
+          setGwError(`Gateway event gap detected (expected ${expected}, got ${received})`);
+        },
       });
 
       // Set up event handler for streaming chat
-      gw.onEvent((event, payload) => {
+      gw.onEvent((gatewayEvent: GatewayEvent) => {
+        const event = gatewayEvent.event;
+        const payload = gatewayEvent.payload ?? {};
         if (event === "chat.content") {
           setMessages((prev) => {
             const last = prev[prev.length - 1];
@@ -264,8 +283,17 @@ export default function AgentConsolePage() {
         gw.configGet(),
         gw.configSchema(),
       ]);
+      const normalizedSchema = (
+        schema &&
+        typeof schema === "object" &&
+        "schema" in schema &&
+        schema.schema &&
+        typeof schema.schema === "object"
+      )
+        ? schema.schema
+        : schema;
       setConfig(cfg);
-      setConfigSchema(schema);
+      setConfigSchema(normalizedSchema);
 
     } catch (e: any) {
       setGwError(e.message);
@@ -273,11 +301,12 @@ export default function AgentConsolePage() {
   }, [agent, agentId, getToken]);
 
   useEffect(() => {
-    if (agent?.state === "RUNNING" && !gwConnected) {
+    if (agent?.state === "RUNNING" && !gwRef.current) {
       connectGateway();
     }
     return () => {
       gwRef.current?.close();
+      gwRef.current = null;
     };
   }, [agent?.state, connectGateway]);
 
@@ -300,7 +329,7 @@ export default function AgentConsolePage() {
     setMessages((prev) => [...prev, { role: "user", content: msg, timestamp: Date.now() }]);
 
     try {
-      await gw.chatSend(msg);
+      await gw.sendChat(msg);
     } catch (e: any) {
       setMessages((prev) => [...prev, { role: "system", content: `Error: ${e.message}`, timestamp: Date.now() }]);
       setSending(false);
