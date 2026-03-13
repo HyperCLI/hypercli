@@ -84,6 +84,17 @@ function formatFileSize(size?: number): string {
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
+function normalizeConfigSchema(schemaResp: Record<string, unknown> | null | undefined) {
+  if (!schemaResp || typeof schemaResp !== "object") return null;
+  const wrapped =
+    "schema" in schemaResp &&
+    schemaResp.schema &&
+    typeof schemaResp.schema === "object"
+      ? (schemaResp.schema as Record<string, unknown>)
+      : null;
+  return wrapped ?? schemaResp;
+}
+
 // -----------------------------------------------------------------------
 // Main component
 // -----------------------------------------------------------------------
@@ -280,33 +291,29 @@ export default function AgentConsolePage() {
       setGwConnected(true);
       setGwError(null);
 
-      // Load agents list to get the gateway agent ID
-      const agents = await gw.agentsList();
-      if (agents.length > 0) {
-        setGwAgentId(agents[0].id);
+      try {
+        const [cfg, schema] = await Promise.all([
+          gw.configGet(),
+          gw.configSchema(),
+        ]);
+        setConfig(cfg);
+        setConfigSchema(normalizeConfigSchema(schema as Record<string, unknown>));
+      } catch {
+        // Keep the console usable even if config endpoints are temporarily unavailable.
       }
 
-      // Load files
-      const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
-      const filesList = await gw.filesList(agentIdForFiles);
-      setFiles(filesList);
+      try {
+        const agents = await gw.agentsList();
+        if (agents.length > 0) {
+          setGwAgentId(agents[0].id);
+        }
 
-      // Load config + schema
-      const [cfg, schema] = await Promise.all([
-        gw.configGet(),
-        gw.configSchema(),
-      ]);
-      const normalizedSchema = (
-        schema &&
-        typeof schema === "object" &&
-        "schema" in schema &&
-        schema.schema &&
-        typeof schema.schema === "object"
-      )
-        ? schema.schema
-        : schema;
-      setConfig(cfg);
-      setConfigSchema(normalizedSchema);
+        const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
+        const filesList = await gw.filesList(agentIdForFiles);
+        setFiles(filesList);
+      } catch {
+        // File listing is non-critical for initial console render.
+      }
 
     } catch (e: any) {
       setGwError(e.message);

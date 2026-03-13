@@ -32,6 +32,13 @@ export interface AgentShellTokenResponse {
   dry_run?: boolean;
 }
 
+export interface AgentLogsTokenResponse {
+  agent_id?: string;
+  jwt: string;
+  expires_at?: string | null;
+  ws_url?: string;
+}
+
 export interface AgentListResponse {
   items: Agent[];
   budget?: Record<string, any>;
@@ -356,6 +363,11 @@ export class Agent {
     return data;
   }
 
+  async env(): Promise<Record<string, string>> {
+    const data = await this.requireDeployments().env(this.id);
+    return data.env ?? {};
+  }
+
   async exec(command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
     return this.requireDeployments().exec(this, command, options);
   }
@@ -415,6 +427,17 @@ export class OpenClawAgent extends Agent {
     });
   }
 
+  /**
+   * Resolve the gateway token. If not set locally (e.g. page refresh),
+   * fetches from the pod's runtime env via the backend.
+   */
+  async resolveGatewayToken(): Promise<string | null> {
+    if (this.gatewayToken) return this.gatewayToken;
+    const envData = await this.env();
+    this.gatewayToken = envData.OPENCLAW_GATEWAY_TOKEN ?? null;
+    return this.gatewayToken;
+  }
+
   gateway(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): GatewayClient {
     if (!this.gatewayUrl) {
       throw new Error('Agent has no OpenClaw gateway URL');
@@ -435,6 +458,10 @@ export class OpenClawAgent extends Agent {
   }
 
   async connect(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewayClient> {
+    // Auto-resolve gateway token if missing
+    if (!this.gatewayToken && !options.gatewayToken) {
+      await this.resolveGatewayToken();
+    }
     const client = this.gateway(options);
     await client.connect();
     return client;
@@ -530,18 +557,6 @@ export class Deployments {
     return response;
   }
 
-  private async detectShell(agentId: string): Promise<string> {
-    try {
-      const result = await this.exec(agentId, 'if command -v bash >/dev/null 2>&1; then printf /bin/bash; else printf /bin/sh; fi', {
-        timeout: 15,
-      });
-      const shell = result.stdout.trim();
-      return shell === '/bin/bash' || shell === '/bin/sh' ? shell : '/bin/sh';
-    } catch {
-      return '/bin/sh';
-    }
-  }
-
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
     const body: Record<string, any> = { config, start: options.start ?? true };
@@ -610,6 +625,14 @@ export class Deployments {
 
   async refreshToken(agentId: string): Promise<AgentTokenResponse> {
     return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
+  }
+
+  async logsToken(agentId: string): Promise<AgentLogsTokenResponse> {
+    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
+  }
+
+  async env(agentId: string): Promise<{ agent_id: string; env: Record<string, string> }> {
+    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
@@ -698,16 +721,18 @@ export class Deployments {
     return destination;
   }
 
-  async shellToken(agentId: string, shell?: string, dryRun: boolean = false): Promise<AgentShellTokenResponse> {
-    const selectedShell = shell ?? (dryRun ? '/bin/sh' : await this.detectShell(agentId));
-    const payload: Record<string, any> = { shell: selectedShell };
-    if (dryRun) payload.dry_run = true;
-    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
-  }
-
-  async shellConnect(agentId: string, shell?: string): Promise<WebSocket> {
-    const tokenData = await this.shellToken(agentId, shell);
-    const wsUrl = tokenData.ws_url ?? `${this.agentsWsUrl}/shell/${agentId}?jwt=${encodeURIComponent(tokenData.jwt)}&shell=${encodeURIComponent(tokenData.shell || shell || '/bin/sh')}`;
+  async logsConnect(
+    agentId: string,
+    options: { tailLines?: number; container?: string } = {},
+  ): Promise<WebSocket> {
+    const tokenData = await this.logsToken(agentId);
+    const container = options.container ?? 'reef';
+    const tailLines = options.tailLines ?? 100;
+    const wsUrl =
+      `${this.agentsWsUrl}/logs/${agentId}` +
+      `?jwt=${encodeURIComponent(tokenData.jwt)}` +
+      `&container=${encodeURIComponent(container)}` +
+      `&tail_lines=${encodeURIComponent(String(tailLines))}`;
     const ws = new WebSocket(wsUrl);
     return await new Promise<WebSocket>((resolve, reject) => {
       let settled = false;
@@ -721,5 +746,46 @@ export class Deployments {
         }
       };
     });
+  }
+
+  async shellToken(agentId: string, shell?: string, dryRun: boolean = false): Promise<AgentShellTokenResponse> {
+    const selectedShell = shell ?? '/bin/bash';
+    const payload: Record<string, any> = { shell: selectedShell };
+    if (dryRun) payload.dry_run = true;
+    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
+  }
+
+  async shellConnect(agentId: string, shell?: string): Promise<WebSocket> {
+    const connectWithShell = async (requestedShell: string): Promise<WebSocket> => {
+      const tokenData = await this.shellToken(agentId, requestedShell);
+      const wsUrl =
+        tokenData.ws_url ||
+        `${this.agentsWsUrl}/shell/${agentId}` +
+          `?jwt=${encodeURIComponent(tokenData.jwt)}` +
+          `&shell=${encodeURIComponent(tokenData.shell || requestedShell)}`;
+      const ws = new WebSocket(wsUrl);
+      return await new Promise<WebSocket>((resolve, reject) => {
+        let settled = false;
+        ws.onopen = () => {
+          settled = true;
+          resolve(ws);
+        };
+        ws.onerror = () => {
+          if (!settled) {
+            reject(new Error('WebSocket connection failed'));
+          }
+        };
+      });
+    };
+
+    if (shell) {
+      return connectWithShell(shell);
+    }
+
+    try {
+      return await connectWithShell('/bin/bash');
+    } catch {
+      return connectWithShell('/bin/sh');
+    }
   }
 }

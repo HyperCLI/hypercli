@@ -162,6 +162,19 @@ function extractChatText(payload: Record<string, unknown>): string {
   return maybeDecodeMojibake(parts);
 }
 
+function normalizeConfigSchema(
+  schemaResp: Record<string, unknown> | null | undefined
+): Record<string, unknown> | null {
+  if (!schemaResp || typeof schemaResp !== "object") return null;
+  const wrapped =
+    "schema" in schemaResp &&
+    schemaResp.schema &&
+    typeof schemaResp.schema === "object"
+      ? (schemaResp.schema as Record<string, unknown>)
+      : null;
+  return wrapped ?? schemaResp;
+}
+
 /**
  * Reusable hook for gateway connection + chat logic.
  * Extracted from the console page for use in the chat-first agents layout.
@@ -448,44 +461,46 @@ export function useGatewayChat(
         setConnecting(false);
         setError(null);
 
-        // Hydrate chat with existing session messages
-        const history = await gw.chatHistory("main", 200);
-        if (cancelled) return;
-        const hydrated = history
-          .map((message) => normalizeHistoryMessage(message))
-          .filter((message): message is ChatMessage => message !== null);
-        setMessages(hydrated.length > 0 ? hydrated : []);
-
-        // Load agents list to get gateway agent ID
-        const agents = await gw.agentsList();
-        if (cancelled) return;
-        if (agents.length > 0) {
-          setGwAgentId(agents[0].id);
+        try {
+          const [cfg, schemaResp] = await Promise.all([
+            gw.configGet(),
+            gw.configSchema(),
+          ]);
+          if (!cancelled) {
+            setConfig(cfg);
+            setConfigSchema(normalizeConfigSchema(schemaResp as Record<string, unknown>));
+          }
+        } catch {
+          // Leave config state unset if the gateway rejects config calls.
         }
 
-        // Load files
-        const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
-        const filesList = await gw.filesList(agentIdForFiles);
-        if (cancelled) return;
-        setFiles(filesList);
+        try {
+          const history = await gw.chatHistory("main", 200);
+          if (!cancelled) {
+            const hydrated = history
+              .map((message) => normalizeHistoryMessage(message))
+              .filter((message): message is ChatMessage => message !== null);
+            setMessages(hydrated.length > 0 ? hydrated : []);
+          }
+        } catch {
+          // Chat history is optional for initial render.
+        }
 
-        // Load config + schema
-        const [cfg, schemaResp] = await Promise.all([
-          gw.configGet(),
-          gw.configSchema(),
-        ]);
-        if (cancelled) return;
-        const schema = (
-          schemaResp &&
-          typeof schemaResp === "object" &&
-          "schema" in schemaResp &&
-          schemaResp.schema &&
-          typeof schemaResp.schema === "object"
-        )
-          ? (schemaResp.schema as Record<string, unknown>)
-          : (schemaResp as Record<string, unknown>);
-        setConfig(cfg);
-        setConfigSchema(schema);
+        try {
+          const agents = await gw.agentsList();
+          if (cancelled) return;
+          if (agents.length > 0) {
+            setGwAgentId(agents[0].id);
+          }
+
+          const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
+          const filesList = await gw.filesList(agentIdForFiles);
+          if (!cancelled) {
+            setFiles(filesList);
+          }
+        } catch {
+          // File listing is optional for chat-first views.
+        }
       } catch (e: unknown) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));

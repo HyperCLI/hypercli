@@ -170,7 +170,7 @@ describe('HyperClaw agents SDK', () => {
     expect(result.stdout).toBe('preview\n');
   });
 
-  it('shellToken and shellConnect use backend response shape', async () => {
+  it('shellToken and shellConnect use configured agents websocket base', async () => {
     const post = vi.fn().mockResolvedValue({
       jwt: 'jwt-abc',
       ws_url: 'wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh',
@@ -191,5 +191,35 @@ describe('HyperClaw agents SDK', () => {
       shell: '/bin/sh',
     });
     expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh');
+  });
+
+  it('shellConnect defaults to websocket shells without exec probing', async () => {
+    const post = vi.fn().mockResolvedValue({
+      jwt: 'jwt-bash',
+      ws_url: 'wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash',
+      shell: '/bin/bash',
+    });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const ws = await agents.shellConnect('agent-1');
+
+    expect(post).toHaveBeenCalledTimes(1);
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/shell/token', {
+      shell: '/bin/bash',
+    });
+    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/shell/agent-1?jwt=jwt-bash&shell=%2Fbin%2Fbash');
+  });
+
+  it('logsConnect uses configured agents websocket base', async () => {
+    const post = vi.fn().mockResolvedValue({
+      jwt: 'jwt-logs',
+      ws_url: 'wss://wrong-host.example/ws/logs/agent-1?jwt=jwt-logs',
+    });
+    const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hypercli.com');
+
+    const ws = await agents.logsConnect('agent-1', { container: 'reef', tailLines: 400 });
+
+    expect(post).toHaveBeenCalledWith('/deployments/agent-1/logs/token');
+    expect((ws as any).url).toBe('wss://api.agents.dev.hypercli.com/ws/logs/agent-1?jwt=jwt-logs&container=reef&tail_lines=400');
   });
 });
