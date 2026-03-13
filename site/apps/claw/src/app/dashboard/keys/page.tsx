@@ -3,8 +3,8 @@
 import { useState, useEffect, useCallback } from "react";
 import { Key, Plus, Copy, Check, Ban, Pencil, X } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { clawFetch } from "@/lib/api";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { agentApiFetch } from "@/lib/api";
 import { Skeleton, TableSkeleton } from "@/components/dashboard/Skeleton";
 
 interface ApiKey {
@@ -12,7 +12,7 @@ interface ApiKey {
 }
 
 export default function KeysPage() {
-  const { getToken } = useClawAuth();
+  const { getToken } = useAgentAuth();
   const [keys, setKeys] = useState<ApiKey[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -34,7 +34,7 @@ export default function KeysPage() {
   const fetchKeys = useCallback(async () => {
     try {
       const token = await getToken();
-      const data = await clawFetch<{ keys: ApiKey[] }>("/keys", token);
+      const data = await agentApiFetch<{ keys: ApiKey[] }>("/keys", token);
       setKeys(data.keys || []);
     } catch {
       setKeys([]);
@@ -54,7 +54,7 @@ export default function KeysPage() {
 
     try {
       const token = await getToken();
-      const data = await clawFetch<{ key: string; key_alias: string }>(
+      const data = await agentApiFetch<{ key: string; key_alias: string }>(
         "/keys",
         token,
         {
@@ -76,7 +76,7 @@ export default function KeysPage() {
   const handleDisableKey = async (keyRef: string) => {
     try {
       const token = await getToken();
-      await clawFetch(`/keys/${keyRef}/disable`, token, { method: "POST" });
+      await agentApiFetch(`/keys/${keyRef}/disable`, token, { method: "POST" });
       fetchKeys();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to disable key");
@@ -89,7 +89,7 @@ export default function KeysPage() {
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/keys/${keyRef}`, token, {
+      await agentApiFetch(`/keys/${keyRef}`, token, {
         method: "PUT",
         body: JSON.stringify({
           metadata: { ...currentMeta, name: editName.trim() },

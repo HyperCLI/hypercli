@@ -36,9 +36,9 @@ import {
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { CLAW_API_BASE, clawFetch } from "@/lib/api";
-import { createClawClient } from "@/lib/hyperclaw";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
+import { createAgentClient } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
@@ -129,8 +129,12 @@ function encodePath(path: string): string {
     .join("/");
 }
 
-function downloadBrowserFile(content: BlobPart, filename: string, mimeType = "application/octet-stream") {
-  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+function downloadBrowserFile(content: BlobPart | Uint8Array, filename: string, mimeType = "application/octet-stream") {
+  const blobContent =
+    content instanceof Uint8Array
+      ? new Uint8Array(content)
+      : content;
+  const url = URL.createObjectURL(new Blob([blobContent], { type: mimeType }));
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -339,13 +343,11 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const encodedPrefix = encodePath(targetPrefix);
-      const endpoint = `/deployments/${agentId}/files${encodedPrefix ? `/${encodedPrefix}` : ""}`;
-      const data = await clawFetch<S3FilesResponse>(endpoint, token);
-      setPrefix(data.prefix || targetPrefix);
-      setDirectories(data.directories || []);
-      setFiles(data.files || []);
-      setTruncated(Boolean(data.truncated));
+      const entries = await createAgentClient(token).filesList(agentId, targetPrefix);
+      setPrefix(targetPrefix);
+      setDirectories(entries.filter((entry) => entry?.type === "directory"));
+      setFiles(entries.filter((entry) => entry?.type !== "directory"));
+      setTruncated(false);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Failed to load files");
       setDirectories([]);
@@ -369,20 +371,10 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
+      const agentClient = createAgentClient(token);
       for (const file of Array.from(uploadList)) {
         const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(uploadPath)}`, {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `Upload failed (${res.status})`);
-        }
+        await agentClient.fileWriteBytes(agentId, uploadPath, await file.arrayBuffer());
       }
       await loadFiles(prefix);
     } catch (e: unknown) {
@@ -396,14 +388,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const response = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(path)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Download failed (${response.status})`);
-      }
-      const content = await response.arrayBuffer();
+      const content = await createAgentClient(token).fileReadBytes(agentId, path);
       downloadBrowserFile(content, path.split("/").filter(Boolean).pop() || "download");
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Download failed");
@@ -415,9 +400,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/deployments/${agentId}/files/${encodePath(path)}`, token, {
-        method: "DELETE",
-      });
+      await createAgentClient(token).fileDelete(agentId, path);
       await loadFiles(prefix);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Delete failed");
@@ -571,7 +554,7 @@ function S3FilesPanel({
 // ── Main component ──
 
 export default function AgentsPage() {
-  const { getToken } = useClawAuth();
+  const { getToken } = useAgentAuth();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const [isDesktopViewport, setIsDesktopViewport] = useState(false);
 
@@ -643,7 +626,7 @@ export default function AgentsPage() {
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
-      const data = await createClawClient(token).deployments.list();
+      const data = await createAgentClient(token).list();
       const items = (data.items || []).map(sdkAgentToPageAgent);
       setAgents(items);
       setBudget((data.budget as AgentBudget | undefined) || null);
@@ -905,7 +888,7 @@ export default function AgentsPage() {
   const issueAgentAccessToken = useCallback(
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
-      const tokenData = await clawFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
+      const tokenData = await agentApiFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
       const subdomain = hostname.split(".")[0];
       const cookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hypercli.com";
       setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
@@ -937,7 +920,7 @@ export default function AgentsPage() {
         setWsStatus("connecting");
         const token = await getToken();
         if (cancelled) return;
-        const liveWs = await createClawClient(token).deployments.logsConnect(agentId, { container: "reef", tailLines: 400 });
+        const liveWs = await createAgentClient(token).logsConnect(agentId, { container: "reef", tailLines: 400 });
         ws = liveWs;
         if (cancelled) {
           liveWs.close();
@@ -1045,7 +1028,7 @@ export default function AgentsPage() {
         setShellStatus("connecting");
         const authToken = await getToken();
         if (cancelled) return;
-        const ws = await createClawClient(authToken).deployments.shellConnect(agentId);
+        const ws = await createAgentClient(authToken).shellConnect(agentId);
         if (cancelled) {
           ws.close();
           return;
@@ -1081,7 +1064,7 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await createClawClient(token).deployments.start(agentId);
+      await createAgentClient(token).start(agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start agent");
@@ -1096,7 +1079,7 @@ export default function AgentsPage() {
     try {
       const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
-      await createClawClient(token).deployments.stop(agentId);
+      await createAgentClient(token).stop(agentId);
       clearAgentAccessCookies(agent?.hostname);
       await fetchAgents();
     } catch (err) {
@@ -1113,7 +1096,7 @@ export default function AgentsPage() {
     try {
       const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
-      await createClawClient(token).deployments.delete(agentId);
+      await createAgentClient(token).delete(agentId);
       clearAgentAccessCookies(agent?.hostname);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
       await fetchAgents();
@@ -1303,16 +1286,7 @@ export default function AgentsPage() {
       const uploadPath = `workspace/${filename}`;
       const agentPath = `/home/ubuntu/${uploadPath}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper claw transcribe ${agentPath}\``;
-      // Upload audio to agent's filesystem
-      const res = await fetch(`${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/${encodePath(uploadPath)}`, {
-        method: "PUT",
-        headers: { Authorization: `Bearer ${token}`, "Content-Type": "audio/webm" },
-        body: audioBlob,
-      });
-      if (!res.ok) {
-        const text = await res.text();
-        throw new Error(text || `Upload failed: ${res.status}`);
-      }
+      await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
       // Keep input state in sync and send in one action.
       chat.setInput(voiceMessage);
       await chat.sendMessage(voiceMessage);
@@ -1774,7 +1748,7 @@ export default function AgentsPage() {
                       {chat.messages.map((msg, i) => {
                         const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
                         const inlineAudioUrl = voicePath && selectedAgent
-                          ? `${CLAW_API_BASE}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
+                          ? `${AGENT_API_BASE}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
                           : null;
                         return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
                       })}

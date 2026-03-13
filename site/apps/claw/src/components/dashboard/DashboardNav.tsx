@@ -22,7 +22,7 @@ import {
   Trash2,
   Loader2,
 } from "lucide-react";
-import { useClawAuth } from "@/hooks/useClawAuth";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 const navItems = [
@@ -35,7 +35,7 @@ const navItems = [
 
 export function DashboardNav() {
   const pathname = usePathname();
-  const { user, logout } = useClawAuth();
+  const { user, logout } = useAgentAuth();
   const { agentMenu } = useDashboardMobileAgentMenu();
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);

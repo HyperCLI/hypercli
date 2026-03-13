@@ -4,7 +4,7 @@ import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
 import { Menu, X, LogOut } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
-import { useClawAuth } from "@/hooks/useClawAuth";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -17,7 +17,7 @@ export function ClawHeader() {
   const [mobileOpen, setMobileOpen] = useState(false);
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
-  const { isAuthenticated, isLoading, login, logout, user } = useClawAuth();
+  const { isAuthenticated, isLoading, login, logout, user } = useAgentAuth();
   const router = useRouter();
   const emailInitial = user?.email ? user.email[0].toUpperCase() : "?";
   const showAuthenticatedNav = !isLoading && isAuthenticated;

@@ -1,10 +1,10 @@
 "use client";
 
 import { User, Mail, Wallet, LogOut } from "lucide-react";
-import { useClawAuth } from "@/hooks/useClawAuth";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
 
 export default function SettingsPage() {
-  const { user, logout } = useClawAuth();
+  const { user, logout } = useAgentAuth();
 
   return (
     <div>

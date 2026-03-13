@@ -3,18 +3,18 @@
 import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
 import { Check } from "lucide-react";
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { CLAW_API_BASE } from "@/lib/api";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { AGENT_API_BASE } from "@/lib/api";
 import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
 
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
   const isInView = useInView(sectionRef, { once: true, margin: "-100px" });
-  const { login, isAuthenticated } = useClawAuth();
+  const { login, isAuthenticated } = useAgentAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
 
   useEffect(() => {
-    fetch(`${CLAW_API_BASE}/plans`)
+    fetch(`${AGENT_API_BASE}/plans`)
       .then((r) => r.json())
       .then((data) => setPlans(data.plans ?? []))
       .catch(() => {});

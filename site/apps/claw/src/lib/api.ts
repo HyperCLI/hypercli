@@ -7,6 +7,8 @@ import {
   setStoredToken as setSharedStoredToken,
 } from "@hypercli/shared-ui";
 
+import { resolveAgentsApiBase } from "@hypercli/sdk/agents";
+
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;
 }
@@ -16,20 +18,25 @@ function stripApiSuffix(value: string): string {
   return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed;
 }
 
-const rawClawApiBase = process.env.NEXT_PUBLIC_CLAW_API_URL || "";
+const rawAgentsApiBase =
+  process.env.NEXT_PUBLIC_AGENTS_API_URL ||
+  process.env.NEXT_PUBLIC_CLAW_API_URL ||
+  "";
 const rawAuthApiBase = process.env.NEXT_PUBLIC_AUTH_BACKEND || "";
 const rawHyperclawApiBase = process.env.NEXT_PUBLIC_HYPERCLAW_API_URL || "";
 const rawHyperclawModelsUrl = process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "";
 
-export const CLAW_API_BASE = trimTrailingSlash(rawClawApiBase);
-export const AUTH_API_BASE = trimTrailingSlash(rawAuthApiBase || rawClawApiBase);
+export const AGENTS_API_BASE = trimTrailingSlash(resolveAgentsApiBase(rawAgentsApiBase || ""));
+export const AGENT_API_BASE = AGENTS_API_BASE;
+export const CLAW_API_BASE = AGENTS_API_BASE;
+export const AUTH_API_BASE = trimTrailingSlash(rawAuthApiBase || rawAgentsApiBase);
 
 export const HYPERCLAW_MODELS_ENDPOINT = rawHyperclawModelsUrl
   ? trimTrailingSlash(rawHyperclawModelsUrl)
   : rawHyperclawApiBase
-    ? `${trimTrailingSlash(rawHyperclawApiBase)}/api/models`
-    : rawClawApiBase
-      ? `${trimTrailingSlash(rawClawApiBase)}/models`
+    ? `${trimTrailingSlash(rawHyperclawApiBase)}/models`
+    : rawAgentsApiBase
+      ? `${trimTrailingSlash(rawAgentsApiBase)}/models`
       : "/api/models";
 
 const TOKEN_KEY = "claw_auth_token";
@@ -53,14 +60,14 @@ export function isTokenExpired(token: string): boolean {
 
 // Exchange Privy access token for HyperClaw app JWT
 export async function exchangeToken(privyToken: string): Promise<string> {
-  return exchangePrivyToken(CLAW_API_BASE, privyToken, TOKEN_KEY);
+  return exchangePrivyToken(AUTH_API_BASE, privyToken, TOKEN_KEY);
 }
 
 // Get valid app token (from storage or exchange new one)
 export async function getAppToken(
   getPrivyToken: () => Promise<string | null>
 ): Promise<string> {
-  return getSharedAppToken(CLAW_API_BASE, getPrivyToken, TOKEN_KEY);
+  return getSharedAppToken(AUTH_API_BASE, getPrivyToken, TOKEN_KEY);
 }
 
 // Authenticated fetch wrapper for HyperClaw API
@@ -78,7 +85,7 @@ export async function clawFetch<T>(
     (headers as Record<string, string>)["Content-Type"] = "application/json";
   }
 
-  const url = `${CLAW_API_BASE}${endpoint}`;
+  const url = `${AGENTS_API_BASE}${endpoint}`;
   const response = await fetch(url, {
     ...options,
     headers,
@@ -91,3 +98,5 @@ export async function clawFetch<T>(
 
   return response.json();
 }
+
+export const agentApiFetch = clawFetch;

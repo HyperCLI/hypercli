@@ -8,8 +8,8 @@ import {
   X, ChevronLeft, ChevronRight, Loader2, ChevronDown, ChevronUp, Upload, Check,
   type LucideIcon,
 } from "lucide-react";
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { createClawClient } from "@/lib/hyperclaw";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { createAgentClient } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 
 // ── Types ──
@@ -17,7 +17,7 @@ import { formatCpu, formatMemory } from "@/lib/format";
 interface AgentCreationWizardProps {
   open: boolean;
   onClose: () => void;
-  onCreated: () => void;
+  onCreated: (agentId?: string, gatewayToken?: string) => void;
   budget?: {
     max_agents: number;
     total_cpu: number;
@@ -84,7 +84,7 @@ const slideTransition = {
 // ── Component ──
 
 export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentCreationWizardProps) {
-  const { getToken } = useClawAuth();
+  const { getToken } = useAgentAuth();
 
   // Step navigation
   const [step, setStep] = useState(0);
@@ -211,7 +211,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       } else {
         body.size = SIZES[selectedSize].value;
       }
-      await createClawClient(token).deployments.create({
+      const created = await createAgentClient(token).create({
         name: typeof body.name === "string" ? body.name : undefined,
         start: Boolean(body.start),
         size: typeof body.size === "string" ? body.size : undefined,
@@ -219,7 +219,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         memory: typeof body.memory === "number" ? body.memory : undefined,
         config: {},
       });
-      onCreated();
+      onCreated(created.id, (created as any).gatewayToken ?? undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {

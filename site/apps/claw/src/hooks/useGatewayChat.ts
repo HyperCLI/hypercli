@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
-import { CLAW_API_BASE, clawFetch } from "@/lib/api";
+import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 export interface ChatAttachment {
@@ -249,7 +249,7 @@ export function useGatewayChat(
           : "";
 
         if (!hasCookie(hostCookie)) {
-          const tokenResp = await clawFetch<{ token: string }>(
+          const tokenResp = await agentApiFetch<{ token: string }>(
             `/deployments/${agent!.id}/token`,
             authToken
           );
@@ -272,7 +272,7 @@ export function useGatewayChat(
         let gatewayToken = agent!.gatewayToken ?? getStoredGatewayToken(agent!.id) ?? undefined;
         if (!gatewayToken) {
           try {
-            const envResp = await clawFetch<{ env: Record<string, string> }>(
+            const envResp = await agentApiFetch<{ env: Record<string, string> }>(
               `/deployments/${agent!.id}/env`,
               authToken
             );
@@ -288,7 +288,7 @@ export function useGatewayChat(
           gatewayToken,
           deploymentId: agent!.id,
           apiKey: authToken,
-          apiBase: CLAW_API_BASE,
+          apiBase: AGENT_API_BASE,
           autoApprovePairing: true,
           onHello: () => {
             if (cancelled) return;

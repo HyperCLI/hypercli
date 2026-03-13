@@ -2,14 +2,14 @@
 
 import { useState, useEffect } from "react";
 import { Check, ArrowRight } from "lucide-react";
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { clawFetch, CLAW_API_BASE } from "@/lib/api";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { agentApiFetch, AGENT_API_BASE } from "@/lib/api";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
 
 export default function PlansPage() {
-  const { getToken } = useClawAuth();
+  const { getToken } = useAgentAuth();
   const [plans, setPlans] = useState<Plan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<Plan | null>(null);
   const [loading, setLoading] = useState(true);
@@ -18,14 +18,14 @@ export default function PlansPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const plansRes = await fetch(`${CLAW_API_BASE}/plans`);
+        const plansRes = await fetch(`${AGENT_API_BASE}/plans`);
         if (plansRes.ok) {
           const data = await plansRes.json();
           setPlans(data.plans ?? []);
         }
 
         const token = await getToken();
-        const current = await clawFetch<Plan>("/plans/current", token);
+        const current = await agentApiFetch<Plan>("/plans/current", token);
         setCurrentPlan(current);
       } catch {
         // graceful fallback
@@ -40,7 +40,7 @@ export default function PlansPage() {
   const refreshPlan = async () => {
     try {
       const token = await getToken();
-      const data = await clawFetch<Plan>("/plans/current", token);
+      const data = await agentApiFetch<Plan>("/plans/current", token);
       setCurrentPlan(data);
     } catch {}
   };

@@ -2,7 +2,7 @@
 
 import { useRef } from "react";
 import { motion, useScroll, useTransform, useSpring } from "framer-motion";
-import { useClawAuth } from "@/hooks/useClawAuth";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
 
 const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
@@ -14,7 +14,7 @@ const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
 
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null);
-  const { login, isAuthenticated } = useClawAuth();
+  const { login, isAuthenticated } = useAgentAuth();
 
   const { scrollYProgress } = useScroll({
     target: sectionRef,

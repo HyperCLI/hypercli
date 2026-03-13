@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
-import { clawFetch } from "@/lib/api";
+import { agentApiFetch } from "@/lib/api";
 import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
 import { Plan, formatTokens } from "@/lib/format";
 
@@ -45,7 +45,7 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      const data = await clawFetch<{ checkout_url: string }>(
+      const data = await agentApiFetch<{ checkout_url: string }>(
         `/stripe/${plan.id}`,
         token,
         {

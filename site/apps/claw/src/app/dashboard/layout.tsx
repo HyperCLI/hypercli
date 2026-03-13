@@ -3,7 +3,7 @@
 import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
-import { useClawAuth } from "@/hooks/useClawAuth";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { DashboardMobileAgentMenuProvider } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { Skeleton } from "@/components/dashboard/Skeleton";
@@ -42,7 +42,7 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const { isLoading, isAuthenticated } = useClawAuth();
+  const { isLoading, isAuthenticated } = useAgentAuth();
   const router = useRouter();
   const pathname = usePathname();
 

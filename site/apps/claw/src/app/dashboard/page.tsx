@@ -17,9 +17,9 @@ import {
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { clawFetch } from "@/lib/api";
-import { createClawClient } from "@/lib/hyperclaw";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { agentApiFetch } from "@/lib/api";
+import { createAgentClient } from "@/lib/agent-client";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -126,7 +126,7 @@ function stateDotClass(state: AgentState): string {
 // ── Main component ──
 
 export default function DashboardPage() {
-  const { getToken, user } = useClawAuth();
+  const { getToken, user } = useAgentAuth();
   const [plan, setPlan] = useState<PlanInfo | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
   const [history, setHistory] = useState<DayData[]>([]);
@@ -141,11 +141,11 @@ export default function DashboardPage() {
       const token = await getToken();
       const [planData, usageData, historyData, keyData, agentData] =
         await Promise.allSettled([
-          clawFetch<PlanInfo>("/plans/current", token),
-          clawFetch<UsageInfo>("/usage", token),
-          clawFetch<HistoryResponse>("/usage/history?days=7", token),
-          clawFetch<KeyUsageResponse>("/usage/keys?days=7", token),
-          clawFetch<AgentListResponse>("/deployments", token),
+          agentApiFetch<PlanInfo>("/plans/current", token),
+          agentApiFetch<UsageInfo>("/usage", token),
+          agentApiFetch<HistoryResponse>("/usage/history?days=7", token),
+          agentApiFetch<KeyUsageResponse>("/usage/keys?days=7", token),
+          agentApiFetch<AgentListResponse>("/deployments", token),
         ]);
 
       if (planData.status === "fulfilled") setPlan(planData.value);
@@ -166,7 +166,7 @@ export default function DashboardPage() {
     setStartingId(agentId);
     try {
       const token = await getToken();
-      await createClawClient(token).deployments.start(agentId);
+      await createAgentClient(token).start(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStartingId(null);
@@ -177,7 +177,7 @@ export default function DashboardPage() {
     setStoppingId(agentId);
     try {
       const token = await getToken();
-      await createClawClient(token).deployments.stop(agentId);
+      await createAgentClient(token).stop(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStoppingId(null);

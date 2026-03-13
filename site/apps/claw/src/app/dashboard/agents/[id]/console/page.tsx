@@ -20,8 +20,9 @@ import {
   X as XIcon,
 } from "lucide-react";
 
-import { useClawAuth } from "@/hooks/useClawAuth";
-import { CLAW_API_BASE, clawFetch } from "@/lib/api";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
+import { createAgentClient } from "@/lib/agent-client";
 import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
@@ -76,8 +77,12 @@ function encodePath(path: string): string {
     .join("/");
 }
 
-function downloadBrowserFile(content: BlobPart, filename: string, mimeType = "application/octet-stream") {
-  const url = URL.createObjectURL(new Blob([content], { type: mimeType }));
+function downloadBrowserFile(content: BlobPart | Uint8Array, filename: string, mimeType = "application/octet-stream") {
+  const blobContent =
+    content instanceof Uint8Array
+      ? new Uint8Array(content)
+      : content;
+  const url = URL.createObjectURL(new Blob([blobContent], { type: mimeType }));
   const link = document.createElement("a");
   link.href = url;
   link.download = filename;
@@ -114,7 +119,7 @@ export default function AgentConsolePage() {
   const params = useParams();
   const router = useRouter();
   const agentId = params.id as string;
-  const { getToken } = useClawAuth();
+  const { getToken } = useAgentAuth();
 
   // Agent state
   const [agent, setAgent] = useState<Agent | null>(null);
@@ -154,7 +159,7 @@ export default function AgentConsolePage() {
   const fetchAgent = useCallback(async () => {
     try {
       const token = await getToken();
-      const resp = await clawFetch<Agent>(`/deployments/${agentId}`, token);
+      const resp = await agentApiFetch<Agent>(`/deployments/${agentId}`, token);
       setAgent(resp);
       setError(null);
     } catch (e: any) {
@@ -200,7 +205,7 @@ export default function AgentConsolePage() {
         : "";
 
       if (!(hasCookie(hostCookie) || hasCookie(shellCookie) || hasCookie(openclawCookie) || hasCookie(reefCookie))) {
-        const tokenResp = await clawFetch<{ token: string }>(`/deployments/${agentId}/token`, authToken);
+        const tokenResp = await agentApiFetch<{ token: string }>(`/deployments/${agentId}/token`, authToken);
         const tokenValue = encodeURIComponent(tokenResp.token);
         const securePart = window.location.protocol === "https:" ? "; secure" : "";
         const domainPart = cookieDomain ? `; domain=${cookieDomain}` : "";
@@ -215,7 +220,7 @@ export default function AgentConsolePage() {
       let gatewayToken = agent.gatewayToken ?? getStoredGatewayToken(agent.id) ?? undefined;
       if (!gatewayToken) {
         try {
-          const envResp = await clawFetch<{ env: Record<string, string> }>(
+          const envResp = await agentApiFetch<{ env: Record<string, string> }>(
             `/deployments/${agent.id}/env`,
             authToken
           );
@@ -231,7 +236,7 @@ export default function AgentConsolePage() {
         gatewayToken,
         deploymentId: agent.id,
         apiKey: authToken,
-        apiBase: CLAW_API_BASE,
+        apiBase: AGENT_API_BASE,
         autoApprovePairing: true,
         onHello: () => {
           setGwConnected(true);
@@ -740,13 +745,11 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const encodedPrefix = encodePath(targetPrefix);
-      const endpoint = `/deployments/${agentId}/files${encodedPrefix ? `/${encodedPrefix}` : ""}`;
-      const data = await clawFetch<S3FilesResponse>(endpoint, token);
-      setPrefix(data.prefix || targetPrefix);
-      setDirectories(data.directories || []);
-      setFiles(data.files || []);
-      setTruncated(Boolean(data.truncated));
+      const entries = await createAgentClient(token).filesList(agentId, targetPrefix);
+      setPrefix(targetPrefix);
+      setDirectories(entries.filter((entry) => entry?.type === "directory"));
+      setFiles(entries.filter((entry) => entry?.type !== "directory"));
+      setTruncated(false);
     } catch (e: any) {
       setError(e.message || "Failed to load files");
       setDirectories([]);
@@ -771,20 +774,10 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
+      const agentClient = createAgentClient(token);
       for (const file of Array.from(uploadList)) {
         const uploadPath = `${prefix}${file.name}`;
-        const res = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(uploadPath)}`, {
-          method: "PUT",
-          headers: {
-            Authorization: `Bearer ${token}`,
-            "Content-Type": file.type || "application/octet-stream",
-          },
-          body: file,
-        });
-        if (!res.ok) {
-          const text = await res.text();
-          throw new Error(text || `Upload failed (${res.status})`);
-        }
+        await agentClient.fileWriteBytes(agentId, uploadPath, await file.arrayBuffer());
       }
       await loadFiles(prefix);
     } catch (e: any) {
@@ -798,14 +791,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      const response = await fetch(`${CLAW_API_BASE}/deployments/${agentId}/files/${encodePath(path)}`, {
-        headers: { Authorization: `Bearer ${token}` },
-      });
-      if (!response.ok) {
-        const text = await response.text();
-        throw new Error(text || `Download failed (${response.status})`);
-      }
-      const content = await response.arrayBuffer();
+      const content = await createAgentClient(token).fileReadBytes(agentId, path);
       downloadBrowserFile(content, path.split("/").filter(Boolean).pop() || "download");
     } catch (e: any) {
       setError(e.message || "Download failed");
@@ -817,9 +803,7 @@ function S3FilesPanel({
     setError(null);
     try {
       const token = await getToken();
-      await clawFetch(`/deployments/${agentId}/files/${encodePath(path)}`, token, {
-        method: "DELETE",
-      });
+      await createAgentClient(token).fileDelete(agentId, path);
       await loadFiles(prefix);
     } catch (e: any) {
       setError(e.message || "Delete failed");
