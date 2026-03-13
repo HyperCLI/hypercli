@@ -1,2 +1,6 @@
+# Redirect hyperclaw.app to agents.hypercli.com
+https://hyperclaw.app/*  https://agents.hypercli.com/:splat  301!
+https://www.hyperclaw.app/*  https://agents.hypercli.com/:splat  301!
+
 /instructions  /HYPERCLAW_INSTALL.md  302
 /upgrade       /HYPERCLAW_INSTALL.md  302
