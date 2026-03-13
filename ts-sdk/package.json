@@ -14,6 +14,10 @@
       "import": "./dist/agents.js",
       "types": "./dist/agents.d.ts"
     },
+    "./gateway": {
+      "import": "./dist/gateway.js",
+      "types": "./dist/gateway.d.ts"
+    },
     "./http": {
       "import": "./dist/http.js",
       "types": "./dist/http.d.ts"

@@ -11,7 +11,7 @@ import {
   type ChatEvent,
   type GatewayEvent,
   type GatewayOptions,
-} from "@hypercli/sdk";
+} from "@hypercli/sdk/gateway";
 
 const CHAT_TIMEOUT = 300_000;
 const DEFAULT_TIMEOUT = 15_000;
