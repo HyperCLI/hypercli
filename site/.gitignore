@@ -27,6 +27,8 @@ coverage
 # Misc
 .DS_Store
 *.pem
+ops/claw-dev-proxy/.acme/
+ops/claw-dev-proxy/letsencrypt/
 
 # Debug
 npm-debug.log*
