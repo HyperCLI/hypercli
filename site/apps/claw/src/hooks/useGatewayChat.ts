@@ -1,7 +1,11 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
+import {
+  GatewayClient,
+  type GatewayEvent,
+  type OpenClawConfigSchemaResponse,
+} from "@hypercli.com/sdk/gateway";
 import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
@@ -12,6 +16,12 @@ export interface ChatAttachment {
   fileName?: string;
 }
 
+export interface ChatPendingFile {
+  name: string;
+  path: string;
+  type: string;
+}
+
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
@@ -19,6 +29,7 @@ export interface ChatMessage {
   toolCalls?: Array<{ name: string; args: string; result?: string }>;
   mediaUrls?: string[];
   attachments?: ChatAttachment[]; // user-sent images
+  files?: ChatPendingFile[]; // user-sent workspace files
   timestamp?: number;
 }
 
@@ -162,19 +173,6 @@ function extractChatText(payload: Record<string, unknown>): string {
   return maybeDecodeMojibake(parts);
 }
 
-function normalizeConfigSchema(
-  schemaResp: Record<string, unknown> | null | undefined
-): Record<string, unknown> | null {
-  if (!schemaResp || typeof schemaResp !== "object") return null;
-  const wrapped =
-    "schema" in schemaResp &&
-    schemaResp.schema &&
-    typeof schemaResp.schema === "object"
-      ? (schemaResp.schema as Record<string, unknown>)
-      : null;
-  return wrapped ?? schemaResp;
-}
-
 /**
  * Reusable hook for gateway connection + chat logic.
  * Extracted from the console page for use in the chat-first agents layout.
@@ -195,7 +193,7 @@ export function useGatewayChat(
 
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
-  const [configSchema, setConfigSchema] = useState<Record<string, unknown> | null>(null);
+  const [configSchema, setConfigSchema] = useState<OpenClawConfigSchemaResponse | null>(null);
   const [gwAgentId, setGwAgentId] = useState("main");
 
   useEffect(() => {
@@ -468,7 +466,7 @@ export function useGatewayChat(
           ]);
           if (!cancelled) {
             setConfig(cfg);
-            setConfigSchema(normalizeConfigSchema(schemaResp as Record<string, unknown>));
+            setConfigSchema(schemaResp);
           }
         } catch {
           // Leave config state unset if the gateway rejects config calls.
@@ -525,6 +523,8 @@ export function useGatewayChat(
       setError(null);
       setSending(false);
       setGwAgentId("main");
+      setPendingAttachments([]);
+      setPendingFiles([]);
     };
   }, [
     agent?.gatewayToken,
@@ -534,6 +534,7 @@ export function useGatewayChat(
   ]);
 
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
 
   const addAttachments = useCallback((files: FileList) => {
     Array.from(files).forEach((file) => {
@@ -551,31 +552,75 @@ export function useGatewayChat(
     });
   }, []);
 
+  const addPendingFiles = useCallback((files: ChatPendingFile[]) => {
+    setPendingFiles((prev) => [...prev, ...files]);
+  }, []);
+
   const removeAttachment = useCallback((index: number) => {
-    setPendingAttachments((prev) => prev.filter((_, i) => i !== index));
+    setPendingAttachments((prev) => {
+      const target = prev[index];
+      if (target?.fileName) {
+        setPendingFiles((currentFiles) => {
+          const fileIndex = currentFiles.findIndex(
+            (file) => file.type.startsWith("image/") && file.name === target.fileName
+          );
+          if (fileIndex === -1) return currentFiles;
+          return currentFiles.filter((_, i) => i !== fileIndex);
+        });
+      }
+      return prev.filter((_, i) => i !== index);
+    });
+  }, []);
+
+  const removePendingFile = useCallback((index: number) => {
+    setPendingFiles((prev) => {
+      const target = prev[index];
+      if (target?.type.startsWith("image/")) {
+        setPendingAttachments((currentAttachments) => {
+          const attachmentIndex = currentAttachments.findIndex(
+            (attachment) => attachment.fileName === target.name
+          );
+          if (attachmentIndex === -1) return currentAttachments;
+          return currentAttachments.filter((_, i) => i !== attachmentIndex);
+        });
+      }
+      return prev.filter((_, i) => i !== index);
+    });
   }, []);
 
   const sendMessage = useCallback(async (overrideInput?: string) => {
     const gw = gwRef.current;
     const nextInput = typeof overrideInput === "string" ? overrideInput : input;
     const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
-    if (!gw || (!nextInput.trim() && nextAttachments.length === 0) || sending) return;
+    const nextFiles = typeof overrideInput === "string" ? [] : pendingFiles;
+    if (!gw || (!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sending) return;
 
     const msg = nextInput.trim();
     const attachments = [...nextAttachments];
+    const files = [...nextFiles];
+    const hiddenFileHeader = files.map((file) => `file: ${file.path}`).join("\n");
+    const agentMessage = hiddenFileHeader
+      ? msg
+        ? `${hiddenFileHeader}\n\n${msg}`
+        : `${hiddenFileHeader}\n\n`
+      : msg;
     setInput("");
     setPendingAttachments([]);
+    setPendingFiles([]);
     setSending(true);
 
     const userMsg: ChatMessage = { role: "user", content: msg, timestamp: Date.now() };
     if (attachments.length > 0) {
       userMsg.attachments = attachments;
     }
+    if (files.length > 0) {
+      userMsg.files = files;
+    }
     setMessages((prev) => [...prev, userMsg]);
 
     try {
       await gw.sendChat(
-        msg || "What's in this image?",
+        agentMessage || "What's in this image?",
         "main",
         undefined,
         attachments.length > 0 ? attachments : undefined,
@@ -591,7 +636,7 @@ export function useGatewayChat(
       ]);
       setSending(false);
     }
-  }, [input, sending, pendingAttachments]);
+  }, [input, sending, pendingAttachments, pendingFiles]);
 
   // File operations
   const openFile = useCallback(
@@ -634,8 +679,11 @@ export function useGatewayChat(
     openFile,
     saveFile,
     saveConfig,
+    pendingFiles,
     pendingAttachments,
+    addPendingFiles,
     addAttachments,
+    removePendingFile,
     removeAttachment,
   };
 }

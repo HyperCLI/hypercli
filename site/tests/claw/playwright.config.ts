@@ -12,7 +12,7 @@ if (!baseURL) {
 
 export default defineConfig({
   testDir: __dirname,
-  testMatch: ["login.spec.ts"],
+  testMatch: ["*.spec.ts"],
   fullyParallel: false,
   forbidOnly: !!process.env.CI,
   retries: process.env.CI ? 1 : 0,

@@ -23,7 +23,11 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
-import { GatewayClient, type GatewayEvent } from "@hypercli/sdk/gateway";
+import {
+  GatewayClient,
+  type GatewayEvent,
+  type OpenClawConfigSchemaResponse,
+} from "@hypercli.com/sdk/gateway";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 // -----------------------------------------------------------------------
@@ -100,17 +104,6 @@ function formatFileSize(size?: number): string {
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
 }
 
-function normalizeConfigSchema(schemaResp: Record<string, unknown> | null | undefined) {
-  if (!schemaResp || typeof schemaResp !== "object") return null;
-  const wrapped =
-    "schema" in schemaResp &&
-    schemaResp.schema &&
-    typeof schemaResp.schema === "object"
-      ? (schemaResp.schema as Record<string, unknown>)
-      : null;
-  return wrapped ?? schemaResp;
-}
-
 // -----------------------------------------------------------------------
 // Main component
 // -----------------------------------------------------------------------
@@ -145,7 +138,7 @@ export default function AgentConsolePage() {
   const [savingFile, setSavingFile] = useState(false);
 
   // Config
-  const [configSchema, setConfigSchema] = useState<any>(null);
+  const [configSchema, setConfigSchema] = useState<OpenClawConfigSchemaResponse | null>(null);
   const [config, setConfig] = useState<any>(null);
 
   // Panel state
@@ -313,7 +306,7 @@ export default function AgentConsolePage() {
           gw.configSchema(),
         ]);
         setConfig(cfg);
-        setConfigSchema(normalizeConfigSchema(schema as Record<string, unknown>));
+        setConfigSchema(schema);
       } catch {
         // Keep the console usable even if config endpoints are temporarily unavailable.
       }

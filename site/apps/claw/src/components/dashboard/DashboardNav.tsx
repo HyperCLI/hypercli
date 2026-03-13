@@ -44,6 +44,7 @@ export function DashboardNav() {
   const isActive = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(href));
+  const hideMobileHamburger = pathname.startsWith("/dashboard/agents");
 
   // Close user menu on click outside
   useEffect(() => {
@@ -164,16 +165,19 @@ export function DashboardNav() {
             </div>
 
             {/* Mobile hamburger */}
-            <button
-              className="md:hidden p-2 text-text-secondary hover:text-foreground transition-colors"
-              onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-            >
-              {mobileMenuOpen ? (
-                <X className="h-5 w-5" />
-              ) : (
-                <Menu className="h-5 w-5" />
-              )}
-            </button>
+            {!hideMobileHamburger && (
+              <button
+                className="md:hidden p-2 text-text-secondary hover:text-foreground transition-colors"
+                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+              >
+                {mobileMenuOpen ? (
+                  <X className="h-5 w-5" />
+                ) : (
+                  <Menu className="h-5 w-5" />
+                )}
+              </button>
+            )}
           </div>
         </div>
 

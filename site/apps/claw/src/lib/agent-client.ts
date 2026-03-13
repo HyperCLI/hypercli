@@ -1,5 +1,5 @@
-import { Deployments, resolveAgentsApiBase } from "@hypercli/sdk/agents";
-import { HTTPClient } from "@hypercli/sdk/http";
+import { Deployments, resolveAgentsApiBase } from "@hypercli.com/sdk/agents";
+import { HTTPClient } from "@hypercli.com/sdk/http";
 
 function stripApiSuffix(value: string): string {
   return value.endsWith("/api") ? value.slice(0, -4) : value;

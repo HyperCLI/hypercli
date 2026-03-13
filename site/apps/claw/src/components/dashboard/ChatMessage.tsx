@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { ChevronDown, ChevronRight, Loader2, Pause, Play, Wrench } from "lucide-react";
+import { ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 
@@ -136,6 +136,20 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessag
                 className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
                 onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
               />
+            ))}
+          </div>
+        )}
+
+        {message.files && message.files.length > 0 && (
+          <div className="mb-2 flex flex-wrap gap-2">
+            {message.files.map((file, i) => (
+              <div
+                key={`${file.name}-${i}`}
+                className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+              >
+                <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                <span className="truncate">{file.name}</span>
+              </div>
             ))}
           </div>
         )}

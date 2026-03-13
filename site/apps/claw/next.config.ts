@@ -3,10 +3,15 @@ import path from "path";
 
 // Build-time validation of required environment variables
 const requiredEnvVars = [
-  "NEXT_PUBLIC_CLAW_URL",
+  "NEXT_PUBLIC_MAIN_SITE_URL",
+  "NEXT_PUBLIC_CONSOLE_URL",
+  "NEXT_PUBLIC_AGENTS_URL",
   "NEXT_PUBLIC_COOKIE_DOMAIN",
   "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN",
-  "NEXT_PUBLIC_CLAW_API_URL",
+  "NEXT_PUBLIC_AGENTS_API_URL",
+  "NEXT_PUBLIC_AGENTS_WS_URL",
+  "NEXT_PUBLIC_HYPERCLAW_API_URL",
+  "NEXT_PUBLIC_HYPERCLAW_MODELS_URL",
   "NEXT_PUBLIC_PRIVY_APP_ID",
 ] as const;
 
@@ -19,10 +24,10 @@ for (const envVar of requiredEnvVars) {
 const nextConfig: NextConfig = {
   // Only allow dev proxy origins in development — never in production builds
   ...(process.env.NODE_ENV !== "production" && {
-    allowedDevOrigins: ["gilfoyle.hypercli.com"],
+    allowedDevOrigins: ["gilfoyle.hypercli.com", "gilfoyle.dev.hypercli.com"],
   }),
   transpilePackages: [
-    "@hypercli/sdk",
+    "@hypercli.com/sdk",
     "@hypercli/shared-ui",
     "@rainbow-me/rainbowkit",
     "@coinbase/cdp-sdk",
@@ -36,13 +41,6 @@ const nextConfig: NextConfig = {
   skipTrailingSlashRedirect: true,
   env: {
     NEXT_PUBLIC_IS_MAIN_SITE: "false",
-    // Allow Netlify to set non-public HYPERCLAW_* vars and map them into client-safe names.
-    NEXT_PUBLIC_HYPERCLAW_API_URL:
-      process.env.HYPERCLAW_API_URL || process.env.NEXT_PUBLIC_HYPERCLAW_API_URL || "",
-    NEXT_PUBLIC_AGENTS_WS_URL:
-      process.env.AGENTS_WS_URL || process.env.NEXT_PUBLIC_AGENTS_WS_URL || "",
-    NEXT_PUBLIC_HYPERCLAW_MODELS_URL:
-      process.env.HYPERCLAW_MODELS_URL || process.env.NEXT_PUBLIC_HYPERCLAW_MODELS_URL || "",
   },
   turbopack: {
     root: path.join(__dirname, "../../.."),

@@ -560,7 +560,7 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
         data = resp.json().get("data", [])
         # Known model metadata (context windows, reasoning, etc.)
         MODEL_META = {
-            "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": False, "contextWindow": 262144},
+            "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
             "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
         }
         return [
@@ -582,7 +582,7 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
             {
                 "id": "kimi-k2.5",
                 "name": "Kimi K2.5",
-                "reasoning": False,
+                "reasoning": True,
                 "input": ["text"],
                 "contextWindow": 262144,
             },
@@ -680,7 +680,8 @@ def openclaw_setup(
         console.print(f"   model: hyperclaw-embed/{m['id']}")
     if default and chat_models:
         console.print(f"   default model: hyperclaw/{chat_models[0]['id']}")
-    console.print("\nRun: [bold]openclaw gateway restart[/bold]")
+    console.print("\nOpenClaw will use the Anthropic-compatible /v1/messages endpoint.")
+    console.print("Run: [bold]openclaw gateway restart[/bold]")
 
 
 # ---------------------------------------------------------------------------

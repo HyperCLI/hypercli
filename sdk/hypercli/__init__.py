@@ -14,7 +14,7 @@ from .shell import ShellSession, shell_connect
 from .agent import HyperAgent, HyperAgentKey, HyperAgentPlan, HyperAgentModel
 from .gateway import GatewayClient, GatewayError, ChatEvent
 
-__version__ = "2026.3.10"
+__version__ = "2026.3.13"
 __all__ = [
     "HyperCLI",
     "configure",

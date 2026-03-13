@@ -8,7 +8,7 @@
 
 const MAIN_SITE_URL = process.env.NEXT_PUBLIC_MAIN_SITE_URL!;
 const CONSOLE_URL = process.env.NEXT_PUBLIC_CONSOLE_URL!;
-const CLAW_URL = process.env.NEXT_PUBLIC_CLAW_URL || '';
+const CLAW_URL = process.env.NEXT_PUBLIC_AGENTS_URL || process.env.NEXT_PUBLIC_CLAW_URL || '';
 const IS_MAIN_SITE = process.env.NEXT_PUBLIC_IS_MAIN_SITE === 'true';
 
 /**

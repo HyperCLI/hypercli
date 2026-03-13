@@ -1,13 +1,25 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { Agent as SdkAgent } from "@hypercli/sdk/agents";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
+import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
+import {
+  createOpenClawConfigValue,
+  describeOpenClawConfigNode,
+  normalizeOpenClawConfigSchemaNode,
+  resolveOpenClawConfigUiHint,
+  type OpenClawConfigSchemaResponse,
+  type OpenClawConfigUiHint,
+} from "@hypercli.com/sdk/gateway";
 import { getGatewayToken, setGatewayToken } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  ArrowLeft,
   Bot,
+  Key,
+  CreditCard,
   Download,
   ExternalLink,
   FolderOpen,
@@ -31,6 +43,7 @@ import {
   Mic,
   MicOff,
   X,
+  Menu,
   Pause,
   ImageIcon,
 } from "lucide-react";
@@ -45,6 +58,7 @@ import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard
 import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
@@ -233,13 +247,40 @@ function stateClass(state: AgentState): string {
   }
 }
 
-function stateDotColor(state: AgentState): string {
-  switch (state) {
-    case "RUNNING": return "bg-[#38D39F]";
-    case "FAILED": return "bg-[#d05f5f]";
-    case "STOPPED": return "bg-text-muted";
-    default: return "bg-[#f0c56c]";
-  }
+function AgentStateBadge({
+  state,
+  pulsing = false,
+}: {
+  state: AgentState;
+  pulsing?: boolean;
+}) {
+  const badgeClass =
+    state === "RUNNING"
+      ? "border-[#38D39F] text-[#38D39F] bg-background/90"
+      : state === "FAILED"
+        ? "border-[#d05f5f] text-[#d05f5f] bg-background/90"
+        : state === "STOPPED"
+          ? "border-[#f0c56c] text-[#f0c56c] bg-background/90"
+          : "border-[#f0c56c] text-[#f0c56c] bg-background/90";
+
+  const Icon =
+    state === "RUNNING"
+      ? Play
+      : state === "FAILED"
+        ? X
+        : state === "STOPPED"
+          ? Square
+          : Loader2;
+
+  return (
+    <div
+      className={`absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-background/40 ${badgeClass} ${
+        pulsing ? "animate-pulse" : ""
+      }`}
+    >
+      <Icon className={`h-2.5 w-2.5 ${state === "PENDING" || state === "STARTING" || state === "STOPPING" ? "animate-spin" : ""}`} />
+    </div>
+  );
 }
 
 function BudgetBar({ label, used, total, format }: { label: string; used: number; total: number; format?: (n: number) => string }) {
@@ -256,6 +297,94 @@ function BudgetBar({ label, used, total, format }: { label: string; used: number
           className={`h-full rounded-full transition-all ${pct > 90 ? 'bg-[#d05f5f]' : pct > 70 ? 'bg-[#f0c56c]' : 'bg-foreground'}`}
           style={{ width: `${pct}%` }}
         />
+      </div>
+    </div>
+  );
+}
+
+function AgentLaunchPrompt({
+  label,
+  launching,
+  onLaunch,
+}: {
+  label: string;
+  launching: boolean;
+  onLaunch: () => void;
+}) {
+  return (
+    <div className="h-full flex items-center justify-center p-6">
+      <div className="max-w-md text-center">
+        <button
+          onClick={onLaunch}
+          disabled={launching}
+          className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
+          aria-label={`Launch agent to use ${label}`}
+          title="Launch Agent"
+        >
+          {launching ? <Loader2 className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
+        </button>
+        <p className="text-base text-foreground">Launch Agent to Use {label}</p>
+        <button
+          onClick={onLaunch}
+          disabled={launching}
+          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
+        >
+          {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+          <span>Launch Agent</span>
+        </button>
+        <p className="mt-2 text-sm text-text-muted">Files remain available while stopped.</p>
+      </div>
+    </div>
+  );
+}
+
+function ConnectionStatusIndicator({
+  status,
+}: {
+  status: "connected" | "connecting" | "disconnected";
+}) {
+  const connected = status === "connected";
+  const connecting = status === "connecting";
+  return (
+    <span
+      className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+        connected
+          ? "text-[#38D39F]"
+          : connecting
+            ? "text-[#f0c56c]"
+            : "text-text-muted"
+      }`}
+      title={connected ? "Connected" : connecting ? "Connecting" : "Disconnected"}
+    >
+      {connecting ? (
+        <Loader2 className="w-2 h-2 animate-spin" />
+      ) : (
+        <span
+          className={`inline-block h-2 w-2 rounded-full ${
+            connected ? "bg-[#38D39F]" : "bg-text-muted"
+          }`}
+        />
+      )}
+      <span>
+        {connected ? "Connected" : connecting ? "Connecting" : "Disconnected"}
+      </span>
+    </span>
+  );
+}
+
+function TabLoadingState({
+  label,
+}: {
+  label: string;
+}) {
+  return (
+    <div className="flex h-full items-center justify-center bg-[#0c1016] text-[#8b95a6]">
+      <div className="flex flex-col items-center gap-3 text-center">
+        <Loader2 className="h-6 w-6 animate-spin" />
+        <div className="space-y-1">
+          <p className="text-sm text-[#d8dde7]">{label}</p>
+          <p className="text-xs text-[#8b95a6]">Establishing connection...</p>
+        </div>
       </div>
     </div>
   );
@@ -302,20 +431,28 @@ function setPathValue(root: JsonObject, path: string[], value: unknown): JsonObj
   return next;
 }
 
-function normalizeSchemaNode(schema: JsonObject): JsonObject {
-  const oneOf = Array.isArray(schema.oneOf) ? schema.oneOf : [];
-  const anyOf = Array.isArray(schema.anyOf) ? schema.anyOf : [];
-  const union = [...oneOf, ...anyOf];
-  if (union.length === 0) return schema;
-  const primary = union.find((entry) => {
-    const obj = asObject(entry);
-    if (!obj) return false;
-    const t = obj.type;
-    if (typeof t === "string") return t !== "null";
-    if (Array.isArray(t)) return t.some((v) => v !== "null");
-    return true;
+function getOpenClawUiHint(
+  schemaBundle: OpenClawConfigSchemaResponse | null,
+  path: string[],
+): OpenClawConfigUiHint | null {
+  return resolveOpenClawConfigUiHint(schemaBundle, path.join("."))?.hint ?? null;
+}
+
+function sortOpenClawEntries(
+  entries: Array<[string, unknown]>,
+  schemaBundle: OpenClawConfigSchemaResponse | null,
+  basePath: string[] = [],
+): Array<[string, unknown]> {
+  return [...entries].sort(([leftKey], [rightKey]) => {
+    const leftHint = getOpenClawUiHint(schemaBundle, [...basePath, leftKey]);
+    const rightHint = getOpenClawUiHint(schemaBundle, [...basePath, rightKey]);
+    const leftOrder = typeof leftHint?.order === "number" ? leftHint.order : Number.MAX_SAFE_INTEGER;
+    const rightOrder = typeof rightHint?.order === "number" ? rightHint.order : Number.MAX_SAFE_INTEGER;
+    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
+    const leftLabel = leftHint?.label?.trim() || humanizeKey(leftKey);
+    const rightLabel = rightHint?.label?.trim() || humanizeKey(rightKey);
+    return leftLabel.localeCompare(rightLabel);
   });
-  return asObject(primary) ?? schema;
 }
 
 function isHiddenEntry(name: string): boolean {
@@ -333,10 +470,15 @@ function S3FilesPanel({
   const [directories, setDirectories] = useState<S3FileEntry[]>([]);
   const [files, setFiles] = useState<S3FileEntry[]>([]);
   const [truncated, setTruncated] = useState(false);
+  const [history, setHistory] = useState<string[]>([""]);
+  const [historyIndex, setHistoryIndex] = useState(0);
   const [loading, setLoading] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [dragActive, setDragActive] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [pendingDelete, setPendingDelete] = useState<{ path: string; name: string } | null>(null);
   const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const dragDepthRef = useRef(0);
 
   const loadFiles = useCallback(async (targetPrefix: string) => {
     setLoading(true);
@@ -362,9 +504,33 @@ function S3FilesPanel({
     void loadFiles(prefix);
   }, [loadFiles, prefix]);
 
-  const goToPrefix = useCallback((nextPrefix: string) => {
+  const goToPrefix = useCallback((nextPrefix: string, options?: { push?: boolean }) => {
     setPrefix(nextPrefix);
+    if (options?.push === false) return;
+    setHistory((current) => {
+      const head = current.slice(0, historyIndex + 1);
+      if (head[head.length - 1] === nextPrefix) return head;
+      return [...head, nextPrefix];
+    });
+    setHistoryIndex((current) => {
+      if (history[historyIndex] === nextPrefix) return current;
+      return current + 1;
+    });
   }, []);
+
+  const goBack = useCallback(() => {
+    if (historyIndex === 0) return;
+    const nextIndex = historyIndex - 1;
+    setHistoryIndex(nextIndex);
+    setPrefix(history[nextIndex] || "");
+  }, [history, historyIndex]);
+
+  const goForward = useCallback(() => {
+    if (historyIndex >= history.length - 1) return;
+    const nextIndex = historyIndex + 1;
+    setHistoryIndex(nextIndex);
+    setPrefix(history[nextIndex] || "");
+  }, [history, historyIndex]);
 
   const uploadFiles = useCallback(async (uploadList: FileList) => {
     setUploading(true);
@@ -395,8 +561,7 @@ function S3FilesPanel({
     }
   }, [agentId, getToken]);
 
-  const deleteFile = useCallback(async (path: string, name: string) => {
-    if (!window.confirm(`Delete "${name}"?`)) return;
+  const deleteFile = useCallback(async (path: string) => {
     setError(null);
     try {
       const token = await getToken();
@@ -404,6 +569,8 @@ function S3FilesPanel({
       await loadFiles(prefix);
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : "Delete failed");
+    } finally {
+      setPendingDelete(null);
     }
   }, [agentId, getToken, loadFiles, prefix]);
 
@@ -413,7 +580,51 @@ function S3FilesPanel({
   const hiddenEntryCount = hiddenDirectoryCount + hiddenFileCount;
 
   return (
-    <div className="h-full flex flex-col">
+    <div
+      className={`relative h-full flex flex-col ${dragActive ? "bg-surface-low/10" : ""}`}
+      onDragEnter={(event) => {
+        event.preventDefault();
+        dragDepthRef.current += 1;
+        setDragActive(true);
+      }}
+      onDragOver={(event) => {
+        event.preventDefault();
+      }}
+      onDragLeave={(event) => {
+        event.preventDefault();
+        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
+        if (dragDepthRef.current === 0) {
+          setDragActive(false);
+        }
+      }}
+      onDrop={(event) => {
+        event.preventDefault();
+        dragDepthRef.current = 0;
+        setDragActive(false);
+        if (event.dataTransfer.files?.length) {
+          void uploadFiles(event.dataTransfer.files);
+        }
+      }}
+    >
+      <ConfirmDialog
+        open={Boolean(pendingDelete)}
+        title="Delete File"
+        message={pendingDelete ? `Delete "${pendingDelete.name}"? This cannot be undone.` : ""}
+        confirmLabel="Delete"
+        danger
+        onCancel={() => setPendingDelete(null)}
+        onConfirm={() => {
+          if (pendingDelete) void deleteFile(pendingDelete.path);
+        }}
+      />
+      {dragActive && (
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-[#38D39F]/50 bg-[#38D39F]/8">
+          <div className="rounded-xl border border-border bg-background/95 px-4 py-3 text-center shadow-lg backdrop-blur">
+            <p className="text-sm font-medium text-foreground">Drop files to upload</p>
+            <p className="mt-1 text-xs text-text-muted">Files will be uploaded into the current folder.</p>
+          </div>
+        </div>
+      )}
       <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
         <input
           ref={fileInputRef}
@@ -427,22 +638,6 @@ function S3FilesPanel({
             }
           }}
         />
-        <button
-          onClick={() => fileInputRef.current?.click()}
-          disabled={uploading}
-          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
-        >
-          {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-          Upload
-        </button>
-        <button
-          onClick={() => void loadFiles(prefix)}
-          disabled={loading}
-          className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50 flex items-center gap-1"
-        >
-          <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-          Refresh
-        </button>
         {hiddenEntryCount > 0 && (
           <span className="rounded-full border border-border bg-surface-low px-2 py-1 text-[11px] text-text-muted">
             {hiddenEntryCount} hidden
@@ -452,17 +647,53 @@ function S3FilesPanel({
         <p className="text-xs text-text-muted">Uploaded files sync to workspace on agent restart.</p>
       </div>
 
-      <div className="px-4 py-2 border-b border-border bg-surface-low text-xs text-text-muted font-mono flex items-center gap-1 overflow-x-auto">
-        <button onClick={() => goToPrefix("")} className="hover:text-foreground">/</button>
-        {pathParts.map((part, idx) => {
-          const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
-          return (
-            <span key={partPrefix} className="flex items-center gap-1">
-              <span>/</span>
-              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-foreground whitespace-nowrap">{part}</button>
-            </span>
-          );
-        })}
+      <div className="flex items-center gap-3 border-b border-border bg-surface-low px-4 py-2">
+        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto font-mono text-sm text-text-secondary">
+          <button
+            onClick={goBack}
+            disabled={historyIndex === 0}
+            className="rounded border border-border px-2 py-0.5 text-xs hover:text-foreground disabled:opacity-40 disabled:hover:text-text-muted"
+            title="Back"
+          >
+            {"<"}
+          </button>
+          <button
+            onClick={goForward}
+            disabled={historyIndex >= history.length - 1}
+            className="rounded border border-border px-2 py-0.5 text-xs hover:text-foreground disabled:opacity-40 disabled:hover:text-text-muted"
+            title="Forward"
+          >
+            {">"}
+          </button>
+          <button onClick={() => goToPrefix("")} className="whitespace-nowrap text-foreground hover:text-foreground/80">/</button>
+          {pathParts.map((part, idx) => {
+            const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
+            return (
+              <span key={partPrefix} className="flex items-center gap-1 whitespace-nowrap">
+                <span className="text-text-muted">/</span>
+                <button onClick={() => goToPrefix(partPrefix)} className="text-foreground hover:text-foreground/80">{part}</button>
+              </span>
+            );
+          })}
+        </div>
+        <div className="flex shrink-0 items-center gap-2">
+          <button
+            onClick={() => void loadFiles(prefix)}
+            disabled={loading}
+            className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-background disabled:opacity-50 flex items-center gap-1"
+          >
+            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
+            Refresh
+          </button>
+          <button
+            onClick={() => fileInputRef.current?.click()}
+            disabled={uploading}
+            className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-background disabled:opacity-50 flex items-center gap-1"
+          >
+            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
+            Upload
+          </button>
+        </div>
       </div>
 
       {error && <div className="px-4 py-2 text-xs text-[#d05f5f] border-b border-border">{error}</div>}
@@ -518,7 +749,7 @@ function S3FilesPanel({
                   <Download className="w-4 h-4" />
                 </button>
                 <button
-                  onClick={() => void deleteFile(file.path, file.name)}
+                  onClick={() => setPendingDelete({ path: file.path, name: file.name })}
                   className="text-text-muted hover:text-[#d05f5f] p-1"
                   title="Delete"
                 >
@@ -555,8 +786,12 @@ function S3FilesPanel({
 
 export default function AgentsPage() {
   const { getToken } = useAgentAuth();
+  const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
-  const [isDesktopViewport, setIsDesktopViewport] = useState(false);
+  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
+    if (typeof window === "undefined") return true;
+    return window.matchMedia("(min-width: 768px)").matches;
+  });
 
   // Agent data
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -571,6 +806,7 @@ export default function AgentsPage() {
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const gatewayTokensRef = useRef<Record<string, string>>({});
+  const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
@@ -578,6 +814,7 @@ export default function AgentsPage() {
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
+  const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
 
   // Logs
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -602,9 +839,9 @@ export default function AgentsPage() {
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
   const [burstAgentId, setBurstAgentId] = useState<string | null>(null);
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 640px)");
+    const mediaQuery = window.matchMedia("(min-width: 768px)");
     const apply = () => setIsDesktopViewport(mediaQuery.matches);
     apply();
     mediaQuery.addEventListener("change", apply);
@@ -619,6 +856,11 @@ export default function AgentsPage() {
   const [openclawError, setOpenclawError] = useState<string | null>(null);
   const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
   const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
+  const [mobileOpenclawMenuOpen, setMobileOpenclawMenuOpen] = useState(true);
+  const [openclawMapDraftKeys, setOpenclawMapDraftKeys] = useState<Record<string, string>>({});
+  const [chatDragActive, setChatDragActive] = useState(false);
+  const openclawPaneRef = useRef<HTMLDivElement | null>(null);
+  const chatDragDepthRef = useRef(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -677,8 +919,33 @@ export default function AgentsPage() {
     return agent;
   }, [agents, selectedAgentId]);
   const selectedAgentHostname = selectedAgent?.hostname || null;
+  const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
+  const stoppedTabLabel: Record<Exclude<MainTab, "files">, string> = {
+    chat: "Chat",
+    logs: "Logs",
+    shell: "Shell",
+    workspace: "Workspace",
+    openclaw: "OpenClaw",
+    settings: "Settings",
+  };
+  const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
+    { key: "chat", label: "Chat", icon: MessageSquare },
+    { key: "logs", label: "Logs", icon: TerminalSquare },
+    { key: "shell", label: "Shell", icon: TerminalSquare },
+    { key: "files", label: "Files", icon: HardDrive },
+    { key: "workspace", label: "Workspace", icon: FolderOpen },
+    { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
+    { key: "settings", label: "Settings", icon: Settings },
+  ];
+  const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
+    { label: "Overview", href: "/dashboard", icon: Bot },
+    { label: "Agents", href: "/dashboard/agents", icon: Bot },
+    { label: "API Keys", href: "/dashboard/keys", icon: Key },
+    { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
+    { label: "Settings", href: "/dashboard/settings", icon: Settings },
+  ];
 
   // Sync settings fields when selected agent changes
   useEffect(() => {
@@ -688,25 +955,41 @@ export default function AgentsPage() {
     }
   }, [selectedAgentId]);
 
+  useEffect(() => {
+    setMobileAgentMenuOpen(false);
+  }, [mainTab, selectedAgentId, isDesktopViewport]);
+
   // ── Gateway Chat hook ──
   const chat = useGatewayChat(
     selectedAgent && isSelectedRunning ? selectedAgent : null,
     getToken
   );
+  const activeConnectionStatus = useMemo(() => {
+    if (mainTab === "files") return "connected" as const;
+    if (!isSelectedRunning) return null;
+    if (mainTab === "logs") return wsStatus;
+    if (mainTab === "shell") return shellStatus;
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw") {
+      if (chat.connected) return "connected" as const;
+      if (chat.connecting) return "connecting" as const;
+      return "disconnected" as const;
+    }
+    return null;
+  }, [chat.connected, chat.connecting, isSelectedRunning, mainTab, shellStatus, wsStatus]);
 
-  const openclawSchemaRoot = useMemo(() => {
-    const raw = asObject(chat.configSchema);
-    const wrapped = asObject(raw?.schema);
-    return wrapped ?? raw;
-  }, [chat.configSchema]);
+  const openclawSchemaBundle = chat.configSchema;
+  const openclawSchemaRoot = useMemo(
+    () => asObject(openclawSchemaBundle?.schema ?? null),
+    [openclawSchemaBundle]
+  );
   const openclawSchemaProperties = useMemo(
     () => asObject(openclawSchemaRoot?.properties ?? null),
     [openclawSchemaRoot]
   );
 
   const openclawSections = useMemo(
-    () => Object.entries(openclawSchemaProperties ?? {}),
-    [openclawSchemaProperties]
+    () => sortOpenClawEntries(Object.entries(openclawSchemaProperties ?? {}), openclawSchemaBundle),
+    [openclawSchemaBundle, openclawSchemaProperties]
   );
 
   useEffect(() => {
@@ -725,12 +1008,73 @@ export default function AgentsPage() {
     }
   }, [openclawSections, activeOpenclawSection]);
 
+  useEffect(() => {
+    if (mainTab !== "openclaw") return;
+    openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
+  }, [activeOpenclawSection, mainTab]);
+
+  const effectiveOpenclawSection = useMemo(
+    () => (isDesktopViewport ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
+    [activeOpenclawSection, isDesktopViewport, openclawSections]
+  );
+
+  const visibleOpenclawSections = useMemo(() => {
+    if (!effectiveOpenclawSection) return openclawSections;
+    const selected = openclawSections.find(([sectionKey]) => sectionKey === effectiveOpenclawSection);
+    return selected ? [selected] : openclawSections;
+  }, [effectiveOpenclawSection, openclawSections]);
+
+  const activeOpenclawSectionEntry = useMemo(
+    () => openclawSections.find(([sectionKey]) => sectionKey === effectiveOpenclawSection) ?? null,
+    [effectiveOpenclawSection, openclawSections]
+  );
+
+  const activeOpenclawSectionLabel = useMemo(() => {
+    if (!activeOpenclawSectionEntry) return null;
+    const [sectionKey, sectionSchema] = activeOpenclawSectionEntry;
+    return (
+      getOpenClawUiHint(openclawSchemaBundle, [sectionKey])?.label?.trim()
+      || (typeof asObject(sectionSchema)?.title === "string"
+        ? String(asObject(sectionSchema)?.title)
+        : humanizeKey(sectionKey))
+    );
+  }, [activeOpenclawSectionEntry, openclawSchemaBundle]);
+
+  useEffect(() => {
+    if (!isDesktopViewport && mainTab === "openclaw") {
+      setMobileOpenclawMenuOpen(true);
+    }
+  }, [isDesktopViewport, mainTab, selectedAgentId]);
+
   const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
     setOpenclawDraft((prev) => {
       const base = prev ? deepCloneJsonObject(prev) : {};
       return setPathValue(base, path, value);
     });
   }, []);
+
+  const removeOpenclawPath = useCallback((path: string[]) => {
+    setOpenclawDraft((prev) => {
+      if (!prev || path.length === 0) return prev;
+      const base = deepCloneJsonObject(prev);
+      const parentPath = path.slice(0, -1);
+      const leafKey = path[path.length - 1];
+      const parent = parentPath.length === 0 ? base : getPathValue(base, parentPath);
+      if (!parent || typeof parent !== "object" || Array.isArray(parent)) {
+        return base;
+      }
+      delete (parent as JsonObject)[leafKey];
+      return base;
+    });
+  }, []);
+
+  const addOpenclawMapEntry = useCallback((path: string[], schemaRaw: unknown) => {
+    const pathKey = path.join(".");
+    const nextKey = (openclawMapDraftKeys[pathKey] ?? "").trim();
+    if (!nextKey) return;
+    updateOpenclawPath([...path, nextKey], createOpenClawConfigValue(schemaRaw));
+    setOpenclawMapDraftKeys((prev) => ({ ...prev, [pathKey]: "" }));
+  }, [openclawMapDraftKeys, updateOpenclawPath]);
 
   const saveOpenclawPatch = useCallback(async (patch: JsonObject, successText: string) => {
     setOpenclawSaving(true);
@@ -757,30 +1101,89 @@ export default function AgentsPage() {
   }, [openclawDraft, saveOpenclawPatch]);
 
   const renderOpenclawField = useCallback((schemaRaw: unknown, path: string[], depth = 0) => {
-    const schema = normalizeSchemaNode(asObject(schemaRaw) ?? {});
-    const title = typeof schema.title === "string" ? schema.title : humanizeKey(path[path.length - 1] || "setting");
-    const description = typeof schema.description === "string" ? schema.description : "";
+    const schema = normalizeOpenClawConfigSchemaNode(schemaRaw);
+    const descriptor = describeOpenClawConfigNode(schemaRaw);
+    const hint = getOpenClawUiHint(openclawSchemaBundle, path);
+    const title =
+      hint?.label?.trim() ||
+      (typeof schema.title === "string" ? schema.title : "") ||
+      humanizeKey(path[path.length - 1] || "setting");
+    const description =
+      hint?.help?.trim() ||
+      (typeof schema.description === "string" ? schema.description : "");
+    const placeholder =
+      hint?.placeholder && hint.placeholder.trim() ? hint.placeholder : undefined;
     const typeRaw = schema.type;
     const type = Array.isArray(typeRaw)
       ? (typeRaw.find((entry) => entry !== "null") as string | undefined)
       : (typeof typeRaw === "string" ? typeRaw : undefined);
-    const enumValues = Array.isArray(schema.enum) ? schema.enum : [];
+    const enumValues: unknown[] = Array.isArray(schema.enum) ? schema.enum : [];
     const currentValue = openclawDraft ? getPathValue(openclawDraft, path) : undefined;
     const key = path.join(".");
 
-    const properties = asObject(schema.properties);
-    if ((type === "object" || properties) && properties) {
-      const entries = Object.entries(properties);
-      if (entries.length === 0) return null;
+    const propertyKeys = descriptor.properties;
+    const additionalSchema = descriptor.additionalPropertySchema;
+    if (type === "object" || Object.keys(propertyKeys).length > 0 || descriptor.additionalProperties) {
+      const entries = Object.keys(propertyKeys).length > 0
+        ? sortOpenClawEntries(Object.entries(propertyKeys), openclawSchemaBundle, path)
+        : [];
+      const dynamicEntries = descriptor.additionalProperties && currentValue && typeof currentValue === "object" && !Array.isArray(currentValue)
+        ? Object.entries(currentValue as JsonObject).filter(([childKey]) => !(childKey in propertyKeys))
+        : [];
+      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) return null;
       return (
         <div key={key} className={depth > 0 ? "rounded-lg border border-border p-3 space-y-3" : "space-y-3"}>
           {depth > 0 && (
             <div>
-              <p className="text-sm font-semibold text-foreground">{title}</p>
+              <div className="flex flex-wrap items-center gap-2">
+                <p className="text-sm font-semibold text-foreground">{title}</p>
+                {hint?.advanced && (
+                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
+                    advanced
+                  </span>
+                )}
+              </div>
               {description && <p className="text-xs text-text-muted mt-0.5">{description}</p>}
             </div>
           )}
           {entries.map(([childKey, childSchema]) => renderOpenclawField(childSchema, [...path, childKey], depth + 1))}
+          {descriptor.additionalProperties && (
+            <div className="space-y-3">
+              {dynamicEntries.map(([childKey]) => (
+                <div key={`${key}-dynamic-${childKey}`} className="rounded-lg border border-border/70 bg-surface-low/20 p-3 space-y-3">
+                  <div className="flex items-center justify-between gap-3">
+                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-muted">{childKey}</p>
+                    <button
+                      type="button"
+                      onClick={() => removeOpenclawPath([...path, childKey])}
+                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f]"
+                    >
+                      <Trash2 className="h-3.5 w-3.5" />
+                      Remove
+                    </button>
+                  </div>
+                  {renderOpenclawField(additionalSchema ? { ...additionalSchema, title: childKey } : { title: childKey, type: "object" }, [...path, childKey], depth + 1)}
+                </div>
+              ))}
+              <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border px-3 py-3 md:flex-row md:items-center">
+                <input
+                  type="text"
+                  value={openclawMapDraftKeys[key] ?? ""}
+                  onChange={(e) => setOpenclawMapDraftKeys((prev) => ({ ...prev, [key]: e.target.value }))}
+                  placeholder={`Add ${title.toLowerCase()} key`}
+                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong"
+                />
+                <button
+                  type="button"
+                  onClick={() => addOpenclawMapEntry(path, additionalSchema ?? { type: "object" })}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add Entry
+                </button>
+              </div>
+            </div>
+          )}
         </div>
       );
     }
@@ -796,17 +1199,36 @@ export default function AgentsPage() {
 
     return (
       <div key={key} className="space-y-1">
-        <label className="block text-sm text-text-secondary">{title}</label>
+        <div className="flex flex-wrap items-center gap-2">
+          <label className="block text-sm text-text-secondary">{title}</label>
+          {hint?.sensitive && (
+            <span className="rounded-full border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#d05f5f]">
+              sensitive
+            </span>
+          )}
+          {hint?.advanced && (
+            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
+              advanced
+            </span>
+          )}
+        </div>
         {description && <p className="text-xs text-text-muted">{description}</p>}
         {enumValues.length > 0 ? (
           <select
-            value={currentValue == null ? "" : String(currentValue)}
-            onChange={(e) => updateOpenclawPath(path, e.target.value)}
+            value={currentValue == null ? "" : JSON.stringify(currentValue)}
+            onChange={(e) => {
+              if (!e.target.value) {
+                updateOpenclawPath(path, null);
+                return;
+              }
+              const nextValue = enumValues.find((value) => JSON.stringify(value) === e.target.value);
+              updateOpenclawPath(path, nextValue ?? e.target.value);
+            }}
             className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
           >
             <option value="">(unset)</option>
             {enumValues.map((value) => (
-              <option key={`${key}-enum-${String(value)}`} value={String(value)}>
+              <option key={`${key}-enum-${JSON.stringify(value)}`} value={JSON.stringify(value)}>
                 {String(value)}
               </option>
             ))}
@@ -834,6 +1256,7 @@ export default function AgentsPage() {
               const parsed = type === "integer" ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
               if (!Number.isNaN(parsed)) updateOpenclawPath(path, parsed);
             }}
+            placeholder={placeholder}
             className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
           />
         ) : type === "array" || type === "object" ? (
@@ -842,19 +1265,21 @@ export default function AgentsPage() {
             onChange={(e) => onJsonValueChange(e.target.value)}
             rows={6}
             spellCheck={false}
+            placeholder={placeholder}
             className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
           />
         ) : (
           <input
-            type="text"
+            type={hint?.sensitive ? "password" : "text"}
             value={typeof currentValue === "string" ? currentValue : currentValue == null ? "" : String(currentValue)}
             onChange={(e) => updateOpenclawPath(path, e.target.value)}
+            placeholder={placeholder}
             className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
           />
         )}
       </div>
     );
-  }, [openclawDraft, updateOpenclawPath]);
+  }, [addOpenclawMapEntry, openclawDraft, openclawMapDraftKeys, openclawSchemaBundle, removeOpenclawPath, updateOpenclawPath]);
 
   // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -902,7 +1327,7 @@ export default function AgentsPage() {
   // ── Logs WebSocket ──
   useEffect(() => {
     if (mainTab !== "logs") { setWsStatus("disconnected"); return; }
-    if (!selectedAgentId) { setWsStatus("disconnected"); setLogs([]); return; }
+    if (!selectedAgentId || selectedAgentState !== "RUNNING") { setWsStatus("disconnected"); setLogs([]); return; }
     const agentId = selectedAgentId;
     let ws: WebSocket | null = null;
     let cancelled = false;
@@ -955,7 +1380,7 @@ export default function AgentsPage() {
       if (reconnectTimer) clearTimeout(reconnectTimer);
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
     };
-  }, [mainTab, selectedAgentId, getToken, reconnectNonce, fetchAgents]);
+  }, [mainTab, selectedAgentId, selectedAgentState, getToken, reconnectNonce, fetchAgents]);
 
   useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
 
@@ -1007,7 +1432,7 @@ export default function AgentsPage() {
       if (shellWsRef.current) { shellWsRef.current.close(); shellWsRef.current = null; }
       return;
     }
-    if (!selectedAgentId) { setShellStatus("disconnected"); return; }
+    if (!selectedAgentId || selectedAgentState !== "RUNNING") { setShellStatus("disconnected"); return; }
     const agentId = selectedAgentId;
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1055,7 +1480,7 @@ export default function AgentsPage() {
       if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
       shellWsRef.current = null;
     };
-  }, [mainTab, selectedAgentId, reconnectNonce, getToken]);
+  }, [mainTab, selectedAgentId, selectedAgentState, reconnectNonce, getToken]);
 
   // ── Actions ──
 
@@ -1090,7 +1515,6 @@ export default function AgentsPage() {
   };
 
   const handleDelete = async (agentId: string) => {
-    if (!confirm(`Delete agent "${agents.find(a => a.id === agentId)?.name || agentId}"? This cannot be undone.`)) return;
     setDeletingId(agentId);
     setError(null);
     try {
@@ -1104,6 +1528,7 @@ export default function AgentsPage() {
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
       setDeletingId(null);
+      setPendingAgentDelete(null);
     }
   };
 
@@ -1285,7 +1710,7 @@ export default function AgentsPage() {
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
       const agentPath = `/home/ubuntu/${uploadPath}`;
-      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper claw transcribe ${agentPath}\``;
+      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper agent transcribe ${agentPath}\``;
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
       // Keep input state in sync and send in one action.
       chat.setInput(voiceMessage);
@@ -1298,6 +1723,39 @@ export default function AgentsPage() {
       setSendingAudio(false);
     }
   }, [audioBlob, chat, discardAudio, selectedAgent, getToken, sendingAudio]);
+
+  const handleChatFileDrop = useCallback(async (fileList: FileList | File[]) => {
+    if (!selectedAgent || !chat.connected) return;
+
+    const files = Array.from(fileList);
+    const imageFiles = files.filter((file) => file.type.startsWith("image/"));
+
+    try {
+      const token = await getToken();
+      const agentClient = createAgentClient(token);
+      const uploaded: Array<{ name: string; path: string; type: string }> = [];
+
+      for (const file of files) {
+        const uploadPath = `workspace/${file.name}`;
+        await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, await file.arrayBuffer());
+        uploaded.push({
+          name: file.name,
+          path: `/home/ubuntu/${uploadPath}`,
+          type: file.type,
+        });
+      }
+
+      if (imageFiles.length > 0) {
+        const dt = new DataTransfer();
+        imageFiles.forEach((file) => dt.items.add(file));
+        chat.addAttachments(dt.files);
+      }
+      chat.addPendingFiles(uploaded);
+    } catch (e) {
+      console.error("Chat file upload failed:", e);
+      setError(e instanceof Error ? e.message : "File upload failed");
+    }
+  }, [chat, getToken, selectedAgent]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
@@ -1317,7 +1775,12 @@ export default function AgentsPage() {
         setMainTab(tab);
         setMobileShowChat(true);
       },
-      onDelete: () => { void handleDelete(selectedAgent.id); },
+      onDelete: () => {
+        setPendingAgentDelete({
+          id: selectedAgent.id,
+          name: selectedAgent.name || selectedAgent.id,
+        });
+      },
       deleting: deletingId === selectedAgent.id,
     });
     return () => setAgentMenu(null);
@@ -1326,34 +1789,152 @@ export default function AgentsPage() {
   // ── Render ──
 
   return (
-    <div className="-mx-4 sm:-mx-6 lg:-mx-8 -my-8 h-[calc(100dvh-3.5rem)] min-h-[calc(100dvh-3.5rem)] flex flex-col overflow-hidden">
+    <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
+      <div className="relative flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
         <div className="flex items-center gap-3">
           <button
             onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
             className={`${isDesktopViewport ? "block" : "hidden"} text-text-muted transition-colors hover:text-foreground`}
+            aria-label={sidebarCollapsed ? "Expand agents sidebar" : "Collapse agents sidebar"}
           >
             {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
           </button>
-          <h1 className="text-xl font-bold text-foreground">Agents</h1>
+          {isDesktopViewport ? (
+            <h1 className="text-xl font-bold text-foreground">Agents</h1>
+          ) : (
+            <div className="flex items-center gap-2 text-xl font-bold">
+              <span aria-label="HyperClaw brand">
+                <span className="text-foreground">Hyper</span>
+                <span className="text-primary">Claw</span>
+              </span>
+              <span className="text-text-muted font-medium">Agents</span>
+            </div>
+          )}
         </div>
         <div className="flex items-center gap-3">
           {budget && (
-            <div className={`${isDesktopViewport ? "flex" : "hidden"} gap-4 mr-3`}>
+            <div className="hidden xl:flex gap-4 mr-3 min-w-[440px]">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
             </div>
           )}
-          <button
-            onClick={() => setShowCreateDialog(true)}
-            className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
-          >
-            <Plus className="w-4 h-4" />
-            <span className={isDesktopViewport ? "inline" : "hidden"}>New Agent</span>
-          </button>
+          {isDesktopViewport ? (
+            <button
+              onClick={() => setShowCreateDialog(true)}
+              className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
+            >
+              <Plus className="w-4 h-4" />
+              <span>New Agent</span>
+            </button>
+          ) : (
+            <button
+              onClick={() => setMobileAgentMenuOpen((open) => !open)}
+              className="p-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              aria-label={mobileAgentMenuOpen ? "Close agent menu" : "Open agent menu"}
+            >
+              {mobileAgentMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
+            </button>
+          )}
         </div>
+
+        {!isDesktopViewport && mobileAgentMenuOpen && (
+          <div className="absolute right-4 top-[calc(100%-0.25rem)] z-30 w-64 rounded-xl border border-border bg-background shadow-2xl">
+            <div className="p-2 space-y-1">
+              <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                Dashboard
+              </p>
+              {dashboardNavItems.map(({ label, href, icon: Icon }) => (
+                <button
+                  key={`mobile-nav-${href}`}
+                  onClick={() => {
+                    router.push(href);
+                    setMobileAgentMenuOpen(false);
+                  }}
+                  className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                >
+                  <Icon className="w-4 h-4" />
+                  <span>{label}</span>
+                </button>
+              ))}
+              <button
+                onClick={() => {
+                  setShowCreateDialog(true);
+                  setMobileAgentMenuOpen(false);
+                }}
+                className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
+              >
+                <Plus className="w-4 h-4" />
+                <span>Add Agent</span>
+              </button>
+            </div>
+            {selectedAgent && (
+              <>
+                <div className="border-t border-border p-2 space-y-1">
+                  <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                    Agent
+                  </p>
+                  {agentTabItems.map(({ key, label, icon: Icon }) => (
+                    <button
+                      key={`mobile-tab-${key}`}
+                      onClick={() => {
+                        setMainTab(key);
+                        setMobileAgentMenuOpen(false);
+                      }}
+                      className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                        mainTab === key
+                          ? "bg-surface-low text-foreground"
+                          : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                      }`}
+                    >
+                      <Icon className="w-4 h-4" />
+                      <span>{label}</span>
+                    </button>
+                  ))}
+                </div>
+                <div className="border-t border-border p-2 space-y-1">
+                  {(mainTab === "logs" || mainTab === "shell") && (
+                    <button
+                      onClick={() => {
+                        setReconnectNonce((value) => value + 1);
+                        setMobileAgentMenuOpen(false);
+                      }}
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                    >
+                      <RefreshCw className="w-4 h-4" />
+                      <span>Reconnect</span>
+                    </button>
+                  )}
+                  {isSelectedRunning && selectedAgent.hostname && (
+                    <button
+                      onClick={() => {
+                        void handleOpenDesktop(selectedAgent);
+                        setMobileAgentMenuOpen(false);
+                      }}
+                      disabled={openingDesktopId === selectedAgent.id}
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70 disabled:opacity-60"
+                    >
+                      {openingDesktopId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                      <span>Desktop</span>
+                    </button>
+                  )}
+                  <button
+                    onClick={() => {
+                      setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
+                      setMobileAgentMenuOpen(false);
+                    }}
+                    disabled={deletingId === selectedAgent.id}
+                    className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-[#d05f5f] hover:bg-surface-low/70 disabled:opacity-60"
+                  >
+                    {deletingId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                    <span>Delete Agent</span>
+                  </button>
+                </div>
+              </>
+            )}
+          </div>
+        )}
       </div>
 
       {/* Error banner */}
@@ -1387,6 +1968,22 @@ export default function AgentsPage() {
           fetchAgents();
         }}
         budget={budget}
+      />
+      <ConfirmDialog
+        open={Boolean(pendingAgentDelete)}
+        title="Delete Agent"
+        message={
+          pendingAgentDelete
+            ? `Delete agent "${pendingAgentDelete.name}"? This cannot be undone.`
+            : ""
+        }
+        confirmLabel="Delete"
+        danger
+        loading={Boolean(pendingAgentDelete && deletingId === pendingAgentDelete.id)}
+        onCancel={() => setPendingAgentDelete(null)}
+        onConfirm={() => {
+          if (pendingAgentDelete) void handleDelete(pendingAgentDelete.id);
+        }}
       />
 
       {/* Main layout: Sidebar + Panel */}
@@ -1451,7 +2048,7 @@ export default function AgentsPage() {
                           >
                             <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
                           </div>
-                          <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${stateDotColor(agent.state)} ${isTransitioning ? "animate-pulse" : ""}`} />
+                          <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                         </div>
                       </button>
                     );
@@ -1473,7 +2070,7 @@ export default function AgentsPage() {
                         >
                           <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
                         </div>
-                        <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${stateDotColor(agent.state)} ${isTransitioning ? "animate-pulse" : ""}`} />
+                        <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                       </div>
 
                       {/* Info */}
@@ -1515,7 +2112,7 @@ export default function AgentsPage() {
 
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
-            <div className={`px-3 py-3 border-t border-border flex flex-col gap-2 ${isDesktopViewport ? "hidden" : "flex"}`}>
+            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 xl:hidden">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
@@ -1535,11 +2132,12 @@ export default function AgentsPage() {
           ) : (
             <>
               {/* Agent header + tabs */}
-              <div className="px-4 py-3 border-b border-border flex items-center gap-3 min-w-0">
+              <div className="relative px-4 py-3 border-b border-border flex items-center gap-3 min-w-0">
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
                   className={`${isDesktopViewport ? "hidden" : "block"} text-text-muted hover:text-foreground`}
+                  aria-label="Show agents list"
                 >
                   <PanelLeft className="w-5 h-5" />
                 </button>
@@ -1555,62 +2153,29 @@ export default function AgentsPage() {
                       </div>
                     );
                   })()}
-                  <span className="text-sm font-semibold text-foreground truncate">{selectedAgent.name || selectedAgent.pod_name}</span>
-                  {chat.connected && (
-                    <>
-                      <span className={`${isDesktopViewport ? "inline" : "hidden"} text-[10px] text-[#38D39F]`}>Gateway</span>
-                      <span className={`${isDesktopViewport ? "hidden" : "block"} w-2 h-2 rounded-full bg-[#38D39F]`} />
-                    </>
-                  )}
-                  {!chat.connected && chat.connecting && (
-                    <>
-                      <span className={`${isDesktopViewport ? "flex" : "hidden"} text-[10px] text-[#38D39F] items-center gap-1`}>
-                        <Loader2 className="w-3 h-3 animate-spin" />
-                        Connecting
-                      </span>
-                      <Loader2 className={`${isDesktopViewport ? "hidden" : "block"} w-3 h-3 animate-spin text-[#38D39F]`} />
-                    </>
-                  )}
+                  <span className="hidden xl:inline text-sm font-semibold text-foreground truncate">
+                    {selectedAgent.name || selectedAgent.pod_name}
+                  </span>
+                  {activeConnectionStatus && <ConnectionStatusIndicator status={activeConnectionStatus} />}
                 </div>
 
                 {/* Tabs */}
                 <div className={`${isDesktopViewport ? "flex" : "hidden"} flex-1 min-w-0 items-center justify-center overflow-x-auto`}>
                   <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
-                    {(["chat", "logs", "shell", "files", "workspace", "openclaw", "settings"] as MainTab[]).map((tab) => {
-                      const icons = {
-                        chat: MessageSquare,
-                        logs: TerminalSquare,
-                        shell: TerminalSquare,
-                        workspace: FolderOpen,
-                        files: HardDrive,
-                        openclaw: SlidersHorizontal,
-                        settings: Settings,
-                      };
-                      const labels: Record<MainTab, string> = {
-                        chat: "Chat",
-                        logs: "Logs",
-                        shell: "Shell",
-                        workspace: "Workspace",
-                        files: "Files",
-                        openclaw: "OpenClaw",
-                        settings: "Settings",
-                      };
-                      const Icon = icons[tab];
-                      return (
-                        <button
-                          key={tab}
-                          onClick={() => setMainTab(tab)}
-                          className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${
-                            mainTab === tab
-                              ? "bg-surface-low text-foreground"
-                              : "bg-transparent text-text-muted hover:text-foreground"
-                          } ${tab !== "chat" ? "border-l border-border" : ""}`}
-                        >
-                          <Icon className="w-3.5 h-3.5" />
-                          <span>{labels[tab]}</span>
-                        </button>
-                      );
-                    })}
+                    {agentTabItems.map(({ key, label, icon: Icon }, index) => (
+                      <button
+                        key={key}
+                        onClick={() => setMainTab(key)}
+                        className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${
+                          mainTab === key
+                            ? "bg-surface-low text-foreground"
+                            : "bg-transparent text-text-muted hover:text-foreground"
+                        } ${index > 0 ? "border-l border-border" : ""}`}
+                      >
+                        <Icon className="w-3.5 h-3.5" />
+                        <span>{label}</span>
+                      </button>
+                    ))}
                   </div>
                 </div>
 
@@ -1622,9 +2187,11 @@ export default function AgentsPage() {
                         onClick={() => handleStart(selectedAgent.id)}
                         disabled={startingId === selectedAgent.id}
                         className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                        aria-label="Start agent"
+                        title="Start"
                       >
                         {startingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                        Start
+                        <span className="hidden xl:inline">Start</span>
                       </button>
                     ) : isSelectedRunning || isSelectedTransitioning ? (
                       selectedAgent.state !== "STOPPING" && (
@@ -1632,33 +2199,28 @@ export default function AgentsPage() {
                           onClick={() => handleStop(selectedAgent.id)}
                           disabled={stoppingId === selectedAgent.id}
                           className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                          aria-label="Stop agent"
+                          title="Stop"
                         >
                           {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                          Stop
+                          <span className="hidden xl:inline">Stop</span>
                         </button>
                       )
                     ) : null}
                   </div>
 
                   <div className={`${isDesktopViewport ? "flex" : "hidden"} items-center gap-2`}>
-                    {(mainTab === "logs" || mainTab === "shell") && (
-                      <span className={`text-xs font-medium ${
-                        (mainTab === "logs" ? wsStatus : shellStatus) === "connected" ? "text-[#38D39F]" :
-                        (mainTab === "logs" ? wsStatus : shellStatus) === "connecting" ? "text-[#f0c56c]" : "text-text-muted"
-                      }`}>
-                        {mainTab === "logs" ? wsStatus : shellStatus}
-                      </span>
-                    )}
-
                     <div className="flex items-center gap-1">
                       {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                         <button
                           onClick={() => handleStart(selectedAgent.id)}
                           disabled={startingId === selectedAgent.id}
                           className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                          aria-label="Start agent"
+                          title="Start"
                         >
                           {startingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                          Start
+                          <span className="hidden xl:inline">Start</span>
                         </button>
                       ) : isSelectedRunning || isSelectedTransitioning ? (
                         selectedAgent.state !== "STOPPING" && (
@@ -1666,9 +2228,11 @@ export default function AgentsPage() {
                             onClick={() => handleStop(selectedAgent.id)}
                             disabled={stoppingId === selectedAgent.id}
                             className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                            aria-label="Stop agent"
+                            title="Stop"
                           >
                             {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                            Stop
+                            <span className="hidden xl:inline">Stop</span>
                           </button>
                         )
                       ) : null}
@@ -1695,7 +2259,7 @@ export default function AgentsPage() {
                       )}
 
                       <button
-                        onClick={() => handleDelete(selectedAgent.id)}
+                        onClick={() => setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id })}
                         disabled={deletingId === selectedAgent.id}
                         className="p-1 text-text-muted hover:text-[#d05f5f] transition-colors"
                         title="Delete agent"
@@ -1717,9 +2281,53 @@ export default function AgentsPage() {
                       onBurstComplete={() => setBurstAgentId(null)}
                     />
                   </div>
+                ) : !isSelectedRunning && mainTab !== "files" ? (
+                  <AgentLaunchPrompt
+                    label={stoppedTabLabel[mainTab as Exclude<MainTab, "files">]}
+                    launching={startingId === selectedAgent.id}
+                    onLaunch={() => { void handleStart(selectedAgent.id); }}
+                  />
                 ) : mainTab === "chat" ? (
                   /* ── Chat Tab ── */
-                  <div className="flex flex-col h-full min-h-0">
+                  <div
+                    className={`relative flex h-full min-h-0 flex-col ${chatDragActive ? "bg-surface-low/10" : ""}`}
+                    onDragEnter={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      if (!e.dataTransfer.types.includes("Files")) return;
+                      chatDragDepthRef.current += 1;
+                      setChatDragActive(true);
+                    }}
+                    onDragOver={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                    }}
+                    onDragLeave={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      chatDragDepthRef.current = Math.max(0, chatDragDepthRef.current - 1);
+                      if (chatDragDepthRef.current === 0) {
+                        setChatDragActive(false);
+                      }
+                    }}
+                    onDrop={(e) => {
+                      e.preventDefault();
+                      e.stopPropagation();
+                      chatDragDepthRef.current = 0;
+                      setChatDragActive(false);
+                      if (e.dataTransfer.files?.length) {
+                        void handleChatFileDrop(e.dataTransfer.files);
+                      }
+                    }}
+                  >
+                    {chatDragActive && (
+                      <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-[#38D39F]/50 bg-[#38D39F]/8">
+                        <div className="rounded-xl border border-border bg-background/95 px-4 py-3 text-center shadow-lg backdrop-blur">
+                          <p className="text-sm font-medium text-foreground">Drop files into chat</p>
+                          <p className="mt-1 text-xs text-text-muted">Images attach inline. Other files upload to the workspace and prepare a prompt.</p>
+                        </div>
+                      </div>
+                    )}
                     <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
                       {chat.messages.length === 0 && (
                         <div className="flex flex-col items-center justify-center h-full text-text-muted">
@@ -1763,19 +2371,6 @@ export default function AgentsPage() {
                     {/* Chat input */}
                     <div
                       className="flex-shrink-0 border-t border-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3"
-                      onDragOver={(e) => { e.preventDefault(); e.stopPropagation(); }}
-                      onDrop={(e) => {
-                        e.preventDefault();
-                        e.stopPropagation();
-                        if (e.dataTransfer.files?.length) {
-                          const imageFiles = Array.from(e.dataTransfer.files).filter(f => f.type.startsWith("image/"));
-                          if (imageFiles.length > 0) {
-                            const dt = new DataTransfer();
-                            imageFiles.forEach(f => dt.items.add(f));
-                            chat.addAttachments(dt.files);
-                          }
-                        }
-                      }}
                     >
                       {/* Pending image attachments preview */}
                       {chat.pendingAttachments.length > 0 && (
@@ -1792,6 +2387,27 @@ export default function AgentsPage() {
                                 className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity"
                               >
                                 <X className="w-3 h-3 text-white" />
+                              </button>
+                            </div>
+                          ))}
+                        </div>
+                      )}
+                      {chat.pendingFiles.length > 0 && (
+                        <div className="mb-2 flex flex-wrap gap-2">
+                          {chat.pendingFiles.map((file, i) => (
+                            <div
+                              key={`${file.name}-${i}`}
+                              className="inline-flex max-w-full items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary"
+                            >
+                              <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                              <span className="truncate">{file.name}</span>
+                              <button
+                                type="button"
+                                onClick={() => chat.removePendingFile(i)}
+                                className="text-text-muted transition-colors hover:text-[#d05f5f]"
+                                title="Remove attachment"
+                              >
+                                <X className="h-3.5 w-3.5" />
                               </button>
                             </div>
                           ))}
@@ -1894,12 +2510,11 @@ export default function AgentsPage() {
                               <Paperclip className="w-4 h-4" />
                               <input
                                 type="file"
-                                accept="image/*"
                                 multiple
                                 className="hidden"
                                 onChange={(e) => {
                                   if (e.target.files?.length) {
-                                    chat.addAttachments(e.target.files);
+                                    void handleChatFileDrop(e.target.files);
                                     e.target.value = "";
                                   }
                                 }}
@@ -1915,7 +2530,7 @@ export default function AgentsPage() {
                             </button>
                             <button
                               onClick={handleSendChat}
-                              disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0)}
+                              disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)}
                               className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
                             >
                               <Send className="w-4 h-4" />
@@ -1927,32 +2542,26 @@ export default function AgentsPage() {
                   </div>
                 ) : mainTab === "logs" ? (
                   /* ── Logs Tab ── */
-                  <div ref={logBoxRef} className="h-full overflow-auto bg-[#0c1016] text-[#d8dde7] text-xs leading-5 font-mono p-4">
-                    {wsStatus !== "connected" && (
-                      <div className="flex items-center gap-2 text-[#8b95a6] mb-3">
-                        <Loader2 className="w-4 h-4 animate-spin" />
-                        <span>{wsStatus === "connecting" ? "Connecting to websocket..." : "Waiting for websocket connection..."}</span>
-                      </div>
-                    )}
-                    {logs.length === 0 && wsStatus === "connected" && (
-                      <div className="text-[#8b95a6]">Connected. Waiting for log stream...</div>
-                    )}
-                    {logs.map((line, idx) => (
-                      <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">{line}</div>
-                    ))}
-                  </div>
+                  wsStatus !== "connected" ? (
+                    <TabLoadingState label={wsStatus === "connecting" ? "Connecting logs" : "Preparing logs"} />
+                  ) : (
+                    <div ref={logBoxRef} className="h-full overflow-auto bg-[#0c1016] p-4 font-mono text-xs leading-5 text-[#d8dde7]">
+                      {logs.length === 0 && (
+                        <div className="text-[#8b95a6]">Connected. Waiting for log stream...</div>
+                      )}
+                      {logs.map((line, idx) => (
+                        <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">{line}</div>
+                      ))}
+                    </div>
+                  )
                 ) : mainTab === "shell" ? (
                   /* ── Shell Tab ── */
                   <div className="relative h-full bg-[#0c1016] p-4">
-                    <div ref={shellBoxRef} className="h-full w-full" />
+                    <div ref={shellBoxRef} className={`h-full w-full ${shellStatus === "connected" ? "" : "invisible"}`} />
                     {shellStatus !== "connected" && (
-                      <div className="pointer-events-none absolute right-4 top-4 flex items-center gap-2 text-xs text-[#8b95a6]">
-                        <Loader2 className="h-4 w-4 animate-spin" />
-                        <span>{shellStatus === "connecting" ? "Connecting to shell websocket..." : "Waiting for shell websocket connection..."}</span>
+                      <div className="absolute inset-0 p-4">
+                        <TabLoadingState label={shellStatus === "connecting" ? "Connecting shell" : "Preparing shell"} />
                       </div>
-                    )}
-                    {shellStatus === "connected" && (
-                      <div className="pointer-events-none absolute right-4 top-4 text-xs text-[#8b95a6]">Interactive shell active</div>
                     )}
                   </div>
                 ) : mainTab === "workspace" ? (
@@ -2015,102 +2624,224 @@ export default function AgentsPage() {
                   />
                 ) : mainTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
-                  <div className="h-full flex min-h-0">
-                    <div className="hidden md:block w-64 border-r border-border overflow-y-auto p-3 space-y-1 bg-surface-low/30">
-                      <button
-                        onClick={() => setActiveOpenclawSection(null)}
-                        className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                          activeOpenclawSection === null
-                            ? "bg-surface-low text-foreground"
-                            : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                        }`}
-                      >
-                        All Sections
-                      </button>
-                      {openclawSections.map(([sectionKey, sectionSchema]) => (
-                        <button
-                          key={`nav-${sectionKey}`}
-                          onClick={() => setActiveOpenclawSection(sectionKey)}
-                          className={`w-full text-left px-3 py-2 rounded-lg text-sm transition-colors ${
-                            activeOpenclawSection === sectionKey
-                              ? "bg-surface-low text-foreground"
-                              : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                          }`}
-                          title={typeof asObject(sectionSchema)?.description === "string" ? String(asObject(sectionSchema)?.description) : sectionKey}
-                        >
-                          {humanizeKey(sectionKey)}
-                        </button>
-                      ))}
-                    </div>
+                  <div className="h-full min-h-0 flex flex-col md:flex-row">
+                    {isDesktopViewport ? (
+                      <>
+                        <aside className="w-64 shrink-0 border-r border-border bg-surface-low/20">
+                          <div className="h-full overflow-y-auto p-4">
+                            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
+                              Sections
+                            </p>
+                            <div className="space-y-1">
+                              {openclawSections.map(([sectionKey, sectionSchema]) => {
+                                const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
+                                const sectionLabel =
+                                  sectionHint?.label?.trim() ||
+                                  (typeof asObject(sectionSchema)?.title === "string"
+                                    ? String(asObject(sectionSchema)?.title)
+                                    : humanizeKey(sectionKey));
+                                const sectionDescription =
+                                  sectionHint?.help?.trim() ||
+                                  (typeof asObject(sectionSchema)?.description === "string"
+                                    ? String(asObject(sectionSchema)?.description)
+                                    : sectionKey);
+                                return (
+                                  <button
+                                    key={`nav-${sectionKey}`}
+                                    onClick={() => setActiveOpenclawSection(sectionKey)}
+                                    className={`block w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+                                      effectiveOpenclawSection === sectionKey
+                                        ? "bg-surface-low/60 text-foreground"
+                                        : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
+                                    }`}
+                                    title={sectionDescription}
+                                  >
+                                    {sectionLabel}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                          </div>
+                        </aside>
 
-                    <div className="flex-1 overflow-y-auto p-6">
-                      <div className="max-w-5xl mx-auto space-y-4">
-                        <div className="flex flex-wrap items-center justify-between gap-3">
-                          <div>
-                            <h3 className="text-lg font-semibold text-foreground">OpenClaw Config</h3>
-                            <p className="text-sm text-text-muted">
-                              Schema-driven settings from gateway <span className="font-mono">config.schema</span>, applied over websocket.
+                        <div ref={openclawPaneRef} className="flex-1 min-w-0 overflow-y-auto p-6">
+                          <div className="mx-auto max-w-5xl space-y-4">
+                            <div className="flex flex-wrap items-center justify-between gap-3">
+                              <div>
+                                <h3 className="text-lg font-semibold text-foreground">
+                                  {activeOpenclawSectionLabel ?? "OpenClaw Config"}
+                                </h3>
+                                {openclawSchemaBundle?.version && (
+                                  <p className="mt-1 text-xs text-text-muted">
+                                    Schema version <span className="font-mono">{openclawSchemaBundle.version}</span>
+                                  </p>
+                                )}
+                              </div>
+                              <button
+                                onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
+                                disabled={openclawSaving || !chat.connected || !openclawDraft}
+                                className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
+                              >
+                                {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
+                                {effectiveOpenclawSection ? "Save Section" : "Save All"}
+                              </button>
+                            </div>
+
+                            {openclawError && (
+                              <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+                                {openclawError}
+                              </div>
+                            )}
+                            {openclawSuccess && !openclawError && (
+                              <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+                                {openclawSuccess}
+                              </div>
+                            )}
+                            {!chat.connected && (
+                              <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+                                Connect the agent gateway to edit OpenClaw settings.
+                              </div>
+                            )}
+                            {!openclawSchemaProperties && (
+                              <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+                                No config schema available from gateway.
+                              </div>
+                            )}
+
+                            {openclawSchemaProperties && openclawDraft && (
+                              <div className="space-y-4">
+                                {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
+                                  const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
+                                  const sectionDescription =
+                                    sectionHint?.help?.trim() ||
+                                    (typeof asObject(sectionSchema)?.description === "string"
+                                      ? String(asObject(sectionSchema)?.description)
+                                      : "");
+                                  return (
+                                    <div key={`section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
+                                      {sectionDescription && (
+                                        <p className="text-xs text-text-muted">{sectionDescription}</p>
+                                      )}
+                                      {renderOpenclawField(sectionSchema, [sectionKey])}
+                                    </div>
+                                  );
+                                })}
+                              </div>
+                            )}
+                          </div>
+                        </div>
+                      </>
+                    ) : mobileOpenclawMenuOpen ? (
+                      <div className="flex-1 overflow-y-auto p-4">
+                        <div className="mx-auto max-w-xl rounded-xl border border-border bg-surface-low/20 p-4">
+                          <div className="mb-4">
+                            <h3 className="text-lg font-semibold text-foreground">OpenClaw Sections</h3>
+                            <p className="mt-1 text-sm text-text-muted">
+                              Choose a section to edit.
                             </p>
                           </div>
-                          <button
-                            onClick={() => void saveAllOpenclaw()}
-                            disabled={openclawSaving || !chat.connected || !openclawDraft}
-                            className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
-                          >
-                            {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
-                            Save All
-                          </button>
+                          <div className="space-y-1">
+                            {openclawSections.map(([sectionKey, sectionSchema]) => {
+                              const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
+                              const sectionLabel =
+                                sectionHint?.label?.trim() ||
+                                (typeof asObject(sectionSchema)?.title === "string"
+                                  ? String(asObject(sectionSchema)?.title)
+                                  : humanizeKey(sectionKey));
+                              const sectionDescription =
+                                sectionHint?.help?.trim() ||
+                                (typeof asObject(sectionSchema)?.description === "string"
+                                  ? String(asObject(sectionSchema)?.description)
+                                  : "");
+                              return (
+                                <button
+                                  key={`mobile-openclaw-${sectionKey}`}
+                                  onClick={() => {
+                                    setActiveOpenclawSection(sectionKey);
+                                    setMobileOpenclawMenuOpen(false);
+                                  }}
+                                  className="block w-full rounded-lg px-3 py-3 text-left transition-colors hover:bg-surface-low/60"
+                                >
+                                  <div className="text-sm font-medium text-foreground">{sectionLabel}</div>
+                                  {sectionDescription && (
+                                    <div className="mt-1 text-xs text-text-muted">{sectionDescription}</div>
+                                  )}
+                                </button>
+                              );
+                            })}
+                          </div>
                         </div>
-
-                        {openclawError && (
-                          <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
-                            {openclawError}
-                          </div>
-                        )}
-                        {openclawSuccess && !openclawError && (
-                          <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
-                            {openclawSuccess}
-                          </div>
-                        )}
-                        {!chat.connected && (
-                          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-                            Connect the agent gateway to edit OpenClaw settings.
-                          </div>
-                        )}
-                        {!openclawSchemaProperties && (
-                          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-                            No config schema available from gateway.
-                          </div>
-                        )}
-
-                        {openclawSchemaProperties && openclawDraft && (
-                          <div className="space-y-4">
-                            {openclawSections
-                              .filter(([sectionKey]) => activeOpenclawSection === null || activeOpenclawSection === sectionKey)
-                              .map(([sectionKey, sectionSchema]) => (
-                                <div key={`section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
-                                  <div className="flex flex-wrap items-start justify-between gap-3">
-                                    <div>
-                                      <h4 className="text-base font-semibold text-foreground">{humanizeKey(sectionKey)}</h4>
-                                      {typeof asObject(sectionSchema)?.description === "string" && (
-                                        <p className="text-xs text-text-muted mt-1">{String(asObject(sectionSchema)?.description)}</p>
-                                      )}
-                                    </div>
-                                    <button
-                                      onClick={() => void saveOpenclawSection(sectionKey)}
-                                      disabled={openclawSaving || !chat.connected}
-                                      className="px-3 py-1.5 rounded-lg text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-50"
-                                    >
-                                      Save Section
-                                    </button>
-                                  </div>
-                                  {renderOpenclawField(sectionSchema, [sectionKey])}
-                                </div>
-                              ))}
-                          </div>
-                        )}
                       </div>
-                    </div>
+                    ) : (
+                      <div className="flex-1 min-w-0 overflow-y-auto p-4">
+                        <div className="mx-auto max-w-xl space-y-4">
+                          <div className="flex flex-wrap items-center justify-between gap-3">
+                            <div>
+                              <button
+                                onClick={() => setMobileOpenclawMenuOpen(true)}
+                                className="mb-3 inline-flex items-center gap-2 text-sm text-text-muted transition-colors hover:text-foreground"
+                              >
+                                <ArrowLeft className="h-4 w-4" />
+                                Back
+                              </button>
+                              <h3 className="text-lg font-semibold text-foreground">
+                                {activeOpenclawSectionLabel ?? "OpenClaw Config"}
+                              </h3>
+                            </div>
+                            <button
+                              onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
+                              disabled={openclawSaving || !chat.connected || !openclawDraft}
+                              className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
+                            >
+                              {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
+                              {effectiveOpenclawSection ? "Save Section" : "Save All"}
+                            </button>
+                          </div>
+
+                          {openclawError && (
+                            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+                              {openclawError}
+                            </div>
+                          )}
+                          {openclawSuccess && !openclawError && (
+                            <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+                              {openclawSuccess}
+                            </div>
+                          )}
+                          {!chat.connected && (
+                            <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+                              Connect the agent gateway to edit OpenClaw settings.
+                            </div>
+                          )}
+                          {!openclawSchemaProperties && (
+                            <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+                              No config schema available from gateway.
+                            </div>
+                          )}
+
+                          {openclawSchemaProperties && openclawDraft && (
+                            <div className="space-y-4">
+                              {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
+                                const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
+                                const sectionDescription =
+                                  sectionHint?.help?.trim() ||
+                                  (typeof asObject(sectionSchema)?.description === "string"
+                                    ? String(asObject(sectionSchema)?.description)
+                                    : "");
+                                return (
+                                  <div key={`section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
+                                    {sectionDescription && (
+                                      <p className="text-xs text-text-muted">{sectionDescription}</p>
+                                    )}
+                                    {renderOpenclawField(sectionSchema, [sectionKey])}
+                                  </div>
+                                );
+                              })}
+                            </div>
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
@@ -2205,7 +2936,7 @@ export default function AgentsPage() {
                               <p className="text-xs text-text-muted">Permanently delete this agent and all its data</p>
                             </div>
                             <button
-                              onClick={() => handleDelete(selectedAgent.id)}
+                              onClick={() => setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id })}
                               className="px-3 py-1.5 rounded-lg text-sm border border-[#d05f5f]/30 text-[#d05f5f] hover:bg-[#d05f5f]/10"
                             >
                               Delete

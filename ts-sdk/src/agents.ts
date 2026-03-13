@@ -2,7 +2,12 @@
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
 import type { HTTPClient } from './http.js';
-import { GatewayClient, type ChatEvent, type GatewayOptions } from './gateway.js';
+import {
+  GatewayClient,
+  type ChatEvent,
+  type GatewayOptions,
+  type OpenClawConfigSchemaResponse,
+} from './gateway.js';
 
 const AGENTS_API_BASE = 'https://api.hypercli.com';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
@@ -502,7 +507,7 @@ export class OpenClawAgent extends Agent {
     }
   }
 
-  async configSchema(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<Record<string, any>> {
+  async configSchema(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<OpenClawConfigSchemaResponse> {
     const client = await this.connect(options);
     try {
       return await client.configSchema();

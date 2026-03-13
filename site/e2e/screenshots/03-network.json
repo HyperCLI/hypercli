@@ -1,0 +1,1927 @@
+[
+  {
+    "timestamp": "2026-03-13T01:58:03.392Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/",
+    "status": 200,
+    "duration": 324
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.720Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/media/fba5a26ea33df6a3-s.p.1bbdebe6.woff2",
+    "status": 200,
+    "duration": 21
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.720Z",
+    "method": "GET",
+    "url": "https://hypercli.com/logo-horizontal-white.png",
+    "error": "net::ERR_BLOCKED_BY_ORB"
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Broot-of-the-server%5D__5f216d4e._.css",
+    "status": 200,
+    "duration": 13
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_ac164089._.js",
+    "status": 200,
+    "duration": 20
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_react-dom_fc0dc9b7._.js",
+    "status": 200,
+    "duration": 100
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_react-server-dom-turbopack_83e96aa5._.js",
+    "status": 200,
+    "duration": 42
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_next-devtools_index_3ba78df3.js",
+    "status": 200,
+    "duration": 127
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_e27dd068._.js",
+    "status": 200,
+    "duration": 41
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_client_9ee10268._.js",
+    "status": 200,
+    "duration": 69
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.728Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_e9e28263._.js",
+    "status": 200,
+    "duration": 41
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/b50f6_%40swc_helpers_cjs_ea893172._.js",
+    "status": 200,
+    "duration": 31
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_a0ff3932._.js",
+    "status": 200,
+    "duration": 17
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/turbopack-site_apps_claw_e542c7bf._.js",
+    "status": 200,
+    "duration": 24
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_d8a2421e._.js",
+    "status": 200,
+    "duration": 38
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_client_components_builtin_global-error_45d62af3.js",
+    "status": 200,
+    "duration": 29
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_b373788e._.js",
+    "status": 200,
+    "duration": 37
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_packages_shared-ui_src_components_ed8c2640._.js",
+    "status": 200,
+    "duration": 118
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_packages_shared-ui_src_e61066ca._.js",
+    "status": 200,
+    "duration": 42
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_bdadad86._.js",
+    "status": 200,
+    "duration": 42
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_ua-parser-js_b7216deb._.js",
+    "status": 200,
+    "duration": 49
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.734Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_react-auth_dist_esm_index-DQp_5KKJ_mjs_93f3b3fc._.js",
+    "status": 200,
+    "duration": 133
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_react-auth_dist_esm_69b2265d._.js",
+    "status": 200,
+    "duration": 72
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_errors_98a547cd._.js",
+    "status": 200,
+    "duration": 63
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_utils_41557ea5._.js",
+    "status": 200,
+    "duration": 68
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_actions_e5675bb6._.js",
+    "status": 200,
+    "duration": 69
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_zksync_70b3b7e8._.js",
+    "status": 200,
+    "duration": 70
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_f170adea._.js",
+    "status": 200,
+    "duration": 54
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_22756b27._.js",
+    "status": 200,
+    "duration": 69
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_7c0ac607._.js",
+    "status": 200,
+    "duration": 114
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_af70f9c7._.js",
+    "status": 200,
+    "duration": 95
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_js-sdk-core_dist_esm_f2deeb76._.js",
+    "status": 200,
+    "duration": 115
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_jose_dist_browser_d3223c62._.js",
+    "status": 200,
+    "duration": 111
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40coinbase_wallet-sdk_dist_78a0b42b._.js",
+    "status": 200,
+    "duration": 91
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40headlessui_react_dist_700e672e._.js",
+    "status": 200,
+    "duration": 119
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40walletconnect_utils_dist_index_fa456ecd.js",
+    "status": 200,
+    "duration": 119
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40walletconnect_core_dist_index_cabb9d06.js",
+    "status": 200,
+    "duration": 71
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40walletconnect_sign-client_dist_index_74472137.js",
+    "status": 200,
+    "duration": 119
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_x402_dist_esm_11d66c87._.js",
+    "status": 200,
+    "duration": 73
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.735Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/94898_zod_v3_f68eb9b9._.js",
+    "status": 200,
+    "duration": 122
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40solana-program_token_dist_src_index_mjs_d10ce0fa._.js",
+    "status": 200,
+    "duration": 122
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40solana-program_token-2022_dist_src_index_mjs_7a44cc24._.js",
+    "status": 200,
+    "duration": 251
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_framer-motion_dist_es_7cffd405._.js",
+    "status": 200,
+    "duration": 243
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_react-icons_si_index_mjs_be8d6f89._.js",
+    "status": 200,
+    "duration": 401
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_react-icons_fa_index_mjs_e370981e._.js",
+    "status": 200,
+    "duration": 252
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_react-icons_lib_b2a82342._.js",
+    "status": 200,
+    "duration": 112
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_react-wallet-kit_dist_providers_3941317f._.js",
+    "status": 200,
+    "duration": 244
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_react-wallet-kit_dist_components_0b52de2c._.js",
+    "status": 200,
+    "duration": 249
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_react-wallet-kit_dist_12a86efb._.js",
+    "status": 200,
+    "duration": 120
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_asn1-x509_build_es2015_f2936eda._.js",
+    "status": 200,
+    "duration": 131
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_asn1-cms_build_es2015_57d8977e._.js",
+    "status": 200,
+    "duration": 124
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_x509_build_x509_es_1e866892.js",
+    "status": 200,
+    "duration": 127
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.736Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_core_dist_cba1907e._.js",
+    "status": 200,
+    "duration": 249
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_http_dist_f0086427._.js",
+    "status": 200,
+    "duration": 131
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40fortawesome_free-brands-svg-icons_index_mjs_7eced81f._.js",
+    "status": 200,
+    "duration": 247
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40fortawesome_free-solid-svg-icons_index_mjs_65e18a8f._.js",
+    "status": 200,
+    "duration": 249
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40floating-ui_react_dist_383f78c4._.js",
+    "status": 200,
+    "duration": 134
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_libphonenumber-js_827fcb74._.js",
+    "status": 200,
+    "duration": 238
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40rainbow-me_rainbowkit_dist_8d8c2f79._.js",
+    "status": 200,
+    "duration": 247
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40wagmi_core_dist_esm_7feeff4d._.js",
+    "status": 200,
+    "duration": 131
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40tanstack_query-core_build_modern_4c026bbb._.js",
+    "status": 200,
+    "duration": 137
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_axios_lib_b6edc1a2._.js",
+    "status": 200,
+    "duration": 239
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40walletconnect_9f166920._.js",
+    "status": 200,
+    "duration": 32
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40solana_0e4c1461._.js",
+    "status": 200,
+    "duration": 247
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40radix-ui_26432aa5._.js",
+    "status": 200,
+    "duration": 247
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.740Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40floating-ui_cd5663cb._.js",
+    "status": 200,
+    "duration": 240
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_fd9eca51._.js",
+    "status": 200,
+    "duration": 239
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_edf520ee._.js",
+    "status": 200,
+    "duration": 245
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40fortawesome_0c0b4592._.js",
+    "status": 200,
+    "duration": 240
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_3fef8782._.js",
+    "status": 200,
+    "duration": 250
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_7bde99bb._.js",
+    "status": 200,
+    "duration": 246
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_layout_tsx_45d62af3._.js",
+    "status": 200,
+    "duration": 238
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_1fc7d374._.js",
+    "status": 200,
+    "duration": 240
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_42061566._.js",
+    "status": 200,
+    "duration": 240
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.741Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_page_tsx_422bdf51._.js",
+    "status": 200,
+    "duration": 140
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.742Z",
+    "method": "GET",
+    "url": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
+    "status": 200,
+    "duration": 142
+  },
+  {
+    "timestamp": "2026-03-13T01:58:03.977Z",
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/plusjakartasans/v12/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko20yw.woff2",
+    "status": 200,
+    "duration": 166
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.130Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_c8c997ce._.js",
+    "status": 200,
+    "duration": 14
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.130Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_947c4ec3._.js",
+    "status": 200,
+    "duration": 14
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.507Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/models",
+    "status": 200,
+    "duration": 98
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.508Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/plans",
+    "status": 200,
+    "duration": 96
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.508Z",
+    "method": "GET",
+    "url": "https://explorer-api.walletconnect.com/v3/wallets?projectId=34357d3c125c2bcf2ce2bc3309d98715",
+    "status": 200,
+    "duration": 159
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.508Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/api/v1/apps/cml5no19f001jla0dc105snyy",
+    "status": 200,
+    "duration": 401
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.951Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/apps/cml5no19f001jla0dc105snyy/embedded-wallets?caid=63363620-0928-457c-ad64-40c365506562",
+    "status": 200,
+    "duration": 176
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.996Z",
+    "method": "HEAD",
+    "url": "https://gilfoyle.dev.hypercli.com/",
+    "status": 200,
+    "duration": 229
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.996Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40base-org_account_286a7ec7._.js",
+    "status": 200,
+    "duration": 257
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.997Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_3aceead3._.js",
+    "status": 200,
+    "duration": 232
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.997Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40noble_curves_esm_6734244e._.js",
+    "status": 200,
+    "duration": 231
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.997Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_ox__esm_core_0181812a._.js",
+    "status": 200,
+    "duration": 230
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.997Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_6b424a8f._.js",
+    "status": 200,
+    "duration": 230
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.997Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40base-org_account_dist_index_b473a4e0.js",
+    "status": 200,
+    "duration": 229
+  },
+  {
+    "timestamp": "2026-03-13T01:58:04.997Z",
+    "method": "POST",
+    "url": "https://auth.privy.io/api/v1/analytics_events",
+    "status": 200,
+    "duration": 227
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.138Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/css/3895f45fb355bebc.css?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 46
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/webpack-677ef1e1728a87d9.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 84
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/framework-f00fddb9800f9292.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 112
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/main-394b579ff9ff9633.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 87
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/pages/_app-55346b2481dc3f1e.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 109
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/4f2f7108-89261840bb8c9d21.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 115
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/d2479e06-7d0fe6eea6bf0846.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 115
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/50ad770a-f07e677401d92a7a.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 115
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/683-4e69ef3a2f627be9.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 155
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/6813-961d01904fa78bb0.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 155
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/6806-f2754266281c146d.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 87
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/5676-bce9f8646d82760a.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 154
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/8071-0d1505fa6e07e79b.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 156
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/2231-d70eba655a2623d1.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 188
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/5197-ad963bfae9cec7ee.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 188
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/1475-739aabef17e42e5b.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 189
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/7361-2330537bf4915b96.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 189
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/350-14ec09f9cd4c8419.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 191
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/3285-3e75ab5b508be5cf.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 191
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/9681-4bc1b26002073b3a.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 191
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/pages/apps/%5Bapp_id%5D/embedded-wallets-aa1468b273b60b35.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 91
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.139Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/krltD19h3DKRVsPuqAutU/_buildManifest.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 190
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.140Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/krltD19h3DKRVsPuqAutU/_ssgManifest.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 190
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.225Z",
+    "method": "GET",
+    "url": "https://hypercli.com/logo-horizontal-white.png"
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.326Z",
+    "method": "HEAD",
+    "url": "https://gilfoyle.dev.hypercli.com/",
+    "status": 200,
+    "duration": 245
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.458Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/cdn-cgi/challenge-platform/scripts/jsd/main.js",
+    "status": 302,
+    "duration": 44
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.502Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/cdn-cgi/challenge-platform/h/g/scripts/jsd/ea2d291c0fdc/main.js?",
+    "status": 200,
+    "duration": 63
+  },
+  {
+    "timestamp": "2026-03-13T01:58:05.657Z",
+    "method": "POST",
+    "url": "https://auth.privy.io/cdn-cgi/challenge-platform/h/g/jsd/oneshot/ea2d291c0fdc/0.4560901672763403:1773365283:E4mP0bkoBSICpldWR9Sm55mkfGyQHLA1JCz5XvSjPlk/9db76e7908f03d4d",
+    "status": 200,
+    "duration": 63
+  },
+  {
+    "timestamp": "2026-03-13T01:58:06.620Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_fa1ebc78._.js",
+    "status": 200,
+    "duration": 5
+  },
+  {
+    "timestamp": "2026-03-13T01:58:06.620Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_react-auth_dist_esm_LandingScreen-B83IEgoc_mjs_c0ca03fe._.js",
+    "status": 200,
+    "duration": 4
+  },
+  {
+    "timestamp": "2026-03-13T01:58:12.959Z",
+    "method": "POST",
+    "url": "https://auth.privy.io/api/v1/passwordless/init",
+    "status": 200,
+    "duration": 291
+  },
+  {
+    "timestamp": "2026-03-13T01:58:13.315Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_1eff6553._.js",
+    "status": 200,
+    "duration": 52
+  },
+  {
+    "timestamp": "2026-03-13T01:58:13.315Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/02943_react-auth_dist_esm_AwaitingPasswordlessCodeScreen-7QOTS6b-_mjs_c0ca03fe._.js",
+    "status": 200,
+    "duration": 52
+  },
+  {
+    "timestamp": "2026-03-13T01:58:20.153Z",
+    "method": "POST",
+    "url": "https://auth.privy.io/api/v1/passwordless/authenticate",
+    "status": 200,
+    "duration": 401
+  },
+  {
+    "timestamp": "2026-03-13T01:58:20.591Z",
+    "method": "POST",
+    "url": "https://auth.privy.io/api/v1/analytics_events",
+    "status": 200,
+    "duration": 229
+  },
+  {
+    "timestamp": "2026-03-13T01:58:20.591Z",
+    "method": "POST",
+    "url": "https://api.dev.hypercli.com/api/auth/login",
+    "status": 200,
+    "duration": 429
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.049Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/dashboard?_rsc=vusbg",
+    "status": 200,
+    "duration": 185
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.246Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_e532b071._.js",
+    "status": 200,
+    "duration": 11
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.246Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_dashboard_layout_tsx_422bdf51._.js",
+    "status": 200,
+    "duration": 4
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.246Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/_1e53e161._.js",
+    "status": 200,
+    "duration": 11
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.246Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/1a3e1_lucide-react_dist_esm_icons_3fda4cb0._.js",
+    "status": 200,
+    "duration": 5
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.246Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_dashboard_page_tsx_c3d8c5ff._.js",
+    "status": 200,
+    "duration": 4
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.327Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_e532b071._.js",
+    "status": 200,
+    "duration": 3
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.328Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_dashboard_layout_tsx_422bdf51._.js",
+    "status": 200,
+    "duration": 2
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.330Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/_1e53e161._.js",
+    "status": 200,
+    "duration": 1
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.330Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/1a3e1_lucide-react_dist_esm_icons_3fda4cb0._.js",
+    "status": 200,
+    "duration": 1
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.330Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_dashboard_page_tsx_c3d8c5ff._.js",
+    "status": 200,
+    "duration": 1
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.330Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/dashboard/agents",
+    "status": 200,
+    "duration": 1725
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/plans/current",
+    "status": 200,
+    "duration": 432
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/usage",
+    "status": 200,
+    "duration": 149
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/usage/history?days=7",
+    "status": 200,
+    "duration": 125
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/usage/keys?days=7",
+    "status": 200,
+    "duration": 149
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 89
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/plans/current",
+    "status": 200,
+    "duration": 681
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/usage",
+    "status": 200,
+    "duration": 229
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/usage/history?days=7",
+    "status": 200,
+    "duration": 174
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/usage/keys?days=7",
+    "status": 200,
+    "duration": 228
+  },
+  {
+    "timestamp": "2026-03-13T01:58:21.338Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 124
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.062Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/media/fba5a26ea33df6a3-s.p.1bbdebe6.woff2",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.062Z",
+    "method": "GET",
+    "url": "https://hypercli.com/logo-horizontal-white.png"
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Broot-of-the-server%5D__5f216d4e._.css",
+    "status": 200,
+    "duration": 11
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_ac164089._.js",
+    "status": 200,
+    "duration": 26
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_react-dom_fc0dc9b7._.js",
+    "status": 200,
+    "duration": 96
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_react-server-dom-turbopack_83e96aa5._.js",
+    "status": 200,
+    "duration": 32
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_next-devtools_index_3ba78df3.js",
+    "status": 200,
+    "duration": 106
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_compiled_e27dd068._.js",
+    "status": 200,
+    "duration": 31
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_client_9ee10268._.js",
+    "status": 200,
+    "duration": 71
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_e9e28263._.js",
+    "status": 200,
+    "duration": 35
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/b50f6_%40swc_helpers_cjs_ea893172._.js",
+    "status": 200,
+    "duration": 27
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_a0ff3932._.js",
+    "status": 200,
+    "duration": 21
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/turbopack-site_apps_claw_e542c7bf._.js",
+    "status": 200,
+    "duration": 31
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_d8a2421e._.js",
+    "status": 200,
+    "duration": 33
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_next_dist_client_components_builtin_global-error_45d62af3.js",
+    "status": 200,
+    "duration": 29
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.067Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_b373788e._.js",
+    "status": 200,
+    "duration": 36
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.071Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_packages_shared-ui_src_components_ed8c2640._.js",
+    "status": 200,
+    "duration": 101
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.071Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_packages_shared-ui_src_e61066ca._.js",
+    "status": 200,
+    "duration": 35
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.071Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_bdadad86._.js",
+    "status": 200,
+    "duration": 33
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.071Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_ua-parser-js_b7216deb._.js",
+    "status": 200,
+    "duration": 39
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.071Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_react-auth_dist_esm_index-DQp_5KKJ_mjs_93f3b3fc._.js",
+    "status": 200,
+    "duration": 142
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_react-auth_dist_esm_69b2265d._.js",
+    "status": 200,
+    "duration": 47
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_errors_98a547cd._.js",
+    "status": 200,
+    "duration": 39
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_utils_41557ea5._.js",
+    "status": 200,
+    "duration": 77
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_actions_e5675bb6._.js",
+    "status": 200,
+    "duration": 76
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_zksync_70b3b7e8._.js",
+    "status": 200,
+    "duration": 54
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_f170adea._.js",
+    "status": 200,
+    "duration": 76
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_22756b27._.js",
+    "status": 200,
+    "duration": 59
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_7c0ac607._.js",
+    "status": 200,
+    "duration": 87
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_af70f9c7._.js",
+    "status": 200,
+    "duration": 79
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40privy-io_js-sdk-core_dist_esm_f2deeb76._.js",
+    "status": 200,
+    "duration": 70
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_jose_dist_browser_d3223c62._.js",
+    "status": 200,
+    "duration": 77
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40coinbase_wallet-sdk_dist_78a0b42b._.js",
+    "status": 200,
+    "duration": 77
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40headlessui_react_dist_700e672e._.js",
+    "status": 200,
+    "duration": 87
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40walletconnect_utils_dist_index_fa456ecd.js",
+    "status": 200,
+    "duration": 83
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40walletconnect_core_dist_index_cabb9d06.js",
+    "status": 200,
+    "duration": 77
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40walletconnect_sign-client_dist_index_74472137.js",
+    "status": 200,
+    "duration": 86
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.072Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_x402_dist_esm_11d66c87._.js",
+    "status": 200,
+    "duration": 77
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/94898_zod_v3_f68eb9b9._.js",
+    "status": 200,
+    "duration": 85
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40solana-program_token_dist_src_index_mjs_d10ce0fa._.js",
+    "status": 200,
+    "duration": 89
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40solana-program_token-2022_dist_src_index_mjs_7a44cc24._.js",
+    "status": 200,
+    "duration": 140
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_framer-motion_dist_es_7cffd405._.js",
+    "status": 200,
+    "duration": 168
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_react-icons_si_index_mjs_be8d6f89._.js",
+    "status": 200,
+    "duration": 365
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_react-icons_fa_index_mjs_e370981e._.js",
+    "status": 200,
+    "duration": 190
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_react-icons_lib_b2a82342._.js",
+    "status": 200,
+    "duration": 76
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_react-wallet-kit_dist_providers_3941317f._.js",
+    "status": 200,
+    "duration": 160
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_react-wallet-kit_dist_components_0b52de2c._.js",
+    "status": 200,
+    "duration": 139
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_react-wallet-kit_dist_12a86efb._.js",
+    "status": 200,
+    "duration": 88
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_asn1-x509_build_es2015_f2936eda._.js",
+    "status": 200,
+    "duration": 93
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_asn1-cms_build_es2015_57d8977e._.js",
+    "status": 200,
+    "duration": 92
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_x509_build_x509_es_1e866892.js",
+    "status": 200,
+    "duration": 118
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_core_dist_cba1907e._.js",
+    "status": 200,
+    "duration": 164
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_http_dist_f0086427._.js",
+    "status": 200,
+    "duration": 118
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40fortawesome_free-brands-svg-icons_index_mjs_7eced81f._.js",
+    "status": 200,
+    "duration": 181
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40fortawesome_free-solid-svg-icons_index_mjs_65e18a8f._.js",
+    "status": 200,
+    "duration": 193
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.073Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40floating-ui_react_dist_383f78c4._.js",
+    "status": 200,
+    "duration": 141
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.074Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_libphonenumber-js_827fcb74._.js",
+    "status": 200,
+    "duration": 150
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40rainbow-me_rainbowkit_dist_8d8c2f79._.js",
+    "status": 200,
+    "duration": 178
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40wagmi_core_dist_esm_7feeff4d._.js",
+    "status": 200,
+    "duration": 129
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40tanstack_query-core_build_modern_4c026bbb._.js",
+    "status": 200,
+    "duration": 116
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_axios_lib_b6edc1a2._.js",
+    "status": 200,
+    "duration": 136
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40walletconnect_9f166920._.js",
+    "status": 200,
+    "duration": 147
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40solana_0e4c1461._.js",
+    "status": 200,
+    "duration": 178
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40radix-ui_26432aa5._.js",
+    "status": 200,
+    "duration": 185
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40floating-ui_cd5663cb._.js",
+    "status": 200,
+    "duration": 121
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.077Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40turnkey_fd9eca51._.js",
+    "status": 200,
+    "duration": 147
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40peculiar_edf520ee._.js",
+    "status": 200,
+    "duration": 161
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40fortawesome_0c0b4592._.js",
+    "status": 200,
+    "duration": 135
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_3fef8782._.js",
+    "status": 200,
+    "duration": 223
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_7bde99bb._.js",
+    "status": 200,
+    "duration": 150
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_layout_tsx_45d62af3._.js",
+    "status": 200,
+    "duration": 129
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_e532b071._.js",
+    "status": 200,
+    "duration": 147
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_dashboard_layout_tsx_422bdf51._.js",
+    "status": 200,
+    "duration": 120
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/_efa41868._.js",
+    "status": 200,
+    "duration": 167
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40xterm_xterm_lib_xterm_5d227f6c.js",
+    "status": 200,
+    "duration": 175
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_micromark-core-commonmark_dev_lib_ff3d70d3._.js",
+    "status": 200,
+    "duration": 154
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_27d27588._.js",
+    "status": 200,
+    "duration": 182
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_apps_claw_src_app_dashboard_agents_page_tsx_c3d8c5ff._.js",
+    "status": 200,
+    "duration": 127
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.078Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40xterm_xterm_css_xterm_baa84e29.css",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.079Z",
+    "method": "GET",
+    "url": "https://fonts.googleapis.com/css2?family=Plus+Jakarta+Sans:wght@400;500;600;700;800&display=swap",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.084Z",
+    "method": "GET",
+    "url": "https://fonts.gstatic.com/s/plusjakartasans/v12/LDIoaomQNQcsA88c7O9yZ4KMCoOg4Ko20yw.woff2",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.191Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_c8c997ce._.js",
+    "status": 200,
+    "duration": 37
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.191Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/%5Bturbopack%5D_browser_dev_hmr-client_hmr-client_ts_947c4ec3._.js",
+    "status": 200,
+    "duration": 35
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.594Z",
+    "method": "GET",
+    "url": "https://explorer-api.walletconnect.com/v3/wallets?projectId=34357d3c125c2bcf2ce2bc3309d98715",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.594Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/api/v1/apps/cml5no19f001jla0dc105snyy",
+    "status": 200,
+    "duration": 40
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.650Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/apps/cml5no19f001jla0dc105snyy/embedded-wallets?caid=63363620-0928-457c-ad64-40c365506562",
+    "status": 200,
+    "duration": 196
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.662Z",
+    "method": "HEAD",
+    "url": "https://gilfoyle.dev.hypercli.com/dashboard/agents",
+    "status": 200,
+    "duration": 261
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.663Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40base-org_account_286a7ec7._.js",
+    "status": 200,
+    "duration": 261
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.664Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_viem__esm_3aceead3._.js",
+    "status": 200,
+    "duration": 260
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.664Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/f5d47_%40noble_curves_esm_6734244e._.js",
+    "status": 200,
+    "duration": 260
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.664Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_ox__esm_core_0181812a._.js",
+    "status": 200,
+    "duration": 259
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.664Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/site_6b424a8f._.js",
+    "status": 200,
+    "duration": 260
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.664Z",
+    "method": "GET",
+    "url": "https://gilfoyle.dev.hypercli.com/_next/static/chunks/8de14_%40base-org_account_dist_index_b473a4e0.js",
+    "status": 200,
+    "duration": 259
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.664Z",
+    "method": "POST",
+    "url": "https://auth.privy.io/api/v1/sessions",
+    "status": 200,
+    "duration": 325
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.854Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/css/3895f45fb355bebc.css?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.854Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/webpack-677ef1e1728a87d9.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.854Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/framework-f00fddb9800f9292.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 2
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.856Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/main-394b579ff9ff9633.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.856Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/pages/_app-55346b2481dc3f1e.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.856Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/4f2f7108-89261840bb8c9d21.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.856Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/d2479e06-7d0fe6eea6bf0846.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.857Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/50ad770a-f07e677401d92a7a.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.857Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/683-4e69ef3a2f627be9.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.857Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/6813-961d01904fa78bb0.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.857Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/6806-f2754266281c146d.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.857Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/5676-bce9f8646d82760a.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.857Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/8071-0d1505fa6e07e79b.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 3
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.860Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/2231-d70eba655a2623d1.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.860Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/5197-ad963bfae9cec7ee.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.860Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/1475-739aabef17e42e5b.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 1
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/7361-2330537bf4915b96.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/350-14ec09f9cd4c8419.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/3285-3e75ab5b508be5cf.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/9681-4bc1b26002073b3a.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/chunks/pages/apps/%5Bapp_id%5D/embedded-wallets-aa1468b273b60b35.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/krltD19h3DKRVsPuqAutU/_buildManifest.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.861Z",
+    "method": "GET",
+    "url": "https://auth.privy.io/_next/static/krltD19h3DKRVsPuqAutU/_ssgManifest.js?dpl=dpl_Cnk5zc4uDaHwUZGSqWXdFACQRCKa",
+    "status": 200,
+    "duration": 0
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.923Z",
+    "method": "GET",
+    "url": "https://hypercli.com/logo-horizontal-white.png"
+  },
+  {
+    "timestamp": "2026-03-13T01:58:23.939Z",
+    "method": "HEAD",
+    "url": "https://gilfoyle.dev.hypercli.com/dashboard/agents",
+    "status": 200,
+    "duration": 215
+  },
+  {
+    "timestamp": "2026-03-13T01:58:24.069Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 35
+  },
+  {
+    "timestamp": "2026-03-13T01:58:24.069Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 67
+  },
+  {
+    "timestamp": "2026-03-13T01:58:29.439Z",
+    "method": "POST",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 260
+  },
+  {
+    "timestamp": "2026-03-13T01:58:29.700Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 143
+  },
+  {
+    "timestamp": "2026-03-13T01:58:29.878Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 104
+  },
+  {
+    "timestamp": "2026-03-13T01:58:32.875Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments",
+    "status": 200,
+    "duration": 99
+  },
+  {
+    "timestamp": "2026-03-13T01:58:33.001Z",
+    "method": "GET",
+    "url": "https://api.dev.hypercli.com/agents/deployments/9ce66a2e-19b7-455c-a83b-2ab94cec20a2/token",
+    "status": 200,
+    "duration": 99
+  }
+]

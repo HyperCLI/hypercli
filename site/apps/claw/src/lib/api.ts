@@ -7,7 +7,7 @@ import {
   setStoredToken as setSharedStoredToken,
 } from "@hypercli/shared-ui";
 
-import { resolveAgentsApiBase } from "@hypercli/sdk/agents";
+import { resolveAgentsApiBase } from "@hypercli.com/sdk/agents";
 
 function trimTrailingSlash(value: string): string {
   return value.endsWith("/") ? value.slice(0, -1) : value;

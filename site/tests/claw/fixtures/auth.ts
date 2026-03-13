@@ -219,7 +219,11 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   await page.waitForLoadState("networkidle");
   await expect
     .poll(async () => {
-      return page.evaluate(() => localStorage.getItem("claw_auth_token"));
+      try {
+        return await page.evaluate(() => localStorage.getItem("claw_auth_token"));
+      } catch {
+        return null;
+      }
     }, { timeout: 45_000 })
     .not.toBeNull();
 

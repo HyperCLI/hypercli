@@ -408,7 +408,7 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
         if not json_mode:
             console.print("[yellow]⚠[/yellow] OpenClaw not detected (no ~/.openclaw/openclaw.json)")
             console.print(f"  Configure manually later:\n")
-            console.print(f"  Base URL: {api_base}/v1")
+            console.print(f"  Base URL: {api_base} (OpenClaw uses /v1/messages)")
             console.print(f"  API Key:  {api_key}")
         _mark_step(state, "configure", {"status": "complete", "openclaw_detected": False})
         return state
@@ -420,10 +420,11 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
 
     from .agent import fetch_models
     models = fetch_models(api_key, api_base)
+    chat_models = [m for m in models if m.get("mode") != "embedding"]
 
     if not json_mode:
         console.print("[green]✓[/green]")
-        for m in models:
+        for m in chat_models:
             console.print(f"  Model: {m['id']}")
         console.print()
 
@@ -434,10 +435,10 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
     # Patch
     config.setdefault("models", {}).setdefault("providers", {})
     config["models"]["providers"]["hyperclaw"] = {
-        "baseUrl": f"{api_base}/v1",
+        "baseUrl": api_base,
         "apiKey": api_key,
-        "api": "openai-completions",
-        "models": models,
+        "api": "anthropic-messages",
+        "models": chat_models,
     }
 
     if not json_mode:
@@ -445,15 +446,15 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
 
     # Ask about default model
     set_default = False
-    if models:
+    if chat_models:
         if json_mode:
             set_default = True
         else:
             set_default = typer.confirm("Set as default model?", default=True)
 
     default_model = None
-    if set_default and models:
-        default_model = f"hyperclaw/{models[0]['id']}"
+    if set_default and chat_models:
+        default_model = f"hyperclaw/{chat_models[0]['id']}"
         config.setdefault("agents", {}).setdefault("defaults", {}).setdefault("model", {})
         config["agents"]["defaults"]["model"]["primary"] = default_model
         if not json_mode:
@@ -472,7 +473,7 @@ def step_configure(state: dict, json_mode: bool, api_base: str) -> dict:
         "openclaw_detected": True,
         "config_path": str(OPENCLAW_CONFIG_PATH),
         "default_model": default_model,
-        "models": [m["id"] for m in models],
+        "models": [m["id"] for m in chat_models],
     })
     return state
 

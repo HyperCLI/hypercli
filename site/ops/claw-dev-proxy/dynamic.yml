@@ -1,7 +1,7 @@
 http:
   routers:
     claw-dev-http:
-      rule: "Host(`gilfoyle.hypercli.com`) || Host(`gilfoyle.hyperclaw.app`)"
+      rule: "Host(`gilfoyle.hypercli.com`) || Host(`gilfoyle.dev.hypercli.com`)"
       entryPoints:
         - web
       middlewares:
@@ -9,7 +9,7 @@ http:
       service: claw-dev
 
     claw-dev-https:
-      rule: "Host(`gilfoyle.hypercli.com`) || Host(`gilfoyle.hyperclaw.app`)"
+      rule: "Host(`gilfoyle.hypercli.com`) || Host(`gilfoyle.dev.hypercli.com`)"
       entryPoints:
         - websecure
       service: claw-dev

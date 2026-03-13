@@ -88,6 +88,34 @@ export interface GatewayPairingState {
   error?: string;
 }
 
+export interface OpenClawConfigUiHint {
+  label?: string;
+  help?: string;
+  tags?: string[];
+  group?: string;
+  order?: number;
+  advanced?: boolean;
+  sensitive?: boolean;
+  placeholder?: string;
+  itemTemplate?: unknown;
+}
+
+export interface OpenClawConfigSchemaResponse {
+  schema: Record<string, any>;
+  uiHints: Record<string, OpenClawConfigUiHint>;
+  version?: string;
+  generatedAt?: string;
+}
+
+export interface OpenClawConfigNodeDescriptor {
+  schema: Record<string, any>;
+  type?: string;
+  properties: Record<string, Record<string, any>>;
+  additionalProperties: boolean;
+  additionalPropertySchema: Record<string, any> | null;
+  isDynamicMap: boolean;
+}
+
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 
 type PendingRequest = {
@@ -101,6 +129,7 @@ type DeviceTokenEntry = {
   role: string;
   scopes: string[];
   updatedAtMs: number;
+  gatewayUrl?: string;
 };
 
 type DeviceAuthStore = {
@@ -200,6 +229,151 @@ function makeId(): string {
     const random = Math.random() * 16 | 0;
     return (char === "x" ? random : (random & 0x3) | 0x8).toString(16);
   });
+}
+
+function asRecord(value: unknown): Record<string, any> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? (value as Record<string, any>)
+    : null;
+}
+
+function splitConfigPath(path: string): string[] {
+  return path
+    .split(".")
+    .map((part) => part.trim())
+    .filter(Boolean)
+    .flatMap((part) =>
+      part.endsWith("[]") && part !== "[]"
+        ? [part.slice(0, -2), "[]"]
+        : [part],
+    );
+}
+
+export function normalizeOpenClawConfigSchemaNode(value: unknown): Record<string, any> {
+  const schema = asRecord(value) ?? {};
+  const oneOf = Array.isArray(schema.oneOf) ? schema.oneOf : [];
+  const anyOf = Array.isArray(schema.anyOf) ? schema.anyOf : [];
+  const union = [...oneOf, ...anyOf];
+  if (union.length === 0) return schema;
+  const primary = union.find((entry) => {
+    const obj = asRecord(entry);
+    if (!obj) return false;
+    const t = obj.type;
+    if (typeof t === "string") return t !== "null";
+    if (Array.isArray(t)) return t.some((v) => v !== "null");
+    return true;
+  });
+  return asRecord(primary) ?? schema;
+}
+
+export function describeOpenClawConfigNode(value: unknown): OpenClawConfigNodeDescriptor {
+  const schema = normalizeOpenClawConfigSchemaNode(value);
+  const rawType = schema.type;
+  const type = Array.isArray(rawType)
+    ? (rawType.find((entry) => entry !== "null") as string | undefined)
+    : (typeof rawType === "string" ? rawType : undefined);
+  const rawProperties = asRecord(schema.properties) ?? {};
+  const properties: Record<string, Record<string, any>> = {};
+  for (const [key, child] of Object.entries(rawProperties)) {
+    const childSchema = asRecord(child);
+    if (childSchema) {
+      properties[key] = childSchema;
+    }
+  }
+  const additionalPropertySchema = asRecord(schema.additionalProperties);
+  const additionalProperties = schema.additionalProperties === true || Boolean(additionalPropertySchema);
+  return {
+    schema,
+    type,
+    properties,
+    additionalProperties,
+    additionalPropertySchema,
+    isDynamicMap:
+      (type === "object" || Object.keys(properties).length > 0 || additionalProperties) &&
+      additionalProperties,
+  };
+}
+
+export function createOpenClawConfigValue(value: unknown): unknown {
+  const descriptor = describeOpenClawConfigNode(value);
+  switch (descriptor.type) {
+    case "object":
+      return {};
+    case "array":
+      return [];
+    case "boolean":
+      return false;
+    case "number":
+    case "integer":
+      return 0;
+    default:
+      return "";
+  }
+}
+
+export function normalizeOpenClawConfigSchema(
+  value: unknown,
+): OpenClawConfigSchemaResponse | null {
+  const raw = asRecord(value);
+  if (!raw) return null;
+
+  const wrappedSchema = asRecord(raw.schema);
+  const uiHints = asRecord(raw.uiHints) ?? {};
+  const normalized: OpenClawConfigSchemaResponse = {
+    schema: wrappedSchema ?? raw,
+    uiHints: uiHints as Record<string, OpenClawConfigUiHint>,
+  };
+
+  if (typeof raw.version === "string") {
+    normalized.version = raw.version;
+  }
+  if (typeof raw.generatedAt === "string") {
+    normalized.generatedAt = raw.generatedAt;
+  }
+
+  return normalized;
+}
+
+export function resolveOpenClawConfigUiHint(
+  source: OpenClawConfigSchemaResponse | Record<string, OpenClawConfigUiHint> | null | undefined,
+  path: string,
+): { path: string; hint: OpenClawConfigUiHint } | null {
+  if (!path.trim()) return null;
+  const sourceRecord = asRecord(source);
+  const uiHints =
+    sourceRecord && asRecord(sourceRecord.uiHints)
+      ? (sourceRecord.uiHints as Record<string, OpenClawConfigUiHint>)
+      : (sourceRecord as Record<string, OpenClawConfigUiHint> | null);
+  if (!uiHints || typeof uiHints !== "object") return null;
+
+  const targetParts = splitConfigPath(path);
+  let best: { path: string; hint: OpenClawConfigUiHint; wildcardCount: number } | null = null;
+
+  for (const [hintPath, hint] of Object.entries(uiHints)) {
+    const hintParts = splitConfigPath(hintPath);
+    if (hintParts.length !== targetParts.length) continue;
+
+    let wildcardCount = 0;
+    let matches = true;
+    for (let index = 0; index < hintParts.length; index += 1) {
+      const hintPart = hintParts[index];
+      const targetPart = targetParts[index];
+      if (hintPart === targetPart) continue;
+      if (hintPart === "*" || hintPart === "[]") {
+        wildcardCount += 1;
+        continue;
+      }
+      matches = false;
+      break;
+    }
+
+    if (!matches) continue;
+    if (!best || wildcardCount < best.wildcardCount) {
+      best = { path: hintPath, hint, wildcardCount };
+    }
+  }
+
+  return best ? { path: best.path, hint: best.hint } : null;
 }
 
 function normalizeClientId(value: string | undefined): string {
@@ -334,20 +508,27 @@ function writeDeviceAuthStore(store: DeviceAuthStore): void {
   }
 }
 
-function loadStoredDeviceToken(deviceId: string, role: string): DeviceTokenEntry | null {
+function storageScopeKey(scope: string, role: string): string {
+  return `${scope.trim()}|${role.trim()}`;
+}
+
+function loadStoredDeviceToken(deviceId: string, scope: string, role: string): DeviceTokenEntry | null {
   const store = readDeviceAuthStore();
   if (!store || store.deviceId !== deviceId || !store.tokens) return null;
-  const entry = store.tokens[role.trim()];
+  const entry = store.tokens[storageScopeKey(scope, role)];
   return entry && typeof entry.token === "string" ? entry : null;
 }
 
 function storeStoredDeviceToken(params: {
   deviceId: string;
+  scope: string;
+  gatewayUrl?: string;
   role: string;
   token: string;
   scopes?: string[];
 }): DeviceTokenEntry {
   const role = params.role.trim();
+  const key = storageScopeKey(params.scope, role);
   const existing = readDeviceAuthStore();
   const next: DeviceAuthStore = {
     version: 1,
@@ -358,11 +539,12 @@ function storeStoredDeviceToken(params: {
     ...(existing?.pendingPairings ? { pendingPairings: existing.pendingPairings } : {}),
     tokens: {
       ...(existing?.tokens ?? {}),
-      [role]: {
+      [key]: {
         token: params.token,
         role,
         scopes: normalizeScopes(params.scopes),
         updatedAtMs: Date.now(),
+        ...(params.gatewayUrl ? { gatewayUrl: params.gatewayUrl } : {}),
       },
     },
   };
@@ -370,16 +552,16 @@ function storeStoredDeviceToken(params: {
     next.deviceId = params.deviceId;
   }
   writeDeviceAuthStore(next);
-  return next.tokens?.[role] as DeviceTokenEntry;
+  return next.tokens?.[key] as DeviceTokenEntry;
 }
 
-function clearStoredDeviceToken(deviceId: string, role: string): void {
+function clearStoredDeviceToken(deviceId: string, scope: string, role: string): void {
   const store = readDeviceAuthStore();
   if (!store || store.deviceId !== deviceId || !store.tokens) return;
-  const normalizedRole = role.trim();
-  if (!store.tokens[normalizedRole]) return;
+  const key = storageScopeKey(scope, role);
+  if (!store.tokens[key]) return;
   const nextTokens = { ...store.tokens };
-  delete nextTokens[normalizedRole];
+  delete nextTokens[key];
   writeDeviceAuthStore({
     version: 1,
     ...(store.deviceId ? { deviceId: store.deviceId } : {}),
@@ -391,19 +573,19 @@ function clearStoredDeviceToken(deviceId: string, role: string): void {
   });
 }
 
-function pairingStoreKey(gatewayUrl: string, role: string): string {
-  return `${gatewayUrl.trim()}|${role.trim()}`;
+function pairingStoreKey(scope: string, role: string): string {
+  return storageScopeKey(scope, role);
 }
 
-function loadPendingPairing(gatewayUrl: string, role: string): GatewayPairingState | null {
+function loadPendingPairing(scope: string, role: string): GatewayPairingState | null {
   const store = readDeviceAuthStore();
-  const key = pairingStoreKey(gatewayUrl, role);
+  const key = pairingStoreKey(scope, role);
   return store?.pendingPairings?.[key] ?? null;
 }
 
-function storePendingPairing(pairing: GatewayPairingState): GatewayPairingState {
+function storePendingPairing(pairing: GatewayPairingState, scope: string): GatewayPairingState {
   const existing = readDeviceAuthStore();
-  const key = pairingStoreKey(pairing.gatewayUrl, pairing.role);
+  const key = pairingStoreKey(scope, pairing.role);
   writeDeviceAuthStore({
     version: 1,
     ...(existing?.deviceId ? { deviceId: existing.deviceId } : {}),
@@ -419,10 +601,10 @@ function storePendingPairing(pairing: GatewayPairingState): GatewayPairingState 
   return pairing;
 }
 
-function clearPendingPairing(gatewayUrl: string, role: string): void {
+function clearPendingPairing(scope: string, role: string): void {
   const store = readDeviceAuthStore();
   if (!store?.pendingPairings) return;
-  const key = pairingStoreKey(gatewayUrl, role);
+  const key = pairingStoreKey(scope, role);
   if (!store.pendingPairings[key]) return;
   const nextPendingPairings = { ...store.pendingPairings };
   delete nextPendingPairings[key];
@@ -671,7 +853,7 @@ export class GatewayClient {
     this.onClose = options.onClose;
     this.onGap = options.onGap;
     this.onPairing = options.onPairing;
-    this.pairingState = loadPendingPairing(this.url, OPERATOR_ROLE);
+    this.pairingState = loadPendingPairing(this.storageScope(), OPERATOR_ROLE);
   }
 
   private readonly onHello?: (hello: Record<string, any>) => void;
@@ -693,6 +875,10 @@ export class GatewayClient {
 
   get pendingPairing() {
     return this.pairingState;
+  }
+
+  private storageScope(): string {
+    return this.deploymentId || this.url;
   }
 
   /** Subscribe to server-sent events */
@@ -757,9 +943,9 @@ export class GatewayClient {
   private updatePairingState(pairing: GatewayPairingState | null): void {
     this.pairingState = pairing;
     if (pairing) {
-      storePendingPairing(pairing);
+      storePendingPairing(pairing, this.storageScope());
     } else {
-      clearPendingPairing(this.url, OPERATOR_ROLE);
+      clearPendingPairing(this.storageScope(), OPERATOR_ROLE);
     }
     this.onPairing?.(pairing);
   }
@@ -924,7 +1110,11 @@ export class GatewayClient {
     let identity: DeviceIdentityRecord | null = null;
     try {
       identity = await loadOrCreateDeviceIdentity();
-      const storedDeviceToken = loadStoredDeviceToken(identity.deviceId, OPERATOR_ROLE)?.token;
+      const storedDeviceToken = loadStoredDeviceToken(
+        identity.deviceId,
+        this.storageScope(),
+        OPERATOR_ROLE,
+      )?.token;
       const authToken = storedDeviceToken ?? this.gatewayToken;
       const signedAtMs = Date.now();
       const payload = buildDeviceAuthPayload({
@@ -981,6 +1171,8 @@ export class GatewayClient {
       if (hello?.auth?.deviceToken) {
         storeStoredDeviceToken({
           deviceId: identity.deviceId,
+          scope: this.storageScope(),
+          gatewayUrl: this.url,
           role: hello.auth.role ?? OPERATOR_ROLE,
           token: hello.auth.deviceToken,
           scopes: hello.auth.scopes ?? [],
@@ -1011,7 +1203,7 @@ export class GatewayClient {
         (detailCode === CONNECT_ERROR_PAIRING_REQUIRED ||
           detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH)
       ) {
-        clearStoredDeviceToken(identity.deviceId, OPERATOR_ROLE);
+        clearStoredDeviceToken(identity.deviceId, this.storageScope(), OPERATOR_ROLE);
       }
       if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED && requestId) {
         this.updatePairingState({
@@ -1191,8 +1383,9 @@ export class GatewayClient {
     return res?.config ?? res ?? {};
   }
 
-  async configSchema(): Promise<Record<string, any>> {
-    return this.rpc("config.schema");
+  async configSchema(): Promise<OpenClawConfigSchemaResponse> {
+    const res = await this.rpc("config.schema");
+    return normalizeOpenClawConfigSchema(res) ?? { schema: {}, uiHints: {} };
   }
 
   async configPatch(patch: Record<string, any>): Promise<void> {

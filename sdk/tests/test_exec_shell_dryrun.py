@@ -168,6 +168,45 @@ async def test_agents_shell_connect(monkeypatch):
     assert captured_post["json"] == {"shell": "/bin/sh", "dry_run": True}
 
 
+@pytest.mark.asyncio
+async def test_agents_logs_stream_ws_uses_agents_ws_url(monkeypatch):
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test", api_base="https://api.dev.hypercli.com")
+
+    monkeypatch.setattr(
+        agents,
+        "logs_token",
+        lambda agent_id: {"jwt": "jwt-logs", "ws_url": "wss://wrong-host.example/ws/logs/agent-1?jwt=jwt-logs"},
+    )
+
+    captured = {}
+
+    class FakeWS:
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb):
+            return False
+
+        def __aiter__(self):
+            async def _iter():
+                yield '{"event":"log","log":"hello"}'
+            return _iter()
+
+    async def fake_connect(url):
+        captured["url"] = url
+        return FakeWS()
+
+    monkeypatch.setattr("websockets.connect", fake_connect)
+
+    lines = []
+    async for line in agents.logs_stream_ws("agent-1", tail_lines=400):
+        lines.append(line)
+        break
+
+    assert captured["url"] == "wss://api.agents.dev.hypercli.com/ws/logs/agent-1?jwt=jwt-logs&container=reef&tail_lines=400"
+    assert lines == ['{"event":"log","log":"hello"}']
+
+
 def test_agents_detect_shell_prefers_bash(monkeypatch):
     agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")
     monkeypatch.setattr(

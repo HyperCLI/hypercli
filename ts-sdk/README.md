@@ -1,11 +1,11 @@
-# @hypercli/sdk
+# @hypercli.com/sdk
 
 TypeScript SDK for HyperCLI API - GPU cloud compute made simple.
 
 ## Installation
 
 ```bash
-npm install @hypercli/sdk
+npm install @hypercli.com/sdk
 ```
 
 **Dependencies:**
@@ -15,7 +15,7 @@ npm install @hypercli/sdk
 ## Quick Start
 
 ```typescript
-import { HyperCLI } from '@hypercli/sdk';
+import { HyperCLI } from '@hypercli.com/sdk';
 
 // Initialize client (uses HYPERCLI_API_KEY from env or ~/.hypercli/config)
 const client = new HyperCLI();
@@ -49,7 +49,7 @@ Set your API key via:
 3. Constructor: `new HyperCLI({ apiKey: 'your_key' })`
 
 ```typescript
-import { configure } from '@hypercli/sdk';
+import { configure } from '@hypercli.com/sdk';
 
 // Save to ~/.hypercli/config
 configure('your_api_key');
@@ -142,7 +142,7 @@ const render = await client.renders.imageToVideo({
 ### Log Streaming
 
 ```typescript
-import { streamLogs } from '@hypercli/sdk';
+import { streamLogs } from '@hypercli.com/sdk';
 
 await streamLogs(client, jobId, (line) => {
   console.log(line);
@@ -152,7 +152,7 @@ await streamLogs(client, jobId, (line) => {
 ### ComfyUI Workflows
 
 ```typescript
-import { ComfyUIJob, applyParams, graphToApi } from '@hypercli/sdk';
+import { ComfyUIJob, applyParams, graphToApi } from '@hypercli.com/sdk';
 
 // Launch ComfyUI instance
 const comfy = await ComfyUIJob.createForTemplate(client, 'flux-dev', {

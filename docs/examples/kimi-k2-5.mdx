@@ -118,12 +118,15 @@ client = OpenAI(
 response = client.chat.completions.create(
     model="kimi-k2.5",
     messages=[{"role": "user", "content": "Explain quantum computing in one paragraph."}],
-    max_tokens=500
+    max_tokens=2000,
+    extra_body={
+        "thinking": {"type": "enabled", "budget_tokens": 500}
+    }
 )
 print(response.choices[0].message.content)
 ```
 
-The model supports reasoning (thinking) mode — reasoning content appears in `message.reasoning_content`.
+For Kimi K2.5, give the model enough output budget to think and still return visible text. A small `max_tokens` cap often gets consumed entirely by reasoning. Reasoning content appears in `message.reasoning_content`.
 
 <Note>
 For the hosted HyperClaw chat API, prefer the Anthropic Messages endpoint at `https://api.hypercli.com` when you care about tool calling quality. The OpenAI-compatible `/v1` route still works, but Anthropic-format routing is the recommended default.
