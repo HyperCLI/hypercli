@@ -1,0 +1,104 @@
+name: SDK Integration Tests
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ts-sdk/**"
+      - "sdk/**"
+  workflow_dispatch:
+
+env:
+  GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  ts-sdk-integration:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: ts-sdk
+    env:
+      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+      TEST_API_BASE: https://api.hypercli.com
+      TEST_AGENT_API_KEY: ${{ secrets.TEST_AGENT_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: ts-sdk/package-lock.json
+
+      - name: Install TS SDK dependencies
+        run: npm ci
+
+      - name: Run TS SDK integration tests
+        run: npm run test:integration
+
+  python-sdk-integration:
+    runs-on: self-hosted
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: sdk
+    env:
+      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+      TEST_API_BASE: https://api.hypercli.com
+      TEST_AGENT_API_KEY: ${{ secrets.TEST_AGENT_API_KEY }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Install Python SDK
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e ".[dev]"
+
+      - name: Run Python SDK integration tests
+        run: |
+          source .venv/bin/activate
+          pytest -q tests/integration
+
+  notify-sdk-integration:
+    needs:
+      - ts-sdk-integration
+      - python-sdk-integration
+    if: always()
+    runs-on: self-hosted
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Notify SDK integration result
+        continue-on-error: true
+        env:
+          NOTIFY_URL: https://api.hypercli.com/notify/notify
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          if [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ]; then
+            STATUS="success"
+            MESSAGE="SDK integration tests passed"
+          else
+            STATUS="failure"
+            MESSAGE="SDK integration tests failed"
+          fi
+
+          python3 .github/scripts/ci_notify.py \
+            --category sdk \
+            --phase test \
+            --status "${STATUS}" \
+            --event "${{ github.event_name }}" \
+            --message "${MESSAGE}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Fail workflow when integration jobs fail
+        if: needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success'
+        run: exit 1
