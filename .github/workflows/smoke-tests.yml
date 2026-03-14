@@ -1,0 +1,184 @@
+name: Smoke Tests
+
+on:
+  workflow_dispatch:
+
+env:
+  GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
+jobs:
+  smoke:
+    runs-on: self-hosted
+    timeout-minutes: 45
+    defaults:
+      run:
+        shell: bash
+    env:
+      TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
+      TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
+      TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
+      TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
+      SMOKE_MAIN_SITE_URL: https://hypercli.com
+      SMOKE_CONSOLE_SITE_URL: https://console.hypercli.com
+      SMOKE_AGENTS_SITE_URL: https://agents.hypercli.com
+      SMOKE_AGENTS_API_URL: https://api.agents.hypercli.com/api
+      SMOKE_NOTIFY_URL: https://api.hypercli.com/notify
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: site/package-lock.json
+
+      - name: Install site dependencies
+        working-directory: site
+        run: npm install
+
+      - name: Install Playwright browsers
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
+      - name: Run smoke tests
+        id: smoke
+        continue-on-error: true
+        working-directory: site
+        run: npx playwright test --config tests/smoke/playwright.config.ts
+
+      - name: Upload smoke artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: smoke-playwright-artifacts
+          path: |
+            site/playwright-report
+            site/test-results
+          if-no-files-found: ignore
+
+      - name: Upload failure screenshots to notify
+        if: steps.smoke.outcome == 'failure'
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          set -euo pipefail
+          if [ -z "${NOTIFY_API_KEY:-}" ]; then
+            exit 0
+          fi
+
+          found=0
+          while IFS= read -r screenshot; do
+            found=1
+            caption="Smoke test failure screenshot: $(basename "$screenshot")"$'\n'"Run: ${GITHUB_RUN_URL}"
+            curl -fsS \
+              -X POST "${SMOKE_NOTIFY_URL}/photo" \
+              -H "X-BACKEND-API-KEY: ${NOTIFY_API_KEY}" \
+              -F "photo=@${screenshot}" \
+              -F "category=smoke" \
+              -F "severity=error" \
+              -F "caption=${caption}" >/dev/null
+          done < <(find site/test-results -type f -name '*.png' | sort)
+
+          if [ "${found}" -eq 0 ]; then
+            echo "No failure screenshots found under site/test-results"
+          fi
+
+      - name: Notify smoke summary
+        if: always()
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+          SMOKE_STATUS: ${{ steps.smoke.outcome }}
+        run: |
+          python3 - <<'PY'
+          import json
+          import os
+          import urllib.error
+          import urllib.request
+          from pathlib import Path
+
+          notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
+          if not notify_api_key:
+              raise SystemExit(0)
+
+          report_path = Path("site/test-results/smoke-results.json")
+          status = os.getenv("SMOKE_STATUS", "unknown").strip().lower()
+          counts = {"total": 0, "passed": 0, "failed": 0, "skipped": 0}
+
+          def walk_suite(node: dict) -> None:
+              for spec in node.get("specs", []):
+                  for test in spec.get("tests", []):
+                      last_result = test.get("results", [])[-1] if test.get("results") else {}
+                      outcome = (last_result.get("status") or test.get("status") or "").lower()
+                      counts["total"] += 1
+                      if outcome == "passed":
+                          counts["passed"] += 1
+                      elif outcome in {"failed", "timedout", "interrupted"}:
+                          counts["failed"] += 1
+                      else:
+                          counts["skipped"] += 1
+              for suite in node.get("suites", []):
+                  walk_suite(suite)
+
+          if report_path.exists():
+              report = json.loads(report_path.read_text())
+              for suite in report.get("suites", []):
+                  walk_suite(suite)
+
+          if status == "success":
+              severity = "info"
+              message = (
+                  f"Smoke tests passed: {counts['passed']}/{counts['total']} passed"
+                  if counts["total"]
+                  else "Smoke tests passed"
+              )
+          else:
+              severity = "error"
+              if counts["total"]:
+                  message = (
+                      f"Smoke tests failed: {counts['failed']} failed, "
+                      f"{counts['passed']} passed, {counts['skipped']} skipped"
+                  )
+              else:
+                  message = "Smoke tests failed"
+
+          payload = {
+              "category": "smoke",
+              "severity": severity,
+              "message": message,
+              "meta": {
+                  "repo": os.getenv("GITHUB_REPOSITORY", ""),
+                  "ref": os.getenv("GITHUB_REF_NAME", ""),
+                  "sha": os.getenv("GITHUB_SHA", ""),
+                  "run_id": os.getenv("GITHUB_RUN_ID", ""),
+                  "run_url": os.getenv("GITHUB_RUN_URL", ""),
+                  "actor": os.getenv("GITHUB_ACTOR", ""),
+                  "workflow": os.getenv("GITHUB_WORKFLOW", ""),
+                  "status": status,
+                  "phase": "test",
+                  "event": os.getenv("GITHUB_EVENT_NAME", ""),
+                  "passed": counts["passed"],
+                  "failed": counts["failed"],
+                  "skipped": counts["skipped"],
+                  "total": counts["total"],
+              },
+          }
+
+          request = urllib.request.Request(
+              os.getenv("SMOKE_NOTIFY_URL", "https://api.hypercli.com/notify"),
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "X-BACKEND-API-KEY": notify_api_key,
+              },
+              method="POST",
+          )
+
+          with urllib.request.urlopen(request, timeout=15) as response:
+              response.read()
+          PY
+
+      - name: Fail workflow on smoke failure
+        if: steps.smoke.outcome == 'failure'
+        run: exit 1

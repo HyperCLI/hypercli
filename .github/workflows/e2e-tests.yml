@@ -1,0 +1,163 @@
+name: E2E Tests
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "site/**"
+  workflow_dispatch:
+
+jobs:
+  playwright-e2e:
+    runs-on: self-hosted
+    timeout-minutes: 30
+    defaults:
+      run:
+        shell: bash
+    env:
+      TEST_BASE_URL: http://127.0.0.1:4003
+      TEST_CONSOLE_BASE_URL: http://127.0.0.1:4001
+      TEST_HOSTNAME: 127.0.0.1
+      TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
+      TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
+      TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
+      TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: "npm"
+          cache-dependency-path: |
+            ts-sdk/package-lock.json
+            site/package-lock.json
+
+      - name: Build TS SDK
+        working-directory: ts-sdk
+        run: |
+          npm ci
+          npm run build
+
+      - name: Install site dependencies
+        working-directory: site
+        run: npm install
+
+      - name: Install Playwright browsers
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
+      - name: Prepare local app env
+        working-directory: site
+        run: |
+          python3 - <<'PY'
+          from pathlib import Path
+
+          root = Path(".")
+          template = (root / "env.dev").read_text().splitlines()
+
+          def write_env(app: str, privy_app_id: str) -> None:
+              env_path = root / "apps" / app / ".env.local"
+              replacements = {
+                  "NEXT_PUBLIC_MAIN_SITE_URL": "http://127.0.0.1:4000",
+                  "NEXT_PUBLIC_CONSOLE_URL": "http://127.0.0.1:4001",
+                  "NEXT_PUBLIC_AGENTS_URL": "http://127.0.0.1:4003",
+                  "NEXT_PUBLIC_COOKIE_DOMAIN": "127.0.0.1",
+                  "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN": "127.0.0.1",
+                  "NEXT_PUBLIC_PRIVY_APP_ID": privy_app_id,
+              }
+
+              lines = list(template)
+              for key, value in replacements.items():
+                  for index, line in enumerate(lines):
+                      if line.startswith(f"{key}="):
+                          lines[index] = f"{key}={value}"
+                          break
+                  else:
+                      lines.append(f"{key}={value}")
+
+              env_path.write_text("\n".join(lines) + "\n")
+
+          write_env("console", "cml5njpn701s2ky0cjd0y1vzq")
+          write_env("claw", "cml5g1wgh015zl40cv7e1qjr9")
+          PY
+
+      - name: Start Console dev server
+        working-directory: site
+        run: |
+          set -euo pipefail
+          npm run dev -- --filter=@hypercli/console > /tmp/hypercli-console-e2e.log 2>&1 &
+          echo $! > /tmp/hypercli-console-e2e.pid
+
+      - name: Start Claw dev server
+        working-directory: site
+        run: |
+          set -euo pipefail
+          npm run dev -- --filter=@hypercli/claw > /tmp/hypercli-claw-e2e.log 2>&1 &
+          echo $! > /tmp/hypercli-claw-e2e.pid
+
+      - name: Wait for local dev servers
+        working-directory: site
+        run: |
+          set -euo pipefail
+          wait_for_url() {
+            local url="$1"
+            local label="$2"
+            for _ in {1..90}; do
+              if curl -fsS "$url" >/dev/null; then
+                return 0
+              fi
+              sleep 2
+            done
+            echo "$label dev server did not become ready at $url" >&2
+            return 1
+          }
+
+          wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console"
+          wait_for_url "${TEST_BASE_URL}" "Claw"
+
+      - name: Run Playwright tests
+        working-directory: site
+        run: >
+          npx playwright test
+          --config tests/claw/playwright.config.ts
+          tests/claw/login.spec.ts
+          tests/claw/console-login.spec.ts
+
+      - name: Upload Playwright artifacts
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: playwright-artifacts
+          path: |
+            site/playwright-report
+            site/test-results
+          if-no-files-found: ignore
+
+      - name: Show Console dev server log
+        if: always()
+        run: |
+          if [ -f /tmp/hypercli-console-e2e.log ]; then
+            tail -n 200 /tmp/hypercli-console-e2e.log
+          fi
+
+      - name: Show Claw dev server log
+        if: always()
+        run: |
+          if [ -f /tmp/hypercli-claw-e2e.log ]; then
+            tail -n 200 /tmp/hypercli-claw-e2e.log
+          fi
+
+      - name: Stop Console dev server
+        if: always()
+        run: |
+          if [ -f /tmp/hypercli-console-e2e.pid ]; then
+            kill "$(cat /tmp/hypercli-console-e2e.pid)" || true
+          fi
+
+      - name: Stop Claw dev server
+        if: always()
+        run: |
+          if [ -f /tmp/hypercli-claw-e2e.pid ]; then
+            kill "$(cat /tmp/hypercli-claw-e2e.pid)" || true
+          fi

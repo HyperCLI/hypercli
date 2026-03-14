@@ -21,7 +21,7 @@ const OTP_INITIAL_DELAY_MS = 2_500;
 function getEnv(name: RequiredEnvKey): string {
   const value = process.env[name]?.trim();
   if (!value) {
-    throw new Error(`Missing ${name} in tests/claw/.env`);
+    throw new Error(`Missing ${name} in the environment`);
   }
   return value;
 }
@@ -72,7 +72,7 @@ function extractOtpFromText(text: string): string | null {
   return fallbackMatches.at(-1)?.[1] ?? null;
 }
 
-async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
+export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   const client = new ImapFlow({
     host: getEnv("TEST_IMAP_HOST"),
     port: DEFAULT_IMAP_PORT,
@@ -152,7 +152,7 @@ async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   throw new Error("Timed out waiting for a Privy OTP email");
 }
 
-async function fillOtp(page: Page, otp: string): Promise<void> {
+export async function fillOtp(page: Page, otp: string): Promise<void> {
   const otpInputs = page.locator(
     'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
   );
@@ -228,6 +228,55 @@ export async function loginWithPrivy(page: Page): Promise<void> {
     .not.toBeNull();
 
   await captureStep(page, "05-authenticated");
+}
+
+export async function waitForCookieValue(
+  page: Page,
+  url: string,
+  name: string,
+  timeout = 45_000
+): Promise<string> {
+  let latestValue: string | null = null;
+
+  await expect
+    .poll(
+      async () => {
+        const cookies = await page.context().cookies([url]);
+        latestValue = cookies.find((cookie) => cookie.name === name)?.value ?? null;
+        return latestValue;
+      },
+      { timeout }
+    )
+    .not.toBeNull();
+
+  return latestValue!;
+}
+
+export async function waitForLocalStorageValue(
+  page: Page,
+  key: string,
+  timeout = 45_000
+): Promise<string> {
+  let latestValue: string | null = null;
+
+  await expect
+    .poll(
+      async () => {
+        try {
+          latestValue = await page.evaluate(
+            (storageKey) => window.localStorage.getItem(storageKey),
+            key
+          );
+        } catch {
+          latestValue = null;
+        }
+        return latestValue;
+      },
+      { timeout }
+    )
+    .not.toBeNull();
+
+  return latestValue!;
 }
 
 export async function getClawAuthToken(page: Page): Promise<string> {
