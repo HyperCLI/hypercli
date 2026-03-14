@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import { ImapFlow } from "imapflow";
-import { expect, type Page } from "@playwright/test";
+import { expect, type Frame, type Locator, type Page } from "@playwright/test";
 
 type RequiredEnvKey =
   | "TEST_BASE_URL"
@@ -287,7 +287,7 @@ export async function loginToConsoleWithPrivy(
   await captureStep(page, "console-04-post-login");
 }
 
-async function findVisibleStripeField(page: Page, selectors: string[]): Promise<ReturnType<Page["locator"]>> {
+async function findVisibleStripeField(page: Page, selectors: string[]): Promise<Locator> {
   for (const selector of selectors) {
     const locator = page.locator(selector).first();
     if (await locator.isVisible().catch(() => false)) {
@@ -298,7 +298,26 @@ async function findVisibleStripeField(page: Page, selectors: string[]): Promise<
   throw new Error(`Unable to find visible Stripe field for selectors: ${selectors.join(", ")}`);
 }
 
-async function fillStripeField(page: Page, value: string, directSelectors: string[], frameSelectors: string[]): Promise<void> {
+function getStripeFrames(page: Page): Frame[] {
+  return page
+    .frames()
+    .filter((frame) => frame !== page.mainFrame() && /stripe\.com/i.test(frame.url()));
+}
+
+async function logStripeFrameState(page: Page, step: string): Promise<void> {
+  const frames = getStripeFrames(page).map((frame) => ({
+    name: frame.name(),
+    url: frame.url(),
+  }));
+  console.log(`Stripe frame state [${step}]: ${JSON.stringify(frames)}`);
+}
+
+async function fillStripeField(
+  page: Page,
+  value: string,
+  directSelectors: string[],
+  frameSelectors: string[]
+): Promise<void> {
   for (const selector of directSelectors) {
     const locator = page.locator(selector).first();
     if (await locator.isVisible().catch(() => false)) {
@@ -308,17 +327,20 @@ async function fillStripeField(page: Page, value: string, directSelectors: strin
     }
   }
 
-  for (const frameSelector of frameSelectors) {
-    const frame = page.frameLocator(frameSelector);
-    const locator = frame.locator("input").first();
-    if (await locator.isVisible().catch(() => false)) {
-      await locator.fill("");
-      await locator.pressSequentially(value, { delay: 30 });
-      return;
+  for (const frame of getStripeFrames(page)) {
+    for (const selector of frameSelectors) {
+      const locator = frame.locator(selector).first();
+      if (await locator.isVisible().catch(() => false)) {
+        await locator.fill("");
+        await locator.pressSequentially(value, { delay: 30 });
+        return;
+      }
     }
   }
 
-  throw new Error(`Unable to fill Stripe field for selectors: ${directSelectors.join(", ")}`);
+  throw new Error(
+    `Unable to fill Stripe field for selectors: ${[...directSelectors, ...frameSelectors].join(", ")}`
+  );
 }
 
 export async function completeStripeCheckout(
@@ -331,6 +353,20 @@ export async function completeStripeCheckout(
     .poll(() => page.url(), { timeout: 45_000 })
     .toMatch(stripeCheckoutPattern);
   await page.waitForLoadState("domcontentloaded");
+  await expect
+    .poll(
+      async () => {
+        const directCardField = await page
+          .locator("#cardNumber, input[name='cardNumber'], input[autocomplete='cc-number']")
+          .first()
+          .isVisible()
+          .catch(() => false);
+        return directCardField || getStripeFrames(page).length > 0;
+      },
+      { timeout: 20_000, message: "Waiting for Stripe checkout fields to load" }
+    )
+    .toBeTruthy();
+  await logStripeFrameState(page, "loaded");
   await captureStep(page, "console-05-stripe-checkout");
 
   const emailField = page.locator("#email, input[type='email'], input[autocomplete='email']").first();
@@ -342,22 +378,43 @@ export async function completeStripeCheckout(
     page,
     STRIPE_TEST_CARD_NUMBER,
     ["#cardNumber", "input[name='cardNumber']", "input[autocomplete='cc-number']", "input[placeholder*='1234']"],
-    ["iframe[title*='card number' i]", "iframe[name*='cardNumber' i]", "iframe[title*='Card number' i]"]
+    [
+      "#Field-numberInput",
+      "input[name='cardnumber']",
+      "input[name='number']",
+      "input[autocomplete='cc-number']",
+      "input[placeholder*='Card number' i]",
+    ]
   );
+  await captureStep(page, "console-05a-stripe-card-number");
 
   await fillStripeField(
     page,
     STRIPE_TEST_EXPIRY,
     ["#cardExpiry", "input[name='cardExpiry']", "input[autocomplete='cc-exp']", "input[placeholder*='MM / YY']"],
-    ["iframe[title*='expiration' i]", "iframe[name*='cardExpiry' i]", "iframe[title*='expiry' i]"]
+    [
+      "#Field-expiryInput",
+      "input[name='exp-date']",
+      "input[name='expiry']",
+      "input[autocomplete='cc-exp']",
+      "input[placeholder*='MM / YY' i]",
+    ]
   );
+  await captureStep(page, "console-05b-stripe-expiry");
 
   await fillStripeField(
     page,
     STRIPE_TEST_CVC,
     ["#cardCvc", "input[name='cardCvc']", "input[autocomplete='cc-csc']", "input[placeholder*='CVC']"],
-    ["iframe[title*='security code' i]", "iframe[name*='cardCvc' i]", "iframe[title*='CVC' i]"]
+    [
+      "#Field-cvcInput",
+      "input[name='cvc']",
+      "input[autocomplete='cc-csc']",
+      "input[placeholder*='CVC' i]",
+      "input[placeholder*='security code' i]",
+    ]
   );
+  await captureStep(page, "console-05c-stripe-cvc");
 
   const nameField = await findVisibleStripeField(page, [
     "#billingName",
@@ -377,12 +434,15 @@ export async function completeStripeCheckout(
   if (postalField) {
     await postalField.fill(STRIPE_TEST_ZIP);
   }
+  await captureStep(page, "console-05d-stripe-form-filled");
 
   const submitButton = page
-    .locator(".SubmitButton, button[type='submit'], button:has-text('Pay')")
+    .locator(".SubmitButton, button[type='submit'], button:has-text('Pay'), button:has-text('Donate')")
     .first();
   await expect(submitButton).toBeVisible({ timeout: 15_000 });
+  console.log(`Stripe submit button text: ${(await submitButton.textContent())?.trim() || "<empty>"}`);
   await submitButton.click();
+  await captureStep(page, "console-05e-stripe-submit-clicked");
 
   await expect
     .poll(
