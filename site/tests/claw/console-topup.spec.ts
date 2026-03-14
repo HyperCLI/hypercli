@@ -13,9 +13,9 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 const liveConsoleBaseUrl =
   process.env.TEST_PROD_CONSOLE_BASE_URL?.trim() || "https://console.hypercli.com";
 
-test.setTimeout(300_000);
-
 test("tops up the live Console balance by $10 through Stripe Checkout", async ({ page }) => {
+  test.setTimeout(300_000);
+
   await loginToConsoleWithPrivy(page, liveConsoleBaseUrl);
 
   const availableBalanceValue = page

@@ -325,7 +325,11 @@ export async function completeStripeCheckout(
   page: Page,
   returnHostPattern = /console\.hypercli\.com/i
 ): Promise<void> {
-  await page.waitForURL(/stripe\.com/i, { timeout: 45_000 });
+  const stripeCheckoutPattern = /https:\/\/checkout\.stripe\.com\/(?:c|pay)\//i;
+
+  await expect
+    .poll(() => page.url(), { timeout: 45_000 })
+    .toMatch(stripeCheckoutPattern);
   await page.waitForLoadState("domcontentloaded");
   await captureStep(page, "console-05-stripe-checkout");
 
@@ -337,21 +341,21 @@ export async function completeStripeCheckout(
   await fillStripeField(
     page,
     STRIPE_TEST_CARD_NUMBER,
-    ["#cardNumber", "input[name='cardNumber']", "input[autocomplete='cc-number']"],
+    ["#cardNumber", "input[name='cardNumber']", "input[autocomplete='cc-number']", "input[placeholder*='1234']"],
     ["iframe[title*='card number' i]", "iframe[name*='cardNumber' i]", "iframe[title*='Card number' i]"]
   );
 
   await fillStripeField(
     page,
     STRIPE_TEST_EXPIRY,
-    ["#cardExpiry", "input[name='cardExpiry']", "input[autocomplete='cc-exp']"],
+    ["#cardExpiry", "input[name='cardExpiry']", "input[autocomplete='cc-exp']", "input[placeholder*='MM / YY']"],
     ["iframe[title*='expiration' i]", "iframe[name*='cardExpiry' i]", "iframe[title*='expiry' i]"]
   );
 
   await fillStripeField(
     page,
     STRIPE_TEST_CVC,
-    ["#cardCvc", "input[name='cardCvc']", "input[autocomplete='cc-csc']"],
+    ["#cardCvc", "input[name='cardCvc']", "input[autocomplete='cc-csc']", "input[placeholder*='CVC']"],
     ["iframe[title*='security code' i]", "iframe[name*='cardCvc' i]", "iframe[title*='CVC' i]"]
   );
 
@@ -375,13 +379,16 @@ export async function completeStripeCheckout(
   }
 
   const submitButton = page
-    .locator(".SubmitButton, button[type='submit'], button:has-text('Pay'), button:has-text('Subscribe')")
+    .locator(".SubmitButton, button[type='submit'], button:has-text('Pay')")
     .first();
   await expect(submitButton).toBeVisible({ timeout: 15_000 });
   await submitButton.click();
 
   await expect
-    .poll(() => page.url(), { timeout: 90_000 })
+    .poll(
+      () => page.url(),
+      { timeout: 90_000, message: "Waiting for Stripe Checkout to redirect back to Console" }
+    )
     .toMatch(returnHostPattern);
 }
 
