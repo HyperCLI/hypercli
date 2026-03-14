@@ -70,15 +70,23 @@ jobs:
           found=0
           while IFS= read -r screenshot; do
             found=1
-            caption="Smoke test failure screenshot: $(basename "$screenshot")"$'\n'"Run: ${GITHUB_RUN_URL}"
+            image_b64=$(base64 -w0 "$screenshot")
+            filename=$(basename "$screenshot")
+            caption="Smoke test failure: ${filename}"$'\n'"Run: ${GITHUB_RUN_URL}"
+            payload=$(jq -n \
+              --arg cat "smoke" \
+              --arg sev "error" \
+              --arg msg "$caption" \
+              --arg img "$image_b64" \
+              --arg fn "$filename" \
+              --arg ch "frontend" \
+              '{category: $cat, severity: $sev, message: $msg, image: $img, image_filename: $fn, channel: $ch}')
             curl -fsS \
-              -X POST "${SMOKE_NOTIFY_URL}/photo" \
+              -X POST "${SMOKE_NOTIFY_URL}/notify" \
               -H "X-BACKEND-API-KEY: ${NOTIFY_API_KEY}" \
-              -F "photo=@${screenshot}" \
-              -F "category=smoke" \
-              -F "severity=error" \
-              -F "caption=${caption}" >/dev/null
-          done < <(find site/test-results -type f -name '*.png' | sort)
+              -H "Content-Type: application/json" \
+              -d "$payload" >/dev/null
+          done < <(find site/test-results -type f -name '*.png' | sort | head -5)
 
           if [ "${found}" -eq 0 ]; then
             echo "No failure screenshots found under site/test-results"
