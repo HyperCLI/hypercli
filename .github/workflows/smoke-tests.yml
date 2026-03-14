@@ -166,7 +166,7 @@ jobs:
           }
 
           request = urllib.request.Request(
-              os.getenv("SMOKE_NOTIFY_URL", "https://api.hypercli.com/notify"),
+              os.getenv("SMOKE_NOTIFY_URL", "https://api.hypercli.com/notify") + "/notify",
               data=json.dumps(payload).encode("utf-8"),
               headers={
                   "Content-Type": "application/json",
