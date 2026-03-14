@@ -49,7 +49,10 @@ def build_message(phase: str, status: str, explicit_message: str) -> str:
 
 
 def send_notification(args: argparse.Namespace) -> None:
-    webhook_url = os.getenv("NOTIFY_WEBHOOK_URL", "https://api.hypercli.com/notify/notify")
+    webhook_url = os.getenv(
+        "NOTIFY_URL",
+        os.getenv("NOTIFY_WEBHOOK_URL", "https://api.hypercli.com/notify/notify"),
+    )
     api_key = os.getenv("NOTIFY_API_KEY", "")
     if not api_key:
         raise RuntimeError("NOTIFY_API_KEY is required")
@@ -57,6 +60,7 @@ def send_notification(args: argparse.Namespace) -> None:
     status = normalize_status(args.status)
     payload = {
         "category": args.category,
+        "channel": args.channel,
         "severity": severity_for_status(status),
         "message": build_message(args.phase, status, args.message),
         "meta": {
@@ -107,6 +111,7 @@ def build_parser() -> argparse.ArgumentParser:
     parser.add_argument("--run-url", default=os.getenv("GITHUB_RUN_URL", ""))
     parser.add_argument("--actor", default=os.getenv("GITHUB_ACTOR", ""))
     parser.add_argument("--workflow", default=os.getenv("GITHUB_WORKFLOW", ""))
+    parser.add_argument("--channel", default="")
     return parser
 
 

@@ -25,7 +25,7 @@ jobs:
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
-      NOTIFY_ENDPOINT: https://api.hypercli.com/notify/notify
+      NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
 
@@ -146,14 +146,14 @@ jobs:
           if not notify_api_key:
               raise SystemExit(0)
 
-          endpoint = os.getenv("NOTIFY_ENDPOINT", "https://api.hypercli.com/notify/notify")
+          endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify/notify")
           run_url = os.getenv("GITHUB_RUN_URL", "")
           screenshots = sorted(Path("site/test-results").rglob("*.png"))[:5]
 
           for screenshot in screenshots:
               test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
               payload = {
-                  "category": "smoke",
+                  "category": "frontend",
                   "severity": "error",
                   "message": f"Test failure: {test_name}\nRun: {run_url}",
                   "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
@@ -218,12 +218,18 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
+          if [ "${E2E_STATUS}" = "success" ]; then
+            MESSAGE="Frontend e2e login tests passed"
+          else
+            MESSAGE="Frontend e2e login tests failed"
+          fi
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
-            --message "E2E Tests ${E2E_STATUS}" \
+            --message "${MESSAGE}" \
+            --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Fail workflow on e2e failure

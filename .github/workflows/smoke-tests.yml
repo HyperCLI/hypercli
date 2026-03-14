@@ -22,7 +22,7 @@ jobs:
       SMOKE_CONSOLE_SITE_URL: https://console.hypercli.com
       SMOKE_AGENTS_SITE_URL: https://agents.hypercli.com
       SMOKE_AGENTS_API_URL: https://api.agents.hypercli.com/api
-      SMOKE_NOTIFY_URL: https://api.hypercli.com/notify
+      NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
 
@@ -62,53 +62,55 @@ jobs:
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          set -euo pipefail
-          if [ -z "${NOTIFY_API_KEY:-}" ]; then
-            exit 0
-          fi
-
-          found=0
-          while IFS= read -r screenshot; do
-            found=1
-            image_b64=$(base64 -w0 "$screenshot")
-            filename=$(basename "$screenshot")
-            caption="Smoke test failure: ${filename}"$'\n'"Run: ${GITHUB_RUN_URL}"
-            payload=$(jq -n \
-              --arg cat "smoke" \
-              --arg sev "error" \
-              --arg msg "$caption" \
-              --arg img "$image_b64" \
-              --arg fn "$filename" \
-              --arg ch "frontend" \
-              '{category: $cat, severity: $sev, message: $msg, image: $img, image_filename: $fn, channel: $ch}')
-            curl -fsS \
-              -X POST "${SMOKE_NOTIFY_URL}/notify" \
-              -H "X-BACKEND-API-KEY: ${NOTIFY_API_KEY}" \
-              -H "Content-Type: application/json" \
-              -d "$payload" >/dev/null
-          done < <(find site/test-results -type f -name '*.png' | sort | head -5)
-
-          if [ "${found}" -eq 0 ]; then
-            echo "No failure screenshots found under site/test-results"
-          fi
-
-      - name: Notify smoke summary
-        if: always()
-        continue-on-error: true
-        env:
-          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-          SMOKE_STATUS: ${{ steps.smoke.outcome }}
-        run: |
           python3 - <<'PY'
+          import base64
           import json
           import os
-          import urllib.error
           import urllib.request
           from pathlib import Path
 
           notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
           if not notify_api_key:
               raise SystemExit(0)
+
+          endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify/notify")
+          run_url = os.getenv("GITHUB_RUN_URL", "")
+          screenshots = sorted(Path("site/test-results").rglob("*.png"))[:5]
+
+          for screenshot in screenshots:
+              test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
+              payload = {
+                  "category": "frontend",
+                  "severity": "error",
+                  "message": f"Test failure: {test_name}\nRun: {run_url}",
+                  "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
+                  "image_filename": screenshot.name,
+                  "channel": "frontend",
+              }
+              request = urllib.request.Request(
+                  endpoint,
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={
+                      "Content-Type": "application/json",
+                      "X-BACKEND-API-KEY": notify_api_key,
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  response.read()
+          PY
+
+      - name: Notify smoke result
+        if: always()
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+          SMOKE_STATUS: ${{ steps.smoke.outcome }}
+        run: |
+          MESSAGE="$(python3 - <<'PY'
+          import json
+          import os
+          from pathlib import Path
 
           report_path = Path("site/test-results/smoke-results.json")
           status = os.getenv("SMOKE_STATUS", "unknown").strip().lower()
@@ -135,57 +137,30 @@ jobs:
                   walk_suite(suite)
 
           if status == "success":
-              severity = "info"
-              message = (
+              print(
                   f"Smoke tests passed: {counts['passed']}/{counts['total']} passed"
                   if counts["total"]
                   else "Smoke tests passed"
               )
           else:
-              severity = "error"
               if counts["total"]:
-                  message = (
+                  print(
                       f"Smoke tests failed: {counts['failed']} failed, "
                       f"{counts['passed']} passed, {counts['skipped']} skipped"
                   )
               else:
-                  message = "Smoke tests failed"
-
-          payload = {
-              "category": "smoke",
-              "severity": severity,
-              "message": message,
-              "meta": {
-                  "repo": os.getenv("GITHUB_REPOSITORY", ""),
-                  "ref": os.getenv("GITHUB_REF_NAME", ""),
-                  "sha": os.getenv("GITHUB_SHA", ""),
-                  "run_id": os.getenv("GITHUB_RUN_ID", ""),
-                  "run_url": os.getenv("GITHUB_RUN_URL", ""),
-                  "actor": os.getenv("GITHUB_ACTOR", ""),
-                  "workflow": os.getenv("GITHUB_WORKFLOW", ""),
-                  "status": status,
-                  "phase": "test",
-                  "event": os.getenv("GITHUB_EVENT_NAME", ""),
-                  "passed": counts["passed"],
-                  "failed": counts["failed"],
-                  "skipped": counts["skipped"],
-                  "total": counts["total"],
-              },
-          }
-
-          request = urllib.request.Request(
-              os.getenv("SMOKE_NOTIFY_URL", "https://api.hypercli.com/notify") + "/notify",
-              data=json.dumps(payload).encode("utf-8"),
-              headers={
-                  "Content-Type": "application/json",
-                  "X-BACKEND-API-KEY": notify_api_key,
-              },
-              method="POST",
-          )
-
-          with urllib.request.urlopen(request, timeout=15) as response:
-              response.read()
+                  print("Smoke tests failed")
           PY
+          )"
+
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase test \
+            --status "${SMOKE_STATUS}" \
+            --event "${{ github.event_name }}" \
+            --message "${MESSAGE}" \
+            --channel frontend \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Fail workflow on smoke failure
         if: steps.smoke.outcome == 'failure'
