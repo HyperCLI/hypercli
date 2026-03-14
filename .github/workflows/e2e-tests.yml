@@ -13,7 +13,7 @@ env:
 jobs:
   playwright-e2e:
     runs-on: self-hosted
-    timeout-minutes: 30
+    timeout-minutes: 45
     defaults:
       run:
         shell: bash
@@ -25,6 +25,7 @@ jobs:
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
+      TEST_PROD_CONSOLE_BASE_URL: https://console.hypercli.com
       NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
@@ -128,6 +129,7 @@ jobs:
           --config tests/claw/playwright.config.ts
           tests/claw/login.spec.ts
           tests/claw/console-login.spec.ts
+          tests/claw/console-topup.spec.ts
 
       - name: Upload failure screenshots to notify
         if: steps.e2e.outcome == 'failure'
@@ -219,9 +221,9 @@ jobs:
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
           if [ "${E2E_STATUS}" = "success" ]; then
-            MESSAGE="Frontend e2e login tests passed"
+            MESSAGE="Frontend e2e tests passed, including live Console Stripe top-up"
           else
-            MESSAGE="Frontend e2e login tests failed"
+            MESSAGE="Frontend e2e tests failed"
           fi
           python3 .github/scripts/ci_notify.py \
             --category frontend \

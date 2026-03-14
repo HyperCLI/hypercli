@@ -17,6 +17,11 @@ const DEFAULT_IMAP_PORT = 993;
 const OTP_TIMEOUT_MS = 30_000;
 const OTP_POLL_INTERVAL_MS = 5_000;
 const OTP_INITIAL_DELAY_MS = 2_500;
+const STRIPE_TEST_CARD_NUMBER = "4242424242424242";
+const STRIPE_TEST_EXPIRY = "1230";
+const STRIPE_TEST_CVC = "123";
+const STRIPE_TEST_NAME = "Test User";
+const STRIPE_TEST_ZIP = "10001";
 
 function getEnv(name: RequiredEnvKey): string {
   const value = process.env[name]?.trim();
@@ -24,6 +29,11 @@ function getEnv(name: RequiredEnvKey): string {
     throw new Error(`Missing ${name} in the environment`);
   }
   return value;
+}
+
+function getOptionalEnv(name: string): string | null {
+  const value = process.env[name]?.trim();
+  return value || null;
 }
 
 async function ensureScreenshotDir(): Promise<void> {
@@ -232,6 +242,156 @@ export async function loginWithPrivy(page: Page): Promise<void> {
     .not.toBeNull();
 
   await captureStep(page, "06-authenticated");
+}
+
+export async function loginToConsoleWithPrivy(
+  page: Page,
+  baseUrl = getOptionalEnv("TEST_PROD_CONSOLE_BASE_URL") || "https://console.hypercli.com"
+): Promise<void> {
+  const email = getEnv("TEST_EMAIL");
+
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await page.waitForLoadState("networkidle");
+  await captureStep(page, "console-01-home");
+
+  const loginWithPrivyButton = page.getByRole("button", { name: /login with privy/i }).first();
+  await expect(loginWithPrivyButton).toBeVisible({ timeout: 20_000 });
+  await loginWithPrivyButton.click();
+
+  const emailInput = page
+    .locator(
+      '#privy-modal-content input[type="email"], #privy-modal-content input[name="email"], input[placeholder="your@email.com"], input[autocomplete="email"]'
+    )
+    .first();
+  await expect(emailInput).toBeVisible({ timeout: 20_000 });
+  await emailInput.fill(email);
+  await captureStep(page, "console-02-email-entered");
+
+  const continueButton = page
+    .getByRole("button", { name: /submit|continue|send code|email me|send login code/i })
+    .first();
+  await expect(continueButton).toBeVisible({ timeout: 10_000 });
+  await continueButton.click();
+
+  const otpSubmittedAt = new Date();
+  const otp = await pollForPrivyOtp(otpSubmittedAt);
+  await fillOtp(page, otp);
+  await captureStep(page, "console-03-otp-entered");
+
+  await waitForCookieValue(page, baseUrl, "auth_token");
+  await expect
+    .poll(() => page.url(), { timeout: 45_000 })
+    .toContain("/dashboard");
+
+  await expect(page.getByRole("button", { name: /^top up$/i })).toBeVisible({ timeout: 20_000 });
+  await captureStep(page, "console-04-post-login");
+}
+
+async function findVisibleStripeField(page: Page, selectors: string[]): Promise<ReturnType<Page["locator"]>> {
+  for (const selector of selectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      return locator;
+    }
+  }
+
+  throw new Error(`Unable to find visible Stripe field for selectors: ${selectors.join(", ")}`);
+}
+
+async function fillStripeField(page: Page, value: string, directSelectors: string[], frameSelectors: string[]): Promise<void> {
+  for (const selector of directSelectors) {
+    const locator = page.locator(selector).first();
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.fill("");
+      await locator.pressSequentially(value, { delay: 30 });
+      return;
+    }
+  }
+
+  for (const frameSelector of frameSelectors) {
+    const frame = page.frameLocator(frameSelector);
+    const locator = frame.locator("input").first();
+    if (await locator.isVisible().catch(() => false)) {
+      await locator.fill("");
+      await locator.pressSequentially(value, { delay: 30 });
+      return;
+    }
+  }
+
+  throw new Error(`Unable to fill Stripe field for selectors: ${directSelectors.join(", ")}`);
+}
+
+export async function completeStripeCheckout(
+  page: Page,
+  returnHostPattern = /console\.hypercli\.com/i
+): Promise<void> {
+  await page.waitForURL(/stripe\.com/i, { timeout: 45_000 });
+  await page.waitForLoadState("domcontentloaded");
+  await captureStep(page, "console-05-stripe-checkout");
+
+  const emailField = page.locator("#email, input[type='email'], input[autocomplete='email']").first();
+  if (await emailField.isVisible().catch(() => false)) {
+    await emailField.fill(getEnv("TEST_EMAIL"));
+  }
+
+  await fillStripeField(
+    page,
+    STRIPE_TEST_CARD_NUMBER,
+    ["#cardNumber", "input[name='cardNumber']", "input[autocomplete='cc-number']"],
+    ["iframe[title*='card number' i]", "iframe[name*='cardNumber' i]", "iframe[title*='Card number' i]"]
+  );
+
+  await fillStripeField(
+    page,
+    STRIPE_TEST_EXPIRY,
+    ["#cardExpiry", "input[name='cardExpiry']", "input[autocomplete='cc-exp']"],
+    ["iframe[title*='expiration' i]", "iframe[name*='cardExpiry' i]", "iframe[title*='expiry' i]"]
+  );
+
+  await fillStripeField(
+    page,
+    STRIPE_TEST_CVC,
+    ["#cardCvc", "input[name='cardCvc']", "input[autocomplete='cc-csc']"],
+    ["iframe[title*='security code' i]", "iframe[name*='cardCvc' i]", "iframe[title*='CVC' i]"]
+  );
+
+  const nameField = await findVisibleStripeField(page, [
+    "#billingName",
+    "input[name='billingName']",
+    "input[autocomplete='cc-name']",
+    "input[name='name']",
+  ]).catch(() => null);
+  if (nameField) {
+    await nameField.fill(STRIPE_TEST_NAME);
+  }
+
+  const postalField = await findVisibleStripeField(page, [
+    "#billingPostalCode",
+    "input[name='billingPostalCode']",
+    "input[autocomplete='postal-code']",
+  ]).catch(() => null);
+  if (postalField) {
+    await postalField.fill(STRIPE_TEST_ZIP);
+  }
+
+  const submitButton = page
+    .locator(".SubmitButton, button[type='submit'], button:has-text('Pay'), button:has-text('Subscribe')")
+    .first();
+  await expect(submitButton).toBeVisible({ timeout: 15_000 });
+  await submitButton.click();
+
+  await expect
+    .poll(() => page.url(), { timeout: 90_000 })
+    .toMatch(returnHostPattern);
+}
+
+export function parseDollarAmount(value: string): number {
+  const normalized = value.replace(/[^0-9.-]+/g, "");
+  const parsed = Number.parseFloat(normalized);
+  if (Number.isNaN(parsed)) {
+    throw new Error(`Unable to parse dollar amount from "${value}"`);
+  }
+  return parsed;
 }
 
 export async function waitForCookieValue(
