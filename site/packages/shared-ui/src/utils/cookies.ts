@@ -7,6 +7,16 @@
  */
 
 const COOKIE_DOMAIN = process.env.NEXT_PUBLIC_COOKIE_DOMAIN!;
+const AUTH_COOKIE_EVENT = "hypercli-auth-cookie-changed";
+
+function emitCookieChange(name: string): void {
+  if (typeof window === "undefined") return;
+  window.dispatchEvent(
+    new CustomEvent(AUTH_COOKIE_EVENT, {
+      detail: { name },
+    })
+  );
+}
 
 export const cookieUtils = {
   /**
@@ -32,6 +42,7 @@ export const cookieUtils = {
     const encodedValue = encodeURIComponent(value);
     const cookieString = `${name}=${encodedValue}; ${expires}; path=/${domainPart}${securePart}; samesite=lax`;
     document.cookie = cookieString;
+    emitCookieChange(name);
 
     console.log(`🍪 Set cookie: ${name} (domain: ${isLocal ? 'localhost' : COOKIE_DOMAIN})`);
   },
@@ -51,6 +62,7 @@ export const cookieUtils = {
 
     const cookieString = `${name}=${value}; path=/; max-age=${maxAge}${domainPart}${securePart}; samesite=lax`;
     document.cookie = cookieString;
+    emitCookieChange(name);
 
     console.log(`🍪 Set cookie with max-age: ${name} (domain: ${isLocal ? 'localhost' : COOKIE_DOMAIN})`);
   },
@@ -87,6 +99,7 @@ export const cookieUtils = {
 
     // Set expiry to past date
     document.cookie = `${name}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/${domainPart}`;
+    emitCookieChange(name);
 
     console.log(`🍪 Removed cookie: ${name}`);
   },
@@ -96,5 +109,6 @@ export const cookieUtils = {
    */
   has(name: string): boolean {
     return this.get(name) !== null;
-  }
+  },
+  AUTH_COOKIE_EVENT,
 };

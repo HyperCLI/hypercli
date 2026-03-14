@@ -194,19 +194,23 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   await expect(primaryAuthButton).toBeVisible();
   await primaryAuthButton.click();
 
-  const authModal = page.locator("#privy-modal-content");
-  await expect(authModal).toBeVisible();
+  const sharedLoginButton = page.getByRole("button", { name: /login with privy/i }).first();
+  await expect(sharedLoginButton).toBeVisible({ timeout: 15_000 });
+  await captureStep(page, "02-login-shell-open");
+  await sharedLoginButton.click();
 
-  const emailInput = authModal
-    .locator('input[type="email"], input[name="email"], input[autocomplete="email"]')
+  const emailInput = page
+    .locator(
+      '#privy-modal-content input[type="email"], #privy-modal-content input[name="email"], #privy-modal-content input[autocomplete="email"], input[type="email"], input[name="email"], input[autocomplete="email"]'
+    )
     .first();
-  await expect(emailInput).toBeVisible();
-  await captureStep(page, "02-privy-modal-open");
+  await expect(emailInput).toBeVisible({ timeout: 20_000 });
+  await captureStep(page, "03-privy-modal-open");
 
   await emailInput.fill(email);
-  await captureStep(page, "03-email-entered");
+  await captureStep(page, "04-email-entered");
 
-  const continueButton = authModal
+  const continueButton = page
     .getByRole("button", { name: /submit|continue|send code|email me/i })
     .first();
   await continueButton.click();
@@ -214,7 +218,7 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   const otpSubmittedAt = new Date();
   const otp = await pollForPrivyOtp(otpSubmittedAt);
   await fillOtp(page, otp);
-  await captureStep(page, "04-otp-entered");
+  await captureStep(page, "05-otp-entered");
 
   await page.waitForLoadState("networkidle");
   await expect
@@ -227,7 +231,7 @@ export async function loginWithPrivy(page: Page): Promise<void> {
     }, { timeout: 45_000 })
     .not.toBeNull();
 
-  await captureStep(page, "05-authenticated");
+  await captureStep(page, "06-authenticated");
 }
 
 export async function waitForCookieValue(

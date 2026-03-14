@@ -2,6 +2,7 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { usePrivy } from "@privy-io/react-auth";
+import { cookieUtils } from "../utils/cookies";
 
 export interface AuthUser {
   id: string;
@@ -24,6 +25,7 @@ export interface AuthProviderProps {
   apiBaseUrl: string;
   children: ReactNode;
   tokenStorageKey?: string;
+  cookieName?: string;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -38,6 +40,10 @@ function getAuthUrl(apiBaseUrl: string, path: string): string {
 export function getStoredToken(tokenStorageKey = "app_auth_token"): string | null {
   if (typeof window === "undefined") return null;
   return localStorage.getItem(tokenStorageKey);
+}
+
+function getCookieToken(cookieName = "auth_token"): string | null {
+  return cookieUtils.get(cookieName);
 }
 
 export function setStoredToken(token: string, tokenStorageKey = "app_auth_token"): void {
@@ -64,7 +70,8 @@ export function isTokenExpired(token: string): boolean {
 export async function exchangePrivyToken(
   apiBaseUrl: string,
   privyToken: string,
-  tokenStorageKey = "app_auth_token"
+  tokenStorageKey = "app_auth_token",
+  cookieName = "auth_token"
 ): Promise<string> {
   const response = await fetch(getAuthUrl(apiBaseUrl, "/auth/login"), {
     method: "POST",
@@ -79,24 +86,33 @@ export async function exchangePrivyToken(
     throw new Error(`Token exchange failed: ${response.status} - ${errorText}`);
   }
 
-  const data: { app_token?: string; token?: string } = await response.json();
+  const data: { app_token?: string; token?: string; expires_in?: number } = await response.json();
   const appToken = data.app_token ?? data.token;
   if (!appToken) {
     throw new Error("Token exchange failed: response missing token");
   }
 
   setStoredToken(appToken, tokenStorageKey);
+  const expiresIn = Number(data.expires_in) || parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || "15", 10) * 24 * 60 * 60;
+  cookieUtils.setWithMaxAge(cookieName, appToken, expiresIn);
   return appToken;
 }
 
 export async function getAppToken(
   apiBaseUrl: string,
   getPrivyToken: () => Promise<string | null>,
-  tokenStorageKey = "app_auth_token"
+  tokenStorageKey = "app_auth_token",
+  cookieName = "auth_token"
 ): Promise<string> {
   const storedToken = getStoredToken(tokenStorageKey);
   if (storedToken && !isTokenExpired(storedToken)) {
     return storedToken;
+  }
+
+  const cookieToken = getCookieToken(cookieName);
+  if (cookieToken && !isTokenExpired(cookieToken)) {
+    setStoredToken(cookieToken, tokenStorageKey);
+    return cookieToken;
   }
 
   const privyToken = await getPrivyToken();
@@ -104,7 +120,7 @@ export async function getAppToken(
     throw new Error("Not authenticated");
   }
 
-  return exchangePrivyToken(apiBaseUrl, privyToken, tokenStorageKey);
+  return exchangePrivyToken(apiBaseUrl, privyToken, tokenStorageKey, cookieName);
 }
 
 export function useAuth(): AuthContextType {
@@ -119,6 +135,7 @@ export function AuthProvider({
   apiBaseUrl,
   children,
   tokenStorageKey = "app_auth_token",
+  cookieName = "auth_token",
 }: AuthProviderProps) {
   const {
     ready,
@@ -137,7 +154,18 @@ export function AuthProvider({
     if (!ready) return;
 
     const storedToken = getStoredToken(tokenStorageKey);
-    if (storedToken && !isTokenExpired(storedToken)) {
+    const cookieToken = getCookieToken(cookieName);
+    const activeToken =
+      storedToken && !isTokenExpired(storedToken)
+        ? storedToken
+        : cookieToken && !isTokenExpired(cookieToken)
+          ? cookieToken
+          : null;
+
+    if (activeToken) {
+      if (activeToken !== storedToken) {
+        setStoredToken(activeToken, tokenStorageKey);
+      }
       setIsAuthenticated(true);
       if (privyUser) {
         setUser({
@@ -149,7 +177,7 @@ export function AuthProvider({
     }
 
     setIsLoading(false);
-  }, [privyUser, ready, tokenStorageKey]);
+  }, [cookieName, privyUser, ready, tokenStorageKey]);
 
   useEffect(() => {
     if (!ready || !authenticated || isAuthenticated) return;
@@ -157,7 +185,7 @@ export function AuthProvider({
     const exchange = async () => {
       try {
         setIsLoading(true);
-        await getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey);
+        await getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName);
         setIsAuthenticated(true);
         if (privyUser) {
           setUser({
@@ -174,7 +202,41 @@ export function AuthProvider({
     };
 
     exchange();
-  }, [apiBaseUrl, authenticated, getAccessToken, isAuthenticated, privyUser, ready, tokenStorageKey]);
+  }, [apiBaseUrl, authenticated, cookieName, getAccessToken, isAuthenticated, privyUser, ready, tokenStorageKey]);
+
+  useEffect(() => {
+    const syncFromCookie = () => {
+      const cookieToken = getCookieToken(cookieName);
+      if (!cookieToken || isTokenExpired(cookieToken)) {
+        return;
+      }
+
+      setStoredToken(cookieToken, tokenStorageKey);
+      setIsAuthenticated(true);
+      if (privyUser) {
+        setUser({
+          id: privyUser.id,
+          email: privyUser.email?.address,
+          walletAddress: privyUser.wallet?.address,
+        });
+      }
+      setIsLoading(false);
+    };
+
+    const handleCookieChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ name?: string }>).detail;
+      if (detail?.name && detail.name !== cookieName) return;
+      syncFromCookie();
+    };
+
+    window.addEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener);
+    window.addEventListener("focus", syncFromCookie);
+
+    return () => {
+      window.removeEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener);
+      window.removeEventListener("focus", syncFromCookie);
+    };
+  }, [cookieName, privyUser, tokenStorageKey]);
 
   const login = useCallback(() => {
     privyLogin();
@@ -182,14 +244,15 @@ export function AuthProvider({
 
   const logout = useCallback(async () => {
     clearStoredToken(tokenStorageKey);
+    cookieUtils.remove(cookieName);
     setIsAuthenticated(false);
     setUser(null);
     await privyLogout();
-  }, [privyLogout, tokenStorageKey]);
+  }, [cookieName, privyLogout, tokenStorageKey]);
 
   const getToken = useCallback(async (): Promise<string> => {
-    return getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey);
-  }, [apiBaseUrl, getAccessToken, tokenStorageKey]);
+    return getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName);
+  }, [apiBaseUrl, cookieName, getAccessToken, tokenStorageKey]);
 
   return (
     <AuthContext.Provider

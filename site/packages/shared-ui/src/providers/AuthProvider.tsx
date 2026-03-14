@@ -41,38 +41,41 @@ interface AuthProviderProps {
 }
 
 export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
-  const { user, session, logout } = useTurnkey()
+  const { user, session } = useTurnkey()
   const [isLoading, setIsLoading] = useState(true)
   const [userInfo, setUserInfo] = useState<UserInfo | null>(null)
   const [flowState, setFlowState] = useState<'checking_cookies' | 'idle' | 'verifying' | 'complete' | 'error'>('checking_cookies')
   const [error, setError] = useState<string | null>(null)
 
+  const syncFromCookie = () => {
+    const authToken = cookieUtils.get('auth_token')
+    const userEmail = user?.userEmail
+    const isValidEmail = userEmail && userEmail.includes('@') && !userEmail.includes('org_')
+
+    debugLog('🔍 CHECKING COOKIES - Found:', {
+      authToken: !!authToken,
+    })
+
+    if (authToken) {
+      debugLog('✅ Auth token found - user already authenticated, skipping flow')
+      setUserInfo({
+        email: isValidEmail ? userEmail : undefined,
+        organizationId: session?.organizationId || 'N/A',
+      })
+      setError(null)
+      setFlowState('complete')
+      setIsLoading(false)
+      return true
+    }
+
+    return false
+  }
+
   // Auth Flow State Machine - check cookies first, then run flow if needed
   useEffect(() => {
     // Step 0: Check if user is already authenticated via cookies
     if (flowState === 'checking_cookies') {
-      const authToken = cookieUtils.get('auth_token')
-
-      debugLog('🔍 CHECKING COOKIES - Found:', {
-        authToken: !!authToken,
-      })
-
-      // If we have auth token, user is already authenticated - skip the flow
-      if (authToken) {
-        debugLog('✅ Auth token found - user already authenticated, skipping flow')
-
-        // Set up basic info from cookies
-        const userEmail = user?.userEmail
-        const isValidEmail = userEmail && userEmail.includes('@') && !userEmail.includes('org_')
-
-        setUserInfo({
-          email: isValidEmail ? userEmail : undefined,
-          organizationId: session?.organizationId || 'N/A',
-        })
-
-        setFlowState('complete')
-        setIsLoading(false)
-      } else {
+      if (!syncFromCookie()) {
         // No auth token - check if we have a fresh session to start the flow
         debugLog('❌ Auth token not found')
         if (session?.token) {
@@ -87,12 +90,44 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       return
     }
 
+    if (flowState === 'idle' || flowState === 'error') {
+      if (syncFromCookie()) {
+        return
+      }
+    }
+
     // Only start the auth flow if we transition from idle to having a session
     if (flowState === 'idle' && session?.token) {
       debugLog('New login session detected, starting authentication flow...')
+      setIsLoading(true)
       setFlowState('verifying')
     }
-  }, [session, flowState, user])
+  }, [flowState, session, user])
+
+  useEffect(() => {
+    const handleCookieChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ name?: string }>).detail
+      if (detail?.name && detail.name !== 'auth_token') return
+
+      if (!syncFromCookie()) {
+        setUserInfo(null)
+        setFlowState(session?.token ? 'verifying' : 'idle')
+        setIsLoading(false)
+      }
+    }
+
+    const handleWindowFocus = () => {
+      syncFromCookie()
+    }
+
+    window.addEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener)
+    window.addEventListener('focus', handleWindowFocus)
+
+    return () => {
+      window.removeEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener)
+      window.removeEventListener('focus', handleWindowFocus)
+    }
+  }, [session, user])
 
   // Auth Flow Controller
   useEffect(() => {
