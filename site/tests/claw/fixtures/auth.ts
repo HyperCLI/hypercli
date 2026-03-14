@@ -325,7 +325,7 @@ export async function completeStripeCheckout(
   page: Page,
   returnHostPattern = /console\.hypercli\.com/i
 ): Promise<void> {
-  const stripeCheckoutPattern = /https:\/\/checkout\.stripe\.com\/(?:c|pay)\//i;
+  const stripeCheckoutPattern = /^https:\/\/checkout\.stripe\.com\//i;
 
   await expect
     .poll(() => page.url(), { timeout: 45_000 })
