@@ -7,6 +7,9 @@ on:
       - "site/**"
   workflow_dispatch:
 
+env:
+  GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+
 jobs:
   playwright-e2e:
     runs-on: self-hosted
@@ -22,6 +25,7 @@ jobs:
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
+      NOTIFY_ENDPOINT: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
 
@@ -56,7 +60,7 @@ jobs:
           root = Path(".")
           template = (root / "env.dev").read_text().splitlines()
 
-          def write_env(app: str, privy_app_id: str) -> None:
+          def write_env(app: str) -> None:
               env_path = root / "apps" / app / ".env.local"
               replacements = {
                   "NEXT_PUBLIC_MAIN_SITE_URL": "http://127.0.0.1:4000",
@@ -64,7 +68,6 @@ jobs:
                   "NEXT_PUBLIC_AGENTS_URL": "http://127.0.0.1:4003",
                   "NEXT_PUBLIC_COOKIE_DOMAIN": "127.0.0.1",
                   "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN": "127.0.0.1",
-                  "NEXT_PUBLIC_PRIVY_APP_ID": privy_app_id,
               }
 
               lines = list(template)
@@ -78,8 +81,8 @@ jobs:
 
               env_path.write_text("\n".join(lines) + "\n")
 
-          write_env("console", "cml5njpn701s2ky0cjd0y1vzq")
-          write_env("claw", "cml5g1wgh015zl40cv7e1qjr9")
+          write_env("console")
+          write_env("claw")
           PY
 
       - name: Start Console dev server
@@ -117,12 +120,58 @@ jobs:
           wait_for_url "${TEST_BASE_URL}" "Claw"
 
       - name: Run Playwright tests
+        id: e2e
+        continue-on-error: true
         working-directory: site
         run: >
           npx playwright test
           --config tests/claw/playwright.config.ts
           tests/claw/login.spec.ts
           tests/claw/console-login.spec.ts
+
+      - name: Upload failure screenshots to notify
+        if: steps.e2e.outcome == 'failure'
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          python3 - <<'PY'
+          import base64
+          import json
+          import os
+          import urllib.request
+          from pathlib import Path
+
+          notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
+          if not notify_api_key:
+              raise SystemExit(0)
+
+          endpoint = os.getenv("NOTIFY_ENDPOINT", "https://api.hypercli.com/notify/notify")
+          run_url = os.getenv("GITHUB_RUN_URL", "")
+          screenshots = sorted(Path("site/test-results").rglob("*.png"))[:5]
+
+          for screenshot in screenshots:
+              test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
+              payload = {
+                  "category": "smoke",
+                  "severity": "error",
+                  "message": f"Test failure: {test_name}\nRun: {run_url}",
+                  "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
+                  "image_filename": screenshot.name,
+                  "channel": "frontend",
+              }
+              request = urllib.request.Request(
+                  endpoint,
+                  data=json.dumps(payload).encode("utf-8"),
+                  headers={
+                      "Content-Type": "application/json",
+                      "X-BACKEND-API-KEY": notify_api_key,
+                  },
+                  method="POST",
+              )
+              with urllib.request.urlopen(request, timeout=20) as response:
+                  response.read()
+          PY
 
       - name: Upload Playwright artifacts
         if: always()
@@ -161,3 +210,22 @@ jobs:
           if [ -f /tmp/hypercli-claw-e2e.pid ]; then
             kill "$(cat /tmp/hypercli-claw-e2e.pid)" || true
           fi
+
+      - name: Notify e2e result
+        if: always()
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+          E2E_STATUS: ${{ steps.e2e.outcome }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase test \
+            --status "${E2E_STATUS}" \
+            --event "${{ github.event_name }}" \
+            --message "E2E Tests ${E2E_STATUS}" \
+            --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+      - name: Fail workflow on e2e failure
+        if: steps.e2e.outcome == 'failure'
+        run: exit 1
