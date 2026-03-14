@@ -27,7 +27,16 @@ coverage
 # Misc
 .DS_Store
 *.pem
-ops/claw-dev-proxy/.acme/
+*.key
+*.crt
+*.p12
+*.pfx
+
+# Dev server — ignore all secrets/state
+.dev-server/.env
+.dev-server/acme/
+.dev-server/*.json
+ops/claw-dev-proxy/
 ops/claw-dev-proxy/letsencrypt/
 
 # Debug

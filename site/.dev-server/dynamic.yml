@@ -1,0 +1,59 @@
+http:
+  routers:
+    # Claw (agents dashboard) — port 4003
+    claw-http:
+      rule: "Host(`{{ env "CLAW_HOST" }}`)"
+      entryPoints: [web]
+      middlewares: [https-redirect]
+      service: claw
+    claw-https:
+      rule: "Host(`{{ env "CLAW_HOST" }}`)"
+      entryPoints: [websecure]
+      service: claw
+      tls:
+        certResolver: letsencrypt
+
+    # Console — port 4001
+    console-http:
+      rule: "Host(`{{ env "CONSOLE_HOST" }}`)"
+      entryPoints: [web]
+      middlewares: [https-redirect]
+      service: console
+    console-https:
+      rule: "Host(`{{ env "CONSOLE_HOST" }}`)"
+      entryPoints: [websecure]
+      service: console
+      tls:
+        certResolver: letsencrypt
+
+    # Main (landing) — port 4000
+    main-http:
+      rule: "Host(`{{ env "MAIN_HOST" }}`)"
+      entryPoints: [web]
+      middlewares: [https-redirect]
+      service: main
+    main-https:
+      rule: "Host(`{{ env "MAIN_HOST" }}`)"
+      entryPoints: [websecure]
+      service: main
+      tls:
+        certResolver: letsencrypt
+
+  middlewares:
+    https-redirect:
+      redirectScheme:
+        scheme: https
+
+  services:
+    claw:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4003"
+    console:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4001"
+    main:
+      loadBalancer:
+        servers:
+          - url: "http://127.0.0.1:4000"
