@@ -7,7 +7,7 @@ description: Headless x402 checkout for HyperClaw plans using USDC on Base
 
 Use `x402-wallet` when you want to buy HyperClaw plan access without a browser checkout flow.
 
-- Checkout endpoint: `POST https://api.hypercli.com/api/x402/{plan_id}`
+- Checkout endpoint: `POST https://api.agents.hypercli.com/api/x402/{plan_id}`
 - Token: USDC on Base
 - Payment transport: x402 HTTP 402 + signed EIP-3009 payload
 
@@ -23,10 +23,10 @@ Use `x402-wallet` when you want to buy HyperClaw plan access without a browser c
 
 ```bash
 # Initial request (expect 402)
-curl -i -X POST https://api.hypercli.com/api/x402/1aiu
+curl -i -X POST https://api.agents.hypercli.com/api/x402/1aiu
 
 # Retry with signed payment payload
-curl -X POST https://api.hypercli.com/api/x402/1aiu \
+curl -X POST https://api.agents.hypercli.com/api/x402/1aiu \
   -H "X-PAYMENT: <signed-payment-payload>"
 ```
 

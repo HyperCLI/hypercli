@@ -267,6 +267,61 @@
               "GET /api/renders/{render_id}/status",
               "DELETE /api/renders/{render_id}"
             ]
+          },
+          {
+            "group": "HyperClaw Auth & Plans",
+            "openapi": "hyperclaw-openapi.json",
+            "pages": [
+              "GET /api/.well-known/x402",
+              "POST /api/auth/login",
+              "GET /api/auth/me",
+              "GET /api/models",
+              "GET /api/plans",
+              "GET /api/plans/current",
+              "POST /api/x402/{plan_id}"
+            ]
+          },
+          {
+            "group": "HyperClaw Keys & Usage",
+            "openapi": "hyperclaw-openapi.json",
+            "pages": [
+              "GET /api/keys",
+              "POST /api/keys",
+              "GET /api/keys/{key_ref}",
+              "PUT /api/keys/{key_ref}",
+              "POST /api/keys/{key_ref}/disable",
+              "GET /api/usage",
+              "GET /api/usage/history",
+              "GET /api/usage/keys"
+            ]
+          },
+          {
+            "group": "HyperClaw Deployments",
+            "openapi": "hyperclaw-openapi.json",
+            "pages": [
+              "GET /api/deployments",
+              "POST /api/deployments",
+              "GET /api/deployments/budget",
+              "GET /api/deployments/{agent_id}",
+              "PUT /api/deployments/{agent_id}",
+              "DELETE /api/deployments/{agent_id}",
+              "GET /api/deployments/{agent_id}/env",
+              "POST /api/deployments/{agent_id}/exec",
+              "GET /api/deployments/{agent_id}/files",
+              "GET /api/deployments/{agent_id}/files/",
+              "GET /api/deployments/{agent_id}/files/{path}",
+              "PUT /api/deployments/{agent_id}/files/{path}",
+              "DELETE /api/deployments/{agent_id}/files/{path}",
+              "GET /api/deployments/{agent_id}/logs",
+              "POST /api/deployments/{agent_id}/logs/token",
+              "GET /api/deployments/{agent_id}/metrics",
+              "POST /api/deployments/{agent_id}/shell/token",
+              "POST /api/deployments/{agent_id}/start",
+              "POST /api/deployments/{agent_id}/stop",
+              "GET /api/deployments/{agent_id}/token",
+              "GET /api/ecr/auth/{region}",
+              "GET /api/ecr/registry-auth/{region}"
+            ]
           }
         ]
       }
