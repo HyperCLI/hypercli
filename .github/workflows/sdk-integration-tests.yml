@@ -1,11 +1,7 @@
 name: SDK Integration Tests
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "ts-sdk/**"
-      - "sdk/**"
+  workflow_call:
   workflow_dispatch:
 
 env:

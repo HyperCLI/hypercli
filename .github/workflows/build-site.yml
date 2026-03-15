@@ -2,10 +2,7 @@ name: Build Site
 run-name: Build Site
 
 on:
-  push:
-    branches: [main, dev]
-    paths:
-      - "site/**"
+  workflow_call:
   workflow_dispatch:
 
 jobs:

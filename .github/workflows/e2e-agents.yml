@@ -1,10 +1,7 @@
 name: E2E Agents
 
 on:
-  push:
-    branches: [main, dev]
-    paths:
-      - "site/**"
+  workflow_call:
   workflow_dispatch:
 
 env:
