@@ -163,7 +163,7 @@ async def test_agents_shell_connect(monkeypatch):
 
     ws = await agents.shell_connect("agent-1", dry_run=True)
     assert ws == "agent-ws"
-    assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=/bin/sh"
+    assert captured["url"] == "wss://api.agents.hypercli.com/ws/shell/agent-1?jwt=jwt-abc&shell=%2Fbin%2Fsh"
     assert captured_post["path"] == "/deployments/agent-1/shell/token"
     assert captured_post["json"] == {"shell": "/bin/sh", "dry_run": True}
 
@@ -192,7 +192,7 @@ async def test_agents_logs_stream_ws_uses_agents_ws_url(monkeypatch):
                 yield '{"event":"log","log":"hello"}'
             return _iter()
 
-    async def fake_connect(url):
+    def fake_connect(url):
         captured["url"] = url
         return FakeWS()
 

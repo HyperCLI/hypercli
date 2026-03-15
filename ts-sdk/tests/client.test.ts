@@ -1,8 +1,18 @@
-import { describe, it, expect } from 'vitest';
+import { beforeEach, afterEach, describe, it, expect } from 'vitest';
 import { HyperCLI } from '../src/client.js';
-import { getApiKey } from '../src/config.js';
 
 describe('HyperCLI Client', () => {
+  const originalApiKey = process.env.HYPERCLI_API_KEY;
+
+  beforeEach(() => {
+    process.env.HYPERCLI_API_KEY = 'hyper_api_test_key';
+  });
+
+  afterEach(() => {
+    if (originalApiKey === undefined) delete process.env.HYPERCLI_API_KEY;
+    else process.env.HYPERCLI_API_KEY = originalApiKey;
+  });
+
   it('should construct client with env var/config file', () => {
     const client = new HyperCLI();
     expect(client).toBeDefined();
@@ -13,8 +23,7 @@ describe('HyperCLI Client', () => {
   });
 
   it('should construct client with explicit API key', () => {
-    const apiKey = getApiKey();
-    const client = new HyperCLI({ apiKey });
+    const client = new HyperCLI({ apiKey: 'hyper_api_explicit_test_key' });
     expect(client).toBeDefined();
   });
 

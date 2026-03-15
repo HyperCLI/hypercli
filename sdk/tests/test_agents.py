@@ -278,6 +278,9 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
             if url.endswith("/deployments/agent-123/files"):
                 assert params is None
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
+            if url.endswith("/deployments/agent-123/files/workspace"):
+                assert params is None
+                return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
             if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
                 return FakeResponse(content=b"hello")
             raise AssertionError(url)
