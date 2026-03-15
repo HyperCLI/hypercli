@@ -13,7 +13,7 @@ env:
 
 jobs:
   ts-sdk-integration:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     defaults:
       run:
@@ -39,7 +39,7 @@ jobs:
         run: npm run test:integration
 
   python-sdk-integration:
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     timeout-minutes: 20
     defaults:
       run:
@@ -73,7 +73,7 @@ jobs:
       - ts-sdk-integration
       - python-sdk-integration
     if: always()
-    runs-on: ubuntu-latest
+    runs-on: self-hosted
     steps:
       - uses: actions/checkout@v4
 

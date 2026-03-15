@@ -212,6 +212,11 @@ jobs:
             kill "$(cat /tmp/hypercli-claw-e2e.pid)" || true
           fi
 
+      - name: Restore runner workspace ownership
+        if: always()
+        run: |
+          chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
+
       - name: Notify e2e result
         if: steps.e2e.outcome == 'success'
         continue-on-error: true
