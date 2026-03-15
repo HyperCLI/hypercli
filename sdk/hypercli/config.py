@@ -25,8 +25,6 @@ def _load_config_file() -> dict:
                 key, value = line.split("=", 1)
                 config[key.strip()] = value.strip()
     return config
-
-
 def get_config_value(key: str, default: str = None) -> Optional[str]:
     """Get config value: env var > config file > default"""
     env_val = os.getenv(key)
@@ -54,8 +52,6 @@ def get_ws_url() -> str:
     # Derive from API URL
     api = get_api_url()
     return api.replace("https://", "wss://").replace("http://", "ws://")
-
-
 def configure(api_key: str, api_url: str = None):
     """Save configuration to ~/.hypercli/config"""
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
