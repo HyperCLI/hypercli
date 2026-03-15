@@ -1,57 +1,21 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Header, Footer, useAuth, TopUpModal, AlertDialog, formatDateTime, getAuthBackendUrl } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
 import LLMTransactionRow from "../../components/LLMTransactionRow";
 import InvoiceTransactionRow from "../../components/InvoiceTransactionRow";
-
-interface UserProfile {
-  user_id: string;
-  name: string | null;
-  email: string | null;
-  email_verified: boolean;
-  created_at: string;
-  updated_at: string;
-  is_active: boolean;
-  user_type: string;
-  meta: string | null;
-}
-
-interface Balance {
-  user_id: string;
-  balance: string;
-  balance_units: number;
-  rewards_balance: string;
-  rewards_balance_units: number;
-  total_balance: string;
-  total_balance_units: number;
-  // Available balance properties - shows balance minus pending reservations
-  available_balance: string;
-  available_balance_units: number;
-  // Pending reservations - funds temporarily held for active jobs
-  pending_reservations: string;
-  pending_reservations_units: number;
-  currency: string;
-  decimals: number;
-}
-
-interface Transaction {
-  id: string;
-  user_id: string;
-  amount: number;
-  amount_usd: string;
-  transaction_type: string;
-  status: string;
-  rewards: boolean;
-  expires_at: string | null;
-  job_id: string | null;
-  meta: any;
-  created_at: string;
-  updated_at: string;
-}
+import {
+  getConsoleBalance,
+  getConsoleTransactions,
+  getConsoleUserProfile,
+  updateConsoleUserProfile,
+  type ConsoleBalance as Balance,
+  type ConsoleTransaction as Transaction,
+  type ConsoleUserProfile as UserProfile,
+} from "../../lib/sdk";
 
 export default function DashboardPage() {
   const { isLoading, isAuthenticated } = useAuth();
@@ -115,46 +79,10 @@ export default function DashboardPage() {
     setProfileLoading(true);
     setProfileError(null);
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      console.log('🔍 Fetching user profile...');
-      console.log('Auth token:', authToken ? 'Found' : 'Missing');
-      console.log('Backend URL:', getAuthBackendUrl());
-
-      if (!authToken) {
-        setProfileError('No auth token found');
-        setProfileLoading(false);
-        return;
-      }
-
-      const url = getAuthBackendUrl("/user");
-      console.log('Fetching from:', url);
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      console.log('Response status:', response.status);
-
-      if (response.ok) {
-        const profile = await response.json();
-        console.log('✅ Profile loaded:', profile);
-        setUserProfile(profile);
-        setEditValues({ name: profile.name || "", email: profile.email || "" });
-      } else {
-        const errorText = await response.text();
-        console.error('❌ Failed to load profile:', response.status, errorText);
-        setProfileError(`Failed to load profile: ${response.status}`);
-      }
+      const profile = await getConsoleUserProfile();
+      setUserProfile(profile);
+      setEditValues({ name: profile.name || "", email: profile.email || "" });
     } catch (error) {
-      console.error('❌ Error fetching user profile:', error);
       setProfileError(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setProfileLoading(false);
@@ -173,41 +101,14 @@ export default function DashboardPage() {
   const handleSave = async (field: 'name' | 'email') => {
     setIsSaving(true);
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      if (!authToken) return;
-
-      const response = await fetch(getAuthBackendUrl("/user"), {
-        method: 'PATCH',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ [field]: editValues[field] })
-      });
-
-      if (response.ok) {
-        const updatedProfile = await response.json();
-        setUserProfile(updatedProfile);
-        setIsEditing(prev => ({ ...prev, [field]: false }));
-      } else {
-        const error = await response.json();
-        setAlertDialog({
-          isOpen: true,
-          title: "Error",
-          message: error.detail || 'Failed to update profile',
-          type: "error",
-        });
-      }
+      const updatedProfile = await updateConsoleUserProfile({ [field]: editValues[field] });
+      setUserProfile(updatedProfile);
+      setIsEditing(prev => ({ ...prev, [field]: false }));
     } catch (error) {
-      console.error('Error updating profile:', error);
       setAlertDialog({
         isOpen: true,
         title: "Error",
-        message: 'Failed to update profile',
+        message: error instanceof Error ? error.message : 'Failed to update profile',
         type: "error",
       });
     } finally {
@@ -217,25 +118,7 @@ export default function DashboardPage() {
 
   const fetchBalance = async () => {
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      if (!authToken) return;
-
-      const response = await fetch(getAuthBackendUrl("/balance"), {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const data = await response.json();
-        setBalance(data);
-      }
+      setBalance(await getConsoleBalance());
     } catch (error) {
       console.error('Error fetching balance:', error);
     }
@@ -244,29 +127,9 @@ export default function DashboardPage() {
   const fetchTransactions = async () => {
     setTxLoading(true);
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      if (!authToken) return;
-
-      const response = await fetch(
-        getAuthBackendUrl(`/tx?page=${currentPage}&page_size=${pageSize}`),
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setTransactions(data.transactions);
-        setTotalTxCount(data.total_count);
-      }
+      const data = await getConsoleTransactions({ page: currentPage, pageSize });
+      setTransactions(data.transactions);
+      setTotalTxCount(data.total_count);
     } catch (error) {
       console.error('Error fetching transactions:', error);
     } finally {
@@ -315,36 +178,14 @@ export default function DashboardPage() {
 
   const fetchTransactionsForPolling = async () => {
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
+      const data = await getConsoleTransactions({ page: currentPage, pageSize });
+      setTransactions(data.transactions);
+      setTotalTxCount(data.total_count);
 
-      if (!authToken) return;
-
-      const response = await fetch(
-        getAuthBackendUrl(`/tx?page=${currentPage}&page_size=${pageSize}`),
-        {
-          method: 'GET',
-          headers: {
-            'Authorization': `Bearer ${authToken}`,
-            'Content-Type': 'application/json'
-          }
-        }
-      );
-
-      if (response.ok) {
-        const data = await response.json();
-        setTransactions(data.transactions);
-        setTotalTxCount(data.total_count);
-
-        // Stop polling if we got a new transaction
-        if (data.total_count > initialTxCountRef.current) {
-          console.log('Stopped polling: new transaction detected');
-          stopPolling();
-          // Refresh balance one more time
-          fetchBalance();
-        }
+      if (data.total_count > initialTxCountRef.current) {
+        console.log('Stopped polling: new transaction detected');
+        stopPolling();
+        fetchBalance();
       }
     } catch (error) {
       console.error('Error fetching transactions during polling:', error);

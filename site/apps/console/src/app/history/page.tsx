@@ -1,28 +1,17 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass, getAuthBackendUrl } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, formatDateTime, getBadgeClass } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
 import LLMTransactionRow from "../../components/LLMTransactionRow";
 import InvoiceTransactionRow from "../../components/InvoiceTransactionRow";
 import RenderTransactionRow from "../../components/RenderTransactionRow";
-
-interface Transaction {
-  id: string;
-  user_id: string;
-  amount: number;
-  amount_usd: string;
-  transaction_type: string;
-  status: string;
-  rewards: boolean;
-  expires_at: string | null;
-  job_id: string | null;
-  meta: any;
-  created_at: string;
-  updated_at: string;
-}
+import {
+  getConsoleTransactions,
+  type ConsoleTransaction as Transaction,
+} from "../../lib/sdk";
 
 type SortColumn = 'id' | 'type' | 'status' | 'amount' | 'created_at';
 type SortDirection = 'asc' | 'desc';
@@ -57,40 +46,14 @@ export default function HistoryPage() {
     setLoading(true);
     setError(null);
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      if (!authToken) {
-        setError('No auth token found');
-        setLoading(false);
-        return;
-      }
-
-      let url = getAuthBackendUrl(`/tx?page=${currentPage}&page_size=${pageSize}`);
-      if (typeFilter !== "all") {
-        url += `&transaction_type=${typeFilter}`;
-      }
-
-      const response = await fetch(url, {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
+      const data = await getConsoleTransactions({
+        page: currentPage,
+        pageSize,
+        transactionType: typeFilter !== "all" ? typeFilter : undefined,
       });
-
-      if (response.ok) {
-        const data = await response.json();
-        setTransactions(data.transactions || []);
-        setTotalTxCount(data.total_count || 0);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Failed to load transactions');
-      }
+      setTransactions(data.transactions || []);
+      setTotalTxCount(data.total_count || 0);
     } catch (error) {
-      console.error('Error fetching transactions:', error);
       setError(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setLoading(false);

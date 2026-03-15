@@ -1,27 +1,16 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, Modal, AlertDialog, formatDateTime, getAuthBackendUrl } from "@hypercli/shared-ui";
+import { Header, Footer, useAuth, Modal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
+import {
+  createConsoleApiKey,
+  disableConsoleApiKey,
+  getConsoleApiKeys,
+  type ConsoleApiKey as ApiKey,
+} from "../../lib/sdk";
 
-interface ApiKey {
-  key_id: string;
-  name: string;
-  api_key_preview: string;
-  last4: string;
-  is_active: boolean;
-  created_at: string;
-  last_used_at: string | null;
-}
-
-interface NewApiKey {
-  key_id: string;
-  name: string;
-  api_key: string; // Full key - only shown once on creation
-  is_active: boolean;
-  created_at: string;
-  last_used_at: string | null;
-}
+type NewApiKey = ApiKey;
 
 export default function ApiKeysPage() {
   const { isLoading, isAuthenticated } = useAuth();
@@ -64,37 +53,8 @@ export default function ApiKeysPage() {
     setLoading(true);
     setError(null);
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      if (!authToken) {
-        setError('No auth token found');
-        setLoading(false);
-        return;
-      }
-
-      const response = await fetch(getAuthBackendUrl("/keys"), {
-        method: 'GET',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        }
-      });
-
-      if (response.ok) {
-        const keys = await response.json();
-        setApiKeys(keys);
-      } else if (response.status === 404) {
-        // 404 means no keys exist yet, not an error
-        setApiKeys([]);
-      } else {
-        const errorData = await response.json();
-        setError(errorData.detail || 'Failed to load API keys');
-      }
+      setApiKeys(await getConsoleApiKeys());
     } catch (error) {
-      console.error('Error fetching API keys:', error);
       setError(error instanceof Error ? error.message : 'Unknown error');
     } finally {
       setLoading(false);
@@ -114,43 +74,16 @@ export default function ApiKeysPage() {
 
     setCreating(true);
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
-
-      if (!authToken) return;
-
-      const response = await fetch(getAuthBackendUrl("/keys"), {
-        method: 'POST',
-        headers: {
-          'Authorization': `Bearer ${authToken}`,
-          'Content-Type': 'application/json'
-        },
-        body: JSON.stringify({ name: newKeyName })
-      });
-
-      if (response.ok) {
-        const newKey = await response.json();
-        setCreatedKey(newKey);
-        setNewKeyName("");
-        setShowCreateModal(false);
-        fetchApiKeys();
-      } else {
-        const error = await response.json();
-        setAlertDialog({
-          isOpen: true,
-          title: "Error",
-          message: error.detail || 'Failed to create API key',
-          type: "error",
-        });
-      }
+      const newKey = await createConsoleApiKey(newKeyName);
+      setCreatedKey(newKey);
+      setNewKeyName("");
+      setShowCreateModal(false);
+      fetchApiKeys();
     } catch (error) {
-      console.error('Error creating API key:', error);
       setAlertDialog({
         isOpen: true,
         title: "Error",
-        message: 'Failed to create API key',
+        message: error instanceof Error ? error.message : 'Failed to create API key',
         type: "error",
       });
     } finally {
@@ -167,38 +100,13 @@ export default function ApiKeysPage() {
       showCancel: true,
       onConfirm: async () => {
         try {
-          const authToken = document.cookie
-            .split('; ')
-            .find(row => row.startsWith('auth_token='))
-            ?.split('=')[1];
-
-          if (!authToken) return;
-
-          const response = await fetch(getAuthBackendUrl(`/keys/${keyId}`), {
-            method: 'DELETE',
-            headers: {
-              'Authorization': `Bearer ${authToken}`,
-              'Content-Type': 'application/json'
-            }
-          });
-
-          if (response.ok) {
-            fetchApiKeys();
-          } else {
-            const error = await response.json();
-            setAlertDialog({
-              isOpen: true,
-              title: "Error",
-              message: error.detail || 'Failed to deactivate API key',
-              type: "error",
-            });
-          }
+          await disableConsoleApiKey(keyId);
+          fetchApiKeys();
         } catch (error) {
-          console.error('Error deactivating API key:', error);
           setAlertDialog({
             isOpen: true,
             title: "Error",
-            message: 'Failed to deactivate API key',
+            message: error instanceof Error ? error.message : 'Failed to deactivate API key',
             type: "error",
           });
         }
@@ -388,12 +296,13 @@ export default function ApiKeysPage() {
               <div className="flex gap-2">
                 <input
                   type="text"
-                  value={createdKey.api_key}
+                  value={createdKey.api_key ?? ""}
                   readOnly
                   className="flex-1 font-mono text-sm border border-border rounded-lg px-4 py-2 bg-background text-foreground"
                 />
                 <button
-                  onClick={() => copyToClipboard(createdKey.api_key)}
+                  onClick={() => copyToClipboard(createdKey.api_key ?? "")}
+                  disabled={!createdKey.api_key}
                   className="bg-primary text-primary-foreground font-semibold py-2 px-4 rounded-lg hover:bg-primary-hover transition-colors cursor-pointer"
                 >
                   {copiedKey ? 'Copied!' : 'Copy'}
