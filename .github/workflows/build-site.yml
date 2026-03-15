@@ -1,4 +1,5 @@
 name: Build Site
+run-name: Build Site
 
 on:
   push:
