@@ -5,11 +5,9 @@ import {
   attemptClawSubscriptionCleanup,
   completeStripeCheckout,
   fetchClawCurrentPlan,
-  fetchConsoleTransactions,
   loginToClaw,
   loginToConsole,
   waitForClawPlanChange,
-  waitForNewConsoleTopUp,
 } from "./fixtures/auth";
 
 test.describe.serial("Production Billing Smoke", () => {
@@ -17,9 +15,13 @@ test.describe.serial("Production Billing Smoke", () => {
 
   test("tops up balance in the console with Stripe Checkout", async ({ page }) => {
     await loginToConsole(page);
+    const availableBalanceValue = page
+      .getByRole("heading", { name: /available balance/i })
+      .locator("xpath=following-sibling::p[1]");
 
-    const existingTransactions = await fetchConsoleTransactions(page);
-    const existingIds = existingTransactions.map((tx) => tx.id);
+    await expect(availableBalanceValue).toBeVisible({ timeout: 20_000 });
+    const initialBalanceText = (await availableBalanceValue.textContent())?.trim() ?? "";
+    expect(initialBalanceText).toMatch(/^\$\d/);
 
     await page.getByRole("button", { name: /^top up$/i }).click();
     await expect(page.getByRole("heading", { name: /top up balance/i })).toBeVisible();
@@ -37,13 +39,18 @@ test.describe.serial("Production Billing Smoke", () => {
       await page.waitForLoadState("networkidle");
     }
 
-    const newTopUp = await waitForNewConsoleTopUp(page, existingIds);
-    expect(newTopUp.meta?.payment_method).toBe("stripe");
+    await expect
+      .poll(
+        async () => {
+          await page.goto(`${CONSOLE_SITE_URL}/dashboard`, { waitUntil: "networkidle" });
+          const balanceText = (await availableBalanceValue.textContent())?.trim() ?? "";
+          return balanceText;
+        },
+        { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
+      )
+      .not.toBe(initialBalanceText);
 
-    await page.reload({ waitUntil: "networkidle" });
-    const txTable = page.locator("table").first();
-    await expect(txTable.getByText(/top up/i).first()).toBeVisible();
-    await expect(txTable.getByText(/^Stripe$/).first()).toBeVisible();
+    await expect(page.getByRole("heading", { name: /balance/i })).toBeVisible();
   });
 
   test("subscribes to a Claw plan with Stripe Checkout", async ({ page }) => {

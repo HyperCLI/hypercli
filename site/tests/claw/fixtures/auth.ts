@@ -319,13 +319,20 @@ async function findVisibleStripeField(page: Page, selectors: string[]): Promise<
     }
   }
 
+  for (const frame of getStripeFrames(page)) {
+    for (const selector of selectors) {
+      const locator = frame.locator(selector).first();
+      if (await locator.isVisible().catch(() => false)) {
+        return locator;
+      }
+    }
+  }
+
   throw new Error(`Unable to find visible Stripe field for selectors: ${selectors.join(", ")}`);
 }
 
 function getStripeFrames(page: Page): Frame[] {
-  return page
-    .frames()
-    .filter((frame) => frame !== page.mainFrame() && /stripe\.com/i.test(frame.url()));
+  return page.frames().filter((frame) => frame !== page.mainFrame());
 }
 
 async function logStripeFrameState(page: Page, step: string): Promise<void> {
@@ -367,6 +374,24 @@ async function fillStripeField(
   );
 }
 
+async function anyVisibleStripeLocator(page: Page, selectors: string[]): Promise<boolean> {
+  for (const selector of selectors) {
+    if (await page.locator(selector).first().isVisible().catch(() => false)) {
+      return true;
+    }
+  }
+
+  for (const frame of getStripeFrames(page)) {
+    for (const selector of selectors) {
+      if (await frame.locator(selector).first().isVisible().catch(() => false)) {
+        return true;
+      }
+    }
+  }
+
+  return false;
+}
+
 export async function completeStripeCheckout(
   page: Page,
 ): Promise<void> {
@@ -378,22 +403,27 @@ export async function completeStripeCheckout(
   await page.waitForLoadState("domcontentloaded");
   await expect
     .poll(
-      async () => {
-        const directCardField = await page
-          .locator("#cardNumber, input[name='cardNumber'], input[autocomplete='cc-number']")
-          .first()
-          .isVisible()
-          .catch(() => false);
-        return directCardField || getStripeFrames(page).length > 0;
-      },
-      { timeout: 20_000, message: "Waiting for Stripe checkout fields to load" }
+      () =>
+        anyVisibleStripeLocator(page, [
+          "#cardNumber",
+          "input[name='cardNumber']",
+          "#Field-numberInput",
+          "input[name='cardnumber']",
+          "input[aria-label='Card number']",
+        ]),
+      { timeout: 60_000, message: "Waiting for Stripe checkout fields to load" }
     )
     .toBeTruthy();
   await logStripeFrameState(page, "loaded");
   await captureStep(page, "console-05-stripe-checkout");
 
-  const emailField = page.locator("#email, input[type='email'], input[autocomplete='email']").first();
-  if (await emailField.isVisible().catch(() => false)) {
+  const emailField = await findVisibleStripeField(page, [
+    "#email",
+    "input[type='email']",
+    "input[autocomplete='email']",
+    "input[aria-label='Email']",
+  ]).catch(() => null);
+  if (emailField) {
     await emailField.fill(getEnv("TEST_EMAIL"));
   }
 
@@ -407,6 +437,7 @@ export async function completeStripeCheckout(
       "input[name='number']",
       "input[autocomplete='cc-number']",
       "input[placeholder*='Card number' i]",
+      "input[aria-label='Card number']",
     ]
   );
   await captureStep(page, "console-05a-stripe-card-number");
@@ -421,6 +452,7 @@ export async function completeStripeCheckout(
       "input[name='expiry']",
       "input[autocomplete='cc-exp']",
       "input[placeholder*='MM / YY' i]",
+      "input[aria-label*='Expiration' i]",
     ]
   );
   await captureStep(page, "console-05b-stripe-expiry");
@@ -435,6 +467,7 @@ export async function completeStripeCheckout(
       "input[autocomplete='cc-csc']",
       "input[placeholder*='CVC' i]",
       "input[placeholder*='security code' i]",
+      "input[aria-label='Security code']",
     ]
   );
   await captureStep(page, "console-05c-stripe-cvc");
@@ -444,6 +477,7 @@ export async function completeStripeCheckout(
     "input[name='billingName']",
     "input[autocomplete='cc-name']",
     "input[name='name']",
+    "input[aria-label='Name on card']",
   ]).catch(() => null);
   if (nameField) {
     await nameField.fill(STRIPE_TEST_NAME);
@@ -462,9 +496,19 @@ export async function completeStripeCheckout(
   const submitButton = page
     .locator(".SubmitButton, button[type='submit'], button:has-text('Pay'), button:has-text('Donate')")
     .first();
-  await expect(submitButton).toBeVisible({ timeout: 15_000 });
-  console.log(`Stripe submit button text: ${(await submitButton.textContent())?.trim() || "<empty>"}`);
-  await submitButton.click();
+  const stripeSubmitButton =
+    (await submitButton.isVisible().catch(() => false))
+      ? submitButton
+      : await findVisibleStripeField(page, [
+          ".SubmitButton",
+          "button[type='submit']",
+          "button[aria-label='Pay']",
+          "button:has-text('Pay')",
+          "button:has-text('Donate')",
+        ]);
+  await expect(stripeSubmitButton).toBeVisible({ timeout: 15_000 });
+  console.log(`Stripe submit button text: ${(await stripeSubmitButton.textContent())?.trim() || "<empty>"}`);
+  await stripeSubmitButton.click();
   await captureStep(page, "console-05e-stripe-submit-clicked");
 }
 

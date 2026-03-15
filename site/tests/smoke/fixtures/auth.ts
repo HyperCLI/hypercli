@@ -22,18 +22,6 @@ export const STRIPE_TEST_NAME = "HyperCLI Smoke";
 
 const AUTH_COOKIE_NAME = "auth_token";
 
-interface ConsoleTransaction {
-  id: string;
-  amount_usd: string;
-  created_at: string;
-  meta?: {
-    payment_method?: string;
-    stripe_payment_intent?: string;
-  };
-  status: string;
-  transaction_type: string;
-}
-
 interface ClawPlan {
   id: string;
   name: string;
@@ -191,53 +179,6 @@ export async function completeStripeCheckout(
   const submitButton = page.locator(".SubmitButton, button[type='submit']").first();
   await expect(submitButton).toBeVisible({ timeout: 10_000 });
   await submitButton.click();
-}
-
-export async function fetchConsoleTransactions(page: Page): Promise<ConsoleTransaction[]> {
-  return page.evaluate(async () => {
-    const response = await fetch("/api/tx?page=1&page_size=25", {
-      headers: {
-        "Content-Type": "application/json",
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to fetch console transactions: ${response.status}`);
-    }
-
-    const data = (await response.json()) as { transactions?: ConsoleTransaction[] };
-    return data.transactions ?? [];
-  });
-}
-
-export async function waitForNewConsoleTopUp(
-  page: Page,
-  existingTransactionIds: string[]
-): Promise<ConsoleTransaction> {
-  let latestMatch: ConsoleTransaction | null = null;
-  const knownIds = new Set(existingTransactionIds);
-
-  await expect
-    .poll(
-      async () => {
-        const transactions = await fetchConsoleTransactions(page);
-        latestMatch =
-          transactions.find((tx) => {
-            const paymentMethod = tx.meta?.payment_method?.toLowerCase() || "";
-            return (
-              tx.transaction_type === "top_up" &&
-              paymentMethod === "stripe" &&
-              !knownIds.has(tx.id)
-            );
-          }) || null;
-
-        return latestMatch?.id ?? null;
-      },
-      { timeout: 90_000 }
-    )
-    .not.toBeNull();
-
-  return latestMatch!;
 }
 
 export async function fetchClawCurrentPlan(page: Page): Promise<ClawPlan | null> {

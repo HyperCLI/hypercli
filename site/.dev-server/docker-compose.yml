@@ -3,6 +3,11 @@ services:
     image: traefik:v3.3
     restart: unless-stopped
     network_mode: host
+    environment:
+      - CLAW_HOST=${CLAW_HOST}
+      - CONSOLE_HOST=${CONSOLE_HOST}
+      - MAIN_HOST=${MAIN_HOST}
+      - LETSENCRYPT_EMAIL=${LETSENCRYPT_EMAIL}
     command:
       - --api.dashboard=false
       - --providers.file.filename=/etc/traefik/dynamic.yml
