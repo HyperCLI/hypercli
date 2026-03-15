@@ -9,6 +9,15 @@ export interface User {
   name: string | null;
   isActive: boolean;
   createdAt: string;
+  emailVerified?: boolean;
+  updatedAt?: string;
+  userType?: string | null;
+  meta?: string | null;
+}
+
+export interface UpdateUserOptions {
+  name?: string;
+  email?: string;
 }
 
 function userFromDict(data: any): User {
@@ -18,6 +27,10 @@ function userFromDict(data: any): User {
     name: data.name || null,
     isActive: data.is_active !== false,
     createdAt: data.created_at || '',
+    emailVerified: data.email_verified,
+    updatedAt: data.updated_at || '',
+    userType: data.user_type ?? null,
+    meta: data.meta ?? null,
   };
 }
 
@@ -29,6 +42,14 @@ export class UserAPI {
    */
   async get(): Promise<User> {
     const data = await this.http.get('/api/user');
+    return userFromDict(data);
+  }
+
+  /**
+   * Update the current user profile.
+   */
+  async update(options: UpdateUserOptions): Promise<User> {
+    const data = await this.http.patch('/api/user', options);
     return userFromDict(data);
   }
 }

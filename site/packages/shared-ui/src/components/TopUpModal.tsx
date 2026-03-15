@@ -1,5 +1,6 @@
 "use client"
 
+import { BrowserHyperCLI } from "@hypercli.com/sdk/browser"
 import { useState, useEffect } from "react"
 import { createPortal } from "react-dom"
 import { useWallet } from "../contexts/WalletContext"
@@ -43,6 +44,22 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
   const minAmount = paymentMethod === "crypto" ? 0.1 : 5
   const sliderMaxAmount = 100
   const maxAmount = 1000
+
+  const createBillingClient = () => {
+    const authToken = document.cookie
+      .split("; ")
+      .find(row => row.startsWith("auth_token="))
+      ?.split("=")[1]
+
+    if (!authToken) {
+      throw new Error("Authentication required. Please log in.")
+    }
+
+    return new BrowserHyperCLI({
+      apiUrl: getAuthBackendUrl(),
+      token: authToken,
+    })
+  }
 
   const handleClose = () => {
     if (!isProcessing) {
@@ -149,38 +166,13 @@ export function TopUpModal({ isOpen, onClose, userEmail, onSuccess }: TopUpModal
     setError(null)
 
     try {
-      // Get auth token
-      const authToken = document.cookie
-        .split("; ")
-        .find(row => row.startsWith("auth_token="))
-        ?.split("=")[1]
-
-      if (!authToken) {
-        throw new Error("Authentication required. Please log in.")
-      }
-
-      // Create Stripe checkout session
-      // Send dollar amount - backend converts to cents
       debugLog("💳 Creating Stripe checkout session for $" + amount)
-      const response = await fetch(getAuthBackendUrl("/stripe/top_up"), {
-        method: "POST",
-        headers: {
-          "Content-Type": "application/json",
-          "Authorization": `Bearer ${authToken}`,
-        },
-        body: JSON.stringify({ amount: amount }),
-      })
-
-      if (!response.ok) {
-        const errorData = await response.json().catch(() => ({}))
-        throw new Error(errorData.detail || `Failed to create checkout session: ${response.statusText}`)
-      }
-
-      const data = await response.json()
-      debugLog("✅ Checkout session created:", data.session_id)
+      const client = createBillingClient()
+      const data = await client.billing.createTopUpCheckout(amount)
+      debugLog("✅ Checkout session created:", data.sessionId)
 
       // Redirect to Stripe checkout
-      window.location.href = data.checkout_url
+      window.location.href = data.checkoutUrl
 
     } catch (err: any) {
       debugLog("❌ Stripe checkout error:", err)
