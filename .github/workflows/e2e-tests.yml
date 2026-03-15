@@ -25,6 +25,9 @@ jobs:
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
+      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+      TEST_API_BASE_URL: https://api.hypercli.com
+      TEST_TOPUP_CONSOLE_BASE_URL: https://console.hypercli.com
       TEST_PROD_CONSOLE_BASE_URL: https://console.hypercli.com
       NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:

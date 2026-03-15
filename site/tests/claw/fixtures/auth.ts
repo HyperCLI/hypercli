@@ -22,6 +22,22 @@ const STRIPE_TEST_EXPIRY = "1230";
 const STRIPE_TEST_CVC = "123";
 const STRIPE_TEST_NAME = "Test User";
 const STRIPE_TEST_ZIP = "10001";
+const TOP_UP_POLL_TIMEOUT_MS = 180_000;
+
+interface BillingBalanceSnapshot {
+  availableBalance: number;
+  availableBalanceText: string;
+  totalBalance: number;
+  totalBalanceText: string;
+}
+
+interface BillingTransactionSnapshot {
+  id: string;
+  amountUsd: number;
+  transactionType: string;
+  status: string;
+  createdAt: string;
+}
 
 function getEnv(name: RequiredEnvKey): string {
   const value = process.env[name]?.trim();
@@ -34,6 +50,14 @@ function getEnv(name: RequiredEnvKey): string {
 function getOptionalEnv(name: string): string | null {
   const value = process.env[name]?.trim();
   return value || null;
+}
+
+function requireEnvValue(name: string): string {
+  const value = getOptionalEnv(name);
+  if (!value) {
+    throw new Error(`Missing ${name} in the environment`);
+  }
+  return value;
 }
 
 async function ensureScreenshotDir(): Promise<void> {
@@ -345,7 +369,6 @@ async function fillStripeField(
 
 export async function completeStripeCheckout(
   page: Page,
-  returnHostPattern = /console\.hypercli\.com/i
 ): Promise<void> {
   const stripeCheckoutPattern = /^https:\/\/checkout\.stripe\.com\//i;
 
@@ -443,13 +466,101 @@ export async function completeStripeCheckout(
   console.log(`Stripe submit button text: ${(await submitButton.textContent())?.trim() || "<empty>"}`);
   await submitButton.click();
   await captureStep(page, "console-05e-stripe-submit-clicked");
+}
 
-  await expect
-    .poll(
-      () => page.url(),
-      { timeout: 90_000, message: "Waiting for Stripe Checkout to redirect back to Console" }
-    )
-    .toMatch(returnHostPattern);
+async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
+  const apiBaseUrl = requireEnvValue("TEST_API_BASE_URL").replace(/\/$/, "");
+  const apiKey = requireEnvValue("TEST_API_KEY");
+
+  const response = await fetch(`${apiBaseUrl}${path}`, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+  });
+
+  if (!response.ok) {
+    throw new Error(`API request failed for ${path}: ${response.status} ${await response.text()}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function fetchBalanceSnapshot(): Promise<BillingBalanceSnapshot> {
+  const data = await fetchJsonWithApiKey<{
+    available_balance: string;
+    total_balance: string;
+  }>("/api/balance");
+
+  return {
+    availableBalance: parseDollarAmount(data.available_balance || "0"),
+    availableBalanceText: data.available_balance || "0",
+    totalBalance: parseDollarAmount(data.total_balance || "0"),
+    totalBalanceText: data.total_balance || "0",
+  };
+}
+
+export async function fetchTransactionSnapshots(limit = 20): Promise<BillingTransactionSnapshot[]> {
+  const data = await fetchJsonWithApiKey<{
+    transactions?: Array<{
+      id: string;
+      amount_usd: string;
+      transaction_type: string;
+      status: string;
+      created_at: string;
+    }>;
+  }>(`/api/tx?page=1&page_size=${limit}`);
+
+  return (data.transactions || []).map((transaction) => ({
+    id: transaction.id,
+    amountUsd: parseDollarAmount(transaction.amount_usd || "0"),
+    transactionType: transaction.transaction_type || "",
+    status: transaction.status || "",
+    createdAt: transaction.created_at || "",
+  }));
+}
+
+export async function waitForTopUpSettlement(
+  previousBalance: BillingBalanceSnapshot,
+  submittedAt: Date,
+  amountDelta = 10
+): Promise<{ balance: BillingBalanceSnapshot; topUp: BillingTransactionSnapshot | null }> {
+  const deadline = Date.now() + TOP_UP_POLL_TIMEOUT_MS;
+  let latestBalance = previousBalance;
+  let latestTopUp: BillingTransactionSnapshot | null = null;
+
+  while (Date.now() < deadline) {
+    latestBalance = await fetchBalanceSnapshot();
+    const transactions = await fetchTransactionSnapshots();
+    latestTopUp =
+      transactions.find((transaction) => {
+        if (transaction.transactionType.toLowerCase() !== "top_up") {
+          return false;
+        }
+        if (transaction.status.toLowerCase() !== "completed") {
+          return false;
+        }
+        if (transaction.amountUsd < amountDelta) {
+          return false;
+        }
+
+        const createdAtMs = Date.parse(transaction.createdAt);
+        return Number.isFinite(createdAtMs) && createdAtMs >= submittedAt.getTime() - 60_000;
+      }) || null;
+
+    if (latestBalance.availableBalance >= previousBalance.availableBalance + amountDelta || latestTopUp) {
+      return {
+        balance: latestBalance,
+        topUp: latestTopUp,
+      };
+    }
+
+    await new Promise((resolve) => setTimeout(resolve, 5_000));
+  }
+
+  throw new Error(
+    `Timed out waiting for top-up settlement. Available balance stayed at $${latestBalance.availableBalanceText} ` +
+      `from initial $${previousBalance.availableBalanceText}`
+  );
 }
 
 export function parseDollarAmount(value: string): number {
