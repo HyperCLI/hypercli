@@ -23,6 +23,13 @@ jobs:
           npm ci
           npm run build
 
+      - name: Prepare site env
+        working-directory: site
+        run: |
+          cp env.dev apps/main/.env.local
+          cp env.dev apps/console/.env.local
+          cp env.dev apps/claw/.env.local
+
       - name: Install and build
         working-directory: site
         run: |
