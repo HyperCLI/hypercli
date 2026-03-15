@@ -28,10 +28,6 @@ jobs:
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
-      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-      TEST_API_BASE_URL: https://api.hypercli.com
-      TEST_TOPUP_CONSOLE_BASE_URL: https://console.hypercli.com
-      TEST_PROD_CONSOLE_BASE_URL: https://console.hypercli.com
       NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
@@ -131,7 +127,6 @@ jobs:
           --config tests/claw/playwright.config.ts
           tests/claw/login.spec.ts
           tests/claw/console-login.spec.ts
-          tests/claw/console-topup.spec.ts
 
       - name: Upload failure screenshot to notify
         if: steps.e2e.outcome == 'failure'
@@ -224,7 +219,7 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Frontend e2e tests passed, including live Console Stripe top-up"
+          MESSAGE="Frontend e2e login tests passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \

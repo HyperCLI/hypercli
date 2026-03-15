@@ -302,13 +302,39 @@ export async function loginToConsoleWithPrivy(
   await fillOtp(page, otp);
   await captureStep(page, "console-03-otp-entered");
 
-  await waitForCookieValue(page, baseUrl, "auth_token");
+  await waitForConsoleSession(page, baseUrl);
   await expect
     .poll(() => page.url(), { timeout: 45_000 })
     .toContain("/dashboard");
 
   await expect(page.getByRole("button", { name: /^top up$/i })).toBeVisible({ timeout: 20_000 });
   await captureStep(page, "console-04-post-login");
+}
+
+async function waitForConsoleSession(page: Page, url: string, timeout = 45_000): Promise<string> {
+  let latestValue: string | null = null;
+
+  await expect
+    .poll(
+      async () => {
+        const cookies = await page.context().cookies([url]);
+        const cookieValue = cookies.find((cookie) => cookie.name === "auth_token")?.value ?? null;
+        let storageValue: string | null = null;
+
+        try {
+          storageValue = await page.evaluate(() => localStorage.getItem("app_auth_token"));
+        } catch {
+          storageValue = null;
+        }
+
+        latestValue = cookieValue || storageValue;
+        return latestValue;
+      },
+      { timeout }
+    )
+    .not.toBeNull();
+
+  return latestValue!;
 }
 
 async function findVisibleStripeField(page: Page, selectors: string[]): Promise<Locator> {

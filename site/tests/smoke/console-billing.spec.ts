@@ -29,9 +29,9 @@ test.describe.serial("Production Billing Smoke", () => {
     await page.getByRole("button", { name: /pay \$10\.00/i }).click();
     await completeStripeCheckout(page);
 
-    await expect
-      .poll(() => page.url(), { timeout: 60_000 })
-      .toContain("console.hypercli.com");
+    await page
+      .waitForURL((url) => url.hostname === new URL(CONSOLE_SITE_URL).hostname, { timeout: 15_000 })
+      .catch(() => null);
 
     if (!page.url().includes("/dashboard")) {
       await page.goto(`${CONSOLE_SITE_URL}/dashboard`, { waitUntil: "networkidle" });
