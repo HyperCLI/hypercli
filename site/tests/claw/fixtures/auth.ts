@@ -2,6 +2,8 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ImapFlow } from "imapflow";
 import { expect, type Frame, type Locator, type Page } from "@playwright/test";
+import { HyperAgent, type HyperAgentCurrentPlan } from "../../../../ts-sdk/dist/agent.js";
+import { HTTPClient } from "../../../../ts-sdk/dist/http.js";
 
 type RequiredEnvKey =
   | "TEST_BASE_URL"
@@ -23,6 +25,8 @@ const STRIPE_TEST_CVC = "123";
 const STRIPE_TEST_NAME = "Test User";
 const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
+const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
+const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
 
 interface BillingBalanceSnapshot {
   availableBalance: number;
@@ -37,6 +41,22 @@ interface BillingTransactionSnapshot {
   transactionType: string;
   status: string;
   createdAt: string;
+}
+
+interface StripeCustomer {
+  id: string;
+}
+
+interface StripeSubscription {
+  id: string;
+  status: string;
+}
+
+interface StripeInvoice {
+  id: string;
+  payment_intent?: string | null;
+  charge?: string | null;
+  status?: string | null;
 }
 
 function getEnv(name: RequiredEnvKey): string {
@@ -58,6 +78,17 @@ function requireEnvValue(name: string): string {
     throw new Error(`Missing ${name} in the environment`);
   }
   return value;
+}
+
+function getAgentsApiBaseUrl(): string {
+  return (
+    getOptionalEnv("TEST_AGENTS_API_BASE_URL") ||
+    DEFAULT_TEST_AGENTS_API_BASE_URL
+  ).replace(/\/$/, "");
+}
+
+function getHyperAgentClient(token: string): HyperAgent {
+  return new HyperAgent(new HTTPClient(getAgentsApiBaseUrl(), token), token, true);
 }
 
 async function ensureScreenshotDir(): Promise<void> {
@@ -212,20 +243,15 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
 export async function loginWithPrivy(page: Page): Promise<void> {
   const email = getEnv("TEST_EMAIL");
 
-  const response = await page.goto(getEnv("TEST_BASE_URL"), { waitUntil: "domcontentloaded" });
-  await page.waitForLoadState("networkidle");
-  const pageText = (await page.locator("body").textContent()) || "";
-  if (response?.status() === 404 || /404 page not found/i.test(pageText)) {
-    throw new Error(
-      `Target ${getEnv("TEST_HOSTNAME")} is serving a 404 instead of the Claw app`
-    );
-  }
-  await captureStep(page, "01-home");
-
   const primaryAuthButton = page
     .getByRole("button", { name: /^(sign in|get started)$/i })
     .first();
-  await expect(primaryAuthButton).toBeVisible();
+  const response = await page.goto(getEnv("TEST_BASE_URL"), { waitUntil: "domcontentloaded" });
+  if (response?.status() === 404) {
+    throw new Error(`Target ${getEnv("TEST_HOSTNAME")} returned a 404 for the Claw app`);
+  }
+  await expect(primaryAuthButton).toBeVisible({ timeout: 30_000 });
+  await captureStep(page, "01-home");
   await primaryAuthButton.click();
 
   const sharedLoginButton = page.getByRole("button", { name: /login with privy/i }).first();
@@ -254,7 +280,6 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   await fillOtp(page, otp);
   await captureStep(page, "05-otp-entered");
 
-  await page.waitForLoadState("networkidle");
   await expect
     .poll(async () => {
       try {
@@ -264,6 +289,26 @@ export async function loginWithPrivy(page: Page): Promise<void> {
       }
     }, { timeout: 45_000 })
     .not.toBeNull();
+
+  await expect
+    .poll(() => page.url(), { timeout: 45_000 })
+    .toContain("/dashboard");
+
+  const privyModal = page.locator("#privy-modal-content").first();
+  if (await privyModal.isVisible().catch(() => false)) {
+    await page.keyboard.press("Escape").catch(() => {});
+
+    const closeButton = page
+      .locator(
+        '#privy-modal-content button[aria-label="Close"], #privy-modal-content button[title="Close"]'
+      )
+      .first();
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click().catch(() => {});
+    }
+
+    await expect(privyModal).toBeHidden({ timeout: 10_000 }).catch(() => {});
+  }
 
   await captureStep(page, "06-authenticated");
 }
@@ -697,6 +742,125 @@ export async function getClawAuthToken(page: Page): Promise<string> {
     throw new Error("claw_auth_token was not found in localStorage");
   }
   return token;
+}
+
+export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurrentPlan | null> {
+  const token = await getClawAuthToken(page);
+  const client = getHyperAgentClient(token);
+  try {
+    return await client.currentPlan();
+  } catch (error) {
+    if (error instanceof Error && /404/.test(error.message)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+export async function waitForClawPlanId(
+  page: Page,
+  expectedPlanId: string,
+  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
+): Promise<HyperAgentCurrentPlan> {
+  let latestPlan: HyperAgentCurrentPlan | null = null;
+
+  await expect
+    .poll(
+      async () => {
+        latestPlan = await fetchClawCurrentPlan(page);
+        return latestPlan?.id ?? null;
+      },
+      { timeout, intervals: [1_000, 2_000, 5_000] }
+    )
+    .toBe(expectedPlanId);
+
+  return latestPlan!;
+}
+
+export async function waitForPaidClawPlan(
+  page: Page,
+  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
+): Promise<HyperAgentCurrentPlan> {
+  let latestPlan: HyperAgentCurrentPlan | null = null;
+
+  await expect
+    .poll(
+      async () => {
+        latestPlan = await fetchClawCurrentPlan(page);
+        return latestPlan?.id ?? "free";
+      },
+      { timeout, intervals: [1_000, 2_000, 5_000] }
+    )
+    .not.toBe("free");
+
+  return latestPlan!;
+}
+
+async function stripeApiRequest<T>(
+  path: string,
+  init: { method?: string; form?: Record<string, string> } = {}
+): Promise<T> {
+  const secretKey = getOptionalEnv("TEST_STRIPE_AGENTS_SECRET_KEY");
+  if (!secretKey) {
+    throw new Error("Missing TEST_STRIPE_AGENTS_SECRET_KEY for Stripe subscription cleanup");
+  }
+
+  const method = init.method || "GET";
+  const body = init.form ? new URLSearchParams(init.form).toString() : undefined;
+  const response = await fetch(`https://api.stripe.com${path}`, {
+    method,
+    headers: {
+      Authorization: `Bearer ${secretKey}`,
+      ...(body ? { "Content-Type": "application/x-www-form-urlencoded" } : {}),
+    },
+    body,
+  });
+
+  if (!response.ok) {
+    throw new Error(`Stripe API ${method} ${path} failed: ${response.status} ${await response.text()}`);
+  }
+
+  return (await response.json()) as T;
+}
+
+export async function cancelActiveClawStripeSubscriptionsForTestUser(): Promise<string[]> {
+  const email = getEnv("TEST_EMAIL");
+  const customers = await stripeApiRequest<{ data: StripeCustomer[] }>(
+    `/v1/customers?email=${encodeURIComponent(email)}&limit=10`
+  );
+
+  const cancelled: string[] = [];
+
+  for (const customer of customers.data || []) {
+    const subscriptions = await stripeApiRequest<{ data: StripeSubscription[] }>(
+      `/v1/subscriptions?customer=${encodeURIComponent(customer.id)}&status=all&limit=100`
+    );
+
+    for (const subscription of subscriptions.data || []) {
+      if (["active", "trialing", "past_due", "incomplete", "unpaid"].includes(subscription.status)) {
+        const invoices = await stripeApiRequest<{ data: StripeInvoice[] }>(
+          `/v1/invoices?subscription=${encodeURIComponent(subscription.id)}&limit=10`
+        );
+
+        await stripeApiRequest(`/v1/subscriptions/${subscription.id}`, { method: "DELETE" });
+
+        const paidInvoice = (invoices.data || []).find((invoice) => invoice.status === "paid");
+        const paymentRef = paidInvoice?.payment_intent || paidInvoice?.charge || null;
+        if (paymentRef) {
+          await stripeApiRequest("/v1/refunds", {
+            method: "POST",
+            form: paidInvoice?.payment_intent
+              ? { payment_intent: paidInvoice.payment_intent }
+              : { charge: paidInvoice!.charge! },
+          }).catch(() => null);
+        }
+
+        cancelled.push(subscription.id);
+      }
+    }
+  }
+
+  return cancelled;
 }
 
 export function expectJwtShape(token: string): void {

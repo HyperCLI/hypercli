@@ -1,4 +1,4 @@
-name: E2E Console
+name: E2E Agents
 
 on:
   push:
@@ -11,7 +11,7 @@ env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
-  playwright-e2e:
+  playwright-agents:
     runs-on: self-hosted
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
@@ -24,10 +24,12 @@ jobs:
       TEST_BASE_URL: http://127.0.0.1:4003
       TEST_CONSOLE_BASE_URL: http://127.0.0.1:4001
       TEST_HOSTNAME: 127.0.0.1
-      TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
+      TEST_EMAIL: gilfoyle@nedos.io
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
+      TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
+      TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
@@ -125,7 +127,8 @@ jobs:
         run: >
           npx playwright test
           --config tests/claw/playwright.config.ts
-          tests/claw/console-login.spec.ts
+          tests/claw/login.spec.ts
+          tests/claw/agents-subscription.spec.ts
 
       - name: Upload failure screenshot to notify
         if: steps.e2e.outcome == 'failure'
@@ -155,7 +158,7 @@ jobs:
           payload = {
               "category": "frontend",
               "severity": "error",
-              "message": f"Frontend E2E console failed\nTest: {test_name}\nWorkflow: E2E Console\nRun: {run_url}",
+              "message": f"Frontend E2E agents failed\nTest: {test_name}\nWorkflow: E2E Agents\nRun: {run_url}",
               "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
               "image_filename": screenshot.name,
               "channel": "frontend",
@@ -177,7 +180,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@v4
         with:
-          name: playwright-artifacts
+          name: playwright-agents-artifacts
           path: |
             site/playwright-report
             site/test-results
@@ -223,7 +226,7 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Frontend console e2e passed"
+          MESSAGE="Frontend agents e2e passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \

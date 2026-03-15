@@ -5,6 +5,7 @@
  * Use the OpenAI Node.js SDK directly with HyperClaw endpoints.
  */
 import type { HTTPClient } from './http.js';
+import { resolveAgentsApiBase } from './agents.js';
 
 export interface HyperAgentKey {
   key: string;
@@ -21,6 +22,18 @@ export interface HyperAgentPlan {
   priceUsd: number;
   tpmLimit: number;
   rpmLimit: number;
+}
+
+export interface HyperAgentCurrentPlan {
+  id: string;
+  name: string;
+  price: number | string;
+  aiu?: number;
+  agents?: number;
+  tpmLimit: number;
+  rpmLimit: number;
+  expiresAt: Date | null;
+  cancelAtPeriodEnd: boolean;
 }
 
 export interface HyperAgentModel {
@@ -57,6 +70,20 @@ function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
     priceUsd: data.price_usd,
     tpmLimit: data.tpm_limit,
     rpmLimit: data.rpm_limit,
+  };
+}
+
+function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
+  return {
+    id: data.id,
+    name: data.name,
+    price: data.price,
+    aiu: data.aiu,
+    agents: data.agents,
+    tpmLimit: data.tpm_limit || 0,
+    rpmLimit: data.rpm_limit || 0,
+    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
   };
 }
 
@@ -99,15 +126,17 @@ export class HyperAgent {
     dev: boolean = false
   ) {
     this.apiKey = agentApiKey || http['apiKey'];
-    this.baseUrl = dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE;
+    const fallbackBaseUrl = dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE;
+    const configuredBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : fallbackBaseUrl;
+    this.baseUrl = resolveAgentsApiBase(configuredBaseUrl);
   }
 
   private get baseUrlWithoutV1(): string {
-    return this.baseUrl.replace('/v1', '');
+    return this.baseUrl.replace(/\/v1$/, '');
   }
 
   async keyStatus(): Promise<HyperAgentKey> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/keys/status`, {
+    const response = await fetch(`${this.baseUrlWithoutV1}/keys/status`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -122,7 +151,7 @@ export class HyperAgent {
   }
 
   async plans(): Promise<HyperAgentPlan[]> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans`, {
+    const response = await fetch(`${this.baseUrlWithoutV1}/plans`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -134,6 +163,21 @@ export class HyperAgent {
 
     const data: any = await response.json();
     return (data.plans || []).map(hyperAgentPlanFromDict);
+  }
+
+  async currentPlan(): Promise<HyperAgentCurrentPlan> {
+    const response = await fetch(`${this.baseUrlWithoutV1}/plans/current`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get current plan: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return hyperAgentCurrentPlanFromDict(data);
   }
 
   async models(): Promise<HyperAgentModel[]> {

@@ -91,6 +91,7 @@ export {
   HyperAgent,
   type HyperAgentKey,
   type HyperAgentPlan,
+  type HyperAgentCurrentPlan,
   type HyperAgentModel,
 } from './agent.js';
 
