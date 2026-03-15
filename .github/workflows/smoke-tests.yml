@@ -56,7 +56,7 @@ jobs:
             site/test-results
           if-no-files-found: ignore
 
-      - name: Upload failure screenshots to notify
+      - name: Upload failure screenshot to notify
         if: steps.smoke.outcome == 'failure'
         continue-on-error: true
         env:
@@ -75,33 +75,35 @@ jobs:
 
           endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify/notify")
           run_url = os.getenv("GITHUB_RUN_URL", "")
-          screenshots = sorted(Path("site/test-results").rglob("*.png"))[:5]
+          screenshots = sorted(Path("site/test-results").rglob("*.png"))
+          if not screenshots:
+              raise SystemExit(0)
 
-          for screenshot in screenshots:
-              test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
-              payload = {
-                  "category": "frontend",
-                  "severity": "error",
-                  "message": f"Test failure: {test_name}\nRun: {run_url}",
-                  "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
-                  "image_filename": screenshot.name,
-                  "channel": "frontend",
-              }
-              request = urllib.request.Request(
-                  endpoint,
-                  data=json.dumps(payload).encode("utf-8"),
-                  headers={
-                      "Content-Type": "application/json",
-                      "X-BACKEND-API-KEY": notify_api_key,
-                  },
-                  method="POST",
-              )
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  response.read()
+          screenshot = screenshots[0]
+          test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
+          payload = {
+              "category": "frontend",
+              "severity": "error",
+              "message": f"Smoke test failed: {test_name}\nRun: {run_url}",
+              "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
+              "image_filename": screenshot.name,
+              "channel": "frontend",
+          }
+          request = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "X-BACKEND-API-KEY": notify_api_key,
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              response.read()
           PY
 
       - name: Notify smoke result
-        if: always()
+        if: steps.smoke.outcome == 'success'
         continue-on-error: true
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
@@ -136,20 +138,11 @@ jobs:
               for suite in report.get("suites", []):
                   walk_suite(suite)
 
-          if status == "success":
-              print(
-                  f"Smoke tests passed: {counts['passed']}/{counts['total']} passed"
-                  if counts["total"]
-                  else "Smoke tests passed"
-              )
-          else:
-              if counts["total"]:
-                  print(
-                      f"Smoke tests failed: {counts['failed']} failed, "
-                      f"{counts['passed']} passed, {counts['skipped']} skipped"
-                  )
-              else:
-                  print("Smoke tests failed")
+          print(
+              f"Smoke tests passed: {counts['passed']}/{counts['total']} passed"
+              if counts["total"]
+              else "Smoke tests passed"
+          )
           PY
           )"
 

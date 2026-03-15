@@ -134,7 +134,7 @@ jobs:
           tests/claw/console-login.spec.ts
           tests/claw/console-topup.spec.ts
 
-      - name: Upload failure screenshots to notify
+      - name: Upload failure screenshot to notify
         if: steps.e2e.outcome == 'failure'
         continue-on-error: true
         env:
@@ -153,29 +153,31 @@ jobs:
 
           endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify/notify")
           run_url = os.getenv("GITHUB_RUN_URL", "")
-          screenshots = sorted(Path("site/test-results").rglob("*.png"))[:5]
+          screenshots = sorted(Path("site/test-results").rglob("*.png"))
+          if not screenshots:
+              raise SystemExit(0)
 
-          for screenshot in screenshots:
-              test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
-              payload = {
-                  "category": "frontend",
-                  "severity": "error",
-                  "message": f"Test failure: {test_name}\nRun: {run_url}",
-                  "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
-                  "image_filename": screenshot.name,
-                  "channel": "frontend",
-              }
-              request = urllib.request.Request(
-                  endpoint,
-                  data=json.dumps(payload).encode("utf-8"),
-                  headers={
-                      "Content-Type": "application/json",
-                      "X-BACKEND-API-KEY": notify_api_key,
-                  },
-                  method="POST",
-              )
-              with urllib.request.urlopen(request, timeout=20) as response:
-                  response.read()
+          screenshot = screenshots[0]
+          test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
+          payload = {
+              "category": "frontend",
+              "severity": "error",
+              "message": f"E2E test failed: {test_name}\nRun: {run_url}",
+              "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
+              "image_filename": screenshot.name,
+              "channel": "frontend",
+          }
+          request = urllib.request.Request(
+              endpoint,
+              data=json.dumps(payload).encode("utf-8"),
+              headers={
+                  "Content-Type": "application/json",
+                  "X-BACKEND-API-KEY": notify_api_key,
+              },
+              method="POST",
+          )
+          with urllib.request.urlopen(request, timeout=20) as response:
+              response.read()
           PY
 
       - name: Upload Playwright artifacts
@@ -217,17 +219,13 @@ jobs:
           fi
 
       - name: Notify e2e result
-        if: always()
+        if: steps.e2e.outcome == 'success'
         continue-on-error: true
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          if [ "${E2E_STATUS}" = "success" ]; then
-            MESSAGE="Frontend e2e tests passed, including live Console Stripe top-up"
-          else
-            MESSAGE="Frontend e2e tests failed"
-          fi
+          MESSAGE="Frontend e2e tests passed, including live Console Stripe top-up"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \

@@ -88,19 +88,6 @@ jobs:
           npm ci
           npm run build
 
-      - name: Notify CI start
-        continue-on-error: true
-        env:
-          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-        run: |
-          python3 .github/scripts/ci_notify.py \
-            --category frontend \
-            --phase start \
-            --status running \
-            --event "${{ github.event_name }}" \
-            --workflow "${{ github.workflow }}" \
-            --message "HyperCLI Claw CI started"
-
       - name: Prepare Claw env
         working-directory: site
         env:
@@ -162,34 +149,6 @@ jobs:
         working-directory: site
         run: npm run build --filter=@hypercli/claw
 
-      - name: Notify build success
-        if: steps.build_claw.outcome == 'success'
-        continue-on-error: true
-        env:
-          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-        run: |
-          python3 .github/scripts/ci_notify.py \
-            --category frontend \
-            --phase build \
-            --status success \
-            --event "${{ github.event_name }}" \
-            --workflow "${{ github.workflow }}" \
-            --message "HyperCLI Claw build succeeded"
-
-      - name: Notify build failure
-        if: steps.build_claw.outcome == 'failure'
-        continue-on-error: true
-        env:
-          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-        run: |
-          python3 .github/scripts/ci_notify.py \
-            --category frontend \
-            --phase build \
-            --status failure \
-            --event "${{ github.event_name }}" \
-            --workflow "${{ github.workflow }}" \
-            --message "HyperCLI Claw build failed"
-
       - name: Stop on build failure
         if: steps.build_claw.outcome == 'failure'
         run: exit 1
@@ -220,34 +179,6 @@ jobs:
         working-directory: site/tests/claw
         run: npx playwright test login.spec.ts --config=playwright.config.ts
 
-      - name: Notify test pass
-        if: steps.playwright.outcome == 'success'
-        continue-on-error: true
-        env:
-          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-        run: |
-          python3 .github/scripts/ci_notify.py \
-            --category frontend \
-            --phase test \
-            --status success \
-            --event "${{ github.event_name }}" \
-            --workflow "${{ github.workflow }}" \
-            --message "HyperCLI Claw Playwright login test passed"
-
-      - name: Notify test failure
-        if: steps.playwright.outcome == 'failure'
-        continue-on-error: true
-        env:
-          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-        run: |
-          python3 .github/scripts/ci_notify.py \
-            --category frontend \
-            --phase test \
-            --status failure \
-            --event "${{ github.event_name }}" \
-            --workflow "${{ github.workflow }}" \
-            --message "HyperCLI Claw Playwright login test failed"
-
       - name: Show Claw server log
         if: always()
         run: |
@@ -264,4 +195,45 @@ jobs:
 
       - name: Fail workflow on Playwright failure
         if: steps.playwright.outcome == 'failure'
+        run: exit 1
+
+  notify-final:
+    needs:
+      - ts-sdk
+      - python-sdk
+      - claw-build-and-test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Notify final CI result
+        continue-on-error: true
+        env:
+          NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+        run: |
+          if [ "${{ needs.ts-sdk.result }}" != "success" ]; then
+            STATUS="${{ needs.ts-sdk.result }}"
+            MESSAGE="HyperCLI CI failed in ts-sdk"
+          elif [ "${{ needs.python-sdk.result }}" != "success" ]; then
+            STATUS="${{ needs.python-sdk.result }}"
+            MESSAGE="HyperCLI CI failed in python-sdk"
+          elif [ "${{ needs.claw-build-and-test.result }}" != "success" ]; then
+            STATUS="${{ needs.claw-build-and-test.result }}"
+            MESSAGE="HyperCLI CI failed in claw-build-and-test"
+          else
+            STATUS="success"
+            MESSAGE="HyperCLI CI succeeded"
+          fi
+
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase final \
+            --status "${STATUS}" \
+            --event "${{ github.event_name }}" \
+            --workflow "${{ github.workflow }}" \
+            --message "${MESSAGE}"
+
+      - name: Fail workflow when required jobs fail
+        if: needs.ts-sdk.result != 'success' || needs.python-sdk.result != 'success' || needs.claw-build-and-test.result != 'success'
         run: exit 1
