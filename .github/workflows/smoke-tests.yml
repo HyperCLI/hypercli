@@ -84,7 +84,7 @@ jobs:
           payload = {
               "category": "frontend",
               "severity": "error",
-              "message": f"Smoke test failed: {test_name}\nRun: {run_url}",
+              "message": f"Frontend smoke failed\nTest: {test_name}\nWorkflow: Smoke Tests\nRun: {run_url}",
               "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
               "image_filename": screenshot.name,
               "channel": "frontend",

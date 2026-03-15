@@ -162,7 +162,7 @@ jobs:
           payload = {
               "category": "frontend",
               "severity": "error",
-              "message": f"E2E test failed: {test_name}\nRun: {run_url}",
+              "message": f"Frontend E2E failed\nTest: {test_name}\nWorkflow: E2E Tests\nRun: {run_url}",
               "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
               "image_filename": screenshot.name,
               "channel": "frontend",
