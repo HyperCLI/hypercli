@@ -9,6 +9,9 @@ env:
 jobs:
   smoke:
     runs-on: self-hosted
+    container:
+      image: mcr.microsoft.com/playwright:v1.58.2-noble
+      options: --ipc=host
     timeout-minutes: 45
     defaults:
       run:
@@ -35,10 +38,6 @@ jobs:
       - name: Install site dependencies
         working-directory: site
         run: npm install
-
-      - name: Install Playwright browsers
-        working-directory: site
-        run: npx playwright install --with-deps chromium
 
       - name: Run smoke tests
         id: smoke

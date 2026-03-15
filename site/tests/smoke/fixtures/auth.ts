@@ -1,5 +1,6 @@
 import { expect, type Locator, type Page } from "@playwright/test";
 import {
+  completeStripeCheckout as completeClawStripeCheckout,
   fillOtp,
   pollForPrivyOtp,
   waitForCookieValue,
@@ -14,11 +15,6 @@ export const AGENTS_SITE_URL =
   process.env.SMOKE_AGENTS_SITE_URL?.trim() || "https://agents.hypercli.com";
 export const AGENTS_API_URL =
   process.env.SMOKE_AGENTS_API_URL?.trim() || "https://api.agents.hypercli.com/api";
-
-export const STRIPE_TEST_CARD_NUMBER = "4242424242424242";
-export const STRIPE_TEST_EXPIRY = "1230";
-export const STRIPE_TEST_CVC = "123";
-export const STRIPE_TEST_NAME = "HyperCLI Smoke";
 
 const AUTH_COOKIE_NAME = "auth_token";
 
@@ -149,36 +145,9 @@ export async function loginToClaw(page: Page): Promise<void> {
 
 export async function completeStripeCheckout(
   page: Page,
-  email = requireEnv("TEST_EMAIL")
+  _email = requireEnv("TEST_EMAIL")
 ): Promise<void> {
-  await page.waitForURL(/stripe\.com/, { timeout: 30_000 });
-  await page.waitForLoadState("domcontentloaded");
-
-  const emailField = page.locator("#email");
-  if (await isVisible(emailField, 10_000)) {
-    await emailField.fill(email);
-  }
-
-  const cardNumber = page.locator("#cardNumber");
-  await expect(cardNumber).toBeVisible({ timeout: 15_000 });
-  await cardNumber.pressSequentially(STRIPE_TEST_CARD_NUMBER, { delay: 35 });
-
-  const cardExpiry = page.locator("#cardExpiry");
-  await expect(cardExpiry).toBeVisible({ timeout: 10_000 });
-  await cardExpiry.pressSequentially(STRIPE_TEST_EXPIRY, { delay: 35 });
-
-  const cardCvc = page.locator("#cardCvc");
-  await expect(cardCvc).toBeVisible({ timeout: 10_000 });
-  await cardCvc.pressSequentially(STRIPE_TEST_CVC, { delay: 35 });
-
-  const billingName = page.locator("#billingName");
-  if (await isVisible(billingName, 2_000)) {
-    await billingName.fill(STRIPE_TEST_NAME);
-  }
-
-  const submitButton = page.locator(".SubmitButton, button[type='submit']").first();
-  await expect(submitButton).toBeVisible({ timeout: 10_000 });
-  await submitButton.click();
+  await completeClawStripeCheckout(page);
 }
 
 export async function fetchClawCurrentPlan(page: Page): Promise<ClawPlan | null> {
