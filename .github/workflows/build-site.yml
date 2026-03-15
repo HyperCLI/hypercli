@@ -1,0 +1,38 @@
+name: Build Site
+run-name: Build Site
+
+on:
+  push:
+    branches: [main, dev]
+    paths:
+      - "site/**"
+  workflow_dispatch:
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+
+      - name: Build TS SDK
+        working-directory: ts-sdk
+        run: |
+          npm ci
+          npm run build
+
+      - name: Prepare site env
+        working-directory: site
+        run: |
+          cp env.dev apps/main/.env.local
+          cp env.dev apps/console/.env.local
+          cp env.dev apps/claw/.env.local
+
+      - name: Install and build
+        working-directory: site
+        run: |
+          npm install
+          npm run build
