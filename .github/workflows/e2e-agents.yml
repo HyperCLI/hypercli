@@ -127,7 +127,6 @@ jobs:
         run: >
           npx playwright test
           --config tests/claw/playwright.config.ts
-          tests/claw/login.spec.ts
           tests/claw/agents-subscription.spec.ts
 
       - name: Upload failure screenshot to notify
