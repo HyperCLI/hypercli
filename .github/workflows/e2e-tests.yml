@@ -86,6 +86,7 @@ jobs:
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
+            --workflow "E2E Console" \
             --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 

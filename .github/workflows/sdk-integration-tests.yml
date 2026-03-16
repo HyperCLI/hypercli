@@ -97,6 +97,7 @@ jobs:
             --status "${STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
+            --workflow "SDK Integration Tests" \
             --channel github \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
