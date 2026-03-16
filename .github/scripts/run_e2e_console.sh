@@ -30,13 +30,29 @@ show_logs() {
 wait_for_url() {
   local url="$1"
   local label="$2"
-  for _ in {1..90}; do
-    if curl -fsS "${url}" >/dev/null; then
+  local log_file="$3"
+  local pid="$4"
+
+  for _ in {1..120}; do
+    if ! kill -0 "${pid}" >/dev/null 2>&1; then
+      echo "${label} dev server exited before becoming ready" >&2
+      [[ -f "${log_file}" ]] && tail -n 200 "${log_file}" >&2 || true
+      return 1
+    fi
+
+    if [[ -f "${log_file}" ]] && grep -Eq "Ready in|✓ Ready" "${log_file}"; then
+      if curl -sS -o /dev/null "${url}"; then
+        return 0
+      fi
+    fi
+
+    if curl -sS -o /dev/null "${url}"; then
       return 0
     fi
     sleep 2
   done
   echo "${label} dev server did not become ready at ${url}" >&2
+  [[ -f "${log_file}" ]] && tail -n 200 "${log_file}" >&2 || true
   return 1
 }
 
@@ -92,16 +108,30 @@ CONSOLE_PID=$!
 npm run dev -- --filter=@hypercli/claw >"${CLAW_LOG}" 2>&1 &
 CLAW_PID=$!
 
-wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console"
-wait_for_url "${TEST_BASE_URL}" "Claw"
+wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console" "${CONSOLE_LOG}" "${CONSOLE_PID}"
+wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
-  tests/claw/console-login.spec.ts \
-  tests/claw/console-topup.spec.ts
-status=$?
+  --workers=1 \
+  tests/claw/console-login.spec.ts
+login_status=$?
+
+topup_status=0
+if [[ ${login_status} -eq 0 ]]; then
+  npx playwright test \
+    --config tests/claw/playwright.config.ts \
+    --workers=1 \
+    tests/claw/console-topup.spec.ts
+  topup_status=$?
+fi
 set -e
+
+status=0
+if [[ ${login_status} -ne 0 || ${topup_status} -ne 0 ]]; then
+  status=1
+fi
 
 if [[ ${status} -ne 0 ]]; then
   notify_failure_screenshot || true
