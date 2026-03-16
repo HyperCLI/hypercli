@@ -2,6 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ImapFlow } from "imapflow";
 import { expect, type Frame, type Locator, type Page } from "@playwright/test";
+import { HyperCLI } from "../../../../ts-sdk/dist/index.js";
 import { HyperAgent, type HyperAgentCurrentPlan } from "../../../../ts-sdk/dist/agent.js";
 import { HTTPClient } from "../../../../ts-sdk/dist/http.js";
 
@@ -584,33 +585,44 @@ export async function completeStripeCheckout(
 }
 
 async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
-  const apiBaseUrl = requireEnvValue("TEST_API_BASE_URL").replace(/\/$/, "");
-  const apiKey = requireEnvValue("TEST_API_KEY");
-
-  const response = await fetch(`${apiBaseUrl}${path}`, {
-    headers: {
-      Authorization: `Bearer ${apiKey}`,
-    },
-  });
-
-  if (!response.ok) {
-    throw new Error(`API request failed for ${path}: ${response.status} ${await response.text()}`);
+  const apiClient = getTopUpApiClient();
+  if (path === "/api/balance") {
+    return (await apiClient.billing.balance()) as T;
   }
 
-  return (await response.json()) as T;
+  if (path.startsWith("/api/tx")) {
+    const url = new URL(path, "https://placeholder.invalid");
+    const page = Number.parseInt(url.searchParams.get("page") || "1", 10);
+    const pageSize = Number.parseInt(url.searchParams.get("page_size") || "20", 10);
+    return (await apiClient.billing.listTransactions({ page, pageSize })) as T;
+  }
+
+  throw new Error(`Unsupported API SDK path: ${path}`);
+}
+
+let topUpApiClient: HyperCLI | null = null;
+
+function getTopUpApiClient(): HyperCLI {
+  if (!topUpApiClient) {
+    topUpApiClient = new HyperCLI({
+      apiKey: requireEnvValue("TEST_API_KEY"),
+      apiUrl: requireEnvValue("TEST_API_BASE_URL"),
+    });
+  }
+  return topUpApiClient;
 }
 
 export async function fetchBalanceSnapshot(): Promise<BillingBalanceSnapshot> {
   const data = await fetchJsonWithApiKey<{
-    available_balance: string;
-    total_balance: string;
+    available: string;
+    total: string;
   }>("/api/balance");
 
   return {
-    availableBalance: parseDollarAmount(data.available_balance || "0"),
-    availableBalanceText: data.available_balance || "0",
-    totalBalance: parseDollarAmount(data.total_balance || "0"),
-    totalBalanceText: data.total_balance || "0",
+    availableBalance: parseDollarAmount(data.available || "0"),
+    availableBalanceText: data.available || "0",
+    totalBalance: parseDollarAmount(data.total || "0"),
+    totalBalanceText: data.total || "0",
   };
 }
 
@@ -618,19 +630,19 @@ export async function fetchTransactionSnapshots(limit = 20): Promise<BillingTran
   const data = await fetchJsonWithApiKey<{
     transactions?: Array<{
       id: string;
-      amount_usd: string;
-      transaction_type: string;
+      amountUsd: string;
+      transactionType: string;
       status: string;
-      created_at: string;
+      createdAt: string;
     }>;
   }>(`/api/tx?page=1&page_size=${limit}`);
 
   return (data.transactions || []).map((transaction) => ({
     id: transaction.id,
-    amountUsd: parseDollarAmount(transaction.amount_usd || "0"),
-    transactionType: transaction.transaction_type || "",
+    amountUsd: parseDollarAmount(transaction.amountUsd || "0"),
+    transactionType: transaction.transactionType || "",
     status: transaction.status || "",
-    createdAt: transaction.created_at || "",
+    createdAt: transaction.createdAt || "",
   }));
 }
 
