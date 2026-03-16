@@ -268,6 +268,75 @@ h1, h2, h3, h4, h5, h6 {
   }
 }
 
+@media print {
+  html,
+  body {
+    background: #ffffff !important;
+    color: #161819 !important;
+  }
+
+  body {
+    overflow: visible !important;
+  }
+
+  .billing-document {
+    border: 0 !important;
+    box-shadow: none !important;
+    background: #ffffff !important;
+    color: #161819 !important;
+  }
+
+  .billing-document__header,
+  .billing-document__dates {
+    display: grid !important;
+    grid-template-columns: minmax(0, 1fr) auto !important;
+    align-items: start !important;
+  }
+
+  .billing-document__dates {
+    grid-template-columns: 1fr 1fr auto !important;
+  }
+
+  .billing-document__dates--receipt {
+    grid-template-columns: 1fr 1fr minmax(0, 1fr) auto !important;
+  }
+
+  .billing-document__parties {
+    display: grid !important;
+    grid-template-columns: 1fr 1fr !important;
+    gap: 0 !important;
+  }
+
+  .billing-document__parties > * {
+    padding-top: 0 !important;
+  }
+
+  .billing-document__parties > *:first-child {
+    padding-right: 2rem !important;
+    padding-bottom: 0 !important;
+    border-right: 1px solid #d7d1c6 !important;
+  }
+
+  .billing-document__parties > *:last-child {
+    padding-left: 2rem !important;
+  }
+
+  .billing-document__footer {
+    display: grid !important;
+    grid-template-columns: 1fr 1.2fr !important;
+    gap: 1.5rem !important;
+    align-items: start !important;
+  }
+
+  .billing-page-chrome,
+  .print-actions {
+    display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
+  }
+}
+
 .glow-green {
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.4);
 }

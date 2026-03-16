@@ -15,6 +15,7 @@ import {
   TableRow,
 } from "../components/ui/table";
 import { formatDate, formatDateTimeShort } from "../utils/datetime";
+import { formatUsdAmount } from "./format";
 import { InvoiceRecord } from "./types";
 import { InvoiceStatusBadge } from "./InvoiceStatusBadge";
 
@@ -78,7 +79,7 @@ export function InvoiceList({
                       <InvoiceStatusBadge status={invoice.status} />
                     </TableCell>
                     <TableCell className="align-top font-medium text-foreground">
-                      ${invoice.amountUsd}
+                      {formatUsdAmount(invoice.amountUsd)}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
                       {invoice.dueDate ? formatDate(invoice.dueDate) : "—"}

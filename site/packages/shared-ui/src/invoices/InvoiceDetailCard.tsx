@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { formatDate, formatDateTimeShort } from "../utils/datetime";
 import { getTypeBadgeClass } from "../utils/badges";
+import { formatUsdAmount } from "./format";
 import { InvoiceStatusBadge } from "./InvoiceStatusBadge";
 import { PrintActions } from "./PrintActions";
 import { InvoiceRecord } from "./types";
@@ -22,7 +23,7 @@ export function InvoiceDetailCard({
 
   return (
     <article className="billing-document mx-auto max-w-5xl overflow-hidden rounded-[28px] border border-[#2a2d2f] bg-[#111314] text-[#f7f3eb] shadow-[0_32px_120px_rgba(0,0,0,0.35)] print:max-w-none print:rounded-none print:border-0 print:bg-white print:text-[#161819] print:shadow-none">
-      <div className="border-b border-[#222527] px-8 py-8 print:border-[#d7d1c6] print:px-0">
+      <div className="px-8 py-8 print:px-0">
         <div className="billing-document__header grid gap-6 md:grid-cols-[minmax(0,1fr)_auto] md:items-start">
           <div className="space-y-4">
             <div className="flex items-center gap-3">
@@ -53,7 +54,7 @@ export function InvoiceDetailCard({
         </div>
       </div>
 
-      <div className="border-b border-[#222527] px-8 py-6 print:border-[#d7d1c6] print:px-0">
+      <div className="px-8 py-6 print:px-0">
         <div className="billing-document__dates grid gap-6 md:grid-cols-[1fr_1fr_auto] md:items-start">
           <div>
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f9699] print:text-[#6e675d]">
@@ -75,7 +76,7 @@ export function InvoiceDetailCard({
         </div>
       </div>
 
-      <div className="border-b border-[#222527] px-8 py-6 print:border-[#d7d1c6] print:px-0">
+      <div className="px-8 py-6 print:px-0">
         <div className="billing-document__parties grid gap-0 md:grid-cols-2 md:divide-x md:divide-[#222527] print:md:divide-[#d7d1c6]">
           <section className="pb-6 md:pr-8 md:pb-0">
             <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f9699] print:text-[#6e675d]">
@@ -103,6 +104,12 @@ export function InvoiceDetailCard({
       <div className="px-8 py-6 print:px-0">
         <div className="overflow-hidden rounded-2xl border border-[#222527] print:border-[#d7d1c6]">
           <table className="min-w-full divide-y divide-[#222527] print:divide-[#d7d1c6]">
+            <colgroup>
+              <col />
+              <col style={{ width: "80px" }} />
+              <col style={{ width: "140px" }} />
+              <col style={{ width: "140px" }} />
+            </colgroup>
             <thead className="bg-[#111314] print:bg-white">
               <tr>
                 <th className="px-5 py-4 text-left text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f9699] print:text-[#6e675d]">
@@ -152,10 +159,10 @@ export function InvoiceDetailCard({
                     </td>
                     <td className="px-5 py-5 align-top text-lg text-[#f7f3eb] print:text-[#161819]">1</td>
                     <td className="px-5 py-5 align-top text-lg text-[#f7f3eb] print:text-[#161819]">
-                      ${tx.amountUsd}
+                      {formatUsdAmount(tx.amountUsd)}
                     </td>
-                    <td className="px-5 py-5 align-top text-lg font-semibold text-[#f7f3eb] print:text-[#161819]">
-                      ${tx.amountUsd}
+                    <td className="px-5 py-5 align-top text-lg text-[#f7f3eb] print:text-[#161819]">
+                      {formatUsdAmount(tx.amountUsd)}
                     </td>
                   </tr>
                 ))
@@ -170,27 +177,28 @@ export function InvoiceDetailCard({
                 </tr>
               )}
             </tbody>
+            <tfoot className="bg-[#111314] print:bg-white">
+              <tr>
+                <td className="px-5 py-2" colSpan={2} />
+                <td className="px-5 py-2 text-lg text-[#b5babd] print:text-[#5f584e]">Subtotal</td>
+                <td className="px-5 py-2 text-lg text-[#b5babd] print:text-[#5f584e]">
+                  {formatUsdAmount(invoice.amountUsd)}
+                </td>
+              </tr>
+              <tr>
+                <td className="px-5 py-2" colSpan={2} />
+                <td className="px-5 py-2 text-[13px] font-semibold uppercase tracking-[0.2em] text-[#8f9699] print:text-[#6e675d]">
+                  Total
+                </td>
+                <td className="px-5 py-2 text-lg font-bold text-[#f7f3eb] print:text-[#161819]">
+                  {formatUsdAmount(invoice.amountUsd)}
+                </td>
+              </tr>
+            </tfoot>
           </table>
         </div>
 
-        <div className="mt-8 flex justify-end">
-          <div className="w-full max-w-sm space-y-4">
-            <div className="flex items-center justify-between text-lg text-[#b5babd] print:text-[#5f584e]">
-              <span>Subtotal</span>
-              <span>${invoice.amountUsd}</span>
-            </div>
-            <div className="border-t border-[#222527] pt-4 print:border-[#d7d1c6]">
-              <div className="flex items-center justify-between">
-                <span className="text-[13px] font-semibold uppercase tracking-[0.2em] text-[#8f9699] print:text-[#6e675d]">
-                  Total
-                </span>
-                <span className="text-4xl font-bold tracking-tight">${invoice.amountUsd}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        <div className="mt-10 border-t border-[#222527] pt-6 print:border-[#d7d1c6]">
+        <div className="mt-10 pt-6 print:mt-6 print:pt-3">
           <p className="text-[11px] font-semibold uppercase tracking-[0.24em] text-[#8f9699] print:text-[#6e675d]">
             Notes
           </p>

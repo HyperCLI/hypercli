@@ -30,6 +30,7 @@ const navItems = [
   { label: "Agents", href: "/dashboard/agents", icon: Bot },
   { label: "API Keys", href: "/dashboard/keys", icon: Key, mobileLabel: "Keys" },
   { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
+  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 

@@ -130,19 +130,11 @@ export default function BillingInvoiceDetailPage() {
         <Header />
       </div>
       <main className="flex-1 pt-20 relative print:pt-0">
-        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12 space-y-8">
-          <div className="billing-page-chrome flex flex-col gap-3 print:hidden">
+        <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 py-12 print:px-0 print:py-0">
+          <div className="billing-page-chrome print:hidden">
             <Link href="/billing" className="text-sm font-medium text-primary hover:underline">
               ← Back to billing
             </Link>
-            <div>
-              <h1 className="text-4xl font-bold text-foreground">
-                {receipt ? "Receipt" : "Invoice"}
-              </h1>
-              <p className="text-muted-foreground">
-                UUID-backed billing detail view for Console receipts and enterprise invoices.
-              </p>
-            </div>
           </div>
 
           {loading ? (

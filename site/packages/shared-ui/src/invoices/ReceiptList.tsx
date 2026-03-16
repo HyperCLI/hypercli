@@ -16,6 +16,7 @@ import {
 } from "../components/ui/table";
 import { formatDateTimeShort } from "../utils/datetime";
 import { getTypeBadgeClass } from "../utils/badges";
+import { formatUsdAmount } from "./format";
 import { InvoiceStatusBadge } from "./InvoiceStatusBadge";
 import type { ReceiptRecord } from "./types";
 
@@ -25,6 +26,7 @@ interface ReceiptListProps {
   description?: string;
   emptyTitle?: string;
   emptyDescription?: string;
+  formatAmount?: (receipt: ReceiptRecord) => string;
   renderActions?: (receipt: ReceiptRecord) => ReactNode;
   renderMeta?: (receipt: ReceiptRecord) => ReactNode;
 }
@@ -35,6 +37,7 @@ export function ReceiptList({
   description = "Top-ups and usage charges tied to your Console account.",
   emptyTitle = "No receipts yet",
   emptyDescription = "Completed top-ups and charges will appear here.",
+  formatAmount = (receipt) => formatUsdAmount(receipt.amountUsd),
   renderActions,
   renderMeta,
 }: ReceiptListProps) {
@@ -84,7 +87,7 @@ export function ReceiptList({
                       <InvoiceStatusBadge status={receipt.status} />
                     </TableCell>
                     <TableCell className="align-top font-medium text-foreground">
-                      ${receipt.amountUsd}
+                      {formatAmount(receipt)}
                     </TableCell>
                     <TableCell className="align-top text-sm text-muted-foreground">
                       {formatDateTimeShort(receipt.createdAt)}

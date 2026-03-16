@@ -422,6 +422,10 @@ img.emoji {
     grid-template-columns: 1fr 1fr auto !important;
   }
 
+  .billing-document__dates--receipt {
+    grid-template-columns: 1fr 1fr minmax(0, 1fr) auto !important;
+  }
+
   .billing-document__parties {
     display: grid !important;
     grid-template-columns: 1fr 1fr !important;
@@ -442,8 +446,18 @@ img.emoji {
     padding-left: 2rem !important;
   }
 
+  .billing-document__footer {
+    display: grid !important;
+    grid-template-columns: 1fr 1.2fr !important;
+    gap: 1.5rem !important;
+    align-items: start !important;
+  }
+
   .billing-page-chrome,
   .print-actions {
     display: none !important;
+    visibility: hidden !important;
+    height: 0 !important;
+    overflow: hidden !important;
   }
 }
