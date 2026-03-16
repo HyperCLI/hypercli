@@ -60,6 +60,40 @@ export interface ConsoleApiKey {
   last_used_at: string | null;
 }
 
+export interface ConsoleInvoiceTransaction {
+  id: string;
+  user_id: string;
+  amount: number;
+  amount_usd: string;
+  transaction_type: string;
+  status: string;
+  meta: Record<string, any> | null;
+  created_at: string | number;
+  updated_at: string | number;
+}
+
+export interface ConsoleInvoice {
+  id: string;
+  invoice_id: string | null;
+  user_id: string;
+  amount: number;
+  amount_usd: string;
+  status: string;
+  notes: string | null;
+  due_date: string | number | null;
+  meta: Record<string, any> | null;
+  created_at: string | number;
+  updated_at: string | number;
+  transactions: ConsoleInvoiceTransaction[];
+}
+
+export interface ConsoleInvoicesResponse {
+  invoices: ConsoleInvoice[];
+  total_count: number;
+  page: number;
+  page_size: number;
+}
+
 function getAuthToken(): string | null {
   if (typeof document === "undefined") return null;
   return (
@@ -73,6 +107,40 @@ function getAuthToken(): string | null {
 function getApiBaseUrl(): string {
   const authBackend = getAuthBackendUrl();
   return authBackend.replace(/\/api\/?$/, "");
+}
+
+async function consoleApiGet<T>(path: string, params?: Record<string, string>): Promise<T> {
+  const token = getAuthToken();
+  if (!token) {
+    throw new Error("No auth token found");
+  }
+
+  const base = getAuthBackendUrl().replace(/\/$/, "");
+  const url = new URL(`${base}${path}`, window.location.origin);
+  if (params) {
+    for (const [key, value] of Object.entries(params)) {
+      url.searchParams.set(key, value);
+    }
+  }
+
+  const response = await fetch(url.toString(), {
+    headers: {
+      Authorization: `Bearer ${token}`,
+      Accept: "application/json",
+    },
+    credentials: "include",
+  });
+
+  if (!response.ok) {
+    let detail = response.statusText;
+    try {
+      const data = await response.json();
+      detail = data.detail || detail;
+    } catch {}
+    throw new Error(detail || `Request failed: ${response.status}`);
+  }
+
+  return response.json() as Promise<T>;
 }
 
 function requireClient(): BrowserHyperCLI {
@@ -168,6 +236,38 @@ export async function getConsoleTransactions(options: {
   };
 }
 
+export async function getConsoleTransaction(transactionId: string): Promise<ConsoleTransaction> {
+  const tx = await consoleApiGet<{
+    id: string;
+    user_id: string;
+    amount: number;
+    amount_usd: string;
+    transaction_type: string;
+    status: string;
+    rewards: boolean;
+    expires_at: string | null;
+    job_id: string | null;
+    meta: Record<string, any> | null;
+    created_at: string;
+    updated_at: string;
+  }>(`/tx/${transactionId}`);
+
+  return {
+    id: tx.id,
+    user_id: tx.user_id,
+    amount: tx.amount,
+    amount_usd: tx.amount_usd,
+    transaction_type: tx.transaction_type,
+    status: tx.status,
+    rewards: tx.rewards,
+    expires_at: tx.expires_at,
+    job_id: tx.job_id,
+    meta: tx.meta,
+    created_at: tx.created_at,
+    updated_at: tx.updated_at,
+  };
+}
+
 export async function getConsoleApiKeys(): Promise<ConsoleApiKey[]> {
   const keys = await requireClient().keys.list();
   return keys.map((key) => ({
@@ -198,4 +298,122 @@ export async function createConsoleApiKey(name: string): Promise<ConsoleApiKey> 
 
 export async function disableConsoleApiKey(keyId: string): Promise<void> {
   await requireClient().keys.disable(keyId);
+}
+
+export async function getConsoleInvoices(options: {
+  page?: number;
+  pageSize?: number;
+} = {}): Promise<ConsoleInvoicesResponse> {
+  const data = await consoleApiGet<{
+    invoices: Array<{
+      id: string;
+      invoice_id: string | null;
+      user_id: string;
+      amount: number;
+      amount_usd: string;
+      status: string;
+      notes: string | null;
+      due_date: string | number | null;
+      meta: Record<string, any> | null;
+      created_at: string | number;
+      updated_at: string | number;
+      transactions: Array<{
+        id: string;
+        user_id: string;
+        amount: number;
+        amount_usd: string;
+        transaction_type: string;
+        status: string;
+        meta: Record<string, any> | null;
+        created_at: string | number;
+        updated_at: string | number;
+      }>;
+    }>;
+    total_count: number;
+    page: number;
+    page_size: number;
+  }>("/billing/invoices", {
+    page: String(options.page ?? 1),
+    page_size: String(options.pageSize ?? 50),
+  });
+  return {
+    invoices: data.invoices.map((invoice) => ({
+      id: invoice.id,
+      invoice_id: invoice.invoice_id,
+      user_id: invoice.user_id,
+      amount: invoice.amount,
+      amount_usd: invoice.amount_usd,
+      status: invoice.status,
+      notes: invoice.notes,
+      due_date: invoice.due_date,
+      meta: invoice.meta,
+      created_at: invoice.created_at,
+      updated_at: invoice.updated_at,
+      transactions: invoice.transactions.map((tx) => ({
+        id: tx.id,
+        user_id: tx.user_id,
+        amount: tx.amount,
+        amount_usd: tx.amount_usd,
+        transaction_type: tx.transaction_type,
+        status: tx.status,
+        meta: tx.meta,
+        created_at: tx.created_at,
+        updated_at: tx.updated_at,
+      })),
+    })),
+    total_count: data.total_count,
+    page: data.page,
+    page_size: data.page_size,
+  };
+}
+
+export async function getConsoleInvoice(invoiceId: string): Promise<ConsoleInvoice> {
+  const invoice = await consoleApiGet<{
+    id: string;
+    invoice_id: string | null;
+    user_id: string;
+    amount: number;
+    amount_usd: string;
+    status: string;
+    notes: string | null;
+    due_date: string | number | null;
+    meta: Record<string, any> | null;
+    created_at: string | number;
+    updated_at: string | number;
+    transactions: Array<{
+      id: string;
+      user_id: string;
+      amount: number;
+      amount_usd: string;
+      transaction_type: string;
+      status: string;
+      meta: Record<string, any> | null;
+      created_at: string | number;
+      updated_at: string | number;
+    }>;
+  }>(`/billing/invoices/${invoiceId}`);
+  return {
+    id: invoice.id,
+    invoice_id: invoice.invoice_id,
+    user_id: invoice.user_id,
+    amount: invoice.amount,
+    amount_usd: invoice.amount_usd,
+    status: invoice.status,
+    notes: invoice.notes,
+    due_date: invoice.due_date,
+    meta: invoice.meta,
+    created_at: invoice.created_at,
+    updated_at: invoice.updated_at,
+    transactions: invoice.transactions.map((tx) => ({
+      id: tx.id,
+      user_id: tx.user_id,
+      amount: tx.amount,
+      amount_usd: tx.amount_usd,
+      transaction_type: tx.transaction_type,
+      status: tx.status,
+      meta: tx.meta,
+      created_at: tx.created_at,
+      updated_at: tx.updated_at,
+    })),
+  };
 }

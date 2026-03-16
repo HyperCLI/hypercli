@@ -328,6 +328,16 @@ export { RainbowKitProvider } from "./providers/RainbowKitProvider";
 export { WalletAuth } from "./components/WalletAuth";
 export { TopUpModal } from "./components/TopUpModal";
 
+// Invoice Components
+export { InvoiceList } from "./invoices/InvoiceList";
+export { InvoiceDetailCard } from "./invoices/InvoiceDetailCard";
+export { InvoiceSummaryCard } from "./invoices/InvoiceSummaryCard";
+export { InvoiceStatusBadge } from "./invoices/InvoiceStatusBadge";
+export { ReceiptList } from "./invoices/ReceiptList";
+export { ReceiptDetailCard } from "./invoices/ReceiptDetailCard";
+export { PrintActions } from "./invoices/PrintActions";
+export type { InvoiceRecord, InvoiceTransaction, ReceiptRecord } from "./invoices/types";
+
 // Utils
 export {
   AUTH_LOGOUT_COOKIE,
