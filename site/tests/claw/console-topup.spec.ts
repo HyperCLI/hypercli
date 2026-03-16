@@ -4,29 +4,29 @@ import { expect, test } from "@playwright/test";
 import {
   captureStep,
   completeStripeCheckout,
-  fetchBalanceSnapshot,
   loginToConsoleWithPrivy,
-  waitForTopUpSettlement,
+  parseDollarAmount,
 } from "./fixtures/auth";
 
 loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
-const liveConsoleBaseUrl =
+const consoleBaseUrl =
   process.env.TEST_TOPUP_CONSOLE_BASE_URL?.trim() ||
-  process.env.TEST_PROD_CONSOLE_BASE_URL?.trim() ||
-  "https://console.hypercli.com";
+  process.env.TEST_CONSOLE_BASE_URL?.trim() ||
+  "http://127.0.0.1:4001";
 
-test("tops up the Console balance by $10 and verifies settlement via API", async ({ page }) => {
+test("tops up the Console balance by $10 and verifies the updated dashboard balance", async ({ page }) => {
   test.setTimeout(300_000);
 
-  const initialBalance = await fetchBalanceSnapshot();
-  await loginToConsoleWithPrivy(page, liveConsoleBaseUrl);
+  await loginToConsoleWithPrivy(page, consoleBaseUrl);
 
   const availableBalanceValue = page
     .getByRole("heading", { name: /available balance/i })
     .locator("xpath=following-sibling::p[1]");
 
   await expect(availableBalanceValue).toBeVisible({ timeout: 20_000 });
+  const initialBalanceText = (await availableBalanceValue.textContent())?.trim() || "$0";
+  const initialBalance = parseDollarAmount(initialBalanceText);
 
   await page.getByRole("button", { name: /^top up$/i }).click();
   await expect(page.getByRole("heading", { name: /top up balance/i })).toBeVisible();
@@ -40,19 +40,29 @@ test("tops up the Console balance by $10 and verifies settlement via API", async
   await expect(payButton).toBeVisible({ timeout: 15_000 });
   await payButton.click();
 
-  const checkoutSubmittedAt = new Date();
   await completeStripeCheckout(page);
   await captureStep(page, "console-06-checkout-submitted");
 
-  const result = await waitForTopUpSettlement(initialBalance, checkoutSubmittedAt, 10);
-  expect(result.balance.availableBalance).toBeGreaterThanOrEqual(initialBalance.availableBalance + 10);
-
-  if (!page.url().includes(new URL(liveConsoleBaseUrl).host) || !page.url().includes("/dashboard")) {
-    await page.goto(`${liveConsoleBaseUrl}/dashboard`, { waitUntil: "networkidle" });
+  if (!page.url().includes(new URL(consoleBaseUrl).host) || !page.url().includes("/dashboard")) {
+    await page.goto(`${consoleBaseUrl}/dashboard`, { waitUntil: "networkidle" });
   } else {
     await page.waitForLoadState("networkidle");
   }
 
-  await expect(page.getByText(/top up/i).first()).toBeVisible();
+  await expect
+    .poll(
+      async () => {
+        const balanceText = (await availableBalanceValue.textContent())?.trim() || "";
+        return parseDollarAmount(balanceText);
+      },
+      {
+        message: "Waiting for Console dashboard balance to reflect the $10 top-up",
+        timeout: 120_000,
+        intervals: [2_000, 5_000, 10_000],
+      }
+    )
+    .toBeGreaterThanOrEqual(initialBalance + 10);
+
+  await expect(page.getByRole("button", { name: /^top up$/i })).toBeVisible();
   await captureStep(page, "console-07-balance-updated");
 });

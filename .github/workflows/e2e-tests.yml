@@ -20,14 +20,12 @@ jobs:
     env:
       TEST_BASE_URL: http://127.0.0.1:4003
       TEST_CONSOLE_BASE_URL: http://127.0.0.1:4001
-      TEST_TOPUP_CONSOLE_BASE_URL: https://console.hypercli.com
+      TEST_TOPUP_CONSOLE_BASE_URL: http://127.0.0.1:4001
       TEST_HOSTNAME: 127.0.0.1
       TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
-      TEST_API_BASE_URL: https://api.hypercli.com
-      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
       NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
