@@ -95,7 +95,10 @@ export default function BillingPage() {
         ]);
         if (!cancelled) {
           setReceipts(data.items.map(mapPayment));
-          setCompanyLines(profile.company_billing_lines || []);
+          setCompanyLines([
+            ...(profile.company_billing?.address || []),
+            profile.company_billing?.email || "support@hypercli.com",
+          ]);
           setBillingProfile({
             billing_name: profile.profile?.billing_name ?? "",
             billing_company: profile.profile?.billing_company ?? "",
@@ -147,7 +150,10 @@ export default function BillingPage() {
         billing_postal_code: result.profile?.billing_postal_code ?? "",
         billing_country: result.profile?.billing_country ?? "",
       });
-      setCompanyLines(result.company_billing_lines || []);
+      setCompanyLines([
+        ...(result.company_billing?.address || []),
+        result.company_billing?.email || "support@hypercli.com",
+      ]);
       setSaveMessage(
         result.synced_stripe_customer_ids?.length
           ? `Saved and synced ${result.synced_stripe_customer_ids.length} Stripe customer${result.synced_stripe_customer_ids.length === 1 ? "" : "s"}.`

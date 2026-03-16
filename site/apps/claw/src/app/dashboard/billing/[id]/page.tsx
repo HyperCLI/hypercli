@@ -92,6 +92,7 @@ export default function BillingDetailPage() {
 
         const nextReceipt = mapPayment(payment);
         const profile: AgentBillingProfileFields | null = billing.profile;
+        const supportEmail = billing.company_billing?.email || "support@hypercli.com";
         const locality = [
           profile?.billing_city,
           profile?.billing_state,
@@ -110,7 +111,10 @@ export default function BillingDetailPage() {
 
         setReceipt(nextReceipt);
         setPaidByLines(nextPaidByLines);
-        setFromLines(billing.company_billing_lines?.length ? billing.company_billing_lines : fromLines);
+        setFromLines([
+          ...(billing.company_billing?.address?.length ? billing.company_billing.address : ["HyperCLI Agents", "Agents billing"]),
+          supportEmail,
+        ]);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load receipt");

@@ -58,8 +58,10 @@ export interface AgentBillingProfileFields {
 }
 
 export interface AgentBillingProfileResponse {
-  company_billing_lines: string[];
-  support_email: string;
+  company_billing: {
+    address: string[];
+    email: string;
+  };
   profile: AgentBillingProfileFields | null;
   synced_stripe_customer_ids?: string[];
 }
