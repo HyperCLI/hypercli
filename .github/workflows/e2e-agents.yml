@@ -12,7 +12,7 @@ jobs:
     runs-on: self-hosted
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
-      options: --ipc=host
+      options: --ipc=host -v /home/ubuntu:/home/ubuntu
     timeout-minutes: 45
     defaults:
       run:
@@ -26,7 +26,6 @@ jobs:
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
-      TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: https://api.hypercli.com/notify/notify
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +37,39 @@ jobs:
           cache-dependency-path: |
             ts-sdk/package-lock.json
             site/package-lock.json
+
+      - name: Bootstrap Pulumi env
+        env:
+          HOME: /home/ubuntu
+        run: |
+          set -euo pipefail
+          export PATH="/home/ubuntu/.pulumi/bin:$PATH"
+          echo "/home/ubuntu/.pulumi/bin" >> "$GITHUB_PATH"
+
+          DEV_STACK="organization/hyperclaw-pulumi-api-k8s/dev"
+          PROD_STACK="organization/hyperclaw-pulumi-api-k8s/prod"
+          PULUMI_DIR="/home/ubuntu/dev/hyperclaw-backend/pulumi-api-k8s"
+
+          cd "$PULUMI_DIR"
+          pulumi stack ls -Q | grep -Fx "$DEV_STACK" >/dev/null
+          pulumi stack ls -Q | grep -Fx "$PROD_STACK" >/dev/null
+
+          DEV_STRIPE_SECRET_KEY="$(pulumi config get stripe_secret_key -s "$DEV_STACK")"
+          DEV_STRIPE_WEBHOOK_SECRET="$(pulumi config get webhook_secret -s "$DEV_STACK")"
+          PROD_STRIPE_SECRET_KEY="$(pulumi config get stripe_secret_key -s "$PROD_STACK")"
+          PROD_STRIPE_WEBHOOK_SECRET="$(pulumi config get webhook_secret -s "$PROD_STACK")"
+
+          echo "::add-mask::$DEV_STRIPE_SECRET_KEY"
+          echo "::add-mask::$DEV_STRIPE_WEBHOOK_SECRET"
+          echo "::add-mask::$PROD_STRIPE_SECRET_KEY"
+          echo "::add-mask::$PROD_STRIPE_WEBHOOK_SECRET"
+
+          {
+            echo "TEST_STRIPE_AGENTS_SECRET_KEY=$DEV_STRIPE_SECRET_KEY"
+            echo "TEST_STRIPE_DEV_WEBHOOK_SECRET=$DEV_STRIPE_WEBHOOK_SECRET"
+            echo "TEST_STRIPE_PROD_SECRET_KEY=$PROD_STRIPE_SECRET_KEY"
+            echo "TEST_STRIPE_PROD_WEBHOOK_SECRET=$PROD_STRIPE_WEBHOOK_SECRET"
+          } >> "$GITHUB_ENV"
 
       - name: Build TS SDK
         working-directory: ts-sdk
