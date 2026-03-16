@@ -9,7 +9,12 @@ import {
 } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 
-import { getAgentPayment, type AgentPayment } from "@/lib/billing";
+import {
+  getAgentBillingProfile,
+  getAgentPayment,
+  type AgentBillingProfileFields,
+  type AgentPayment,
+} from "@/lib/billing";
 
 function formatAgentsAmount(receipt: ReceiptRecord): string {
   const method = String(receipt.meta?.payment_method || "").toLowerCase();
@@ -60,6 +65,11 @@ export default function BillingDetailPage() {
   const { getToken } = useAgentAuth();
   const params = useParams<{ id: string }>();
   const [receipt, setReceipt] = useState<ReceiptRecord | null>(null);
+  const [fromLines, setFromLines] = useState<string[]>([
+    "HyperCLI Agents",
+    "Agents billing",
+    "support@hypercli.com",
+  ]);
   const [paidByLines, setPaidByLines] = useState<string[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -72,19 +82,35 @@ export default function BillingDetailPage() {
       setError(null);
       try {
         const token = await getToken();
-        const payment = await getAgentPayment(token, params.id);
+        const [payment, billing] = await Promise.all([
+          getAgentPayment(token, params.id),
+          getAgentBillingProfile(token),
+        ]);
         if (cancelled) {
           return;
         }
 
         const nextReceipt = mapPayment(payment);
+        const profile: AgentBillingProfileFields | null = billing.profile;
+        const locality = [
+          profile?.billing_city,
+          profile?.billing_state,
+          profile?.billing_postal_code,
+        ].filter(Boolean).join(", ");
         const nextPaidByLines = [
-          payment.user?.email || "Authenticated Agents account",
-          payment.user?.wallet_address || payment.user_id,
-        ].filter(Boolean);
+          profile?.billing_company || profile?.billing_name || payment.user?.email || "Authenticated Agents account",
+          profile?.billing_company && profile?.billing_name ? profile.billing_name : null,
+          profile?.billing_line1,
+          profile?.billing_line2,
+          locality || null,
+          profile?.billing_country,
+          profile?.billing_tax_id ? `Tax ID: ${profile.billing_tax_id}` : null,
+          payment.user?.email,
+        ].filter(Boolean) as string[];
 
         setReceipt(nextReceipt);
         setPaidByLines(nextPaidByLines);
+        setFromLines(billing.company_billing_lines?.length ? billing.company_billing_lines : fromLines);
       } catch (err) {
         if (!cancelled) {
           setError(err instanceof Error ? err.message : "Failed to load receipt");
@@ -122,9 +148,10 @@ export default function BillingDetailPage() {
           title="Receipt"
           formatAmount={formatAgentsAmount}
           fromLabel="Receipt from"
-          fromLines={["HyperCLI Agents", "Agents billing", "mail.hypercli.com", "support@hypercli.com"]}
+          fromLines={fromLines}
           paidByLabel="Paid by"
           paidByLines={paidByLines.length > 0 ? paidByLines : ["Authenticated Agents account", receipt.userId || "—"]}
+          paidByMonospaceLastLine={false}
           noteTitle="Accounting note"
           noteText="This receipt reflects Agents subscription billing activity. Save it as a PDF if you need a durable accounting record."
         />

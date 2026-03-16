@@ -12,6 +12,7 @@ interface ReceiptDetailCardProps {
   fromLines?: string[];
   paidByLabel?: string;
   paidByLines?: string[];
+  paidByMonospaceLastLine?: boolean;
   noteTitle?: string;
   noteText?: string;
 }
@@ -60,6 +61,7 @@ export function ReceiptDetailCard({
   fromLines = ["HyperCLI", "Console billing", "mail.hypercli.com", "support@hypercli.com"],
   paidByLabel = "Paid by",
   paidByLines = ["Authenticated Console account", receipt.userId || "—"],
+  paidByMonospaceLastLine = true,
   noteTitle = "Accounting note",
   noteText = "This receipt reflects account funding or usage activity captured in HyperCLI billing. Save it as a PDF if you need a stable accounting artifact.",
 }: ReceiptDetailCardProps) {
@@ -131,7 +133,13 @@ export function ReceiptDetailCard({
               {paidByLines.map((line, index) => (
                 <p
                   key={`${line}-${index}`}
-                  className={index === 0 ? "font-semibold" : index === paidByLines.length - 1 ? "font-mono text-sm break-all" : undefined}
+                  className={
+                    index === 0
+                      ? "font-semibold"
+                      : paidByMonospaceLastLine && index === paidByLines.length - 1
+                        ? "font-mono text-sm break-all"
+                        : undefined
+                  }
                 >
                   {line}
                 </p>

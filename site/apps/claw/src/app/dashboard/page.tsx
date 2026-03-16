@@ -41,6 +41,8 @@ interface PlanInfo {
   aiu: number;
   features: string[];
   expires_at: string | null;
+  provider?: string | null;
+  seconds_remaining?: number | null;
   limits: PlanLimits;
 }
 
@@ -123,6 +125,17 @@ function stateDotClass(state: AgentState): string {
   }
 }
 
+function x402CountdownTone(secondsRemaining: number): string {
+  const days = secondsRemaining / 86400;
+  if (days > 5) return "border-[#38D39F]/45 text-[#38D39F] bg-[#38D39F]/8";
+  if (days > 2) return "border-[#f0c56c]/45 text-[#f0c56c] bg-[#f0c56c]/10";
+  return "border-[#d05f5f]/45 text-[#d05f5f] bg-[#d05f5f]/10";
+}
+
+function x402CountdownLabel(secondsRemaining: number): string {
+  return String(Math.max(0, Math.ceil(secondsRemaining / 86400)));
+}
+
 // ── Main component ──
 
 export default function DashboardPage() {
@@ -199,9 +212,23 @@ export default function DashboardPage() {
               <span className="text-xs bg-surface-high text-text-secondary px-2 py-0.5 rounded-full font-medium">
                 {plan.name}
               </span>
+              {plan.provider === "X402" && typeof plan.seconds_remaining === "number" && plan.seconds_remaining > 0 && (
+                <div className="flex items-center gap-2">
+                  <div
+                    className={`w-9 h-9 rounded-full border flex items-center justify-center font-semibold text-xs ${x402CountdownTone(plan.seconds_remaining)}`}
+                    title={`${x402CountdownLabel(plan.seconds_remaining)} days left`}
+                  >
+                    {x402CountdownLabel(plan.seconds_remaining)}
+                  </div>
+                  <span className="text-xs text-text-muted">
+                    days left
+                  </span>
+                </div>
+              )}
               {plan.expires_at && (
                 <span className="text-xs text-text-muted">
-                  Renews {new Date(plan.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
+                  {plan.provider === "X402" ? "Expires" : "Renews"}{" "}
+                  {new Date(plan.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
                 </span>
               )}
             </div>
