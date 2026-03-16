@@ -125,10 +125,11 @@ def _resolve_agent(agent_id: str) -> str:
 
 def _get_pod_with_token(agent_id: str) -> Agent:
     """Get an agent, filling JWT from local state if needed."""
+    resolved_agent_id = _resolve_agent(agent_id)
     agents = _get_deployments_client()
-    pod = agents.get(agent_id)
+    pod = agents.get(resolved_agent_id)
     state = _load_state()
-    local = state.get(agent_id, {})
+    local = state.get(resolved_agent_id, {})
     if not pod.jwt_token and local.get("jwt_token"):
         pod.jwt_token = local["jwt_token"]
     if isinstance(pod, OpenClawAgent) and not pod.gateway_token and local.get("gateway_token"):

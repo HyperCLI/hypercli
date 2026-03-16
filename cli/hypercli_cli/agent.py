@@ -550,6 +550,20 @@ def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
 def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
     """Fetch available models from LiteLLM /v1/models (served by HyperClaw)."""
     import httpx
+
+    def _meta_for_model(model_id: str) -> dict:
+        normalized = (model_id or "").strip().lower()
+        aliases = {
+            "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
+            "moonshotai/kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
+            "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
+            "zai-org/glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
+        }
+        if normalized in aliases:
+            return aliases[normalized]
+        suffix = normalized.rsplit("/", 1)[-1]
+        return aliases.get(suffix, {})
+
     try:
         resp = httpx.get(
             f"{api_base}/v1/models",
@@ -558,18 +572,13 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
         )
         resp.raise_for_status()
         data = resp.json().get("data", [])
-        # Known model metadata (context windows, reasoning, etc.)
-        MODEL_META = {
-            "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
-            "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
-        }
         return [
             {
                 "id": m["id"],
-                "name": MODEL_META.get(m["id"], {}).get("name", m["id"].replace("-", " ").title()),
-                "reasoning": MODEL_META.get(m["id"], {}).get("reasoning", False),
-                "input": ["text"],
-                "contextWindow": MODEL_META.get(m["id"], {}).get("contextWindow", 200000),
+                "name": _meta_for_model(m["id"]).get("name", m["id"].replace("-", " ").title()),
+                "reasoning": _meta_for_model(m["id"]).get("reasoning", False),
+                "input": ["text", "image"],
+                "contextWindow": _meta_for_model(m["id"]).get("contextWindow", 200000),
                 **({"mode": m["mode"]} if m.get("mode") else {}),
             }
             for m in data
@@ -583,14 +592,14 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "id": "kimi-k2.5",
                 "name": "Kimi K2.5",
                 "reasoning": True,
-                "input": ["text"],
+                "input": ["text", "image"],
                 "contextWindow": 262144,
             },
             {
                 "id": "glm-5",
                 "name": "GLM-5",
                 "reasoning": True,
-                "input": ["text"],
+                "input": ["text", "image"],
                 "contextWindow": 202752,
             },
         ]
@@ -708,6 +717,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
     api_base = api_base.rstrip("/")
     chat_models = [m for m in models if m.get("mode") != "embedding"]
     embedding_models = [m for m in models if m.get("mode") == "embedding"]
+    kimi_models = [m for m in chat_models if "kimi" in str(m.get("id", "")).lower()]
     return {
         "models": {
             "mode": "merge",
@@ -719,6 +729,23 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
                     "api": "anthropic-messages",
                     "models": chat_models,
                 },
+                **(
+                    {
+                        "kimi-coding": {
+                            # Use the upstream Kimi provider semantics while still
+                            # routing requests through the HyperClaw Anthropic proxy.
+                            "baseUrl": api_base,
+                            "apiKey": api_key,
+                            "api": "anthropic-messages",
+                            "headers": {
+                                "User-Agent": "claude-code/0.1.0",
+                            },
+                            "models": kimi_models,
+                        },
+                    }
+                    if kimi_models
+                    else {}
+                ),
                 "hyperclaw-embed": {
                     # Embeddings go through the OpenAI-compatible /v1 endpoints.
                     "baseUrl": f"{api_base}/v1",
@@ -732,6 +759,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
             "defaults": {
                 "models": {
                     **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in chat_models},
+                    **{f"kimi-coding/{m['id']}": {"alias": "kimi"} for m in kimi_models},
                     **{f"hyperclaw-embed/{m['id']}": {"alias": m['id'].split('-')[0]} for m in embedding_models},
                 },
                 "memorySearch": {

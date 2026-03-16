@@ -1,6 +1,7 @@
 """Tests for HyperClaw agents SDK."""
 from __future__ import annotations
 
+import copy
 import os
 from datetime import datetime
 from pathlib import Path
@@ -99,6 +100,9 @@ def test_openclaw_agent_gateway_requires_url_and_jwt():
 
 
 def test_openclaw_agent_gateway_uses_bound_tokens():
+    manager = Mock()
+    manager._api_key = "sk-hyper-test123"
+    manager._api_base = "https://api.test.hypercli.com"
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
@@ -108,12 +112,89 @@ def test_openclaw_agent_gateway_uses_bound_tokens():
         gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
         jwt_token="jwt123",
+        _deployments=manager,
     )
 
     gw = agent.gateway()
     assert gw.url == "wss://openclaw-test.hypercli.com"
     assert gw.token == "jwt123"
     assert gw.gateway_token == "gw123"
+    assert gw.deployment_id == "agent-123"
+    assert gw.api_key == "sk-hyper-test123"
+    assert gw.api_base == "https://api.test.hypercli.com"
+
+
+@pytest.mark.asyncio
+async def test_openclaw_agent_helper_methods_mutate_config():
+    agent = OpenClawAgent(
+        id="agent-helpers",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        gateway_url="wss://openclaw-test.hypercli.com",
+        gateway_token="gw123",
+        jwt_token="jwt123",
+    )
+
+    base_config = {
+        "models": {
+            "providers": {
+                "hyperclaw": {
+                    "api": "anthropic-messages",
+                    "baseUrl": "https://api.example",
+                    "models": [{"id": "kimi-k2.5", "name": "Kimi K2.5"}],
+                }
+            }
+        },
+        "agents": {"defaults": {}},
+    }
+    applied: list[dict] = []
+
+    async def fake_config_get(**kwargs):
+        return copy.deepcopy(base_config)
+
+    async def fake_config_apply(config: dict, **kwargs):
+        applied.append(copy.deepcopy(config))
+        return config
+
+    agent.config_get = fake_config_get  # type: ignore[method-assign]
+    agent.config_apply = fake_config_apply  # type: ignore[method-assign]
+
+    provider = await agent.provider_upsert(
+        "moonshot",
+        api="anthropic-messages",
+        base_url="https://moonshot.example",
+        api_key="moonshot-key",
+        models=[{"id": "kimi-k2.5", "name": "Kimi K2.5", "reasoning": True}],
+    )
+    assert provider["baseUrl"] == "https://moonshot.example"
+
+    model = await agent.model_upsert(
+        "moonshot",
+        "kimi-k2.5",
+        name="Kimi K2.5",
+        reasoning=True,
+        context_window=262144,
+    )
+    assert model["contextWindow"] == 262144
+
+    primary = await agent.set_default_model("moonshot", "kimi-k2.5")
+    assert primary == "moonshot/kimi-k2.5"
+
+    memory_search = await agent.set_memory_search(
+        provider="embeddings",
+        model="qwen3-embedding",
+        base_url="https://embed.example",
+        api_key="embed-key",
+    )
+    assert memory_search["remote"]["baseUrl"] == "https://embed.example"
+
+    assert len(applied) == 4
+    assert applied[0]["models"]["providers"]["moonshot"]["apiKey"] == "moonshot-key"
+    assert applied[1]["models"]["providers"]["moonshot"]["models"][0]["reasoning"] is True
+    assert applied[2]["agents"]["defaults"]["model"]["primary"] == "moonshot/kimi-k2.5"
+    assert applied[3]["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "embed-key"
 
 
 def test_bound_agent_methods_delegate_to_agents(tmp_path):

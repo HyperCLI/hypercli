@@ -9,6 +9,8 @@ from __future__ import annotations
 from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
+import copy
+import os
 import secrets
 from typing import Optional, Any, AsyncIterator
 from urllib.parse import quote, urlsplit
@@ -23,6 +25,21 @@ AGENTS_API_BASE = "https://api.hypercli.com"
 AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
+
+
+def _default_gateway_timeout() -> float | None:
+    raw = (
+        os.environ.get("HYPERCLI_GATEWAY_TIMEOUT")
+        or os.environ.get("AGENT_GATEWAY_TIMEOUT")
+        or ""
+    ).strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
 
 
 def _to_ws_base_url(base_url: str) -> str:
@@ -271,11 +288,19 @@ class OpenClawAgent(Agent):
             raise ValueError("Agent has no OpenClaw gateway URL")
         if not self.jwt_token:
             raise ValueError("Agent has no JWT token — refresh it first")
+        deployments = self._require_deployments()
         if "gateway_token" not in kwargs:
             if not self.gateway_token:
                 self.resolve_gateway_token()
             if self.gateway_token:
                 kwargs["gateway_token"] = self.gateway_token
+        kwargs.setdefault("deployment_id", self.id)
+        kwargs.setdefault("api_key", deployments._api_key)
+        kwargs.setdefault("api_base", deployments._api_base)
+        kwargs.setdefault("auto_approve_pairing", True)
+        timeout = _default_gateway_timeout()
+        if timeout is not None:
+            kwargs.setdefault("timeout", timeout)
         return GatewayClient(url=self.gateway_url, token=self.jwt_token, **kwargs)
 
     @asynccontextmanager
@@ -301,9 +326,60 @@ class OpenClawAgent(Agent):
         async with self.connect(**kwargs) as gw:
             return await gw.config_patch(patch)
 
+    async def config_apply(self, config: dict, **kwargs) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.config_apply(config)
+
     async def models_list(self, **kwargs) -> list[dict]:
         async with self.connect(**kwargs) as gw:
             return await gw.models_list()
+
+    async def channels_status(
+        self,
+        *,
+        probe: bool = False,
+        timeout_ms: int | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.channels_status(probe=probe, timeout_ms=timeout_ms)
+
+    async def channels_logout(
+        self,
+        channel: str,
+        *,
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.channels_logout(channel, account_id=account_id)
+
+    async def web_login_start(
+        self,
+        *,
+        force: bool = False,
+        timeout_ms: int | None = None,
+        verbose: bool = False,
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.web_login_start(
+                force=force,
+                timeout_ms=timeout_ms,
+                verbose=verbose,
+                account_id=account_id,
+            )
+
+    async def web_login_wait(
+        self,
+        *,
+        timeout_ms: int | None = None,
+        account_id: str | None = None,
+        **kwargs,
+    ) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.web_login_wait(timeout_ms=timeout_ms, account_id=account_id)
 
     async def workspace_files(self, **kwargs) -> tuple[str, list[dict]]:
         async with self.connect(**kwargs) as gw:
@@ -376,6 +452,146 @@ class OpenClawAgent(Agent):
         async with self.connect(**kwargs) as gw:
             async for event in gw.chat_send(message, session_key=session_key, agent_id=agent_id):
                 yield event
+
+    async def _config_with_mutation(self, mutator, **kwargs) -> dict:
+        config = copy.deepcopy(await self.config_get(**kwargs))
+        mutator(config)
+        await self.config_apply(config, **kwargs)
+        return config
+
+    async def provider_upsert(
+        self,
+        provider_id: str,
+        *,
+        api: str,
+        base_url: str,
+        api_key: str | None = None,
+        models: list[dict] | None = None,
+        **extra: Any,
+    ) -> dict:
+        def mutate(config: dict) -> None:
+            models_cfg = config.setdefault("models", {})
+            providers = models_cfg.setdefault("providers", {})
+            provider = dict(providers.get(provider_id) or {})
+            provider["api"] = api
+            provider["baseUrl"] = base_url
+            if api_key is not None:
+                provider["apiKey"] = api_key
+            if models is not None:
+                provider["models"] = copy.deepcopy(models)
+            provider.update(extra)
+            providers[provider_id] = provider
+
+        config = await self._config_with_mutation(mutate)
+        return ((config.get("models") or {}).get("providers") or {}).get(provider_id, {})
+
+    async def provider_remove(self, provider_id: str) -> dict:
+        def mutate(config: dict) -> None:
+            providers = ((config.setdefault("models", {})).setdefault("providers", {}))
+            providers.pop(provider_id, None)
+
+        config = await self._config_with_mutation(mutate)
+        return ((config.get("models") or {}).get("providers") or {})
+
+    async def model_upsert(
+        self,
+        provider_id: str,
+        model_id: str,
+        *,
+        name: str | None = None,
+        reasoning: bool | None = None,
+        context_window: int | None = None,
+        max_tokens: int | None = None,
+        input_types: list[str] | None = None,
+        **extra: Any,
+    ) -> dict:
+        def mutate(config: dict) -> None:
+            providers = ((config.setdefault("models", {})).setdefault("providers", {}))
+            provider = dict(providers.get(provider_id) or {})
+            models = [dict(model) for model in provider.get("models") or []]
+            next_model = next((model for model in models if model.get("id") == model_id), None)
+            if next_model is None:
+                next_model = {"id": model_id}
+                models.append(next_model)
+            if name is not None:
+                next_model["name"] = name
+            if reasoning is not None:
+                next_model["reasoning"] = reasoning
+            if context_window is not None:
+                next_model["contextWindow"] = context_window
+            if max_tokens is not None:
+                next_model["maxTokens"] = max_tokens
+            if input_types is not None:
+                next_model["input"] = list(input_types)
+            next_model.update(extra)
+            provider["models"] = models
+            providers[provider_id] = provider
+
+        config = await self._config_with_mutation(mutate)
+        models = ((((config.get("models") or {}).get("providers") or {}).get(provider_id) or {}).get("models") or [])
+        return next((model for model in models if model.get("id") == model_id), {})
+
+    async def model_remove(self, provider_id: str, model_id: str) -> list[dict]:
+        def mutate(config: dict) -> None:
+            providers = ((config.setdefault("models", {})).setdefault("providers", {}))
+            provider = dict(providers.get(provider_id) or {})
+            provider["models"] = [
+                dict(model)
+                for model in provider.get("models") or []
+                if model.get("id") != model_id
+            ]
+            providers[provider_id] = provider
+
+        config = await self._config_with_mutation(mutate)
+        return ((((config.get("models") or {}).get("providers") or {}).get(provider_id) or {}).get("models") or [])
+
+    async def set_default_model(self, provider_id: str, model_id: str) -> str:
+        primary = f"{provider_id}/{model_id}"
+
+        def mutate(config: dict) -> None:
+            defaults = ((config.setdefault("agents", {})).setdefault("defaults", {}))
+            model_cfg = defaults.setdefault("model", {})
+            model_cfg["primary"] = primary
+
+        await self._config_with_mutation(mutate)
+        return primary
+
+    async def set_memory_search(
+        self,
+        *,
+        provider: str,
+        model: str,
+        base_url: str | None = None,
+        api_key: str | None = None,
+        **extra: Any,
+    ) -> dict:
+        def mutate(config: dict) -> None:
+            defaults = ((config.setdefault("agents", {})).setdefault("defaults", {}))
+            memory_search = dict(defaults.get("memorySearch") or {})
+            memory_search["provider"] = provider
+            memory_search["model"] = model
+            remote = dict(memory_search.get("remote") or {})
+            if base_url is not None:
+                remote["baseUrl"] = base_url
+            if api_key is not None:
+                remote["apiKey"] = api_key
+            if remote:
+                memory_search["remote"] = remote
+            memory_search.update(extra)
+            defaults["memorySearch"] = memory_search
+
+        config = await self._config_with_mutation(mutate)
+        return (((config.get("agents") or {}).get("defaults") or {}).get("memorySearch") or {})
+
+    async def channel_patch(self, channel_id: str, patch: dict) -> dict:
+        def mutate(config: dict) -> None:
+            channels = config.setdefault("channels", {})
+            current = dict(channels.get(channel_id) or {})
+            current.update(copy.deepcopy(patch))
+            channels[channel_id] = current
+
+        config = await self._config_with_mutation(mutate)
+        return ((config.get("channels") or {}).get(channel_id) or {})
 
 
 @dataclass

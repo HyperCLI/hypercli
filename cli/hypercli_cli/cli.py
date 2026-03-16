@@ -1,5 +1,6 @@
 """HyperCLI - Main entry point"""
 import sys
+import json
 import typer
 from rich.console import Console
 from rich.prompt import Prompt
@@ -143,7 +144,8 @@ def cli():
     try:
         app()
     except APIError as e:
-        detail = e.detail or str(e)
+        raw_detail = e.detail or str(e)
+        detail = raw_detail if isinstance(raw_detail, str) else json.dumps(raw_detail)
 
         # Check for GPU type errors and suggest corrections
         if "GPU type" in detail and "not found" in detail and "Available:" in detail:

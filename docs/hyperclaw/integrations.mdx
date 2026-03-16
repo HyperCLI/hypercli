@@ -84,8 +84,8 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
           {
             "id": "kimi-k2.5",
             "name": "Kimi K2.5",
-            "reasoning": false,
-            "input": ["text"],
+            "reasoning": true,
+            "input": ["text", "image"],
             "contextWindow": 262144,
             "maxTokens": 8192
           },
@@ -95,6 +95,24 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
             "reasoning": true,
             "input": ["text"],
             "contextWindow": 202752,
+            "maxTokens": 8192
+          }
+        ]
+      },
+      "kimi-coding": {
+        "baseUrl": "https://api.hypercli.com",
+        "apiKey": "sk-YOUR-API-KEY",
+        "api": "anthropic-messages",
+        "headers": {
+          "User-Agent": "claude-code/0.1.0"
+        },
+        "models": [
+          {
+            "id": "kimi-k2.5",
+            "name": "Kimi K2.5",
+            "reasoning": true,
+            "input": ["text", "image"],
+            "contextWindow": 262144,
             "maxTokens": 8192
           }
         ]
@@ -121,6 +139,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
 ```
 
 For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
+For Kimi, the generated config also includes a `kimi-coding` provider alias so OpenClaw can apply its upstream Kimi-specific tool/thinking semantics while still using HyperClaw as the transport.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
 
@@ -137,8 +156,8 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
           {
             "id": "kimi-k2.5",
             "name": "Kimi K2.5",
-            "reasoning": false,
-            "input": ["text"],
+            "reasoning": true,
+            "input": ["text", "image"],
             "contextWindow": 262144,
             "maxTokens": 8192
           }
