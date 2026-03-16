@@ -7,14 +7,6 @@ SITE_ROOT="${REPO_ROOT}/site"
 CONSOLE_LOG="/tmp/hypercli-console-e2e.log"
 CLAW_LOG="/tmp/hypercli-claw-e2e.log"
 
-clear_stale_next_locks() {
-  rm -f \
-    "${SITE_ROOT}/apps/console/.next/dev/lock" \
-    "${SITE_ROOT}/apps/claw/.next/dev/lock" \
-    "${SITE_ROOT}/apps/main/.next/dev/lock" \
-    2>/dev/null || true
-}
-
 cleanup() {
   if [[ -n "${CONSOLE_PID:-}" ]]; then
     kill "${CONSOLE_PID}" >/dev/null 2>&1 || true
@@ -94,7 +86,6 @@ trap cleanup EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
-clear_stale_next_locks
 
 npm run dev -- --filter=@hypercli/console >"${CONSOLE_LOG}" 2>&1 &
 CONSOLE_PID=$!
@@ -107,7 +98,6 @@ wait_for_url "${TEST_BASE_URL}" "Claw"
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
-  --workers=1 \
   tests/claw/console-login.spec.ts \
   tests/claw/console-topup.spec.ts
 status=$?
