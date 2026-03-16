@@ -6,6 +6,7 @@ import {
   type GatewayEvent,
   type OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/gateway";
+import { cookieUtils } from "@hypercli/shared-ui";
 import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
@@ -232,19 +233,7 @@ export function useGatewayChat(
             .some((entry) =>
               entry.trim().startsWith(`${encodeURIComponent(name)}=`)
             );
-        const configuredCookieDomain = (
-          process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || ""
-        ).trim();
-        const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
-        const currentHost =
-          typeof window !== "undefined" ? window.location.hostname : "";
-        const canUseCrossDomainCookie =
-          normalizedDomain &&
-          (currentHost === normalizedDomain ||
-            currentHost.endsWith(`.${normalizedDomain}`));
-        const cookieDomain = canUseCrossDomainCookie
-          ? configuredCookieDomain || `.${normalizedDomain}`
-          : "";
+        const cookieDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
 
         if (!hasCookie(hostCookie)) {
           const tokenResp = await agentApiFetch<{ token: string }>(
@@ -252,18 +241,14 @@ export function useGatewayChat(
             authToken
           );
           if (cancelled) return;
-          const tokenValue = encodeURIComponent(tokenResp.token);
-          const securePart =
-            window.location.protocol === "https:" ? "; secure" : "";
-          const domainPart = cookieDomain ? `; domain=${cookieDomain}` : "";
           const expires = new Date(
             Date.now() + 12 * 60 * 60 * 1000
           ).toUTCString();
 
-          document.cookie = `${hostCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-          document.cookie = `${shellCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-          document.cookie = `${openclawCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
-          document.cookie = `${reefCookie}=${tokenValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+          cookieUtils.setWithExpiry(hostCookie, tokenResp.token, expires, cookieDomain);
+          cookieUtils.setWithExpiry(shellCookie, tokenResp.token, expires, cookieDomain);
+          cookieUtils.setWithExpiry(openclawCookie, tokenResp.token, expires, cookieDomain);
+          cookieUtils.setWithExpiry(reefCookie, tokenResp.token, expires, cookieDomain);
         }
 
         if (cancelled) return;

@@ -171,8 +171,7 @@ export function HeroSection() {
         title="Welcome to HyperClaw"
         description="Please sign in to continue"
         apiBaseUrl={AUTH_API_BASE}
-        storageMode="localStorage"
-        tokenStorageKey="claw_auth_token"
+        storageMode="cookie"
         onSuccess={() => {
           window.location.href = "/dashboard";
         }}

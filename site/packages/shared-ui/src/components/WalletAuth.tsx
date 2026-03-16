@@ -5,7 +5,7 @@ import { ConnectButton } from '@rainbow-me/rainbowkit';
 import { useAccount, useSignMessage, useDisconnect } from 'wagmi';
 import { useTurnkey } from '@turnkey/react-wallet-kit';
 import { usePrivy } from '@privy-io/react-auth';
-import { cookieUtils } from '../utils/cookies';
+import { clearAuthLogoutMarker, cookieUtils } from '../utils/cookies';
 import { getAuthBackendUrl } from '../utils/api';
 
 interface WalletAuthProps {
@@ -192,6 +192,7 @@ export function WalletAuth({
       if (loginData.token) {
         const expiresIn = loginData.expires_in || (parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || '15') * 24 * 60 * 60);
         cookieUtils.setWithMaxAge('auth_token', loginData.token, expiresIn);
+        clearAuthLogoutMarker();
         debugLog('🍪 Cookie set: auth_token');
       }
 
@@ -244,6 +245,7 @@ export function WalletAuth({
 
       const expiresIn = loginData.expires_in || (parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || '15') * 24 * 60 * 60);
       cookieUtils.setWithMaxAge('auth_token', loginData.token, expiresIn);
+      clearAuthLogoutMarker();
       setAuthState('authenticated');
 
       if (onAuthSuccess) {
@@ -258,6 +260,7 @@ export function WalletAuth({
   const handleTurnkeyLogin = async () => {
     // Close parent modal before opening Turnkey's email modal
     onEmailLoginClick?.();
+    clearAuthLogoutMarker();
 
     try {
       await handleLogin({

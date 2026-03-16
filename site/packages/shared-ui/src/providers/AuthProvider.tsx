@@ -2,7 +2,11 @@
 
 import { useTurnkey } from "@turnkey/react-wallet-kit"
 import { createContext, ReactNode, useContext, useEffect, useState } from "react"
-import { cookieUtils } from "../utils/cookies"
+import {
+  clearAuthLogoutMarker,
+  cookieUtils,
+  hasAuthLogoutMarker,
+} from "../utils/cookies"
 import { getAuthBackendUrl } from "../utils/api"
 
 // Debug logging helper - only logs in development
@@ -49,14 +53,16 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   const syncFromCookie = () => {
     const authToken = cookieUtils.get('auth_token')
+    const logoutMarked = hasAuthLogoutMarker()
     const userEmail = user?.userEmail
     const isValidEmail = userEmail && userEmail.includes('@') && !userEmail.includes('org_')
 
     debugLog('🔍 CHECKING COOKIES - Found:', {
       authToken: !!authToken,
+      logoutMarked,
     })
 
-    if (authToken) {
+    if (authToken && !logoutMarked) {
       debugLog('✅ Auth token found - user already authenticated, skipping flow')
       setUserInfo({
         email: isValidEmail ? userEmail : undefined,
@@ -64,6 +70,15 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       })
       setError(null)
       setFlowState('complete')
+      setIsLoading(false)
+      return true
+    }
+
+    if (logoutMarked) {
+      debugLog('⛔ Logout marker found - staying logged out')
+      setUserInfo(null)
+      setError(null)
+      setFlowState('idle')
       setIsLoading(false)
       return true
     }
@@ -78,7 +93,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
       if (!syncFromCookie()) {
         // No auth token - check if we have a fresh session to start the flow
         debugLog('❌ Auth token not found')
-        if (session?.token) {
+        if (session?.token && !hasAuthLogoutMarker()) {
           debugLog('🔑 Session found - starting authentication flow')
           setFlowState('verifying')
         } else {
@@ -107,17 +122,21 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
   useEffect(() => {
     const handleCookieChange = (event: Event) => {
       const detail = (event as CustomEvent<{ name?: string }>).detail
-      if (detail?.name && detail.name !== 'auth_token') return
+      if (detail?.name && detail.name !== 'auth_token' && detail.name !== 'hypercli_logged_out') return
 
       if (!syncFromCookie()) {
         setUserInfo(null)
-        setFlowState(session?.token ? 'verifying' : 'idle')
+        setFlowState(session?.token && !hasAuthLogoutMarker() ? 'verifying' : 'idle')
         setIsLoading(false)
       }
     }
 
     const handleWindowFocus = () => {
-      syncFromCookie()
+      if (!syncFromCookie()) {
+        setUserInfo(null)
+        setFlowState(session?.token && !hasAuthLogoutMarker() ? 'verifying' : 'idle')
+        setIsLoading(false)
+      }
     }
 
     window.addEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener)
@@ -131,7 +150,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
 
   // Auth Flow Controller
   useEffect(() => {
-    if (!session?.token || flowState === 'idle' || flowState === 'checking_cookies') return
+    if (!session?.token || flowState === 'idle' || flowState === 'checking_cookies' || hasAuthLogoutMarker()) return
 
     const runAuthFlow = async () => {
       try {
@@ -166,6 +185,7 @@ export const AuthProvider: React.FC<AuthProviderProps> = ({ children }) => {
               // Use expires_in from response, fallback to env var
               const expiresIn = loginData.expires_in || (parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || '15') * 24 * 60 * 60)
               cookieUtils.setWithMaxAge('auth_token', loginData.token, expiresIn)
+              clearAuthLogoutMarker()
 
               // Set user info
               const userEmail = user?.userEmail

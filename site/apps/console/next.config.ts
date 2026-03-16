@@ -1,4 +1,5 @@
 import type { NextConfig } from "next";
+import path from "path";
 
 // Build-time validation of required environment variables
 const requiredEnvVars = [
@@ -22,8 +23,9 @@ const nextConfig: NextConfig = {
   env: {
     NEXT_PUBLIC_IS_MAIN_SITE: "false",
   },
-  // Empty turbopack config to acknowledge we know about it
-  turbopack: {},
+  turbopack: {
+    root: path.join(__dirname, "../../.."),
+  },
   // Exclude test files from being bundled
   webpack: (config) => {
     config.module = config.module || {};

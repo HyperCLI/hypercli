@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
-import { cookieUtils } from "../utils/cookies";
+import { clearAuthLogoutMarker, cookieUtils } from "../utils/cookies";
 import { getAuthBackendUrl } from "../utils/api";
 import { exchangePrivyToken } from "../auth/AuthProvider";
 
@@ -164,6 +164,7 @@ export function PrivyLoginPanel({
 
     shouldExchangeRef.current = true;
     setError(null);
+    clearAuthLogoutMarker();
 
     if (authenticated) {
       try {

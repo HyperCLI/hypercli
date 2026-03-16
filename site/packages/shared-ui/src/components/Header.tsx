@@ -6,7 +6,7 @@ import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
 import { PrivyLoginModal } from "./PrivyLogin";
 import { useAuth } from "../providers/AuthProvider";
-import { cookieUtils } from "../utils/cookies";
+import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
 import {
   initializeTheme,
@@ -49,8 +49,9 @@ export default function Header() {
   };
 
   const handleLogoutClick = async () => {
-    // Clear auth cookie
+    markAuthLogout();
     cookieUtils.remove("auth_token");
+    clearLocalAuthTokens("app_auth_token", "claw_auth_token");
 
     // Call Turnkey logout
     if (logout) {

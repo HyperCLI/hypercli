@@ -40,15 +40,15 @@ export function AgentCardSkeleton() {
   );
 }
 
-const BAR_HEIGHTS = ["h-[30%]", "h-[50%]", "h-[70%]", "h-[45%]", "h-[80%]", "h-[55%]", "h-[65%]"];
+const BAR_HEIGHTS = ["30%", "50%", "70%", "45%", "80%", "55%", "65%"];
 
 export function ChartSkeleton() {
   return (
     <div className="glass-card p-6">
       <Skeleton className="w-32 h-5 mb-4" />
       <div className="flex items-end gap-2 h-[200px]">
-        {BAR_HEIGHTS.map((h, i) => (
-          <div key={i} className={`flex-1 ${h}`}>
+        {BAR_HEIGHTS.map((height, i) => (
+          <div key={i} className="flex-1" style={{ height }}>
             <Skeleton className="w-full h-full rounded-t" />
           </div>
         ))}

@@ -329,7 +329,17 @@ export { WalletAuth } from "./components/WalletAuth";
 export { TopUpModal } from "./components/TopUpModal";
 
 // Utils
-export { cookieUtils } from "./utils/cookies";
+export {
+  AUTH_LOGOUT_COOKIE,
+  clearAuthLogoutMarker,
+  clearLocalAuthTokens,
+  cookieUtils,
+  getCookieCandidateDomains,
+  hasAuthLogoutMarker,
+  isLocalHostname,
+  markAuthLogout,
+  resolveCookieDomain,
+} from "./utils/cookies";
 export {
   getAuthBackendUrl,
   getBotApiUrl,

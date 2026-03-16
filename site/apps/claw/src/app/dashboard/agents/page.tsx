@@ -12,6 +12,7 @@ import {
   type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/gateway";
 import { getGatewayToken, setGatewayToken } from "@/lib/agent-store";
+import { cookieUtils } from "@hypercli/shared-ui";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -200,42 +201,23 @@ function extractVoicePathFromMessage(content: string): string | null {
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
 
-function setDesktopAuthCookie(name: string, value: string, days: number, domain: string): void {
-  const date = new Date();
-  date.setTime(date.getTime() + days * 24 * 60 * 60 * 1000);
-  const expires = date.toUTCString();
-  const securePart = window.location.protocol === "https:" ? "; secure" : "";
-  const domainPart = domain ? `; domain=${domain}` : "";
-  const encodedValue = encodeURIComponent(value);
-  document.cookie = `${name}=${encodedValue}; expires=${expires}; path=/${domainPart}${securePart}; samesite=lax`;
+function setDesktopAuthCookie(name: string, value: string, days: number, configuredDomain: string): void {
+  cookieUtils.set(name, value, days, configuredDomain);
 }
 
-function clearDesktopAuthCookie(name: string, domain: string): void {
-  const securePart = window.location.protocol === "https:" ? "; secure" : "";
-  const expires = "Thu, 01 Jan 1970 00:00:00 GMT";
-  document.cookie = `${name}=; expires=${expires}; path=/${securePart}; samesite=lax`;
-  if (domain) {
-    document.cookie = `${name}=; expires=${expires}; path=/; domain=${domain}${securePart}; samesite=lax`;
-  }
+function clearDesktopAuthCookie(name: string, configuredDomain: string): void {
+  cookieUtils.remove(name, configuredDomain);
 }
 
 function clearAgentAccessCookies(hostname: string | null | undefined): void {
   if (!hostname || typeof window === "undefined") return;
   const subdomain = hostname.split(".")[0];
-  const configuredCookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim();
-  const normalizedDomain = configuredCookieDomain.replace(/^\./, "");
-  const currentHost = window.location.hostname;
-  const canUseCrossDomainCookie =
-    normalizedDomain &&
-    (currentHost === normalizedDomain || currentHost.endsWith(`.${normalizedDomain}`));
-  const cookieDomain = canUseCrossDomainCookie
-    ? (configuredCookieDomain || `.${normalizedDomain}`)
-    : "";
+  const configuredDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
 
-  clearDesktopAuthCookie(`${subdomain}-token`, cookieDomain);
-  clearDesktopAuthCookie(`shell-${subdomain}-token`, cookieDomain);
-  clearDesktopAuthCookie(`openclaw-${subdomain}-token`, cookieDomain);
-  clearDesktopAuthCookie("reef_token", cookieDomain);
+  clearDesktopAuthCookie(`${subdomain}-token`, configuredDomain);
+  clearDesktopAuthCookie(`shell-${subdomain}-token`, configuredDomain);
+  clearDesktopAuthCookie(`openclaw-${subdomain}-token`, configuredDomain);
+  clearDesktopAuthCookie("reef_token", configuredDomain);
 }
 
 function stateClass(state: AgentState): string {
@@ -1315,7 +1297,7 @@ export default function AgentsPage() {
       const authToken = await getToken();
       const tokenData = await agentApiFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
       const subdomain = hostname.split(".")[0];
-      const cookieDomain = (process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "").trim() || ".hypercli.com";
+      const cookieDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
       setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
       setDesktopAuthCookie(`shell-${subdomain}-token`, tokenData.token, 2, cookieDomain);
       setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);

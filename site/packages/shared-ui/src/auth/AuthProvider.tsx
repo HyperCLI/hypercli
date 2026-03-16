@@ -2,7 +2,13 @@
 
 import { createContext, useCallback, useContext, useEffect, useState, type ReactNode } from "react";
 import { usePrivy } from "@privy-io/react-auth";
-import { cookieUtils } from "../utils/cookies";
+import {
+  clearAuthLogoutMarker,
+  clearLocalAuthTokens,
+  cookieUtils,
+  hasAuthLogoutMarker,
+  markAuthLogout,
+} from "../utils/cookies";
 
 export interface AuthUser {
   id: string;
@@ -95,6 +101,7 @@ export async function exchangePrivyToken(
   setStoredToken(appToken, tokenStorageKey);
   const expiresIn = Number(data.expires_in) || parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || "15", 10) * 24 * 60 * 60;
   cookieUtils.setWithMaxAge(cookieName, appToken, expiresIn);
+  clearAuthLogoutMarker();
   return appToken;
 }
 
@@ -104,15 +111,16 @@ export async function getAppToken(
   tokenStorageKey = "app_auth_token",
   cookieName = "auth_token"
 ): Promise<string> {
-  const storedToken = getStoredToken(tokenStorageKey);
-  if (storedToken && !isTokenExpired(storedToken)) {
-    return storedToken;
-  }
-
   const cookieToken = getCookieToken(cookieName);
   if (cookieToken && !isTokenExpired(cookieToken)) {
     setStoredToken(cookieToken, tokenStorageKey);
     return cookieToken;
+  }
+
+  clearStoredToken(tokenStorageKey);
+
+  if (hasAuthLogoutMarker()) {
+    throw new Error("Not authenticated");
   }
 
   const privyToken = await getPrivyToken();
@@ -153,19 +161,15 @@ export function AuthProvider({
   useEffect(() => {
     if (!ready) return;
 
-    const storedToken = getStoredToken(tokenStorageKey);
     const cookieToken = getCookieToken(cookieName);
+    const logoutMarked = hasAuthLogoutMarker();
     const activeToken =
-      storedToken && !isTokenExpired(storedToken)
-        ? storedToken
-        : cookieToken && !isTokenExpired(cookieToken)
-          ? cookieToken
-          : null;
+      !logoutMarked && cookieToken && !isTokenExpired(cookieToken)
+        ? cookieToken
+        : null;
 
     if (activeToken) {
-      if (activeToken !== storedToken) {
-        setStoredToken(activeToken, tokenStorageKey);
-      }
+      setStoredToken(activeToken, tokenStorageKey);
       setIsAuthenticated(true);
       if (privyUser) {
         setUser({
@@ -174,13 +178,17 @@ export function AuthProvider({
           walletAddress: privyUser.wallet?.address,
         });
       }
+    } else {
+      clearStoredToken(tokenStorageKey);
+      setIsAuthenticated(false);
+      setUser(null);
     }
 
     setIsLoading(false);
   }, [cookieName, privyUser, ready, tokenStorageKey]);
 
   useEffect(() => {
-    if (!ready || !authenticated || isAuthenticated) return;
+    if (!ready || !authenticated || isAuthenticated || hasAuthLogoutMarker()) return;
 
     const exchange = async () => {
       try {
@@ -206,8 +214,21 @@ export function AuthProvider({
 
   useEffect(() => {
     const syncFromCookie = () => {
+      const logoutMarked = hasAuthLogoutMarker();
       const cookieToken = getCookieToken(cookieName);
       if (!cookieToken || isTokenExpired(cookieToken)) {
+        clearStoredToken(tokenStorageKey);
+        setIsAuthenticated(false);
+        setUser(null);
+        setIsLoading(false);
+        return;
+      }
+
+      if (logoutMarked) {
+        clearStoredToken(tokenStorageKey);
+        setIsAuthenticated(false);
+        setUser(null);
+        setIsLoading(false);
         return;
       }
 
@@ -225,7 +246,7 @@ export function AuthProvider({
 
     const handleCookieChange = (event: Event) => {
       const detail = (event as CustomEvent<{ name?: string }>).detail;
-      if (detail?.name && detail.name !== cookieName) return;
+      if (detail?.name && detail.name !== cookieName && detail.name !== "hypercli_logged_out") return;
       syncFromCookie();
     };
 
@@ -239,11 +260,14 @@ export function AuthProvider({
   }, [cookieName, privyUser, tokenStorageKey]);
 
   const login = useCallback(() => {
+    clearAuthLogoutMarker();
     privyLogin();
   }, [privyLogin]);
 
   const logout = useCallback(async () => {
+    markAuthLogout();
     clearStoredToken(tokenStorageKey);
+    clearLocalAuthTokens("app_auth_token", "claw_auth_token");
     cookieUtils.remove(cookieName);
     setIsAuthenticated(false);
     setUser(null);

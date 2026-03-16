@@ -3,7 +3,7 @@
 import { useRouter, useSearchParams } from "next/navigation"
 import { Suspense, useEffect, useState } from "react"
 import { useTurnkey } from "@turnkey/react-wallet-kit"
-import { cookieUtils } from "../utils/cookies"
+import { clearAuthLogoutMarker, clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies"
 import { getAuthBackendUrl } from "../utils/api"
 
 // Common loading component - using brand colors
@@ -43,8 +43,9 @@ function AuthContent() {
 
   // Handle logout
   const handleLogout = async () => {
-    // Clear auth cookie
+    markAuthLogout()
     cookieUtils.remove('auth_token')
+    clearLocalAuthTokens('app_auth_token', 'claw_auth_token')
 
     // Call Turnkey logout
     if (logout) {
@@ -105,6 +106,7 @@ function AuthContent() {
                 // Use expires_in from response, fallback to env var
                 const expiresIn = loginData.expires_in || (parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || '15') * 24 * 60 * 60)
                 cookieUtils.setWithMaxAge('auth_token', loginData.token, expiresIn)
+                clearAuthLogoutMarker()
                 setAuthState('authenticated')
               } else {
                 setAuthState('unauthenticated')
@@ -199,6 +201,7 @@ function AuthContent() {
             onClick={async () => {
               if (handleLogin) {
                 setLoginModalShown(true)
+                clearAuthLogoutMarker()
                 try {
                   await handleLogin({
                     logoLight: "/hypercli-transparentbg-black-hyper-horizontal-200x60.png",

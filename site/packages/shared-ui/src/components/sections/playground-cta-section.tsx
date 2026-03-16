@@ -32,7 +32,7 @@ export function PlaygroundCTASection() {
         className="relative h-[50vh] flex items-center justify-center px-4 sm:px-6 lg:px-8 bg-primary overflow-hidden"
       >
         {/* Animated noise texture */}
-        <div className="absolute inset-0 opacity-[0.08] pointer-events-none mix-blend-overlay bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')]" />
+        <div className="absolute inset-0 opacity-[0.08] pointer-events-none mix-blend-overlay bg-grid-pattern" />
         
         <motion.div 
           className="text-center"
@@ -47,7 +47,7 @@ export function PlaygroundCTASection() {
       {/* Section Content */}
       <section className="relative py-24 px-4 sm:px-6 lg:px-8 overflow-hidden bg-background">
         {/* Grain texture */}
-        <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-[url('data:image/svg+xml;base64,PHN2ZyB4bWxucz0iaHR0cDovL3d3dy53My5vcmcvMjAwMC9zdmciIHdpZHRoPSIzMDAiIGhlaWdodD0iMzAwIj48ZmlsdGVyIGlkPSJhIiB4PSIwIiB5PSIwIj48ZmVUdXJidWxlbmNlIGJhc2VGcmVxdWVuY3k9Ii43NSIgc3RpdGNoVGlsZXM9InN0aXRjaCIgdHlwZT0iZnJhY3RhbE5vaXNlIi8+PGZlQ29sb3JNYXRyaXggdHlwZT0ic2F0dXJhdGUiIHZhbHVlcz0iMCIvPjwvZmlsdGVyPjxwYXRoIGQ9Ik0wIDBoMzAwdjMwMEgweiIgZmlsdGVyPSJ1cmwoI2EpIiBvcGFjaXR5PSIuMDUiLz48L3N2Zz4=')]" />
+        <div className="absolute inset-0 opacity-[0.02] pointer-events-none bg-grid-pattern" />
         
         {/* Subtle radial vignette */}
         <div className="absolute inset-0 bg-[radial-gradient(ellipse_at_center,rgba(56,211,159,0.03)_0%,#0B0D0E_60%)] pointer-events-none" />
