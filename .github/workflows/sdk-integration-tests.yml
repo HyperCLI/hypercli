@@ -30,6 +30,11 @@ jobs:
       - name: Run TS SDK integration tests
         run: npm run test:integration
 
+      - name: Restore runner workspace ownership
+        if: always()
+        run: |
+          chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
+
   python-sdk-integration:
     runs-on: self-hosted
     container:
@@ -57,6 +62,11 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest -q tests/integration
+
+      - name: Restore runner workspace ownership
+        if: always()
+        run: |
+          chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
 
   notify-sdk-integration:
     needs:
