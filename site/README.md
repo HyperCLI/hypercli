@@ -113,6 +113,41 @@ pip install -e ".[dev]"
 pytest
 ```
 
+### Frontend SDK Dependency
+
+The frontend in [`site/`](/home/ubuntu/dev/hypercli/site) is built and deployed as a self-contained workspace. It should depend on a published `@hypercli.com/sdk` version, not a `file:` path to `../ts-sdk`.
+
+For normal frontend work:
+
+```bash
+cd site
+npm install
+npm run dev
+```
+
+For local TypeScript SDK development against the frontend:
+
+```bash
+cd ts-sdk
+npm install
+npm run build
+npm link
+
+cd ../site
+npm link @hypercli.com/sdk
+npm run dev
+```
+
+To remove the override and go back to the published package:
+
+```bash
+cd site
+npm unlink @hypercli.com/sdk
+npm install
+```
+
+This keeps local development flexible without making CI or Netlify depend on the parent repo layout.
+
 ### CLI Development
 
 ```bash
