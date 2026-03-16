@@ -8,6 +8,7 @@
  */
 
 import { getPublicKeyAsync, signAsync, utils as edUtils } from "@noble/ed25519";
+import NodeWebSocket from "ws";
 
 export interface GatewayOptions {
   /** WebSocket URL (wss://openclaw-{agent}.hypercli.com) */
@@ -780,7 +781,9 @@ function readConnectPairingRequestId(error: unknown): string | null {
   return typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
 }
 
-function isSocketOpen(ws: WebSocket | null): boolean {
+type GatewaySocket = WebSocket | NodeWebSocket;
+
+function isSocketOpen(ws: GatewaySocket | null): boolean {
   return Boolean(ws && ws.readyState === 1);
 }
 
@@ -809,7 +812,7 @@ export class GatewayClient {
   private caps: string[];
   private origin: string;
   private defaultTimeout: number;
-  private ws: WebSocket | null = null;
+  private ws: GatewaySocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Set<GatewayEventHandler>();
   private connected = false;
@@ -995,7 +998,8 @@ export class GatewayClient {
 
   private openSocket(): void {
     if (this.closed || this.ws) return;
-    if (typeof WebSocket === "undefined") {
+    const useBrowserSocket = "localStorage" in globalThis && typeof WebSocket !== "undefined";
+    if (!useBrowserSocket && typeof NodeWebSocket === "undefined") {
       throw new Error("WebSocket is not available in this environment");
     }
     if (this.reconnectTimer) {
@@ -1005,24 +1009,43 @@ export class GatewayClient {
     const wsUrl = this.token
       ? `${this.url}${this.url.includes("?") ? "&" : "?"}token=${encodeURIComponent(this.token)}`
       : this.url;
-    const ws = new WebSocket(wsUrl);
+    const ws: GatewaySocket = useBrowserSocket
+      ? new WebSocket(wsUrl)
+      : new NodeWebSocket(wsUrl, { headers: { Origin: this.origin } });
     this.ws = ws;
 
-    ws.onopen = () => {
+    if (useBrowserSocket) {
+      ws.onopen = () => {
+        this.queueConnect();
+      };
+
+      ws.onmessage = (event: { data?: unknown }) => {
+        this.handleMessage(String(event.data ?? ""));
+      };
+
+      ws.onerror = () => {
+        // Close handling covers retries and surfaced errors.
+      };
+
+      ws.onclose = (event: { code?: number; reason?: string }) => {
+        this.handleClose(ws, event.code ?? 1006, String(event.reason ?? ""));
+      };
+      return;
+    }
+
+    const nodeWs = ws as NodeWebSocket;
+    nodeWs.on("open", () => {
       this.queueConnect();
-    };
-
-    ws.onmessage = (event: { data?: unknown }) => {
-      this.handleMessage(String(event.data ?? ""));
-    };
-
-    ws.onerror = () => {
+    });
+    nodeWs.on("message", (data: NodeWebSocket.RawData) => {
+      this.handleMessage(typeof data === "string" ? data : data.toString());
+    });
+    nodeWs.on("error", () => {
       // Close handling covers retries and surfaced errors.
-    };
-
-    ws.onclose = (event: { code?: number; reason?: string }) => {
-      this.handleClose(ws, event.code ?? 1006, String(event.reason ?? ""));
-    };
+    });
+    nodeWs.on("close", (code: number, reason: Buffer) => {
+      this.handleClose(ws, code ?? 1006, reason?.toString() ?? "");
+    });
   }
 
   private queueConnect(): void {
@@ -1065,7 +1088,7 @@ export class GatewayClient {
     this.pending.clear();
   }
 
-  private handleClose(ws: WebSocket, code: number, reason: string): void {
+  private handleClose(ws: GatewaySocket, code: number, reason: string): void {
     if (this.ws !== ws) {
       return;
     }
@@ -1389,16 +1412,68 @@ export class GatewayClient {
   }
 
   async configPatch(patch: Record<string, any>): Promise<void> {
-    await this.rpc("config.patch", { patch });
+    const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
+    await this.rpc("config.patch", {
+      raw: JSON.stringify(patch),
+      baseHash: hash ?? baseHash ?? "",
+    });
+  }
+
+  async configApply(config: Record<string, any>): Promise<void> {
+    const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
+    await this.rpc("config.apply", {
+      raw: JSON.stringify(config),
+      baseHash: hash ?? baseHash ?? "",
+    });
   }
 
   async configSet(config: Record<string, any>): Promise<void> {
-    await this.rpc("config.set", { config });
+    const { hash, baseHash } = await this.rpc("config.get") as { hash?: string; baseHash?: string };
+    await this.rpc("config.set", {
+      raw: JSON.stringify(config),
+      baseHash: hash ?? baseHash ?? "",
+    });
   }
 
   async modelsList(): Promise<any[]> {
     const res = await this.rpc("models.list");
     return res?.models ?? res ?? [];
+  }
+
+  async channelsStatus(probe = false, timeoutMs?: number): Promise<Record<string, any>> {
+    const params: Record<string, any> = { probe };
+    if (timeoutMs !== undefined) params.timeoutMs = timeoutMs;
+    return await this.rpc("channels.status", params);
+  }
+
+  async channelsLogout(channel: string, accountId?: string): Promise<Record<string, any>> {
+    const params: Record<string, any> = { channel };
+    if (accountId) params.accountId = accountId;
+    return await this.rpc("channels.logout", params);
+  }
+
+  async webLoginStart(options: {
+    force?: boolean;
+    timeoutMs?: number;
+    verbose?: boolean;
+    accountId?: string;
+  } = {}): Promise<Record<string, any>> {
+    const params: Record<string, any> = {};
+    if (options.force) params.force = true;
+    if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
+    if (options.verbose) params.verbose = true;
+    if (options.accountId) params.accountId = options.accountId;
+    return await this.rpc("web.login.start", params, 30_000);
+  }
+
+  async webLoginWait(options: {
+    timeoutMs?: number;
+    accountId?: string;
+  } = {}): Promise<Record<string, any>> {
+    const params: Record<string, any> = {};
+    if (options.timeoutMs !== undefined) params.timeoutMs = options.timeoutMs;
+    if (options.accountId) params.accountId = options.accountId;
+    return await this.rpc("web.login.wait", params, CHAT_TIMEOUT);
   }
 
   // ---------------------------------------------------------------------------

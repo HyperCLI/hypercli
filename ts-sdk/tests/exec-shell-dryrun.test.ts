@@ -85,6 +85,95 @@ describe('HyperClaw agents SDK', () => {
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
+  it('OpenClawAgent gateway forwards deployment pairing context', () => {
+    const deployments = new Deployments(
+      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-ctx',
+      user_id: 'user-1',
+      pod_id: 'pod-ctx',
+      pod_name: 'pod-ctx',
+      state: 'running',
+      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      gateway_token: 'gw-ctx',
+      jwt_token: 'jwt-ctx',
+    });
+    (agent as any)._deployments = deployments;
+
+    const gateway = agent.gateway({ clientId: 'openclaw-control-ui', clientMode: 'webchat' }) as any;
+
+    expect(gateway.deploymentId).toBe('agent-ctx');
+    expect(gateway.apiKey).toBe('sk-hyper-test');
+    expect(gateway.apiBase).toBe('https://api.dev.hypercli.com/agents');
+    expect(gateway.autoApprovePairing).toBe(true);
+    expect(gateway.gatewayToken).toBe('gw-ctx');
+  });
+
+  it('OpenClawAgent config helpers mutate OpenClaw config through configApply', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-helpers',
+      user_id: 'user-1',
+      pod_id: 'pod-helpers',
+      pod_name: 'pod-helpers',
+      state: 'running',
+      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      gateway_token: 'gw-helpers',
+      jwt_token: 'jwt-helpers',
+    });
+    const baseConfig = {
+      models: {
+        providers: {
+          hyperclaw: {
+            api: 'anthropic-messages',
+            baseUrl: 'https://api.example',
+            models: [{ id: 'kimi-k2.5', name: 'Kimi K2.5' }],
+          },
+        },
+      },
+      agents: { defaults: {} },
+    };
+    const applied: Array<Record<string, any>> = [];
+    vi.spyOn(agent, 'configGet').mockImplementation(async () => structuredClone(baseConfig));
+    vi.spyOn(agent, 'configApply').mockImplementation(async (config) => {
+      applied.push(structuredClone(config));
+    });
+
+    const provider = await agent.providerUpsert('moonshot', {
+      api: 'anthropic-messages',
+      baseUrl: 'https://moonshot.example',
+      apiKey: 'moonshot-key',
+      models: [{ id: 'kimi-k2.5', name: 'Kimi K2.5', reasoning: true }],
+    });
+    expect(provider.baseUrl).toBe('https://moonshot.example');
+
+    const model = await agent.modelUpsert('moonshot', 'kimi-k2.5', {
+      name: 'Kimi K2.5',
+      reasoning: true,
+      contextWindow: 262144,
+    });
+    expect(model.contextWindow).toBe(262144);
+
+    const primary = await agent.setDefaultModel('moonshot', 'kimi-k2.5');
+    expect(primary).toBe('moonshot/kimi-k2.5');
+
+    const memorySearch = await agent.setMemorySearch({
+      provider: 'embeddings',
+      model: 'qwen3-embedding',
+      baseUrl: 'https://embed.example',
+      apiKey: 'embed-key',
+    });
+    expect(memorySearch.remote.baseUrl).toBe('https://embed.example');
+
+    expect(applied).toHaveLength(4);
+    expect(applied[0]?.models?.providers?.moonshot?.apiKey).toBe('moonshot-key');
+    expect(applied[1]?.models?.providers?.moonshot?.models?.[0]?.reasoning).toBe(true);
+    expect(applied[2]?.agents?.defaults?.model?.primary).toBe('moonshot/kimi-k2.5');
+    expect(applied[3]?.agents?.defaults?.memorySearch?.remote?.apiKey).toBe('embed-key');
+  });
+
   it('create posts config and returns bound OpenClawAgent', async () => {
     const post = vi.fn().mockResolvedValue({
       id: 'agent-1',

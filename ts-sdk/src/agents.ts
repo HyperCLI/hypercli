@@ -467,15 +467,29 @@ export class OpenClawAgent extends Agent {
     if (!this.jwtToken) {
       throw new Error('Agent has no JWT token');
     }
+    const deployments = this.requireDeployments();
 
     return new GatewayClient({
       url: this.gatewayUrl,
       token: this.jwtToken,
       gatewayToken: options.gatewayToken ?? this.gatewayToken ?? undefined,
+      deploymentId: options.deploymentId ?? this.id,
+      apiKey: options.apiKey ?? deployments.agentApiKey,
+      apiBase: options.apiBase ?? deployments.agentApiBase,
+      autoApprovePairing: options.autoApprovePairing ?? true,
       clientId: options.clientId,
       clientMode: options.clientMode,
+      clientDisplayName: options.clientDisplayName,
+      clientVersion: options.clientVersion,
+      platform: options.platform,
+      instanceId: options.instanceId,
+      caps: options.caps,
       origin: options.origin,
       timeout: options.timeout,
+      onHello: options.onHello,
+      onClose: options.onClose,
+      onGap: options.onGap,
+      onPairing: options.onPairing,
     });
   }
 
@@ -516,6 +530,18 @@ export class OpenClawAgent extends Agent {
     }
   }
 
+  async configApply(
+    config: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<void> {
+    const client = await this.connect(options);
+    try {
+      await client.configApply(config);
+    } finally {
+      client.close();
+    }
+  }
+
   async sessionsList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
     const client = await this.connect(options);
     try {
@@ -539,6 +565,209 @@ export class OpenClawAgent extends Agent {
       client.close();
     }
   }
+
+  async channelsStatus(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      probe?: boolean;
+      timeoutMs?: number;
+    } = {},
+  ): Promise<Record<string, any>> {
+    const client = await this.connect(options);
+    try {
+      return await client.channelsStatus(options.probe ?? false, options.timeoutMs);
+    } finally {
+      client.close();
+    }
+  }
+
+  async channelsLogout(
+    channel: string,
+    accountId?: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const client = await this.connect(options);
+    try {
+      return await client.channelsLogout(channel, accountId);
+    } finally {
+      client.close();
+    }
+  }
+
+  async webLoginStart(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      force?: boolean;
+      timeoutMs?: number;
+      verbose?: boolean;
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    const client = await this.connect(options);
+    try {
+      return await client.webLoginStart({
+        force: options.force,
+        timeoutMs: options.timeoutMs,
+        verbose: options.verbose,
+        accountId: options.accountId,
+      });
+    } finally {
+      client.close();
+    }
+  }
+
+  async webLoginWait(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      timeoutMs?: number;
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    const client = await this.connect(options);
+    try {
+      return await client.webLoginWait({
+        timeoutMs: options.timeoutMs,
+        accountId: options.accountId,
+      });
+    } finally {
+      client.close();
+    }
+  }
+
+  private async mutateConfig(
+    mutator: (config: Record<string, any>) => void | Promise<void>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const config = structuredClone(await this.configGet(options));
+    await mutator(config);
+    await this.configApply(config, options);
+    return config;
+  }
+
+  async providerUpsert(
+    providerId: string,
+    providerConfig: {
+      api: string;
+      baseUrl: string;
+      apiKey?: string;
+      models?: Array<Record<string, any>>;
+      [key: string]: any;
+    },
+    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const { api, baseUrl, apiKey, models, ...extra } = providerConfig;
+    const config = await this.mutateConfig((next) => {
+      const modelsCfg = (next.models ??= {});
+      const providers = (modelsCfg.providers ??= {});
+      const provider = { ...(providers[providerId] ?? {}) };
+      provider.api = api;
+      provider.baseUrl = baseUrl;
+      if (apiKey !== undefined) provider.apiKey = apiKey;
+      if (models !== undefined) provider.models = structuredClone(models);
+      Object.assign(provider, extra);
+      providers[providerId] = provider;
+    }, gatewayOptions);
+    return config.models?.providers?.[providerId] ?? {};
+  }
+
+  async providerRemove(
+    providerId: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const config = await this.mutateConfig((next) => {
+      if (next.models?.providers) {
+        delete next.models.providers[providerId];
+      }
+    }, options);
+    return config.models?.providers ?? {};
+  }
+
+  async modelUpsert(
+    providerId: string,
+    modelId: string,
+    modelConfig: {
+      name?: string;
+      reasoning?: boolean;
+      contextWindow?: number;
+      maxTokens?: number;
+      input?: string[];
+      [key: string]: any;
+    } = {},
+    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const config = await this.mutateConfig((next) => {
+      const providers = ((next.models ??= {}).providers ??= {});
+      const provider = { ...(providers[providerId] ?? {}) };
+      const models = Array.isArray(provider.models)
+        ? provider.models.map((entry: Record<string, any>) => ({ ...entry }))
+        : [];
+      let model = models.find((entry: Record<string, any>) => entry.id === modelId);
+      if (!model) {
+        model = { id: modelId };
+        models.push(model);
+      }
+      Object.assign(model, modelConfig);
+      provider.models = models;
+      providers[providerId] = provider;
+    }, gatewayOptions);
+    return (
+      config.models?.providers?.[providerId]?.models?.find((entry: Record<string, any>) => entry.id === modelId) ??
+      {}
+    );
+  }
+
+  async modelRemove(
+    providerId: string,
+    modelId: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Array<Record<string, any>>> {
+    const config = await this.mutateConfig((next) => {
+      const providers = ((next.models ??= {}).providers ??= {});
+      const provider = { ...(providers[providerId] ?? {}) };
+      provider.models = Array.isArray(provider.models)
+        ? provider.models.filter((entry: Record<string, any>) => entry.id !== modelId)
+        : [];
+      providers[providerId] = provider;
+    }, options);
+    return config.models?.providers?.[providerId]?.models ?? [];
+  }
+
+  async setDefaultModel(
+    providerId: string,
+    modelId: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<string> {
+    const primary = `${providerId}/${modelId}`;
+    await this.mutateConfig((next) => {
+      const defaults = ((next.agents ??= {}).defaults ??= {});
+      const model = (defaults.model ??= {});
+      model.primary = primary;
+    }, options);
+    return primary;
+  }
+
+  async setMemorySearch(
+    memorySearchConfig: {
+      provider: string;
+      model: string;
+      baseUrl?: string;
+      apiKey?: string;
+      [key: string]: any;
+    },
+    gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<Record<string, any>> {
+    const { provider, model, baseUrl, apiKey, ...extra } = memorySearchConfig;
+    const config = await this.mutateConfig((next) => {
+      const defaults = ((next.agents ??= {}).defaults ??= {});
+      const memorySearch = { ...(defaults.memorySearch ?? {}) };
+      memorySearch.provider = provider;
+      memorySearch.model = model;
+      const remote = { ...(memorySearch.remote ?? {}) };
+      if (baseUrl !== undefined) remote.baseUrl = baseUrl;
+      if (apiKey !== undefined) remote.apiKey = apiKey;
+      if (Object.keys(remote).length > 0) memorySearch.remote = remote;
+      Object.assign(memorySearch, extra);
+      defaults.memorySearch = memorySearch;
+    }, gatewayOptions);
+    return config.agents?.defaults?.memorySearch ?? {};
+  }
 }
 
 export class Deployments {
@@ -555,6 +784,14 @@ export class Deployments {
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || process.env.HYPERCLI_API_URL || AGENTS_API_BASE);
     this.agentsWsUrl = agentsWsUrl ? normalizeAgentsWsUrl(agentsWsUrl) : defaultAgentsWsUrl(this.apiBase);
+  }
+
+  get agentApiKey(): string {
+    return this.apiKey;
+  }
+
+  get agentApiBase(): string {
+    return this.apiBase;
   }
 
   private hydrateAgent(data: AgentHydrationData): Agent {

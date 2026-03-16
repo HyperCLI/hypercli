@@ -5,6 +5,8 @@ import { beforeEach, describe, expect, it, vi } from "vitest";
 import { GatewayClient } from "../src/gateway.js";
 
 const STORAGE_KEY = "openclaw.device.auth.v1";
+const URL_SCOPE_KEY = "wss://openclaw-agent.example|operator";
+const DEPLOYMENT_SCOPE_KEY = "deployment-123|operator";
 
 class MockLocalStorage {
   private readonly data = new Map<string, string>();
@@ -181,8 +183,8 @@ describe("GatewayClient", () => {
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.deviceId).toBe(request.params.device.id);
     expect(stored.publicKey).toBe(request.params.device.publicKey);
-    expect(stored.tokens.operator.token).toBe("device-token-1");
-    expect(stored.tokens.operator.scopes).toEqual(["operator.admin"]);
+    expect(stored.tokens[URL_SCOPE_KEY].token).toBe("device-token-1");
+    expect(stored.tokens[URL_SCOPE_KEY].scopes).toEqual(["operator.admin"]);
   });
 
   it("prefers a cached device token over the shared gateway token on reconnect", async () => {
@@ -208,7 +210,7 @@ describe("GatewayClient", () => {
     await connectPromise;
 
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    expect(stored.tokens.operator.token).toBe("device-token-2");
+    expect(stored.tokens[URL_SCOPE_KEY].token).toBe("device-token-2");
   });
 
   it("clears the cached device token when connect fails with a device-token auth error", async () => {
@@ -234,7 +236,7 @@ describe("GatewayClient", () => {
 
     expect(ws.closedWith).toEqual({ code: 4008, reason: "connect failed" });
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    expect(stored.tokens?.operator).toBeUndefined();
+    expect(stored.tokens?.[URL_SCOPE_KEY]).toBeUndefined();
   });
 
   it("does not call onDisconnect for intentional local closes", async () => {
@@ -320,6 +322,6 @@ describe("GatewayClient", () => {
 
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.pendingPairings).toBeUndefined();
-    expect(stored.tokens.operator.token).toBe("device-token-after-pair");
+    expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-after-pair");
   });
 });
