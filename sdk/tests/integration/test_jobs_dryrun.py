@@ -7,9 +7,12 @@ def test_list_jobs(client):
 
 
 def test_create_dry_run_job(client):
+    types = client.instances.types(refresh=True)
+    first_type = next(iter(types.values()))
+
     job = client.jobs.create(
         image="nvidia/cuda:12.0-base-ubuntu22.04",
-        gpu_type="l4",
+        gpu_type=first_type.id,
         command="echo hello",
         runtime=60,
         dry_run=True,
@@ -18,6 +21,6 @@ def test_create_dry_run_job(client):
     assert job.job_id == "dry-run"
     assert job.job_key == "dry-run"
     assert job.state.lower() == "dry_run"
-    assert job.gpu_type.lower() == "l4"
+    assert job.gpu_type.lower() == first_type.id.lower()
     assert job.runtime == 60
     assert job.price_per_hour > 0

@@ -10,6 +10,8 @@ env:
 jobs:
   ts-sdk-integration:
     runs-on: self-hosted
+    container:
+      image: node:22-bookworm
     timeout-minutes: 20
     defaults:
       run:
@@ -17,16 +19,10 @@ jobs:
         working-directory: ts-sdk
     env:
       TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-      TEST_API_BASE: https://api.hypercli.com
+      TEST_API_BASE: https://api.dev.hypercli.com
       TEST_AGENT_API_KEY: ${{ secrets.TEST_AGENT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: ts-sdk/package-lock.json
 
       - name: Install TS SDK dependencies
         run: npm ci
@@ -36,6 +32,8 @@ jobs:
 
   python-sdk-integration:
     runs-on: self-hosted
+    container:
+      image: python:3.12-bookworm
     timeout-minutes: 20
     defaults:
       run:
@@ -43,14 +41,10 @@ jobs:
         working-directory: sdk
     env:
       TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-      TEST_API_BASE: https://api.hypercli.com
+      TEST_API_BASE: https://api.dev.hypercli.com
       TEST_AGENT_API_KEY: ${{ secrets.TEST_AGENT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
 
       - name: Install Python SDK
         run: |

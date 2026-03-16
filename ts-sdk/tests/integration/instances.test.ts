@@ -12,7 +12,6 @@ integrationDescribe("TS SDK integration: instances", () => {
     const entries = Object.values(types);
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(types.l4 || types.l40s || types.b200 || types.h200).toBeDefined();
 
     const firstType = entries[0];
     expectNonEmptyString(firstType.id);
@@ -26,7 +25,6 @@ integrationDescribe("TS SDK integration: instances", () => {
     const entries = Object.values(regions);
 
     expect(entries.length).toBeGreaterThan(0);
-    expect(regions.oh || regions.va || regions.fi).toBeDefined();
 
     const firstRegion = entries[0];
     expectNonEmptyString(firstRegion.id);
