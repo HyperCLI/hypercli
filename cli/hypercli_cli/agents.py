@@ -331,26 +331,14 @@ def create(
 
     if wait and not pod.dry_run:
         console.print("\n[dim]Waiting for pod to start...[/dim]")
-        for i in range(60):
-            time.sleep(5)
-            try:
-                pod = agents.get(pod.id)
-                _save_pod_state(pod)
-                if pod.is_running:
-                    console.print(f"[green]✅ Agent is running![/green]")
-                    break
-                elif pod.state in ("failed", "stopped"):
-                    console.print(f"[red]❌ Agent failed: {pod.state}[/red]")
-                    if pod.last_error:
-                        console.print(f"  Error: {pod.last_error}")
-                    raise typer.Exit(1)
-                else:
-                    console.print(f"  [{i*5}s] State: {pod.state}")
-            except typer.Exit:
-                raise
-            except Exception as e:
-                console.print(f"  [{i*5}s] Checking... ({e})")
-        else:
+        try:
+            pod = agents.wait_running(pod.id, timeout=300, poll_interval=5)
+            _save_pod_state(pod)
+            console.print(f"[green]✅ Agent is running![/green]")
+        except RuntimeError as e:
+            console.print(f"[red]❌ Agent failed: {e}[/red]")
+            raise typer.Exit(1)
+        except TimeoutError:
             console.print("[yellow]⚠ Timed out (5 min). Pod may still be starting.[/yellow]")
 
     if pod.dry_run:
@@ -359,6 +347,33 @@ def create(
         console.print(f"\nExec:    [bold]hyper agents exec {pod.id[:8]} 'echo hello'[/bold]")
         console.print(f"Shell:   [bold]hyper agents shell {pod.id[:8]}[/bold]")
         console.print(f"Desktop: {pod.vnc_url}")
+
+
+@app.command("wait")
+def wait_agent(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    timeout: int = typer.Option(300, "--timeout", help="Seconds to wait for RUNNING"),
+    poll_interval: float = typer.Option(5.0, "--poll-interval", help="Seconds between polls"),
+):
+    """Wait for an agent to reach RUNNING."""
+    agents = _get_deployments_client()
+    pod = _get_pod_with_token(agent_id)
+
+    try:
+        pod = agents.wait_running(pod.id, timeout=timeout, poll_interval=poll_interval)
+    except RuntimeError as e:
+        console.print(f"[red]❌ Agent failed: {e}[/red]")
+        raise typer.Exit(1)
+    except TimeoutError as e:
+        console.print(f"[yellow]⚠ {e}[/yellow]")
+        raise typer.Exit(1)
+
+    _save_pod_state(pod)
+    console.print(f"[green]✅ Agent is running:[/green] [bold]{pod.id[:12]}[/bold]")
+    console.print(f"  Name:     {pod.name or pod.pod_name}")
+    console.print(f"  State:    {pod.state}")
+    console.print(f"  Desktop:  {pod.vnc_url}")
+    console.print(f"  Shell:    {pod.shell_url}")
 
 
 @app.command("list")
@@ -979,12 +994,13 @@ def gateway_cron(
 def gateway_chat(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),
     message: str = typer.Argument(..., help="Message to send"),
+    session_key: str = typer.Option("main", "--session-key", help="Gateway chat session key"),
 ):
     """Send a chat message to an agent via the Gateway and stream the response."""
     pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
 
     async def _run():
-        async for event in pod.chat_send(message):
+        async for event in pod.chat_send(message, session_key=session_key):
             if event.type == "content":
                 print(event.text, end="", flush=True)
             elif event.type == "thinking":

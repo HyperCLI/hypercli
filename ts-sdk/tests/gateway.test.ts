@@ -250,6 +250,218 @@ describe("GatewayClient", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
+  it("waitReady retries until configGet succeeds", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    let attempts = 0;
+    vi.spyOn(client, "connect").mockImplementation(async () => {
+      (client as any).connected = true;
+    });
+    vi.spyOn(client, "configGet").mockImplementation(async () => {
+      attempts += 1;
+      if (attempts < 2) {
+        throw new Error("warming up");
+      }
+      return { gateway: { mode: "local" } };
+    });
+    vi.spyOn(client, "close").mockImplementation(() => {
+      (client as any).connected = false;
+      (client as any).closed = false;
+    });
+
+    const result = await client.waitReady(100, { retryIntervalMs: 0 });
+
+    expect(result.gateway.mode).toBe("local");
+    expect(attempts).toBe(2);
+  });
+
+  it("chatSend accepts server runId events and ends on chat.done", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "server-run-1" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Reply with exactly: SMOKE_OK", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "server-run-1", text: "SMOKE_" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.content",
+      payload: { runId: "server-run-1", text: "OK" },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: { runId: "server-run-1" },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "content", "done"]);
+    expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("SMOKE_OK");
+  });
+
+  it("chatSend streams legacy chat deltas and treats final without message as done", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "legacy-run-1" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Say hello", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "legacy-run-1",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text: "Hello" }] },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "legacy-run-1",
+        sessionKey: "main",
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text: "Hello world" }] },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "legacy-run-1",
+        sessionKey: "main",
+        state: "final",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "content", "done"]);
+    expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("Hello world");
+  });
+
+  it("chatSend accepts canonical agent session key aliases", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "legacy-run-alias" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("alias test", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "legacy-run-alias",
+        sessionKey: "agent:main:main",
+        state: "delta",
+        message: { role: "assistant", content: [{ type: "text", text: "Alias OK" }] },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "legacy-run-alias",
+        sessionKey: "agent:main:main",
+        state: "final",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+    expect(events[0]?.text).toBe("Alias OK");
+  });
+
+  it("chatSend falls back to chat history when final has no message or streamed text", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "legacy-run-2" };
+      }
+      if (method === "chat.history") {
+        return {
+          messages: [
+            { role: "user", content: [{ type: "text", text: "prompt" }] },
+            {
+              role: "assistant",
+              runId: "legacy-run-2",
+              content: [{ type: "text", text: "Recovered final answer" }],
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Recover answer", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "legacy-run-2",
+        sessionKey: "main",
+        state: "final",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+    expect(events[0]?.text).toBe("Recovered final answer");
+  });
+
   it("auto-approves pairing through trusted exec and reconnects", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

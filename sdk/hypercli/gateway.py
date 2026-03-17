@@ -18,7 +18,7 @@ import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Any, AsyncIterator, Callable, Optional
+from typing import Any, AsyncIterator, Callable, Literal, Optional
 from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
 
 import httpx
@@ -363,6 +363,105 @@ class ChatEvent:
     data: Optional[dict] = None
 
 
+def _extract_message_text(message: Any) -> str:
+    if isinstance(message, str):
+        return message
+    if not isinstance(message, dict):
+        return ""
+
+    content = message.get("content")
+    if isinstance(content, str):
+        return content
+    if isinstance(content, list):
+        parts: list[str] = []
+        for entry in content:
+            if not isinstance(entry, dict):
+                continue
+            if entry.get("type") != "text":
+                continue
+            text = entry.get("text")
+            if isinstance(text, str) and text:
+                parts.append(text)
+        if parts:
+            return "\n".join(parts)
+
+    text = message.get("text")
+    return text if isinstance(text, str) else ""
+
+
+def _message_run_id(message: Any) -> str | None:
+    if not isinstance(message, dict):
+        return None
+
+    for candidate in (
+        message.get("runId"),
+        message.get("agentRunId"),
+        (message.get("meta") or {}).get("runId") if isinstance(message.get("meta"), dict) else None,
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _latest_history_assistant_text(messages: list[dict], accepted_run_ids: set[str]) -> str:
+    for message in reversed(messages):
+        if not isinstance(message, dict):
+            continue
+        role = str(message.get("role") or "").strip().lower()
+        if role != "assistant":
+            continue
+        message_run_id = _message_run_id(message)
+        if message_run_id and accepted_run_ids and message_run_id not in accepted_run_ids:
+            continue
+        text = _extract_message_text(message).strip()
+        if text:
+            return text
+    return ""
+
+
+def _stream_delta(previous_text: str, next_text: str) -> tuple[str, str]:
+    if not next_text:
+        return "", previous_text
+    if previous_text and next_text.startswith(previous_text):
+        return next_text[len(previous_text):], next_text
+    if next_text == previous_text:
+        return "", previous_text
+    return next_text, next_text
+
+
+def _parse_agent_session_key(session_key: str | None) -> tuple[str, str] | None:
+    normalized = (session_key or "").strip().lower()
+    if not normalized:
+        return None
+    parts = [part for part in normalized.split(":") if part]
+    if len(parts) < 3 or parts[0] != "agent":
+        return None
+    agent_id = parts[1].strip()
+    rest = ":".join(parts[2:]).strip()
+    if not agent_id or not rest:
+        return None
+    return agent_id, rest
+
+
+def _same_session_key(left: str | None, right: str | None) -> bool:
+    normalized_left = (left or "").strip().lower()
+    normalized_right = (right or "").strip().lower()
+    if not normalized_left or not normalized_right:
+        return False
+    if normalized_left == normalized_right:
+        return True
+
+    parsed_left = _parse_agent_session_key(normalized_left)
+    parsed_right = _parse_agent_session_key(normalized_right)
+    if parsed_left and parsed_right:
+        return parsed_left == parsed_right
+    if parsed_left:
+        return parsed_left[1] == normalized_right
+    if parsed_right:
+        return normalized_left == parsed_right[1]
+    return False
+
+
 class GatewayClient:
     """
     Async WebSocket client for the OpenClaw Gateway protocol v3.
@@ -388,6 +487,7 @@ class GatewayClient:
         caps: list[str] | None = None,
         origin: str = "https://hypercli.com",
         timeout: float = DEFAULT_TIMEOUT,
+        chat_timeout: float = CHAT_TIMEOUT,
         on_hello: Callable[[dict[str, Any]], None] | None = None,
         on_close: Callable[[GatewayCloseInfo], None] | None = None,
         on_gap: Callable[[dict[str, int]], None] | None = None,
@@ -409,6 +509,7 @@ class GatewayClient:
         self.caps = list(caps or ["tool-events"])
         self.origin = origin
         self.timeout = timeout
+        self.chat_timeout = chat_timeout
         self.on_hello = on_hello
         self.on_close = on_close
         self.on_gap = on_gap
@@ -496,6 +597,7 @@ class GatewayClient:
             )
 
     async def _reader_loop(self) -> None:
+        close_info: GatewayCloseInfo | None = None
         try:
             assert self._ws is not None
             async for raw in self._ws:
@@ -503,9 +605,31 @@ class GatewayClient:
         except asyncio.CancelledError:
             return
         except Exception as exc:
+            close_info = GatewayCloseInfo(
+                code=1006,
+                reason="reader closed",
+                error=GatewayError("UNAVAILABLE", str(exc)),
+            )
+        else:
+            ws = self._ws
+            close_info = GatewayCloseInfo(
+                code=int(getattr(ws, "close_code", 1000) or 1000),
+                reason=str(getattr(ws, "close_reason", "") or ""),
+                error=None,
+            )
+        finally:
             self._connected = False
-            if self.on_close:
-                self.on_close(GatewayCloseInfo(code=1006, reason="reader closed", error=GatewayError("UNAVAILABLE", str(exc))))
+            self._ws = None
+            close_error = close_info.error if close_info and close_info.error else GatewayError(
+                "UNAVAILABLE",
+                f"gateway closed ({close_info.code if close_info else 1006}): {(close_info.reason if close_info else 'reader closed') or 'reader closed'}",
+            )
+            for request_id, future in list(self._pending.items()):
+                if not future.done():
+                    future.set_exception(close_error)
+                self._pending.pop(request_id, None)
+            if self.on_close and close_info:
+                self.on_close(close_info)
 
     def _handle_message(self, raw: str) -> None:
         try:
@@ -836,6 +960,32 @@ class GatewayClient:
     async def status(self) -> dict:
         return await self.call("status")
 
+    async def wait_ready(
+        self,
+        timeout: float = 300.0,
+        retry_interval: float = 5.0,
+        probe: Literal["config", "status"] = "config",
+    ) -> dict:
+        deadline = asyncio.get_running_loop().time() + timeout
+        last_error: Exception | None = None
+
+        while not self._closed:
+            try:
+                if not self._connected:
+                    await self.connect()
+                if probe == "status":
+                    return await self.status()
+                return await self.config_get()
+            except Exception as exc:
+                last_error = exc
+                await self.close()
+                if asyncio.get_running_loop().time() >= deadline:
+                    break
+                await asyncio.sleep(retry_interval)
+
+        detail = f": {last_error}" if last_error else ""
+        raise GatewayError("TIMEOUT", f"Gateway readiness probe timed out after {timeout}s{detail}")
+
     async def models_list(self) -> list[dict]:
         result = await self.call("models.list")
         return result.get("models", [])
@@ -882,7 +1032,7 @@ class GatewayClient:
             params["timeoutMs"] = timeout_ms
         if account_id:
             params["accountId"] = account_id
-        return await self.call("web.login.wait", params, timeout=CHAT_TIMEOUT)
+        return await self.call("web.login.wait", params, timeout=self.chat_timeout)
 
     async def agents_list(self) -> list[dict]:
         result = await self.call("agents.list")
@@ -922,50 +1072,71 @@ class GatewayClient:
         session_key: str | None = "main",
         agent_id: str | None = None,
     ) -> AsyncIterator[ChatEvent]:
-        run_id = str(uuid.uuid4())
+        idempotency_key = str(uuid.uuid4())
+        resolved_session_key = session_key or "main"
         params: dict[str, Any] = {
             "message": message,
-            "idempotencyKey": run_id,
-            "sessionKey": session_key or "main",
+            "deliver": False,
+            "idempotencyKey": idempotency_key,
+            "sessionKey": resolved_session_key,
         }
         if agent_id:
             params["agentId"] = agent_id
 
-        await self.call("chat.send", params, timeout=30)
+        result = await self.call("chat.send", params, timeout=30)
+        accepted_run_ids = {idempotency_key}
+        server_run_id = str((result or {}).get("runId") or "").strip()
+        if server_run_id:
+            accepted_run_ids.add(server_run_id)
 
-        deadline = asyncio.get_running_loop().time() + CHAT_TIMEOUT
+        deadline = asyncio.get_running_loop().time() + self.chat_timeout
         last_legacy_text = ""
+        streamed_display_text = False
         while asyncio.get_running_loop().time() < deadline:
             remaining = max(0.1, min(1.0, deadline - asyncio.get_running_loop().time()))
             try:
                 event = await asyncio.wait_for(self._event_queue.get(), timeout=remaining)
             except asyncio.TimeoutError:
+                if self._reader_task is not None and self._reader_task.done() and not self._connected:
+                    raise GatewayError("UNAVAILABLE", "gateway connection closed while waiting for chat events")
                 continue
 
             event_name = event.get("event")
             payload = event.get("payload") or {}
-            if isinstance(payload, dict) and payload.get("runId") not in {None, run_id}:
-                continue
+            if isinstance(payload, dict):
+                payload_run_id = str(payload.get("runId") or "").strip()
+                payload_session_key = str(payload.get("sessionKey") or "").strip()
+                if payload_run_id and payload_run_id not in accepted_run_ids:
+                    continue
+                if payload_session_key and not _same_session_key(payload_session_key, resolved_session_key):
+                    continue
 
             if event_name == "chat.content":
                 text = str(payload.get("text") or "")
                 if text:
+                    deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                    streamed_display_text = True
                     yield ChatEvent(type="content", text=text)
                 continue
             if event_name == "chat.thinking":
                 text = str(payload.get("text") or "")
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 yield ChatEvent(type="thinking", text=text)
                 continue
             if event_name == "chat.tool_call":
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 yield ChatEvent(type="tool_call", data=payload)
                 continue
             if event_name == "chat.tool_result":
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 yield ChatEvent(type="tool_result", data=payload)
                 continue
             if event_name == "chat.done":
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 yield ChatEvent(type="done", data=payload)
                 return
             if event_name == "chat.error":
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 yield ChatEvent(type="error", text=str(payload.get("message") or "Unknown error"), data=payload)
                 return
 
@@ -973,28 +1144,41 @@ class GatewayClient:
                 continue
 
             state = str(payload.get("state") or "").lower()
-            content = ((payload.get("message") or {}).get("content") or [])
-            current_text = "".join(
-                str(part.get("text"))
-                for part in content
-                if isinstance(part, dict) and part.get("type") == "text" and part.get("text")
-            )
+            current_text = _extract_message_text(payload.get("message"))
             if state == "delta":
-                if current_text:
-                    last_legacy_text = current_text
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
+                if delta_text:
+                    streamed_display_text = True
+                    yield ChatEvent(type="content", text=delta_text, data=payload)
                 continue
             if state == "final":
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 if current_text:
-                    yield ChatEvent(type="content", text=current_text, data=payload)
+                    delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
+                    if delta_text:
+                        streamed_display_text = True
+                        yield ChatEvent(type="content", text=delta_text, data=payload)
                     yield ChatEvent(type="done", data=payload)
                     return
-                if last_legacy_text:
-                    yield ChatEvent(type="content", text=last_legacy_text, data=payload)
+                if streamed_display_text or last_legacy_text:
                     yield ChatEvent(type="done", data=payload)
                     return
-                yield ChatEvent(type="tool_call", data=payload)
-                continue
+                history_text = _latest_history_assistant_text(
+                    await self.chat_history(resolved_session_key, limit=20),
+                    accepted_run_ids,
+                )
+                if history_text:
+                    yield ChatEvent(type="content", text=history_text, data=payload)
+                yield ChatEvent(type="done", data=payload)
+                return
             if state in {"error", "aborted"}:
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                if current_text:
+                    delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
+                    if delta_text:
+                        streamed_display_text = True
+                        yield ChatEvent(type="content", text=delta_text, data=payload)
                 yield ChatEvent(type="error", text=str(payload.get("errorMessage") or state), data=payload)
                 return
 

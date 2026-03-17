@@ -12,6 +12,7 @@ from pathlib import Path
 import copy
 import os
 import secrets
+import time
 from typing import Optional, Any, AsyncIterator
 from urllib.parse import quote, urlsplit
 from contextlib import asynccontextmanager
@@ -31,6 +32,21 @@ def _default_gateway_timeout() -> float | None:
     raw = (
         os.environ.get("HYPERCLI_GATEWAY_TIMEOUT")
         or os.environ.get("AGENT_GATEWAY_TIMEOUT")
+        or ""
+    ).strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except ValueError:
+        return None
+    return value if value > 0 else None
+
+
+def _default_gateway_chat_timeout() -> float | None:
+    raw = (
+        os.environ.get("HYPERCLI_GATEWAY_CHAT_TIMEOUT")
+        or os.environ.get("AGENT_GATEWAY_CHAT_TIMEOUT")
         or ""
     ).strip()
     if not raw:
@@ -120,6 +136,16 @@ def _parse_dt(val):
     return None
 
 
+def _deep_merge_config(base: dict[str, Any], patch: dict[str, Any]) -> dict[str, Any]:
+    merged = copy.deepcopy(base)
+    for key, value in patch.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _deep_merge_config(merged[key], value)
+        else:
+            merged[key] = copy.deepcopy(value)
+    return merged
+
+
 def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     return {
         "id": data.get("id", ""),
@@ -207,11 +233,23 @@ class Agent:
             raise ValueError("Agent is not bound to a Deployments client")
         return self._deployments
 
+    def route_requires_auth(self, route_name: str, default: bool = True) -> bool:
+        route = self.routes.get(route_name) or {}
+        if "auth" not in route:
+            return default
+        return bool(route.get("auth", default))
+
     def refresh_token(self) -> dict:
         data = self._require_deployments().refresh_token(self.id)
         self.jwt_token = data.get("token") or data.get("jwt")
         self.jwt_expires_at = _parse_dt(data.get("expires_at"))
         return data
+
+    def wait_running(self, timeout: float = 300.0, poll_interval: float = 5.0) -> "Agent":
+        agent = self._require_deployments().wait_running(self.id, timeout=timeout, poll_interval=poll_interval)
+        self.__dict__.update(agent.__dict__)
+        self._deployments = agent._deployments
+        return self
 
     def env(self) -> dict[str, str]:
         """Fetch runtime environment from the pod's K8s secret."""
@@ -286,8 +324,6 @@ class OpenClawAgent(Agent):
         from .gateway import GatewayClient
         if not self.gateway_url:
             raise ValueError("Agent has no OpenClaw gateway URL")
-        if not self.jwt_token:
-            raise ValueError("Agent has no JWT token — refresh it first")
         deployments = self._require_deployments()
         if "gateway_token" not in kwargs:
             if not self.gateway_token:
@@ -301,7 +337,10 @@ class OpenClawAgent(Agent):
         timeout = _default_gateway_timeout()
         if timeout is not None:
             kwargs.setdefault("timeout", timeout)
-        return GatewayClient(url=self.gateway_url, token=self.jwt_token, **kwargs)
+        chat_timeout = _default_gateway_chat_timeout()
+        if chat_timeout is not None:
+            kwargs.setdefault("chat_timeout", chat_timeout)
+        return GatewayClient(url=self.gateway_url, token=None, **kwargs)
 
     @asynccontextmanager
     async def connect(self, **kwargs):
@@ -313,6 +352,19 @@ class OpenClawAgent(Agent):
     async def gateway_status(self, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
             return await gw.status()
+
+    async def wait_ready(
+        self,
+        timeout: float = 300.0,
+        retry_interval: float = 5.0,
+        probe: str = "config",
+        **kwargs,
+    ) -> dict:
+        gw = self.gateway(**kwargs)
+        try:
+            return await gw.wait_ready(timeout=timeout, retry_interval=retry_interval, probe=probe)
+        finally:
+            await gw.close()
 
     async def config_get(self, **kwargs) -> dict:
         async with self.connect(**kwargs) as gw:
@@ -583,15 +635,63 @@ class OpenClawAgent(Agent):
         config = await self._config_with_mutation(mutate)
         return (((config.get("agents") or {}).get("defaults") or {}).get("memorySearch") or {})
 
-    async def channel_patch(self, channel_id: str, patch: dict) -> dict:
+    async def channel_upsert(
+        self,
+        channel_id: str,
+        channel_config: dict[str, Any],
+        *,
+        account_id: str | None = None,
+    ) -> dict:
         def mutate(config: dict) -> None:
             channels = config.setdefault("channels", {})
             current = dict(channels.get(channel_id) or {})
-            current.update(copy.deepcopy(patch))
-            channels[channel_id] = current
+            if account_id:
+                accounts = dict(current.get("accounts") or {})
+                current_account = dict(accounts.get(account_id) or {})
+                accounts[account_id] = _deep_merge_config(current_account, channel_config)
+                current["accounts"] = accounts
+                channels[channel_id] = current
+                return
+            channels[channel_id] = _deep_merge_config(current, channel_config)
 
         config = await self._config_with_mutation(mutate)
-        return ((config.get("channels") or {}).get(channel_id) or {})
+        channel = ((config.get("channels") or {}).get(channel_id) or {})
+        if account_id:
+            return ((channel.get("accounts") or {}).get(account_id) or {})
+        return channel
+
+    async def channel_patch(
+        self,
+        channel_id: str,
+        patch: dict,
+        *,
+        account_id: str | None = None,
+    ) -> dict:
+        return await self.channel_upsert(channel_id, patch, account_id=account_id)
+
+    async def telegram_upsert(
+        self,
+        channel_config: dict[str, Any],
+        *,
+        account_id: str | None = None,
+    ) -> dict:
+        return await self.channel_upsert("telegram", channel_config, account_id=account_id)
+
+    async def slack_upsert(
+        self,
+        channel_config: dict[str, Any],
+        *,
+        account_id: str | None = None,
+    ) -> dict:
+        return await self.channel_upsert("slack", channel_config, account_id=account_id)
+
+    async def discord_upsert(
+        self,
+        channel_config: dict[str, Any],
+        *,
+        account_id: str | None = None,
+    ) -> dict:
+        return await self.channel_upsert("discord", channel_config, account_id=account_id)
 
 
 @dataclass
@@ -825,6 +925,20 @@ class Deployments:
         """
         data = self._get(f"{AGENTS_API_PREFIX}/{agent_id}")
         return self._hydrate_agent(data)
+
+    def wait_running(self, agent_id: str, timeout: float = 300.0, poll_interval: float = 5.0) -> Agent:
+        """Poll until an agent reaches RUNNING and return a refreshed agent."""
+        deadline = time.time() + timeout
+        last_state = None
+        while time.time() < deadline:
+            agent = self.get(agent_id)
+            last_state = str(agent.state or "")
+            if last_state.lower() == "running":
+                return agent
+            if last_state.lower() in {"failed", "error"}:
+                raise RuntimeError(f"Agent entered {last_state} while waiting for RUNNING")
+            time.sleep(poll_interval)
+        raise TimeoutError(f"Timed out waiting for agent {agent_id} to reach RUNNING (last={last_state})")
 
     def start(
         self,

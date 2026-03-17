@@ -85,7 +85,7 @@ describe('HyperClaw agents SDK', () => {
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('OpenClawAgent gateway forwards deployment pairing context', () => {
+  it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', () => {
     const deployments = new Deployments(
       { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
@@ -100,6 +100,7 @@ describe('HyperClaw agents SDK', () => {
       openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
       gateway_token: 'gw-ctx',
       jwt_token: 'jwt-ctx',
+      routes: { openclaw: { port: 18789, auth: false } },
     });
     (agent as any)._deployments = deployments;
 
@@ -110,6 +111,31 @@ describe('HyperClaw agents SDK', () => {
     expect(gateway.apiBase).toBe('https://api.dev.hypercli.com/agents');
     expect(gateway.autoApprovePairing).toBe(true);
     expect(gateway.gatewayToken).toBe('gw-ctx');
+    expect(gateway.token).toBeUndefined();
+  });
+
+  it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', () => {
+    const deployments = new Deployments(
+      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-jwtless',
+      user_id: 'user-1',
+      pod_id: 'pod-jwtless',
+      pod_name: 'pod-jwtless',
+      state: 'running',
+      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      gateway_token: 'gw-jwtless',
+      routes: { openclaw: { port: 18789, auth: false } },
+    });
+    (agent as any)._deployments = deployments;
+
+    const gateway = agent.gateway() as any;
+
+    expect(gateway.token).toBeUndefined();
+    expect(gateway.gatewayToken).toBe('gw-jwtless');
   });
 
   it('OpenClawAgent config helpers mutate OpenClaw config through configApply', async () => {
@@ -167,11 +193,88 @@ describe('HyperClaw agents SDK', () => {
     });
     expect(memorySearch.remote.baseUrl).toBe('https://embed.example');
 
-    expect(applied).toHaveLength(4);
+    const telegram = await agent.telegramUpsert({
+      botToken: 'telegram-token',
+      allowFrom: ['123456'],
+    });
+    expect(telegram.botToken).toBe('telegram-token');
+
+    const slack = await agent.slackUpsert({
+      botToken: 'xoxb-test',
+      channels: { C123: { enabled: true, users: ['U123'] } },
+    }, { accountId: 'work' });
+    expect(slack.botToken).toBe('xoxb-test');
+
+    const discord = await agent.discordUpsert({
+      token: 'discord-token',
+      guilds: { G123: { enabled: true } },
+    });
+    expect(discord.token).toBe('discord-token');
+
+    expect(applied).toHaveLength(7);
     expect(applied[0]?.models?.providers?.moonshot?.apiKey).toBe('moonshot-key');
     expect(applied[1]?.models?.providers?.moonshot?.models?.[0]?.reasoning).toBe(true);
     expect(applied[2]?.agents?.defaults?.model?.primary).toBe('moonshot/kimi-k2.5');
     expect(applied[3]?.agents?.defaults?.memorySearch?.remote?.apiKey).toBe('embed-key');
+    expect(applied[4]?.channels?.telegram?.allowFrom).toEqual(['123456']);
+    expect(applied[5]?.channels?.slack?.accounts?.work?.channels?.C123?.users).toEqual(['U123']);
+    expect(applied[6]?.channels?.discord?.guilds?.G123?.enabled).toBe(true);
+  });
+
+  it('OpenClawAgent waitReady delegates to GatewayClient.waitReady', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-ready',
+      pod_name: 'pod-ready',
+      state: 'running',
+      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      gateway_token: 'gw-ready',
+      jwt_token: 'jwt-ready',
+    });
+
+    const waitReady = vi.fn().mockResolvedValue({ gateway: { mode: 'local' } });
+    const close = vi.fn();
+    vi.spyOn(agent, 'gateway').mockReturnValue({
+      waitReady,
+      close,
+    } as any);
+
+    const result = await agent.waitReady(90_000, { retryIntervalMs: 250, probe: 'status' });
+
+    expect(result.gateway.mode).toBe('local');
+    expect(waitReady).toHaveBeenCalledWith(90_000, { retryIntervalMs: 250, probe: 'status' });
+    expect(close).toHaveBeenCalledTimes(1);
+  });
+
+  it('Agent waitRunning delegates to Deployments.waitRunning', async () => {
+    const deployments = new Deployments(
+      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+    const ready = Agent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-ready',
+      pod_name: 'pod-ready',
+      state: 'running',
+    });
+    vi.spyOn(deployments, 'waitRunning').mockResolvedValue(ready);
+
+    const agent = Agent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-pending',
+      pod_name: 'pod-pending',
+      state: 'pending',
+    });
+    (agent as any)._deployments = deployments;
+
+    const result = await agent.waitRunning(42_000, 250);
+
+    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250);
+    expect(result).toBe(ready);
   });
 
   it('create posts config and returns bound OpenClawAgent', async () => {

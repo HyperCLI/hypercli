@@ -83,7 +83,7 @@ def test_openclaw_agent_from_dict():
     assert agent.entrypoint == ["/bin/sh", "-c"]
 
 
-def test_openclaw_agent_gateway_requires_url_and_jwt():
+def test_openclaw_agent_gateway_requires_url():
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
@@ -94,12 +94,29 @@ def test_openclaw_agent_gateway_requires_url_and_jwt():
     with pytest.raises(ValueError, match="OpenClaw gateway URL"):
         agent.gateway()
 
-    agent.gateway_url = "wss://openclaw-test.hypercli.com"
-    with pytest.raises(ValueError, match="JWT token"):
-        agent.gateway()
+def test_openclaw_agent_gateway_allows_jwtless_when_route_auth_disabled():
+    manager = Mock()
+    manager._api_key = "sk-hyper-test123"
+    manager._api_base = "https://api.test.hypercli.com"
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        gateway_url="wss://openclaw-test.hypercli.com",
+        gateway_token="gw123",
+        routes={"openclaw": {"port": 18789, "auth": False}},
+        _deployments=manager,
+    )
+
+    gw = agent.gateway()
+    assert gw.url == "wss://openclaw-test.hypercli.com"
+    assert gw.token is None
+    assert gw.gateway_token == "gw123"
 
 
-def test_openclaw_agent_gateway_uses_bound_tokens():
+def test_openclaw_agent_gateway_ignores_jwt_and_uses_bound_tokens():
     manager = Mock()
     manager._api_key = "sk-hyper-test123"
     manager._api_base = "https://api.test.hypercli.com"
@@ -112,16 +129,81 @@ def test_openclaw_agent_gateway_uses_bound_tokens():
         gateway_url="wss://openclaw-test.hypercli.com",
         gateway_token="gw123",
         jwt_token="jwt123",
+        routes={"openclaw": {"port": 18789, "auth": True}},
         _deployments=manager,
     )
 
     gw = agent.gateway()
     assert gw.url == "wss://openclaw-test.hypercli.com"
-    assert gw.token == "jwt123"
+    assert gw.token is None
     assert gw.gateway_token == "gw123"
     assert gw.deployment_id == "agent-123"
     assert gw.api_key == "sk-hyper-test123"
     assert gw.api_base == "https://api.test.hypercli.com"
+
+
+def test_agent_wait_running_delegates_to_deployments():
+    manager = Mock()
+    ready = Agent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-ready",
+        pod_name="ready-pod",
+        state="running",
+        hostname="ready.hypercli.com",
+    )
+    ready._deployments = manager
+    manager.wait_running.return_value = ready
+
+    agent = Agent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-pending",
+        pod_name="pending-pod",
+        state="pending",
+        _deployments=manager,
+    )
+
+    result = agent.wait_running(timeout=42, poll_interval=1.5)
+
+    manager.wait_running.assert_called_once_with("agent-123", timeout=42, poll_interval=1.5)
+    assert result is agent
+    assert agent.state == "running"
+    assert agent.pod_id == "pod-ready"
+    assert agent.hostname == "ready.hypercli.com"
+
+
+@pytest.mark.asyncio
+async def test_openclaw_agent_wait_ready_uses_gateway_client():
+    agent = OpenClawAgent(
+        id="agent-ready",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        gateway_url="wss://openclaw-test.hypercli.com",
+        gateway_token="gw123",
+        jwt_token="jwt123",
+    )
+
+    calls: list[tuple[float, float, str]] = []
+    closed: list[bool] = []
+
+    class FakeGateway:
+        async def wait_ready(self, timeout: float, retry_interval: float, probe: str) -> dict:
+            calls.append((timeout, retry_interval, probe))
+            return {"gateway": {"mode": "local"}}
+
+        async def close(self) -> None:
+            closed.append(True)
+
+    agent.gateway = Mock(return_value=FakeGateway())  # type: ignore[method-assign]
+
+    result = await agent.wait_ready(timeout=90, retry_interval=1.5, probe="status")
+
+    assert result["gateway"]["mode"] == "local"
+    assert calls == [(90, 1.5, "status")]
+    assert closed == [True]
 
 
 @pytest.mark.asyncio
@@ -190,11 +272,39 @@ async def test_openclaw_agent_helper_methods_mutate_config():
     )
     assert memory_search["remote"]["baseUrl"] == "https://embed.example"
 
-    assert len(applied) == 4
+    telegram = await agent.telegram_upsert(
+        {
+            "botToken": "telegram-token",
+            "allowFrom": ["123456"],
+        }
+    )
+    assert telegram["botToken"] == "telegram-token"
+
+    slack = await agent.slack_upsert(
+        {
+            "botToken": "xoxb-test",
+            "channels": {"C123": {"enabled": True, "users": ["U123"]}},
+        },
+        account_id="work",
+    )
+    assert slack["botToken"] == "xoxb-test"
+
+    discord = await agent.discord_upsert(
+        {
+            "token": "discord-token",
+            "guilds": {"G123": {"enabled": True}},
+        }
+    )
+    assert discord["token"] == "discord-token"
+
+    assert len(applied) == 7
     assert applied[0]["models"]["providers"]["moonshot"]["apiKey"] == "moonshot-key"
     assert applied[1]["models"]["providers"]["moonshot"]["models"][0]["reasoning"] is True
     assert applied[2]["agents"]["defaults"]["model"]["primary"] == "moonshot/kimi-k2.5"
     assert applied[3]["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "embed-key"
+    assert applied[4]["channels"]["telegram"]["allowFrom"] == ["123456"]
+    assert applied[5]["channels"]["slack"]["accounts"]["work"]["channels"]["C123"]["users"] == ["U123"]
+    assert applied[6]["channels"]["discord"]["guilds"]["G123"]["enabled"] is True
 
 
 def test_bound_agent_methods_delegate_to_agents(tmp_path):

@@ -6,6 +6,7 @@ import {
   GatewayClient,
   type ChatEvent,
   type GatewayOptions,
+  type GatewayWaitReadyOptions,
   type OpenClawConfigSchemaResponse,
 } from './gateway.js';
 
@@ -154,6 +155,29 @@ export interface AgentHydrationData {
 function parseDate(value: unknown): Date | null {
   if (typeof value !== 'string' || !value) return null;
   return new Date(value.replace('Z', '+00:00'));
+}
+
+function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>): Record<string, any> {
+  const merged = structuredClone(base);
+  for (const [key, value] of Object.entries(patch)) {
+    if (
+      value &&
+      typeof value === 'object' &&
+      !Array.isArray(value) &&
+      merged[key] &&
+      typeof merged[key] === 'object' &&
+      !Array.isArray(merged[key])
+    ) {
+      merged[key] = deepMergeConfig(merged[key], value as Record<string, any>);
+    } else {
+      merged[key] = structuredClone(value);
+    }
+  }
+  return merged;
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
 function toWsBaseUrl(baseUrl: string): string {
@@ -374,11 +398,23 @@ export class Agent {
     return this._deployments;
   }
 
+  routeRequiresAuth(routeName: string, defaultValue = true): boolean {
+    const route = this.routes[routeName];
+    if (!route || typeof route.auth === 'undefined') {
+      return defaultValue;
+    }
+    return Boolean(route.auth);
+  }
+
   async refreshToken(): Promise<AgentTokenResponse> {
     const data = await this.requireDeployments().refreshToken(this.id);
     this.jwtToken = data.token ?? data.jwt ?? null;
     this.jwtExpiresAt = parseDate(data.expires_at);
     return data;
+  }
+
+  async waitRunning(timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+    return this.requireDeployments().waitRunning(this.id, timeoutMs, pollIntervalMs);
   }
 
   async env(): Promise<Record<string, string>> {
@@ -464,14 +500,11 @@ export class OpenClawAgent extends Agent {
     if (!this.gatewayUrl) {
       throw new Error('Agent has no OpenClaw gateway URL');
     }
-    if (!this.jwtToken) {
-      throw new Error('Agent has no JWT token');
-    }
     const deployments = this.requireDeployments();
 
     return new GatewayClient({
       url: this.gatewayUrl,
-      token: this.jwtToken,
+      token: undefined,
       gatewayToken: options.gatewayToken ?? this.gatewayToken ?? undefined,
       deploymentId: options.deploymentId ?? this.id,
       apiKey: options.apiKey ?? deployments.agentApiKey,
@@ -507,6 +540,21 @@ export class OpenClawAgent extends Agent {
     const client = await this.connect(options);
     try {
       return await client.status();
+    } finally {
+      client.close();
+    }
+  }
+
+  async waitReady(
+    timeoutMs = 300_000,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWaitReadyOptions = {},
+  ): Promise<Record<string, any>> {
+    const client = this.gateway(options);
+    try {
+      return await client.waitReady(timeoutMs, {
+        retryIntervalMs: options.retryIntervalMs,
+        probe: options.probe,
+      });
     } finally {
       client.close();
     }
@@ -768,6 +816,80 @@ export class OpenClawAgent extends Agent {
     }, gatewayOptions);
     return config.agents?.defaults?.memorySearch ?? {};
   }
+
+  async channelUpsert(
+    channelId: string,
+    channelConfig: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    const { accountId, ...gatewayOptions } = options;
+    const config = await this.mutateConfig((next) => {
+      const channels = (next.channels ??= {});
+      const current =
+        channels[channelId] && typeof channels[channelId] === 'object'
+          ? structuredClone(channels[channelId] as Record<string, any>)
+          : {};
+      if (accountId) {
+        const accounts =
+          current.accounts && typeof current.accounts === 'object'
+            ? structuredClone(current.accounts as Record<string, any>)
+            : {};
+        const currentAccount =
+          accounts[accountId] && typeof accounts[accountId] === 'object'
+            ? accounts[accountId] as Record<string, any>
+            : {};
+        accounts[accountId] = deepMergeConfig(currentAccount, channelConfig);
+        current.accounts = accounts;
+        channels[channelId] = current;
+        return;
+      }
+      channels[channelId] = deepMergeConfig(current, channelConfig);
+    }, gatewayOptions);
+    const channel = config.channels?.[channelId] ?? {};
+    if (accountId) {
+      return channel.accounts?.[accountId] ?? {};
+    }
+    return channel;
+  }
+
+  async channelPatch(
+    channelId: string,
+    patch: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    return await this.channelUpsert(channelId, patch, options);
+  }
+
+  async telegramUpsert(
+    channelConfig: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    return await this.channelUpsert('telegram', channelConfig, options);
+  }
+
+  async slackUpsert(
+    channelConfig: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    return await this.channelUpsert('slack', channelConfig, options);
+  }
+
+  async discordUpsert(
+    channelConfig: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      accountId?: string;
+    } = {},
+  ): Promise<Record<string, any>> {
+    return await this.channelUpsert('discord', channelConfig, options);
+  }
 }
 
 export class Deployments {
@@ -856,6 +978,23 @@ export class Deployments {
   async get(agentId: string): Promise<Agent> {
     const data = await this.http.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
     return this.hydrateAgent(data);
+  }
+
+  async waitRunning(agentId: string, timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
+    const deadline = Date.now() + timeoutMs;
+    let lastState = '';
+    while (Date.now() < deadline) {
+      const agent = await this.get(agentId);
+      lastState = String(agent.state || '');
+      if (lastState.toLowerCase() === 'running') {
+        return agent;
+      }
+      if (lastState.toLowerCase() === 'failed' || lastState.toLowerCase() === 'error') {
+        throw new Error(`Agent entered ${lastState} while waiting for RUNNING`);
+      }
+      await sleep(pollIntervalMs);
+    }
+    throw new Error(`Timed out waiting for agent ${agentId} to reach RUNNING (last=${lastState})`);
   }
 
   async start(agentId: string, options: StartAgentOptions = {}): Promise<Agent> {

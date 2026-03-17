@@ -124,42 +124,37 @@ async def test_chat_send_accepts_chat_content_and_done_events() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
 
-    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
-        return {}
-
-    client.call = fake_call  # type: ignore[method-assign]
-
     events: list[dict] = []
+    server_run_id = "server-run-1"
 
     async def produce() -> None:
         while not events:
             await asyncio.sleep(0)
-        run_id = events[0]["params"]["idempotencyKey"]
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat.content",
-                "payload": {"runId": run_id, "text": "SMOKE_"},
+                "payload": {"runId": server_run_id, "text": "SMOKE_"},
             }
         )
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat.content",
-                "payload": {"runId": run_id, "text": "OK"},
+                "payload": {"runId": server_run_id, "text": "OK"},
             }
         )
         client._event_queue.put_nowait(
             {
                 "type": "event",
                 "event": "chat.done",
-                "payload": {"runId": run_id},
+                "payload": {"runId": server_run_id},
             }
         )
 
     async def recording_call(method: str, params: dict | None = None, timeout: float | None = None):
         events.append({"method": method, "params": params, "timeout": timeout})
-        return {}
+        return {"runId": server_run_id}
 
     client.call = recording_call  # type: ignore[method-assign]
     producer = asyncio.create_task(produce())
@@ -168,3 +163,186 @@ async def test_chat_send_accepts_chat_content_and_done_events() -> None:
 
     assert [chunk.type for chunk in chunks] == ["content", "content", "done"]
     assert "".join(chunk.text or "" for chunk in chunks if chunk.type == "content") == "SMOKE_OK"
+
+
+@pytest.mark.asyncio
+async def test_chat_send_streams_legacy_chat_events_and_treats_final_without_message_as_done() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "legacy-run-1"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "delta",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello"}]},
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "delta",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello world"}]},
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "final",
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Say hello")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["content", "content", "done"]
+    assert "".join(chunk.text or "" for chunk in chunks if chunk.type == "content") == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_chat_send_accepts_canonical_agent_session_key_aliases() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "legacy-run-alias"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "agent:main:main",
+                    "state": "delta",
+                    "message": {"role": "assistant", "content": [{"type": "text", "text": "Alias OK"}]},
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "agent:main:main",
+                    "state": "final",
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("alias test", session_key="main")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["content", "done"]
+    assert chunks[0].text == "Alias OK"
+
+
+@pytest.mark.asyncio
+async def test_chat_send_uses_history_fallback_when_final_has_no_message_or_stream() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "legacy-run-2"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        if method == "chat.history":
+            return {
+                "messages": [
+                    {"role": "user", "content": [{"type": "text", "text": "prompt"}]},
+                    {
+                        "role": "assistant",
+                        "runId": server_run_id,
+                        "content": [{"type": "text", "text": "Recovered final answer"}],
+                    },
+                ]
+            }
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "final",
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Recover answer")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["content", "done"]
+    assert chunks[0].text == "Recovered final answer"
+
+
+@pytest.mark.asyncio
+async def test_wait_ready_retries_until_config_probe_succeeds() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    attempts = 0
+    closed: list[bool] = []
+
+    async def fake_connect() -> None:
+        client._connected = True
+
+    async def fake_config_get() -> dict:
+        nonlocal attempts
+        attempts += 1
+        if attempts < 2:
+            raise RuntimeError("warming up")
+        return {"gateway": {"mode": "local"}}
+
+    async def fake_close() -> None:
+        client._connected = False
+        closed.append(True)
+
+    client.connect = fake_connect  # type: ignore[method-assign]
+    client.config_get = fake_config_get  # type: ignore[method-assign]
+    client.close = fake_close  # type: ignore[method-assign]
+
+    result = await client.wait_ready(timeout=1, retry_interval=0)
+
+    assert result["gateway"]["mode"] == "local"
+    assert attempts == 2
+    assert closed == [True]

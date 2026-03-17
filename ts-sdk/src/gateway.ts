@@ -79,6 +79,11 @@ export interface GatewayCloseInfo {
   error?: GatewayErrorShape | null;
 }
 
+export interface GatewayWaitReadyOptions {
+  retryIntervalMs?: number;
+  probe?: "config" | "status";
+}
+
 export interface GatewayPairingState {
   requestId: string;
   role: string;
@@ -236,6 +241,128 @@ function asRecord(value: unknown): Record<string, any> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
     : null;
+}
+
+function extractMessageText(message: unknown): string | null {
+  if (typeof message === "string") {
+    return message;
+  }
+  const record = asRecord(message);
+  if (!record) {
+    return null;
+  }
+  const content = record.content;
+  if (typeof content === "string") {
+    return content;
+  }
+  if (Array.isArray(content)) {
+    const parts = content
+      .map((entry) => {
+        const item = asRecord(entry);
+        if (!item || item.type !== "text" || typeof item.text !== "string" || !item.text) {
+          return null;
+        }
+        return item.text;
+      })
+      .filter((value): value is string => typeof value === "string");
+    if (parts.length > 0) {
+      return parts.join("\n");
+    }
+  }
+  return typeof record.text === "string" ? record.text : null;
+}
+
+function extractMessageRunId(message: unknown): string | null {
+  const record = asRecord(message);
+  if (!record) {
+    return null;
+  }
+  const directRunId = typeof record.runId === "string" ? record.runId.trim() : "";
+  if (directRunId) {
+    return directRunId;
+  }
+  const agentRunId = typeof record.agentRunId === "string" ? record.agentRunId.trim() : "";
+  if (agentRunId) {
+    return agentRunId;
+  }
+  const meta = asRecord(record.meta);
+  const metaRunId = typeof meta?.runId === "string" ? meta.runId.trim() : "";
+  return metaRunId || null;
+}
+
+function latestHistoryAssistantText(messages: unknown[], acceptedRunIds: Set<string>): string | null {
+  for (let index = messages.length - 1; index >= 0; index -= 1) {
+    const message = asRecord(messages[index]);
+    if (!message) {
+      continue;
+    }
+    const role = typeof message.role === "string" ? message.role.trim().toLowerCase() : "";
+    if (role !== "assistant") {
+      continue;
+    }
+    const messageRunId = extractMessageRunId(message);
+    if (messageRunId && acceptedRunIds.size > 0 && !acceptedRunIds.has(messageRunId)) {
+      continue;
+    }
+    const text = extractMessageText(message)?.trim();
+    if (text) {
+      return text;
+    }
+  }
+  return null;
+}
+
+function streamDelta(previousText: string, nextText: string): { delta: string; nextText: string } {
+  if (!nextText) {
+    return { delta: "", nextText: previousText };
+  }
+  if (previousText && nextText.startsWith(previousText)) {
+    return { delta: nextText.slice(previousText.length), nextText };
+  }
+  if (nextText === previousText) {
+    return { delta: "", nextText: previousText };
+  }
+  return { delta: nextText, nextText };
+}
+
+function parseAgentSessionKey(sessionKey: string | null | undefined): { agentId: string; rest: string } | null {
+  const normalized = (sessionKey ?? "").trim().toLowerCase();
+  if (!normalized) {
+    return null;
+  }
+  const parts = normalized.split(":").filter(Boolean);
+  if (parts.length < 3 || parts[0] !== "agent") {
+    return null;
+  }
+  const agentId = parts[1]?.trim();
+  const rest = parts.slice(2).join(":").trim();
+  if (!agentId || !rest) {
+    return null;
+  }
+  return { agentId, rest };
+}
+
+function sameSessionKey(left: string | undefined, right: string | undefined): boolean {
+  const normalizedLeft = (left ?? "").trim().toLowerCase();
+  const normalizedRight = (right ?? "").trim().toLowerCase();
+  if (!normalizedLeft || !normalizedRight) {
+    return false;
+  }
+  if (normalizedLeft === normalizedRight) {
+    return true;
+  }
+  const parsedLeft = parseAgentSessionKey(normalizedLeft);
+  const parsedRight = parseAgentSessionKey(normalizedRight);
+  if (parsedLeft && parsedRight) {
+    return parsedLeft.agentId === parsedRight.agentId && parsedLeft.rest === parsedRight.rest;
+  }
+  if (parsedLeft) {
+    return parsedLeft.rest === normalizedRight;
+  }
+  if (parsedRight) {
+    return normalizedLeft === parsedRight.rest;
+  }
+  return false;
 }
 
 function splitConfigPath(path: string): string[] {
@@ -1440,6 +1567,38 @@ export class GatewayClient {
     return res?.models ?? res ?? [];
   }
 
+  async waitReady(
+    timeoutMs = 300_000,
+    options: GatewayWaitReadyOptions = {},
+  ): Promise<Record<string, any>> {
+    const retryIntervalMs = options.retryIntervalMs ?? 5_000;
+    const probe = options.probe ?? "config";
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown = null;
+
+    while (!this.closed) {
+      try {
+        if (!this.connected) {
+          await this.connect();
+        }
+        if (probe === "status") {
+          return await this.status();
+        }
+        return await this.configGet();
+      } catch (error) {
+        lastError = error;
+        this.close();
+        if (Date.now() >= deadline) {
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+      }
+    }
+
+    const detail = lastError instanceof Error ? `: ${lastError.message}` : "";
+    throw new Error(`Gateway readiness probe timed out after ${timeoutMs}ms${detail}`);
+  }
+
   async channelsStatus(probe = false, timeoutMs?: number): Promise<Record<string, any>> {
     const params: Record<string, any> = { probe };
     if (timeoutMs !== undefined) params.timeoutMs = timeoutMs;
@@ -1511,6 +1670,7 @@ export class GatewayClient {
   ): Promise<any> {
     const params: Record<string, any> = {
       message,
+      deliver: false,
       sessionKey,
       idempotencyKey: makeId(),
     };
@@ -1532,89 +1692,163 @@ export class GatewayClient {
       throw new Error("Not connected");
     }
 
-    const id = makeId();
-    const req = {
-      type: "req",
-      id,
-      method: "chat.send",
-      params: {
-        message,
-        sessionKey,
-        idempotencyKey: makeId(),
-      },
-    };
-
-    const events: ChatEvent[] = [];
+    const idempotencyKey = makeId();
+    const acceptedRunIds = new Set<string>([idempotencyKey]);
+    const queuedEvents: GatewayEvent[] = [];
     let resolveWait: (() => void) | null = null;
-    let done = false;
-    let error: Error | null = null;
+    let streamedDisplayText = false;
+    let lastLegacyText = "";
 
-    // Temporary event handler for chat events
     const handler: GatewayEventHandler = (evt) => {
-      if (evt.event?.startsWith("chat.")) {
-        const payload = evt.payload ?? {};
-        if (evt.event === "chat.content") {
-          events.push({ type: "content", text: payload.text ?? "" });
-        } else if (evt.event === "chat.thinking") {
-          events.push({ type: "thinking", text: payload.text ?? "" });
-        } else if (evt.event === "chat.tool_call") {
-          events.push({ type: "tool_call", data: payload });
-        } else if (evt.event === "chat.tool_result") {
-          events.push({ type: "tool_result", data: payload });
-        } else if (evt.event === "chat.done") {
-          events.push({ type: "done" });
-          done = true;
-        } else if (evt.event === "chat.error") {
-          events.push({ type: "error", text: payload.message ?? "Unknown error" });
-          done = true;
-        }
-        resolveWait?.();
+      if (evt.event === "chat" || evt.event?.startsWith("chat.")) {
+        queuedEvents.push(evt);
+        const waiter = resolveWait;
+        resolveWait = null;
+        waiter?.();
       }
     };
 
     this.eventHandlers.add(handler);
 
-    // Also listen for the RPC response
-    const timer = setTimeout(() => {
-      this.pending.delete(id);
-      error = new Error("Chat timeout");
-      done = true;
-      resolveWait?.();
-    }, CHAT_TIMEOUT);
-
-    this.pending.set(id, {
-      resolve: () => {
-        clearTimeout(timer);
-        done = true;
-        resolveWait?.();
-      },
-      reject: (rejection: unknown) => {
-        clearTimeout(timer);
-        error = rejection instanceof Error ? rejection : new Error(String(rejection));
-        done = true;
-        resolveWait?.();
-      },
-      timer,
-    });
-
-    this.ws.send(JSON.stringify(req));
-
     try {
-      while (!done || events.length > 0) {
-        if (events.length > 0) {
-          yield events.shift()!;
-        } else if (!done) {
+      const ack = await this.rpc("chat.send", {
+        message,
+        deliver: false,
+        sessionKey,
+        idempotencyKey,
+      }, CHAT_TIMEOUT);
+      const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
+      if (serverRunId) {
+        acceptedRunIds.add(serverRunId);
+      }
+
+      let deadline = Date.now() + CHAT_TIMEOUT;
+      while (Date.now() < deadline) {
+        if (queuedEvents.length === 0) {
+          const remainingMs = Math.max(100, Math.min(1000, deadline - Date.now()));
           await new Promise<void>((resolve) => {
-            resolveWait = resolve;
+            const timer = setTimeout(() => {
+              if (resolveWait === release) {
+                resolveWait = null;
+              }
+              resolve();
+            }, remainingMs);
+            const release = () => {
+              clearTimeout(timer);
+              resolve();
+            };
+            resolveWait = release;
           });
-          resolveWait = null;
+          continue;
+        }
+
+        const evt = queuedEvents.shift()!;
+        const payload = asRecord(evt.payload) ?? {};
+        const payloadRunId = typeof payload.runId === "string" ? payload.runId.trim() : "";
+        const payloadSessionKey =
+          typeof payload.sessionKey === "string" ? payload.sessionKey.trim() : "";
+        if (payloadRunId && !acceptedRunIds.has(payloadRunId)) {
+          continue;
+        }
+        if (payloadSessionKey && !sameSessionKey(payloadSessionKey, sessionKey)) {
+          continue;
+        }
+
+        deadline = Date.now() + CHAT_TIMEOUT;
+
+        if (evt.event === "chat.content") {
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (text) {
+            streamedDisplayText = true;
+            yield { type: "content", text };
+          }
+          continue;
+        }
+        if (evt.event === "chat.thinking") {
+          yield { type: "thinking", text: typeof payload.text === "string" ? payload.text : "" };
+          continue;
+        }
+        if (evt.event === "chat.tool_call") {
+          yield { type: "tool_call", data: payload };
+          continue;
+        }
+        if (evt.event === "chat.tool_result") {
+          yield { type: "tool_result", data: payload };
+          continue;
+        }
+        if (evt.event === "chat.done") {
+          yield { type: "done", data: payload };
+          return;
+        }
+        if (evt.event === "chat.error") {
+          yield {
+            type: "error",
+            text: typeof payload.message === "string" ? payload.message : "Unknown error",
+            data: payload,
+          };
+          return;
+        }
+        if (evt.event !== "chat") {
+          continue;
+        }
+
+        const state = typeof payload.state === "string" ? payload.state.trim().toLowerCase() : "";
+        const currentText = extractMessageText(payload.message) ?? "";
+        if (state === "delta") {
+          const streamed = streamDelta(lastLegacyText, currentText);
+          lastLegacyText = streamed.nextText;
+          if (streamed.delta) {
+            streamedDisplayText = true;
+            yield { type: "content", text: streamed.delta, data: payload };
+          }
+          continue;
+        }
+        if (state === "final") {
+          if (currentText) {
+            const streamed = streamDelta(lastLegacyText, currentText);
+            lastLegacyText = streamed.nextText;
+            if (streamed.delta) {
+              streamedDisplayText = true;
+              yield { type: "content", text: streamed.delta, data: payload };
+            }
+            yield { type: "done", data: payload };
+            return;
+          }
+          if (streamedDisplayText || lastLegacyText) {
+            yield { type: "done", data: payload };
+            return;
+          }
+          const historyText = latestHistoryAssistantText(
+            await this.chatHistory(sessionKey, 20),
+            acceptedRunIds,
+          );
+          if (historyText) {
+            yield { type: "content", text: historyText, data: payload };
+          }
+          yield { type: "done", data: payload };
+          return;
+        }
+        if (state === "error" || state === "aborted") {
+          if (currentText) {
+            const streamed = streamDelta(lastLegacyText, currentText);
+            lastLegacyText = streamed.nextText;
+            if (streamed.delta) {
+              streamedDisplayText = true;
+              yield { type: "content", text: streamed.delta, data: payload };
+            }
+          }
+          yield {
+            type: "error",
+            text: typeof payload.errorMessage === "string" ? payload.errorMessage : state,
+            data: payload,
+          };
+          return;
         }
       }
-      if (error) throw error;
+
+      throw new Error("Streaming chat.send timed out");
     } finally {
-      clearTimeout(timer);
       this.eventHandlers.delete(handler);
-      this.pending.delete(id);
     }
   }
 
