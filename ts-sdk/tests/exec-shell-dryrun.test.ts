@@ -247,6 +247,105 @@ describe('HyperClaw agents SDK', () => {
     expect(close).toHaveBeenCalledTimes(1);
   });
 
+  it('OpenClawAgent gateway helper wrappers delegate to the GatewayClient surface', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-gateway-helpers',
+      user_id: 'user-1',
+      pod_id: 'pod-gateway-helpers',
+      pod_name: 'pod-gateway-helpers',
+      state: 'running',
+      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      gateway_token: 'gw-helpers',
+      jwt_token: 'jwt-helpers',
+    });
+
+    const close = vi.fn();
+    const configPatch = vi.fn().mockResolvedValue(undefined);
+    const modelsList = vi.fn().mockResolvedValue([{ id: 'kimi-k2.5' }]);
+    const agentsList = vi.fn().mockResolvedValue([{ id: 'workspace-agent' }]);
+    const filesList = vi.fn().mockResolvedValue([{ name: 'README.md' }]);
+    const fileGet = vi.fn().mockResolvedValue('hello');
+    const fileSet = vi.fn().mockResolvedValue(undefined);
+    const chatHistory = vi.fn().mockResolvedValue([{ role: 'assistant', content: [{ type: 'text', text: 'hi' }] }]);
+    const sendChat = vi.fn().mockResolvedValue({ runId: 'run-123' });
+    const cronList = vi.fn().mockResolvedValue([{ id: 'job-1' }]);
+    const chatSend = vi.fn(async function* (_message: string, _sessionKey: string) {
+      yield { type: 'content', text: 'chunk-1' };
+      yield { type: 'done' };
+    });
+
+    vi.spyOn(agent, 'connect').mockResolvedValue({
+      close,
+      configPatch,
+      modelsList,
+      agentsList,
+      filesList,
+      fileGet,
+      fileSet,
+      chatHistory,
+      sendChat,
+      chatSend,
+      cronList,
+    } as any);
+
+    await agent.configPatch({ gateway: { mode: 'local' } });
+    expect(configPatch).toHaveBeenCalledWith({ gateway: { mode: 'local' } });
+
+    await expect(agent.modelsList()).resolves.toEqual([{ id: 'kimi-k2.5' }]);
+
+    await expect(agent.workspaceFiles()).resolves.toEqual({
+      agentId: 'workspace-agent',
+      files: [{ name: 'README.md' }],
+    });
+    expect(agentsList).toHaveBeenCalled();
+    expect(filesList).toHaveBeenCalledWith('workspace-agent');
+
+    await expect(agent.fileGet('README.md')).resolves.toBe('hello');
+    expect(fileGet).toHaveBeenCalledWith('workspace-agent', 'README.md');
+
+    await agent.fileSet('README.md', 'updated');
+    expect(fileSet).toHaveBeenCalledWith('workspace-agent', 'README.md', 'updated');
+
+    await expect(agent.fileGet('README.md', 'explicit-agent')).resolves.toBe('hello');
+    expect(fileGet).toHaveBeenCalledWith('explicit-agent', 'README.md');
+
+    await agent.fileSet('README.md', 'explicit-update', 'explicit-agent');
+    expect(fileSet).toHaveBeenCalledWith('explicit-agent', 'README.md', 'explicit-update');
+
+    await expect(agent.chatHistory('main', 20)).resolves.toEqual([
+      { role: 'assistant', content: [{ type: 'text', text: 'hi' }] },
+    ]);
+    expect(chatHistory).toHaveBeenCalledWith('main', 20);
+
+    await expect(
+      agent.chatSendMessage('hello', {
+        sessionKey: 'main',
+        agentId: 'workspace-agent',
+        attachments: [{ type: 'file', path: '/tmp/file.txt' }],
+      }),
+    ).resolves.toEqual({ runId: 'run-123' });
+    expect(sendChat).toHaveBeenCalledWith(
+      'hello',
+      'main',
+      'workspace-agent',
+      [{ type: 'file', path: '/tmp/file.txt' }],
+    );
+
+    const streamed = [];
+    for await (const event of agent.chatSend('stream me', 'main')) {
+      streamed.push(event);
+    }
+    expect(chatSend).toHaveBeenCalledWith('stream me', 'main');
+    expect(streamed).toEqual([
+      { type: 'content', text: 'chunk-1' },
+      { type: 'done' },
+    ]);
+
+    await expect(agent.cronList()).resolves.toEqual([{ id: 'job-1' }]);
+    expect(cronList).toHaveBeenCalledTimes(1);
+    expect(close).toHaveBeenCalledTimes(11);
+  });
+
   it('Agent waitRunning delegates to Deployments.waitRunning', async () => {
     const deployments = new Deployments(
       { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,

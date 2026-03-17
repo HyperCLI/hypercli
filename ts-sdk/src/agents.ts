@@ -578,6 +578,18 @@ export class OpenClawAgent extends Agent {
     }
   }
 
+  async configPatch(
+    patch: Record<string, any>,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<void> {
+    const client = await this.connect(options);
+    try {
+      await client.configPatch(patch);
+    } finally {
+      client.close();
+    }
+  }
+
   async configApply(
     config: Record<string, any>,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
@@ -585,6 +597,15 @@ export class OpenClawAgent extends Agent {
     const client = await this.connect(options);
     try {
       await client.configApply(config);
+    } finally {
+      client.close();
+    }
+  }
+
+  async modelsList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
+    const client = await this.connect(options);
+    try {
+      return await client.modelsList();
     } finally {
       client.close();
     }
@@ -674,6 +695,91 @@ export class OpenClawAgent extends Agent {
         timeoutMs: options.timeoutMs,
         accountId: options.accountId,
       });
+    } finally {
+      client.close();
+    }
+  }
+
+  async workspaceFiles(
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<{ agentId: string; files: any[] }> {
+    const client = await this.connect(options);
+    try {
+      const agents = await client.agentsList();
+      const agentId = agents[0]?.id ?? 'main';
+      const files = await client.filesList(agentId);
+      return { agentId, files };
+    } finally {
+      client.close();
+    }
+  }
+
+  async fileGet(
+    name: string,
+    agentId?: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<string> {
+    const client = await this.connect(options);
+    try {
+      let resolvedAgentId = agentId;
+      if (!resolvedAgentId) {
+        const agents = await client.agentsList();
+        resolvedAgentId = agents[0]?.id ?? 'main';
+      }
+      return await client.fileGet(resolvedAgentId, name);
+    } finally {
+      client.close();
+    }
+  }
+
+  async fileSet(
+    name: string,
+    content: string,
+    agentId?: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<void> {
+    const client = await this.connect(options);
+    try {
+      let resolvedAgentId = agentId;
+      if (!resolvedAgentId) {
+        const agents = await client.agentsList();
+        resolvedAgentId = agents[0]?.id ?? 'main';
+      }
+      await client.fileSet(resolvedAgentId, name, content);
+    } finally {
+      client.close();
+    }
+  }
+
+  async chatHistory(
+    sessionKey?: string,
+    limit = 50,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<any[]> {
+    const client = await this.connect(options);
+    try {
+      return await client.chatHistory(sessionKey, limit);
+    } finally {
+      client.close();
+    }
+  }
+
+  async chatSendMessage(
+    message: string,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      sessionKey?: string;
+      agentId?: string;
+      attachments?: Array<Record<string, any>>;
+    } = {},
+  ): Promise<any> {
+    const client = await this.connect(options);
+    try {
+      return await client.sendChat(
+        message,
+        options.sessionKey ?? 'main',
+        options.agentId,
+        options.attachments,
+      );
     } finally {
       client.close();
     }
@@ -889,6 +995,15 @@ export class OpenClawAgent extends Agent {
     } = {},
   ): Promise<Record<string, any>> {
     return await this.channelUpsert('discord', channelConfig, options);
+  }
+
+  async cronList(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<any[]> {
+    const client = await this.connect(options);
+    try {
+      return await client.cronList();
+    } finally {
+      client.close();
+    }
   }
 }
 
