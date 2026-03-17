@@ -23,10 +23,10 @@ from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
 
 
-AGENTS_API_BASE = "https://api.agents.hypercli.com/api"
+AGENTS_API_BASE = "https://api.hypercli.com/agents"
 AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
-DEV_AGENTS_API_BASE = "https://api.agents.dev.hypercli.com/api"
+DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 
 
@@ -85,11 +85,15 @@ def _normalize_agents_api_base(url: str) -> str:
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
     scheme = parsed.scheme or "https"
     normalized_path = parsed.path.rstrip("/")
+    host = parsed.netloc.lower()
     if normalized_path.endswith("/agents"):
         return f"{scheme}://{parsed.netloc}{normalized_path}"
     if normalized_path.endswith("/api"):
+        if host == "api.agents.hypercli.com":
+            return AGENTS_API_BASE
+        if host == "api.agents.dev.hypercli.com":
+            return DEV_AGENTS_API_BASE
         return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}/agents"
-    host = parsed.netloc.lower()
     if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
         return AGENTS_API_BASE
     if host in {

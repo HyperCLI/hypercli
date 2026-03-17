@@ -6,7 +6,34 @@
  */
 import type { HTTPClient } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
-import { resolveAgentsApiBase } from './agents.js';
+
+function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
+  const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
+  if (!raw) {
+    const fallback = getAgentsApiBaseUrl(dev);
+    return resolveHyperAgentBaseUrl(fallback, dev);
+  }
+  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  const host = parsed.host.toLowerCase();
+  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
+    return 'https://api.agents.hypercli.com/v1';
+  }
+  if (
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app' ||
+    host === 'api.agents.dev.hypercli.com'
+  ) {
+    return 'https://api.agents.dev.hypercli.com/v1';
+  }
+  if (raw.endsWith('/api')) {
+    return `${raw.slice(0, -4)}/v1`;
+  }
+  if (raw.endsWith('/agents')) {
+    return `${raw.slice(0, -7)}/v1`;
+  }
+  return `${raw}/v1`;
+}
 
 export interface HyperAgentPlan {
   id: string;
@@ -101,11 +128,9 @@ export class HyperAgent {
     agentsApiBaseUrl?: string,
   ) {
     this.apiKey = agentApiKey || http['apiKey'];
-    const fallbackBaseUrl = dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE;
-    const configuredBaseUrl =
-      agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || (typeof http['baseUrl'] === 'string' ? http['baseUrl'] : fallbackBaseUrl);
-    const agentsBase = resolveAgentsApiBase(configuredBaseUrl);
-    this.baseUrl = agentsBase.endsWith('/api') ? `${agentsBase.slice(0, -4)}/v1` : `${agentsBase}/v1`;
+    const fallbackBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : (dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE);
+    const configuredBaseUrl = agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || fallbackBaseUrl;
+    this.baseUrl = resolveHyperAgentBaseUrl(configuredBaseUrl, dev);
   }
 
   private get baseUrlWithoutV1(): string {

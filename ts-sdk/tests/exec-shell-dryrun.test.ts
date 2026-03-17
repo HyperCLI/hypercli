@@ -122,7 +122,7 @@ describe('HyperClaw agents SDK', () => {
 
     expect(gateway.deploymentId).toBe('agent-ctx');
     expect(gateway.apiKey).toBe('sk-hyper-test');
-    expect(gateway.apiBase).toBe('https://api.agents.dev.hypercli.com/api');
+    expect(gateway.apiBase).toBe('https://api.dev.hypercli.com/agents');
     expect(gateway.autoApprovePairing).toBe(true);
     expect(gateway.gatewayToken).toBe('gw-ctx');
     expect(gateway.token).toBeUndefined();

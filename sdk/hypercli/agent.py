@@ -112,9 +112,7 @@ class HyperAgent:
         raw = (agents_api_base_url or "").rstrip("/")
         if not raw:
             fallback = get_agents_api_base_url(dev).rstrip("/")
-            if fallback.endswith("/api"):
-                fallback = fallback[:-4]
-            return f"{fallback}/v1"
+            return cls._resolve_base_url(fallback, dev)
         parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
         host = parsed.netloc.lower()
         if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
@@ -123,6 +121,8 @@ class HyperAgent:
             return "https://api.agents.dev.hypercli.com/v1"
         if raw.endswith("/api"):
             return f"{raw[:-4]}/v1"
+        if raw.endswith("/agents"):
+            return f"{raw[:-7]}/v1"
         if raw:
             return f"{raw}/v1"
         return cls.DEV_API_BASE if dev else cls.AGENT_API_BASE

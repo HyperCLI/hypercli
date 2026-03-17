@@ -17,16 +17,15 @@ function stripApiSuffix(value: string): string {
 }
 
 const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "";
+const rawAgentModelsUrl = process.env.NEXT_PUBLIC_HYPER_AGENT_MODELS_URL || "";
 
 const normalizedApiBase = stripApiSuffix(rawApiBase || "");
+const normalizedAgentModelsUrl = trimTrailingSlash(rawAgentModelsUrl || "");
 
 export const API_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/agents` : "/agents";
 export const AUTH_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/api` : "/api";
 export const X402_BASE_URL = API_BASE_URL;
-
-export const HYPERCLAW_MODELS_ENDPOINT = normalizedApiBase
-  ? `${normalizedApiBase}/models`
-  : "/api/models";
+export const HYPER_AGENT_MODELS_URL = normalizedAgentModelsUrl || `${API_BASE_URL}/models`;
 
 const TOKEN_KEY = "claw_auth_token";
 

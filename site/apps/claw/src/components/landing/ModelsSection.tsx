@@ -3,7 +3,7 @@
 import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
 import { Check, X } from "lucide-react";
-import { HYPERCLAW_MODELS_ENDPOINT } from "@/lib/api";
+import { HYPER_AGENT_MODELS_URL } from "@/lib/api";
 
 interface ModelInfo {
   id: string;
@@ -91,7 +91,7 @@ export function ModelsSection() {
   }, []);
 
   useEffect(() => {
-    fetch(HYPERCLAW_MODELS_ENDPOINT)
+    fetch(HYPER_AGENT_MODELS_URL)
       .then((res) => (res.ok ? res.json() : null))
       .then((data) => {
         if (!Array.isArray(data?.models)) return;

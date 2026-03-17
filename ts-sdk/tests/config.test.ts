@@ -63,15 +63,15 @@ describe('Config', () => {
   it('should return default agents URLs', () => {
     expect(getAgentsApiBaseUrl()).toBe(DEFAULT_AGENTS_API_BASE_URL);
     expect(getAgentsWsUrl()).toBe(DEFAULT_AGENTS_WS_URL);
-    expect(getAgentsApiBaseUrl(true)).toBe('https://api.agents.dev.hypercli.com/api');
+    expect(getAgentsApiBaseUrl(true)).toBe('https://api.dev.hypercli.com/agents');
     expect(getAgentsWsUrl(true)).toBe('wss://api.agents.dev.hypercli.com/ws');
   });
 
   it('should respect agents env overrides', () => {
-    process.env.AGENTS_API_BASE_URL = 'https://api.agents.dev.hypercli.com/api';
+    process.env.AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
     process.env.AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 
-    expect(getAgentsApiBaseUrl()).toBe('https://api.agents.dev.hypercli.com/api');
+    expect(getAgentsApiBaseUrl()).toBe('https://api.dev.hypercli.com/agents');
     expect(getAgentsWsUrl()).toBe('wss://api.agents.dev.hypercli.com/ws');
   });
 });

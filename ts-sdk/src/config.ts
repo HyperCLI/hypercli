@@ -12,9 +12,9 @@ export const CONFIG_FILE = join(CONFIG_DIR, 'config');
 
 export const DEFAULT_API_URL = 'https://api.hypercli.com';
 export const DEFAULT_WS_URL = 'wss://api.hypercli.com';
-export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.agents.hypercli.com/api';
+export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.hypercli.com/agents';
 export const DEFAULT_AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
-export const DEV_AGENTS_API_BASE_URL = 'https://api.agents.dev.hypercli.com/api';
+export const DEV_AGENTS_API_BASE_URL = 'https://api.dev.hypercli.com/agents';
 export const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const WS_LOGS_PATH = '/orchestra/ws/logs'; // WebSocket path for job logs
 

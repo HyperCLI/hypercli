@@ -11,8 +11,8 @@ import {
   type OpenClawConfigSchemaResponse,
 } from './gateway.js';
 
-const AGENTS_API_BASE = 'https://api.agents.hypercli.com/api';
-const DEV_AGENTS_API_BASE = 'https://api.agents.dev.hypercli.com/api';
+const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
+const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
@@ -200,13 +200,19 @@ export function resolveAgentsApiBase(apiBase: string): string {
   if (!raw) return AGENTS_API_BASE;
   const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
   const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  const host = parsed.host.toLowerCase();
   if (normalizedPath.endsWith('/agents')) {
     return `${parsed.origin}${normalizedPath}`;
   }
   if (normalizedPath.endsWith('/api')) {
+    if (host === 'api.agents.hypercli.com') {
+      return AGENTS_API_BASE;
+    }
+    if (host === 'api.agents.dev.hypercli.com') {
+      return DEV_AGENTS_API_BASE;
+    }
     return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
   }
-  const host = parsed.host.toLowerCase();
   if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
     return AGENTS_API_BASE;
   }

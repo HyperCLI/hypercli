@@ -19,7 +19,7 @@ The Python SDK resolves config in this order:
 | `HYPERCLI_API_KEY` | Main HyperCLI API key |
 | `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
 | `HYPERCLI_WS_URL` | Optional override for log and shell WebSocket base URLs |
-| `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.agents.hypercli.com/api` |
+| `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.hypercli.com/agents` |
 | `AGENTS_WS_URL` | HyperClaw backend WebSocket base for logs and shell. Defaults to `wss://api.agents.hypercli.com/ws` |
 
 ## URL Model
@@ -51,7 +51,7 @@ Default production values:
 ```bash
 HYPERCLI_API_URL=https://api.hypercli.com
 HYPERCLI_WS_URL=wss://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
@@ -60,7 +60,7 @@ Default dev values:
 ```bash
 HYPERCLI_API_URL=https://api.dev.hypercli.com
 HYPERCLI_WS_URL=wss://api.dev.hypercli.com
-AGENTS_API_BASE_URL=https://api.agents.dev.hypercli.com/api
+AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
 ```
 
@@ -83,10 +83,17 @@ So the generated provider config should look like:
       "kimi-coding": {
         "baseUrl": "https://api.agents.hypercli.com",
         "api": "anthropic-messages"
-      },
-      "hyperclaw-embed": {
-        "baseUrl": "https://api.agents.hypercli.com/v1",
-        "api": "openai-completions"
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "memorySearch": {
+        "provider": "openai",
+        "model": "qwen3-embedding-4b",
+        "remote": {
+          "baseUrl": "https://api.agents.hypercli.com/v1"
+        }
       }
     }
   }
@@ -106,7 +113,7 @@ Example:
 ```bash
 HYPERCLI_API_KEY=hyper_...
 HYPERCLI_API_URL=https://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
@@ -120,7 +127,7 @@ configure("hyper_...", "https://api.dev.hypercli.com")
 configure(
     "hyper_...",
     "https://api.hypercli.com",
-    "https://api.agents.hypercli.com/api",
+    "https://api.hypercli.com/agents",
     "wss://api.agents.hypercli.com/ws",
 )
 ```
@@ -135,7 +142,7 @@ client = HyperCLI(
     api_url="https://api.hypercli.com",
     agent_api_key="sk-...",
     agent_dev=False,
-    agents_api_base_url="https://api.agents.hypercli.com/api",
+    agents_api_base_url="https://api.hypercli.com/agents",
     agents_ws_url="wss://api.agents.hypercli.com/ws",
 )
 ```

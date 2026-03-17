@@ -14,7 +14,7 @@ export const CONSOLE_SITE_URL =
 export const AGENTS_SITE_URL =
   process.env.SMOKE_AGENTS_SITE_URL?.trim() || "https://agents.hypercli.com";
 export const AGENTS_API_URL =
-  process.env.SMOKE_AGENTS_API_URL?.trim() || "https://api.agents.hypercli.com/api";
+  process.env.SMOKE_AGENTS_API_URL?.trim() || "https://api.hypercli.com/agents";
 
 const AUTH_COOKIE_NAME = "auth_token";
 

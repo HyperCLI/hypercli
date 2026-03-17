@@ -18,7 +18,7 @@ The SDK reads configuration using the same precedence as the CLI:
 | `HYPERCLI_API_KEY` | Main REST API key used by `HyperCLI` |
 | `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
 | `HYPERCLI_WS_URL` | Override the derived WebSocket base URL |
-| `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.agents.hypercli.com/api` |
+| `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.hypercli.com/agents` |
 | `AGENTS_WS_URL` | HyperClaw backend WebSocket base. Defaults to `wss://api.agents.hypercli.com/ws` |
 
 ## URL Model
@@ -49,7 +49,7 @@ Production defaults:
 ```bash
 HYPERCLI_API_URL=https://api.hypercli.com
 HYPERCLI_WS_URL=wss://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
@@ -58,7 +58,7 @@ Dev defaults:
 ```bash
 HYPERCLI_API_URL=https://api.dev.hypercli.com
 HYPERCLI_WS_URL=wss://api.dev.hypercli.com
-AGENTS_API_BASE_URL=https://api.agents.dev.hypercli.com/api
+AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
 ```
 
@@ -86,7 +86,7 @@ Format:
 ```bash
 HYPERCLI_API_KEY=hyper_...
 HYPERCLI_API_URL=https://api.hypercli.com
-AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
@@ -100,7 +100,7 @@ configure("hyper_...", "https://api.dev.hypercli.com");
 configure(
   "hyper_...",
   "https://api.hypercli.com",
-  "https://api.agents.hypercli.com/api",
+  "https://api.hypercli.com/agents",
   "wss://api.agents.hypercli.com/ws",
 );
 ```
@@ -129,7 +129,7 @@ Constructor values win over env vars and the config file.
 const client = new HyperCLI({
   apiKey: "hyper_...",
   apiUrl: "https://api.hypercli.com",
-  agentsApiBaseUrl: "https://api.agents.hypercli.com/api",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
   agentsWsUrl: "wss://api.agents.hypercli.com/ws",
   timeout: 30_000,
 });

@@ -8,9 +8,9 @@ CONFIG_FILE = CONFIG_DIR / "config"
 
 DEFAULT_API_URL = "https://api.hypercli.com"
 DEFAULT_WS_URL = "wss://api.hypercli.com"
-DEFAULT_AGENTS_API_BASE_URL = "https://api.agents.hypercli.com/api"
+DEFAULT_AGENTS_API_BASE_URL = "https://api.hypercli.com/agents"
 DEFAULT_AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
-DEV_AGENTS_API_BASE_URL = "https://api.agents.dev.hypercli.com/api"
+DEV_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 WS_LOGS_PATH = "/orchestra/ws/logs"  # WebSocket path for job logs: {WS_URL}{WS_LOGS_PATH}/{job_key}
 

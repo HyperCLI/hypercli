@@ -11,7 +11,7 @@ describe('HyperAgent API', () => {
 
   it('derives the inference base from the agents API base', () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
-    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.agents.hypercli.com/api');
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     expect(agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
   });
 

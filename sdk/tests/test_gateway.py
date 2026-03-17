@@ -58,7 +58,7 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
         gateway_token="gw-token",
         deployment_id="deployment-123",
         api_key="agent-key",
-        api_base="https://api.agents.dev.hypercli.com/api",
+        api_base="https://api.dev.hypercli.com/agents",
         auto_approve_pairing=True,
     )
 
