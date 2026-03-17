@@ -711,7 +711,7 @@ def _resolve_api_key(key: str | None) -> str:
 
 
 def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> dict:
-    """OpenClaw openclaw.json provider snippet (LLM + embeddings)."""
+    """OpenClaw openclaw.json provider snippet (LLM only)."""
     def _model_suffix(model_id: str) -> str:
         return str(model_id or "").strip().lower().rsplit("/", 1)[-1]
 
@@ -720,20 +720,17 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
         return (
             suffix == "glm-5"
             or "kimi" in suffix
-            or "embedding" in suffix
         )
 
     api_base = api_base.rstrip("/")
     supported_models = [m for m in models if _is_supported_openclaw_model(m)]
-    chat_models = [m for m in supported_models if m.get("mode") != "embedding"]
-    embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
+    chat_models = supported_models
     kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
     glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
     openai_chat_models = [
         m for m in chat_models
         if m not in kimi_models and m not in glm_models
     ]
-    embedding_model_id = embedding_models[0]["id"] if embedding_models else None
     primary_model = (
         f"kimi-coding/{kimi_models[0]['id']}" if kimi_models else (
             f"hyperclaw/{glm_models[0]['id']}" if glm_models else (
@@ -781,13 +778,6 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
                     if openai_chat_models
                     else {}
                 ),
-                "hyperclaw-embed": {
-                    # Embeddings go through the OpenAI-compatible /v1 endpoints.
-                    "baseUrl": f"{api_base}/v1",
-                    "apiKey": api_key,
-                    "api": "openai-completions",
-                    "models": embedding_models,
-                },
             }
         },
         "agents": {
@@ -797,22 +787,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
                     **{f"hyperclaw/{m['id']}": {"alias": "glm"} for m in glm_models},
                     **{f"kimi-coding/{m['id']}": {"alias": "kimi"} for m in kimi_models},
                     **{f"hyperclaw-openai/{m['id']}": {"alias": m['id'].split('-')[0]} for m in openai_chat_models},
-                    **{f"hyperclaw-embed/{m['id']}": {"alias": m['id'].split('-')[0]} for m in embedding_models},
                 },
-                **(
-                    {
-                        "memorySearch": {
-                            "provider": "openai",
-                            "model": embedding_model_id,
-                            "remote": {
-                                "baseUrl": f"{api_base}/v1/",
-                                "apiKey": api_key,
-                            }
-                        }
-                    }
-                    if embedding_model_id
-                    else {}
-                ),
             }
         }
     }
