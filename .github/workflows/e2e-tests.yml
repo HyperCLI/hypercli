@@ -28,7 +28,7 @@ jobs:
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
-      NOTIFY_URL: https://api.hypercli.com/notify/notify
+      NOTIFY_URL: https://api.hypercli.com/notify
     steps:
       - uses: actions/checkout@v4
 

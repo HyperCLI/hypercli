@@ -27,7 +27,7 @@ jobs:
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
-      NOTIFY_URL: https://api.hypercli.com/notify/notify
+      NOTIFY_URL: https://api.hypercli.com/notify
     steps:
       - uses: actions/checkout@v4
 
@@ -143,7 +143,7 @@ jobs:
           if not notify_api_key:
               raise SystemExit(0)
 
-          endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify/notify")
+          endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify")
           run_url = os.getenv("GITHUB_RUN_URL", "")
           screenshots = sorted(Path("site/test-results").rglob("*.png"))
           if not screenshots:

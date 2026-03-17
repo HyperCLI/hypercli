@@ -51,7 +51,7 @@ def build_message(phase: str, status: str, explicit_message: str) -> str:
 def send_notification(args: argparse.Namespace) -> None:
     webhook_url = os.getenv(
         "NOTIFY_URL",
-        os.getenv("NOTIFY_WEBHOOK_URL", "https://api.hypercli.com/notify/notify"),
+        os.getenv("NOTIFY_WEBHOOK_URL", "https://api.hypercli.com/notify"),
     )
     api_key = os.getenv("NOTIFY_API_KEY", "")
     if not api_key:

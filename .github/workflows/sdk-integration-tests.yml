@@ -80,7 +80,7 @@ jobs:
       - name: Notify SDK integration result
         continue-on-error: true
         env:
-          NOTIFY_URL: https://api.hypercli.com/notify/notify
+          NOTIFY_URL: https://api.hypercli.com/notify
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
           if [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ]; then

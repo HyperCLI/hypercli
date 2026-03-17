@@ -68,7 +68,7 @@ notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
 if not notify_api_key:
     raise SystemExit(0)
 
-endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify/notify")
+endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify")
 run_url = os.getenv("GITHUB_RUN_URL", "").strip()
 screenshots = sorted((Path(os.getenv("SITE_ROOT", ".")) / "test-results").rglob("*.png"))
 if not screenshots:
