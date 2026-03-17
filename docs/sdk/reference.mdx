@@ -1,9 +1,9 @@
 ---
 title: Reference
-description: Reference summary for the Python SDK client, major namespaces, and helper exports.
+description: Detailed reference summary for the Python SDK constructors, namespaces, data objects, and major agent/gateway helpers.
 ---
 
-## HyperCLI
+## Main Client
 
 ```python
 from hypercli import HyperCLI
@@ -14,10 +14,11 @@ client = HyperCLI(
     agent_api_key=None,
     agent_dev=False,
     agents_ws_url=None,
+    timeout=None,
 )
 ```
 
-Namespaces:
+## Namespaces
 
 - `client.billing`
 - `client.jobs`
@@ -29,59 +30,145 @@ Namespaces:
 - `client.agent`
 - `client.deployments`
 
-## x402
+## Deployment Types
 
-```python
-from hypercli import X402Client
-```
+### `Agent`
 
-Primary helpers:
+Important fields:
 
-- `get_flow_catalog()`
-- `get_flow_price()`
-- `create_job()`
-- `create_flow()`
+- `id`
+- `user_id`
+- `pod_id`
+- `pod_name`
+- `state`
+- `name`
+- `hostname`
+- `cpu`
+- `memory`
+- `jwt_token`
+- `jwt_expires_at`
+- `routes`
+- `command`
+- `entrypoint`
+- `ports`
 
-## Data Objects
+Important properties:
 
-- `Job`
-- `JobMetrics`
-- `Render`
-- `RenderStatus`
-- `File`
-- `FlowCatalogItem`
-- `X402JobLaunch`
-- `X402FlowCreate`
-- `Agent`
-- `OpenClawAgent`
-- `ExecResult`
+- `public_url`
+- `desktop_url`
+- `vnc_url`
+- `shell_url`
+- `executor_url`
+- `is_running`
 
-## Errors
+Important methods:
 
-```python
-from hypercli import APIError
+- `route_url()`
+- `route_requires_auth()`
+- `wait_running()`
+- `refresh_token()`
+- `env()`
+- `exec()`
+- `files_list()`
+- `file_read()`
+- `file_write()`
+- `file_delete()`
+- `cp_to()`
+- `cp_from()`
+- `logs_stream_ws()`
+- `shell_connect()`
 
-try:
-    client.jobs.get("invalid")
-except APIError as e:
-    print(e.status_code)
-    print(e.detail)
-```
+### `OpenClawAgent`
 
-## Workflow And Streaming Helpers
+Adds:
 
-The package also exports:
+- `gateway_url`
+- `gateway_token`
+- `resolve_gateway_token()`
+- `gateway()`
+- `connect()`
+- `gateway_status()`
+- `wait_ready()`
+- `config_get()`
+- `config_schema()`
+- `config_patch()`
+- `config_apply()`
+- `models_list()`
+- `sessions_list()`
+- `channels_status()`
+- `channels_logout()`
+- `web_login_start()`
+- `web_login_wait()`
+- `workspace_files()`
+- `file_get()`
+- `file_set()`
+- `chat_history()`
+- `chat_send_message()`
+- `chat_send()`
+- `provider_upsert()`
+- `provider_remove()`
+- `model_upsert()`
+- `model_remove()`
+- `set_default_model()`
+- `set_memory_search()`
+- `channel_upsert()`
+- `channel_patch()`
+- `telegram_upsert()`
+- `slack_upsert()`
+- `discord_upsert()`
+- `cron_list()`
 
+### `Deployments`
+
+Major methods:
+
+- `create()`
+- `budget()`
+- `metrics()`
+- `list()`
+- `get()`
+- `wait_running()`
+- `start()`
+- `stop()`
+- `delete()`
+- `refresh_token()`
+- `logs_token()`
+- `env()`
+- `exec()`
+- `health()` (legacy direct executor helper)
+- `files_list()`
+- `file_read()`
+- `file_write()`
+- `file_delete()`
+- `cp_to()`
+- `cp_from()`
+- `logs_stream()`
+- `logs_stream_ws()`
+- `shell_token()`
+- `shell_connect()`
+
+## Gateway
+
+`GatewayClient` exposes:
+
+- lifecycle: `connect()`, `close()`, `wait_ready()`
+- config: `config_get()`, `config_schema()`, `config_patch()`, `config_set()`, `config_apply()`
+- chat: `chat_send()`, `send_chat()`, `chat_history()`, `chat_abort()`
+- sessions: `sessions_list()`, `sessions_preview()`, `sessions_reset()`
+- files: `files_list()`, `file_get()`, `file_set()`
+- channels: `channels_status()`, `channels_logout()`, `web_login_start()`, `web_login_wait()`
+- models: `models_list()`
+- cron: `cron_list()`, `cron_add()`, `cron_remove()`, `cron_run()`
+- approvals: `exec_approvals_get()`, `exec_approvals_set()`, `exec_approval_resolve()`
+- raw events: `on_event()`
+
+## Other Exports
+
+- `APIError`
+- `X402Client`
 - `BaseJob`
 - `ComfyUIJob`
 - `GradioJob`
-- `apply_params`
-- `apply_graph_modes`
-- `find_node`
-- `find_nodes`
-- `load_template`
-- `graph_to_api`
-- `expand_subgraphs`
 - `LogStream`
 - `stream_logs`
 - `fetch_logs`

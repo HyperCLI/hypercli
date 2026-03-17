@@ -1,44 +1,24 @@
 ---
 title: Reference
-description: Reference summary for the main TypeScript SDK exports.
+description: Detailed TypeScript SDK reference summary for the main client, agent types, deployment methods, and gateway helpers.
 ---
-
-## Top-Level Exports
-
-```ts
-import {
-  HyperCLI,
-  configure,
-  APIError,
-  Billing,
-  Jobs,
-  Instances,
-  Renders,
-  Files,
-  UserAPI,
-  KeysAPI,
-  HyperAgent,
-  Deployments,
-  Agent,
-  OpenClawAgent,
-  BaseJob,
-  ComfyUIJob,
-  GradioJob,
-  LogStream,
-  GatewayClient,
-} from "@hypercli.com/sdk";
-```
 
 ## Main Client
 
 ```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
 const client = new HyperCLI({
   apiKey: "hyper_...",
+  apiUrl: "https://api.hypercli.com",
   agentApiKey: "sk-...",
+  agentApiUrl: "https://api.agents.hypercli.com/api",
+  agentsWsUrl: "wss://api.agents.hypercli.com/ws",
+  timeout: 30_000,
 });
 ```
 
-Properties:
+## Namespaces
 
 - `billing`
 - `jobs`
@@ -50,38 +30,137 @@ Properties:
 - `agent`
 - `deployments`
 
-## Errors
+## Agent Types
 
-The HTTP layer throws `APIError` for non-success responses.
+### `Agent`
 
-```ts
-try {
-  await client.jobs.get("missing-id");
-} catch (error) {
-  if (error instanceof APIError) {
-    console.error(error.statusCode, error.detail);
-  }
-}
-```
+Fields:
 
-## Logs Helpers
+- `id`
+- `userId`
+- `podId`
+- `podName`
+- `state`
+- `name`
+- `hostname`
+- `cpu`
+- `memory`
+- `jwtToken`
+- `jwtExpiresAt`
+- `routes`
+- `command`
+- `entrypoint`
+- `ports`
 
-```ts
-import { LogStream, streamLogs, fetchLogs } from "@hypercli.com/sdk";
-```
+Properties:
 
-- `LogStream`: stateful WebSocket log client
-- `streamLogs()`: convenience helper that pushes log lines to a callback
-- `fetchLogs()`: fetch a job's existing logs as lines
+- `publicUrl`
+- `desktopUrl`
+- `vncUrl`
+- `shellUrl`
+- `executorUrl`
+- `isRunning`
 
-## Config Helpers
+Methods:
 
-```ts
-import {
-  getApiKey,
-  getApiUrl,
-  getWsUrl,
-  GHCR_IMAGES,
-  COMFYUI_IMAGE,
-} from "@hypercli.com/sdk";
-```
+- `routeUrl()`
+- `routeRequiresAuth()`
+- `refreshToken()`
+- `waitRunning()`
+- `env()`
+- `exec()`
+- `health()` (legacy direct executor helper)
+- `filesList()`
+- `fileReadBytes()`
+- `fileRead()`
+- `fileWriteBytes()`
+- `fileWrite()`
+- `fileDelete()`
+- `cpTo()`
+- `cpFrom()`
+- `shellConnect()`
+
+### `OpenClawAgent`
+
+Adds:
+
+- `gatewayUrl`
+- `gatewayToken`
+- `resolveGatewayToken()`
+- `gateway()`
+- `connect()`
+- `gatewayStatus()`
+- `waitReady()`
+- `configGet()`
+- `configSchema()`
+- `configPatch()`
+- `configApply()`
+- `modelsList()`
+- `sessionsList()`
+- `channelsStatus()`
+- `channelsLogout()`
+- `webLoginStart()`
+- `webLoginWait()`
+- `workspaceFiles()`
+- `fileGet()`
+- `fileSet()`
+- `chatHistory()`
+- `chatSendMessage()`
+- `providerUpsert()`
+- `providerRemove()`
+- `modelUpsert()`
+- `modelRemove()`
+- `setDefaultModel()`
+- `setMemorySearch()`
+- `channelUpsert()`
+- `channelPatch()`
+- `telegramUpsert()`
+- `slackUpsert()`
+- `discordUpsert()`
+- `cronList()`
+
+## `Deployments`
+
+Major methods:
+
+- `create()`
+- `budget()`
+- `metrics()`
+- `list()`
+- `get()`
+- `waitRunning()`
+- `start()`
+- `stop()`
+- `delete()`
+- `refreshToken()`
+- `logsToken()`
+- `env()`
+- `exec()`
+- `health()`
+- `filesList()`
+- `fileReadBytes()`
+- `fileRead()`
+- `fileWriteBytes()`
+- `fileWrite()`
+- `fileDelete()`
+- `cpTo()`
+- `cpFrom()`
+- `logsConnect()`
+- `shellToken()`
+- `shellConnect()`
+
+## Gateway
+
+`GatewayClient` major methods:
+
+- lifecycle: `connect()`, `close()`, `waitReady()`
+- events: `onEvent()`
+- config: `configGet()`, `configSchema()`, `configPatch()`, `configApply()`, `configSet()`
+- chat: `sendChat()`, `chatHistory()`, `chatAbort()`
+- sessions: `sessionsList()`, `sessionsPreview()`, `sessionsReset()`
+- files: `filesList()`, `fileGet()`, `fileSet()`
+- channels: `channelsStatus()`, `channelsLogout()`, `webLoginStart()`, `webLoginWait()`
+- models: `modelsList()`
+- cron: `cronList()`, `cronAdd()`, `cronRemove()`
+- approvals: `execApprove()`, `execDeny()`
+- status: `status()`

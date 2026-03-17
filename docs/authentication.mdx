@@ -296,6 +296,55 @@ Supported configuration options:
 | `HYPERCLI_API_KEY` | Your API key | (required) |
 | `HYPERCLI_API_URL` | API base URL | `https://api.hypercli.com` |
 
+## Agent Route Authentication
+
+HyperClaw browser routes use a separate model from the normal app session JWT.
+
+### Agent Access Tokens
+
+For agent-specific routes and backend WebSocket flows, the backend mints short-lived ES256 agent access tokens that carry:
+
+- `agent_id`
+- `pod`
+- `pod_id`
+- `route_prefixes`
+- expiry
+
+These are used for:
+
+- `/ws/logs/{agent_id}`
+- `/ws/shell/{agent_id}`
+- protected browser route bootstrap
+
+### Protected Browser Routes
+
+Protected agent hosts do not expect the frontend to write cookies directly.
+
+Current flow:
+
+1. frontend requests `/api/deployments/{id}/token`
+2. backend returns a short-lived agent access token
+3. browser opens `https://desktop-<agent-host>/_jwt_auth?jwt=...`
+4. `lagoon-auth` verifies the token and current host
+5. `lagoon-auth` sets the host cookie and redirects to `/`
+
+This is used for desktop and any other route marked `auth: true`.
+
+### OpenClaw Gateway Auth
+
+The root agent host is the OpenClaw gateway host.
+
+Gateway auth is application-level and separate from browser route bootstrap:
+
+- gateway token
+- device identity
+- pairing / cached device token
+
+So:
+
+- `/_jwt_auth` is for protected browser routes
+- gateway clients should use the SDK / CLI gateway flows, not manual cookie setup
+
 ## Security Best Practices
 
 <Info>

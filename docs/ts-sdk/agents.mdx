@@ -1,129 +1,223 @@
 ---
 title: Agents And Deployments
-description: Manage HyperClaw plans and OpenClaw or agent containers from the TypeScript SDK.
+description: Detailed TypeScript SDK guide for HyperClaw deployments, routes, exec, file copy, backend WebSocket shells/logs, and OpenClaw gateway helpers.
 ---
 
-There are two separate agent-related namespaces in the TypeScript SDK:
+## Overview
 
-- `client.agent`: HyperClaw plan, key, and model discovery
-- `client.deployments`: container lifecycle, exec, files, logs, shell, and OpenClaw gateway access
+There are two HyperClaw-related namespaces in the TS SDK:
 
-## HyperClaw Metadata
+- `client.agent`
+- `client.deployments`
 
-```ts
-const plans = await client.agent.plans();
-const models = await client.agent.models();
-const key = await client.agent.keyStatus();
-const health = await client.agent.discoveryHealth();
-const config = await client.agent.discoveryConfig();
-```
+`client.agent` covers account metadata.
+`client.deployments` covers live runtime containers.
 
-Use `agentApiKey` if your inference key is different from your main platform key.
+## `client.agent`
 
-## Create A Deployment
+Use this namespace for:
+
+- `plans()`
+- `models()`
+- `keyStatus()`
+- `discoveryHealth()`
+- `discoveryConfig()`
+
+## `client.deployments`
+
+Use this namespace for:
+
+- create / start / stop / delete
+- budget / metrics
+- files
+- exec
+- backend WS logs and shells
+- OpenClaw gateway access
+
+## Create
 
 ```ts
 const agent = await client.deployments.create({
   name: "docs-demo",
   size: "medium",
   start: true,
-  env: {
-    APP_ENV: "prod",
-  },
-  ports: [{ port: 3000, auth: true }],
+  env: { APP_ENV: "prod" },
 });
 ```
 
-### Create And Start Options
+Create/start options:
 
-| Field | Purpose |
-| --- | --- |
-| `name` | Friendly agent name |
-| `size` | Preset such as `small`, `medium`, or `large` |
-| `cpu` / `memory` | Override preset resources |
-| `config` | Base deployment config object |
-| `env` | Runtime env vars merged into `config.env` |
-| `ports` | Exposed backend ports |
-| `routes` | Route configuration for OpenClaw-backed agents |
-| `command` | Container command array |
-| `entrypoint` | Container entrypoint array |
-| `image` | Container image |
-| `registryUrl` / `registryAuth` | Private registry configuration |
-| `gatewayToken` | Override generated OpenClaw gateway token |
-| `dryRun` | Validate without provisioning |
+- `name`
+- `size`
+- `cpu`
+- `memory`
+- `config`
+- `env`
+- `ports`
+- `routes`
+- `command`
+- `entrypoint`
+- `image`
+- `registryUrl`
+- `registryAuth`
+- `gatewayToken`
+- `dryRun`
 
-The SDK exports `buildAgentConfig()` if you want to prepare the merged `config` object yourself before sending it.
+## Routes
+
+Routes are a generic dict keyed by route name.
+
+Platform defaults for OpenClaw agents:
+
+- root host = gateway
+- `desktop` route = noVNC desktop
+
+Everything else is user-defined.
+
+```ts
+const agent = await client.deployments.create({
+  name: "docs-demo",
+  start: true,
+  routes: {
+    app: { prefix: "app", port: 8080, auth: false },
+    admin: { prefix: "admin", port: 8081, auth: true },
+  },
+});
+```
 
 ## Lifecycle
 
 ```ts
-const all = await client.deployments.list();
-const current = await client.deployments.get(agent.id);
-const started = await client.deployments.start(agent.id);
-const stopped = await client.deployments.stop(agent.id);
+await client.deployments.list();
+await client.deployments.get(agent.id);
+await client.deployments.start(agent.id);
+await client.deployments.stop(agent.id);
 await client.deployments.delete(agent.id);
+await client.deployments.waitRunning(agent.id, 300_000, 5_000);
 ```
 
-Budget and live metrics:
+## `Agent`
+
+Important fields:
+
+- `id`
+- `userId`
+- `podId`
+- `podName`
+- `state`
+- `name`
+- `hostname`
+- `cpu`
+- `memory`
+- `jwtToken`
+- `routes`
+- `command`
+- `entrypoint`
+- `ports`
+
+Important properties:
+
+- `publicUrl`
+- `desktopUrl`
+- `vncUrl`
+- `shellUrl`
+- `executorUrl`
+- `isRunning`
+
+Important methods:
+
+- `routeUrl()`
+- `routeRequiresAuth()`
+- `refreshToken()`
+- `waitRunning()`
+- `env()`
+- `exec()`
+- `filesList()`
+- `fileRead()`
+- `fileWrite()`
+- `fileDelete()`
+- `cpTo()`
+- `cpFrom()`
+- `shellConnect()`
+
+## Files And Exec
 
 ```ts
-await client.deployments.budget();
-await client.deployments.metrics(agent.id);
+const result = await agent.exec("uname -a", { timeout: 30 });
+console.log(result.stdout, result.exitCode);
+
+await agent.fileWrite("/workspace/notes.txt", "hello");
+const text = await agent.fileRead("/workspace/notes.txt");
+
+await agent.cpTo("./local.txt", "/workspace/local.txt");
+await agent.cpFrom("/workspace/output.log", "./output.log");
 ```
 
-## Exec, Shell, And Logs
+## Logs And Shell
+
+Recommended helpers:
 
 ```ts
-const execResult = await client.deployments.exec(agent, "uname -a", {
-  timeout: 30,
-});
-
-const shell = await client.deployments.shellConnect(agent.id);
-const logs = await client.deployments.logsConnect(agent.id, {
-  tailLines: 200,
-});
+const logs = await client.deployments.logsConnect(agent.id, { tailLines: 200 });
+const shell = await client.deployments.shellConnect(agent.id, "/bin/bash");
 ```
 
-You can call the same operations on an `Agent` instance:
+These use:
 
-```ts
-await agent.exec("ls -la");
-await agent.shellConnect();
-await agent.filesList();
-```
+- `/api/deployments/{id}/logs/token`
+- `/api/deployments/{id}/shell/token`
+- backend `/ws/logs/{agent_id}`
+- backend `/ws/shell/{agent_id}`
 
-## File Operations
+Prefer these over direct executor-era HTTP assumptions.
 
-```ts
-await client.deployments.fileWrite(agent, "/workspace/notes.txt", "hello");
-const contents = await client.deployments.fileRead(agent, "/workspace/notes.txt");
-await client.deployments.cpTo(agent, "./local.txt", "/workspace/local.txt");
-await client.deployments.cpFrom(agent, "/workspace/output.log", "./output.log");
-```
+## `OpenClawAgent`
 
-## OpenClawAgent
+When gateway metadata exists, the SDK hydrates `OpenClawAgent`.
 
-If the backend returns `openclaw_url` or `gateway_url`, the SDK hydrates an `OpenClawAgent`.
+Important additions:
 
-Extra helpers:
-
+- `gatewayUrl`
+- `gatewayToken`
 - `resolveGatewayToken()`
 - `gateway()`
 - `connect()`
 - `gatewayStatus()`
+- `waitReady()`
 - `configGet()`
 - `configSchema()`
+- `configPatch()`
+- `configApply()`
+- `modelsList()`
 - `sessionsList()`
-- `chatSend()`
+- `channelsStatus()`
+- `channelsLogout()`
+- `webLoginStart()`
+- `webLoginWait()`
+- `workspaceFiles()`
+- `fileGet()`
+- `fileSet()`
+- `chatHistory()`
+- `chatSendMessage()`
+- `providerUpsert()`
+- `providerRemove()`
+- `modelUpsert()`
+- `modelRemove()`
+- `setDefaultModel()`
+- `setMemorySearch()`
+- `channelUpsert()`
+- `channelPatch()`
+- `telegramUpsert()`
+- `slackUpsert()`
+- `discordUpsert()`
+- `cronList()`
+
+### Gateway URL Semantics
+
+If the backend does not explicitly send `openclaw_url` / `gateway_url`, the SDK falls back to:
 
 ```ts
-if ("gateway" in agent) {
-  const gateway = await agent.connect();
-  try {
-    const models = await gateway.modelsList();
-    console.log(models);
-  } finally {
-    gateway.close();
-  }
-}
+`wss://${agent.hostname}`
 ```
+
+That matches the current root-host gateway model.

@@ -1,54 +1,68 @@
 ---
 title: Agents SDK
-description: Manage OpenClaw and generic agent runtimes from the Python SDK.
+description: Detailed Python SDK guide for HyperClaw deployments, route configuration, files, exec, WebSocket shells, and OpenClaw gateway access.
 ---
 
 ## Overview
 
-The Python SDK exposes two separate namespaces:
+The Python SDK exposes two HyperClaw-related namespaces:
 
-- `client.agent`: HyperClaw subscription, model metadata, and convenience chat helpers
-- `client.deployments`: OpenClaw and generic agent runtime lifecycle, files, exec, streaming, and gateway access
+- `client.agent`
+  - plans
+  - model metadata
+  - key status
+  - provider config snippets
+- `client.deployments`
+  - agent lifecycle
+  - files
+  - exec
+  - shell and logs WebSockets
+  - OpenClaw gateway access
 
 ```python
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="...", agent_api_key="sk-...")
+client = HyperCLI(
+    api_key="hyper_...",
+    agent_api_key="sk-...",
+)
 ```
 
-## HyperClaw Metadata
+## `client.agent`
+
+Use `client.agent` for account-level metadata and configuration snippets:
 
 ```python
 plans = client.agent.plans()
 models = client.agent.models()
-key = client.agent.key_status()
+status = client.agent.key_status()
 health = client.agent.discovery_health()
 config = client.agent.discovery_config()
 ```
 
-`client.agent` also exposes:
+This namespace also exposes convenience helpers such as:
 
-- `openai()`
 - `chat()`
+- `openai()`
 
-## Deployments Lifecycle
+Those are account/inference helpers, not agent runtime helpers.
+
+## `client.deployments`
+
+This namespace manages actual agent pods.
+
+### Create
 
 ```python
 agent = client.deployments.create(
     name="docs-demo",
     size="medium",
-    env={"APP_ENV": "prod"},
     start=True,
+    env={"APP_ENV": "prod"},
 )
-
-agents = client.deployments.list()
-current = client.deployments.get(agent.id)
-client.deployments.stop(agent.id)
-client.deployments.start(agent.id)
-client.deployments.delete(agent.id)
 ```
 
-Create and start options include:
+Accepted create/start options:
 
 - `name`
 - `size`
@@ -65,79 +79,200 @@ Create and start options include:
 - `registry_auth`
 - `gateway_token`
 - `dry_run`
+- `start`
 
-## Budget And Metrics
+### Route Configuration
+
+Routes are passed as a plain dict. The platform only owns two defaults for OpenClaw agents:
+
+- root route for the gateway
+- `desktop` route for noVNC
+
+Everything else is user-defined.
+
+Example:
 
 ```python
+agent = client.deployments.create(
+    name="docs-demo",
+    start=True,
+    routes={
+        "app": {"prefix": "app", "port": 8080, "auth": False},
+        "admin": {"prefix": "admin", "port": 8081, "auth": True},
+    },
+)
+```
+
+## Lifecycle
+
+```python
+agents = client.deployments.list()
+current = client.deployments.get(agent.id)
+
+agent = client.deployments.start(agent.id)
+agent = client.deployments.stop(agent.id)
+client.deployments.delete(agent.id)
+
 budget = client.deployments.budget()
 metrics = client.deployments.metrics(agent.id)
 ```
 
-## Exec, Files, Logs, And Shells
-
-These operations are available on both `client.deployments` and hydrated `Agent` instances.
+Wait for a running pod:
 
 ```python
-result = client.deployments.exec(agent, "ls -la /workspace", timeout=30)
-print(result.stdout, result.exit_code)
-
-client.deployments.file_write(agent, "/workspace/notes.txt", "hello")
-print(client.deployments.file_read(agent, "/workspace/notes.txt"))
-client.deployments.cp_to(agent, "./local.txt", "/workspace/local.txt")
-client.deployments.cp_from(agent, "/workspace/output.log", "./output.log")
+agent = client.deployments.wait_running(agent.id, timeout=300, poll_interval=5)
 ```
 
-Streaming helpers:
+Or on the hydrated object:
 
-- `logs_stream()`
-- `logs_stream_ws()`
-- `shell_connect()`
+```python
+agent.wait_running(timeout=300)
+```
 
-## OpenClawAgent
+## `Agent` Object
 
-When the backend returns gateway metadata, the object is hydrated as `OpenClawAgent`.
-
-Extra helpers:
-
-- `resolve_gateway_token()`
-- `gateway()`
-- `connect()`
-- `gateway_status()`
-- `config_get()`
-- `config_schema()`
-- `config_patch()`
-- `models_list()`
-- `workspace_files()`
-- `file_get()` / `file_set()`
-- `sessions_list()`
-- `cron_list()`
-- `chat_history()`
-- `chat_send_message()`
-- `chat_send()`
-
-## Data Objects
-
-### Agent
-
-`Agent` includes the backend identity plus runtime metadata such as:
+A hydrated `Agent` contains:
 
 - `id`
+- `user_id`
 - `pod_id`
 - `pod_name`
 - `state`
-- `hostname`
+- `name`
 - `cpu`
 - `memory`
+- `hostname`
 - `jwt_token`
+- `jwt_expires_at`
 - `routes`
 - `command`
 - `entrypoint`
 - `ports`
 
-Computed properties:
+Important computed properties:
 
 - `public_url`
+  - root host
+- `desktop_url`
+  - `desktop-<host>`
 - `vnc_url`
+  - alias of `desktop_url`
 - `shell_url`
+  - only if an explicit `shell` route exists
 - `executor_url`
+  - alias of `shell_url`
+- `route_url(route_name, default_prefix=None)`
+- `route_requires_auth(route_name)`
 - `is_running`
+
+## Exec, Files, Copy
+
+```python
+result = agent.exec("uname -a", timeout=30)
+print(result.stdout, result.stderr, result.exit_code)
+
+agent.file_write("/workspace/notes.txt", "hello")
+print(agent.file_read("/workspace/notes.txt"))
+
+agent.cp_to("./local.txt", "/workspace/local.txt")
+agent.cp_from("/workspace/output.log", "./output.log")
+```
+
+Equivalent deployment helpers:
+
+- `client.deployments.exec(...)`
+- `files_list()`
+- `file_read()`
+- `file_write()`
+- `file_delete()`
+- `cp_to()`
+- `cp_from()`
+
+## Logs And Shell
+
+Recommended current helpers:
+
+```python
+async for line in agent.logs_stream_ws(tail_lines=200):
+    print(line)
+
+ws = await agent.shell_connect(shell="/bin/bash")
+```
+
+These use:
+
+- `/api/deployments/{id}/logs/token`
+- `/api/deployments/{id}/shell/token`
+- backend `/ws/logs/{agent_id}`
+- backend `/ws/shell/{agent_id}`
+
+Prefer these over legacy direct executor-style methods.
+
+## `OpenClawAgent`
+
+When the backend includes gateway metadata, the SDK hydrates `OpenClawAgent`.
+
+`OpenClawAgent` adds:
+
+- `gateway_url`
+- `gateway_token`
+- `resolve_gateway_token()`
+- `gateway()`
+- `connect()`
+- `gateway_status()`
+- `wait_ready()`
+- `config_get()`
+- `config_schema()`
+- `config_patch()`
+- `config_apply()`
+- `models_list()`
+- `sessions_list()`
+- `channels_status()`
+- `channels_logout()`
+- `web_login_start()`
+- `web_login_wait()`
+- `workspace_files()`
+- `file_get()`
+- `file_set()`
+- `chat_history()`
+- `chat_send_message()`
+- `chat_send()`
+- `provider_upsert()`
+- `provider_remove()`
+- `model_upsert()`
+- `model_remove()`
+- `set_default_model()`
+- `set_memory_search()`
+- `channel_upsert()`
+- `channel_patch()`
+- `telegram_upsert()`
+- `slack_upsert()`
+- `discord_upsert()`
+- `cron_list()`
+
+### Gateway URL Semantics
+
+The SDK now treats the root host as the default gateway host.
+
+If the backend does not explicitly return `openclaw_url` / `gateway_url`, `OpenClawAgent` falls back to:
+
+```python
+f"wss://{agent.hostname}"
+```
+
+## Gateway Example
+
+```python
+agent = client.deployments.get("agent-id")
+assert hasattr(agent, "gateway")
+
+gw = agent.gateway()
+
+async def main():
+    async with gw:
+        await gw.wait_ready(timeout=300)
+        cfg = await gw.config_get()
+        print(cfg)
+```
+
+See [Gateway Client SDK](/sdk/gateway) for the low-level RPC surface.

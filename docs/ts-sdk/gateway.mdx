@@ -1,39 +1,90 @@
 ---
 title: Gateway Client
-description: Connect to an OpenClaw gateway over WebSocket from the TypeScript SDK.
+description: Low-level TypeScript gateway client for OpenClaw pairing, config, chat, files, channels, sessions, and cron.
 ---
 
-`GatewayClient` is the low-level WebSocket client for the OpenClaw gateway protocol. In most applications you will reach it through an `OpenClawAgent`, but it can also be instantiated directly.
+`GatewayClient` is the low-level WebSocket client for the OpenClaw protocol.
 
-## Create A Client
+Use it when you want direct access to:
+
+- config RPC
+- raw events
+- chat/session control
+- workspace files
+- channel login/status flows
+- cron RPC
+
+## Create
 
 ```ts
 import { GatewayClient } from "@hypercli.com/sdk";
 
 const gateway = new GatewayClient({
-  url: "wss://openclaw-example.hypercli.com",
-  token: "jwt...",
-  gatewayToken: "gateway-secret",
+  url: "wss://my-agent.hyperclaw.app",
+  gatewayToken: "...",
+  deploymentId: "agent-id",
+  apiKey: "sk-...",
+  apiBase: "https://api.agents.hypercli.com/api",
+  autoApprovePairing: true,
 });
 ```
 
-## Connect And Listen
+Important options:
+
+- `url`
+- `gatewayToken`
+- `deploymentId`
+- `apiKey`
+- `apiBase`
+- `autoApprovePairing`
+- `timeoutMs`
+- `chatTimeoutMs`
+- `clientId`
+- `clientMode`
+- `role`
+- `scopes`
+- `caps`
+
+## Auth Model
+
+This client does not use browser `/_jwt_auth` semantics.
+
+It connects to the root agent host and authenticates at the OpenClaw protocol layer using:
+
+- gateway token
+- device identity
+- pairing / cached device token
+
+## Lifecycle
 
 ```ts
-const unsubscribe = gateway.onEvent((event) => {
-  console.log(event.type, event);
+const off = gateway.onEvent((event) => {
+  console.log(event);
 });
 
 await gateway.connect();
+...
+gateway.close();
+off();
 ```
 
 Lifecycle methods:
 
-- `connect()` / `start()`
-- `close()` / `stop()`
-- `onEvent(handler)`
+- `connect()`
+- `start()`
+- `close()`
+- `stop()`
+- `onEvent()`
 
-## Configuration
+## Readiness
+
+```ts
+await gateway.waitReady(300_000);
+```
+
+This is the recommended way to wait for a fresh agent after the pod reaches `RUNNING`.
+
+## Config
 
 ```ts
 await gateway.configGet();
@@ -47,46 +98,65 @@ await gateway.configPatch({
 });
 ```
 
-Also available:
+Methods:
 
+- `configGet()`
+- `configSchema()`
+- `configPatch()`
+- `configApply()`
 - `configSet()`
 - `status()`
 
 ## Chat And Sessions
 
+Two patterns are useful:
+
+### Raw RPC + event listeners
+
 ```ts
-const events = await gateway.sendChat({
-  message: "Summarize this repository",
-  sessionKey: "docs-session",
-});
+gateway.onEvent((event) => console.log(event));
+await gateway.sendChat({ message: "Summarize this repository", sessionKey: "docs" });
 ```
 
-Session helpers:
+### Higher-level history/session helpers
 
+- `chatHistory()`
+- `chatAbort()`
 - `sessionsList()`
 - `sessionsPreview()`
 - `sessionsReset()`
-- `chatHistory()`
-- `chatAbort()`
 
-## Files, Agents, And Cron
+## Files
 
 ```ts
 await gateway.filesList("main");
 await gateway.fileGet("main", "README.md");
 await gateway.fileSet("main", "notes.txt", "hello");
-
-await gateway.agentsList();
-await gateway.cronList();
-await gateway.cronAdd({ name: "nightly", schedule: "0 2 * * *" });
-await gateway.cronRemove("job-id");
 ```
 
-## Exec Approval
+## Channels
 
-If the gateway is configured for approval-driven execution, you can respond to pending exec requests:
+- `channelsStatus()`
+- `channelsLogout()`
+- `webLoginStart()`
+- `webLoginWait()`
 
-```ts
-await gateway.execApprove("exec-id");
-await gateway.execDeny("exec-id");
-```
+## Models, Agents, Cron
+
+- `modelsList()`
+- `agentsList()`
+- `cronList()`
+- `cronAdd()`
+- `cronRemove()`
+
+## Approvals
+
+- `execApprove()`
+- `execDeny()`
+
+## Recommendation
+
+Most application code should not instantiate `GatewayClient` directly. Prefer:
+
+- `OpenClawAgent.gateway()`
+- `OpenClawAgent.connect()`

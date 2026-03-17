@@ -1,6 +1,6 @@
 ---
 title: Python SDK
-description: Use hypercli-sdk to manage jobs, renders, files, HyperClaw metadata, and OpenClaw deployments from Python.
+description: Detailed guide to the Python SDK for jobs, renders, HyperClaw account data, agent lifecycle, shell/log streams, and OpenClaw gateway sessions.
 ---
 
 ## Install
@@ -15,75 +15,147 @@ Optional extras:
 pip install "hypercli-sdk[comfyui]"
 ```
 
+## What The Python SDK Covers
+
+The Python SDK has two distinct halves:
+
+- HyperCLI platform APIs
+  - billing
+  - jobs
+  - instances
+  - renders
+  - files
+  - keys
+  - user
+- HyperClaw / agent APIs
+  - `client.agent` for plan and model metadata
+  - `client.deployments` for agent lifecycle and runtime access
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(
+    api_key="hyper_...",      # main HyperCLI API key
+    agent_api_key="sk-...",   # HyperClaw agent key
+)
+```
+
+## Authentication Model
+
+The constructor resolves credentials in this order:
+
+1. explicit constructor args
+2. environment variables
+3. `~/.hypercli/config`
+
+Common environment variables:
+
+- `HYPERCLI_API_KEY`
+- `HYPERCLI_API_URL`
+- `HYPERCLAW_API_KEY`
+- `HYPERCLAW_API_BASE`
+- `HYPERCLI_AGENTS_WS_URL`
+
+Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI key.
+
+## Main Namespaces
+
+### Platform
+
+- `client.billing`
+- `client.jobs`
+- `client.instances`
+- `client.renders`
+- `client.files`
+- `client.keys`
+- `client.user`
+
+### HyperClaw
+
+- `client.agent`
+  - plans
+  - model catalog
+  - key status
+  - convenience provider config helpers
+- `client.deployments`
+  - create / start / stop / delete
+  - exec
+  - file copy and file APIs
+  - log and shell WebSocket helpers
+  - OpenClaw gateway access
+
 ## Quick Start
 
 ```python
 from hypercli import HyperCLI
 
-client = HyperCLI()
+client = HyperCLI(api_key="hyper_...", agent_api_key="sk-...")
 
-balance = client.billing.balance()
-print(balance.total)
-
-job = client.jobs.create(
-    image="nvidia/cuda:12.6.3-runtime-ubuntu22.04",
-    gpu_type="l40s",
-    command="nvidia-smi",
-    dry_run=True,
+agent = client.deployments.create(
+    name="docs-demo",
+    size="medium",
+    start=True,
+    env={"APP_ENV": "prod"},
 )
 
-print(job.job_id, job.state)
+agent = agent.wait_running(timeout=300)
+print(agent.public_url)   # https://docs-demo.hyperclaw.app
+print(agent.desktop_url)  # https://desktop-docs-demo.hyperclaw.app
 ```
 
-## Authentication And Config
+## Current Agent Route Model
 
-Configuration is resolved in this order:
+For OpenClaw-backed agents, the platform defaults are:
 
-1. `HyperCLI(api_key="...")`
-2. `HYPERCLI_API_KEY`
-3. `~/.hypercli/config`
+- root host = gateway / agent
+- `desktop-<host>` = desktop
+- extra routes come from the `routes` dict you pass at create/start time
 
-```python
-client = HyperCLI(api_key="hyper_...")
-```
+That means:
 
-## Client Namespaces
+- `Agent.public_url` is the root host
+- `Agent.desktop_url` and `Agent.vnc_url` point to `desktop-<host>`
+- `Agent.shell_url` is only populated if you explicitly create a `shell` route
 
-`client.billing`
-- Balance and transaction history.
+There is no default `shell-<host>` platform route anymore.
 
-`client.jobs`
-- GPU job lifecycle, logs, metrics, tokens, exec, and shell-related helpers.
+## Recommended Access Patterns
 
-`client.instances`
-- GPU types, pricing, region metadata, and capacity.
+### Use backend `/ws/*` for logs and shells
 
-`client.renders`
-- Managed render jobs and high-level media flow helpers.
+Preferred helpers:
 
-`client.files`
-- File uploads for render inputs.
+- `agent.logs_stream_ws()`
+- `agent.shell_connect()`
+- `client.deployments.logs_stream_ws(...)`
+- `client.deployments.shell_connect(...)`
 
-`client.keys`
-- API key management.
+These use backend-issued short-lived tokens and the backend `/ws/logs/{agent_id}` and `/ws/shell/{agent_id}` endpoints.
 
-`client.user`
-- Current user metadata.
+### Use `OpenClawAgent.gateway()` for gateway work
 
-`client.agent`
-- HyperClaw plan, key, and model discovery, plus convenience chat helpers.
+Preferred helpers:
 
-`client.deployments`
-- OpenClaw and generic agent runtime lifecycle, files, exec, logs, shells, and gateway sessions.
+- `agent.gateway()`
+- `agent.connect()`
+- `agent.wait_ready()`
+- `agent.config_get()`
+- `agent.chat_send()`
 
-## Error Handling
+These connect to the root agent host, not `openclaw-<host>`.
 
-```python
-from hypercli import APIError, HyperCLI
+### Treat direct executor helpers as legacy
 
-try:
-    client = HyperCLI()
-    client.jobs.get("missing-id")
-except APIError as e:
-    print(e.status_code, e.detail)
-```
+The SDK still contains some direct executor-era helpers:
+
+- `health()`
+- `chat_stream()`
+- `logs_stream()`
+
+They only make sense if you have explicitly created an executor-style route. For current OpenClaw agents, prefer backend `/ws/*` and gateway RPC instead.
+
+## Next Pages
+
+- [Agents SDK](/sdk/agents)
+- [Gateway Client SDK](/sdk/gateway)
+- [Python SDK Reference](/sdk/reference)

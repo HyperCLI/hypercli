@@ -7,8 +7,8 @@ description: OpenClaw desktop containers (reef pods) with VNC, shell, file acces
 
 Agents are fully managed **OpenClaw desktop containers** (internally called *reef pods*) that run on Kubernetes. Each agent provides:
 
-- **VNC desktop** — full Linux desktop accessible via browser
-- **Shell access** — WebSocket PTY terminal
+- **Desktop** — full Linux desktop accessible via browser
+- **Shell access** — backend WebSocket PTY terminal
 - **File system** — read/write files on the container
 - **OpenClaw Gateway** — WebSocket RPC for AI chat, config, cron, and more
 
@@ -27,8 +27,7 @@ Lagoon (pod orchestrator)
     │  Scheduling, health monitoring, log ingest
     ▼
 Reef containers on Kubernetes
-    ├── VNC desktop (noVNC)
-    ├── Shell executor (HTTP + WebSocket)
+    ├── Desktop (noVNC)
     └── OpenClaw Gateway (WebSocket RPC v3)
 ```
 
@@ -36,15 +35,19 @@ The HyperClaw backend handles authentication and plan enforcement. It proxies li
 
 ## Hostnames
 
-Each agent gets three public endpoints based on its pod name:
+Each agent gets a root gateway host plus optional prefixed routes:
 
 | Service  | URL Pattern                              | Protocol   |
 |----------|------------------------------------------|------------|
-| Desktop  | `https://{name}.hypercli.com`           | HTTPS/VNC  |
-| Shell    | `https://shell-{name}.hypercli.com`     | HTTPS/WS   |
-| Gateway  | `wss://openclaw-{name}.hypercli.com`    | WebSocket  |
+| Gateway  | `wss://{name}.hypercli.com`             | WebSocket  |
+| Desktop  | `https://desktop-{name}.hypercli.com`   | HTTPS/noVNC |
+| Custom   | `https://{prefix}-{name}.hypercli.com`  | HTTPS/WSS  |
 
-All endpoints are secured via Traefik ForwardAuth with JWT tokens.
+Current auth split:
+
+- gateway uses application-level auth inside OpenClaw
+- protected browser routes use `/_jwt_auth?jwt=...` bootstrap
+- shell/log streaming uses backend `/ws/*` endpoints, not a dedicated shell host
 
 ## Lifecycle
 

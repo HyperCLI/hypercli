@@ -1,6 +1,6 @@
 ---
 title: CLI Quickstart
-description: Install the CLI, configure credentials, launch a GPU job, and run media flows.
+description: Install the CLI, configure credentials, launch jobs, subscribe to HyperClaw, create an OpenClaw agent, and connect to it.
 ---
 
 ## Install
@@ -9,19 +9,19 @@ description: Install the CLI, configure credentials, launch a GPU job, and run m
 pip install hypercli-cli
 ```
 
-Add extras when you need them:
+Extras:
 
 - wallet and x402: `pip install 'hypercli-cli[wallet]'`
-- ComfyUI workflows: `pip install 'hypercli-cli[comfyui]'`
-- local transcription: `pip install 'hypercli-cli[stt]'`
+- ComfyUI: `pip install 'hypercli-cli[comfyui]'`
+- local speech-to-text: `pip install 'hypercli-cli[stt]'`
 
-## Configure The Main API Key
+## Configure Platform Access
 
 ```bash
 hyper configure
 ```
 
-Test it:
+Verify:
 
 ```bash
 hyper billing balance
@@ -44,40 +44,53 @@ hyper jobs logs <job_id> -f
 hyper jobs shell <job_id>
 ```
 
-## Run A Managed Flow
-
-```bash
-hyper flow text-to-image "a mountain lake at dawn"
-hyper flow text-to-video "a slow cinematic flyover of a glacier"
-```
-
-## Use x402 Pay-Per-Use
-
-Create and fund a wallet first:
-
-```bash
-hyper wallet create
-hyper wallet address
-```
-
-Then run a pay-per-use flow:
-
-```bash
-hyper flow text-to-image "a mountain lake at dawn" --x402
-```
-
-## Set Up HyperClaw
+## Subscribe To HyperClaw
 
 ```bash
 hyper agent plans
 hyper agent subscribe 1aiu
-hyper agent config env
+hyper agent status
 ```
 
-## Launch An OpenClaw Agent
+## Generate Provider Config
 
 ```bash
-hyper agents create --name my-agent --size medium
-hyper agents list
-hyper agents shell <agent_id>
+hyper agent config env
+hyper agent config openclaw
+hyper agent openclaw-setup
 ```
+
+## Create An Agent
+
+```bash
+hyper agents create --name docs-demo --size medium --wait
+```
+
+Current defaults:
+
+- gateway host: `https://docs-demo.hyperclaw.app`
+- desktop host: `https://desktop-docs-demo.hyperclaw.app`
+
+## Connect To The Agent
+
+Shell and logs are backend WebSocket flows:
+
+```bash
+hyper agents shell docs-demo
+hyper agents logs docs-demo --ws
+```
+
+Gateway operations use the root host:
+
+```bash
+hyper agents config docs-demo
+hyper agents gateway-chat docs-demo "Reply with exactly: hello"
+```
+
+Desktop opens at the desktop route:
+
+```bash
+hyper agents status docs-demo
+```
+
+Use the printed `Desktop` URL in a browser.

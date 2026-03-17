@@ -1,6 +1,6 @@
 ---
 title: CLI
-description: Use the HyperCLI command-line interface for jobs, flows, HyperClaw plans, and OpenClaw deployments.
+description: Detailed overview of the Python CLI for HyperCLI platform APIs, HyperClaw plans, OpenClaw deployments, backend shells/logs, and gateway operations.
 ---
 
 ## Install
@@ -17,57 +17,59 @@ pip install "hypercli-cli[comfyui]"
 pip install "hypercli-cli[stt]"
 ```
 
-## Configure
-
-```bash
-hyper configure
-```
-
-Or set the main API key directly:
-
-```bash
-export HYPERCLI_API_KEY=hyper_...
-```
-
 ## Command Groups
 
-`hyper instances`
-- Browse GPU inventory and launch jobs.
+Platform:
 
-`hyper jobs`
-- Inspect running jobs, stream logs, collect metrics, and open shells.
+- `hyper configure`
+- `hyper instances`
+- `hyper jobs`
+- `hyper flow`
+- `hyper renders`
+- `hyper billing`
+- `hyper keys`
+- `hyper user`
+- `hyper wallet`
+- `hyper comfyui`
 
-`hyper flow`
-- Run the recommended media generation endpoints.
+HyperClaw:
 
-`hyper renders`
-- Use the lower-level managed render API.
+- `hyper agent`
+- `hyper agents`
 
-`hyper billing`
-- Check account balance and transactions.
+## Split Between `hyper agent` And `hyper agents`
 
-`hyper keys`
-- Create, list, and disable API keys.
+Use:
 
-`hyper agent`
-- Manage HyperClaw subscriptions and generate client configs.
+- `hyper agent`
+  - account setup
+  - plans
+  - login / subscribe
+  - provider config snippets
+  - local transcription / voice / embed helpers
+- `hyper agents`
+  - actual agent lifecycle
+  - files
+  - exec
+  - backend shell/log streams
+  - gateway config/chat/session/files/cron
 
-`hyper agents`
-- Manage OpenClaw or agent containers.
+## Current Agent Route Model
 
-`hyper wallet`
-- Create and fund the embedded wallet used for x402 payments.
+The CLI now follows the same route defaults as the SDKs:
 
-`hyper comfyui`
-- Run templated ComfyUI workflows on GPU jobs.
+- root host = OpenClaw gateway / agent
+- `desktop-<host>` = desktop
+- there is no default `shell-<host>` route
 
-## Quick Examples
+So:
 
-```bash
-hyper instances list
-hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
-hyper jobs logs <job_id> -f
-hyper flow text-to-image "a product hero image"
-hyper agent plans
-hyper agents create --name docs-demo
-```
+- `hyper agents shell` uses backend `/ws/shell/{agent_id}`
+- `hyper agents logs --ws` uses backend `/ws/logs/{agent_id}`
+- desktop opens on `desktop-<host>`
+
+## Recommended Reading
+
+- [CLI Quickstart](/cli/quickstart)
+- [hyper agent](/cli/commands/agent)
+- [hyper agents](/cli/commands/agents)

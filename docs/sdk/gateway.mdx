@@ -1,9 +1,34 @@
 ---
 title: Gateway Client SDK
-description: Use GatewayClient for OpenClaw config, chat, files, sessions, and cron over WebSocket.
+description: Low-level Python gateway client for OpenClaw config, chat, files, sessions, channels, cron, and pairing-aware WebSocket connections.
 ---
 
-`GatewayClient` is the low-level async WebSocket client for the OpenClaw gateway protocol. In most applications you will reach it through an `OpenClawAgent`.
+`GatewayClient` is the low-level async WebSocket client for the OpenClaw gateway protocol.
+
+Use it when you want direct access to:
+
+- config RPC
+- chat/session RPC
+- workspace file RPC
+- channel auth flows
+- cron management
+- raw event handling
+
+In most apps, you will construct it via `OpenClawAgent.gateway()`.
+
+## Connection Model
+
+Gateway auth is application-level.
+
+Current remote flow:
+
+- connect to `wss://<agent-host>`
+- present gateway token
+- complete device challenge
+- auto-approve pairing if the SDK is bound to a deployment and API key
+- reuse cached device auth when possible
+
+This is not the same as browser `/_jwt_auth` route bootstrap.
 
 ## Create A Client
 
@@ -11,67 +36,161 @@ description: Use GatewayClient for OpenClaw config, chat, files, sessions, and c
 from hypercli.gateway import GatewayClient
 
 gw = GatewayClient(
-    url="wss://openclaw-myagent.hypercli.com",
-    token="jwt...",
-    gateway_token="gateway-secret",
+    url="wss://my-agent.hyperclaw.app",
+    gateway_token="...",
+    deployment_id="agent-id",
+    api_key="sk-...",
+    api_base="https://api.agents.hypercli.com/api",
+    auto_approve_pairing=True,
 )
 ```
 
-<Tip>
-The easiest way to get a `GatewayClient` is via `OpenClawAgent.gateway()` or `OpenClawAgent.connect()`.
-</Tip>
+Common options:
 
-## Connection
+- `url`
+- `gateway_token`
+- `deployment_id`
+- `api_key`
+- `api_base`
+- `auto_approve_pairing`
+- `timeout`
+- `chat_timeout`
+- `client_id`
+- `client_mode`
+- `role`
+- `scopes`
+- `caps`
+
+## Lifecycle
 
 ```python
 async with gw:
     print(gw.version, gw.protocol)
 ```
 
-You can also call `connect()` and `close()` manually.
+Or manually:
 
-## Config
+```python
+await gw.connect()
+...
+await gw.close()
+```
+
+Properties:
+
+- `version`
+- `protocol`
+- `is_connected`
+- `pending_pairing`
+
+## Events
+
+Register a raw event callback:
+
+```python
+unsubscribe = gw.on_event(lambda event: print(event))
+```
+
+The callback sees the raw gateway event stream, which is useful for:
+
+- custom chat UX
+- progress events
+- approval flows
+- debugging provider behavior
+
+## Readiness
+
+Use readiness explicitly after a pod reaches `RUNNING`:
+
+```python
+await gw.wait_ready(timeout=300)
+```
+
+By default this polls `config.get`, which is a better signal than pod state alone.
+
+## Configuration
 
 ```python
 config = await gw.config_get()
 schema = await gw.config_schema()
 await gw.config_patch({"models": {"providers": {"openai": {"apiKey": "sk-..."}}}})
-await gw.config_set(config)
+await gw.config_apply(config)
 ```
 
-Use `config_patch()` for partial updates and `config_set()` to replace the full config.
+Config methods:
+
+- `config_get()`
+- `config_schema()`
+- `config_patch()`
+- `config_set()`
+- `config_apply()`
 
 ## Chat And Sessions
 
+High-level streaming helper:
+
 ```python
-async for event in gw.chat_send("Explain this repository"):
+async for event in gw.chat_send("Summarize this repo", session_key="docs"):
     print(event)
 ```
 
-Session helpers:
+Available helpers:
 
+- `chat_send()`
+- `send_chat()`
+- `chat_history()`
+- `chat_abort()`
 - `sessions_list()`
 - `sessions_preview()`
 - `sessions_reset()`
-- `chat_history()`
-- `chat_abort()`
 
-## Files, Agents, And Cron
+The Python client now handles:
+
+- modern `chat.content` / `chat.done`
+- legacy `event == "chat"` final states
+- run correlation using both client idempotency and server `runId`
+
+## Files
 
 ```python
-await gw.files_list("main")
-await gw.file_get("main", "README.md")
+files = await gw.files_list("main")
+text = await gw.file_get("main", "README.md")
 await gw.file_set("main", "notes.txt", "hello")
-
-await gw.agents_list()
-await gw.cron_list()
-await gw.cron_add({"name": "nightly", "schedule": "0 2 * * *"})
-await gw.cron_remove("job-id")
 ```
 
-## Models And Status
+## Channels
+
+Use these for channel login and status surfaces exposed by OpenClaw:
+
+- `channels_status()`
+- `channels_logout()`
+- `web_login_start()`
+- `web_login_wait()`
+
+## Models, Agents, Cron
 
 ```python
 await gw.models_list()
+await gw.agents_list()
+await gw.cron_list()
+await gw.cron_add({...})
+await gw.cron_remove("job-id")
+await gw.cron_run("job-id")
 await gw.status()
 ```
+
+## Approvals
+
+If the gateway exposes approval-driven exec flows:
+
+- `exec_approvals_get()`
+- `exec_approvals_set()`
+- `exec_approval_resolve()`
+
+## Recommendation
+
+Use `OpenClawAgent.gateway()` unless you are:
+
+- building a custom transport wrapper
+- debugging raw gateway behavior
+- implementing a custom pairing or event model

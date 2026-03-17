@@ -1,96 +1,82 @@
 ---
 title: hyper agent
-description: HyperClaw subscription, configuration, local audio utilities, and convenience wrappers for agent containers.
+description: Detailed reference for HyperClaw account, subscription, config, onboarding, and local audio commands.
 ---
 
-`hyper agent` is the CLI surface for HyperClaw account setup and client configuration. It also includes local transcription plus `voice` and `embed` subcommands.
+`hyper agent` is the account and local-tooling surface for HyperClaw.
 
-## Subscription And Account Commands
+Use it for:
 
-### subscribe
+- onboarding
+- wallet-based subscribe/login
+- plan and model discovery
+- provider config snippets
+- local transcription
+- voice and embedding helpers
 
-Pay for a HyperClaw plan with the embedded wallet.
+## Commands
+
+### `onboard`
+
+Guided flow for:
+
+- wallet creation
+- funding
+- plan selection
+- subscription
+- config generation
+- verification
+
+### `subscribe`
+
+Subscribe to a HyperClaw plan through the x402 wallet flow.
 
 ```bash
 hyper agent subscribe 1aiu
-hyper agent subscribe 1aiu 25
 hyper agent subscribe 5aiu 100 --dev
 ```
 
-Requirements:
+### `status`
 
-- wallet dependencies installed: `pip install 'hypercli-cli[wallet]'`
-- a wallet created with `hyper wallet create`
-- sufficient USDC on Base
+Show the saved HyperClaw key and current plan status.
 
-The command stores the resulting key in `~/.hypercli/agent-key.json`.
+### `plans`
 
-### status
-
-Show the currently saved HyperClaw key, limits, and expiry.
-
-```bash
-hyper agent status
-```
-
-### plans
-
-List plan IDs, price, duration, and rate limits.
+List plan IDs, price, and limits.
 
 ```bash
 hyper agent plans
 hyper agent plans --dev
 ```
 
-### models
+### `models`
 
-List available inference models from the OpenAI-compatible models endpoint.
+List HyperClaw inference models.
 
 ```bash
 hyper agent models
 hyper agent models --json
-hyper agent models --dev
 ```
 
-### login
+### `login`
 
-Authenticate with a wallet challenge and create a user-bound agent API key.
+Wallet-based login that creates a user-bound HyperClaw API key and stores it locally.
 
-```bash
-hyper agent login
-hyper agent login --api-url https://api.dev.hypercli.com
-```
+### `config`
 
-This is the wallet-based login path for agent management. It saves the key to `~/.hypercli/agent-key.json`.
-
-## Client Configuration
-
-### config
-
-Generate config snippets for OpenClaw, OpenCode, or plain shell env vars.
-
-```bash
-hyper agent config
-hyper agent config openclaw
-hyper agent config opencode --key sk-...
-hyper agent config env
-hyper agent config openclaw --apply
-```
-
-Supported formats:
+Generate config snippets for:
 
 - `openclaw`
 - `opencode`
 - `env`
 
-Important flags:
+```bash
+hyper agent config
+hyper agent config openclaw --apply
+hyper agent config env
+```
 
-- `--key`, `-k`
-- `--base-url`
-- `--apply`
-- `--dev`
-
-### openclaw-setup
+### `openclaw-setup`
 
 Patch `~/.openclaw/openclaw.json` directly using the saved HyperClaw key.
 
@@ -99,39 +85,31 @@ hyper agent openclaw-setup
 hyper agent openclaw-setup --default
 ```
 
-## Container Convenience Commands
+### `exec` and `shell`
 
-These forward to the `hyper agents` command group:
+Compatibility forwards into `hyper agents`.
 
-```bash
-hyper agent exec <agent_id> "ls -la"
-hyper agent shell <agent_id>
-```
+### `transcribe`
 
-## Local Audio Utilities
+Local faster-whisper transcription, no remote API required.
 
-### transcribe
+### `voice`
 
-Run faster-whisper locally, without using the API.
+Voice generation helpers.
 
-```bash
-hyper agent transcribe meeting.mp3
-hyper agent transcribe meeting.mp3 --model large-v3 --language en
-hyper agent transcribe audio.wav --json -o transcript.json
-```
+### `embed`
 
-### voice
+Embedding helpers against HyperClaw.
 
-Voice generation helpers live under:
+## Files Written By `hyper agent`
 
-```bash
-hyper agent voice --help
-```
+- `~/.hypercli/agent-key.json`
+- optionally `~/.openclaw/openclaw.json` when using `openclaw-setup`
 
-### embed
+## Recommended Flow
 
-Embedding helpers live under:
-
-```bash
-hyper agent embed --help
-```
+1. `hyper agent plans`
+2. `hyper agent subscribe 1aiu`
+3. `hyper agent status`
+4. `hyper agent openclaw-setup`
+5. `hyper agents create ...`
