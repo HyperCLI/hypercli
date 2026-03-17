@@ -25,9 +25,9 @@ export interface GatewayOptions {
   apiBase?: string;
   /** Automatically approve first-time browser pairing using trusted agent exec. */
   autoApprovePairing?: boolean;
-  /** Client ID (default: "openclaw-control-ui") */
+  /** Client ID (default: "cli") */
   clientId?: string;
-  /** Client mode (default: "webchat") */
+  /** Client mode (default: "cli") */
   clientMode?: string;
   /** Optional client display name */
   clientDisplayName?: string;
@@ -39,7 +39,7 @@ export interface GatewayOptions {
   instanceId?: string;
   /** Optional gateway capability list */
   caps?: string[];
-  /** Origin header (default: "https://hypercli.com") */
+  /** Origin header (default: omitted for non-browser SDK clients) */
   origin?: string;
   /** Default RPC timeout in ms (default: 15000) */
   timeout?: number;
@@ -188,8 +188,8 @@ const PROTOCOL_VERSION = 3;
 const DEFAULT_TIMEOUT = 15_000;
 const CHAT_TIMEOUT = 120_000;
 const RECONNECT_CLOSE_CODE = 4008;
-const DEFAULT_CLIENT_ID = "openclaw-control-ui";
-const DEFAULT_CLIENT_MODE = "webchat";
+const DEFAULT_CLIENT_ID = "cli";
+const DEFAULT_CLIENT_MODE = "cli";
 const DEFAULT_CLIENT_VERSION = "@hypercli/sdk";
 const DEFAULT_CAPS = ["tool-events"];
 const CONNECT_TIMER_MS = 750;
@@ -977,7 +977,12 @@ export class GatewayClient {
     this.caps = Array.isArray(options.caps)
       ? options.caps.map((cap) => cap.trim()).filter(Boolean)
       : [...DEFAULT_CAPS];
-    this.origin = options.origin ?? "https://hypercli.com";
+    // Non-browser SDK clients should not send Origin by default. OpenClaw
+    // treats any Origin header as browser-originated and applies browser
+    // origin checks to the connection.
+    this.origin = typeof options.origin === "string" && options.origin.trim()
+      ? options.origin.trim()
+      : undefined;
     this.defaultTimeout = options.timeout ?? DEFAULT_TIMEOUT;
     this.onHello = options.onHello;
     this.onClose = options.onClose;
@@ -1138,7 +1143,10 @@ export class GatewayClient {
       : this.url;
     const ws: GatewaySocket = useBrowserSocket
       ? new WebSocket(wsUrl)
-      : new NodeWebSocket(wsUrl, { headers: { Origin: this.origin } });
+      : new NodeWebSocket(
+          wsUrl,
+          this.origin ? { headers: { Origin: this.origin } } : undefined,
+        );
     this.ws = ws;
 
     if (useBrowserSocket) {

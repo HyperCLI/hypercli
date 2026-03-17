@@ -19,7 +19,7 @@ import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, AsyncIterator, Callable, Literal, Optional
-from urllib.parse import parse_qsl, quote, urlsplit, urlunsplit
+from urllib.parse import parse_qsl, quote, urlsplit
 
 import httpx
 import websockets
@@ -478,14 +478,14 @@ class GatewayClient:
         api_key: str | None = None,
         api_base: str | None = None,
         auto_approve_pairing: bool = False,
-        client_id: str = "openclaw-control-ui",
-        client_mode: str = "webchat",
+        client_id: str = "cli",
+        client_mode: str = "cli",
         client_display_name: str | None = None,
         client_version: str = "hypercli-sdk",
         client_platform: str = "python",
         client_instance_id: str | None = None,
         caps: list[str] | None = None,
-        origin: str = "https://hypercli.com",
+        origin: str | None = None,
         timeout: float = DEFAULT_TIMEOUT,
         chat_timeout: float = CHAT_TIMEOUT,
         on_hello: Callable[[dict[str, Any]], None] | None = None,
@@ -500,14 +500,17 @@ class GatewayClient:
         self.api_key = api_key
         self.api_base = api_base.rstrip("/") if api_base else None
         self.auto_approve_pairing = auto_approve_pairing
-        self.client_id = client_id or "openclaw-control-ui"
-        self.client_mode = client_mode or "webchat"
+        self.client_id = client_id or "cli"
+        self.client_mode = client_mode or "cli"
         self.client_display_name = client_display_name
         self.client_version = client_version
         self.client_platform = client_platform
         self.client_instance_id = client_instance_id
         self.caps = list(caps or ["tool-events"])
-        self.origin = origin
+        # Non-browser SDK clients should not send Origin by default. OpenClaw
+        # treats any Origin header as browser-originated and enforces the
+        # control-ui/browser origin checks.
+        self.origin = origin.strip() if isinstance(origin, str) and origin.strip() else None
         self.timeout = timeout
         self.chat_timeout = chat_timeout
         self.on_hello = on_hello

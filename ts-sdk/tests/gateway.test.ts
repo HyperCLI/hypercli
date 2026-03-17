@@ -161,12 +161,12 @@ describe("GatewayClient", () => {
     return { client, ws, request };
   }
 
-  it("sends the control-ui browser handshake and stores the issued device token", async () => {
+  it("sends the CLI gateway handshake and stores the issued device token", async () => {
     const { client, request } = await connectClient();
 
     expect(request.method).toBe("connect");
-    expect(request.params.client.id).toBe("openclaw-control-ui");
-    expect(request.params.client.mode).toBe("webchat");
+    expect(request.params.client.id).toBe("cli");
+    expect(request.params.client.mode).toBe("cli");
     expect(request.params.role).toBe("operator");
     expect(request.params.scopes).toEqual([
       "operator.admin",
