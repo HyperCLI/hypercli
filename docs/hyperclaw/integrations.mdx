@@ -168,17 +168,17 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
 }
 ```
 
-Then reference the model as `hyperclaw/kimi-k2.5` in your agent config, or set it as primary:
+Then reference the model as `kimi-coding/kimi-k2.5` in your agent config when you want the OpenClaw coding semantics, or set it as primary:
 
 ```json
 {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "hyperclaw/kimi-k2.5"
+        "primary": "kimi-coding/kimi-k2.5"
       },
       "models": {
-        "hyperclaw/kimi-k2.5": {
+        "kimi-coding/kimi-k2.5": {
           "alias": "kimi"
         }
       }
@@ -196,10 +196,10 @@ export OPENAI_API_KEY="sk-YOUR-API-KEY"
 export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 
 # Claude Code
-claude --model kimi-k2.5
+claude --model kimi-coding/kimi-k2.5
 
 # OpenAI Codex
-codex --model kimi-k2.5
+codex --model kimi-coding/kimi-k2.5
 ```
 
 ## Python (OpenAI SDK)
