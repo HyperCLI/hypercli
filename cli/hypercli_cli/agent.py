@@ -710,7 +710,12 @@ def _resolve_api_key(key: str | None) -> str:
     raise typer.Exit(1)
 
 
-def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> dict:
+def _config_openclaw(
+    api_key: str,
+    models: list[dict],
+    api_base: str = PROD_INFERENCE_API_BASE,
+    placeholder_env: str | None = None,
+) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM only)."""
     def _model_suffix(model_id: str) -> str:
         return str(model_id or "").strip().lower().rsplit("/", 1)[-1]
@@ -741,6 +746,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
             )
         )
     )
+    config_api_key = f"${{{placeholder_env}}}" if placeholder_env else api_key
     return {
         "models": {
             "mode": "merge",
@@ -748,7 +754,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
                 "hyperclaw": {
                     # OpenClaw/pi-ai appends /v1/messages for anthropic-messages.
                     "baseUrl": api_base,
-                    "apiKey": api_key,
+                    "apiKey": config_api_key,
                     "api": "anthropic-messages",
                     "models": glm_models,
                 },
@@ -758,7 +764,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
                             # Use the upstream Kimi provider semantics while still
                             # routing requests through the HyperClaw Anthropic proxy.
                             "baseUrl": api_base,
-                            "apiKey": api_key,
+                            "apiKey": config_api_key,
                             "api": "anthropic-messages",
                             "headers": {
                                 "User-Agent": "claude-code/0.1.0",
@@ -773,7 +779,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
                     {
                         "hyperclaw-openai": {
                             "baseUrl": f"{api_base}/v1",
-                            "apiKey": api_key,
+                            "apiKey": config_api_key,
                             "api": "openai-completions",
                             "models": openai_chat_models,
                         },
@@ -798,7 +804,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFE
                             "model": embedding_model_id,
                             "remote": {
                                 "baseUrl": f"{api_base}/v1",
-                                "apiKey": api_key,
+                                "apiKey": config_api_key,
                             },
                         }
                     }
@@ -876,6 +882,7 @@ def config_cmd(
     ),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json"),
     base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPERCLAW_API_BASE, then --dev/prod defaults"),
+    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write ${ENV_VAR} placeholders into generated config instead of literal API keys"),
     apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
@@ -907,7 +914,7 @@ def config_cmd(
 
     for fmt in formats:
         if fmt == "openclaw":
-            snippet = _config_openclaw(api_key, models, api_base)
+            snippet = _config_openclaw(api_key, models, api_base, placeholder_env=placeholder_env)
             _show_snippet("OpenClaw", "~/.openclaw/openclaw.json", snippet, apply, OPENCLAW_CONFIG_PATH)
         elif fmt == "opencode":
             snippet = _config_opencode(api_key, models, api_base)
