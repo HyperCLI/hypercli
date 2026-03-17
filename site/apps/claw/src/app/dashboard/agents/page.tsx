@@ -210,8 +210,10 @@ function clearAgentAccessCookies(hostname: string | null | undefined): void {
   const subdomain = hostname.split(".")[0];
   const configuredDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
 
+  // Current desktop bootstrap writes only the desktop host cookie.
   clearDesktopAuthCookie(`${subdomain}-token`, configuredDomain);
   clearDesktopAuthCookie(`desktop-${subdomain}-token`, configuredDomain);
+  // Legacy cleanup for older auth fan-out.
   clearDesktopAuthCookie(`shell-${subdomain}-token`, configuredDomain);
   clearDesktopAuthCookie(`openclaw-${subdomain}-token`, configuredDomain);
   clearDesktopAuthCookie("reef_token", configuredDomain);
