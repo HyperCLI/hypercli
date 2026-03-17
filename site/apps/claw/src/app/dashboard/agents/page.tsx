@@ -12,7 +12,6 @@ import {
   type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/gateway";
 import { getGatewayToken, setGatewayToken } from "@/lib/agent-store";
-import { cookieUtils } from "@hypercli/shared-ui";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -200,19 +199,6 @@ function extractVoicePathFromMessage(content: string): string | null {
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
-
-function clearDesktopAuthCookie(name: string, configuredDomain: string): void {
-  cookieUtils.remove(name, configuredDomain);
-}
-
-function clearAgentAccessCookies(hostname: string | null | undefined): void {
-  if (!hostname || typeof window === "undefined") return;
-  const subdomain = hostname.split(".")[0];
-  const configuredDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
-
-  clearDesktopAuthCookie(`${subdomain}-token`, configuredDomain);
-  clearDesktopAuthCookie(`desktop-${subdomain}-token`, configuredDomain);
-}
 
 function stateClass(state: AgentState): string {
   switch (state) {
@@ -1474,10 +1460,8 @@ export default function AgentsPage() {
     setStoppingId(agentId);
     setError(null);
     try {
-      const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
       await createAgentClient(token).stop(agentId);
-      clearAgentAccessCookies(agent?.hostname);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
@@ -1493,7 +1477,6 @@ export default function AgentsPage() {
       const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
       await createAgentClient(token).delete(agentId);
-      clearAgentAccessCookies(agent?.hostname);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
       await fetchAgents();
     } catch (err) {
