@@ -27,7 +27,7 @@ const STRIPE_TEST_NAME = "Test User";
 const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
 const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
-const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
+const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.agents.dev.hypercli.com/api";
 
 interface BillingBalanceSnapshot {
   availableBalance: number;

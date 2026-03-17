@@ -29,6 +29,7 @@ export const AGENTS_API_BASE = trimTrailingSlash(resolveAgentsApiBase(rawAgentsA
 export const AGENT_API_BASE = AGENTS_API_BASE;
 export const CLAW_API_BASE = AGENTS_API_BASE;
 export const AUTH_API_BASE = trimTrailingSlash(rawAuthApiBase || rawAgentsApiBase);
+export const X402_API_BASE = `${stripApiSuffix(AUTH_API_BASE)}/agents`;
 
 export const HYPERCLAW_MODELS_ENDPOINT = rawHyperclawModelsUrl
   ? trimTrailingSlash(rawHyperclawModelsUrl)
