@@ -12,6 +12,10 @@ export const CONFIG_FILE = join(CONFIG_DIR, 'config');
 
 export const DEFAULT_API_URL = 'https://api.hypercli.com';
 export const DEFAULT_WS_URL = 'wss://api.hypercli.com';
+export const DEFAULT_AGENTS_API_BASE_URL = 'https://api.agents.hypercli.com/api';
+export const DEFAULT_AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
+export const DEV_AGENTS_API_BASE_URL = 'https://api.agents.dev.hypercli.com/api';
+export const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const WS_LOGS_PATH = '/orchestra/ws/logs'; // WebSocket path for job logs
 
 // GHCR images
@@ -93,9 +97,30 @@ export function getWsUrl(): string {
 }
 
 /**
+ * Get HyperClaw agents API base URL
+ */
+export function getAgentsApiBaseUrl(dev: boolean = false): string {
+  const fallback = dev ? DEV_AGENTS_API_BASE_URL : DEFAULT_AGENTS_API_BASE_URL;
+  return getConfigValue('AGENTS_API_BASE_URL', fallback) || fallback;
+}
+
+/**
+ * Get HyperClaw agents WebSocket URL
+ */
+export function getAgentsWsUrl(dev: boolean = false): string {
+  const fallback = dev ? DEV_AGENTS_WS_URL : DEFAULT_AGENTS_WS_URL;
+  return getConfigValue('AGENTS_WS_URL', fallback) || fallback;
+}
+
+/**
  * Save configuration to ~/.hypercli/config
  */
-export function configure(apiKey: string, apiUrl?: string): void {
+export function configure(
+  apiKey: string,
+  apiUrl?: string,
+  agentsApiBaseUrl?: string,
+  agentsWsUrl?: string,
+): void {
   // Create directory if it doesn't exist
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });
@@ -108,6 +133,12 @@ export function configure(apiKey: string, apiUrl?: string): void {
   config['HYPERCLI_API_KEY'] = apiKey;
   if (apiUrl) {
     config['HYPERCLI_API_URL'] = apiUrl;
+  }
+  if (agentsApiBaseUrl) {
+    config['AGENTS_API_BASE_URL'] = agentsApiBaseUrl;
+  }
+  if (agentsWsUrl) {
+    config['AGENTS_WS_URL'] = agentsWsUrl;
   }
 
   // Write config file

@@ -1,6 +1,7 @@
 /**
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
+import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import type { HTTPClient } from './http.js';
 import {
   GatewayClient,
@@ -10,8 +11,8 @@ import {
   type OpenClawConfigSchemaResponse,
 } from './gateway.js';
 
-const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
-const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
+const AGENTS_API_BASE = 'https://api.agents.hypercli.com/api';
+const DEV_AGENTS_API_BASE = 'https://api.agents.dev.hypercli.com/api';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
@@ -199,19 +200,32 @@ export function resolveAgentsApiBase(apiBase: string): string {
   if (!raw) return AGENTS_API_BASE;
   const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
   const host = parsed.host.toLowerCase();
-  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_API_BASE;
-  if (host === 'api.dev.hypercli.com' || host === 'api.dev.hyperclaw.app' || host === 'dev-api.hyperclaw.app') {
+  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
+    return AGENTS_API_BASE;
+  }
+  if (
+    host === 'api.agents.dev.hypercli.com' ||
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app'
+  ) {
     return DEV_AGENTS_API_BASE;
   }
-  return raw.replace(/\/$/, '');
+  const normalized = raw.replace(/\/$/, '');
+  return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
 }
 
 function defaultAgentsWsUrl(apiBase: string): string {
   const resolvedApiBase = resolveAgentsApiBase(apiBase);
   const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
   const host = parsed.host.toLowerCase();
-  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_WS_URL;
-  if (host === 'api.dev.hypercli.com' || host === 'api.dev.hyperclaw.app' || host === 'dev-api.hyperclaw.app') {
+  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') return AGENTS_WS_URL;
+  if (
+    host === 'api.agents.dev.hypercli.com' ||
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app'
+  ) {
     return DEV_AGENTS_WS_URL;
   }
   return normalizeAgentsWsUrl(resolvedApiBase);
@@ -1039,8 +1053,8 @@ export class Deployments {
     agentsWsUrl?: string,
   ) {
     this.apiKey = agentApiKey || (http as any).apiKey;
-    this.apiBase = resolveAgentsApiBase(agentApiBase || process.env.HYPERCLI_API_URL || AGENTS_API_BASE);
-    this.agentsWsUrl = agentsWsUrl ? normalizeAgentsWsUrl(agentsWsUrl) : defaultAgentsWsUrl(this.apiBase);
+    this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
+    this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || getConfigValue('AGENTS_WS_URL') || defaultAgentsWsUrl(this.apiBase));
   }
 
   get agentApiKey(): string {

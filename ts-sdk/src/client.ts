@@ -2,7 +2,7 @@
  * Main HyperCLI client
  */
 import { HTTPClient } from './http.js';
-import { getApiKey, getApiUrl } from './config.js';
+import { getAgentsApiBaseUrl, getAgentsWsUrl, getApiKey, getApiUrl } from './config.js';
 import { Billing } from './billing.js';
 import { Jobs } from './jobs.js';
 import { UserAPI } from './user.js';
@@ -18,6 +18,7 @@ export interface HyperCLIOptions {
   apiUrl?: string;
   agentApiKey?: string;
   agentDev?: boolean;
+  agentsApiBaseUrl?: string;
   agentsWsUrl?: string;
   timeout?: number;
 }
@@ -86,12 +87,17 @@ export class HyperCLI {
     this.renders = new Renders(this._http);
     this.files = new Files(this._http);
     this.keys = new KeysAPI(this._http);
-    this.agent = new HyperAgent(this._http, options.agentApiKey, options.agentDev);
+    this.agent = new HyperAgent(
+      this._http,
+      options.agentApiKey,
+      options.agentDev,
+      options.agentsApiBaseUrl || getAgentsApiBaseUrl(Boolean(options.agentDev)),
+    );
     this.deployments = new Deployments(
       this._http,
       options.agentApiKey,
-      this._apiUrl,
-      options.agentsWsUrl,
+      options.agentsApiBaseUrl || getAgentsApiBaseUrl(Boolean(options.agentDev)),
+      options.agentsWsUrl || getAgentsWsUrl(Boolean(options.agentDev)),
     );
   }
 

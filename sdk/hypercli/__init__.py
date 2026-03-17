@@ -1,6 +1,20 @@
 """HyperCLI SDK - Python client for HyperCLI API"""
 from .client import HyperCLI
-from .config import configure, GHCR_IMAGES, COMFYUI_IMAGE
+from .config import (
+    configure,
+    GHCR_IMAGES,
+    COMFYUI_IMAGE,
+    DEFAULT_API_URL,
+    DEFAULT_WS_URL,
+    DEFAULT_AGENTS_API_BASE_URL,
+    DEFAULT_AGENTS_WS_URL,
+    DEV_AGENTS_API_BASE_URL,
+    DEV_AGENTS_WS_URL,
+    get_api_url,
+    get_ws_url,
+    get_agents_api_base_url,
+    get_agents_ws_url,
+)
 from .http import APIError, AsyncHTTPClient
 from .instances import GPUType, GPUConfig, Region, GPUPricing, PricingTier
 from .jobs import Job, JobMetrics, GPUMetrics, find_job, find_by_id, find_by_hostname, find_by_ip
@@ -17,10 +31,20 @@ __version__ = "2026.3.13"
 __all__ = [
     "HyperCLI",
     "configure",
+    "get_api_url",
+    "get_ws_url",
+    "get_agents_api_base_url",
+    "get_agents_ws_url",
     "APIError",
     # Images
     "GHCR_IMAGES",
     "COMFYUI_IMAGE",
+    "DEFAULT_API_URL",
+    "DEFAULT_WS_URL",
+    "DEFAULT_AGENTS_API_BASE_URL",
+    "DEFAULT_AGENTS_WS_URL",
+    "DEV_AGENTS_API_BASE_URL",
+    "DEV_AGENTS_WS_URL",
     # Instance types
     "GPUType",
     "GPUConfig",

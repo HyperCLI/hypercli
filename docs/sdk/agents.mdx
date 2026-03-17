@@ -10,7 +10,6 @@ The Python SDK exposes two HyperClaw-related namespaces:
 - `client.agent`
   - plans
   - model metadata
-  - key status
   - provider config snippets
 - `client.deployments`
   - agent lifecycle
@@ -45,6 +44,27 @@ This namespace also exposes convenience helpers such as:
 - `openai()`
 
 Those are account/inference helpers, not agent runtime helpers.
+
+## URL Model
+
+The Python SDK uses separate URLs for the primary product API and the agents API:
+
+- `client.api_url`
+  - main HyperCLI API
+- `client.deployments`
+  - uses `AGENTS_API_BASE_URL`
+- deployment shell/log streams
+  - use `AGENTS_WS_URL`
+- `client.agent`
+  - uses the agents host for inference, deriving `/v1` from `AGENTS_API_BASE_URL`
+
+Recommended defaults:
+
+```bash
+HYPERCLI_API_URL=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
 
 ## `client.deployments`
 

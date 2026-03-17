@@ -7,7 +7,9 @@ Uses the official OpenAI Python client for chat completions.
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
+from urllib.parse import urlsplit
 
+from .config import get_agents_api_base_url
 from .http import HTTPClient
 
 try:
@@ -92,12 +94,38 @@ class HyperAgent:
     AGENT_API_BASE = "https://api.hypercli.com/v1"
     DEV_API_BASE = "https://api.dev.hypercli.com/v1"
 
-    def __init__(self, http: HTTPClient, agent_api_key: str = None, dev: bool = False):
+    def __init__(
+        self,
+        http: HTTPClient,
+        agent_api_key: str = None,
+        dev: bool = False,
+        agents_api_base_url: str | None = None,
+    ):
         self._http = http
         self._api_key = agent_api_key or http.api_key
         self._dev = dev
-        self._base_url = self.DEV_API_BASE if dev else self.AGENT_API_BASE
+        self._base_url = self._resolve_base_url(agents_api_base_url, dev)
         self._openai = None
+
+    @classmethod
+    def _resolve_base_url(cls, agents_api_base_url: str | None, dev: bool) -> str:
+        raw = (agents_api_base_url or "").rstrip("/")
+        if not raw:
+            fallback = get_agents_api_base_url(dev).rstrip("/")
+            if fallback.endswith("/api"):
+                fallback = fallback[:-4]
+            return f"{fallback}/v1"
+        parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+        host = parsed.netloc.lower()
+        if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
+            return "https://api.agents.hypercli.com/v1"
+        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app", "api.agents.dev.hypercli.com"}:
+            return "https://api.agents.dev.hypercli.com/v1"
+        if raw.endswith("/api"):
+            return f"{raw[:-4]}/v1"
+        if raw:
+            return f"{raw}/v1"
+        return cls.DEV_API_BASE if dev else cls.AGENT_API_BASE
 
     @property
     def openai(self) -> "OpenAI":

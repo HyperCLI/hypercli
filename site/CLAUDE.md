@@ -194,6 +194,6 @@ Export new components from `src/index.ts`.
 Netlify builds via `@netlify/plugin-nextjs`. Build commands set per Netlify site (e.g., `cp env.feat apps/claw/.env.local && npm run build -- --filter=@hypercli/claw`).
 
 **Required env vars** (validated at build time in `apps/claw/next.config.ts`):
-`NEXT_PUBLIC_CLAW_URL`, `NEXT_PUBLIC_COOKIE_DOMAIN`, `NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN`, `NEXT_PUBLIC_CLAW_API_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`
+`NEXT_PUBLIC_MAIN_SITE_URL`, `NEXT_PUBLIC_CONSOLE_URL`, `NEXT_PUBLIC_AGENTS_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`
 
 **Key insight for feat-claw**: Frontend is at `feat.hypercli.com` but backend is `api.dev.hypercli.com`. Gateway cookies need `domain=.hypercli.com` to reach `openclaw-{name}.dev.hypercli.com`. The `useGatewayChat` hook handles cross-domain cookie logic automatically.

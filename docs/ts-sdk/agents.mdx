@@ -13,6 +13,27 @@ There are two HyperClaw-related namespaces in the TS SDK:
 `client.agent` covers account metadata.
 `client.deployments` covers live runtime containers.
 
+## URL Model
+
+The TS SDK splits the product API and agents API cleanly:
+
+- `apiUrl`
+  - main HyperCLI REST API
+- `agentsApiBaseUrl`
+  - HyperClaw deployments REST API
+- `agentsWsUrl`
+  - HyperClaw backend WS base for shell/logs
+- `client.agent.baseUrl`
+  - inference base derived from `agentsApiBaseUrl` by replacing `/api` with `/v1`
+
+Recommended defaults:
+
+```bash
+HYPERCLI_API_URL=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
 ## `client.agent`
 
 Use this namespace for:

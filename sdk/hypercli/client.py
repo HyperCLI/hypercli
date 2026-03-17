@@ -1,5 +1,10 @@
 """Main HyperCLI client"""
-from .config import get_api_key, get_api_url
+from .config import (
+    get_agents_api_base_url,
+    get_agents_ws_url,
+    get_api_key,
+    get_api_url,
+)
 from .http import HTTPClient
 from .billing import Billing
 from .jobs import Jobs
@@ -45,6 +50,7 @@ class HyperCLI:
         api_url: str = None,
         agent_api_key: str = None,
         agent_dev: bool = False,
+        agents_api_base_url: str = None,
         agents_ws_url: str = None,
     ):
         self._api_key = api_key or get_api_key()
@@ -58,7 +64,14 @@ class HyperCLI:
         self._http = HTTPClient(self._api_url, self._api_key)
 
         # API namespaces
-        self.deployments = Deployments(self._http, api_key=agent_api_key, api_base=self._api_url, agents_ws_url=agents_ws_url)
+        resolved_agents_api_base = agents_api_base_url or get_agents_api_base_url(agent_dev)
+        resolved_agents_ws_url = agents_ws_url or get_agents_ws_url(agent_dev)
+        self.deployments = Deployments(
+            self._http,
+            api_key=agent_api_key,
+            api_base=resolved_agents_api_base,
+            agents_ws_url=resolved_agents_ws_url,
+        )
         self.billing = Billing(self._http)
         self.jobs = Jobs(self._http)
         self.user = UserAPI(self._http)
@@ -66,7 +79,12 @@ class HyperCLI:
         self.renders = Renders(self._http)
         self.files = Files(self._http)
         self.keys = KeysAPI(self._http)
-        self.agent = HyperAgent(self._http, agent_api_key=agent_api_key, dev=agent_dev)
+        self.agent = HyperAgent(
+            self._http,
+            agent_api_key=agent_api_key,
+            dev=agent_dev,
+            agents_api_base_url=resolved_agents_api_base,
+        )
 
     @property
     def api_url(self) -> str:

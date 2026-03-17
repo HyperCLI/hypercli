@@ -18,6 +18,60 @@ The SDK reads configuration using the same precedence as the CLI:
 | `HYPERCLI_API_KEY` | Main REST API key used by `HyperCLI` |
 | `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
 | `HYPERCLI_WS_URL` | Override the derived WebSocket base URL |
+| `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.agents.hypercli.com/api` |
+| `AGENTS_WS_URL` | HyperClaw backend WebSocket base. Defaults to `wss://api.agents.hypercli.com/ws` |
+
+## URL Model
+
+The TS SDK uses four URL concepts:
+
+- `HYPERCLI_API_URL`
+  - main product API
+  - jobs
+  - billing
+  - keys
+  - user/account APIs
+- `HYPERCLI_WS_URL`
+  - main WebSocket base for flows derived from the primary API
+- `AGENTS_API_BASE_URL`
+  - HyperClaw deployments API
+  - `create`, `start`, `stop`, `delete`
+  - files
+  - exec
+  - desktop token/bootstrap APIs
+- `AGENTS_WS_URL`
+  - HyperClaw backend WebSocket base
+  - shell
+  - logs
+
+Production defaults:
+
+```bash
+HYPERCLI_API_URL=https://api.hypercli.com
+HYPERCLI_WS_URL=wss://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+Dev defaults:
+
+```bash
+HYPERCLI_API_URL=https://api.dev.hypercli.com
+HYPERCLI_WS_URL=wss://api.dev.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.dev.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
+```
+
+### OpenClaw / Inference Base URLs
+
+For OpenClaw config generation, the agents host is also the inference host.
+
+Rule of thumb:
+
+- `anthropic-messages` provider `baseUrl` should be `https://api.agents.hypercli.com`
+- do not add `/v1` there
+- OpenClaw appends `/v1/messages` itself
+- OpenAI-compatible providers and embeddings should use `https://api.agents.hypercli.com/v1`
 
 ## Shared Config File
 
@@ -32,6 +86,8 @@ Format:
 ```bash
 HYPERCLI_API_KEY=hyper_...
 HYPERCLI_API_URL=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
 `configure()` creates the directory if needed and writes the file with `0600` permissions when the platform supports it.
@@ -41,6 +97,12 @@ import { configure } from "@hypercli.com/sdk";
 
 configure("hyper_...");
 configure("hyper_...", "https://api.dev.hypercli.com");
+configure(
+  "hyper_...",
+  "https://api.hypercli.com",
+  "https://api.agents.hypercli.com/api",
+  "wss://api.agents.hypercli.com/ws",
+);
 ```
 
 ## Runtime Helpers
@@ -49,8 +111,12 @@ configure("hyper_...", "https://api.dev.hypercli.com");
 import {
   getApiKey,
   getApiUrl,
+  getAgentsApiBaseUrl,
+  getAgentsWsUrl,
   getWsUrl,
   DEFAULT_API_URL,
+  DEFAULT_AGENTS_API_BASE_URL,
+  DEFAULT_AGENTS_WS_URL,
   DEFAULT_WS_URL,
 } from "@hypercli.com/sdk";
 ```
@@ -63,6 +129,8 @@ Constructor values win over env vars and the config file.
 const client = new HyperCLI({
   apiKey: "hyper_...",
   apiUrl: "https://api.hypercli.com",
+  agentsApiBaseUrl: "https://api.agents.hypercli.com/api",
+  agentsWsUrl: "wss://api.agents.hypercli.com/ws",
   timeout: 30_000,
 });
 ```

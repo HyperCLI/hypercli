@@ -19,12 +19,14 @@ from contextlib import asynccontextmanager
 
 import httpx
 
+from .config import get_agents_api_base_url, get_config_value
 from .http import HTTPClient, APIError
 
 
-AGENTS_API_BASE = "https://api.hypercli.com"
+AGENTS_API_BASE = "https://api.agents.hypercli.com/api"
 AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
+DEV_AGENTS_API_BASE = "https://api.agents.dev.hypercli.com/api"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 
 
@@ -76,13 +78,37 @@ def _normalize_agents_ws_url(url: str) -> str:
     return base if base.endswith("/ws") else f"{base}/ws"
 
 
-def _default_agents_ws_url(api_base: str) -> str:
-    raw = (api_base or "").strip()
+def _normalize_agents_api_base(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return AGENTS_API_BASE
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
     host = parsed.netloc.lower()
-    if host in {"api.hypercli.com", "api.hyperclaw.app"}:
+    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+        return AGENTS_API_BASE
+    if host in {
+        "api.agents.dev.hypercli.com",
+        "api.dev.hypercli.com",
+        "api.dev.hyperclaw.app",
+        "dev-api.hyperclaw.app",
+    }:
+        return DEV_AGENTS_API_BASE
+    normalized = raw.rstrip("/")
+    return normalized if normalized.endswith("/api") else f"{normalized}/api"
+
+
+def _default_agents_ws_url(api_base: str) -> str:
+    raw = _normalize_agents_api_base(api_base)
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    host = parsed.netloc.lower()
+    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
         return AGENTS_WS_URL
-    if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
+    if host in {
+        "api.agents.dev.hypercli.com",
+        "api.dev.hypercli.com",
+        "api.dev.hyperclaw.app",
+        "dev-api.hyperclaw.app",
+    }:
         return DEV_AGENTS_WS_URL
     return _normalize_agents_ws_url(raw)
 
@@ -764,8 +790,13 @@ class Deployments:
     ):
         self._http = http
         self._api_key = api_key or http.api_key
-        self._api_base = (api_base or AGENTS_API_BASE).rstrip("/")
-        self._agents_ws_url = _normalize_agents_ws_url(agents_ws_url) if agents_ws_url else _default_agents_ws_url(self._api_base)
+        self._api_base = _normalize_agents_api_base(api_base or get_agents_api_base_url()).rstrip("/")
+        resolved_agents_ws_url = agents_ws_url or get_config_value("AGENTS_WS_URL")
+        self._agents_ws_url = (
+            _normalize_agents_ws_url(resolved_agents_ws_url)
+            if resolved_agents_ws_url
+            else _default_agents_ws_url(self._api_base)
+        )
 
     def _hydrate_agent(self, data: dict) -> Agent:
         if data.get("openclaw_url") or data.get("gateway_url"):

@@ -7,10 +7,10 @@ function stripApiSuffix(value: string): string {
 
 export function createAgentClient(apiKey: string): Deployments {
   const configuredApiUrl =
-    process.env.NEXT_PUBLIC_AGENTS_API_URL ||
-    process.env.NEXT_PUBLIC_CLAW_API_URL ||
+    process.env.NEXT_PUBLIC_AGENTS_API_BASE_URL ||
     "";
+  const configuredAgentsWsUrl = process.env.NEXT_PUBLIC_AGENTS_WS_URL || "";
   const apiRoot = resolveAgentsApiBase(stripApiSuffix(configuredApiUrl));
   const http = new HTTPClient(apiRoot, apiKey);
-  return new Deployments(http, apiKey, apiRoot);
+  return new Deployments(http, apiKey, apiRoot, configuredAgentsWsUrl || undefined);
 }

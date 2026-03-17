@@ -19,8 +19,7 @@ function stripApiSuffix(value: string): string {
 }
 
 const rawAgentsApiBase =
-  process.env.NEXT_PUBLIC_AGENTS_API_URL ||
-  process.env.NEXT_PUBLIC_CLAW_API_URL ||
+  process.env.NEXT_PUBLIC_AGENTS_API_BASE_URL ||
   "";
 const rawAuthApiBase = process.env.NEXT_PUBLIC_AUTH_BACKEND || "";
 const rawHyperclawApiBase = process.env.NEXT_PUBLIC_HYPERCLAW_API_URL || "";

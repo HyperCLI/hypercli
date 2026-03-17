@@ -11,10 +11,16 @@ export {
   configure,
   getApiKey,
   getApiUrl,
+  getAgentsApiBaseUrl,
+  getAgentsWsUrl,
   getWsUrl,
   GHCR_IMAGES,
   COMFYUI_IMAGE,
   DEFAULT_API_URL,
+  DEFAULT_AGENTS_API_BASE_URL,
+  DEFAULT_AGENTS_WS_URL,
+  DEV_AGENTS_API_BASE_URL,
+  DEV_AGENTS_WS_URL,
   DEFAULT_WS_URL,
 } from './config.js';
 

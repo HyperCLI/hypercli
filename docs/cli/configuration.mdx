@@ -16,11 +16,65 @@ This writes the shared config file at `~/.hypercli/config`.
 | Variable | Description |
 | --- | --- |
 | `HYPERCLI_API_KEY` | Main HyperCLI API key |
-| `HYPERCLI_API_URL` | REST API base URL |
+| `HYPERCLI_API_URL` | Primary HyperCLI REST API base URL |
+| `HYPERCLI_WS_URL` | Primary HyperCLI WebSocket base URL |
+| `AGENTS_API_BASE_URL` | HyperClaw deployments API base URL |
+| `AGENTS_WS_URL` | HyperClaw backend WebSocket base for logs and shell |
 | `HYPERCLAW_API_KEY` | HyperClaw key used by `hyper agents` and model discovery |
-| `HYPERCLAW_API_BASE` | Override HyperClaw base URL for `hyper agent config` |
-| `AGENTS_WS_URL` | Override backend WebSocket URL for `hyper agents` |
+| `HYPERCLAW_API_BASE` | Override the OpenClaw inference/model-discovery base used by `hyper agent config` |
 | `HYPERCLI_WALLET_PASSPHRASE` | Skip wallet passphrase prompts |
+
+## URL Model
+
+The CLI now separates the primary product API from the agents API:
+
+- `HYPERCLI_API_URL`
+  - billing
+  - jobs
+  - keys
+  - account APIs
+- `HYPERCLI_WS_URL`
+  - primary WebSocket base derived from the main API
+- `AGENTS_API_BASE_URL`
+  - HyperClaw deployments REST base
+  - create/start/stop/delete
+  - files
+  - exec
+  - desktop token APIs
+- `AGENTS_WS_URL`
+  - HyperClaw backend WebSocket base
+  - `/logs/{agent_id}`
+  - `/shell/{agent_id}`
+
+Recommended production values:
+
+```bash
+HYPERCLI_API_URL=https://api.hypercli.com
+HYPERCLI_WS_URL=wss://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
+```
+
+Recommended dev values:
+
+```bash
+HYPERCLI_API_URL=https://api.dev.hypercli.com
+HYPERCLI_WS_URL=wss://api.dev.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.dev.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
+```
+
+### OpenClaw Base URL Rule
+
+`hyper agent config openclaw` uses `HYPERCLAW_API_BASE` or the agents inference host.
+
+Important:
+
+- `kimi-coding` and other `anthropic-messages` providers should use the bare host, for example:
+  - `https://api.agents.hypercli.com`
+- do not append `/v1`
+- OpenClaw appends `/v1/messages` itself
+- embeddings and other OpenAI-compatible providers should use `/v1`
 
 ## Shared Config File
 
@@ -35,6 +89,8 @@ Example:
 ```bash
 HYPERCLI_API_KEY=hyper_...
 HYPERCLI_API_URL=https://api.hypercli.com
+AGENTS_API_BASE_URL=https://api.agents.hypercli.com/api
+AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
 
 ## Local State Files

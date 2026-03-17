@@ -4,6 +4,7 @@ Tests for HyperAgent SDK client
 import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
+from hypercli import HyperCLI
 from hypercli.agent import HyperAgent, HyperAgentPlan, HyperAgentModel
 
 
@@ -77,7 +78,39 @@ class TestHyperAgentClient:
             
             mock_openai.assert_called_once_with(
                 api_key="sk-hyper-test",
-                base_url="https://api.dev.hypercli.com/v1",
+                base_url="https://api.agents.dev.hypercli.com/v1",
+            )
+
+    def test_openai_client_uses_agents_base_url_for_inference(self, mock_http):
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.agents.hypercli.com/api",
+        )
+
+        with patch('hypercli.agent.OpenAI') as mock_openai:
+            mock_openai.return_value = MagicMock()
+            _ = agent.openai
+
+            mock_openai.assert_called_once_with(
+                api_key="sk-hyper-test",
+                base_url="https://api.agents.hypercli.com/v1",
+            )
+
+    def test_openai_client_normalizes_generic_api_host_to_agents_host(self, mock_http):
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.dev.hypercli.com",
+        )
+
+        with patch('hypercli.agent.OpenAI') as mock_openai:
+            mock_openai.return_value = MagicMock()
+            _ = agent.openai
+
+            mock_openai.assert_called_once_with(
+                api_key="sk-hyper-test",
+                base_url="https://api.agents.dev.hypercli.com/v1",
             )
     
     def test_chat_uses_openai_client(self, mock_http):
@@ -135,3 +168,9 @@ class TestHyperAgentIntegration:
             max_tokens=10
         )
         assert response.choices[0].message.content is not None
+
+
+def test_hypercli_dev_client_defaults_agents_urls():
+    client = HyperCLI(api_key="hyper_api_test_key", agent_api_key="sk-hyper-test", agent_dev=True)
+    assert client.deployments._api_base == "https://api.agents.dev.hypercli.com/api"
+    assert client.agent._base_url == "https://api.agents.dev.hypercli.com/v1"

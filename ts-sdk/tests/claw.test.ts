@@ -9,6 +9,18 @@ describe('HyperAgent API', () => {
     expect(client.agent).toBeInstanceOf(HyperAgent);
   });
 
+  it('derives the inference base from the agents API base', () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.agents.hypercli.com/api');
+    expect(agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
+  });
+
+  it('normalizes generic dev API hosts onto the dev agents host', () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.dev.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', true, 'https://api.dev.hypercli.com');
+    expect(agent.baseUrl).toBe('https://api.agents.dev.hypercli.com/v1');
+  });
+
   it.skip('should list models (requires HyperAgent API key)', async () => {
     const models = await client.agent.models();
     

@@ -138,6 +138,11 @@ def test_agents_exec(monkeypatch):
     assert seen["json"]["dry_run"] is True
 
 
+def test_deployments_normalize_generic_api_host_to_agents_base():
+    agents = Deployments(DummyHTTP(), api_key="sk-hyper-test", api_base="https://api.dev.hypercli.com")
+    assert agents._api_base == "https://api.agents.dev.hypercli.com/api"
+
+
 @pytest.mark.asyncio
 async def test_agents_shell_connect(monkeypatch):
     agents = Deployments(DummyHTTP(), api_key="sk-hyper-test")

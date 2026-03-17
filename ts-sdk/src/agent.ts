@@ -5,6 +5,7 @@
  * Use the OpenAI Node.js SDK directly with HyperClaw endpoints.
  */
 import type { HTTPClient } from './http.js';
+import { getAgentsApiBaseUrl } from './config.js';
 import { resolveAgentsApiBase } from './agents.js';
 
 export interface HyperAgentPlan {
@@ -96,12 +97,15 @@ export class HyperAgent {
   constructor(
     private http: HTTPClient,
     agentApiKey?: string,
-    dev: boolean = false
+    dev: boolean = false,
+    agentsApiBaseUrl?: string,
   ) {
     this.apiKey = agentApiKey || http['apiKey'];
     const fallbackBaseUrl = dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE;
-    const configuredBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : fallbackBaseUrl;
-    this.baseUrl = resolveAgentsApiBase(configuredBaseUrl);
+    const configuredBaseUrl =
+      agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || (typeof http['baseUrl'] === 'string' ? http['baseUrl'] : fallbackBaseUrl);
+    const agentsBase = resolveAgentsApiBase(configuredBaseUrl);
+    this.baseUrl = agentsBase.endsWith('/api') ? `${agentsBase.slice(0, -4)}/v1` : `${agentsBase}/v1`;
   }
 
   private get baseUrlWithoutV1(): string {
