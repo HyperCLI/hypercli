@@ -937,7 +937,7 @@ export class GatewayClient {
   private clientPlatform: string;
   private clientInstanceId?: string;
   private caps: string[];
-  private origin: string;
+  private origin?: string;
   private defaultTimeout: number;
   private ws: GatewaySocket | null = null;
   private pending = new Map<string, PendingRequest>();
