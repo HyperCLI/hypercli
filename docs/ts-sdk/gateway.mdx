@@ -45,6 +45,15 @@ Important options:
 - `scopes`
 - `caps`
 
+Default handshake behavior for the TypeScript SDK:
+
+- `clientId="cli"`
+- `clientMode="cli"`
+- no `Origin` header unless you pass `origin` explicitly
+
+That matters because OpenClaw applies browser/control-ui origin checks to
+`webchat`/control-ui clients and to any connection carrying an `Origin` header.
+
 ## Auth Model
 
 This client does not use browser `/_jwt_auth` semantics.

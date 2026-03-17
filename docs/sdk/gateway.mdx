@@ -61,6 +61,15 @@ Common options:
 - `scopes`
 - `caps`
 
+Default handshake behavior for the Python SDK:
+
+- `client_id="cli"`
+- `client_mode="cli"`
+- no `Origin` header unless you pass `origin=...` explicitly
+
+That matters because OpenClaw applies browser/control-ui origin checks to
+`webchat`/control-ui clients and to any connection carrying an `Origin` header.
+
 ## Lifecycle
 
 ```python
