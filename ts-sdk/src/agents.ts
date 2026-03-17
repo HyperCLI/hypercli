@@ -199,6 +199,13 @@ export function resolveAgentsApiBase(apiBase: string): string {
   const raw = (apiBase || '').trim();
   if (!raw) return AGENTS_API_BASE;
   const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  if (normalizedPath.endsWith('/agents')) {
+    return `${parsed.origin}${normalizedPath}`;
+  }
+  if (normalizedPath.endsWith('/api')) {
+    return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
+  }
   const host = parsed.host.toLowerCase();
   if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
     return AGENTS_API_BASE;
@@ -212,7 +219,7 @@ export function resolveAgentsApiBase(apiBase: string): string {
     return DEV_AGENTS_API_BASE;
   }
   const normalized = raw.replace(/\/$/, '');
-  return normalized.endsWith('/api') ? normalized : `${normalized}/api`;
+  return `${normalized}/agents`;
 }
 
 function defaultAgentsWsUrl(apiBase: string): string {

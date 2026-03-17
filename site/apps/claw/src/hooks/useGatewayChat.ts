@@ -6,7 +6,7 @@ import {
   type GatewayEvent,
   type OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/gateway";
-import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
+import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 export interface ChatAttachment {
@@ -240,7 +240,7 @@ export function useGatewayChat(
           gatewayToken,
           deploymentId: agent!.id,
           apiKey: authToken,
-          apiBase: AGENT_API_BASE,
+          apiBase: API_BASE_URL,
           autoApprovePairing: true,
           onHello: () => {
             if (cancelled) return;

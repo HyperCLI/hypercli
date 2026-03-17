@@ -50,7 +50,7 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
+import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
@@ -2310,7 +2310,7 @@ export default function AgentsPage() {
                       {chat.messages.map((msg, i) => {
                         const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
                         const inlineAudioUrl = voicePath && selectedAgent
-                          ? `${AGENT_API_BASE}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
+                          ? `${API_BASE_URL}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
                           : null;
                         return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
                       })}

@@ -4,7 +4,7 @@ import { useRef, useState } from "react";
 import { motion, useScroll, useTransform, useSpring } from "framer-motion";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AUTH_API_BASE } from "@/lib/api";
+import { AUTH_BASE_URL } from "@/lib/api";
 
 const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
   -H "Authorization: Bearer YOUR_API_KEY" \\
@@ -170,7 +170,7 @@ export function HeroSection() {
         onClose={() => setIsLoginModalOpen(false)}
         title="Welcome to HyperClaw"
         description="Please sign in to continue"
-        apiBaseUrl={AUTH_API_BASE}
+        apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
         onSuccess={() => {
           window.location.href = "/dashboard";

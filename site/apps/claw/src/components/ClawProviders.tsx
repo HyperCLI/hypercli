@@ -5,7 +5,7 @@ import {
   PrivyAuthBoundary,
   PrivyAuthContext as ClawAuthContext,
 } from "@hypercli/shared-ui";
-import { AUTH_API_BASE } from "@/lib/api";
+import { AUTH_BASE_URL } from "@/lib/api";
 
 const PRIVY_APP_ID = process.env.NEXT_PUBLIC_PRIVY_APP_ID;
 
@@ -48,7 +48,7 @@ export function ClawProviders({ children }: { children: ReactNode }) {
   return (
     <PrivyAuthBoundary
       appId={PRIVY_APP_ID!}
-      apiBaseUrl={AUTH_API_BASE}
+      apiBaseUrl={AUTH_BASE_URL}
       tokenStorageKey="claw_auth_token"
       logo="https://hypercli.com/logo-horizontal-white.png"
     >

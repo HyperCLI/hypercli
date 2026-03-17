@@ -6,7 +6,7 @@ import { Menu, X, LogOut } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AUTH_API_BASE } from "@/lib/api";
+import { AUTH_BASE_URL } from "@/lib/api";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -251,7 +251,7 @@ export function ClawHeader() {
         onClose={() => setIsLoginModalOpen(false)}
         title="Welcome to HyperClaw"
         description="Please sign in to continue"
-        apiBaseUrl={AUTH_API_BASE}
+        apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
         onSuccess={() => router.push("/dashboard")}
       />

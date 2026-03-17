@@ -21,7 +21,7 @@ import {
 } from "lucide-react";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
+import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import {
   GatewayClient,
@@ -199,7 +199,7 @@ export default function AgentConsolePage() {
         gatewayToken,
         deploymentId: agent.id,
         apiKey: authToken,
-        apiBase: AGENT_API_BASE,
+        apiBase: API_BASE_URL,
         autoApprovePairing: true,
         onHello: () => {
           setGwConnected(true);

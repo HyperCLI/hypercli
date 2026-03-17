@@ -5,7 +5,7 @@ import { motion, useInView } from "framer-motion";
 import { Check } from "lucide-react";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { AGENT_API_BASE, AUTH_API_BASE } from "@/lib/api";
+import { API_BASE_URL, AUTH_BASE_URL } from "@/lib/api";
 import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
 
 export function PricingSection() {
@@ -16,7 +16,7 @@ export function PricingSection() {
   const [plans, setPlans] = useState<Plan[]>([]);
 
   useEffect(() => {
-    fetch(`${AGENT_API_BASE}/plans`)
+    fetch(`${API_BASE_URL}/plans`)
       .then((r) => r.json())
       .then((data) => setPlans(data.plans ?? []))
       .catch(() => {});
@@ -143,7 +143,7 @@ export function PricingSection() {
         onClose={() => setIsLoginModalOpen(false)}
         title="Welcome to HyperClaw"
         description="Please sign in to continue"
-        apiBaseUrl={AUTH_API_BASE}
+        apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
         onSuccess={() => {
           window.location.href = "/dashboard/plans";

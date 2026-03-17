@@ -4,7 +4,7 @@ import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
 import { wrapAxiosWithPayment, x402Client } from "@x402/axios";
 import { ExactEvmScheme } from "@x402/evm";
-import { X402_API_BASE } from "./api";
+import { X402_BASE_URL } from "./api";
 
 // ---------------------------------------------------------------------------
 // Wallet
@@ -113,7 +113,7 @@ function buildPaymentApi(wallet: WalletClient): AxiosInstance {
   client.register("eip155:*", new ExactEvmScheme(signer));
 
   const instance = axios.create({
-    baseURL: X402_API_BASE,
+    baseURL: X402_BASE_URL,
     headers: { "Content-Type": "application/json" },
   });
 

@@ -83,6 +83,12 @@ def _normalize_agents_api_base(url: str) -> str:
     if not raw:
         return AGENTS_API_BASE
     parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    scheme = parsed.scheme or "https"
+    normalized_path = parsed.path.rstrip("/")
+    if normalized_path.endswith("/agents"):
+        return f"{scheme}://{parsed.netloc}{normalized_path}"
+    if normalized_path.endswith("/api"):
+        return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}/agents"
     host = parsed.netloc.lower()
     if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
         return AGENTS_API_BASE
@@ -94,7 +100,7 @@ def _normalize_agents_api_base(url: str) -> str:
     }:
         return DEV_AGENTS_API_BASE
     normalized = raw.rstrip("/")
-    return normalized if normalized.endswith("/api") else f"{normalized}/api"
+    return f"{normalized}/agents"
 
 
 def _default_agents_ws_url(api_base: str) -> str:

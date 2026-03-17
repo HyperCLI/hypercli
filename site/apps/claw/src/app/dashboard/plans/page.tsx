@@ -3,7 +3,7 @@
 import { useState, useEffect } from "react";
 import { Check, ArrowRight } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { agentApiFetch, AGENT_API_BASE } from "@/lib/api";
+import { agentApiFetch, API_BASE_URL } from "@/lib/api";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
@@ -18,7 +18,7 @@ export default function PlansPage() {
   useEffect(() => {
     const fetchData = async () => {
       try {
-        const plansRes = await fetch(`${AGENT_API_BASE}/plans`);
+        const plansRes = await fetch(`${API_BASE_URL}/plans`);
         if (plansRes.ok) {
           const data = await plansRes.json();
           setPlans(data.plans ?? []);

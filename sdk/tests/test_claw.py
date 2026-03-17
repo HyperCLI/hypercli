@@ -172,5 +172,5 @@ class TestHyperAgentIntegration:
 
 def test_hypercli_dev_client_defaults_agents_urls():
     client = HyperCLI(api_key="hyper_api_test_key", agent_api_key="sk-hyper-test", agent_dev=True)
-    assert client.deployments._api_base == "https://api.agents.dev.hypercli.com/api"
+    assert client.deployments._api_base == "https://api.agents.dev.hypercli.com/agents"
     assert client.agent._base_url == "https://api.agents.dev.hypercli.com/v1"
