@@ -201,10 +201,6 @@ function extractVoicePathFromMessage(content: string): string | null {
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
 
-function setDesktopAuthCookie(name: string, value: string, days: number, configuredDomain: string): void {
-  cookieUtils.set(name, value, days, configuredDomain);
-}
-
 function clearDesktopAuthCookie(name: string, configuredDomain: string): void {
   cookieUtils.remove(name, configuredDomain);
 }
@@ -215,6 +211,7 @@ function clearAgentAccessCookies(hostname: string | null | undefined): void {
   const configuredDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
 
   clearDesktopAuthCookie(`${subdomain}-token`, configuredDomain);
+  clearDesktopAuthCookie(`desktop-${subdomain}-token`, configuredDomain);
   clearDesktopAuthCookie(`shell-${subdomain}-token`, configuredDomain);
   clearDesktopAuthCookie(`openclaw-${subdomain}-token`, configuredDomain);
   clearDesktopAuthCookie("reef_token", configuredDomain);
@@ -1292,17 +1289,12 @@ export default function AgentsPage() {
     }
   }, [chat.messages]);
 
-  // ── Auth token for desktop / shell ──
+  // ── Desktop launch bootstrap ──
   const issueAgentAccessToken = useCallback(
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
       const tokenData = await agentApiFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
-      const subdomain = hostname.split(".")[0];
-      const cookieDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
-      setDesktopAuthCookie(`${subdomain}-token`, tokenData.token, 2, cookieDomain);
-      setDesktopAuthCookie(`shell-${subdomain}-token`, tokenData.token, 2, cookieDomain);
-      setDesktopAuthCookie("reef_token", tokenData.token, 2, cookieDomain);
-      return tokenData.token;
+      return `https://desktop-${hostname}/_jwt_auth?jwt=${encodeURIComponent(tokenData.token)}`;
     },
     [getToken]
   );
@@ -1522,8 +1514,7 @@ export default function AgentsPage() {
     setOpeningDesktopId(agent.id);
     setError(null);
     try {
-      await issueAgentAccessToken(agent.id, agent.hostname);
-      const desktopUrl = new URL(`https://${agent.hostname}`);
+      const desktopUrl = new URL(await issueAgentAccessToken(agent.id, agent.hostname));
       if (popup) { popup.location.href = desktopUrl.toString(); } else {
         const fallback = window.open(desktopUrl.toString(), "_blank");
         if (fallback) fallback.opener = null;

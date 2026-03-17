@@ -375,12 +375,32 @@ export class Agent {
     return this.hostname ? `https://${this.hostname}` : null;
   }
 
+  protected routePrefix(routeName: string, defaultPrefix: string | null = null): string | null {
+    const route = this.routes[routeName] ?? {};
+    const prefix = route.prefix;
+    if (typeof prefix === 'undefined' || prefix === null) {
+      return defaultPrefix;
+    }
+    return String(prefix);
+  }
+
+  routeUrl(routeName: string, defaultPrefix: string | null = null): string | null {
+    if (!this.hostname) return null;
+    const prefix = this.routePrefix(routeName, defaultPrefix);
+    if (prefix === null) return null;
+    return prefix === '' ? `https://${this.hostname}` : `https://${prefix}-${this.hostname}`;
+  }
+
+  get desktopUrl(): string | null {
+    return this.routeUrl('desktop', 'desktop');
+  }
+
   get vncUrl(): string | null {
-    return this.publicUrl;
+    return this.desktopUrl;
   }
 
   get shellUrl(): string | null {
-    return this.hostname ? `https://shell-${this.hostname}` : null;
+    return this.routeUrl('shell');
   }
 
   get executorUrl(): string | null {
@@ -480,7 +500,7 @@ export class OpenClawAgent extends Agent {
   static override fromDict(data: AgentHydrationData): OpenClawAgent {
     return new OpenClawAgent({
       ...agentStateFromDict(data),
-      gatewayUrl: data.openclaw_url ?? data.gateway_url ?? null,
+      gatewayUrl: data.openclaw_url ?? data.gateway_url ?? (data.hostname ? `wss://${data.hostname}` : null),
       gatewayToken: data.gateway_token ?? null,
     });
   }

@@ -78,11 +78,25 @@ describe('HyperClaw agents SDK', () => {
     });
 
     expect(generic.publicUrl).toBe('https://agent.dev.hyperclaw.app');
-    expect(generic.shellUrl).toBe('https://shell-agent.dev.hyperclaw.app');
+    expect(generic.desktopUrl).toBe('https://desktop-agent.dev.hyperclaw.app');
+    expect(generic.shellUrl).toBeNull();
     expect(openclaw.gatewayUrl).toBe('wss://openclaw-agent2.dev.hyperclaw.app');
     expect(openclaw.gatewayToken).toBe('gw-123');
     expect(openclaw.command).toEqual(['sleep', '3600']);
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
+  });
+
+  it('OpenClawAgent falls back to the root host for the gateway URL', () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-root',
+      user_id: 'user-1',
+      pod_id: 'pod-root',
+      pod_name: 'pod-root',
+      state: 'running',
+      hostname: 'agent-root.dev.hyperclaw.app',
+    });
+
+    expect(agent.gatewayUrl).toBe('wss://agent-root.dev.hyperclaw.app');
   });
 
   it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', () => {

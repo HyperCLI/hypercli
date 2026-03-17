@@ -43,9 +43,10 @@ def test_agent_urls_and_running_state():
     )
 
     assert agent.public_url == "https://test.hypercli.com"
-    assert agent.vnc_url == "https://test.hypercli.com"
-    assert agent.shell_url == "https://shell-test.hypercli.com"
-    assert agent.executor_url == "https://shell-test.hypercli.com"
+    assert agent.desktop_url == "https://desktop-test.hypercli.com"
+    assert agent.vnc_url == "https://desktop-test.hypercli.com"
+    assert agent.shell_url is None
+    assert agent.executor_url is None
     assert agent.is_running is True
 
 
@@ -81,6 +82,21 @@ def test_openclaw_agent_from_dict():
     assert isinstance(agent.updated_at, datetime)
     assert agent.command == ["sleep", "3600"]
     assert agent.entrypoint == ["/bin/sh", "-c"]
+
+
+def test_openclaw_agent_from_dict_falls_back_to_root_gateway_host():
+    agent = OpenClawAgent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "running",
+            "hostname": "test.hypercli.com",
+        }
+    )
+
+    assert agent.gateway_url == "wss://test.hypercli.com"
 
 
 def test_openclaw_agent_gateway_requires_url():

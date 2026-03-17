@@ -6,7 +6,6 @@ import {
   type GatewayEvent,
   type OpenClawConfigSchemaResponse,
 } from "@hypercli.com/sdk/gateway";
-import { cookieUtils } from "@hypercli/shared-ui";
 import { AGENT_API_BASE, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
@@ -204,7 +203,7 @@ export function useGatewayChat(
   useEffect(() => {
     if (!agent || agent.state !== "RUNNING" || !agent.hostname) return;
 
-    const url = agent.openclaw_url || `wss://openclaw-${agent.hostname}`;
+    const url = agent.openclaw_url || `wss://${agent.hostname}`;
     if (!url) {
       setError("No gateway URL available");
       return;
@@ -220,36 +219,6 @@ export function useGatewayChat(
       try {
         const authToken = await getTokenRef.current();
         if (cancelled) return;
-
-        // Set up auth cookies
-        const subdomain = agent!.hostname!.split(".")[0];
-        const hostCookie = `${subdomain}-token`;
-        const shellCookie = `shell-${subdomain}-token`;
-        const openclawCookie = `openclaw-${subdomain}-token`;
-        const reefCookie = "reef_token";
-        const hasCookie = (name: string) =>
-          document.cookie
-            .split(";")
-            .some((entry) =>
-              entry.trim().startsWith(`${encodeURIComponent(name)}=`)
-            );
-        const cookieDomain = process.env.NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN || "";
-
-        if (!hasCookie(hostCookie)) {
-          const tokenResp = await agentApiFetch<{ token: string }>(
-            `/deployments/${agent!.id}/token`,
-            authToken
-          );
-          if (cancelled) return;
-          const expires = new Date(
-            Date.now() + 12 * 60 * 60 * 1000
-          ).toUTCString();
-
-          cookieUtils.setWithExpiry(hostCookie, tokenResp.token, expires, cookieDomain);
-          cookieUtils.setWithExpiry(shellCookie, tokenResp.token, expires, cookieDomain);
-          cookieUtils.setWithExpiry(openclawCookie, tokenResp.token, expires, cookieDomain);
-          cookieUtils.setWithExpiry(reefCookie, tokenResp.token, expires, cookieDomain);
-        }
 
         if (cancelled) return;
         let gatewayToken = agent!.gatewayToken ?? getStoredGatewayToken(agent!.id) ?? undefined;

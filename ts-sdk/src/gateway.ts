@@ -11,7 +11,7 @@ import { getPublicKeyAsync, signAsync, utils as edUtils } from "@noble/ed25519";
 import NodeWebSocket from "ws";
 
 export interface GatewayOptions {
-  /** WebSocket URL (wss://openclaw-{agent}.hypercli.com) */
+  /** WebSocket URL for the agent gateway (typically wss://{agent-host}) */
   url: string;
   /** Optional legacy query token for edge/proxy auth. Gateway auth uses `gatewayToken`. */
   token?: string;

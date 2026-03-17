@@ -323,7 +323,7 @@ def create(
     console.print(f"  Size:     {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:    {pod.state}")
     console.print(f"  Desktop:  {pod.vnc_url}")
-    console.print(f"  Shell:    {pod.shell_url}")
+    console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
     display_ports = pod.ports or ports_list or []
     for p in display_ports:
         auth_text = "auth" if p.get("auth", True) else "noauth"
@@ -373,7 +373,7 @@ def wait_agent(
     console.print(f"  Name:     {pod.name or pod.pod_name}")
     console.print(f"  State:    {pod.state}")
     console.print(f"  Desktop:  {pod.vnc_url}")
-    console.print(f"  Shell:    {pod.shell_url}")
+    console.print(f"  Shell:    {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
 
 
 @app.command("list")
@@ -458,7 +458,7 @@ def status(
     console.print(f"  Size:       {pod.cpu} CPU, {pod.memory} GB")
     console.print(f"  State:      {pod.state}")
     console.print(f"  Desktop:    {pod.vnc_url}")
-    console.print(f"  Shell:      {pod.shell_url}")
+    console.print(f"  Shell:      {'via hyper agents shell' if not pod.shell_url else pod.shell_url}")
     console.print(f"  Created:    {pod.created_at}")
     if pod.started_at:
         console.print(f"  Started:    {pod.started_at}")

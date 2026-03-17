@@ -210,15 +210,34 @@ class Agent:
             return f"https://{self.hostname}"
         return None
 
+    def _route_prefix(self, route_name: str, default_prefix: str | None = None) -> str | None:
+        route = self.routes.get(route_name) or {}
+        prefix = route.get("prefix")
+        if prefix is None:
+            return default_prefix
+        return str(prefix)
+
+    def route_url(self, route_name: str, default_prefix: str | None = None) -> Optional[str]:
+        if not self.hostname:
+            return None
+        prefix = self._route_prefix(route_name, default_prefix)
+        if prefix is None:
+            return None
+        if prefix == "":
+            return f"https://{self.hostname}"
+        return f"https://{prefix}-{self.hostname}"
+
+    @property
+    def desktop_url(self) -> Optional[str]:
+        return self.route_url("desktop", default_prefix="desktop")
+
     @property
     def vnc_url(self) -> Optional[str]:
-        return self.public_url
+        return self.desktop_url
 
     @property
     def shell_url(self) -> Optional[str]:
-        if self.hostname:
-            return f"https://shell-{self.hostname}"
-        return None
+        return self.route_url("shell")
 
     @property
     def executor_url(self) -> Optional[str]:
@@ -307,7 +326,11 @@ class OpenClawAgent(Agent):
     def from_dict(cls, data: dict) -> "OpenClawAgent":
         return cls(
             **_agent_kwargs_from_dict(data),
-            gateway_url=data.get("openclaw_url") or data.get("gateway_url"),
+            gateway_url=(
+                data.get("openclaw_url")
+                or data.get("gateway_url")
+                or (f"wss://{data['hostname']}" if data.get("hostname") else None)
+            ),
             gateway_token=data.get("gateway_token"),
         )
 
@@ -1030,7 +1053,7 @@ class Deployments:
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/env")
 
     # -----------------------------------------------------------------------
-    # Executor API (direct to reef pod via shell-{hostname})
+    # Legacy direct executor API helpers. Current shell/exec flows are backend-mediated.
     # -----------------------------------------------------------------------
 
     def _executor_headers(self, pod: Agent) -> dict:
