@@ -34,11 +34,4 @@ describe('HyperAgent API', () => {
       expect(plan).toHaveProperty('name');
     }
   });
-
-  it.skip('should get key status (requires HyperAgent API key)', async () => {
-    const status = await client.agent.keyStatus();
-    
-    expect(status).toBeDefined();
-    expect(typeof status).toBe('object');
-  });
 });

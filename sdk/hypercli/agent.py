@@ -20,32 +20,6 @@ except ImportError:
 
 
 @dataclass
-class HyperAgentKey:
-    """HyperAgent API key with subscription details."""
-
-    key: str
-    plan_id: str
-    expires_at: datetime
-    tpm_limit: int
-    rpm_limit: int
-    user_id: Optional[str] = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "HyperAgentKey":
-        expires = data.get("expires_at", "")
-        if isinstance(expires, str):
-            expires = datetime.fromisoformat(expires.replace("Z", "+00:00"))
-        return cls(
-            key=data["key"],
-            plan_id=data["plan_id"],
-            expires_at=expires,
-            tpm_limit=data.get("tpm_limit", 0),
-            rpm_limit=data.get("rpm_limit", 0),
-            user_id=data.get("user_id"),
-        )
-
-
-@dataclass
 class HyperAgentPlan:
     """HyperAgent subscription plan."""
 
@@ -185,14 +159,6 @@ class HyperAgent:
 
     def _api_base_without_v1(self) -> str:
         return self._base_url.replace("/v1", "")
-
-    def key_status(self) -> HyperAgentKey:
-        response = self._http._session.get(
-            f"{self._api_base_without_v1()}/api/keys/status",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
-        response.raise_for_status()
-        return HyperAgentKey.from_dict(response.json())
 
     def plans(self) -> List[HyperAgentPlan]:
         response = self._http._session.get(

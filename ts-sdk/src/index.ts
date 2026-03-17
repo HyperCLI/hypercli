@@ -89,7 +89,6 @@ export {
 // HyperAgent
 export {
   HyperAgent,
-  type HyperAgentKey,
   type HyperAgentPlan,
   type HyperAgentCurrentPlan,
   type HyperAgentModel,

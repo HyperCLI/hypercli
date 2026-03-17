@@ -11,7 +11,7 @@ from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Deployments, Agent, OpenClawAgent, ExecResult
 from .shell import ShellSession, shell_connect
-from .agent import HyperAgent, HyperAgentKey, HyperAgentPlan, HyperAgentModel
+from .agent import HyperAgent, HyperAgentPlan, HyperAgentModel
 from .gateway import GatewayClient, GatewayError, ChatEvent
 __version__ = "2026.3.13"
 __all__ = [
@@ -76,7 +76,6 @@ __all__ = [
     "shell_connect",
     # HyperAgent
     "HyperAgent",
-    "HyperAgentKey",
     "HyperAgentPlan",
     "HyperAgentModel",
     # OpenClaw Gateway

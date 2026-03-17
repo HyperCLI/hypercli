@@ -7,15 +7,6 @@
 import type { HTTPClient } from './http.js';
 import { resolveAgentsApiBase } from './agents.js';
 
-export interface HyperAgentKey {
-  key: string;
-  planId: string;
-  expiresAt: Date;
-  tpmLimit: number;
-  rpmLimit: number;
-  userId: string | null;
-}
-
 export interface HyperAgentPlan {
   id: string;
   name: string;
@@ -43,24 +34,6 @@ export interface HyperAgentModel {
   supportsVision: boolean;
   supportsFunctionCalling: boolean;
   supportsToolChoice: boolean;
-}
-
-function hyperAgentKeyFromDict(data: any): HyperAgentKey {
-  let expiresAt: Date;
-  if (typeof data.expires_at === 'string') {
-    expiresAt = new Date(data.expires_at.replace('Z', '+00:00'));
-  } else {
-    expiresAt = new Date(data.expires_at);
-  }
-
-  return {
-    key: data.key,
-    planId: data.plan_id,
-    expiresAt,
-    tpmLimit: data.tpm_limit || 0,
-    rpmLimit: data.rpm_limit || 0,
-    userId: data.user_id || null,
-  };
 }
 
 function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
@@ -133,21 +106,6 @@ export class HyperAgent {
 
   private get baseUrlWithoutV1(): string {
     return this.baseUrl.replace(/\/v1$/, '');
-  }
-
-  async keyStatus(): Promise<HyperAgentKey> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/keys/status`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get key status: ${response.statusText}`);
-    }
-
-    const data = await response.json();
-    return hyperAgentKeyFromDict(data);
   }
 
   async plans(): Promise<HyperAgentPlan[]> {

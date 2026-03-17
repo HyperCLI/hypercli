@@ -551,6 +551,12 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
     """Fetch available models from LiteLLM /v1/models (served by HyperClaw)."""
     import httpx
 
+    def _infer_mode(model_id: str) -> str | None:
+        normalized = (model_id or "").strip().lower()
+        if "embedding" in normalized:
+            return "embedding"
+        return None
+
     def _meta_for_model(model_id: str) -> dict:
         normalized = (model_id or "").strip().lower()
         aliases = {
@@ -558,6 +564,13 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
             "moonshotai/kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
             "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
             "zai-org/glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
+            "qwen3-embedding-4b": {
+                "name": "Qwen3 Embedding 4B",
+                "reasoning": False,
+                "contextWindow": 32768,
+                "mode": "embedding",
+                "input": ["text"],
+            },
         }
         if normalized in aliases:
             return aliases[normalized]
@@ -577,9 +590,9 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "id": m["id"],
                 "name": _meta_for_model(m["id"]).get("name", m["id"].replace("-", " ").title()),
                 "reasoning": _meta_for_model(m["id"]).get("reasoning", False),
-                "input": ["text", "image"],
+                "input": _meta_for_model(m["id"]).get("input", ["text", "image"]),
                 "contextWindow": _meta_for_model(m["id"]).get("contextWindow", 200000),
-                **({"mode": m["mode"]} if m.get("mode") else {}),
+                **({"mode": m.get("mode") or _meta_for_model(m["id"]).get("mode") or _infer_mode(m["id"])} if (m.get("mode") or _meta_for_model(m["id"]).get("mode") or _infer_mode(m["id"])) else {}),
             }
             for m in data
             if m.get("id")
@@ -601,6 +614,14 @@ def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
                 "reasoning": True,
                 "input": ["text", "image"],
                 "contextWindow": 202752,
+            },
+            {
+                "id": "qwen3-embedding-4b",
+                "name": "Qwen3 Embedding 4B",
+                "reasoning": False,
+                "input": ["text"],
+                "contextWindow": 32768,
+                "mode": "embedding",
             },
         ]
 
@@ -629,49 +650,21 @@ def openclaw_setup(
         console.print("[red]❌ Invalid key file — missing 'key' field[/red]")
         raise typer.Exit(1)
 
-    # Read existing config (or start empty)
+    config = {}
     if OPENCLAW_CONFIG_PATH.exists():
         with open(OPENCLAW_CONFIG_PATH) as f:
             config = json.load(f)
-    else:
-        config = {}
 
-    # Fetch current model list from LiteLLM via API
     models = fetch_models(api_key)
+    snippet = _config_openclaw(api_key, models, PROD_API_BASE)
+    if not default:
+        defaults = (((snippet.get("agents") or {}).get("defaults") or {}))
+        model_cfg = defaults.get("model") or {}
+        model_cfg.pop("primary", None)
+        if not model_cfg and "model" in defaults:
+            defaults.pop("model", None)
 
-    # Patch models.providers.hyperclaw + embedding config
-    config.setdefault("models", {}).setdefault("providers", {})
-    chat_models = [m for m in models if m.get("mode") != "embedding"]
-    embedding_models = [m for m in models if m.get("mode") == "embedding"]
-    config["models"]["providers"]["hyperclaw"] = {
-        "baseUrl": "https://api.hypercli.com",
-        "apiKey": api_key,
-        "api": "anthropic-messages",
-        "models": chat_models,
-    }
-    config["models"]["providers"]["hyperclaw-embed"] = {
-        "baseUrl": "https://api.hypercli.com/v1",
-        "apiKey": api_key,
-        "api": "openai-completions",
-        "models": embedding_models,
-    }
-
-    # Always set embedding provider (reuses same API key)
-    config.setdefault("agents", {}).setdefault("defaults", {})
-    config["agents"]["defaults"]["memorySearch"] = {
-        "provider": "openai",
-        "model": "qwen3-embedding-4b",
-        "remote": {
-            "baseUrl": "https://api.hypercli.com/v1/",
-            "apiKey": api_key,
-        }
-    }
-
-    # Optionally set default model
-    if default:
-        config["agents"]["defaults"].setdefault("model", {})
-        if chat_models:
-            config["agents"]["defaults"]["model"]["primary"] = f"hyperclaw/{chat_models[0]['id']}"
+    _deep_merge(config, snippet)
 
     # Write back
     OPENCLAW_CONFIG_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -680,15 +673,14 @@ def openclaw_setup(
         f.write("\n")
 
     console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
-    console.print(f"   provider: hyperclaw  key: {api_key[:16]}...")
-    if embedding_models:
-        console.print("   embedding provider: hyperclaw-embed")
-    for m in chat_models:
-        console.print(f"   model: hyperclaw/{m['id']}")
-    for m in embedding_models:
-        console.print(f"   model: hyperclaw-embed/{m['id']}")
-    if default and chat_models:
-        console.print(f"   default model: hyperclaw/{chat_models[0]['id']}")
+    providers = ((snippet.get("models") or {}).get("providers") or {})
+    for provider_id, provider_cfg in providers.items():
+        console.print(f"   provider: {provider_id}  key: {api_key[:16]}...")
+        for m in provider_cfg.get("models") or []:
+            console.print(f"   model: {provider_id}/{m['id']}")
+    primary = ((((snippet.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary"))
+    if primary:
+        console.print(f"   default model: {primary}")
     console.print("\nOpenClaw will use the Anthropic-compatible /v1/messages endpoint.")
     console.print("Run: [bold]openclaw gateway restart[/bold]")
 
@@ -714,10 +706,35 @@ def _resolve_api_key(key: str | None) -> str:
 
 def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM + embeddings)."""
+    def _model_suffix(model_id: str) -> str:
+        return str(model_id or "").strip().lower().rsplit("/", 1)[-1]
+
+    def _is_supported_openclaw_model(model: dict) -> bool:
+        suffix = _model_suffix(model.get("id", ""))
+        return (
+            suffix == "glm-5"
+            or "kimi" in suffix
+            or "embedding" in suffix
+        )
+
     api_base = api_base.rstrip("/")
-    chat_models = [m for m in models if m.get("mode") != "embedding"]
-    embedding_models = [m for m in models if m.get("mode") == "embedding"]
-    kimi_models = [m for m in chat_models if "kimi" in str(m.get("id", "")).lower()]
+    supported_models = [m for m in models if _is_supported_openclaw_model(m)]
+    chat_models = [m for m in supported_models if m.get("mode") != "embedding"]
+    embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
+    kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
+    glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
+    openai_chat_models = [
+        m for m in chat_models
+        if m not in kimi_models and m not in glm_models
+    ]
+    embedding_model_id = embedding_models[0]["id"] if embedding_models else None
+    primary_model = (
+        f"kimi-coding/{kimi_models[0]['id']}" if kimi_models else (
+            f"hyperclaw/{glm_models[0]['id']}" if glm_models else (
+                f"hyperclaw-openai/{openai_chat_models[0]['id']}" if openai_chat_models else None
+            )
+        )
+    )
     return {
         "models": {
             "mode": "merge",
@@ -727,7 +744,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
                     "baseUrl": api_base,
                     "apiKey": api_key,
                     "api": "anthropic-messages",
-                    "models": chat_models,
+                    "models": glm_models,
                 },
                 **(
                     {
@@ -746,6 +763,18 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
                     if kimi_models
                     else {}
                 ),
+                **(
+                    {
+                        "hyperclaw-openai": {
+                            "baseUrl": f"{api_base}/v1",
+                            "apiKey": api_key,
+                            "api": "openai-completions",
+                            "models": openai_chat_models,
+                        },
+                    }
+                    if openai_chat_models
+                    else {}
+                ),
                 "hyperclaw-embed": {
                     # Embeddings go through the OpenAI-compatible /v1 endpoints.
                     "baseUrl": f"{api_base}/v1",
@@ -757,19 +786,27 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
         },
         "agents": {
             "defaults": {
+                **({"model": {"primary": primary_model}} if primary_model else {}),
                 "models": {
-                    **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in chat_models},
+                    **{f"hyperclaw/{m['id']}": {"alias": "glm"} for m in glm_models},
                     **{f"kimi-coding/{m['id']}": {"alias": "kimi"} for m in kimi_models},
+                    **{f"hyperclaw-openai/{m['id']}": {"alias": m['id'].split('-')[0]} for m in openai_chat_models},
                     **{f"hyperclaw-embed/{m['id']}": {"alias": m['id'].split('-')[0]} for m in embedding_models},
                 },
-                "memorySearch": {
-                    "provider": "openai",
-                    "model": "qwen3-embedding-4b",
-                    "remote": {
-                        "baseUrl": f"{api_base}/v1/",
-                        "apiKey": api_key,
+                **(
+                    {
+                        "memorySearch": {
+                            "provider": "openai",
+                            "model": embedding_model_id,
+                            "remote": {
+                                "baseUrl": f"{api_base}/v1/",
+                                "apiKey": api_key,
+                            }
+                        }
                     }
-                }
+                    if embedding_model_id
+                    else {}
+                ),
             }
         }
     }

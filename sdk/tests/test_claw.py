@@ -4,27 +4,12 @@ Tests for HyperAgent SDK client
 import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
-from hypercli.agent import HyperAgent, HyperAgentKey, HyperAgentPlan, HyperAgentModel
+from hypercli.agent import HyperAgent, HyperAgentPlan, HyperAgentModel
 
 
 class TestHyperAgentDataclasses:
     """Tests for HyperAgent dataclasses."""
-    
-    def test_agent_key_from_dict(self):
-        data = {
-            "key": "sk-hyper-test-123",
-            "plan_id": "5aiu",
-            "expires_at": "2026-03-07T12:00:00Z",
-            "tpm_limit": 250000,
-            "rpm_limit": 5000,
-            "user_id": "user-123"
-        }
-        key = HyperAgentKey.from_dict(data)
-        assert key.key == "sk-hyper-test-123"
-        assert key.plan_id == "5aiu"
-        assert key.tpm_limit == 250000
-        assert key.rpm_limit == 5000
-    
+
     def test_agent_plan_from_dict(self):
         data = {
             "id": "5aiu",
@@ -57,7 +42,7 @@ class TestHyperAgentDataclasses:
 
 class TestHyperAgentClient:
     """Tests for HyperAgent client methods."""
-    
+
     @pytest.fixture
     def mock_http(self):
         http = Mock()
