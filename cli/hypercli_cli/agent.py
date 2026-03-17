@@ -55,6 +55,8 @@ HYPERCLI_DIR = Path.home() / ".hypercli"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEV_API_BASE = "https://api.dev.hypercli.com"
 PROD_API_BASE = "https://api.hypercli.com"
+DEV_INFERENCE_API_BASE = "https://api.agents.dev.hypercli.com"
+PROD_INFERENCE_API_BASE = "https://api.agents.hypercli.com"
 
 
 def require_x402_deps():
@@ -544,10 +546,14 @@ OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
 
 def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
     """Resolve API base from flag/env, then fall back to dev/prod defaults."""
-    return (base_url or os.environ.get("HYPERCLAW_API_BASE") or (DEV_API_BASE if dev else PROD_API_BASE)).rstrip("/")
+    return (
+        base_url
+        or os.environ.get("HYPERCLAW_API_BASE")
+        or (DEV_INFERENCE_API_BASE if dev else PROD_INFERENCE_API_BASE)
+    ).rstrip("/")
 
 
-def fetch_models(api_key: str, api_base: str = PROD_API_BASE) -> list[dict]:
+def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[dict]:
     """Fetch available models from LiteLLM /v1/models (served by HyperClaw)."""
     import httpx
 
@@ -655,8 +661,8 @@ def openclaw_setup(
         with open(OPENCLAW_CONFIG_PATH) as f:
             config = json.load(f)
 
-    models = fetch_models(api_key)
-    snippet = _config_openclaw(api_key, models, PROD_API_BASE)
+    models = fetch_models(api_key, PROD_INFERENCE_API_BASE)
+    snippet = _config_openclaw(api_key, models, PROD_INFERENCE_API_BASE)
     if not default:
         defaults = (((snippet.get("agents") or {}).get("defaults") or {}))
         model_cfg = defaults.get("model") or {}
@@ -704,7 +710,7 @@ def _resolve_api_key(key: str | None) -> str:
     raise typer.Exit(1)
 
 
-def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
+def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM + embeddings)."""
     def _model_suffix(model_id: str) -> str:
         return str(model_id or "").strip().lower().rsplit("/", 1)[-1]
@@ -812,7 +818,7 @@ def _config_openclaw(api_key: str, models: list[dict], api_base: str = PROD_API_
     }
 
 
-def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> dict:
+def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> dict:
     """OpenCode opencode.json provider snippet."""
     api_base = api_base.rstrip("/")
     model_entries = {}
@@ -834,7 +840,7 @@ def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_API_
     }
 
 
-def _config_env(api_key: str, models: list[dict], api_base: str = PROD_API_BASE) -> str:
+def _config_env(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> str:
     """Shell env vars for generic OpenAI-compatible tools."""
     api_base = api_base.rstrip("/")
     lines = [
