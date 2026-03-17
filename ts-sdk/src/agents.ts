@@ -5,6 +5,7 @@ import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import type { HTTPClient } from './http.js';
 import {
   GatewayClient,
+  type ChatAttachment,
   type ChatEvent,
   type GatewayOptions,
   type GatewayWaitReadyOptions,
@@ -768,8 +769,10 @@ export class OpenClawAgent extends Agent {
   ): Promise<string> {
     const client = await this.connect(options);
     try {
-      let resolvedAgentId = agentId;
-      if (!resolvedAgentId) {
+      let resolvedAgentId: string;
+      if (agentId) {
+        resolvedAgentId = agentId;
+      } else {
         const agents = await client.agentsList();
         resolvedAgentId = agents[0]?.id ?? 'main';
       }
@@ -787,8 +790,10 @@ export class OpenClawAgent extends Agent {
   ): Promise<void> {
     const client = await this.connect(options);
     try {
-      let resolvedAgentId = agentId;
-      if (!resolvedAgentId) {
+      let resolvedAgentId: string;
+      if (agentId) {
+        resolvedAgentId = agentId;
+      } else {
         const agents = await client.agentsList();
         resolvedAgentId = agents[0]?.id ?? 'main';
       }
@@ -816,7 +821,7 @@ export class OpenClawAgent extends Agent {
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
       sessionKey?: string;
       agentId?: string;
-      attachments?: Array<Record<string, any>>;
+      attachments?: ChatAttachment[];
     } = {},
   ): Promise<any> {
     const client = await this.connect(options);
