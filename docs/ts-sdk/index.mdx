@@ -86,9 +86,8 @@ const client = new HyperCLI({
   agentApiKey: "sk-...",
 });
 
-const agent = await client.deployments.create({
+const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
-  size: "medium",
   start: true,
 });
 
