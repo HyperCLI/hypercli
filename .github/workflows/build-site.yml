@@ -8,12 +8,13 @@ on:
 jobs:
   build:
     runs-on: self-hosted
+    container:
+      image: node:22-bookworm
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
-
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
 
       - name: Build TS SDK
         working-directory: ts-sdk
