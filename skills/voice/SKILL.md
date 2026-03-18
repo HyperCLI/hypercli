@@ -1,6 +1,6 @@
 # Voice — TTS & Voice Cloning
 
-You have `hyper claw voice` installed. It calls the HyperClaw Voice API (GPU-backed Qwen3-TTS) to generate speech audio. No extra setup needed — your API key handles auth automatically.
+You have `hyper agent voice` installed. It calls the HyperClaw Voice API (GPU-backed Qwen3-TTS) to generate speech audio. No extra setup needed — your API key handles auth automatically.
 
 ## Voice Cloning
 
@@ -8,10 +8,10 @@ Clone any voice from a short reference audio sample (~5-30s). The model extracts
 
 ```bash
 # Clone a voice from reference audio
-hyper claw voice clone "Your text here" --ref /path/to/reference.wav -o output.ogg
+hyper agent voice clone "Your text here" --ref /path/to/reference.wav -o output.ogg
 
 # Specify language (auto-detected by default)
-hyper claw voice clone "Bonjour le monde" --ref ref.wav -l french -f ogg -o hello.ogg
+hyper agent voice clone "Bonjour le monde" --ref ref.wav -l french -f ogg -o hello.ogg
 ```
 
 **Reference audio tips:**
@@ -25,8 +25,8 @@ hyper claw voice clone "Bonjour le monde" --ref ref.wav -l french -f ogg -o hell
 Generate speech with built-in voices (no reference audio needed):
 
 ```bash
-hyper claw voice tts "Hello world" -o output.ogg
-hyper claw voice tts "Welcome" --voice Etienne -f opus -o welcome.opus
+hyper agent voice tts "Hello world" -o output.ogg
+hyper agent voice tts "Welcome" --voice Etienne -f opus -o welcome.opus
 ```
 
 Available voices: Chelsie (default), Etienne, and others.
@@ -36,18 +36,18 @@ Available voices: Chelsie (default), Etienne, and others.
 Describe a voice in text and the model creates it:
 
 ```bash
-hyper claw voice design "Hello" --desc "deep male voice, British accent, warm tone" -o designed.ogg
+hyper agent voice design "Hello" --desc "deep male voice, British accent, warm tone" -o designed.ogg
 ```
 
 ## Common Patterns
 
 ```bash
 # Generate a voice note for chat (save as .ogg for Telegram/WhatsApp)
-hyper claw voice clone "Status update: deployment complete." --ref ~/voice_ref.wav -f ogg -o /tmp/update.ogg
+hyper agent voice clone "Status update: deployment complete." --ref ~/voice_ref.wav -f ogg -o /tmp/update.ogg
 
 # Chain with STT: transcribe incoming audio, respond with cloned voice
-hyper claw stt transcribe incoming.ogg > /tmp/transcript.txt
-hyper claw voice clone "$(cat response.txt)" --ref ~/my_voice.wav -f ogg -o reply.ogg
+hyper agent transcribe incoming.ogg > /tmp/transcript.txt
+hyper agent voice clone "$(cat response.txt)" --ref ~/my_voice.wav -f ogg -o reply.ogg
 ```
 
 ## Output Formats

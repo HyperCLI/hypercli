@@ -5,14 +5,15 @@ HyperCLI (`hyper`) is the CLI for HyperClaw infrastructure. Use it to manage GPU
 ## Authentication
 
 ```bash
-# Login with wallet (agents/claw features)
-hyper claw login
-
 # Login with API key (GPU jobs)
 hyper login
+
+# Purchase/check agent access
+hyper agent subscribe 1aiu
+hyper agent status
 ```
 
-Credentials are stored in `~/.hypercli/`.
+Credentials and agent subscription state are stored in `~/.hypercli/`.
 
 ## GPU Jobs
 
@@ -33,7 +34,7 @@ hyper jobs extend <job_id>         # Extend runtime
 - **L4** — Budget inference GPU
 - **RTX PRO 6000** — Workstation GPU
 
-## Agents (Reef Pods)
+## Agents (OpenClaw Pods)
 
 ```bash
 hyper agents list                  # List your agents
@@ -54,8 +55,8 @@ Each agent is a full Linux desktop (XFCE) with browser, OpenClaw, and developmen
 ## Subscriptions
 
 ```bash
-hyper claw subscribe <plan> <amount>   # Purchase a plan with USDC
-hyper claw status                      # Check subscription status
+hyper agent subscribe <plan> <amount>   # Purchase a plan with USDC
+hyper agent status                      # Check subscription status
 ```
 
 ### Plans
@@ -66,8 +67,8 @@ hyper claw status                      # Check subscription status
 ## Configuration
 
 ```bash
-hyper claw config openclaw --key <api_key> --apply   # Configure OpenClaw with HyperClaw provider
-hyper claw config openclaw --key <api_key> --dev --apply  # Dev mode (local API)
+hyper agent config openclaw --key <api_key> --apply   # Configure OpenClaw with HyperCLI provider
+hyper agent config openclaw --key <api_key> --dev --apply  # Dev mode (local API)
 ```
 
 ## API
