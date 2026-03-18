@@ -5,7 +5,7 @@ import json
 
 import pytest
 
-from hypercli.gateway import GatewayClient
+from hypercli.gateway import GatewayClient, normalize_gateway_chat_message
 
 
 class MockConnection:
@@ -315,6 +315,104 @@ async def test_chat_send_uses_history_fallback_when_final_has_no_message_or_stre
 
     assert [chunk.type for chunk in chunks] == ["content", "done"]
     assert chunks[0].text == "Recovered final answer"
+
+
+def test_normalize_gateway_chat_message_preserves_thinking_and_tools() -> None:
+    normalized = normalize_gateway_chat_message(
+        {
+            "role": "assistant",
+            "timestamp": 1234,
+            "content": [
+                {"type": "thinking", "thinking": "Need to inspect the file."},
+                {
+                    "type": "tool_call",
+                    "id": "tool-1",
+                    "name": "functions.read",
+                    "arguments": '{"path":"/tmp/demo.zip"}',
+                },
+                {
+                    "type": "tool_result",
+                    "toolCallId": "tool-1",
+                    "name": "functions.read",
+                    "result": {"ok": True},
+                },
+            ],
+        }
+    )
+
+    assert normalized is not None
+    assert normalized.role == "assistant"
+    assert normalized.text == ""
+    assert normalized.thinking == "Need to inspect the file."
+    assert normalized.timestamp == 1234
+    assert len(normalized.tool_calls) == 1
+    assert normalized.tool_calls[0].id == "tool-1"
+    assert normalized.tool_calls[0].name == "functions.read"
+    assert normalized.tool_calls[0].args == {"path": "/tmp/demo.zip"}
+    assert json.loads(normalized.tool_calls[0].result or "") == {"ok": True}
+
+
+@pytest.mark.asyncio
+async def test_chat_send_emits_thinking_and_tool_events_from_final_snapshot() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "structured-run-1"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "final",
+                    "message": {
+                        "role": "assistant",
+                        "content": [
+                            {"type": "thinking", "thinking": "Inspecting archive"},
+                            {
+                                "type": "tool_call",
+                                "id": "tool-1",
+                                "name": "functions.read",
+                                "arguments": '{"path":"/tmp/demo.zip"}',
+                            },
+                            {
+                                "type": "tool_result",
+                                "toolCallId": "tool-1",
+                                "name": "functions.read",
+                                "result": {"entries": ["a.txt"]},
+                            },
+                        ],
+                    },
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Inspect this zip")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["thinking", "tool_call", "tool_result", "done"]
+    assert chunks[0].text == "Inspecting archive"
+    assert chunks[1].data == {
+        "toolCallId": "tool-1",
+        "name": "functions.read",
+        "args": {"path": "/tmp/demo.zip"},
+    }
+    assert chunks[2].data == {
+        "toolCallId": "tool-1",
+        "name": "functions.read",
+        "result": '{\n  "entries": [\n    "a.txt"\n  ]\n}',
+    }
 
 
 @pytest.mark.asyncio

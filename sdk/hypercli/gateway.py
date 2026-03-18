@@ -363,6 +363,102 @@ class ChatEvent:
     data: Optional[dict] = None
 
 
+@dataclass
+class GatewayChatToolCall:
+    id: str | None
+    name: str
+    args: Any = None
+    result: str | None = None
+
+
+@dataclass
+class GatewayChatMessageSummary:
+    role: str
+    text: str
+    thinking: str
+    tool_calls: list[GatewayChatToolCall]
+    media_urls: list[str]
+    timestamp: int | None = None
+
+
+def _as_content_items(value: Any) -> list[dict[str, Any]]:
+    if not isinstance(value, list):
+        return []
+    return [item for item in value if isinstance(item, dict)]
+
+
+def _normalize_tool_args(value: Any) -> Any:
+    if not isinstance(value, str):
+        return value
+    trimmed = value.strip()
+    if not trimmed or (not trimmed.startswith("{") and not trimmed.startswith("[")):
+        return value
+    try:
+        return json.loads(trimmed)
+    except Exception:
+        return value
+
+
+def _stringify_tool_result(value: Any) -> str | None:
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    try:
+        return json.dumps(value, indent=2)
+    except Exception:
+        return str(value)
+
+
+def _gateway_tool_call_id(record: dict[str, Any]) -> str | None:
+    for candidate in (
+        record.get("id"),
+        record.get("toolCallId"),
+        record.get("tool_call_id"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _gateway_tool_name(record: dict[str, Any]) -> str | None:
+    for candidate in (
+        record.get("name"),
+        record.get("toolName"),
+        record.get("tool_name"),
+    ):
+        if isinstance(candidate, str) and candidate.strip():
+            return candidate.strip()
+    return None
+
+
+def _merge_gateway_tool_result(
+    tool_calls: list[GatewayChatToolCall],
+    result: GatewayChatToolCall,
+) -> list[GatewayChatToolCall]:
+    next_tool_calls = list(tool_calls)
+    index = -1
+    for cursor in range(len(next_tool_calls) - 1, -1, -1):
+        entry = next_tool_calls[cursor]
+        if result.id and entry.id and entry.id == result.id:
+            index = cursor
+            break
+        if result.name and entry.name == result.name and entry.result is None:
+            index = cursor
+            break
+    if index >= 0:
+        current = next_tool_calls[index]
+        next_tool_calls[index] = GatewayChatToolCall(
+            id=result.id or current.id,
+            name=current.name,
+            args=current.args,
+            result=result.result if result.result is not None else current.result,
+        )
+        return next_tool_calls
+    next_tool_calls.append(result)
+    return next_tool_calls
+
+
 def _extract_message_text(message: Any) -> str:
     if isinstance(message, str):
         return message
@@ -387,6 +483,146 @@ def _extract_message_text(message: Any) -> str:
 
     text = message.get("text")
     return text if isinstance(text, str) else ""
+
+
+def extract_gateway_chat_thinking(message: Any) -> str:
+    if not isinstance(message, dict):
+        return ""
+    parts: list[str] = []
+    for entry in _as_content_items(message.get("content")):
+        if entry.get("type") != "thinking":
+            continue
+        thinking = entry.get("thinking")
+        if isinstance(thinking, str) and thinking.strip():
+            parts.append(thinking.strip())
+    return "\n".join(parts)
+
+
+def extract_gateway_chat_media_urls(message: Any) -> list[str]:
+    if not isinstance(message, dict):
+        return []
+
+    media_urls: list[str] = []
+    for entry in _as_content_items(message.get("content")):
+        if entry.get("type") != "image":
+            continue
+        source = entry.get("source")
+        if not isinstance(source, dict):
+            continue
+        if source.get("type") == "url" and isinstance(source.get("url"), str) and source.get("url").strip():
+            media_urls.append(source["url"])
+            continue
+        if (
+            source.get("type") == "base64"
+            and isinstance(source.get("data"), str)
+            and source.get("data").strip()
+        ):
+            mime_type = source.get("media_type") if isinstance(source.get("media_type"), str) else "image/png"
+            media_urls.append(f"data:{mime_type};base64,{source['data']}")
+
+    media_url = message.get("mediaUrl")
+    if isinstance(media_url, str) and media_url.strip():
+        media_urls.append(media_url)
+    extra_media_urls = message.get("mediaUrls")
+    if isinstance(extra_media_urls, list):
+        for entry in extra_media_urls:
+            if isinstance(entry, str) and entry.strip():
+                media_urls.append(entry)
+    return media_urls
+
+
+def extract_gateway_chat_tool_calls(message: Any) -> list[GatewayChatToolCall]:
+    if not isinstance(message, dict):
+        return []
+
+    tool_calls: list[GatewayChatToolCall] = []
+    for entry in _as_content_items(message.get("content")):
+        kind = str(entry.get("type") or "").strip().lower()
+        name = _gateway_tool_name(entry)
+        tool_call_id = _gateway_tool_call_id(entry)
+
+        if kind in {"toolcall", "tool_call", "tooluse", "tool_use"} or (
+            name and (entry.get("arguments") is not None or entry.get("args") is not None)
+        ):
+            tool_calls.append(
+                GatewayChatToolCall(
+                    id=tool_call_id,
+                    name=name or "tool",
+                    args=_normalize_tool_args(entry.get("arguments", entry.get("args"))),
+                )
+            )
+            continue
+
+        if kind in {"toolresult", "tool_result"}:
+            tool_calls = _merge_gateway_tool_result(
+                tool_calls,
+                GatewayChatToolCall(
+                    id=tool_call_id,
+                    name=name or "tool",
+                    result=_stringify_tool_result(
+                        entry.get("text", entry.get("content", entry.get("result")))
+                    ),
+                ),
+            )
+
+    top_level_tool_calls = message.get("tool_calls")
+    if isinstance(top_level_tool_calls, list):
+        for entry in top_level_tool_calls:
+            if not isinstance(entry, dict):
+                continue
+            name = _gateway_tool_name(entry)
+            if not name:
+                continue
+            tool_calls.append(
+                GatewayChatToolCall(
+                    id=_gateway_tool_call_id(entry),
+                    name=name,
+                    args=_normalize_tool_args(entry.get("arguments", entry.get("args"))),
+                )
+            )
+
+    top_level_name = _gateway_tool_name(message)
+    top_level_result = _stringify_tool_result(
+        message.get("result", message.get("content", message.get("text", message.get("partialResult"))))
+    )
+    role = str(message.get("role") or "").strip().lower()
+    if top_level_name and top_level_result and (
+        role in {"toolresult", "tool_result"} or message.get("toolCallId") or message.get("tool_call_id")
+    ):
+        tool_calls = _merge_gateway_tool_result(
+            tool_calls,
+            GatewayChatToolCall(
+                id=_gateway_tool_call_id(message),
+                name=top_level_name,
+                result=top_level_result,
+            ),
+        )
+
+    return tool_calls
+
+
+def normalize_gateway_chat_message(message: Any) -> GatewayChatMessageSummary | None:
+    if not isinstance(message, dict):
+        return None
+
+    text = _extract_message_text(message)
+    thinking = extract_gateway_chat_thinking(message)
+    tool_calls = extract_gateway_chat_tool_calls(message)
+    media_urls = extract_gateway_chat_media_urls(message)
+    timestamp = message.get("timestamp") if isinstance(message.get("timestamp"), int) else None
+    role = message.get("role") if isinstance(message.get("role"), str) and message.get("role").strip() else "assistant"
+
+    if not text and not thinking and not tool_calls and not media_urls:
+        return None
+
+    return GatewayChatMessageSummary(
+        role=role,
+        text=text,
+        thinking=thinking,
+        tool_calls=tool_calls,
+        media_urls=media_urls,
+        timestamp=timestamp,
+    )
 
 
 def _message_run_id(message: Any) -> str | None:
@@ -1094,7 +1330,10 @@ class GatewayClient:
 
         deadline = asyncio.get_running_loop().time() + self.chat_timeout
         last_legacy_text = ""
+        last_thinking_text = ""
         streamed_display_text = False
+        seen_tool_call_ids: set[str] = set()
+        seen_tool_result_ids: set[str] = set()
         while asyncio.get_running_loop().time() < deadline:
             remaining = max(0.1, min(1.0, deadline - asyncio.get_running_loop().time()))
             try:
@@ -1124,14 +1363,24 @@ class GatewayClient:
             if event_name == "chat.thinking":
                 text = str(payload.get("text") or "")
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                if text:
+                    last_thinking_text += text
                 yield ChatEvent(type="thinking", text=text)
                 continue
             if event_name == "chat.tool_call":
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                tool_call_id = str(payload.get("toolCallId") or "").strip()
+                if not tool_call_id:
+                    tool_call_id = f"{payload.get('name', 'tool')}:{json.dumps(payload.get('args', payload.get('arguments')), sort_keys=True, default=str)}"
+                seen_tool_call_ids.add(tool_call_id)
                 yield ChatEvent(type="tool_call", data=payload)
                 continue
             if event_name == "chat.tool_result":
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                tool_result_id = str(payload.get("toolCallId") or "").strip()
+                if not tool_result_id:
+                    tool_result_id = f"{payload.get('name', 'tool')}:{json.dumps(payload.get('args', payload.get('arguments')), sort_keys=True, default=str)}"
+                seen_tool_result_ids.add(tool_result_id)
                 yield ChatEvent(type="tool_result", data=payload)
                 continue
             if event_name == "chat.done":
@@ -1148,6 +1397,7 @@ class GatewayClient:
 
             state = str(payload.get("state") or "").lower()
             current_text = _extract_message_text(payload.get("message"))
+            normalized_message = normalize_gateway_chat_message(payload.get("message"))
             if state == "delta":
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
                 delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
@@ -1157,6 +1407,39 @@ class GatewayClient:
                 continue
             if state == "final":
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                if normalized_message and normalized_message.thinking:
+                    thinking_delta, last_thinking_text = _stream_delta(
+                        last_thinking_text,
+                        normalized_message.thinking,
+                    )
+                    if thinking_delta:
+                        yield ChatEvent(type="thinking", text=thinking_delta, data=payload)
+
+                if normalized_message:
+                    for tool_call in normalized_message.tool_calls:
+                        tool_call_key = tool_call.id or (
+                            f"{tool_call.name}:{json.dumps(tool_call.args, sort_keys=True, default=str)}"
+                        )
+                        if tool_call.args is not None and tool_call_key not in seen_tool_call_ids:
+                            seen_tool_call_ids.add(tool_call_key)
+                            yield ChatEvent(
+                                type="tool_call",
+                                data={
+                                    **({"toolCallId": tool_call.id} if tool_call.id else {}),
+                                    "name": tool_call.name,
+                                    "args": tool_call.args,
+                                },
+                            )
+                        if tool_call.result is not None and tool_call_key not in seen_tool_result_ids:
+                            seen_tool_result_ids.add(tool_call_key)
+                            yield ChatEvent(
+                                type="tool_result",
+                                data={
+                                    **({"toolCallId": tool_call.id} if tool_call.id else {}),
+                                    "name": tool_call.name,
+                                    "result": tool_call.result,
+                                },
+                            )
                 if current_text:
                     delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
                     if delta_text:
@@ -1165,6 +1448,9 @@ class GatewayClient:
                     yield ChatEvent(type="done", data=payload)
                     return
                 if streamed_display_text or last_legacy_text:
+                    yield ChatEvent(type="done", data=payload)
+                    return
+                if normalized_message and (normalized_message.thinking or normalized_message.tool_calls):
                     yield ChatEvent(type="done", data=payload)
                     return
                 history_text = _latest_history_assistant_text(

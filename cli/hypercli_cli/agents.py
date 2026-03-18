@@ -1015,6 +1015,8 @@ def gateway_chat(
                 console.print(f"[dim]{event.text}[/dim]", end="")
             elif event.type == "tool_call":
                 console.print(f"\n[yellow]🔧 {event.data}[/yellow]")
+            elif event.type == "tool_result":
+                console.print(f"\n[cyan]📤 {event.data}[/cyan]")
             elif event.type == "error":
                 console.print(f"\n[red]❌ {event.text}[/red]")
             elif event.type == "done":

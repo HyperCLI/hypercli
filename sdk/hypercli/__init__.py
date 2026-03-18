@@ -26,7 +26,17 @@ from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Deployments, Agent, OpenClawAgent, ExecResult, build_openclaw_routes
 from .shell import ShellSession, shell_connect
 from .agent import HyperAgent, HyperAgentPlan, HyperAgentModel
-from .gateway import GatewayClient, GatewayError, ChatEvent
+from .gateway import (
+    GatewayClient,
+    GatewayError,
+    ChatEvent,
+    GatewayChatToolCall,
+    GatewayChatMessageSummary,
+    extract_gateway_chat_thinking,
+    extract_gateway_chat_media_urls,
+    extract_gateway_chat_tool_calls,
+    normalize_gateway_chat_message,
+)
 __version__ = "2026.3.18"
 __all__ = [
     "HyperCLI",
@@ -107,4 +117,10 @@ __all__ = [
     "GatewayClient",
     "GatewayError",
     "ChatEvent",
+    "GatewayChatToolCall",
+    "GatewayChatMessageSummary",
+    "extract_gateway_chat_thinking",
+    "extract_gateway_chat_media_urls",
+    "extract_gateway_chat_tool_calls",
+    "normalize_gateway_chat_message",
 ]
