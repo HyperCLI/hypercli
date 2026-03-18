@@ -51,7 +51,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
-import { createAgentClient } from "@/lib/agent-client";
+import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
@@ -1447,7 +1447,7 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await createAgentClient(token).startOpenClaw(agentId);
+      await startOpenClawAgent(token, agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start agent");

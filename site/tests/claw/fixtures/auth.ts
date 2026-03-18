@@ -2,9 +2,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ImapFlow } from "imapflow";
 import { expect, type Frame, type Locator, type Page } from "@playwright/test";
-import { HyperCLI } from "../../../../ts-sdk/dist/index.js";
-import { HyperAgent, type HyperAgentCurrentPlan } from "../../../../ts-sdk/dist/agent.js";
-import { HTTPClient } from "../../../../ts-sdk/dist/http.js";
+import { HTTPClient, HyperAgent, HyperCLI, type HyperAgentCurrentPlan } from "@hypercli.com/sdk";
 
 type RequiredEnvKey =
   | "TEST_BASE_URL"

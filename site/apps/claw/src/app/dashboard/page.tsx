@@ -19,7 +19,7 @@ import {
 import Link from "next/link";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { agentApiFetch } from "@/lib/api";
-import { createAgentClient } from "@/lib/agent-client";
+import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -179,7 +179,7 @@ export default function DashboardPage() {
     setStartingId(agentId);
     try {
       const token = await getToken();
-      await createAgentClient(token).startOpenClaw(agentId);
+      await startOpenClawAgent(token, agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStartingId(null);

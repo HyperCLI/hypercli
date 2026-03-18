@@ -115,7 +115,7 @@ pytest
 
 ### Frontend SDK Dependency
 
-The frontend in [`site/`](/home/ubuntu/dev/hypercli/site) is built and deployed as a self-contained workspace. It should depend on a published `@hypercli.com/sdk` version, not a `file:` path to `../ts-sdk`.
+The frontend in [`site/`](/home/ubuntu/dev/hypercli/site) is built and deployed as a self-contained workspace. The committed manifests should stay pinned to a published `@hypercli.com/sdk` version so Netlify builds do not depend on files outside `site/`.
 
 For normal frontend work:
 
@@ -133,17 +133,20 @@ npm install
 npm run build
 
 cd ~/dev/hypercli/site
-npm link ../ts-sdk
+npm run sdk:use-local
 npm run dev
 ```
+
+That local override is intentionally not committed. It installs the local SDK into the workspace without changing the pinned package manifests.
 
 To remove the override and go back to the published package:
 
 ```bash
 cd ~/dev/hypercli/site
-npm unlink @hypercli.com/sdk
-npm install
+npm run sdk:use-published
 ```
+
+That reset script removes any local override from `node_modules` first, then reinstalls the pinned published package from the lockfile.
 
 This keeps local development flexible without making CI or Netlify depend on the parent repo layout.
 

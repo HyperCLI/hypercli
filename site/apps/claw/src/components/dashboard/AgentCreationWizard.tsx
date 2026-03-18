@@ -9,7 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient } from "@/lib/agent-client";
+import { createOpenClawAgent } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 
 // ── Types ──
@@ -211,7 +211,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       } else {
         body.size = SIZES[selectedSize].value;
       }
-      const created = await createAgentClient(token).createOpenClaw({
+      const created = await createOpenClawAgent(token, {
         name: typeof body.name === "string" ? body.name : undefined,
         start: Boolean(body.start),
         size: typeof body.size === "string" ? body.size : undefined,
