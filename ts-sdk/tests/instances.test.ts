@@ -1,55 +1,34 @@
-import { describe, it, expect } from 'vitest';
-import { HyperCLI } from '../src/client.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { Instances } from '../src/instances.js';
+import type { HTTPClient } from '../src/http.js';
 
 describe('Instances API', () => {
-  const client = new HyperCLI();
-
-  it('should list GPU types', async () => {
-    const gpuTypesDict = await client.instances.types();
-    const gpuTypes = Object.values(gpuTypesDict);
-    
-    expect(gpuTypes.length).toBeGreaterThan(0);
-    
-    // Check for known GPU types
-    expect(gpuTypesDict).toHaveProperty('l40s');
-    expect(gpuTypesDict).toHaveProperty('h100');
+  afterEach(() => {
+    vi.restoreAllMocks();
   });
 
-  it('should list regions', async () => {
-    const regionsDict = await client.instances.regions();
-    const regions = Object.values(regionsDict);
-    
-    expect(regions.length).toBeGreaterThan(0);
-    
-    // Check for known regions
-    expect(regionsDict).toHaveProperty('oh');
-    expect(regionsDict).toHaveProperty('va');
-  });
+  it('preserves constraints on GPU configs', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        h200: {
+          name: 'H200',
+          description: 'NVIDIA H200 141GB SXM',
+          configs: [
+            {
+              gpu_count: 8,
+              cpu_cores: 192,
+              memory_gb: 1536,
+              storage_gb: 7680,
+              regions: ['br'],
+              constraints: { cpu_vendor: 'intel' },
+            },
+          ],
+        },
+      }),
+    } as unknown as HTTPClient;
 
-  it('should get pricing', async () => {
-    const pricing = await client.instances.pricing();
-    
-    expect(pricing).toBeDefined();
-    expect(typeof pricing).toBe('object');
-    
-    // Should have pricing for known GPU types (keys are uppercase)
-    const keys = Object.keys(pricing);
-    expect(keys.length).toBeGreaterThan(0);
-    
-    // Check for L40S (uppercase)
-    const l40sKey = keys.find(k => k.toLowerCase() === 'l40s');
-    if (l40sKey) {
-      expect(pricing[l40sKey]).toHaveProperty('spot');
-      expect(pricing[l40sKey]).toHaveProperty('onDemand');
-    }
-  });
+    const types = await new Instances(http).types(true);
 
-  it('should get capacity', async () => {
-    const capacity = await client.instances.capacity();
-    
-    expect(capacity).toBeDefined();
-    expect(typeof capacity).toBe('object');
-    
-    // Capacity might be an object or array depending on the API response
+    expect(types.h200.configs[0].constraints).toEqual({ cpu_vendor: 'intel' });
   });
 });

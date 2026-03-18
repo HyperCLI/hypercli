@@ -9,6 +9,7 @@ export interface GPUConfig {
   memoryGb: number;
   storageGb: number;
   regions: string[];
+  constraints: Record<string, string> | null;
 }
 
 export interface GPUType {
@@ -57,6 +58,7 @@ function gpuConfigFromDict(data: any): GPUConfig {
     memoryGb: data.memory_gb || 0,
     storageGb: data.storage_gb || 0,
     regions: data.regions || [],
+    constraints: data.constraints || null,
   };
 }
 

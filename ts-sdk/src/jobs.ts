@@ -11,6 +11,7 @@ export interface Job {
   gpuType: string;
   gpuCount: number;
   region: string;
+  constraints: Record<string, string> | null;
   interruptible: boolean;
   pricePerHour: number;
   pricePerSecond: number;
@@ -59,6 +60,7 @@ export interface CreateJobOptions {
   gpuType?: string;
   gpuCount?: number;
   region?: string;
+  constraints?: Record<string, string>;
   runtime?: number;
   interruptible?: boolean;
   env?: Record<string, string>;
@@ -80,6 +82,7 @@ function jobFromDict(data: any): Job {
     gpuType: data.gpu_type || '',
     gpuCount: data.gpu_count || 1,
     region: data.region || '',
+    constraints: data.constraints || null,
     interruptible: data.interruptible !== false,
     pricePerHour: data.price_per_hour || 0,
     pricePerSecond: data.price_per_second || 0,
@@ -167,6 +170,7 @@ export class Jobs {
       gpuType = 'l40s',
       gpuCount = 1,
       region,
+      constraints,
       runtime,
       interruptible = true,
       env,
@@ -186,6 +190,7 @@ export class Jobs {
     };
 
     if (region) payload.region = region;
+    if (constraints) payload.constraints = constraints;
     if (runtime) payload.runtime = runtime;
     if (env) payload.env_vars = env;
     if (ports) payload.ports = ports;
