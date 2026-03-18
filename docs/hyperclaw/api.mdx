@@ -8,7 +8,8 @@ description: Checkout and account API for HyperClaw inference
 | Surface | URL |
 |---------|-----|
 | Inference (OpenAI-compatible) | `https://api.hypercli.com/v1` |
-| Account + billing API | `https://api.hypercli.com/agents` |
+| Agents API | `https://api.hypercli.com/agents` |
+| Account + billing API | `https://api.hypercli.com/api` |
 | Product UI | `https://agents.hypercli.com` |
 
 <Note>
@@ -28,13 +29,13 @@ Live spec: `https://api.hypercli.com/agents/openapi.json`
 List plans:
 
 ```bash
-curl https://api.hypercli.com/agents/plans
+curl https://api.hypercli.com/api/plans
 ```
 
 Get current plan (JWT required):
 
 ```bash
-curl https://api.hypercli.com/agents/plans/current \
+curl https://api.hypercli.com/api/plans/current \
   -H "Authorization: Bearer <jwt>"
 ```
 

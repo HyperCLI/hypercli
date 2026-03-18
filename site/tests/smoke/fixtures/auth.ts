@@ -16,6 +16,8 @@ export const AGENTS_SITE_URL =
 export const AGENTS_API_URL =
   process.env.SMOKE_AGENTS_API_URL?.trim() || "https://api.hypercli.com/agents";
 
+const AUTH_API_URL = AGENTS_API_URL.replace(/\/agents\/?$/, "/api");
+
 const AUTH_COOKIE_NAME = "auth_token";
 
 interface ClawPlan {
@@ -172,7 +174,7 @@ export async function fetchClawCurrentPlan(page: Page): Promise<ClawPlan | null>
     }
 
     return (await response.json()) as ClawPlan;
-  }, { apiUrl: AGENTS_API_URL });
+  }, { apiUrl: AUTH_API_URL });
 }
 
 export async function waitForClawPlanChange(
