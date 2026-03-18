@@ -24,6 +24,7 @@ interface OpenClawAgentOptions {
   cpu?: number;
   memory?: number;
   config?: Record<string, unknown>;
+  env?: Record<string, string>;
 }
 
 export function createAgentClient(apiKey: string): Deployments {
@@ -32,7 +33,25 @@ export function createAgentClient(apiKey: string): Deployments {
   return new Deployments(http, apiKey, API_BASE_URL, configuredAgentsWsUrl || undefined);
 }
 
+function resolveControlUiOrigin(rawUrl: string): string | null {
+  const trimmed = rawUrl.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return null;
+  }
+}
+
 function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string, unknown> {
+  const env = {
+    ...(options.env ?? {}),
+  };
+  const controlUiOrigin = resolveControlUiOrigin(process.env.NEXT_PUBLIC_AGENTS_URL || "");
+  if (controlUiOrigin && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
+    env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+  }
+
   const config = {
     ...(options.config ?? {}),
     image: DEFAULT_OPENCLAW_IMAGE,
@@ -41,6 +60,7 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
 
   return {
     ...options,
+    env,
     config,
   };
 }
