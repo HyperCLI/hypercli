@@ -70,18 +70,24 @@ jobs:
         working-directory: site
         run: ./scripts/setup-local-env.sh
 
+      - name: Clean Next build state
+        working-directory: site
+        run: rm -rf apps/console/.next apps/claw/.next
+
       - name: Start Console dev server
         working-directory: site
         run: |
           set -euo pipefail
-          PORT="${CONSOLE_PORT}" npm run dev -- --filter=@hypercli/console > /tmp/hypercli-console-e2e.log 2>&1 &
+          cd apps/console
+          PORT="${CONSOLE_PORT}" npm run dev > /tmp/hypercli-console-e2e.log 2>&1 &
           echo $! > /tmp/hypercli-console-e2e.pid
 
       - name: Start Claw dev server
         working-directory: site
         run: |
           set -euo pipefail
-          PORT="${CLAW_PORT}" npm run dev -- --filter=@hypercli/claw > /tmp/hypercli-claw-e2e.log 2>&1 &
+          cd apps/claw
+          PORT="${CLAW_PORT}" npm run dev > /tmp/hypercli-claw-e2e.log 2>&1 &
           echo $! > /tmp/hypercli-claw-e2e.pid
 
       - name: Wait for local dev servers

@@ -104,11 +104,16 @@ trap cleanup EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
+rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
 
-PORT="${CONSOLE_PORT}" npm run dev -- --filter=@hypercli/console >"${CONSOLE_LOG}" 2>&1 &
+cd "${SITE_ROOT}/apps/console"
+PORT="${CONSOLE_PORT}" npm run dev >"${CONSOLE_LOG}" 2>&1 &
 CONSOLE_PID=$!
-PORT="${CLAW_PORT}" npm run dev -- --filter=@hypercli/claw >"${CLAW_LOG}" 2>&1 &
+cd "${SITE_ROOT}/apps/claw"
+PORT="${CLAW_PORT}" npm run dev >"${CLAW_LOG}" 2>&1 &
 CLAW_PID=$!
+
+cd "${SITE_ROOT}"
 
 wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console" "${CONSOLE_LOG}" "${CONSOLE_PID}"
 wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
