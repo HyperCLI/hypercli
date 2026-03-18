@@ -8,30 +8,21 @@ on:
 jobs:
   build:
     runs-on: self-hosted
-    container:
-      image: node:22-bookworm
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build TS SDK
-        working-directory: ts-sdk
+      - name: Build site image
+        id: build_site
         run: |
-          npm ci
-          npm run build
+          set -euo pipefail
+          IMAGE_TAG="${GITHUB_SHA}"
+          .github/scripts/build_site_image.sh
 
-      - name: Prepare site env
-        working-directory: site
+      - name: Run site build in container
         run: |
-          cp env.dev apps/main/.env.local
-          cp env.dev apps/console/.env.local
-          cp env.dev apps/claw/.env.local
-
-      - name: Install and build
-        working-directory: site
-        run: |
-          npm install
-          npm run sdk:use-local
-          npm run build
+          set -euo pipefail
+          SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
+            .github/scripts/run_site_image.sh
