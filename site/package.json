@@ -17,7 +17,7 @@
     "clear-cache:bat": "scripts\\clear-cache.bat",
     "dev:apps": "turbo run dev",
     "sdk:use-local": "npm install --no-save @hypercli.com/sdk@file:../ts-sdk --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui",
-    "sdk:use-published": "rm -rf node_modules/@hypercli.com/sdk apps/claw/node_modules/@hypercli.com/sdk apps/console/node_modules/@hypercli.com/sdk packages/shared-ui/node_modules/@hypercli.com/sdk && npm install @hypercli.com/sdk@2026.3.16 --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui"
+    "sdk:use-published": "rm -rf node_modules/@hypercli.com/sdk apps/claw/node_modules/@hypercli.com/sdk apps/console/node_modules/@hypercli.com/sdk packages/shared-ui/node_modules/@hypercli.com/sdk && npm install @hypercli.com/sdk@2026.3.18 --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui"
   },
     "dependencies": {
         "@tailwindcss/postcss": "^4",

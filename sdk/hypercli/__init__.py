@@ -27,7 +27,7 @@ from .agents import Deployments, Agent, OpenClawAgent, ExecResult, build_opencla
 from .shell import ShellSession, shell_connect
 from .agent import HyperAgent, HyperAgentPlan, HyperAgentModel
 from .gateway import GatewayClient, GatewayError, ChatEvent
-__version__ = "2026.3.13"
+__version__ = "2026.3.18"
 __all__ = [
     "HyperCLI",
     "configure",
