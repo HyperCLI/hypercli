@@ -734,9 +734,9 @@ def test_agents_api_error(agents_client):
 @pytest.mark.integration
 @pytest.mark.asyncio
 async def test_agents_integration_lifecycle():
-    api_key = os.environ.get("HYPERCLAW_API_KEY")
+    api_key = os.environ.get("HYPER_API_KEY")
     if not api_key:
-        pytest.skip("HYPERCLAW_API_KEY not set")
+        pytest.skip("HYPER_API_KEY not set")
 
     from hypercli.http import HTTPClient
     import time

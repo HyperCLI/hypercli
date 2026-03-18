@@ -49,7 +49,7 @@ def agents_root(
 
 def _get_agent_api_key() -> str:
     """Resolve HyperClaw API key from env or saved key file."""
-    key = os.environ.get("HYPERCLAW_API_KEY", "")
+    key = os.environ.get("HYPER_API_KEY", "")
     if key:
         return key
     if AGENT_KEY_PATH.exists():
@@ -59,7 +59,7 @@ def _get_agent_api_key() -> str:
         if key:
             return key
     console.print("[red]❌ No HyperClaw API key found.[/red]")
-    console.print("Set HYPERCLAW_API_KEY or subscribe: [bold]hyper agent subscribe 1aiu[/bold]")
+    console.print("Set HYPER_API_KEY or subscribe: [bold]hyper agent subscribe 1aiu[/bold]")
     raise typer.Exit(1)
 
 

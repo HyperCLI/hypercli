@@ -353,7 +353,7 @@ def models(
     import httpx
 
     api_base = DEV_API_BASE if dev else PROD_API_BASE
-    key = os.getenv("HYPERCLAW_API_KEY")
+    key = os.getenv("HYPER_API_KEY")
     headers = {"Authorization": f"Bearer {key}"} if key else {}
 
     # Prefer OpenAI-compatible endpoint, then fallback to legacy.
@@ -374,7 +374,7 @@ def models(
     if payload is None:
         console.print(
             f"[red]❌ Failed to fetch models from {urls[0]} or {urls[1]} "
-            "(set HYPERCLAW_API_KEY if endpoint requires auth)[/red]"
+            "(set HYPER_API_KEY if endpoint requires auth)[/red]"
         )
         raise typer.Exit(1)
 
@@ -548,7 +548,7 @@ def _resolve_api_base(base_url: str | None = None, dev: bool = False) -> str:
     """Resolve API base from flag/env, then fall back to dev/prod defaults."""
     return (
         base_url
-        or os.environ.get("HYPERCLAW_API_BASE")
+        or os.environ.get("HYPER_API_BASE")
         or (DEV_INFERENCE_API_BASE if dev else PROD_INFERENCE_API_BASE)
     ).rstrip("/")
 
@@ -881,7 +881,7 @@ def config_cmd(
         help=f"Output format: {', '.join(FORMAT_CHOICES)}. Omit to show all.",
     ),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json"),
-    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPERCLAW_API_BASE, then --dev/prod defaults"),
+    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults"),
     placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write ${ENV_VAR} placeholders into generated config instead of literal API keys"),
     apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),

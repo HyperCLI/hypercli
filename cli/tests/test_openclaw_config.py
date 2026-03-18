@@ -54,10 +54,10 @@ def test_config_openclaw_supports_placeholder_api_key_env():
             {"id": "qwen3-embedding-4b", "name": "Qwen3 Embedding 4B", "mode": "embedding"},
         ],
         "https://api.agents.hypercli.com",
-        placeholder_env="HYPER_AGENTS_API_KEY",
+        placeholder_env="HYPER_API_KEY",
     )
 
     providers = config["models"]["providers"]
-    assert providers["hyperclaw"]["apiKey"] == "${HYPER_AGENTS_API_KEY}"
-    assert providers["kimi-coding"]["apiKey"] == "${HYPER_AGENTS_API_KEY}"
-    assert config["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "${HYPER_AGENTS_API_KEY}"
+    assert providers["hyperclaw"]["apiKey"] == "${HYPER_API_KEY}"
+    assert providers["kimi-coding"]["apiKey"] == "${HYPER_API_KEY}"
+    assert config["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "${HYPER_API_KEY}"

@@ -18,10 +18,10 @@ DEFAULT_API_BASE = "https://api.hypercli.com"
 
 
 def _get_api_key(key: str | None) -> str:
-    """Resolve API key: --key flag > env HYPERCLAW_API_KEY > agent-key.json."""
+    """Resolve API key: --key flag > env HYPER_API_KEY > agent-key.json."""
     if key:
         return key
-    env_key = os.environ.get("HYPERCLAW_API_KEY", "").strip()
+    env_key = os.environ.get("HYPER_API_KEY", "").strip()
     if env_key:
         return env_key
     if AGENT_KEY_PATH.exists():
@@ -30,15 +30,15 @@ def _get_api_key(key: str | None) -> str:
         if k:
             return k
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPERCLAW_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
+    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPER_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
     raise typer.Exit(1)
 
 
 def _resolve_api_base(base_url: str | None) -> str:
-    """Resolve API base: --base-url > HYPERCLAW_API_BASE env > default."""
+    """Resolve API base: --base-url > HYPER_API_BASE env > default."""
     if base_url:
         return base_url.rstrip("/")
-    env_base = os.environ.get("HYPERCLAW_API_BASE", "").strip()
+    env_base = os.environ.get("HYPER_API_BASE", "").strip()
     if env_base:
         return env_base.rstrip("/")
     return DEFAULT_API_BASE

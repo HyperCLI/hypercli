@@ -141,9 +141,9 @@ class TestHyperAgentIntegration:
     @pytest.fixture
     def agent_client(self):
         """Create a HyperAgent client for integration tests."""
-        api_key = os.getenv("HYPERCLAW_API_KEY")
+        api_key = os.getenv("HYPER_API_KEY")
         if not api_key:
-            pytest.skip("HYPERCLAW_API_KEY not set")
+            pytest.skip("HYPER_API_KEY not set")
         
         # Create minimal mock http for standalone client
         http = Mock()
