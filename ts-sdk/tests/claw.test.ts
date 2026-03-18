@@ -3,7 +3,7 @@ import { HyperCLI } from '../src/client.js';
 import { HyperAgent } from '../src/agent.js';
 
 describe('HyperAgent API', () => {
-  const client = new HyperCLI();
+  const client = new HyperCLI({ apiKey: 'hyper_api_test_key' });
 
   it('exposes HyperAgent as the primary inference client', () => {
     expect(client.agent).toBeInstanceOf(HyperAgent);
@@ -44,6 +44,62 @@ describe('HyperAgent API', () => {
       const plan = plans[0];
       expect(plan).toHaveProperty('id');
       expect(plan).toHaveProperty('name');
+    }
+  });
+
+  it('uses the API plans endpoint on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(JSON.stringify({ plans: [] }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as typeof fetch;
+
+    try {
+      await agent.plans();
+      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/plans');
+      expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('uses the API current-plan endpoint on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          id: '1aiu',
+          name: '1 Agent',
+          price: 20,
+          aiu: 1,
+          limits: { tpd: 1, burst_tpm: 1, rpm: 1 },
+          features: [],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      await agent.currentPlan();
+      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/plans/current');
+      expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
+    } finally {
+      globalThis.fetch = fetchMock;
     }
   });
 });

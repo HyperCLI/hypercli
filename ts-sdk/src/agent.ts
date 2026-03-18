@@ -138,7 +138,7 @@ export class HyperAgent {
   }
 
   async plans(): Promise<HyperAgentPlan[]> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/plans`, {
+    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -153,7 +153,7 @@ export class HyperAgent {
   }
 
   async currentPlan(): Promise<HyperAgentCurrentPlan> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/plans/current`, {
+    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans/current`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
