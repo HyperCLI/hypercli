@@ -220,6 +220,7 @@ class X402Client:
         gpu_type: str = "l40s",
         gpu_count: int = 1,
         region: str | None = None,
+        constraints: dict[str, str] | None = None,
         interruptible: bool = True,
         env: dict[str, str] | None = None,
         ports: dict[str, int] | None = None,
@@ -238,6 +239,8 @@ class X402Client:
         }
         if region:
             job_payload["region"] = region
+        if constraints:
+            job_payload["constraints"] = constraints
         if env:
             job_payload["env_vars"] = env
         if ports:

@@ -14,6 +14,7 @@ class GPUConfig:
     memory_gb: float
     storage_gb: float
     regions: list[str]
+    constraints: dict[str, str] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "GPUConfig":
@@ -23,6 +24,7 @@ class GPUConfig:
             memory_gb=data.get("memory_gb", 0),
             storage_gb=data.get("storage_gb", 0),
             regions=data.get("regions", []),
+            constraints=data.get("constraints"),
         )
 
 

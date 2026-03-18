@@ -98,6 +98,52 @@ def test_instances_launch_dry_run_mock(monkeypatch):
     assert "job-dryrun" in result.stdout
 
 
+def test_instances_launch_dry_run_includes_constraints(monkeypatch):
+    captured = {}
+
+    class FakeJobs:
+        def create(self, **kwargs):
+            captured.update(kwargs)
+            return SimpleNamespace(
+                job_id="job-dryrun",
+                state="validated",
+                gpu_type="h200",
+                gpu_count=8,
+                region="br",
+                constraints={"cpu_vendor": "amd"},
+                price_per_hour=12.34,
+                runtime=300,
+                cold_boot=False,
+                hostname=None,
+            )
+
+    fake_client = SimpleNamespace(jobs=FakeJobs())
+    monkeypatch.setattr("hypercli_cli.instances.get_client", lambda: fake_client)
+
+    result = runner.invoke(
+        app,
+        [
+            "instances",
+            "launch",
+            "nvidia/cuda:12.0-base-ubuntu22.04",
+            "--dry-run",
+            "--gpu",
+            "h200",
+            "--count",
+            "8",
+            "--cpu-vendor",
+            "amd",
+            "--constraint",
+            "stack=prod",
+            "--output",
+            "json",
+        ],
+    )
+
+    assert result.exit_code == 0
+    assert captured["constraints"] == {"cpu_vendor": "amd", "stack": "prod"}
+
+
 def test_agent_exec_command(monkeypatch):
     called = {}
 

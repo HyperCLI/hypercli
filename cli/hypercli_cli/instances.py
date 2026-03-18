@@ -11,6 +11,21 @@ def get_client() -> HyperCLI:
     return HyperCLI()
 
 
+def _parse_constraints(
+    constraints: Optional[list[str]],
+    cpu_vendor: Optional[str],
+) -> dict[str, str] | None:
+    parsed: dict[str, str] = {}
+    for item in constraints or []:
+        key, sep, value = item.partition("=")
+        if not sep or not key or not value:
+            raise typer.BadParameter(f"Invalid constraint '{item}', expected KEY=VALUE")
+        parsed[key.strip()] = value.strip()
+    if cpu_vendor:
+        parsed.setdefault("cpu_vendor", cpu_vendor.strip())
+    return parsed or None
+
+
 @app.command("list")
 def list_instances(
     gpu: Optional[str] = typer.Option(None, "--gpu", "-g", help="Filter by GPU type"),
@@ -64,7 +79,13 @@ def list_gpus(
 
     if fmt == "json":
         output({k: {"name": v.name, "description": v.description, "configs": [
-            {"gpu_count": c.gpu_count, "cpu_cores": c.cpu_cores, "memory_gb": c.memory_gb, "regions": c.regions}
+            {
+                "gpu_count": c.gpu_count,
+                "cpu_cores": c.cpu_cores,
+                "memory_gb": c.memory_gb,
+                "regions": c.regions,
+                "constraints": c.constraints,
+            }
             for c in v.configs
         ]} for k, v in types.items()}, "json")
     else:
@@ -187,6 +208,8 @@ def launch(
     gpu: str = typer.Option("l40s", "--gpu", "-g", help="GPU type"),
     count: int = typer.Option(1, "--count", "-n", help="Number of GPUs"),
     region: Optional[str] = typer.Option(None, "--region", "-r", help="Region code"),
+    constraint: Optional[list[str]] = typer.Option(None, "--constraint", help="Placement constraint KEY=VALUE (repeatable)"),
+    cpu_vendor: Optional[str] = typer.Option(None, "--cpu-vendor", help="CPU vendor constraint (e.g. intel, amd)"),
     runtime: Optional[int] = typer.Option(None, "--runtime", "-t", help="Runtime in seconds"),
     interruptible: bool = typer.Option(True, "--interruptible/--on-demand", help="Use interruptible instances"),
     env: Optional[list[str]] = typer.Option(None, "--env", "-e", help="Env vars (KEY=VALUE)"),
@@ -256,6 +279,8 @@ def launch(
     if command and any(op in command for op in ["&&", "||", "|", ";", ">", "<", "$"]):
         command = f'sh -c "{command}"'
 
+    constraints = _parse_constraints(constraint, cpu_vendor)
+
     follow_api_key = None
 
     if x402:
@@ -281,6 +306,7 @@ def launch(
                 gpu_type=gpu,
                 gpu_count=count,
                 region=region,
+                constraints=constraints,
                 interruptible=interruptible,
                 env=env_dict,
                 ports=ports_dict,
@@ -330,6 +356,7 @@ def launch(
                 gpu_type=gpu,
                 gpu_count=count,
                 region=region,
+                constraints=constraints,
                 runtime=runtime,
                 interruptible=interruptible,
                 env=env_dict,

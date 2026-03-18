@@ -15,6 +15,7 @@ class Job:
     gpu_type: str
     gpu_count: int
     region: str
+    constraints: dict[str, str] | None
     interruptible: bool
     price_per_hour: float
     price_per_second: float
@@ -47,6 +48,7 @@ class Job:
             gpu_type=data.get("gpu_type", ""),
             gpu_count=data.get("gpu_count", 1),
             region=data.get("region", ""),
+            constraints=data.get("constraints"),
             interruptible=data.get("interruptible", True),
             price_per_hour=data.get("price_per_hour", 0),
             price_per_second=data.get("price_per_second", 0),
@@ -170,6 +172,7 @@ class Jobs:
         gpu_type: str = "l40s",
         gpu_count: int = 1,
         region: str = None,
+        constraints: dict[str, str] = None,
         runtime: int = None,
         interruptible: bool = True,
         env: dict[str, str] = None,
@@ -188,6 +191,7 @@ class Jobs:
             gpu_type: GPU type (e.g., "l40s", "a100")
             gpu_count: Number of GPUs
             region: Region to run in
+            constraints: Optional placement constraints (e.g., {"cpu_vendor": "intel"})
             runtime: Max runtime in seconds
             interruptible: Allow spot/preemptible instances
             env: Environment variables
@@ -206,6 +210,8 @@ class Jobs:
         }
         if region:
             payload["region"] = region
+        if constraints:
+            payload["constraints"] = constraints
         if runtime:
             payload["runtime"] = runtime
         if env:
