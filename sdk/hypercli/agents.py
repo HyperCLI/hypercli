@@ -30,6 +30,46 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 
 
+def build_openclaw_routes(
+    *,
+    include_gateway: bool = True,
+    include_desktop: bool = True,
+    gateway_port: int = 18789,
+    desktop_port: int = 3000,
+    gateway_auth: bool = False,
+    desktop_auth: bool = True,
+    gateway_prefix: str = "",
+    desktop_prefix: str = "desktop",
+) -> dict[str, dict]:
+    routes: dict[str, dict] = {}
+    if include_gateway:
+        routes["openclaw"] = {
+            "port": int(gateway_port),
+            "auth": bool(gateway_auth),
+            "prefix": str(gateway_prefix),
+        }
+    if include_desktop:
+        routes["desktop"] = {
+            "port": int(desktop_port),
+            "auth": bool(desktop_auth),
+            "prefix": str(desktop_prefix),
+        }
+    return routes
+
+
+def _resolve_openclaw_routes(
+    routes: dict | None,
+    *,
+    openclaw_routes: dict | None = None,
+    openclaw_route_options: dict | None = None,
+) -> dict | None:
+    if routes is not None:
+        return routes
+    if openclaw_routes is not None:
+        return openclaw_routes
+    return build_openclaw_routes(**dict(openclaw_route_options or {}))
+
+
 def _default_gateway_timeout() -> float | None:
     raw = (
         os.environ.get("HYPERCLI_GATEWAY_TIMEOUT")
@@ -949,6 +989,50 @@ class Deployments:
         agent.entrypoint = list(prepared_config.get("entrypoint") or [])
         return agent
 
+    def create_openclaw(
+        self,
+        name: str = None,
+        size: str = None,
+        cpu: int = None,
+        memory: int = None,
+        config: dict = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        gateway_token: str = None,
+        dry_run: bool = False,
+        start: bool = True,
+        openclaw_routes: dict | None = None,
+        openclaw_route_options: dict | None = None,
+    ) -> Agent:
+        return self.create(
+            name=name,
+            size=size,
+            cpu=cpu,
+            memory=memory,
+            config=config,
+            env=env,
+            ports=ports,
+            routes=_resolve_openclaw_routes(
+                routes,
+                openclaw_routes=openclaw_routes,
+                openclaw_route_options=openclaw_route_options,
+            ),
+            command=command,
+            entrypoint=entrypoint,
+            image=image,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
+            dry_run=dry_run,
+            start=start,
+        )
+
     def budget(self) -> dict:
         """Get the user's current agent resource budget and usage.
 
@@ -1050,6 +1134,42 @@ class Deployments:
         agent.command = list(prepared_config.get("command") or [])
         agent.entrypoint = list(prepared_config.get("entrypoint") or [])
         return agent
+
+    def start_openclaw(
+        self,
+        agent_id: str,
+        config: dict = None,
+        env: dict = None,
+        ports: list = None,
+        routes: dict = None,
+        command: list[str] = None,
+        entrypoint: list[str] = None,
+        image: str = None,
+        registry_url: str = None,
+        registry_auth: dict = None,
+        gateway_token: str = None,
+        dry_run: bool = False,
+        openclaw_routes: dict | None = None,
+        openclaw_route_options: dict | None = None,
+    ) -> Agent:
+        return self.start(
+            agent_id,
+            config=config,
+            env=env,
+            ports=ports,
+            routes=_resolve_openclaw_routes(
+                routes,
+                openclaw_routes=openclaw_routes,
+                openclaw_route_options=openclaw_route_options,
+            ),
+            command=command,
+            entrypoint=entrypoint,
+            image=image,
+            registry_url=registry_url,
+            registry_auth=registry_auth,
+            gateway_token=gateway_token,
+            dry_run=dry_run,
+        )
 
     def stop(self, agent_id: str) -> Agent:
         """Stop an agent (tears down pod, keeps DB record).

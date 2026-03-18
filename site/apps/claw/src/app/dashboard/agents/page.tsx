@@ -1447,7 +1447,7 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await createAgentClient(token).start(agentId);
+      await createAgentClient(token).startOpenClaw(agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start agent");

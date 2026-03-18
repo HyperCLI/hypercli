@@ -9,7 +9,14 @@ from unittest.mock import MagicMock, Mock, patch
 
 import pytest
 
-from hypercli.agents import Agent, Deployments, OpenClawAgent, ExecResult, _build_agent_config
+from hypercli.agents import (
+    Agent,
+    Deployments,
+    OpenClawAgent,
+    ExecResult,
+    _build_agent_config,
+    build_openclaw_routes,
+)
 from hypercli.http import APIError, HTTPClient
 
 
@@ -375,6 +382,73 @@ def test_build_agent_config_includes_command_and_entrypoint():
     assert config["entrypoint"] == ["/bin/sh", "-c"]
     assert config["routes"] == {"web": {"port": 80, "prefix": ""}}
 
+
+def test_build_openclaw_routes_defaults():
+    assert build_openclaw_routes() == {
+        "openclaw": {"port": 18789, "auth": False, "prefix": ""},
+        "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
+    }
+
+
+def test_build_openclaw_routes_allows_overrides():
+    assert build_openclaw_routes(
+        include_desktop=False,
+        gateway_port=19999,
+        gateway_auth=True,
+        gateway_prefix="app",
+    ) == {
+        "openclaw": {"port": 19999, "auth": True, "prefix": "app"},
+    }
+
+
+def test_create_openclaw_defaults_routes_when_omitted(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+            "openclaw_url": "wss://test.hypercli.com",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(name="test-agent")
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["config"]["routes"] == {
+            "openclaw": {"port": 18789, "auth": False, "prefix": ""},
+            "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
+        }
+
+
+def test_create_openclaw_respects_explicit_empty_routes(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(name="test-agent", routes={})
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["config"]["routes"] == {}
 
 @pytest.fixture
 def mock_http():

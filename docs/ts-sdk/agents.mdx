@@ -83,16 +83,40 @@ Create/start options:
 - `gatewayToken`
 - `dryRun`
 
+## OpenClaw Presets
+
+Use the OpenClaw-specific helpers when you want the SDK to provide the standard gateway and desktop routes:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "docs-demo",
+  start: true,
+});
+```
+
+Default OpenClaw routes are:
+
+- `openclaw`
+  - `prefix: ""`
+  - `port: 18789`
+- `desktop`
+  - `prefix: "desktop"`
+  - `port: 3000`
+
+Route semantics are explicit:
+
+- omit `routes`
+  - SDK injects the standard OpenClaw routes
+- pass `routes: {}`
+  - no routes are created
+- pass a non-empty `routes` object
+  - SDK uses exactly what you passed
+
+The same contract applies to `startOpenClaw(...)`.
+
 ## Routes
 
-Routes are a generic dict keyed by route name.
-
-Platform defaults for OpenClaw agents:
-
-- root host = gateway
-- `desktop` route = noVNC desktop
-
-Everything else is user-defined.
+Routes are a generic dict keyed by route name. Outside the OpenClaw helper methods, the SDK does not inject route defaults.
 
 ```ts
 const agent = await client.deployments.create({

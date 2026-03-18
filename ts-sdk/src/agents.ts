@@ -80,6 +80,17 @@ export interface BuildAgentConfigOptions {
   gatewayToken?: string | null;
 }
 
+export interface OpenClawRouteOptions {
+  includeGateway?: boolean;
+  includeDesktop?: boolean;
+  gatewayPort?: number;
+  desktopPort?: number;
+  gatewayAuth?: boolean;
+  desktopAuth?: boolean;
+  gatewayPrefix?: string;
+  desktopPrefix?: string;
+}
+
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
   size?: string;
@@ -93,6 +104,14 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
 export interface StartAgentOptions extends BuildAgentConfigOptions {
   config?: Record<string, any>;
   dryRun?: boolean;
+}
+
+export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
+  openClawRoutes?: OpenClawRouteOptions | null;
+}
+
+export interface OpenClawStartAgentOptions extends StartAgentOptions {
+  openClawRoutes?: OpenClawRouteOptions | null;
 }
 
 export interface AgentExecOptions {
@@ -334,6 +353,25 @@ export function buildAgentConfig(
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
 
   return { config: prepared, gatewayToken };
+}
+
+export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
+  const routes: Record<string, AgentRouteConfig> = {};
+  if (options.includeGateway ?? true) {
+    routes.openclaw = {
+      port: options.gatewayPort ?? 18789,
+      auth: options.gatewayAuth ?? false,
+      prefix: options.gatewayPrefix ?? '',
+    };
+  }
+  if (options.includeDesktop ?? true) {
+    routes.desktop = {
+      port: options.desktopPort ?? 3000,
+      auth: options.desktopAuth ?? true,
+      prefix: options.desktopPrefix ?? 'desktop',
+    };
+  }
+  return routes;
 }
 
 async function getFsPromises() {
@@ -1125,6 +1163,14 @@ export class Deployments {
     return agent;
   }
 
+  async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
+    const effectiveOptions: CreateAgentOptions = { ...options };
+    if (options.routes === undefined) {
+      effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
+    }
+    return this.create(effectiveOptions);
+  }
+
   async budget(): Promise<Record<string, any>> {
     return this.http.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
   }
@@ -1177,6 +1223,14 @@ export class Deployments {
     agent.command = [...(config.command ?? [])];
     agent.entrypoint = [...(config.entrypoint ?? [])];
     return agent;
+  }
+
+  async startOpenClaw(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
+    const effectiveOptions: StartAgentOptions = { ...options };
+    if (options.routes === undefined) {
+      effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
+    }
+    return this.start(agentId, effectiveOptions);
   }
 
   async stop(agentId: string): Promise<Agent> {

@@ -2,13 +2,34 @@
  * Configuration handling for HyperCLI SDK
  * Priority: env vars > config file > defaults
  */
-import { homedir } from 'os';
-import { join } from 'path';
-import { readFileSync, existsSync } from 'fs';
-import { writeFileSync, mkdirSync, chmodSync } from 'fs';
+type NodeRequireFn = ((id: string) => any) | null;
 
-export const CONFIG_DIR = join(homedir(), '.hypercli');
-export const CONFIG_FILE = join(CONFIG_DIR, 'config');
+function getNodeRequire(): NodeRequireFn {
+  try {
+    return (0, eval)('require') as (id: string) => any;
+  } catch {
+    return null;
+  }
+}
+
+function getNodeConfigPaths(): { configDir: string; configFile: string } | null {
+  const req = getNodeRequire();
+  if (!req) return null;
+  try {
+    const { homedir } = req('os') as typeof import('os');
+    const { join } = req('path') as typeof import('path');
+    const configDir = join(homedir(), '.hypercli');
+    return {
+      configDir,
+      configFile: join(configDir, 'config'),
+    };
+  } catch {
+    return null;
+  }
+}
+
+export const CONFIG_DIR = getNodeConfigPaths()?.configDir || '.hypercli';
+export const CONFIG_FILE = getNodeConfigPaths()?.configFile || '.hypercli/config';
 
 export const DEFAULT_API_URL = 'https://api.hypercli.com';
 export const DEFAULT_WS_URL = 'wss://api.hypercli.com';
@@ -27,12 +48,18 @@ export const COMFYUI_IMAGE = `${GHCR_IMAGES}/comfyui`;
  */
 function loadConfigFile(): Record<string, string> {
   const config: Record<string, string> = {};
-  
-  if (!existsSync(CONFIG_FILE)) {
+
+  const req = getNodeRequire();
+  if (!req) {
     return config;
   }
 
   try {
+    const { existsSync, readFileSync } = req('fs') as typeof import('fs');
+    if (!existsSync(CONFIG_FILE)) {
+      return config;
+    }
+
     const content = readFileSync(CONFIG_FILE, 'utf-8');
     for (const line of content.split('\n')) {
       const trimmed = line.trim();
@@ -48,12 +75,19 @@ function loadConfigFile(): Record<string, string> {
   return config;
 }
 
+function readEnvValue(key: string): string | undefined {
+  if (typeof process === 'undefined' || !process?.env) {
+    return undefined;
+  }
+  return process.env[key];
+}
+
 /**
  * Get config value: env var > config file > default
  */
 export function getConfigValue(key: string, defaultValue?: string): string | undefined {
   // Try environment variable first
-  const envVal = process.env[key];
+  const envVal = readEnvValue(key);
   if (envVal) {
     return envVal;
   }
@@ -121,6 +155,12 @@ export function configure(
   agentsApiBaseUrl?: string,
   agentsWsUrl?: string,
 ): void {
+  const req = getNodeRequire();
+  if (!req) {
+    throw new Error('configure() is only available in Node.js environments');
+  }
+  const { existsSync, writeFileSync, mkdirSync, chmodSync } = req('fs') as typeof import('fs');
+
   // Create directory if it doesn't exist
   if (!existsSync(CONFIG_DIR)) {
     mkdirSync(CONFIG_DIR, { recursive: true });

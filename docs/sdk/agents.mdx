@@ -100,14 +100,40 @@ Accepted create/start options:
 - `dry_run`
 - `start`
 
+### OpenClaw Presets
+
+Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw routes:
+
+```python
+agent = client.deployments.create_openclaw(
+    name="docs-demo",
+    start=True,
+)
+```
+
+Default OpenClaw routes are:
+
+- `openclaw`
+  - `prefix=""`
+  - `port=18789`
+- `desktop`
+  - `prefix="desktop"`
+  - `port=3000`
+
+Route semantics are explicit:
+
+- omit `routes`
+  - SDK injects the standard OpenClaw routes
+- pass `routes={}`
+  - no routes are created
+- pass a non-empty `routes` dict
+  - SDK uses exactly what you passed
+
+The same contract applies to `start_openclaw(...)`.
+
 ### Route Configuration
 
-Routes are passed as a plain dict. The platform only owns two defaults for OpenClaw agents:
-
-- root route for the gateway
-- `desktop` route for noVNC
-
-Everything else is user-defined.
+Routes are passed as a plain dict. Outside the OpenClaw helper methods, the SDK does not inject route defaults.
 
 Example:
 

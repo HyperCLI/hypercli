@@ -5,6 +5,7 @@ import {
   Deployments,
   OpenClawAgent,
   buildAgentConfig,
+  buildOpenClawRoutes,
 } from '../src/agents.js';
 
 class MockWebSocket {
@@ -51,6 +52,74 @@ describe('HyperClaw agents SDK', () => {
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
     expect(config.image).toBe('ghcr.io/acme/reef:test');
+  });
+
+  it('buildOpenClawRoutes returns the default gateway and desktop routes', () => {
+    expect(buildOpenClawRoutes()).toEqual({
+      openclaw: { port: 18789, auth: false, prefix: '' },
+      desktop: { port: 3000, auth: true, prefix: 'desktop' },
+    });
+  });
+
+  it('buildOpenClawRoutes allows route overrides', () => {
+    expect(buildOpenClawRoutes({
+      includeDesktop: false,
+      gatewayPort: 19999,
+      gatewayAuth: true,
+      gatewayPrefix: 'app',
+    })).toEqual({
+      openclaw: { port: 19999, auth: true, prefix: 'app' },
+    });
+  });
+
+  it('createOpenClaw defaults routes when omitted', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+      openclaw_url: 'wss://agent.dev.hypercli.com',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({ name: 'test-agent' });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      config: expect.objectContaining({
+        routes: {
+          openclaw: { port: 18789, auth: false, prefix: '' },
+          desktop: { port: 3000, auth: true, prefix: 'desktop' },
+        },
+      }),
+    }));
+  });
+
+  it('createOpenClaw respects explicit empty routes', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.createOpenClaw({ name: 'test-agent', routes: {} });
+
+    expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
+      config: expect.objectContaining({
+        routes: {},
+      }),
+    }));
   });
 
   it('hydrates generic and OpenClaw agents correctly', () => {

@@ -105,6 +105,7 @@ export {
   Agent,
   OpenClawAgent,
   buildAgentConfig,
+  buildOpenClawRoutes,
   type AgentExecResult,
   type AgentTokenResponse,
   type AgentShellTokenResponse,
@@ -112,7 +113,10 @@ export {
   type AgentRouteConfig,
   type RegistryAuth,
   type BuildAgentConfigOptions,
+  type OpenClawRouteOptions,
   type CreateAgentOptions,
+  type OpenClawCreateAgentOptions,
+  type OpenClawStartAgentOptions,
   type StartAgentOptions,
   type AgentExecOptions,
 } from './agents.js';

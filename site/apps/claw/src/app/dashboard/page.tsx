@@ -179,7 +179,7 @@ export default function DashboardPage() {
     setStartingId(agentId);
     try {
       const token = await getToken();
-      await createAgentClient(token).start(agentId);
+      await createAgentClient(token).startOpenClaw(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStartingId(null);
