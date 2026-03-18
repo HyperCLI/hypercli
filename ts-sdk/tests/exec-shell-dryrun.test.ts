@@ -2,6 +2,7 @@ import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   Agent,
+  DEFAULT_OPENCLAW_IMAGE,
   Deployments,
   OpenClawAgent,
   buildAgentConfig,
@@ -39,7 +40,7 @@ describe('HyperClaw agents SDK', () => {
         command: ['echo', 'hello'],
         entrypoint: ['/bin/sh', '-c'],
         routes: { openclaw: { port: 18789, auth: false } },
-        image: 'ghcr.io/acme/reef:test',
+        image: 'ghcr.io/acme/hypercli-openclaw:test',
       },
     );
 
@@ -51,7 +52,7 @@ describe('HyperClaw agents SDK', () => {
     expect(config.command).toEqual(['echo', 'hello']);
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
-    expect(config.image).toBe('ghcr.io/acme/reef:test');
+    expect(config.image).toBe('ghcr.io/acme/hypercli-openclaw:test');
   });
 
   it('buildOpenClawRoutes returns the default gateway and desktop routes', () => {
@@ -91,6 +92,7 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       config: expect.objectContaining({
+        image: DEFAULT_OPENCLAW_IMAGE,
         routes: {
           openclaw: { port: 18789, auth: false, prefix: '' },
           desktop: { port: 3000, auth: true, prefix: 'desktop' },
@@ -117,6 +119,7 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       config: expect.objectContaining({
+        image: DEFAULT_OPENCLAW_IMAGE,
         routes: {},
       }),
     }));

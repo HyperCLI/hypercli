@@ -17,6 +17,7 @@ const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
 const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
+export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
 
 export interface AgentExecResult {
   exitCode: number;
@@ -353,6 +354,15 @@ export function buildAgentConfig(
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
 
   return { config: prepared, gatewayToken };
+}
+
+function defaultOpenClawImage(
+  image: string | null | undefined,
+  config: Record<string, any> | null | undefined,
+): string {
+  if (image !== undefined && image !== null) return image;
+  const configured = String(config?.image ?? '').trim();
+  return configured || DEFAULT_OPENCLAW_IMAGE;
 }
 
 export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
@@ -1168,6 +1178,7 @@ export class Deployments {
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
+    effectiveOptions.image = defaultOpenClawImage(options.image, options.config ?? {});
     return this.create(effectiveOptions);
   }
 
@@ -1230,6 +1241,7 @@ export class Deployments {
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
+    effectiveOptions.image = defaultOpenClawImage(options.image, options.config ?? {});
     return this.start(agentId, effectiveOptions);
   }
 
