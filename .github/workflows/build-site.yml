@@ -18,8 +18,7 @@ jobs:
         id: build_site
         run: |
           set -euo pipefail
-          IMAGE_TAG="${GITHUB_SHA}"
-          .github/scripts/build_site_image.sh
+          IMAGE_TAG="${GITHUB_SHA}" .github/scripts/build_site_image.sh
 
       - name: Run site build in container
         run: |
