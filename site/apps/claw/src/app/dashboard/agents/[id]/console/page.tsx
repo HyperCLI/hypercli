@@ -26,7 +26,9 @@ import { createAgentClient } from "@/lib/agent-client";
 import {
   GatewayClient,
   type GatewayEvent,
+  type GatewayChatToolCall,
   type OpenClawConfigSchemaResponse,
+  normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/gateway";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
@@ -48,7 +50,7 @@ interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   thinking?: string;
-  toolCalls?: Array<{ name: string; args: string; result?: string }>;
+  toolCalls?: Array<{ id?: string; name: string; args: string; result?: string }>;
   timestamp?: number;
 }
 
@@ -102,6 +104,158 @@ function formatFileSize(size?: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function formatToolValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function summarizeToolCalls(
+  toolCalls: GatewayChatToolCall[],
+): ChatMessage["toolCalls"] | undefined {
+  if (toolCalls.length === 0) return undefined;
+  return toolCalls.map((toolCall) => ({
+    ...(toolCall.id ? { id: toolCall.id } : {}),
+    name: toolCall.name,
+    args: formatToolValue(toolCall.args),
+    ...(toolCall.result !== undefined ? { result: formatToolValue(toolCall.result) } : {}),
+  }));
+}
+
+function normalizeStructuredAssistantMessage(message: unknown): ChatMessage | null {
+  const normalized = normalizeGatewayChatMessage(message);
+  if (!normalized) return null;
+  const role = typeof normalized.role === "string" ? normalized.role.trim().toLowerCase() : "assistant";
+  if (role !== "assistant") {
+    return null;
+  }
+  const toolCalls = summarizeToolCalls(normalized.toolCalls);
+  if (!normalized.text.trim() && !normalized.thinking.trim() && (!toolCalls || toolCalls.length === 0)) {
+    return null;
+  }
+  return {
+    role: "assistant",
+    content: normalized.text,
+    ...(normalized.thinking.trim() ? { thinking: normalized.thinking } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+    timestamp: normalized.timestamp ?? Date.now(),
+  };
+}
+
+function mergeToolCalls(
+  current: NonNullable<ChatMessage["toolCalls"]>,
+  incoming: NonNullable<ChatMessage["toolCalls"]>,
+): NonNullable<ChatMessage["toolCalls"]> {
+  const next = [...current];
+  for (const toolCall of incoming) {
+    let index = -1;
+    for (let cursor = next.length - 1; cursor >= 0; cursor -= 1) {
+      const entry = next[cursor];
+      if (toolCall.id && entry.id && entry.id === toolCall.id) {
+        index = cursor;
+        break;
+      }
+      if (toolCall.result !== undefined) {
+        if (entry.name === toolCall.name && entry.result == null) {
+          index = cursor;
+          break;
+        }
+        continue;
+      }
+      if (entry.name === toolCall.name && entry.args === toolCall.args) {
+        index = cursor;
+        break;
+      }
+    }
+    if (index >= 0) {
+      next[index] = {
+        ...next[index],
+        ...(toolCall.id ? { id: toolCall.id } : {}),
+        ...(toolCall.args ? { args: toolCall.args } : {}),
+        ...(toolCall.result !== undefined ? { result: toolCall.result } : {}),
+      };
+      continue;
+    }
+    next.push(toolCall);
+  }
+  return next;
+}
+
+function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  const last = prev[prev.length - 1];
+  if (last?.role === "assistant") {
+    const mergedContent = incoming.content
+      ? (
+        incoming.content.startsWith(last.content) || incoming.content.length >= last.content.length
+          ? incoming.content
+          : `${last.content}${incoming.content}`
+      )
+      : last.content;
+    const mergedThinking = incoming.thinking
+      ? (
+        last.thinking && (
+          incoming.thinking.startsWith(last.thinking) ||
+          incoming.thinking.length >= last.thinking.length
+        )
+          ? incoming.thinking
+          : `${last.thinking ?? ""}${incoming.thinking}`
+      )
+      : last.thinking;
+    const mergedToolCalls = incoming.toolCalls
+      ? mergeToolCalls(last.toolCalls ?? [], incoming.toolCalls)
+      : last.toolCalls;
+    return [...prev.slice(0, -1), {
+      ...last,
+      content: mergedContent,
+      ...(mergedThinking ? { thinking: mergedThinking } : {}),
+      ...(mergedToolCalls && mergedToolCalls.length > 0 ? { toolCalls: mergedToolCalls } : {}),
+      timestamp: incoming.timestamp ?? last.timestamp,
+    }];
+  }
+  return [...prev, incoming];
+}
+
+function normalizeLiveToolCall(
+  payload: Record<string, unknown>,
+): NonNullable<ChatMessage["toolCalls"]>[number] | null {
+  const name =
+    (typeof payload.name === "string" && payload.name.trim()) ||
+    (typeof payload.toolName === "string" && payload.toolName.trim()) ||
+    (typeof payload.tool_name === "string" && payload.tool_name.trim());
+  if (!name) return null;
+  return {
+    ...(typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+      ? { id: payload.toolCallId.trim() }
+      : {}),
+    name,
+    args: formatToolValue(payload.args ?? payload.arguments),
+  };
+}
+
+function normalizeLiveToolResult(
+  payload: Record<string, unknown>,
+): NonNullable<ChatMessage["toolCalls"]>[number] | null {
+  const result = formatToolValue(payload.result ?? payload.content ?? payload.text ?? payload.partialResult);
+  if (!result) return null;
+  const name =
+    (typeof payload.name === "string" && payload.name.trim()) ||
+    (typeof payload.toolName === "string" && payload.toolName.trim()) ||
+    (typeof payload.tool_name === "string" && payload.tool_name.trim()) ||
+    "tool";
+  return {
+    ...(typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+      ? { id: payload.toolCallId.trim() }
+      : {}),
+    name,
+    args: formatToolValue(payload.args ?? payload.arguments),
+    result,
+  };
 }
 
 // -----------------------------------------------------------------------
@@ -232,31 +386,51 @@ export default function AgentConsolePage() {
       gw.onEvent((gatewayEvent: GatewayEvent) => {
         const event = gatewayEvent.event;
         const payload = gatewayEvent.payload ?? {};
-        if (event === "chat.content") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...last, content: last.content + (payload.text ?? "") }];
-            }
-            return [...prev, { role: "assistant", content: payload.text as string ?? "", timestamp: Date.now() }];
-          });
+        if (event === "chat") {
+          const normalized = normalizeStructuredAssistantMessage(
+            (payload as Record<string, unknown>).message,
+          );
+          if (normalized) {
+            setMessages((prev) => upsertAssistantMessage(prev, normalized));
+          }
+          if ((payload as Record<string, unknown>).state === "final") {
+            setSending(false);
+          }
+        } else if (event === "chat.content") {
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (!text) return;
+          setMessages((prev) => upsertAssistantMessage(prev, {
+            role: "assistant",
+            content: text,
+            timestamp: Date.now(),
+          }));
         } else if (event === "chat.thinking") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              return [...prev.slice(0, -1), { ...last, thinking: (last.thinking ?? "") + (payload.text ?? "") }];
-            }
-            return [...prev, { role: "assistant", content: "", thinking: payload.text as string ?? "", timestamp: Date.now() }];
-          });
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (!text) return;
+          setMessages((prev) => upsertAssistantMessage(prev, {
+            role: "assistant",
+            content: "",
+            thinking: text,
+            timestamp: Date.now(),
+          }));
         } else if (event === "chat.tool_call") {
-          setMessages((prev) => {
-            const last = prev[prev.length - 1];
-            if (last?.role === "assistant") {
-              const tc = { name: (payload as any).name ?? "?", args: JSON.stringify(payload) };
-              return [...prev.slice(0, -1), { ...last, toolCalls: [...(last.toolCalls ?? []), tc] }];
-            }
-            return prev;
-          });
+          const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
+          if (!toolCall) return;
+          setMessages((prev) => upsertAssistantMessage(prev, {
+            role: "assistant",
+            content: "",
+            toolCalls: [toolCall],
+            timestamp: Date.now(),
+          }));
+        } else if (event === "chat.tool_result") {
+          const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
+          if (!toolResult) return;
+          setMessages((prev) => upsertAssistantMessage(prev, {
+            role: "assistant",
+            content: "",
+            toolCalls: [toolResult],
+            timestamp: Date.now(),
+          }));
         } else if (event === "chat.done") {
           setSending(false);
         } else if (event === "chat.error") {

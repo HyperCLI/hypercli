@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GatewayClient } from "../src/gateway.js";
+import { GatewayClient, normalizeGatewayChatMessage } from "../src/gateway.js";
 
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const URL_SCOPE_KEY = "wss://openclaw-agent.example|operator";
@@ -460,6 +460,95 @@ describe("GatewayClient", () => {
     const events = await streamPromise;
     expect(events.map((event) => event.type)).toEqual(["content", "done"]);
     expect(events[0]?.text).toBe("Recovered final answer");
+  });
+
+  it("normalizes thinking-only and tool-rich assistant messages", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      timestamp: 123,
+      content: [
+        { type: "thinking", thinking: "Plan A" },
+        { type: "tool_use", id: "tool-1", name: "exec", arguments: { command: "ls" } },
+        { type: "tool_result", id: "tool-1", name: "exec", text: "file-a\nfile-b" },
+      ],
+    });
+
+    expect(normalized).toEqual({
+      role: "assistant",
+      text: "",
+      thinking: "Plan A",
+      toolCalls: [
+        {
+          id: "tool-1",
+          name: "exec",
+          args: { command: "ls" },
+          result: "file-a\nfile-b",
+        },
+      ],
+      mediaUrls: [],
+      timestamp: 123,
+    });
+  });
+
+  it("chatSend emits thinking and tool events from final structured snapshots", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "final-structured-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Need structured final", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "final-structured-run",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "Need a tool." },
+            { type: "tool_use", id: "tool-1", name: "exec", arguments: { command: "ls" } },
+            { type: "tool_result", id: "tool-1", name: "exec", text: "a\nb" },
+          ],
+        },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual([
+      "thinking",
+      "tool_call",
+      "tool_result",
+      "done",
+    ]);
+    expect(events[0]?.text).toBe("Need a tool.");
+    expect(events[1]?.data).toEqual({
+      toolCallId: "tool-1",
+      name: "exec",
+      args: { command: "ls" },
+    });
+    expect(events[2]?.data).toEqual({
+      toolCallId: "tool-1",
+      name: "exec",
+      result: "a\nb",
+    });
   });
 
   it("auto-approves pairing through trusted exec and reconnects", async () => {

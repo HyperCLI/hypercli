@@ -4,7 +4,9 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GatewayClient,
   type GatewayEvent,
+  type GatewayChatToolCall,
   type OpenClawConfigSchemaResponse,
+  normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/gateway";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
@@ -26,7 +28,7 @@ export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
   thinking?: string;
-  toolCalls?: Array<{ name: string; args: string; result?: string }>;
+  toolCalls?: Array<{ id?: string; name: string; args: string; result?: string }>;
   mediaUrls?: string[];
   attachments?: ChatAttachment[]; // user-sent images
   files?: ChatPendingFile[]; // user-sent workspace files
@@ -48,89 +50,6 @@ interface Agent {
   gatewayToken?: string | null;
 }
 
-function normalizeHistoryMessage(message: unknown): ChatMessage | null {
-  if (!message || typeof message !== "object") return null;
-  const entry = message as Record<string, unknown>;
-  const rawRole = typeof entry.role === "string" ? entry.role.toLowerCase() : "";
-  const role: ChatMessage["role"] =
-    rawRole === "user" || rawRole === "assistant" || rawRole === "system"
-      ? rawRole
-      : "assistant";
-  const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : Date.now();
-
-  const extractContent = (): string => {
-    if (typeof entry.text === "string") return maybeDecodeMojibake(entry.text);
-    if (typeof entry.content === "string") return maybeDecodeMojibake(entry.content);
-    if (!Array.isArray(entry.content)) return "";
-    const parts = entry.content
-      .map((item) => {
-        if (!item || typeof item !== "object") return "";
-        const part = item as Record<string, unknown>;
-        if (part.type !== "text") return "";
-        return typeof part.text === "string" ? part.text : "";
-      })
-      .filter(Boolean)
-      .join("");
-    return maybeDecodeMojibake(parts);
-  };
-
-  const content = extractContent();
-  if (!content.trim()) return null;
-
-  let thinking: string | undefined;
-  if (Array.isArray(entry.content)) {
-    const thinkingParts = entry.content
-      .map((item) => {
-        if (!item || typeof item !== "object") return "";
-        const part = item as Record<string, unknown>;
-        if (part.type !== "thinking") return "";
-        return typeof part.thinking === "string" ? part.thinking : "";
-      })
-      .filter(Boolean)
-      .join("\n")
-      .trim();
-    if (thinkingParts) {
-      thinking = maybeDecodeMojibake(thinkingParts);
-    }
-  }
-
-  // Extract media URLs from message
-  const mediaUrls: string[] = [];
-  if (Array.isArray(entry.content)) {
-    for (const item of entry.content) {
-      if (!item || typeof item !== "object") continue;
-      const part = item as Record<string, unknown>;
-      // Handle image content blocks (base64 inline or URL)
-      if (part.type === "image") {
-        if (typeof part.source === "object" && part.source) {
-          const source = part.source as Record<string, unknown>;
-          if (source.type === "url" && typeof source.url === "string") {
-            mediaUrls.push(source.url);
-          } else if (source.type === "base64" && typeof source.data === "string") {
-            const mime = (source.media_type as string) || "image/png";
-            mediaUrls.push(`data:${mime};base64,${source.data}`);
-          }
-        }
-      }
-    }
-  }
-  // Also check top-level mediaUrl/mediaUrls
-  if (typeof entry.mediaUrl === "string") mediaUrls.push(entry.mediaUrl);
-  if (Array.isArray(entry.mediaUrls)) {
-    for (const u of entry.mediaUrls) {
-      if (typeof u === "string") mediaUrls.push(u);
-    }
-  }
-
-  return {
-    role,
-    content,
-    ...(thinking ? { thinking } : {}),
-    ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
-    timestamp,
-  };
-}
-
 function maybeDecodeMojibake(text: string): string {
   // Some gateways occasionally emit UTF-8 text decoded as latin1 (e.g. ð, â).
   if (!/[Ãâð]/.test(text)) return text;
@@ -144,33 +63,179 @@ function maybeDecodeMojibake(text: string): string {
   return text;
 }
 
-function extractChatText(payload: Record<string, unknown>): string {
-  if (typeof payload.text === "string") {
-    return maybeDecodeMojibake(payload.text);
+function normalizeChatRole(role: string): ChatMessage["role"] {
+  const normalized = role.trim().toLowerCase();
+  if (normalized === "user" || normalized === "assistant" || normalized === "system") {
+    return normalized;
   }
+  return "assistant";
+}
 
-  const message =
-    payload.message && typeof payload.message === "object"
-      ? (payload.message as Record<string, unknown>)
-      : null;
-  if (!message) return "";
-
-  if (typeof message.content === "string") {
-    return maybeDecodeMojibake(message.content);
+function formatToolValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return maybeDecodeMojibake(value);
+  try {
+    return maybeDecodeMojibake(JSON.stringify(value, null, 2));
+  } catch {
+    return maybeDecodeMojibake(String(value));
   }
+}
 
-  if (!Array.isArray(message.content)) return "";
-  const parts = message.content
-    .map((entry) => {
-      if (!entry || typeof entry !== "object") return "";
-      const segment = entry as Record<string, unknown>;
-      if (segment.type !== "text") return "";
-      return typeof segment.text === "string" ? segment.text : "";
-    })
-    .filter(Boolean)
-    .join("");
+function summarizeToolCalls(
+  toolCalls: GatewayChatToolCall[],
+): ChatMessage["toolCalls"] | undefined {
+  if (toolCalls.length === 0) {
+    return undefined;
+  }
+  return toolCalls.map((toolCall) => ({
+    ...(toolCall.id ? { id: toolCall.id } : {}),
+    name: toolCall.name,
+    args: formatToolValue(toolCall.args),
+    ...(toolCall.result !== undefined ? { result: formatToolValue(toolCall.result) } : {}),
+  }));
+}
 
-  return maybeDecodeMojibake(parts);
+function normalizeHistoryMessage(message: unknown): ChatMessage | null {
+  const normalized = normalizeGatewayChatMessage(message);
+  if (!normalized) return null;
+  const content = maybeDecodeMojibake(normalized.text);
+  const thinking = maybeDecodeMojibake(normalized.thinking).trim();
+  const toolCalls = summarizeToolCalls(normalized.toolCalls);
+  const mediaUrls = normalized.mediaUrls;
+  if (!content.trim() && !thinking && (!toolCalls || toolCalls.length === 0) && mediaUrls.length === 0) {
+    return null;
+  }
+  return {
+    role: normalizeChatRole(normalized.role),
+    content,
+    ...(thinking ? { thinking } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+    ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
+    timestamp: normalized.timestamp ?? Date.now(),
+  };
+}
+
+function mergeToolCalls(
+  current: NonNullable<ChatMessage["toolCalls"]>,
+  incoming: NonNullable<ChatMessage["toolCalls"]>,
+): NonNullable<ChatMessage["toolCalls"]> {
+  const next = [...current];
+  for (const toolCall of incoming) {
+    let index = -1;
+    for (let cursor = next.length - 1; cursor >= 0; cursor -= 1) {
+      const entry = next[cursor];
+      if (toolCall.id && entry.id && entry.id === toolCall.id) {
+        index = cursor;
+        break;
+      }
+      if (toolCall.result !== undefined) {
+        if (entry.name === toolCall.name && entry.result == null) {
+          index = cursor;
+          break;
+        }
+        continue;
+      }
+      if (entry.name === toolCall.name && entry.args === toolCall.args) {
+        index = cursor;
+        break;
+      }
+    }
+    if (index >= 0) {
+      next[index] = {
+        ...next[index],
+        ...(toolCall.id ? { id: toolCall.id } : {}),
+        ...(toolCall.args ? { args: toolCall.args } : {}),
+        ...(toolCall.result !== undefined ? { result: toolCall.result } : {}),
+      };
+      continue;
+    }
+    next.push(toolCall);
+  }
+  return next;
+}
+
+function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
+  const mergedContent = incoming.content
+    ? (
+      incoming.content.startsWith(current.content) || incoming.content.length >= current.content.length
+        ? incoming.content
+        : `${current.content}${incoming.content}`
+    )
+    : current.content;
+  const mergedThinking = incoming.thinking
+    ? (
+      current.thinking && (
+        incoming.thinking.startsWith(current.thinking) ||
+        incoming.thinking.length >= current.thinking.length
+      )
+        ? incoming.thinking
+        : `${current.thinking ?? ""}${incoming.thinking}`
+    )
+    : current.thinking;
+  const mergedMediaUrls = [
+    ...(current.mediaUrls ?? []),
+    ...((incoming.mediaUrls ?? []).filter((url) => !(current.mediaUrls ?? []).includes(url))),
+  ];
+  const mergedToolCalls = incoming.toolCalls
+    ? mergeToolCalls(current.toolCalls ?? [], incoming.toolCalls)
+    : current.toolCalls;
+  return {
+    ...current,
+    content: mergedContent,
+    ...(mergedThinking ? { thinking: mergedThinking } : {}),
+    ...(mergedToolCalls && mergedToolCalls.length > 0 ? { toolCalls: mergedToolCalls } : {}),
+    ...(mergedMediaUrls.length > 0 ? { mediaUrls: mergedMediaUrls } : {}),
+    timestamp: incoming.timestamp ?? current.timestamp,
+  };
+}
+
+function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  const last = prev[prev.length - 1];
+  if (last?.role === "assistant") {
+    return [...prev.slice(0, -1), mergeAssistantMessage(last, incoming)];
+  }
+  return [...prev, incoming];
+}
+
+function normalizeLiveToolCall(
+  payload: Record<string, unknown>,
+): NonNullable<ChatMessage["toolCalls"]>[number] | null {
+  const name =
+    (typeof payload.name === "string" && payload.name.trim()) ||
+    (typeof payload.toolName === "string" && payload.toolName.trim()) ||
+    (typeof payload.tool_name === "string" && payload.tool_name.trim());
+  if (!name) {
+    return null;
+  }
+  return {
+    ...(typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+      ? { id: payload.toolCallId.trim() }
+      : {}),
+    name,
+    args: formatToolValue(payload.args ?? payload.arguments),
+  };
+}
+
+function normalizeLiveToolResult(
+  payload: Record<string, unknown>,
+): NonNullable<ChatMessage["toolCalls"]>[number] | null {
+  const result = formatToolValue(payload.result ?? payload.content ?? payload.text ?? payload.partialResult);
+  if (!result) {
+    return null;
+  }
+  const name =
+    (typeof payload.name === "string" && payload.name.trim()) ||
+    (typeof payload.toolName === "string" && payload.toolName.trim()) ||
+    (typeof payload.tool_name === "string" && payload.tool_name.trim()) ||
+    "tool";
+  return {
+    ...(typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+      ? { id: payload.toolCallId.trim() }
+      : {}),
+    name,
+    args: formatToolValue(payload.args ?? payload.arguments),
+    result,
+  };
 }
 
 /**
@@ -284,113 +349,53 @@ export function useGatewayChat(
 
           if (event === "chat") {
             const chatPayload = payload as Record<string, unknown>;
-            const nextText = extractChatText(chatPayload);
-            const message =
-              chatPayload.message && typeof chatPayload.message === "object"
-                ? (chatPayload.message as Record<string, unknown>)
-                : null;
-            const role = typeof message?.role === "string" ? message.role : "assistant";
-            const timestamp =
-              typeof message?.timestamp === "number" ? message.timestamp : Date.now();
-
-            // Extract media URLs from the message payload
-            const eventMediaUrls: string[] = [];
-            if (message) {
-              if (typeof message.mediaUrl === "string") eventMediaUrls.push(message.mediaUrl);
-              if (Array.isArray(message.mediaUrls)) {
-                for (const u of message.mediaUrls) {
-                  if (typeof u === "string") eventMediaUrls.push(u);
-                }
-              }
-            }
-
-            if (role === "assistant" && (nextText || eventMediaUrls.length > 0)) {
-              setMessages((prev) => {
-                const last = prev[prev.length - 1];
-                if (last?.role === "assistant") {
-                  const merged =
-                    nextText.startsWith(last.content) || nextText.length >= last.content.length
-                      ? nextText
-                      : `${last.content}${nextText}`;
-                  const mergedMedia = [
-                    ...(last.mediaUrls ?? []),
-                    ...eventMediaUrls.filter((u) => !(last.mediaUrls ?? []).includes(u)),
-                  ];
-                  return [...prev.slice(0, -1), {
-                    ...last,
-                    content: merged,
-                    timestamp,
-                    ...(mergedMedia.length > 0 ? { mediaUrls: mergedMedia } : {}),
-                  }];
-                }
-                return [...prev, {
-                  role: "assistant" as const,
-                  content: nextText,
-                  timestamp,
-                  ...(eventMediaUrls.length > 0 ? { mediaUrls: eventMediaUrls } : {}),
-                }];
-              });
+            const normalized = normalizeHistoryMessage(chatPayload.message);
+            if (normalized?.role === "assistant") {
+              setMessages((prev) => upsertAssistantMessage(prev, normalized));
             }
 
             if (chatPayload.state === "final") {
               setSending(false);
             }
           } else if (event === "chat.content") {
+            const text = maybeDecodeMojibake((payload.text as string) ?? "");
+            if (!text) return;
             setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === "assistant") {
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, content: last.content + ((payload.text as string) ?? "") },
-                ];
-              }
-              return [
-                ...prev,
-                {
-                  role: "assistant",
-                  content: (payload.text as string) ?? "",
-                  timestamp: Date.now(),
-                },
-              ];
+              return upsertAssistantMessage(prev, {
+                role: "assistant",
+                content: text,
+                timestamp: Date.now(),
+              });
             });
           } else if (event === "chat.thinking") {
+            const text = maybeDecodeMojibake((payload.text as string) ?? "");
+            if (!text) return;
             setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === "assistant") {
-                return [
-                  ...prev.slice(0, -1),
-                  {
-                    ...last,
-                    thinking:
-                      (last.thinking ?? "") + ((payload.text as string) ?? ""),
-                  },
-                ];
-              }
-              return [
-                ...prev,
-                {
-                  role: "assistant",
-                  content: "",
-                  thinking: (payload.text as string) ?? "",
-                  timestamp: Date.now(),
-                },
-              ];
+              return upsertAssistantMessage(prev, {
+                role: "assistant",
+                content: "",
+                thinking: text,
+                timestamp: Date.now(),
+              });
             });
           } else if (event === "chat.tool_call") {
-            setMessages((prev) => {
-              const last = prev[prev.length - 1];
-              if (last?.role === "assistant") {
-                const tc = {
-                  name: (payload as Record<string, unknown>).name as string ?? "?",
-                  args: JSON.stringify(payload),
-                };
-                return [
-                  ...prev.slice(0, -1),
-                  { ...last, toolCalls: [...(last.toolCalls ?? []), tc] },
-                ];
-              }
-              return prev;
-            });
+            const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
+            if (!toolCall) return;
+            setMessages((prev) => upsertAssistantMessage(prev, {
+              role: "assistant",
+              content: "",
+              toolCalls: [toolCall],
+              timestamp: Date.now(),
+            }));
+          } else if (event === "chat.tool_result") {
+            const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
+            if (!toolResult) return;
+            setMessages((prev) => upsertAssistantMessage(prev, {
+              role: "assistant",
+              content: "",
+              toolCalls: [toolResult],
+              timestamp: Date.now(),
+            }));
           } else if (event === "chat.done") {
             setSending(false);
           } else if (event === "chat.error") {

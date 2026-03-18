@@ -66,6 +66,22 @@ export interface ChatEvent {
   data?: Record<string, any>;
 }
 
+export interface GatewayChatToolCall {
+  id?: string;
+  name: string;
+  args?: unknown;
+  result?: string;
+}
+
+export interface GatewayChatMessageSummary {
+  role: string;
+  text: string;
+  thinking: string;
+  toolCalls: GatewayChatToolCall[];
+  mediaUrls: string[];
+  timestamp?: number;
+}
+
 export interface ChatAttachment {
   type: string;
   mimeType: string;
@@ -241,6 +257,241 @@ function asRecord(value: unknown): Record<string, any> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? (value as Record<string, any>)
     : null;
+}
+
+function asContentItems(value: unknown): Record<string, any>[] {
+  if (!Array.isArray(value)) {
+    return [];
+  }
+  return value
+    .map((item) => asRecord(item))
+    .filter((item): item is Record<string, any> => item !== null);
+}
+
+function normalizeToolArgs(value: unknown): unknown {
+  if (typeof value !== "string") {
+    return value;
+  }
+  const trimmed = value.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) {
+    return value;
+  }
+  try {
+    return JSON.parse(trimmed);
+  } catch {
+    return value;
+  }
+}
+
+function stringifyToolResult(value: unknown): string | undefined {
+  if (value == null) {
+    return undefined;
+  }
+  if (typeof value === "string") {
+    return value;
+  }
+  try {
+    return JSON.stringify(value, null, 2);
+  } catch {
+    return String(value);
+  }
+}
+
+function gatewayToolCallId(record: Record<string, any>): string | undefined {
+  const direct =
+    (typeof record.id === "string" && record.id.trim()) ||
+    (typeof record.toolCallId === "string" && record.toolCallId.trim()) ||
+    (typeof record.tool_call_id === "string" && record.tool_call_id.trim());
+  return direct || undefined;
+}
+
+function gatewayToolName(record: Record<string, any>): string | undefined {
+  const direct =
+    (typeof record.name === "string" && record.name.trim()) ||
+    (typeof record.toolName === "string" && record.toolName.trim()) ||
+    (typeof record.tool_name === "string" && record.tool_name.trim());
+  return direct || undefined;
+}
+
+function mergeGatewayToolResult(
+  toolCalls: GatewayChatToolCall[],
+  result: GatewayChatToolCall,
+): GatewayChatToolCall[] {
+  const next = [...toolCalls];
+  let index = -1;
+  for (let cursor = next.length - 1; cursor >= 0; cursor -= 1) {
+    const entry = next[cursor];
+    if (result.id && entry.id && entry.id === result.id) {
+      index = cursor;
+      break;
+    }
+    if (result.name && entry.name === result.name && entry.result == null) {
+      index = cursor;
+      break;
+    }
+  }
+  if (index >= 0) {
+    const current = next[index];
+    next[index] = {
+      ...current,
+      ...(result.id ? { id: result.id } : {}),
+      ...(result.result !== undefined ? { result: result.result } : {}),
+    };
+    return next;
+  }
+  next.push(result);
+  return next;
+}
+
+export function extractGatewayChatThinking(message: unknown): string {
+  const record = asRecord(message);
+  if (!record) {
+    return "";
+  }
+  const parts = asContentItems(record.content)
+    .map((item) => {
+      if (item.type !== "thinking" || typeof item.thinking !== "string") {
+        return null;
+      }
+      return item.thinking.trim();
+    })
+    .filter((value): value is string => Boolean(value));
+  return parts.join("\n");
+}
+
+export function extractGatewayChatMediaUrls(message: unknown): string[] {
+  const record = asRecord(message);
+  if (!record) {
+    return [];
+  }
+  const mediaUrls: string[] = [];
+  for (const item of asContentItems(record.content)) {
+    if (item.type !== "image") {
+      continue;
+    }
+    const source = asRecord(item.source);
+    if (!source) {
+      continue;
+    }
+    if (source.type === "url" && typeof source.url === "string" && source.url.trim()) {
+      mediaUrls.push(source.url);
+      continue;
+    }
+    if (source.type === "base64" && typeof source.data === "string" && source.data.trim()) {
+      const mimeType =
+        typeof source.media_type === "string" && source.media_type.trim()
+          ? source.media_type.trim()
+          : "image/png";
+      mediaUrls.push(`data:${mimeType};base64,${source.data}`);
+    }
+  }
+  if (typeof record.mediaUrl === "string" && record.mediaUrl.trim()) {
+    mediaUrls.push(record.mediaUrl);
+  }
+  if (Array.isArray(record.mediaUrls)) {
+    for (const entry of record.mediaUrls) {
+      if (typeof entry === "string" && entry.trim()) {
+        mediaUrls.push(entry);
+      }
+    }
+  }
+  return mediaUrls;
+}
+
+export function extractGatewayChatToolCalls(message: unknown): GatewayChatToolCall[] {
+  const record = asRecord(message);
+  if (!record) {
+    return [];
+  }
+
+  let toolCalls: GatewayChatToolCall[] = [];
+  for (const item of asContentItems(record.content)) {
+    const kind = typeof item.type === "string" ? item.type.trim().toLowerCase() : "";
+    const name = gatewayToolName(item);
+    const id = gatewayToolCallId(item);
+
+    if (
+      kind === "toolcall" ||
+      kind === "tool_call" ||
+      kind === "tooluse" ||
+      kind === "tool_use" ||
+      (name && (item.arguments !== undefined || item.args !== undefined))
+    ) {
+      toolCalls.push({
+        ...(id ? { id } : {}),
+        name: name ?? "tool",
+        args: normalizeToolArgs(item.arguments ?? item.args),
+      });
+      continue;
+    }
+
+    if (kind === "toolresult" || kind === "tool_result") {
+      toolCalls = mergeGatewayToolResult(toolCalls, {
+        ...(id ? { id } : {}),
+        name: name ?? "tool",
+        result: stringifyToolResult(item.text ?? item.content ?? item.result),
+      });
+    }
+  }
+
+  if (Array.isArray(record.tool_calls)) {
+    for (const item of record.tool_calls) {
+      const tool = asRecord(item);
+      if (!tool) continue;
+      const name = gatewayToolName(tool);
+      if (!name) continue;
+      toolCalls.push({
+        ...(gatewayToolCallId(tool) ? { id: gatewayToolCallId(tool) } : {}),
+        name,
+        args: normalizeToolArgs(tool.arguments ?? tool.args),
+      });
+    }
+  }
+
+  const topLevelToolName = gatewayToolName(record);
+  const topLevelResult = stringifyToolResult(
+    record.result ?? record.content ?? record.text ?? record.partialResult,
+  );
+  const role = typeof record.role === "string" ? record.role.trim().toLowerCase() : "";
+  if (
+    topLevelToolName &&
+    topLevelResult &&
+    (role === "toolresult" || role === "tool_result" || record.toolCallId || record.tool_call_id)
+  ) {
+    toolCalls = mergeGatewayToolResult(toolCalls, {
+      ...(gatewayToolCallId(record) ? { id: gatewayToolCallId(record) } : {}),
+      name: topLevelToolName,
+      result: topLevelResult,
+    });
+  }
+
+  return toolCalls;
+}
+
+export function normalizeGatewayChatMessage(message: unknown): GatewayChatMessageSummary | null {
+  const record = asRecord(message);
+  if (!record) {
+    return null;
+  }
+  const text = extractMessageText(record) ?? "";
+  const thinking = extractGatewayChatThinking(record);
+  const toolCalls = extractGatewayChatToolCalls(record);
+  const mediaUrls = extractGatewayChatMediaUrls(record);
+  const timestamp = typeof record.timestamp === "number" ? record.timestamp : undefined;
+  const role = typeof record.role === "string" && record.role.trim() ? record.role : "assistant";
+
+  if (!text && !thinking && toolCalls.length === 0 && mediaUrls.length === 0) {
+    return null;
+  }
+
+  return {
+    role,
+    text,
+    thinking,
+    toolCalls,
+    mediaUrls,
+    ...(timestamp !== undefined ? { timestamp } : {}),
+  };
 }
 
 function extractMessageText(message: unknown): string | null {
@@ -1706,6 +1957,9 @@ export class GatewayClient {
     let resolveWait: (() => void) | null = null;
     let streamedDisplayText = false;
     let lastLegacyText = "";
+    let lastThinkingText = "";
+    const seenToolCallIds = new Set<string>();
+    const seenToolResultIds = new Set<string>();
 
     const handler: GatewayEventHandler = (evt) => {
       if (evt.event === "chat" || evt.event?.startsWith("chat.")) {
@@ -1773,14 +2027,28 @@ export class GatewayClient {
           continue;
         }
         if (evt.event === "chat.thinking") {
-          yield { type: "thinking", text: typeof payload.text === "string" ? payload.text : "" };
+          const text = typeof payload.text === "string" ? payload.text : "";
+          if (text) {
+            lastThinkingText += text;
+          }
+          yield { type: "thinking", text };
           continue;
         }
         if (evt.event === "chat.tool_call") {
+          const toolCallId =
+            typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+              ? payload.toolCallId.trim()
+              : `${typeof payload.name === "string" ? payload.name : "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
+          seenToolCallIds.add(toolCallId);
           yield { type: "tool_call", data: payload };
           continue;
         }
         if (evt.event === "chat.tool_result") {
+          const toolCallId =
+            typeof payload.toolCallId === "string" && payload.toolCallId.trim()
+              ? payload.toolCallId.trim()
+              : `${typeof payload.name === "string" ? payload.name : "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
+          seenToolResultIds.add(toolCallId);
           yield { type: "tool_result", data: payload };
           continue;
         }
@@ -1802,6 +2070,7 @@ export class GatewayClient {
 
         const state = typeof payload.state === "string" ? payload.state.trim().toLowerCase() : "";
         const currentText = extractMessageText(payload.message) ?? "";
+        const normalizedMessage = normalizeGatewayChatMessage(payload.message);
         if (state === "delta") {
           const streamed = streamDelta(lastLegacyText, currentText);
           lastLegacyText = streamed.nextText;
@@ -1812,6 +2081,42 @@ export class GatewayClient {
           continue;
         }
         if (state === "final") {
+          const thinkingDelta = normalizedMessage?.thinking
+            ? streamDelta(lastThinkingText, normalizedMessage.thinking)
+            : { delta: "", nextText: lastThinkingText };
+          lastThinkingText = thinkingDelta.nextText;
+          if (thinkingDelta.delta) {
+            yield { type: "thinking", text: thinkingDelta.delta, data: payload };
+          }
+
+          for (const toolCall of normalizedMessage?.toolCalls ?? []) {
+            const toolCallKey =
+              toolCall.id?.trim() ||
+              `${toolCall.name}:${JSON.stringify(toolCall.args ?? null)}`;
+            if (toolCall.args !== undefined && !seenToolCallIds.has(toolCallKey)) {
+              seenToolCallIds.add(toolCallKey);
+              yield {
+                type: "tool_call",
+                data: {
+                  ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
+                  name: toolCall.name,
+                  args: toolCall.args,
+                },
+              };
+            }
+            if (toolCall.result !== undefined && !seenToolResultIds.has(toolCallKey)) {
+              seenToolResultIds.add(toolCallKey);
+              yield {
+                type: "tool_result",
+                data: {
+                  ...(toolCall.id ? { toolCallId: toolCall.id } : {}),
+                  name: toolCall.name,
+                  result: toolCall.result,
+                },
+              };
+            }
+          }
+
           if (currentText) {
             const streamed = streamDelta(lastLegacyText, currentText);
             lastLegacyText = streamed.nextText;
@@ -1823,6 +2128,10 @@ export class GatewayClient {
             return;
           }
           if (streamedDisplayText || lastLegacyText) {
+            yield { type: "done", data: payload };
+            return;
+          }
+          if (normalizedMessage?.thinking || (normalizedMessage?.toolCalls.length ?? 0) > 0) {
             yield { type: "done", data: payload };
             return;
           }

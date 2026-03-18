@@ -148,5 +148,11 @@ export {
   type GatewayEvent,
   type ChatEvent,
   type ChatAttachment,
+  type GatewayChatToolCall,
+  type GatewayChatMessageSummary,
   type GatewayEventHandler,
+  extractGatewayChatThinking,
+  extractGatewayChatMediaUrls,
+  extractGatewayChatToolCalls,
+  normalizeGatewayChatMessage,
 } from './gateway.js';
