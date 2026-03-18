@@ -855,7 +855,7 @@ def exec_cmd(
     command: str = typer.Argument(..., help="Command to execute"),
     timeout: int = typer.Option(30, "--timeout", "-t", help="Command timeout (seconds)"),
 ):
-    """Execute a command on a HyperClaw agent container."""
+    """Execute a command on a `hypercli-openclaw` agent container."""
     from . import agents
 
     agents.exec_cmd(agent_id=agent_id, command=command, timeout=timeout)
@@ -865,7 +865,7 @@ def exec_cmd(
 def shell_cmd(
     agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
 ):
-    """Open an interactive shell on a HyperClaw agent container."""
+    """Open an interactive shell on a `hypercli-openclaw` agent container."""
     from . import agents
 
     agents.shell(agent_id=agent_id)

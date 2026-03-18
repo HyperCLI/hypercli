@@ -1,8 +1,9 @@
 """
-HyperClaw Deployments API — runtime management for agent containers.
+HyperClaw Deployments API — runtime management for OpenClaw agent containers.
 
-Client for HyperClaw backend deployment endpoints. Manages OpenClaw desktop
-containers and arbitrary agent runtimes via the authenticated backend API.
+Client for HyperClaw backend deployment endpoints. Manages the
+`hypercli-openclaw` container image and arbitrary agent runtimes via the
+authenticated backend API.
 """
 from __future__ import annotations
 

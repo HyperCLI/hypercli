@@ -108,10 +108,10 @@ ws.close();
 ```typescript
 const models = await client.agent.models();
 
-// Execute command in a HyperClaw agent container
+// Execute command in a hypercli-openclaw agent container
 const agentExec = await client.agents.exec(agentId, 'ls -la');
 
-// Interactive shell for a HyperClaw agent
+// Interactive shell for a hypercli-openclaw agent
 const agentWs = await client.agents.shellConnect(agentId);
 agentWs.close();
 ```
@@ -205,7 +205,7 @@ const response = await fetch(`${comfy.baseUrl}/prompt`, {
 - `client.files` - File upload/download
 - `client.keys` - API keys management
 - `client.agent` - HyperClaw inference API
-- `client.agents` - HyperClaw agent container exec/shell API
+- `client.agents` - HyperClaw `hypercli-openclaw` exec/shell API
 
 ### Job Helpers
 
