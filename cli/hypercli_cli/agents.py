@@ -14,7 +14,7 @@ from rich.table import Table
 
 from hypercli.agents import Agent, Deployments, OpenClawAgent, DEFAULT_OPENCLAW_IMAGE
 
-app = typer.Typer(help="Manage OpenClaw agent pods (reef containers)")
+app = typer.Typer(help="Manage OpenClaw agent pods")
 console = Console()
 PROD_API_BASE = "https://api.hypercli.com"
 DEV_API_BASE = "https://api.dev.hypercli.com"

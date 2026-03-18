@@ -494,7 +494,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             ports=[{"port": 18789, "auth": False}],
             command=["nginx", "-g", "daemon off;"],
             entrypoint=["/docker-entrypoint.sh"],
-            image="ghcr.io/acme/hypercli-openclaw:test",
+            image="ghcr.io/hypercli/hypercli-openclaw:test",
             registry_url="ghcr.io",
             registry_auth={"username": "u", "password": "p"},
             start=True,
@@ -645,7 +645,7 @@ def test_agents_start_stop_delete(agents_client):
 
         agent = agents_client.start(
             "agent-123",
-            config={"image": "ghcr.io/acme/hypercli-openclaw:test"},
+            config={"image": "ghcr.io/hypercli/hypercli-openclaw:test"},
             command=["echo", "hello"],
             entrypoint=["/bin/sh", "-c"],
         )
@@ -653,7 +653,7 @@ def test_agents_start_stop_delete(agents_client):
         assert agent.gateway_token == "gw-token-456"
         assert mock_client.post.call_args[1]["json"] == {
             "config": {
-                "image": "ghcr.io/acme/hypercli-openclaw:test",
+                "image": "ghcr.io/hypercli/hypercli-openclaw:test",
                 "command": ["echo", "hello"],
                 "entrypoint": ["/bin/sh", "-c"],
                 "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},

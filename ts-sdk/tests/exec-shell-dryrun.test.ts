@@ -40,7 +40,7 @@ describe('HyperClaw agents SDK', () => {
         command: ['echo', 'hello'],
         entrypoint: ['/bin/sh', '-c'],
         routes: { openclaw: { port: 18789, auth: false } },
-        image: 'ghcr.io/acme/hypercli-openclaw:test',
+        image: 'ghcr.io/hypercli/hypercli-openclaw:test',
       },
     );
 
@@ -52,7 +52,7 @@ describe('HyperClaw agents SDK', () => {
     expect(config.command).toEqual(['echo', 'hello']);
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
-    expect(config.image).toBe('ghcr.io/acme/hypercli-openclaw:test');
+    expect(config.image).toBe('ghcr.io/hypercli/hypercli-openclaw:test');
   });
 
   it('buildOpenClawRoutes returns the default gateway and desktop routes', () => {

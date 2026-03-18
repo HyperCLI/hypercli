@@ -8,6 +8,19 @@ TypeScript SDK for HyperCLI API - GPU cloud compute made simple.
 npm install @hypercli.com/sdk
 ```
 
+## Local Development
+
+When working inside `~/dev/hypercli`, link the local TS SDK into the frontend instead of testing against the published package:
+
+```bash
+cd ~/dev/hypercli/ts-sdk
+npm install
+npm run build
+
+cd ~/dev/hypercli/site
+npm link ../ts-sdk
+```
+
 **Dependencies:**
 - `ws` - WebSocket client for log streaming
 - Node.js 18+ (uses native `fetch`)
@@ -95,10 +108,10 @@ ws.close();
 ```typescript
 const models = await client.agent.models();
 
-// Execute command in a HyperClaw (reef) container
+// Execute command in a HyperClaw agent container
 const agentExec = await client.agents.exec(agentId, 'ls -la');
 
-// Interactive shell for HyperClaw container
+// Interactive shell for a HyperClaw agent
 const agentWs = await client.agents.shellConnect(agentId);
 agentWs.close();
 ```

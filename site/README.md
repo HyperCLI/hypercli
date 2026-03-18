@@ -128,20 +128,19 @@ npm run dev
 For local TypeScript SDK development against the frontend:
 
 ```bash
-cd ts-sdk
+cd ~/dev/hypercli/ts-sdk
 npm install
 npm run build
-npm link
 
-cd ../site
-npm link @hypercli.com/sdk
+cd ~/dev/hypercli/site
+npm link ../ts-sdk
 npm run dev
 ```
 
 To remove the override and go back to the published package:
 
 ```bash
-cd site
+cd ~/dev/hypercli/site
 npm unlink @hypercli.com/sdk
 npm install
 ```

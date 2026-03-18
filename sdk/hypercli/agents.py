@@ -952,7 +952,7 @@ class Deployments:
         dry_run: bool = False,
         start: bool = True,
     ) -> Agent:
-        """Create a new agent (provisions a reef pod via the backend).
+        """Create a new agent (provisions an agent pod via the backend).
 
         Args:
             name: Agent name.
@@ -1235,7 +1235,7 @@ class Deployments:
         return h
 
     def exec(self, pod: Agent, command: str, timeout: int = 30, dry_run: bool = False) -> ExecResult:
-        """Execute a one-shot command on a reef pod via lagoon exec API.
+        """Execute a one-shot command on a running agent via the backend exec API.
 
         Args:
             pod: Agent to execute on.

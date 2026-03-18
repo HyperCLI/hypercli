@@ -1,11 +1,11 @@
 ---
 title: Agents Overview
-description: OpenClaw desktop containers (reef pods) with VNC, shell, file access, and an AI gateway
+description: OpenClaw desktop containers with VNC, shell, file access, and an AI gateway
 ---
 
 ## What Are Agents?
 
-Agents are fully managed **OpenClaw desktop containers** (internally called *reef pods*) that run on Kubernetes. Each agent provides:
+Agents are fully managed **OpenClaw desktop containers** that run on Kubernetes. Each agent provides:
 
 - **Desktop** — full Linux desktop accessible via browser
 - **Shell access** — backend WebSocket PTY terminal
@@ -26,12 +26,12 @@ HyperClaw Backend API (api.hypercli.com)
 Lagoon (pod orchestrator)
     │  Scheduling, health monitoring, log ingest
     ▼
-Reef containers on Kubernetes
+Agent containers on Kubernetes
     ├── Desktop (noVNC)
     └── OpenClaw Gateway (WebSocket RPC v3)
 ```
 
-The HyperClaw backend handles authentication and plan enforcement. It proxies lifecycle commands to **Lagoon**, which orchestrates reef containers on the underlying Kubernetes cluster.
+The HyperClaw backend handles authentication and plan enforcement. It proxies lifecycle commands to **Lagoon**, which orchestrates agent containers on the underlying Kubernetes cluster.
 
 ## Hostnames
 
