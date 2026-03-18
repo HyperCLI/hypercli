@@ -32,4 +32,5 @@ jobs:
         working-directory: site
         run: |
           npm install
+          npm run sdk:use-local
           npm run build

@@ -45,7 +45,9 @@ jobs:
 
       - name: Install site dependencies
         working-directory: site
-        run: npm install
+        run: |
+          npm install
+          npm run sdk:use-local
 
       - name: Allocate local E2E ports
         run: |
