@@ -2,7 +2,6 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { ImapFlow } from "imapflow";
 import { expect, type Frame, type Locator, type Page } from "@playwright/test";
-import { HTTPClient, HyperAgent, HyperCLI, type HyperAgentCurrentPlan } from "@hypercli.com/sdk";
 
 type RequiredEnvKey =
   | "TEST_BASE_URL"
@@ -58,6 +57,29 @@ interface StripeInvoice {
   status?: string | null;
 }
 
+interface HyperAgentCurrentPlan {
+  id: string;
+  name: string;
+  price: number | string;
+  aiu?: number;
+  agents?: number;
+  tpmLimit: number;
+  rpmLimit: number;
+  expiresAt: Date | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+interface HyperAgentClientLike {
+  currentPlan(): Promise<HyperAgentCurrentPlan>;
+}
+
+interface TopUpApiClientLike {
+  billing: {
+    balance(): Promise<unknown>;
+    listTransactions(options: { page: number; pageSize: number }): Promise<unknown>;
+  };
+}
+
 function getEnv(name: RequiredEnvKey): string {
   const value = process.env[name]?.trim();
   if (!value) {
@@ -86,7 +108,11 @@ function getAgentsApiBaseUrl(): string {
   ).replace(/\/$/, "");
 }
 
-function getHyperAgentClient(token: string): HyperAgent {
+async function getHyperAgentClient(token: string): Promise<HyperAgentClientLike> {
+  const [{ HTTPClient }, { HyperAgent }] = await Promise.all([
+    import("@hypercli.com/sdk/http"),
+    import("@hypercli.com/sdk"),
+  ]);
   return new HyperAgent(new HTTPClient(getAgentsApiBaseUrl(), token), token, true);
 }
 
@@ -583,7 +609,7 @@ export async function completeStripeCheckout(
 }
 
 async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
-  const apiClient = getTopUpApiClient();
+  const apiClient = await getTopUpApiClient();
   if (path === "/api/balance") {
     return (await apiClient.billing.balance()) as T;
   }
@@ -598,10 +624,11 @@ async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
   throw new Error(`Unsupported API SDK path: ${path}`);
 }
 
-let topUpApiClient: HyperCLI | null = null;
+let topUpApiClient: TopUpApiClientLike | null = null;
 
-function getTopUpApiClient(): HyperCLI {
+async function getTopUpApiClient(): Promise<TopUpApiClientLike> {
   if (!topUpApiClient) {
+    const { HyperCLI } = await import("@hypercli.com/sdk");
     topUpApiClient = new HyperCLI({
       apiKey: requireEnvValue("TEST_API_KEY"),
       apiUrl: requireEnvValue("TEST_API_BASE_URL"),
@@ -756,7 +783,7 @@ export async function getClawAuthToken(page: Page): Promise<string> {
 
 export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurrentPlan | null> {
   const token = await getClawAuthToken(page);
-  const client = getHyperAgentClient(token);
+  const client = await getHyperAgentClient(token);
   try {
     return await client.currentPlan();
   } catch (error) {
