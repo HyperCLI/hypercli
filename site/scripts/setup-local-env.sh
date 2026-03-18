@@ -13,16 +13,22 @@ fi
 write_local_env() {
   local app="$1"
   local target="${ROOT_DIR}/apps/${app}/.env.local"
+  local main_site_url="${LOCAL_MAIN_SITE_URL:-http://localhost:4000}"
+  local console_url="${LOCAL_CONSOLE_URL:-http://localhost:4001}"
+  local agents_url="${LOCAL_AGENTS_URL:-http://localhost:4003}"
+  local cookie_domain="${LOCAL_COOKIE_DOMAIN:-localhost}"
+  local hyperclaw_cookie_domain="${LOCAL_HYPERCLAW_COOKIE_DOMAIN:-${cookie_domain}}"
+  local domain="${LOCAL_DOMAIN:-localhost}"
 
   cp "${BASE_ENV}" "${target}"
 
   sed -i \
-    -e 's|^NEXT_PUBLIC_MAIN_SITE_URL=.*|NEXT_PUBLIC_MAIN_SITE_URL=http://localhost:4000|' \
-    -e 's|^NEXT_PUBLIC_CONSOLE_URL=.*|NEXT_PUBLIC_CONSOLE_URL=http://localhost:4001|' \
-    -e 's|^NEXT_PUBLIC_AGENTS_URL=.*|NEXT_PUBLIC_AGENTS_URL=http://localhost:4003|' \
-    -e 's|^NEXT_PUBLIC_COOKIE_DOMAIN=.*|NEXT_PUBLIC_COOKIE_DOMAIN=localhost|' \
-    -e 's|^NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN=.*|NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN=localhost|' \
-    -e 's|^NEXT_PUBLIC_DOMAIN=.*|NEXT_PUBLIC_DOMAIN=localhost|' \
+    -e "s|^NEXT_PUBLIC_MAIN_SITE_URL=.*|NEXT_PUBLIC_MAIN_SITE_URL=${main_site_url}|" \
+    -e "s|^NEXT_PUBLIC_CONSOLE_URL=.*|NEXT_PUBLIC_CONSOLE_URL=${console_url}|" \
+    -e "s|^NEXT_PUBLIC_AGENTS_URL=.*|NEXT_PUBLIC_AGENTS_URL=${agents_url}|" \
+    -e "s|^NEXT_PUBLIC_COOKIE_DOMAIN=.*|NEXT_PUBLIC_COOKIE_DOMAIN=${cookie_domain}|" \
+    -e "s|^NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN=.*|NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN=${hyperclaw_cookie_domain}|" \
+    -e "s|^NEXT_PUBLIC_DOMAIN=.*|NEXT_PUBLIC_DOMAIN=${domain}|" \
     "${target}"
 }
 

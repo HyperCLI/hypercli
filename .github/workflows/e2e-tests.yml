@@ -18,9 +18,6 @@ jobs:
       run:
         shell: bash
     env:
-      TEST_BASE_URL: http://127.0.0.1:4003
-      TEST_CONSOLE_BASE_URL: http://127.0.0.1:4001
-      TEST_TOPUP_CONSOLE_BASE_URL: http://127.0.0.1:4001
       TEST_HOSTNAME: 127.0.0.1
       TEST_API_BASE_URL: https://api.dev.hypercli.com
       TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
@@ -49,6 +46,25 @@ jobs:
       - name: Install site dependencies
         working-directory: site
         run: npm install
+
+      - name: Allocate local E2E ports
+        run: |
+          source .github/scripts/allocate_e2e_env.sh
+          {
+            echo "TEST_MAIN_BASE_URL=${TEST_MAIN_BASE_URL}"
+            echo "TEST_BASE_URL=${TEST_BASE_URL}"
+            echo "TEST_CONSOLE_BASE_URL=${TEST_CONSOLE_BASE_URL}"
+            echo "TEST_TOPUP_CONSOLE_BASE_URL=${TEST_TOPUP_CONSOLE_BASE_URL}"
+            echo "TEST_HOSTNAME=${TEST_HOSTNAME}"
+            echo "LOCAL_MAIN_SITE_URL=${LOCAL_MAIN_SITE_URL}"
+            echo "LOCAL_CONSOLE_URL=${LOCAL_CONSOLE_URL}"
+            echo "LOCAL_AGENTS_URL=${LOCAL_AGENTS_URL}"
+            echo "LOCAL_COOKIE_DOMAIN=${LOCAL_COOKIE_DOMAIN}"
+            echo "LOCAL_HYPERCLAW_COOKIE_DOMAIN=${LOCAL_HYPERCLAW_COOKIE_DOMAIN}"
+            echo "LOCAL_DOMAIN=${LOCAL_DOMAIN}"
+            echo "CONSOLE_PORT=${CONSOLE_PORT}"
+            echo "CLAW_PORT=${CLAW_PORT}"
+          } >> "$GITHUB_ENV"
 
       - name: Run Playwright tests
         id: e2e

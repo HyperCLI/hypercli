@@ -7,6 +7,8 @@ SITE_ROOT="${REPO_ROOT}/site"
 CONSOLE_LOG="/tmp/hypercli-console-e2e.log"
 CLAW_LOG="/tmp/hypercli-claw-e2e.log"
 
+source "${REPO_ROOT}/.github/scripts/allocate_e2e_env.sh"
+
 cleanup() {
   if [[ -n "${CONSOLE_PID:-}" ]]; then
     kill "${CONSOLE_PID}" >/dev/null 2>&1 || true
@@ -103,9 +105,9 @@ trap cleanup EXIT
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
 
-npm run dev -- --filter=@hypercli/console >"${CONSOLE_LOG}" 2>&1 &
+PORT="${CONSOLE_PORT}" npm run dev -- --filter=@hypercli/console >"${CONSOLE_LOG}" 2>&1 &
 CONSOLE_PID=$!
-npm run dev -- --filter=@hypercli/claw >"${CLAW_LOG}" 2>&1 &
+PORT="${CLAW_PORT}" npm run dev -- --filter=@hypercli/claw >"${CLAW_LOG}" 2>&1 &
 CLAW_PID=$!
 
 wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console" "${CONSOLE_LOG}" "${CONSOLE_PID}"

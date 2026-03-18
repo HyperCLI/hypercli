@@ -3,9 +3,9 @@
   "version": "0.1.0",
   "private": true,
   "scripts": {
-    "dev": "next dev --port 4001",
+    "dev": "sh -lc 'next dev --port ${PORT:-4001}'",
     "build": "next build --webpack",
-    "start": "next start --port 4001",
+    "start": "sh -lc 'next start --port ${PORT:-4001}'",
     "lint": "eslint",
     "clean": "rm -rf .next"
   },

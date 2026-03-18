@@ -18,8 +18,6 @@ jobs:
       run:
         shell: bash
     env:
-      TEST_BASE_URL: http://127.0.0.1:4003
-      TEST_CONSOLE_BASE_URL: http://127.0.0.1:4001
       TEST_HOSTNAME: 127.0.0.1
       TEST_EMAIL: gilfoyle@nedos.io
       TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
@@ -49,52 +47,41 @@ jobs:
         working-directory: site
         run: npm install
 
+      - name: Allocate local E2E ports
+        run: |
+          source .github/scripts/allocate_e2e_env.sh
+          {
+            echo "TEST_MAIN_BASE_URL=${TEST_MAIN_BASE_URL}"
+            echo "TEST_BASE_URL=${TEST_BASE_URL}"
+            echo "TEST_CONSOLE_BASE_URL=${TEST_CONSOLE_BASE_URL}"
+            echo "TEST_TOPUP_CONSOLE_BASE_URL=${TEST_TOPUP_CONSOLE_BASE_URL}"
+            echo "TEST_HOSTNAME=${TEST_HOSTNAME}"
+            echo "LOCAL_MAIN_SITE_URL=${LOCAL_MAIN_SITE_URL}"
+            echo "LOCAL_CONSOLE_URL=${LOCAL_CONSOLE_URL}"
+            echo "LOCAL_AGENTS_URL=${LOCAL_AGENTS_URL}"
+            echo "LOCAL_COOKIE_DOMAIN=${LOCAL_COOKIE_DOMAIN}"
+            echo "LOCAL_HYPERCLAW_COOKIE_DOMAIN=${LOCAL_HYPERCLAW_COOKIE_DOMAIN}"
+            echo "LOCAL_DOMAIN=${LOCAL_DOMAIN}"
+            echo "CONSOLE_PORT=${CONSOLE_PORT}"
+            echo "CLAW_PORT=${CLAW_PORT}"
+          } >> "$GITHUB_ENV"
+
       - name: Prepare local app env
         working-directory: site
-        run: |
-          python3 - <<'PY'
-          from pathlib import Path
-
-          root = Path(".")
-          template = (root / "env.dev").read_text().splitlines()
-
-          def write_env(app: str) -> None:
-              env_path = root / "apps" / app / ".env.local"
-              replacements = {
-                  "NEXT_PUBLIC_MAIN_SITE_URL": "http://127.0.0.1:4000",
-                  "NEXT_PUBLIC_CONSOLE_URL": "http://127.0.0.1:4001",
-                  "NEXT_PUBLIC_AGENTS_URL": "http://127.0.0.1:4003",
-                  "NEXT_PUBLIC_COOKIE_DOMAIN": "127.0.0.1",
-                  "NEXT_PUBLIC_HYPERCLAW_COOKIE_DOMAIN": "127.0.0.1",
-              }
-
-              lines = list(template)
-              for key, value in replacements.items():
-                  for index, line in enumerate(lines):
-                      if line.startswith(f"{key}="):
-                          lines[index] = f"{key}={value}"
-                          break
-                  else:
-                      lines.append(f"{key}={value}")
-
-              env_path.write_text("\n".join(lines) + "\n")
-
-          write_env("console")
-          write_env("claw")
-          PY
+        run: ./scripts/setup-local-env.sh
 
       - name: Start Console dev server
         working-directory: site
         run: |
           set -euo pipefail
-          npm run dev -- --filter=@hypercli/console > /tmp/hypercli-console-e2e.log 2>&1 &
+          PORT="${CONSOLE_PORT}" npm run dev -- --filter=@hypercli/console > /tmp/hypercli-console-e2e.log 2>&1 &
           echo $! > /tmp/hypercli-console-e2e.pid
 
       - name: Start Claw dev server
         working-directory: site
         run: |
           set -euo pipefail
-          npm run dev -- --filter=@hypercli/claw > /tmp/hypercli-claw-e2e.log 2>&1 &
+          PORT="${CLAW_PORT}" npm run dev -- --filter=@hypercli/claw > /tmp/hypercli-claw-e2e.log 2>&1 &
           echo $! > /tmp/hypercli-claw-e2e.pid
 
       - name: Wait for local dev servers
