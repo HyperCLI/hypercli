@@ -2,7 +2,8 @@ import { Deployments } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { API_BASE_URL } from "./api";
 
-const DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod";
+const DEFAULT_OPENCLAW_IMAGE =
+  process.env.NEXT_PUBLIC_OPENCLAW_IMAGE?.trim() || "ghcr.io/hypercli/hypercli-openclaw:prod";
 
 const DEFAULT_OPENCLAW_ROUTES = {
   openclaw: {
