@@ -11,6 +11,7 @@ import pytest
 
 from hypercli.agents import (
     Agent,
+    DEFAULT_OPENCLAW_IMAGE,
     Deployments,
     OpenClawAgent,
     ExecResult,
@@ -422,6 +423,7 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         agents_client.create_openclaw(name="test-agent")
 
         posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["config"]["image"] == DEFAULT_OPENCLAW_IMAGE
         assert posted_json["config"]["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
             "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
@@ -448,6 +450,7 @@ def test_create_openclaw_respects_explicit_empty_routes(agents_client):
         agents_client.create_openclaw(name="test-agent", routes={})
 
         posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["config"]["image"] == DEFAULT_OPENCLAW_IMAGE
         assert posted_json["config"]["routes"] == {}
 
 @pytest.fixture
@@ -491,7 +494,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             ports=[{"port": 18789, "auth": False}],
             command=["nginx", "-g", "daemon off;"],
             entrypoint=["/docker-entrypoint.sh"],
-            image="ghcr.io/acme/reef:test",
+            image="ghcr.io/acme/hypercli-openclaw:test",
             registry_url="ghcr.io",
             registry_auth={"username": "u", "password": "p"},
             start=True,
@@ -642,7 +645,7 @@ def test_agents_start_stop_delete(agents_client):
 
         agent = agents_client.start(
             "agent-123",
-            config={"image": "ghcr.io/acme/reef:test"},
+            config={"image": "ghcr.io/acme/hypercli-openclaw:test"},
             command=["echo", "hello"],
             entrypoint=["/bin/sh", "-c"],
         )
@@ -650,7 +653,7 @@ def test_agents_start_stop_delete(agents_client):
         assert agent.gateway_token == "gw-token-456"
         assert mock_client.post.call_args[1]["json"] == {
             "config": {
-                "image": "ghcr.io/acme/reef:test",
+                "image": "ghcr.io/acme/hypercli-openclaw:test",
                 "command": ["echo", "hello"],
                 "entrypoint": ["/bin/sh", "-c"],
                 "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},

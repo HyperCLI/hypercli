@@ -28,6 +28,7 @@ AGENTS_API_PREFIX = "/deployments"
 AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
+DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
 
 
 def build_openclaw_routes(
@@ -204,6 +205,15 @@ def _build_agent_config(
         prepared["registry_auth"] = registry_auth
 
     return prepared, effective_gateway_token
+
+
+def _default_openclaw_image(image: str | None, config: dict | None) -> str | None:
+    if image is not None:
+        return image
+    configured = str((config or {}).get("image") or "").strip()
+    if configured:
+        return configured
+    return DEFAULT_OPENCLAW_IMAGE
 
 
 def _parse_dt(val):
@@ -1025,7 +1035,7 @@ class Deployments:
             ),
             command=command,
             entrypoint=entrypoint,
-            image=image,
+            image=_default_openclaw_image(image, config),
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
@@ -1164,7 +1174,7 @@ class Deployments:
             ),
             command=command,
             entrypoint=entrypoint,
-            image=image,
+            image=_default_openclaw_image(image, config),
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,

@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli.agents import Agent, Deployments, OpenClawAgent
+from hypercli.agents import Agent, Deployments, OpenClawAgent, DEFAULT_OPENCLAW_IMAGE
 
 app = typer.Typer(help="Manage OpenClaw agent pods (reef containers)")
 console = Console()
@@ -27,6 +27,13 @@ _GLOBAL_AGENTS_WS_URL: str | None = None
 AGENT_KEY_PATH = Path.home() / ".hypercli" / "agent-key.json"
 STATE_DIR = Path.home() / ".hypercli"
 AGENTS_STATE = STATE_DIR / "agents.json"
+
+
+def _default_openclaw_image(image: str | None, config: dict | None = None) -> str:
+    if image:
+        return image
+    configured = str((config or {}).get("image") or "").strip()
+    return configured or DEFAULT_OPENCLAW_IMAGE
 
 
 @app.callback()
@@ -275,7 +282,7 @@ def create(
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
-    image: str = typer.Option(None, "--image", help="Override the default reef image"),
+    image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
@@ -304,7 +311,7 @@ def create(
             ports=ports_list,
             command=command_argv,
             entrypoint=entrypoint_argv,
-            image=image,
+            image=_default_openclaw_image(image),
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
@@ -486,7 +493,7 @@ def start(
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
     entrypoint: str = typer.Option(None, "--entrypoint", help="Container entrypoint as a shell-style string"),
-    image: str = typer.Option(None, "--image", help="Override the default reef image"),
+    image: str = typer.Option(None, "--image", help="Override the default OpenClaw image"),
     registry_url: str = typer.Option(None, "--registry-url", help="Container registry URL for private image pulls"),
     registry_username: str = typer.Option(None, "--registry-username", help="Registry username"),
     registry_password: str = typer.Option(None, "--registry-password", help="Registry password"),
@@ -505,6 +512,7 @@ def start(
     registry_auth = _build_registry_auth(registry_username, registry_password)
     launch_config = dict(local.get("launch_config") or {})
     effective_gateway_token = gateway_token or local.get("gateway_token")
+    effective_image = _default_openclaw_image(image, launch_config)
 
     try:
         pod = agents.start(
@@ -514,7 +522,7 @@ def start(
             ports=ports_list,
             command=command_argv,
             entrypoint=entrypoint_argv,
-            image=image,
+            image=effective_image,
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=effective_gateway_token,
