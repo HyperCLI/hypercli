@@ -18,6 +18,7 @@ export const REGION_INFO: Record<string, { name: string; flag: string }> = {
   fi: { name: "Finland", flag: "🇫🇮" },
   is: { name: "Iceland", flag: "🇮🇸" },
   va: { name: "Virginia", flag: "🇺🇸" },
+  az: { name: "Arizona", flag: "🇺🇸" },
   oh: { name: "Ohio", flag: "🇺🇸" },
   br: { name: "Brazil", flag: "🇧🇷" },
   kr: { name: "South Korea", flag: "🇰🇷" },
@@ -43,9 +44,11 @@ export const getGPUArch = (gpuType: string): string => {
 };
 
 export const getRegionName = (regionCode: string): string => {
-  return REGION_INFO[regionCode]?.name || regionCode;
+  const key = regionCode.toLowerCase();
+  return REGION_INFO[key]?.name || regionCode;
 };
 
 export const getRegionFlag = (regionCode: string): string => {
-  return REGION_INFO[regionCode]?.flag || "🌍";
+  const key = regionCode.toLowerCase();
+  return REGION_INFO[key]?.flag || "🌍";
 };
