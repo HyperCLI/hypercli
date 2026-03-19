@@ -1904,8 +1904,12 @@ export class GatewayClient {
   }
 
   async sessionsPreview(sessionKey: string, limit = 20): Promise<any[]> {
-    const res = await this.rpc("sessions.preview", { sessionKey, limit });
-    return res?.messages ?? res ?? [];
+    const res = await this.rpc("sessions.preview", { keys: [sessionKey], limit });
+    return res?.previews?.[0]?.items ?? [];
+  }
+
+  async sessionsPatch(patch: Record<string, any> & { key: string }): Promise<Record<string, any>> {
+    return await this.rpc("sessions.patch", patch);
   }
 
   async chatHistory(sessionKey?: string, limit = 50): Promise<any[]> {
@@ -1938,8 +1942,10 @@ export class GatewayClient {
     return this.rpc("chat.send", params, CHAT_TIMEOUT);
   }
 
-  async sessionsReset(sessionKey: string): Promise<void> {
-    await this.rpc("sessions.reset", { sessionKey });
+  async sessionsReset(sessionKey: string, reason?: "new" | "reset"): Promise<void> {
+    const params: Record<string, any> = { key: sessionKey };
+    if (reason) params.reason = reason;
+    await this.rpc("sessions.reset", params);
   }
 
   // ---------------------------------------------------------------------------

@@ -1298,6 +1298,17 @@ class GatewayClient:
         result = await self.call("sessions.list", {"limit": limit})
         return result.get("sessions", [])
 
+    async def sessions_preview(self, session_key: str, limit: int = 20) -> list[dict]:
+        result = await self.call("sessions.preview", {"keys": [session_key], "limit": limit})
+        previews = result.get("previews", [])
+        if not previews:
+            return []
+        return previews[0].get("items", [])
+
+    async def sessions_patch(self, key: str, **patch: Any) -> dict:
+        params: dict[str, Any] = {"key": key, **patch}
+        return await self.call("sessions.patch", params)
+
     async def chat_history(self, session_key: str | None = None, limit: int = 50) -> list[dict]:
         params: dict[str, Any] = {"limit": limit}
         if session_key:
@@ -1515,6 +1526,16 @@ class GatewayClient:
         if session_key:
             params["sessionKey"] = session_key
         return await self.call("chat.abort", params)
+
+    async def sessions_reset(
+        self,
+        session_key: str,
+        reason: Literal["new", "reset"] | None = None,
+    ) -> dict:
+        params: dict[str, Any] = {"key": session_key}
+        if reason is not None:
+            params["reason"] = reason
+        return await self.call("sessions.reset", params)
 
     async def cron_list(self) -> list[dict]:
         result = await self.call("cron.list")

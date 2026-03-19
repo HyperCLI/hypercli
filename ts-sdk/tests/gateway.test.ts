@@ -250,6 +250,60 @@ describe("GatewayClient", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
+  it("sends sessions.patch with the raw patch payload", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ ok: true, key: "agent:main:main" });
+
+    const result = await client.sessionsPatch({
+      key: "agent:main:main",
+      model: "openai/gpt-5.2",
+      thinkingLevel: "high",
+    });
+
+    expect(rpc).toHaveBeenCalledWith("sessions.patch", {
+      key: "agent:main:main",
+      model: "openai/gpt-5.2",
+      thinkingLevel: "high",
+    });
+    expect(result).toEqual({ ok: true, key: "agent:main:main" });
+  });
+
+  it("adapts sessions.preview to the upstream keys/previews shape", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({
+      previews: [{ key: "agent:main:main", items: [{ role: "assistant", text: "hello" }] }],
+    });
+
+    const items = await client.sessionsPreview("agent:main:main", 12);
+
+    expect(rpc).toHaveBeenCalledWith("sessions.preview", {
+      keys: ["agent:main:main"],
+      limit: 12,
+    });
+    expect(items).toEqual([{ role: "assistant", text: "hello" }]);
+  });
+
+  it("sends sessions.reset with key and optional reason", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ ok: true });
+
+    await client.sessionsReset("agent:main:main", "new");
+
+    expect(rpc).toHaveBeenCalledWith("sessions.reset", {
+      key: "agent:main:main",
+      reason: "new",
+    });
+  });
+
   it("waitReady retries until configGet succeeds", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

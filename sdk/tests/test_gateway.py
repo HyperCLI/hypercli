@@ -319,6 +319,90 @@ async def test_chat_send_forwards_attachments_in_chat_send_request() -> None:
 
 
 @pytest.mark.asyncio
+async def test_sessions_patch_forwards_raw_patch_payload() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[tuple[str, dict | None, float | None]] = []
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        seen.append((method, params, timeout))
+        return {"ok": True, "key": "agent:main:main"}
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    result = await client.sessions_patch(
+        "agent:main:main",
+        model="openai/gpt-5.2",
+        thinkingLevel="high",
+    )
+
+    assert seen == [
+        (
+            "sessions.patch",
+            {
+                "key": "agent:main:main",
+                "model": "openai/gpt-5.2",
+                "thinkingLevel": "high",
+            },
+            None,
+        )
+    ]
+    assert result == {"ok": True, "key": "agent:main:main"}
+
+
+@pytest.mark.asyncio
+async def test_sessions_preview_uses_keys_shape_and_returns_first_preview_items() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[tuple[str, dict | None, float | None]] = []
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        seen.append((method, params, timeout))
+        return {
+            "previews": [
+                {
+                    "key": "agent:main:main",
+                    "items": [{"role": "assistant", "text": "hello"}],
+                }
+            ]
+        }
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    items = await client.sessions_preview("agent:main:main", limit=12)
+
+    assert seen == [
+        (
+            "sessions.preview",
+            {"keys": ["agent:main:main"], "limit": 12},
+            None,
+        )
+    ]
+    assert items == [{"role": "assistant", "text": "hello"}]
+
+
+@pytest.mark.asyncio
+async def test_sessions_reset_uses_key_and_optional_reason() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    seen: list[tuple[str, dict | None, float | None]] = []
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        seen.append((method, params, timeout))
+        return {"ok": True}
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    result = await client.sessions_reset("agent:main:main", reason="new")
+
+    assert seen == [
+        (
+            "sessions.reset",
+            {"key": "agent:main:main", "reason": "new"},
+            None,
+        )
+    ]
+    assert result == {"ok": True}
+
+
+@pytest.mark.asyncio
 async def test_chat_send_uses_history_fallback_when_final_has_no_message_or_stream() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
