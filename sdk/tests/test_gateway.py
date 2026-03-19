@@ -272,6 +272,53 @@ async def test_chat_send_accepts_canonical_agent_session_key_aliases() -> None:
 
 
 @pytest.mark.asyncio
+async def test_chat_send_forwards_attachments_in_chat_send_request() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "attachments-run-1"
+    seen_params: dict[str, object] = {}
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            seen_params.update(params or {})
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "final",
+                    "message": {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "done"}],
+                    },
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [
+        event
+        async for event in client.chat_send(
+            "With attachment",
+            attachments=[{"type": "file", "path": "/tmp/file.txt"}],
+        )
+    ]
+    await producer
+
+    assert seen_params["attachments"] == [{"type": "file", "path": "/tmp/file.txt"}]
+    assert [chunk.type for chunk in chunks] == ["content", "done"]
+
+
+@pytest.mark.asyncio
 async def test_chat_send_uses_history_fallback_when_final_has_no_message_or_stream() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
     client._connected = True
@@ -412,6 +459,85 @@ async def test_chat_send_emits_thinking_and_tool_events_from_final_snapshot() ->
         "toolCallId": "tool-1",
         "name": "functions.read",
         "result": '{\n  "entries": [\n    "a.txt"\n  ]\n}',
+    }
+
+
+@pytest.mark.asyncio
+async def test_chat_send_emits_tool_events_from_agent_tool_stream() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "agent-tool-stream-run"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "agent",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "stream": "tool",
+                    "data": {
+                        "phase": "start",
+                        "toolCallId": "tool-1",
+                        "name": "functions.read",
+                        "args": {"path": "/tmp/demo.zip"},
+                    },
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "agent",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "stream": "tool",
+                    "data": {
+                        "phase": "result",
+                        "toolCallId": "tool-1",
+                        "name": "functions.read",
+                        "result": {"ok": True},
+                        "isError": False,
+                    },
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat.done",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Inspect this zip")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["tool_call", "tool_result", "done"]
+    assert chunks[0].data == {
+        "toolCallId": "tool-1",
+        "name": "functions.read",
+        "args": {"path": "/tmp/demo.zip"},
+    }
+    assert chunks[1].data == {
+        "toolCallId": "tool-1",
+        "name": "functions.read",
+        "result": {"ok": True},
+        "isError": False,
     }
 
 

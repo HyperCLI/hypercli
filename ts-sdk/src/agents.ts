@@ -719,11 +719,13 @@ export class OpenClawAgent extends Agent {
   async *chatSend(
     message: string,
     sessionKey: string,
-    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & {
+      attachments?: ChatAttachment[];
+    } = {},
   ): AsyncGenerator<ChatEvent> {
     const client = await this.connect(options);
     try {
-      for await (const event of client.chatSend(message, sessionKey)) {
+      for await (const event of client.chatSend(message, sessionKey, options.attachments)) {
         yield event;
       }
     } finally {

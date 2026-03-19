@@ -1946,7 +1946,11 @@ export class GatewayClient {
   // Chat (streaming via events)
   // ---------------------------------------------------------------------------
 
-  async *chatSend(message: string, sessionKey: string): AsyncGenerator<ChatEvent> {
+  async *chatSend(
+    message: string,
+    sessionKey: string,
+    attachments?: ChatAttachment[],
+  ): AsyncGenerator<ChatEvent> {
     if (!this.connected || !this.ws) {
       throw new Error("Not connected");
     }
@@ -1973,12 +1977,15 @@ export class GatewayClient {
     this.eventHandlers.add(handler);
 
     try {
-      const ack = await this.rpc("chat.send", {
+      const params: Record<string, any> = {
         message,
         deliver: false,
         sessionKey,
         idempotencyKey,
-      }, CHAT_TIMEOUT);
+      };
+      if (attachments && attachments.length > 0) params.attachments = attachments;
+
+      const ack = await this.rpc("chat.send", params, CHAT_TIMEOUT);
       const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
       if (serverRunId) {
         acceptedRunIds.add(serverRunId);
@@ -2023,6 +2030,41 @@ export class GatewayClient {
           if (text) {
             streamedDisplayText = true;
             yield { type: "content", text };
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "tool") {
+          const toolPayload = asRecord(payload.data) ?? {};
+          const phase = typeof toolPayload.phase === "string" ? toolPayload.phase.toLowerCase() : "";
+          if (phase === "start") {
+            const toolCallId =
+              typeof toolPayload.toolCallId === "string" && toolPayload.toolCallId.trim()
+                ? toolPayload.toolCallId.trim()
+                : `${typeof toolPayload.name === "string" ? toolPayload.name : "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
+            seenToolCallIds.add(toolCallId);
+            yield {
+              type: "tool_call",
+              data: {
+                ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
+                name: toolPayload.name,
+                args: toolPayload.args,
+              },
+            };
+          } else if (phase === "result") {
+            const toolCallId =
+              typeof toolPayload.toolCallId === "string" && toolPayload.toolCallId.trim()
+                ? toolPayload.toolCallId.trim()
+                : `${typeof toolPayload.name === "string" ? toolPayload.name : "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
+            seenToolResultIds.add(toolCallId);
+            yield {
+              type: "tool_result",
+              data: {
+                ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
+                name: toolPayload.name,
+                result: toolPayload.result,
+                isError: toolPayload.isError,
+              },
+            };
           }
           continue;
         }

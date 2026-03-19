@@ -1310,6 +1310,7 @@ class GatewayClient:
         message: str,
         session_key: str | None = "main",
         agent_id: str | None = None,
+        attachments: list[dict[str, Any]] | None = None,
     ) -> AsyncIterator[ChatEvent]:
         idempotency_key = str(uuid.uuid4())
         resolved_session_key = session_key or "main"
@@ -1321,6 +1322,8 @@ class GatewayClient:
         }
         if agent_id:
             params["agentId"] = agent_id
+        if attachments:
+            params["attachments"] = attachments
 
         result = await self.call("chat.send", params, timeout=30)
         accepted_run_ids = {idempotency_key}
@@ -1359,6 +1362,40 @@ class GatewayClient:
                     deadline = asyncio.get_running_loop().time() + self.chat_timeout
                     streamed_display_text = True
                     yield ChatEvent(type="content", text=text)
+                continue
+            if event_name == "agent" and str(payload.get("stream") or "").lower() == "tool":
+                deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                tool_payload = payload.get("data") or {}
+                if not isinstance(tool_payload, dict):
+                    continue
+                phase = str(tool_payload.get("phase") or "").lower()
+                if phase == "start":
+                    tool_call_id = str(tool_payload.get("toolCallId") or "").strip()
+                    if not tool_call_id:
+                        tool_call_id = f"{tool_payload.get('name', 'tool')}:{json.dumps(tool_payload.get('args'), sort_keys=True, default=str)}"
+                    seen_tool_call_ids.add(tool_call_id)
+                    yield ChatEvent(
+                        type="tool_call",
+                        data={
+                            **({"toolCallId": tool_payload.get("toolCallId")} if tool_payload.get("toolCallId") else {}),
+                            "name": tool_payload.get("name"),
+                            "args": tool_payload.get("args"),
+                        },
+                    )
+                elif phase == "result":
+                    tool_result_id = str(tool_payload.get("toolCallId") or "").strip()
+                    if not tool_result_id:
+                        tool_result_id = f"{tool_payload.get('name', 'tool')}:{json.dumps(tool_payload.get('args'), sort_keys=True, default=str)}"
+                    seen_tool_result_ids.add(tool_result_id)
+                    yield ChatEvent(
+                        type="tool_result",
+                        data={
+                            **({"toolCallId": tool_payload.get("toolCallId")} if tool_payload.get("toolCallId") else {}),
+                            "name": tool_payload.get("name"),
+                            "result": tool_payload.get("result"),
+                            "isError": tool_payload.get("isError"),
+                        },
+                    )
                 continue
             if event_name == "chat.thinking":
                 text = str(payload.get("text") or "")

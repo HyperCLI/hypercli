@@ -462,6 +462,51 @@ describe("GatewayClient", () => {
     expect(events[0]?.text).toBe("Recovered final answer");
   });
 
+  it("chatSend forwards attachments in the chat.send request", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpcSpy = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: any) => {
+      if (method === "chat.send") {
+        expect(params.attachments).toEqual([{ type: "file", path: "/tmp/file.txt" }]);
+        return { runId: "attachments-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("With attachment", "main", [
+        { type: "file", path: "/tmp/file.txt" },
+      ])) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "attachments-run",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(rpcSpy).toHaveBeenCalled();
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+  });
+
   it("normalizes thinking-only and tool-rich assistant messages", () => {
     const normalized = normalizeGatewayChatMessage({
       role: "assistant",
