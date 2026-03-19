@@ -13,6 +13,7 @@ type RequiredEnvKey =
   | "NEXT_PUBLIC_PRIVY_APP_ID";
 
 const SCREENSHOT_DIR = path.resolve(__dirname, "..", "screenshots");
+const SCREENSHOT_DELAY_MS = 10_000;
 const DEFAULT_IMAP_PORT = 993;
 const OTP_TIMEOUT_MS = 30_000;
 const OTP_POLL_INTERVAL_MS = 5_000;
@@ -130,6 +131,7 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     SCREENSHOT_DIR,
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${slugifyStep(step)}.png`
   );
+  await page.waitForTimeout(SCREENSHOT_DELAY_MS);
   await page.screenshot({ path: filePath, fullPage: true });
   return filePath;
 }
