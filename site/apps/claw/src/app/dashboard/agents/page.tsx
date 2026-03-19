@@ -827,6 +827,9 @@ export default function AgentsPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   // ── Fetch agents ──
+  const selectedAgentIdRef = useRef(selectedAgentId);
+  useEffect(() => { selectedAgentIdRef.current = selectedAgentId; }, [selectedAgentId]);
+
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
@@ -834,10 +837,11 @@ export default function AgentsPage() {
       const items = (data.items || []).map(sdkAgentToPageAgent);
       setAgents(items);
       setBudget((data.budget as AgentBudget | undefined) || null);
-      if (!selectedAgentId && items.length > 0) {
+      const currentId = selectedAgentIdRef.current;
+      if (!currentId && items.length > 0) {
         setSelectedAgentId(items[0].id);
       }
-      if (selectedAgentId && !items.find((item) => item.id === selectedAgentId)) {
+      if (currentId && !items.find((item) => item.id === currentId)) {
         setSelectedAgentId(items[0]?.id || null);
       }
     } catch (err) {
@@ -846,7 +850,7 @@ export default function AgentsPage() {
     } finally {
       setLoading(false);
     }
-  }, [getToken, selectedAgentId]);
+  }, [getToken]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 

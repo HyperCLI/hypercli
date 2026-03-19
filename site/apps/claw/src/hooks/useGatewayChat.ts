@@ -486,7 +486,6 @@ export function useGatewayChat(
       setPendingFiles([]);
     };
   }, [
-    agent?.gatewayToken,
     agent?.hostname,
     agent?.id,
     agent?.state,
