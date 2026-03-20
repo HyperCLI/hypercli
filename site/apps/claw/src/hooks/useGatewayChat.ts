@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
   GatewayClient,
+  type GatewayChatAttachmentPayload,
   type GatewayEvent,
   type GatewayChatToolCall,
   type OpenClawConfigSchemaResponse,
@@ -11,12 +12,7 @@ import {
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
-export interface ChatAttachment {
-  type: string;
-  mimeType: string;
-  content: string; // base64
-  fileName?: string;
-}
+export type ChatAttachment = GatewayChatAttachmentPayload;
 
 export interface ChatPendingFile {
   name: string;

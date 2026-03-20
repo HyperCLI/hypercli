@@ -17,6 +17,6 @@ RUN cp env.dev apps/main/.env.local \
   && cp env.dev apps/console/.env.local \
   && cp env.dev apps/claw/.env.local \
   && npm install \
-  && npm run sdk:use-local
+  && npm run sdk:use-checkout
 
 CMD ["npm", "run", "build"]

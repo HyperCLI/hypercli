@@ -82,12 +82,22 @@ export interface GatewayChatMessageSummary {
   timestamp?: number;
 }
 
-export interface ChatAttachment {
+export interface GatewayChatAttachmentPayload {
   type: string;
+  mimeType?: string;
+  content?: string;
+  fileName?: string;
+  [key: string]: unknown;
+}
+
+export interface BrowserChatAttachment {
+  id?: string;
+  dataUrl: string;
   mimeType: string;
-  content: string;
   fileName?: string;
 }
+
+export type ChatAttachment = GatewayChatAttachmentPayload | BrowserChatAttachment;
 
 export interface GatewayCloseInfo {
   code: number;
@@ -266,6 +276,39 @@ function asContentItems(value: unknown): Record<string, any>[] {
   return value
     .map((item) => asRecord(item))
     .filter((item): item is Record<string, any> => item !== null);
+}
+
+function isBrowserChatAttachment(attachment: ChatAttachment): attachment is BrowserChatAttachment {
+  return typeof (attachment as BrowserChatAttachment).dataUrl === "string";
+}
+
+function parseAttachmentDataUrl(
+  dataUrl: string,
+): { mimeType: string; content: string } | null {
+  const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl.trim());
+  if (!match) return null;
+  return { mimeType: match[1], content: match[2] };
+}
+
+export function normalizeChatAttachments(
+  attachments?: ChatAttachment[],
+): GatewayChatAttachmentPayload[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+  return attachments.map((attachment) => {
+    if (!isBrowserChatAttachment(attachment)) {
+      return attachment;
+    }
+    const parsed = parseAttachmentDataUrl(attachment.dataUrl);
+    if (!parsed) {
+      throw new Error(`Invalid chat attachment dataUrl for mime type ${attachment.mimeType}`);
+    }
+    return {
+      type: "image",
+      mimeType: parsed.mimeType,
+      content: parsed.content,
+      ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
+    };
+  });
 }
 
 function normalizeToolArgs(value: unknown): unknown {
@@ -1931,6 +1974,7 @@ export class GatewayClient {
     agentId?: string,
     attachments?: ChatAttachment[],
   ): Promise<any> {
+    const normalizedAttachments = normalizeChatAttachments(attachments);
     const params: Record<string, any> = {
       message,
       deliver: false,
@@ -1938,7 +1982,7 @@ export class GatewayClient {
       idempotencyKey: makeId(),
     };
     if (agentId) params.agentId = agentId;
-    if (attachments && attachments.length > 0) params.attachments = attachments;
+    if (normalizedAttachments) params.attachments = normalizedAttachments;
     return this.rpc("chat.send", params, CHAT_TIMEOUT);
   }
 
@@ -1983,13 +2027,14 @@ export class GatewayClient {
     this.eventHandlers.add(handler);
 
     try {
+      const normalizedAttachments = normalizeChatAttachments(attachments);
       const params: Record<string, any> = {
         message,
         deliver: false,
         sessionKey,
         idempotencyKey,
       };
-      if (attachments && attachments.length > 0) params.attachments = attachments;
+      if (normalizedAttachments) params.attachments = normalizedAttachments;
 
       const ack = await this.rpc("chat.send", params, CHAT_TIMEOUT);
       const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";

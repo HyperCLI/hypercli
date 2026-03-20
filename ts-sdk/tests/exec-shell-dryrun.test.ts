@@ -407,21 +407,21 @@ describe('HyperClaw agents SDK', () => {
       agent.chatSendMessage('hello', {
         sessionKey: 'main',
         agentId: 'workspace-agent',
-        attachments: [{ type: 'file', path: '/tmp/file.txt' }],
+        attachments: [{ id: 'att-1', dataUrl: 'data:image/png;base64,YWJj', mimeType: 'image/png' }],
       }),
     ).resolves.toEqual({ runId: 'run-123' });
     expect(sendChat).toHaveBeenCalledWith(
       'hello',
       'main',
       'workspace-agent',
-      [{ type: 'file', path: '/tmp/file.txt' }],
+      [{ id: 'att-1', dataUrl: 'data:image/png;base64,YWJj', mimeType: 'image/png' }],
     );
 
     const streamed = [];
     for await (const event of agent.chatSend('stream me', 'main')) {
       streamed.push(event);
     }
-    expect(chatSend).toHaveBeenCalledWith('stream me', 'main');
+    expect(chatSend).toHaveBeenCalledWith('stream me', 'main', undefined);
     expect(streamed).toEqual([
       { type: 'content', text: 'chunk-1' },
       { type: 'done' },

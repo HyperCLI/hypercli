@@ -516,7 +516,7 @@ describe("GatewayClient", () => {
     expect(events[0]?.text).toBe("Recovered final answer");
   });
 
-  it("chatSend forwards attachments in the chat.send request", async () => {
+  it("chatSend forwards pre-normalized attachments in the chat.send request", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
       gatewayToken: "gw-token",
@@ -525,7 +525,9 @@ describe("GatewayClient", () => {
     (client as any).ws = { readyState: MockWebSocket.OPEN };
     const rpcSpy = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: any) => {
       if (method === "chat.send") {
-        expect(params.attachments).toEqual([{ type: "file", path: "/tmp/file.txt" }]);
+        expect(params.attachments).toEqual([
+          { type: "image", mimeType: "image/png", content: "YWJj" },
+        ]);
         return { runId: "attachments-run" };
       }
       throw new Error(`unexpected RPC ${method}`);
@@ -534,7 +536,7 @@ describe("GatewayClient", () => {
     const streamPromise = (async () => {
       const events = [];
       for await (const event of client.chatSend("With attachment", "main", [
-        { type: "file", path: "/tmp/file.txt" },
+        { type: "image", mimeType: "image/png", content: "YWJj" },
       ])) {
         events.push(event);
       }
@@ -547,6 +549,58 @@ describe("GatewayClient", () => {
       event: "chat",
       payload: {
         runId: "attachments-run",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(rpcSpy).toHaveBeenCalled();
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+  });
+
+  it("chatSend converts browser-style dataUrl attachments before sending", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpcSpy = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: any) => {
+      if (method === "chat.send") {
+        expect(params.attachments).toEqual([
+          { type: "image", mimeType: "image/png", content: "YWJj", fileName: "clip.png" },
+        ]);
+        return { runId: "data-url-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("With image", "main", [
+        {
+          id: "att-1",
+          dataUrl: "data:image/png;base64,YWJj",
+          mimeType: "image/png",
+          fileName: "clip.png",
+        },
+      ])) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "data-url-run",
         sessionKey: "main",
         state: "final",
         message: {

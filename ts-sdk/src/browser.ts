@@ -1,4 +1,21 @@
 import { Billing } from './billing.js';
+export {
+  GatewayClient,
+  type GatewayOptions,
+  type GatewayEvent,
+  type ChatEvent,
+  type ChatAttachment,
+  type BrowserChatAttachment,
+  type GatewayChatAttachmentPayload,
+  type GatewayChatToolCall,
+  type GatewayChatMessageSummary,
+  type GatewayEventHandler,
+  normalizeChatAttachments,
+  extractGatewayChatThinking,
+  extractGatewayChatMediaUrls,
+  extractGatewayChatToolCalls,
+  normalizeGatewayChatMessage,
+} from './gateway.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
 import { KeysAPI } from './keys.js';

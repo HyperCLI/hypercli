@@ -116,6 +116,38 @@ const agentWs = await client.agents.shellConnect(agentId);
 agentWs.close();
 ```
 
+### OpenClaw Gateway Chat Attachments
+
+```typescript
+import { GatewayClient } from '@hypercli.com/sdk/browser';
+
+const gateway = new GatewayClient({
+  url: 'wss://your-agent.dev.hyperclaw.app',
+  gatewayToken: 'gateway-token',
+});
+
+await gateway.connect();
+
+await gateway.sendChat("What's in this image?", "main", undefined, [
+  {
+    dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+    mimeType: 'image/png',
+    fileName: 'screenshot.png',
+  },
+]);
+
+await gateway.sendChat('Already normalized', 'main', undefined, [
+  {
+    type: 'image',
+    mimeType: 'image/png',
+    content: 'iVBORw0KGgoAAAANSUhEUgAA...',
+    fileName: 'screenshot.png',
+  },
+]);
+```
+
+Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
+
 ### Renders (Managed AI Workflows)
 
 ```typescript
