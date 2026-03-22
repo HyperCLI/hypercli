@@ -16,8 +16,9 @@ The Python SDK resolves config in this order:
 
 | Variable | Description |
 | --- | --- |
-| `HYPERCLI_API_KEY` | Main HyperCLI API key |
-| `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_API_KEY` | Main HyperCLI API key |
+| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperClaw deployment and inference surfaces |
 | `HYPERCLI_WS_URL` | Optional override for log and shell WebSocket base URLs |
 | `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.hypercli.com/agents` |
 | `AGENTS_WS_URL` | HyperClaw backend WebSocket base for logs and shell. Defaults to `wss://api.agents.hypercli.com/ws` |
@@ -26,7 +27,7 @@ The Python SDK resolves config in this order:
 
 The Python SDK now treats the main API and the agents API as separate surfaces:
 
-- `HYPERCLI_API_URL`
+- `HYPER_API_BASE`
   - primary product/backend API
   - billing
   - jobs
@@ -49,7 +50,7 @@ The Python SDK now treats the main API and the agents API as separate surfaces:
 Default production values:
 
 ```bash
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_BASE=https://api.hypercli.com
 HYPERCLI_WS_URL=wss://api.hypercli.com
 AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
@@ -58,7 +59,7 @@ AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 Default dev values:
 
 ```bash
-HYPERCLI_API_URL=https://api.dev.hypercli.com
+HYPER_API_BASE=https://api.dev.hypercli.com
 HYPERCLI_WS_URL=wss://api.dev.hypercli.com
 AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
@@ -111,8 +112,8 @@ Path:
 Example:
 
 ```bash
-HYPERCLI_API_KEY=hyper_...
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_KEY=hyper_...
+HYPER_API_BASE=https://api.hypercli.com
 AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```

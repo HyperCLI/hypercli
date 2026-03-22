@@ -15,20 +15,19 @@ This writes the shared config file at `~/.hypercli/config`.
 
 | Variable | Description |
 | --- | --- |
-| `HYPERCLI_API_KEY` | Main HyperCLI API key |
-| `HYPERCLI_API_URL` | Primary HyperCLI REST API base URL |
+| `HYPER_API_KEY` | Main HyperCLI API key |
+| `HYPER_API_BASE` | Primary HyperCLI REST API base URL |
+| `HYPER_AGENTS_API_KEY` | Agent-scoped API key used by `hyper agents` |
 | `HYPERCLI_WS_URL` | Primary HyperCLI WebSocket base URL |
 | `AGENTS_API_BASE_URL` | HyperClaw deployments API base URL |
 | `AGENTS_WS_URL` | HyperClaw backend WebSocket base for logs and shell |
-| `HYPERCLAW_API_KEY` | HyperClaw key used by `hyper agents` and model discovery |
-| `HYPERCLAW_API_BASE` | Override the OpenClaw inference/model-discovery base used by `hyper agent config` |
 | `HYPERCLI_WALLET_PASSPHRASE` | Skip wallet passphrase prompts |
 
 ## URL Model
 
 The CLI now separates the primary product API from the agents API:
 
-- `HYPERCLI_API_URL`
+- `HYPER_API_BASE`
   - billing
   - jobs
   - keys
@@ -49,7 +48,7 @@ The CLI now separates the primary product API from the agents API:
 Recommended production values:
 
 ```bash
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_BASE=https://api.hypercli.com
 HYPERCLI_WS_URL=wss://api.hypercli.com
 AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
@@ -58,7 +57,7 @@ AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 Recommended dev values:
 
 ```bash
-HYPERCLI_API_URL=https://api.dev.hypercli.com
+HYPER_API_BASE=https://api.dev.hypercli.com
 HYPERCLI_WS_URL=wss://api.dev.hypercli.com
 AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
@@ -66,7 +65,7 @@ AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
 
 ### OpenClaw Base URL Rule
 
-`hyper agent config openclaw` uses `HYPERCLAW_API_BASE` or the agents inference host.
+`hyper agent config openclaw` uses the agents inference host derived from `AGENTS_API_BASE_URL`.
 
 Important:
 
@@ -87,8 +86,8 @@ Location:
 Example:
 
 ```bash
-HYPERCLI_API_KEY=hyper_...
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_KEY=hyper_...
+HYPER_API_BASE=https://api.hypercli.com
 AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```
@@ -115,5 +114,6 @@ The main CLI resolves configuration in this order:
 
 The `hyper agents` command group resolves agent auth in this order:
 
-1. `HYPERCLAW_API_KEY`
-2. `~/.hypercli/agent-key.json`
+1. `HYPER_AGENTS_API_KEY`
+2. `HYPER_API_KEY`
+3. `~/.hypercli/agent-key.json`

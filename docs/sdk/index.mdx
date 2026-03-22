@@ -36,7 +36,7 @@ from hypercli import HyperCLI
 
 client = HyperCLI(
     api_key="hyper_...",      # main HyperCLI API key
-    agent_api_key="sk-...",   # HyperClaw agent key
+    agent_api_key="sk-...",   # optional agent-scoped key
 )
 ```
 
@@ -50,14 +50,13 @@ The constructor resolves credentials in this order:
 
 Common environment variables:
 
-- `HYPERCLI_API_KEY`
-- `HYPERCLI_API_URL`
+- `HYPER_API_KEY`
+- `HYPER_API_BASE`
+- `HYPER_AGENTS_API_KEY`
 - `AGENTS_API_BASE_URL`
 - `AGENTS_WS_URL`
-- `HYPERCLAW_API_KEY`
-- `HYPERCLAW_API_BASE`
 
-Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI key.
+Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI key. Product APIs use `HYPER_API_KEY`; agent lifecycle/inference surfaces prefer `HYPER_AGENTS_API_KEY` and fall back to the product key.
 
 ## Main Namespaces
 

@@ -30,7 +30,7 @@ npm link ../ts-sdk
 ```typescript
 import { HyperCLI } from '@hypercli.com/sdk';
 
-// Initialize client (uses HYPERCLI_API_KEY from env or ~/.hypercli/config)
+// Initialize client (uses HYPER_API_KEY from env or ~/.hypercli/config)
 const client = new HyperCLI();
 
 // Or pass API key directly
@@ -57,7 +57,7 @@ console.log(`Hostname: ${job.hostname}`);
 ## Configuration
 
 Set your API key via:
-1. Environment variable: `export HYPERCLI_API_KEY=your_key`
+1. Environment variable: `export HYPER_API_KEY=your_key`
 2. Config file: `~/.hypercli/config`
 3. Constructor: `new HyperCLI({ apiKey: 'your_key' })`
 

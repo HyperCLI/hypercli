@@ -13,12 +13,12 @@ pip install hypercli-sdk
 Set your API key:
 
 ```bash
-export HYPERCLI_API_KEY=your_api_key
+export HYPER_API_KEY=your_api_key
 ```
 
 Or create `~/.hypercli/config`:
 ```
-HYPERCLI_API_KEY=your_api_key
+HYPER_API_KEY=your_api_key
 ```
 
 Or pass directly:

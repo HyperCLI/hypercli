@@ -72,7 +72,7 @@ class TestHyperAgentClient:
         agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", dev=True)
         
         # Access openai property to trigger creation
-        with patch('hypercli.agent.OpenAI') as mock_openai:
+        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
             mock_openai.return_value = MagicMock()
             client = agent.openai
             
@@ -88,7 +88,7 @@ class TestHyperAgentClient:
             agents_api_base_url="https://api.hypercli.com/agents",
         )
 
-        with patch('hypercli.agent.OpenAI') as mock_openai:
+        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
             mock_openai.return_value = MagicMock()
             _ = agent.openai
 
@@ -104,7 +104,7 @@ class TestHyperAgentClient:
             agents_api_base_url="https://api.dev.hypercli.com",
         )
 
-        with patch('hypercli.agent.OpenAI') as mock_openai:
+        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
             mock_openai.return_value = MagicMock()
             _ = agent.openai
 
@@ -117,7 +117,7 @@ class TestHyperAgentClient:
         """Test that chat method uses OpenAI client."""
         agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", dev=True)
         
-        with patch('hypercli.agent.OpenAI') as mock_openai:
+        with patch('hypercli.agent.OPENAI_AVAILABLE', True), patch('hypercli.agent.OpenAI') as mock_openai:
             mock_client = MagicMock()
             mock_openai.return_value = mock_client
             
@@ -171,6 +171,23 @@ class TestHyperAgentIntegration:
 
 
 def test_hypercli_dev_client_defaults_agents_urls():
+    os.environ.pop("AGENTS_API_BASE_URL", None)
+    os.environ.pop("AGENTS_WS_URL", None)
+    os.environ.pop("HYPER_API_BASE", None)
+    os.environ.pop("HYPERCLI_API_URL", None)
     client = HyperCLI(api_key="hyper_api_test_key", agent_api_key="sk-hyper-test", agent_dev=True)
     assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"
     assert client.agent._base_url == "https://api.agents.dev.hypercli.com/v1"
+
+
+def test_hypercli_uses_agent_env_for_agent_clients(monkeypatch):
+    monkeypatch.setenv("HYPER_API_KEY", "sk-product")
+    monkeypatch.setenv("HYPER_AGENTS_API_KEY", "sk-agent")
+    monkeypatch.setenv("AGENTS_API_BASE_URL", "https://api.agents.dev.hypercli.com")
+
+    client = HyperCLI()
+
+    assert client._api_key == "sk-product"
+    assert client.deployments._api_key == "sk-agent"
+    assert client.agent._api_key == "sk-agent"
+    assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"

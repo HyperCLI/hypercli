@@ -10,6 +10,7 @@ export { BrowserHyperCLI, type BrowserHyperCLIOptions } from './browser.js';
 export {
   configure,
   getApiKey,
+  getAgentApiKey,
   getApiUrl,
   getAgentsApiBaseUrl,
   getAgentsWsUrl,

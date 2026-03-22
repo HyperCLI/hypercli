@@ -2,6 +2,7 @@
 import os
 from pathlib import Path
 from typing import Optional
+from urllib.parse import urlsplit
 
 CONFIG_DIR = Path.home() / ".hypercli"
 CONFIG_FILE = CONFIG_DIR / "config"
@@ -39,13 +40,77 @@ def get_config_value(key: str, default: str = None) -> Optional[str]:
 
 
 def get_api_key() -> Optional[str]:
-    """Get API key from env or config file"""
-    return get_config_value("HYPERCLI_API_KEY")
+    """Get product API key from env or config file."""
+    return (
+        get_config_value("HYPER_API_KEY")
+        or get_config_value("HYPERCLI_API_KEY")
+    )
+
+
+def get_agent_api_key() -> Optional[str]:
+    """Get agent-scoped API key, falling back to the full product key."""
+    return (
+        get_config_value("HYPER_AGENTS_API_KEY")
+        or get_config_value("HYPER_API_KEY")
+        or get_config_value("HYPERCLI_API_KEY")
+    )
 
 
 def get_api_url() -> str:
-    """Get API URL"""
-    return get_config_value("HYPERCLI_API_URL", DEFAULT_API_URL)
+    """Get product API URL."""
+    return (
+        get_config_value("HYPER_API_BASE")
+        or get_config_value("HYPERCLI_API_URL", DEFAULT_API_URL)
+    )
+
+
+def _normalize_agents_api_base(url: str) -> str:
+    raw = (url or "").strip()
+    if not raw:
+        return DEFAULT_AGENTS_API_BASE_URL
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    scheme = parsed.scheme or "https"
+    normalized_path = parsed.path.rstrip("/")
+    host = parsed.netloc.lower()
+    if normalized_path.endswith("/agents"):
+        return f"{scheme}://{parsed.netloc}{normalized_path}"
+    if normalized_path.endswith("/api"):
+        if host == "api.agents.hypercli.com":
+            return DEFAULT_AGENTS_API_BASE_URL
+        if host == "api.agents.dev.hypercli.com":
+            return DEV_AGENTS_API_BASE_URL
+        return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}/agents"
+    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+        return DEFAULT_AGENTS_API_BASE_URL
+    if host in {
+        "api.agents.dev.hypercli.com",
+        "api.dev.hypercli.com",
+        "api.dev.hyperclaw.app",
+        "dev-api.hyperclaw.app",
+    }:
+        return DEV_AGENTS_API_BASE_URL
+    normalized = raw.rstrip("/")
+    return f"{normalized}/agents"
+
+
+def _default_agents_ws_url(api_base: str) -> str:
+    raw = _normalize_agents_api_base(api_base)
+    parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+    host = parsed.netloc.lower()
+    if host in {"api.agents.hypercli.com", "api.hypercli.com", "api.hyperclaw.app"}:
+        return DEFAULT_AGENTS_WS_URL
+    if host in {
+        "api.agents.dev.hypercli.com",
+        "api.dev.hypercli.com",
+        "api.dev.hyperclaw.app",
+        "dev-api.hyperclaw.app",
+    }:
+        return DEV_AGENTS_WS_URL
+    if raw.startswith("https://"):
+        return f"wss://{raw[len('https://'):].rstrip('/')}/ws"
+    if raw.startswith("http://"):
+        return f"ws://{raw[len('http://'):].rstrip('/')}/ws"
+    return f"{raw.rstrip('/')}/ws"
 
 
 def get_ws_url() -> str:
@@ -61,7 +126,15 @@ def get_ws_url() -> str:
 def get_agents_api_base_url(dev: bool = False) -> str:
     """Get HyperClaw agents API base URL."""
     default = DEV_AGENTS_API_BASE_URL if dev else DEFAULT_AGENTS_API_BASE_URL
-    return get_config_value("AGENTS_API_BASE_URL", default)
+    configured = get_config_value("AGENTS_API_BASE_URL")
+    if configured:
+        return _normalize_agents_api_base(configured)
+    if dev:
+        return default
+    product_base = get_config_value("HYPER_API_BASE") or get_config_value("HYPERCLI_API_URL")
+    if product_base:
+        return _normalize_agents_api_base(product_base)
+    return default
 
 
 def get_agents_ws_url(dev: bool = False) -> str:
@@ -69,7 +142,7 @@ def get_agents_ws_url(dev: bool = False) -> str:
     ws = get_config_value("AGENTS_WS_URL")
     if ws:
         return ws
-    return DEV_AGENTS_WS_URL if dev else DEFAULT_AGENTS_WS_URL
+    return _default_agents_ws_url(get_agents_api_base_url(dev))
 
 
 def configure(
@@ -82,9 +155,9 @@ def configure(
     CONFIG_DIR.mkdir(parents=True, exist_ok=True)
 
     config = _load_config_file()
-    config["HYPERCLI_API_KEY"] = api_key
+    config["HYPER_API_KEY"] = api_key
     if api_url:
-        config["HYPERCLI_API_URL"] = api_url
+        config["HYPER_API_BASE"] = api_url
     if agents_api_base_url:
         config["AGENTS_API_BASE_URL"] = agents_api_base_url
     if agents_ws_url:

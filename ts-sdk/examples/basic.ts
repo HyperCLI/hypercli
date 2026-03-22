@@ -5,7 +5,7 @@ import { HyperCLI } from '../src/index.js';
 
 async function main() {
   try {
-    // Initialize client (will use HYPERCLI_API_KEY from env or ~/.hypercli/config)
+    // Initialize client (will use HYPER_API_KEY from env or ~/.hypercli/config)
     const client = new HyperCLI();
     
     console.log('✅ Client initialized');
