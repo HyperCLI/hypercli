@@ -18,6 +18,7 @@ const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
+const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'registry_url', 'registry_auth']);
 
 export interface AgentExecResult {
   exitCode: number;
@@ -333,9 +334,12 @@ export function buildAgentConfig(
   config: Record<string, any> = {},
   options: BuildAgentConfigOptions = {},
 ): { config: Record<string, any>; gatewayToken: string } {
-  const prepared = { ...config };
-  const env = { ...(prepared.env ?? {}) } as Record<string, string>;
-  if (options.env) Object.assign(env, options.env);
+  const preparedConfig = { ...config };
+  const nestedLaunchKeys = Object.keys(preparedConfig).filter((key) => LAUNCH_CONFIG_KEYS.has(key));
+  if (nestedLaunchKeys.length) {
+    throw new Error(`Launch settings must be top-level fields, not nested under config: ${nestedLaunchKeys.join(', ')}`);
+  }
+  const env = { ...(options.env ?? {}) } as Record<string, string>;
 
   let gatewayToken = options.gatewayToken?.trim() || env.OPENCLAW_GATEWAY_TOKEN?.trim() || '';
   if (!gatewayToken) {
@@ -343,8 +347,10 @@ export function buildAgentConfig(
   }
 
   env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-  prepared.env = env;
 
+  const prepared: Record<string, any> = {};
+  if (Object.keys(preparedConfig).length > 0) prepared.config = preparedConfig;
+  if (Object.keys(env).length > 0) prepared.env = env;
   if (options.ports !== undefined && options.ports !== null) prepared.ports = options.ports;
   if (options.routes !== undefined && options.routes !== null) prepared.routes = options.routes;
   if (options.command !== undefined && options.command !== null) prepared.command = options.command;
@@ -358,11 +364,9 @@ export function buildAgentConfig(
 
 function defaultOpenClawImage(
   image: string | null | undefined,
-  config: Record<string, any> | null | undefined,
 ): string {
   if (image !== undefined && image !== null) return image;
-  const configured = String(config?.image ?? '').trim();
-  return configured || DEFAULT_OPENCLAW_IMAGE;
+  return DEFAULT_OPENCLAW_IMAGE;
 }
 
 export function buildOpenClawRoutes(options: OpenClawRouteOptions = {}): Record<string, AgentRouteConfig> {
@@ -1157,7 +1161,7 @@ export class Deployments {
 
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
-    const body: Record<string, any> = { config, start: options.start ?? true };
+    const body: Record<string, any> = { ...config, start: options.start ?? true };
     if (options.dryRun) body.dry_run = true;
     if (options.name) body.name = options.name;
     if (options.size) body.size = options.size;
@@ -1180,7 +1184,7 @@ export class Deployments {
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
-    effectiveOptions.image = defaultOpenClawImage(options.image, options.config ?? {});
+    effectiveOptions.image = defaultOpenClawImage(options.image);
     return this.create(effectiveOptions);
   }
 
@@ -1225,7 +1229,7 @@ export class Deployments {
 
   async start(agentId: string, options: StartAgentOptions = {}): Promise<Agent> {
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
-    const body: Record<string, any> = { config };
+    const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
     const data = await this.http.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
     const agent = this.hydrateAgent(data);
@@ -1243,7 +1247,7 @@ export class Deployments {
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
-    effectiveOptions.image = defaultOpenClawImage(options.image, options.config ?? {});
+    effectiveOptions.image = defaultOpenClawImage(options.image);
     return this.start(agentId, effectiveOptions);
   }
 

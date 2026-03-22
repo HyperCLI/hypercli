@@ -30,6 +30,7 @@ AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
+LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "registry_url", "registry_auth"})
 
 
 def build_openclaw_routes(
@@ -165,7 +166,7 @@ def _default_agents_ws_url(api_base: str) -> str:
     return _normalize_agents_ws_url(raw)
 
 
-def _build_agent_config(
+def _build_agent_launch(
     config: dict | None = None,
     *,
     env: dict | None = None,
@@ -178,9 +179,14 @@ def _build_agent_config(
     registry_auth: dict | None = None,
     gateway_token: str | None = None,
 ) -> tuple[dict, str]:
-    prepared = dict(config or {})
-
-    env_map = dict(prepared.get("env") or {})
+    prepared_config = dict(config or {})
+    nested_launch_keys = sorted(LAUNCH_CONFIG_KEYS.intersection(prepared_config.keys()))
+    if nested_launch_keys:
+        raise ValueError(
+            "Launch settings must be top-level fields, not nested under config: "
+            + ", ".join(nested_launch_keys)
+        )
+    env_map = dict(env or {})
     if env:
         env_map.update(env)
 
@@ -188,32 +194,33 @@ def _build_agent_config(
     if not effective_gateway_token:
         effective_gateway_token = secrets.token_hex(32)
     env_map["OPENCLAW_GATEWAY_TOKEN"] = effective_gateway_token
-    prepared["env"] = env_map
 
+    launch: dict[str, Any] = {}
+    if prepared_config:
+        launch["config"] = prepared_config
+    if env_map:
+        launch["env"] = env_map
     if ports is not None:
-        prepared["ports"] = ports
+        launch["ports"] = ports
     if routes is not None:
-        prepared["routes"] = routes
+        launch["routes"] = routes
     if command is not None:
-        prepared["command"] = command
+        launch["command"] = command
     if entrypoint is not None:
-        prepared["entrypoint"] = entrypoint
+        launch["entrypoint"] = entrypoint
     if image is not None:
-        prepared["image"] = image
+        launch["image"] = image
     if registry_url is not None:
-        prepared["registry_url"] = registry_url
+        launch["registry_url"] = registry_url
     if registry_auth is not None:
-        prepared["registry_auth"] = registry_auth
+        launch["registry_auth"] = registry_auth
 
-    return prepared, effective_gateway_token
+    return launch, effective_gateway_token
 
 
-def _default_openclaw_image(image: str | None, config: dict | None) -> str | None:
+def _default_openclaw_image(image: str | None) -> str | None:
     if image is not None:
         return image
-    configured = str((config or {}).get("image") or "").strip()
-    if configured:
-        return configured
     return DEFAULT_OPENCLAW_IMAGE
 
 
@@ -968,7 +975,7 @@ class Deployments:
         Returns:
             Agent with connection details.
         """
-        prepared_config, effective_gateway_token = _build_agent_config(
+        launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
             ports=ports,
@@ -980,7 +987,7 @@ class Deployments:
             registry_auth=registry_auth,
             gateway_token=gateway_token,
         )
-        body: dict = {"config": prepared_config, "start": start}
+        body: dict = {**launch_payload, "start": start}
         if dry_run:
             body["dry_run"] = True
         if name:
@@ -995,9 +1002,9 @@ class Deployments:
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
-        agent.launch_config = prepared_config
-        agent.command = list(prepared_config.get("command") or [])
-        agent.entrypoint = list(prepared_config.get("entrypoint") or [])
+        agent.launch_config = launch_payload
+        agent.command = list(launch_payload.get("command") or [])
+        agent.entrypoint = list(launch_payload.get("entrypoint") or [])
         return agent
 
     def create_openclaw(
@@ -1036,7 +1043,7 @@ class Deployments:
             ),
             command=command,
             entrypoint=entrypoint,
-            image=_default_openclaw_image(image, config),
+            image=_default_openclaw_image(image),
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
@@ -1122,7 +1129,7 @@ class Deployments:
         Returns:
             Agent with new pod details.
         """
-        prepared_config, effective_gateway_token = _build_agent_config(
+        launch_payload, effective_gateway_token = _build_agent_launch(
             config,
             env=env,
             ports=ports,
@@ -1134,16 +1141,16 @@ class Deployments:
             registry_auth=registry_auth,
             gateway_token=gateway_token,
         )
-        body: dict[str, Any] = {"config": prepared_config}
+        body: dict[str, Any] = dict(launch_payload)
         if dry_run:
             body["dry_run"] = True
         data = self._post(f"{AGENTS_API_PREFIX}/{agent_id}/start", json=body)
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
             agent.gateway_token = effective_gateway_token
-        agent.launch_config = prepared_config
-        agent.command = list(prepared_config.get("command") or [])
-        agent.entrypoint = list(prepared_config.get("entrypoint") or [])
+        agent.launch_config = launch_payload
+        agent.command = list(launch_payload.get("command") or [])
+        agent.entrypoint = list(launch_payload.get("entrypoint") or [])
         return agent
 
     def start_openclaw(
@@ -1175,7 +1182,7 @@ class Deployments:
             ),
             command=command,
             entrypoint=entrypoint,
-            image=_default_openclaw_image(image, config),
+            image=_default_openclaw_image(image),
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,

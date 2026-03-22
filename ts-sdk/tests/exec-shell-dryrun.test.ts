@@ -35,8 +35,9 @@ describe('HyperClaw agents SDK', () => {
 
   it('buildAgentConfig injects gateway token and preserves launch fields', () => {
     const { config, gatewayToken } = buildAgentConfig(
-      { env: { FOO: 'bar' } },
+      { foo: 'bar' },
       {
+        env: { FOO: 'bar' },
         command: ['echo', 'hello'],
         entrypoint: ['/bin/sh', '-c'],
         routes: { openclaw: { port: 18789, auth: false } },
@@ -45,6 +46,7 @@ describe('HyperClaw agents SDK', () => {
     );
 
     expect(gatewayToken).toMatch(/^ab+/);
+    expect(config.config).toEqual({ foo: 'bar' });
     expect(config.env).toEqual({
       FOO: 'bar',
       OPENCLAW_GATEWAY_TOKEN: gatewayToken,
@@ -53,6 +55,13 @@ describe('HyperClaw agents SDK', () => {
     expect(config.entrypoint).toEqual(['/bin/sh', '-c']);
     expect(config.routes).toEqual({ openclaw: { port: 18789, auth: false } });
     expect(config.image).toBe('ghcr.io/hypercli/hypercli-openclaw:test');
+  });
+
+  it('buildAgentConfig rejects nested launch fields in config', () => {
+    expect(() => buildAgentConfig(
+      { env: { FOO: 'bar' } },
+      {},
+    )).toThrow(/Launch settings must be top-level fields/);
   });
 
   it('buildOpenClawRoutes returns the default gateway and desktop routes', () => {
@@ -91,13 +100,11 @@ describe('HyperClaw agents SDK', () => {
     await deployments.createOpenClaw({ name: 'test-agent' });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
-      config: expect.objectContaining({
-        image: DEFAULT_OPENCLAW_IMAGE,
-        routes: {
-          openclaw: { port: 18789, auth: false, prefix: '' },
-          desktop: { port: 3000, auth: true, prefix: 'desktop' },
-        },
-      }),
+      image: DEFAULT_OPENCLAW_IMAGE,
+      routes: {
+        openclaw: { port: 18789, auth: false, prefix: '' },
+        desktop: { port: 3000, auth: true, prefix: 'desktop' },
+      },
     }));
   });
 
@@ -118,10 +125,8 @@ describe('HyperClaw agents SDK', () => {
     await deployments.createOpenClaw({ name: 'test-agent', routes: {} });
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
-      config: expect.objectContaining({
-        image: DEFAULT_OPENCLAW_IMAGE,
-        routes: {},
-      }),
+      image: DEFAULT_OPENCLAW_IMAGE,
+      routes: {},
     }));
   });
 
@@ -491,14 +496,12 @@ describe('HyperClaw agents SDK', () => {
         memory: 16,
         dry_run: true,
         start: true,
-        config: expect.objectContaining({
-          env: expect.objectContaining({
-            FOO: 'bar',
-            OPENCLAW_GATEWAY_TOKEN: expect.any(String),
-          }),
-          command: ['nginx', '-g', 'daemon off;'],
-          entrypoint: ['/docker-entrypoint.sh'],
+        env: expect.objectContaining({
+          FOO: 'bar',
+          OPENCLAW_GATEWAY_TOKEN: expect.any(String),
         }),
+        command: ['nginx', '-g', 'daemon off;'],
+        entrypoint: ['/docker-entrypoint.sh'],
       }),
     );
     expect(agent).toBeInstanceOf(OpenClawAgent);

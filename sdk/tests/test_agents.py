@@ -15,7 +15,7 @@ from hypercli.agents import (
     Deployments,
     OpenClawAgent,
     ExecResult,
-    _build_agent_config,
+    _build_agent_launch,
     build_openclaw_routes,
 )
 from hypercli.http import APIError, HTTPClient
@@ -368,9 +368,10 @@ def test_bound_agent_methods_delegate_to_agents(tmp_path):
     manager.cp_from.assert_called_once_with(agent, "workspace/remote.txt", local_dest)
 
 
-def test_build_agent_config_includes_command_and_entrypoint():
-    config, gateway_token = _build_agent_config(
-        {"env": {"FOO": "bar"}},
+def test_build_agent_launch_includes_command_and_entrypoint():
+    launch, gateway_token = _build_agent_launch(
+        {"foo": "bar"},
+        env={"FOO": "bar"},
         command=["echo", "hello"],
         entrypoint=["/bin/sh", "-c"],
         routes={"web": {"port": 80, "prefix": ""}},
@@ -378,10 +379,11 @@ def test_build_agent_config_includes_command_and_entrypoint():
     )
 
     assert gateway_token == "gw-token"
-    assert config["env"] == {"FOO": "bar", "OPENCLAW_GATEWAY_TOKEN": "gw-token"}
-    assert config["command"] == ["echo", "hello"]
-    assert config["entrypoint"] == ["/bin/sh", "-c"]
-    assert config["routes"] == {"web": {"port": 80, "prefix": ""}}
+    assert launch["config"] == {"foo": "bar"}
+    assert launch["env"] == {"FOO": "bar", "OPENCLAW_GATEWAY_TOKEN": "gw-token"}
+    assert launch["command"] == ["echo", "hello"]
+    assert launch["entrypoint"] == ["/bin/sh", "-c"]
+    assert launch["routes"] == {"web": {"port": 80, "prefix": ""}}
 
 
 def test_build_openclaw_routes_defaults():
@@ -423,8 +425,8 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
         agents_client.create_openclaw(name="test-agent")
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["config"]["image"] == DEFAULT_OPENCLAW_IMAGE
-        assert posted_json["config"]["routes"] == {
+        assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
+        assert posted_json["routes"] == {
             "openclaw": {"port": 18789, "auth": False, "prefix": ""},
             "desktop": {"port": 3000, "auth": True, "prefix": "desktop"},
         }
@@ -450,8 +452,8 @@ def test_create_openclaw_respects_explicit_empty_routes(agents_client):
         agents_client.create_openclaw(name="test-agent", routes={})
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["config"]["image"] == DEFAULT_OPENCLAW_IMAGE
-        assert posted_json["config"]["routes"] == {}
+        assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
+        assert posted_json["routes"] == {}
 
 @pytest.fixture
 def mock_http():
@@ -501,12 +503,15 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         )
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["config"]["env"] == {
+        assert posted_json["env"] == {
             "FOO": "bar",
             "OPENCLAW_GATEWAY_TOKEN": "gw-token-123",
         }
-        assert posted_json["config"]["command"] == ["nginx", "-g", "daemon off;"]
-        assert posted_json["config"]["entrypoint"] == ["/docker-entrypoint.sh"]
+        assert posted_json["command"] == ["nginx", "-g", "daemon off;"]
+        assert posted_json["entrypoint"] == ["/docker-entrypoint.sh"]
+        assert posted_json["image"] == "ghcr.io/hypercli/hypercli-openclaw:test"
+        assert posted_json["registry_url"] == "ghcr.io"
+        assert posted_json["registry_auth"] == {"username": "u", "password": "p"}
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token == "gw-token-123"
         assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
@@ -645,19 +650,17 @@ def test_agents_start_stop_delete(agents_client):
 
         agent = agents_client.start(
             "agent-123",
-            config={"image": "ghcr.io/hypercli/hypercli-openclaw:test"},
+            image="ghcr.io/hypercli/hypercli-openclaw:test",
             command=["echo", "hello"],
             entrypoint=["/bin/sh", "-c"],
         )
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token == "gw-token-456"
         assert mock_client.post.call_args[1]["json"] == {
-            "config": {
-                "image": "ghcr.io/hypercli/hypercli-openclaw:test",
-                "command": ["echo", "hello"],
-                "entrypoint": ["/bin/sh", "-c"],
-                "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
-            }
+            "image": "ghcr.io/hypercli/hypercli-openclaw:test",
+            "command": ["echo", "hello"],
+            "entrypoint": ["/bin/sh", "-c"],
+            "env": {"OPENCLAW_GATEWAY_TOKEN": "gw-token-456"},
         }
 
         mock_response.json.return_value["state"] = "stopping"
@@ -669,6 +672,13 @@ def test_agents_start_stop_delete(agents_client):
         delete_response.json.return_value = {"status": "deleted"}
         mock_client.delete.return_value = delete_response
         assert agents_client.delete("agent-123") == {"status": "deleted"}
+
+
+def test_build_agent_launch_rejects_nested_launch_fields():
+    with pytest.raises(ValueError, match="Launch settings must be top-level fields"):
+        _build_agent_launch(
+            {"env": {"FOO": "bar"}},
+        )
 
 
 def test_agents_budget(agents_client):
