@@ -8,6 +8,8 @@ import {
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { SlideOver } from "../SlideOver";
 import { TelegramWizard } from "./TelegramWizard";
+import { DiscordWizard } from "./DiscordWizard";
+import { SlackWizard } from "./SlackWizard";
 import { TtsPanel } from "./TtsPanel";
 import { SttPanel } from "./SttPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
@@ -15,6 +17,10 @@ import { ConfirmDialog } from "../ConfirmDialog";
 type PanelType =
   | "telegram"
   | "telegram-manage"
+  | "discord"
+  | "discord-manage"
+  | "slack"
+  | "slack-manage"
   | "tts"
   | "stt"
   | null;
@@ -27,6 +33,8 @@ interface IntegrationsPageProps {
 
 interface ChannelState {
   telegram?: { enabled?: boolean; botToken?: string; username?: string };
+  discord?: { enabled?: boolean; token?: string; groupPolicy?: string };
+  slack?: { enabled?: boolean; botToken?: string; appToken?: string };
 }
 
 interface PrefsState {
@@ -64,6 +72,8 @@ export function IntegrationsPage({ config: initialConfig, connected, onSaveConfi
   const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
 
   const telegramConnected = !!channels?.telegram?.enabled;
+  const discordConnected = !!channels?.discord?.enabled;
+  const slackConnected = !!channels?.slack?.enabled;
 
   const handleConfigPatch = async (patch: Record<string, unknown>) => {
     if (!connected) throw new Error("Not connected to agent");
@@ -122,8 +132,22 @@ export function IntegrationsPage({ config: initialConfig, connected, onSaveConfi
             ctaLabel={telegramInfo.cta}
             onClick={() => setActivePanel(telegramConnected ? "telegram-manage" : "telegram")}
           />
-          <IntegrationCard icon={MessageCircle} name="Discord" status="coming-soon" />
-          <IntegrationCard icon={Hash} name="Slack" status="coming-soon" />
+          <IntegrationCard
+            icon={MessageCircle}
+            name="Discord"
+            status={discordConnected ? "connected" : "available"}
+            statusText={discordConnected ? "Active" : undefined}
+            ctaLabel={discordConnected ? "Manage" : "Set up \u2192"}
+            onClick={() => setActivePanel(discordConnected ? "discord-manage" : "discord")}
+          />
+          <IntegrationCard
+            icon={Hash}
+            name="Slack"
+            status={slackConnected ? "connected" : "available"}
+            statusText={slackConnected ? "Active" : undefined}
+            ctaLabel={slackConnected ? "Manage" : "Set up \u2192"}
+            onClick={() => setActivePanel(slackConnected ? "slack-manage" : "slack")}
+          />
           <IntegrationCard icon={Phone} name="WhatsApp" status="coming-soon" />
           <IntegrationCard icon={Mail} name="Email" status="coming-soon" />
           <IntegrationCard icon={MessageSquareMore} name="Mattermost" status="coming-soon" />
@@ -199,6 +223,78 @@ export function IntegrationsPage({ config: initialConfig, connected, onSaveConfi
             className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
           >
             Disconnect Telegram
+          </button>
+        </div>
+      </SlideOver>
+
+      {/* Discord Setup Wizard */}
+      <SlideOver
+        open={activePanel === "discord"}
+        onClose={() => setActivePanel(null)}
+        title="Connect Discord"
+        description="Give your agent a Discord presence"
+      >
+        <DiscordWizard
+          onConnect={handleConfigPatch}
+          onClose={() => setActivePanel(null)}
+        />
+      </SlideOver>
+
+      {/* Discord Management */}
+      <SlideOver
+        open={activePanel === "discord-manage"}
+        onClose={() => setActivePanel(null)}
+        title="Discord"
+        description="Your agent's Discord connection"
+      >
+        <div className="space-y-4">
+          <div className="glass-card p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+              <span className="text-sm font-medium text-foreground">Connected</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setDisconnectTarget("discord")}
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+          >
+            Disconnect Discord
+          </button>
+        </div>
+      </SlideOver>
+
+      {/* Slack Setup Wizard */}
+      <SlideOver
+        open={activePanel === "slack"}
+        onClose={() => setActivePanel(null)}
+        title="Connect Slack"
+        description="Give your agent a Slack presence"
+      >
+        <SlackWizard
+          onConnect={handleConfigPatch}
+          onClose={() => setActivePanel(null)}
+        />
+      </SlideOver>
+
+      {/* Slack Management */}
+      <SlideOver
+        open={activePanel === "slack-manage"}
+        onClose={() => setActivePanel(null)}
+        title="Slack"
+        description="Your agent's Slack connection"
+      >
+        <div className="space-y-4">
+          <div className="glass-card p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+              <span className="text-sm font-medium text-foreground">Connected</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setDisconnectTarget("slack")}
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+          >
+            Disconnect Slack
           </button>
         </div>
       </SlideOver>
