@@ -112,7 +112,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   const currentHue = HUES[selectedIcon];
   const CurrentIcon = ICONS[selectedIcon].icon;
   const customCpuCores = Math.max(1, Math.round(Number(customCpu) / 1000));
-  const customMemGb = Math.max(1, Math.round(Number(customMem) / 1024));
+  const customMemGb = Math.max(4, Math.round(Number(customMem) / 1024));
 
   const budgetRemaining = budget
     ? {
@@ -444,10 +444,14 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                 <input
                   value={customMem}
                   onChange={(e) => setCustomMem(e.target.value)}
+                  onBlur={() => {
+                    if (Number(customMem) < 4096) setCustomMem("4096");
+                  }}
                   type="number"
-                  min={256}
+                  min={4096}
                   className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
                 />
+                <span className="text-[10px] text-text-muted mt-1 block">Minimum 4096 MiB required</span>
               </div>
             </div>
           </>
