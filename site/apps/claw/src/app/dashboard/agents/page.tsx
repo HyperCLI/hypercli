@@ -900,8 +900,8 @@ export default function AgentsPage() {
     settings: "Settings",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
-    { key: "chat", label: "Chattt", icon: MessageSquare },
-    { key: "logs", label: "Loggs", icon: TerminalSquare },
+    { key: "chat", label: "Chat", icon: MessageSquare },
+    { key: "logs", label: "Logs", icon: TerminalSquare },
     { key: "shell", label: "Shell", icon: TerminalSquare },
     { key: "files", label: "Files", icon: HardDrive },
     { key: "workspace", label: "Workspace", icon: FolderOpen },
