@@ -420,7 +420,12 @@ export function useGatewayChat(
             gw.configSchema(),
           ]);
           if (!cancelled) {
-            if (cfgResult.status === "fulfilled") setConfig(cfgResult.value);
+            if (cfgResult.status === "fulfilled") {
+              setConfig(cfgResult.value);
+            } else {
+              console.error("[useGatewayChat] configGet failed:", cfgResult.reason);
+              setConfig({});
+            }
             if (schemaResult.status === "fulfilled") setConfigSchema(schemaResult.value);
           }
         }

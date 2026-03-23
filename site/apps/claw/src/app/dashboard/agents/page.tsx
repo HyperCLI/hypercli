@@ -965,7 +965,7 @@ export default function AgentsPage() {
 
   useEffect(() => {
     const cfg = asObject(chat.config);
-    setOpenclawDraft(cfg ? deepCloneJsonObject(cfg) : null);
+    setOpenclawDraft(deepCloneJsonObject(cfg ?? {}));
     setOpenclawError(null);
     setOpenclawSuccess(null);
   }, [selectedAgentId, chat.config]);
@@ -2638,9 +2638,9 @@ export default function AgentsPage() {
                                   <button
                                     key={`nav-${sectionKey}`}
                                     onClick={() => setActiveOpenclawSection(sectionKey)}
-                                    className={`block w-full rounded-md px-2 py-1.5 text-left text-sm transition-colors ${
+                                    className={`block w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
                                       effectiveOpenclawSection === sectionKey
-                                        ? "bg-surface-low/60 text-foreground"
+                                        ? "bg-primary/15 text-foreground font-medium border-l-2 border-primary"
                                         : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
                                     }`}
                                     title={sectionDescription}
