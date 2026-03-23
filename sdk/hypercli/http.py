@@ -76,6 +76,11 @@ class HTTPClient:
         self.base_url = base_url.rstrip("/")
         self.api_key = api_key
         self.timeout = timeout
+        # Some higher-level SDK surfaces still expect a requests/httpx-style session.
+        self._session = httpx.Client(timeout=timeout)
+
+    def close(self) -> None:
+        self._session.close()
 
     @property
     def headers(self) -> dict:

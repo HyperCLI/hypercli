@@ -22,7 +22,7 @@ curl https://api.hypercli.com/v1/messages \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
   -d '{
-    "model": "kimi-k2.5",
+    "model": "kimi-k2.5-anthropic",
     "max_tokens": 512,
     "messages": [
       {
@@ -80,40 +80,21 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
         "baseUrl": "https://api.hypercli.com",
         "apiKey": "sk-YOUR-API-KEY",
         "api": "anthropic-messages",
+        "authHeader": true,
         "models": [
           {
-            "id": "kimi-k2.5",
+            "id": "kimi-k2.5-anthropic",
             "name": "Kimi K2.5",
             "reasoning": true,
             "input": ["text", "image"],
-            "contextWindow": 262144,
-            "maxTokens": 8192
+            "contextWindow": 262144
           },
           {
-            "id": "glm-5",
+            "id": "glm-5-anthropic",
             "name": "GLM-5",
             "reasoning": true,
-            "input": ["text"],
-            "contextWindow": 202752,
-            "maxTokens": 8192
-          }
-        ]
-      },
-      "kimi-coding": {
-        "baseUrl": "https://api.hypercli.com",
-        "apiKey": "sk-YOUR-API-KEY",
-        "api": "anthropic-messages",
-        "headers": {
-          "User-Agent": "claude-code/0.1.0"
-        },
-        "models": [
-          {
-            "id": "kimi-k2.5",
-            "name": "Kimi K2.5",
-            "reasoning": true,
             "input": ["text", "image"],
-            "contextWindow": 262144,
-            "maxTokens": 8192
+            "contextWindow": 202752
           }
         ]
       }
@@ -135,7 +116,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
 ```
 
 For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
-For Kimi, the generated config also includes a `kimi-coding` provider alias so OpenClaw can apply its upstream Kimi-specific tool/thinking semantics while still using HyperClaw as the transport.
+For the branded HyperClaw setup, use `hyperclaw/kimi-k2.5-anthropic` and `hyperclaw/glm-5-anthropic` directly.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
 
@@ -164,17 +145,17 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
 }
 ```
 
-Then reference the model as `kimi-coding/kimi-k2.5` in your agent config when you want the OpenClaw coding semantics, or set it as primary:
+Then reference the model as `hyperclaw/kimi-k2.5` in your agent config, or set it as primary:
 
 ```json
 {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "kimi-coding/kimi-k2.5"
+        "primary": "hyperclaw/kimi-k2.5"
       },
       "models": {
-        "kimi-coding/kimi-k2.5": {
+        "hyperclaw/kimi-k2.5": {
           "alias": "kimi"
         }
       }
@@ -192,10 +173,10 @@ export OPENAI_API_KEY="sk-YOUR-API-KEY"
 export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 
 # Claude Code
-claude --model kimi-coding/kimi-k2.5
+claude --model hyperclaw/kimi-k2.5
 
 # OpenAI Codex
-codex --model kimi-coding/kimi-k2.5
+codex --model hyperclaw/kimi-k2.5
 ```
 
 ## Python (OpenAI SDK)
@@ -259,8 +240,10 @@ model_list:
 
 | Model | Context | Description |
 |-------|---------|-------------|
-| `kimi-k2.5` | 262K tokens | Kimi K2.5 — high-performance MoE model, vision + function calling |
-| `glm-5` | 202K tokens | GLM-5 — 754B MIT-licensed reasoning model, record-low hallucination |
+| `kimi-k2.5-anthropic` | 262K tokens | Kimi K2.5 on the recommended Anthropic Messages route |
+| `glm-5-anthropic` | 202K tokens | GLM-5 on the recommended Anthropic Messages route |
+| `kimi-k2.5` | 262K tokens | Kimi K2.5 on the OpenAI-compatible route |
+| `glm-5` | 202K tokens | GLM-5 on the OpenAI-compatible route |
 
 Check available models at any time:
 

@@ -13,6 +13,7 @@ type RequiredEnvKey =
   | "NEXT_PUBLIC_PRIVY_APP_ID";
 
 const SCREENSHOT_DIR = path.resolve(__dirname, "..", "screenshots");
+const SCREENSHOT_DELAY_MS = Number.parseInt(process.env.TEST_SCREENSHOT_DELAY_MS || "250", 10);
 const DEFAULT_IMAP_PORT = 993;
 const OTP_TIMEOUT_MS = 30_000;
 const OTP_POLL_INTERVAL_MS = 5_000;
@@ -130,6 +131,9 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     SCREENSHOT_DIR,
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${slugifyStep(step)}.png`
   );
+  if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
+    await page.waitForTimeout(SCREENSHOT_DELAY_MS);
+  }
   await page.screenshot({ path: filePath, fullPage: true });
   return filePath;
 }
@@ -267,6 +271,7 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
 
 export async function loginWithPrivy(page: Page): Promise<void> {
   const email = getEnv("TEST_EMAIL");
+  const privyModal = page.locator("#privy-modal-content").first();
 
   const primaryAuthButton = page
     .getByRole("button", { name: /^(sign in|get started)$/i })
@@ -295,9 +300,10 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   await emailInput.fill(email);
   await captureStep(page, "04-email-entered");
 
-  const continueButton = page
-    .getByRole("button", { name: /submit|continue|send code|email me/i })
+  const continueButton = privyModal
+    .getByRole("button", { name: /submit|continue with email|send code|email me|send login code/i })
     .first();
+  await expect(continueButton).toBeVisible({ timeout: 10_000 });
   await continueButton.click();
 
   const otpSubmittedAt = new Date();
@@ -319,7 +325,6 @@ export async function loginWithPrivy(page: Page): Promise<void> {
     .poll(() => page.url(), { timeout: 45_000 })
     .toContain("/dashboard");
 
-  const privyModal = page.locator("#privy-modal-content").first();
   if (await privyModal.isVisible().catch(() => false)) {
     await page.keyboard.press("Escape").catch(() => {});
 
@@ -343,6 +348,7 @@ export async function loginToConsoleWithPrivy(
   baseUrl = getOptionalEnv("TEST_PROD_CONSOLE_BASE_URL") || "https://console.hypercli.com"
 ): Promise<void> {
   const email = getEnv("TEST_EMAIL");
+  const privyModal = page.locator("#privy-modal-content").first();
 
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.waitForLoadState("networkidle");
@@ -361,8 +367,8 @@ export async function loginToConsoleWithPrivy(
   await emailInput.fill(email);
   await captureStep(page, "console-02-email-entered");
 
-  const continueButton = page
-    .getByRole("button", { name: /submit|continue|send code|email me|send login code/i })
+  const continueButton = privyModal
+    .getByRole("button", { name: /submit|continue with email|send code|email me|send login code/i })
     .first();
   await expect(continueButton).toBeVisible({ timeout: 10_000 });
   await continueButton.click();

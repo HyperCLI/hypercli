@@ -1,5 +1,6 @@
 """Main HyperCLI client"""
 from .config import (
+    get_agent_api_key,
     get_agents_api_base_url,
     get_agents_ws_url,
     get_api_key,
@@ -24,7 +25,7 @@ class HyperCLI:
     Usage:
         from hypercli import HyperCLI
 
-        client = HyperCLI()  # Uses HYPERCLI_API_KEY from env or ~/.hypercli/config
+        client = HyperCLI()  # Uses HYPER_API_KEY from env or ~/.hypercli/config
         # or
         client = HyperCLI(api_key="your_key")
 
@@ -53,11 +54,13 @@ class HyperCLI:
         agents_api_base_url: str = None,
         agents_ws_url: str = None,
     ):
-        self._api_key = api_key or get_api_key()
+        resolved_product_api_key = api_key or get_api_key()
+        resolved_agent_api_key = agent_api_key or get_agent_api_key()
+        self._api_key = resolved_product_api_key or resolved_agent_api_key
         if not self._api_key:
             raise ValueError(
-                "API key required. Set HYPERCLI_API_KEY env var, "
-                "create ~/.hypercli/config, or pass api_key parameter."
+                "API key required. Set HYPER_API_KEY/HYPERCLI_API_KEY or "
+                "HYPER_AGENTS_API_KEY, create ~/.hypercli/config, or pass api_key parameter."
             )
 
         self._api_url = api_url or get_api_url()
@@ -68,7 +71,7 @@ class HyperCLI:
         resolved_agents_ws_url = agents_ws_url or get_agents_ws_url(agent_dev)
         self.deployments = Deployments(
             self._http,
-            api_key=agent_api_key,
+            api_key=resolved_agent_api_key,
             api_base=resolved_agents_api_base,
             agents_ws_url=resolved_agents_ws_url,
         )
@@ -81,7 +84,7 @@ class HyperCLI:
         self.keys = KeysAPI(self._http)
         self.agent = HyperAgent(
             self._http,
-            agent_api_key=agent_api_key,
+            agent_api_key=resolved_agent_api_key,
             dev=agent_dev,
             agents_api_base_url=resolved_agents_api_base,
         )

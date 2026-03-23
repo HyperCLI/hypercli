@@ -30,7 +30,7 @@ npm link ../ts-sdk
 ```typescript
 import { HyperCLI } from '@hypercli.com/sdk';
 
-// Initialize client (uses HYPERCLI_API_KEY from env or ~/.hypercli/config)
+// Initialize client (uses HYPER_API_KEY from env or ~/.hypercli/config)
 const client = new HyperCLI();
 
 // Or pass API key directly
@@ -57,7 +57,7 @@ console.log(`Hostname: ${job.hostname}`);
 ## Configuration
 
 Set your API key via:
-1. Environment variable: `export HYPERCLI_API_KEY=your_key`
+1. Environment variable: `export HYPER_API_KEY=your_key`
 2. Config file: `~/.hypercli/config`
 3. Constructor: `new HyperCLI({ apiKey: 'your_key' })`
 
@@ -115,6 +115,38 @@ const agentExec = await client.agents.exec(agentId, 'ls -la');
 const agentWs = await client.agents.shellConnect(agentId);
 agentWs.close();
 ```
+
+### OpenClaw Gateway Chat Attachments
+
+```typescript
+import { GatewayClient } from '@hypercli.com/sdk/browser';
+
+const gateway = new GatewayClient({
+  url: 'wss://your-agent.dev.hyperclaw.app',
+  gatewayToken: 'gateway-token',
+});
+
+await gateway.connect();
+
+await gateway.sendChat("What's in this image?", "main", undefined, [
+  {
+    dataUrl: 'data:image/png;base64,iVBORw0KGgoAAAANSUhEUgAA...',
+    mimeType: 'image/png',
+    fileName: 'screenshot.png',
+  },
+]);
+
+await gateway.sendChat('Already normalized', 'main', undefined, [
+  {
+    type: 'image',
+    mimeType: 'image/png',
+    content: 'iVBORw0KGgoAAAANSUhEUgAA...',
+    fileName: 'screenshot.png',
+  },
+]);
+```
+
+Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
 
 ### Renders (Managed AI Workflows)
 

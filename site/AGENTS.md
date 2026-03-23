@@ -91,6 +91,11 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - When adding new env vars, update `site/env.sample` and `site/turbo.json`
   (globalEnv list) to keep Turbo aware of changes.
 - Avoid editing generated content directly; use the Python generator.
+- For `@hypercli.com/sdk` releases, do not trust source changes alone. Always:
+  - run `npm --prefix ts-sdk run build`
+  - run `npm --prefix ts-sdk pack`
+  - inspect the packed `dist/*.js` for the intended runtime behavior before `npm publish`
+- Netlify builds the site from the published npm package pinned in `site/package-lock.json`, not from the sibling `ts-sdk/` checkout.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.

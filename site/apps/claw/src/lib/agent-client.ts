@@ -26,6 +26,12 @@ interface OpenClawAgentOptions {
   memory?: number;
   config?: Record<string, unknown>;
   env?: Record<string, string>;
+  image?: string;
+  routes?: Record<string, unknown>;
+  command?: string[];
+  entrypoint?: string[];
+  registry_url?: string;
+  registry_auth?: Record<string, unknown>;
 }
 
 export function createAgentClient(apiKey: string): Deployments {
@@ -53,16 +59,11 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
     env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
   }
 
-  const config = {
-    ...(options.config ?? {}),
-    image: DEFAULT_OPENCLAW_IMAGE,
-    routes: DEFAULT_OPENCLAW_ROUTES,
-  };
-
   return {
     ...options,
     env,
-    config,
+    image: options.image ?? DEFAULT_OPENCLAW_IMAGE,
+    routes: options.routes ?? DEFAULT_OPENCLAW_ROUTES,
   };
 }
 

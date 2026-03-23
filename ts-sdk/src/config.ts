@@ -43,6 +43,56 @@ export const WS_LOGS_PATH = '/orchestra/ws/logs'; // WebSocket path for job logs
 export const GHCR_IMAGES = 'ghcr.io/compute3ai/images';
 export const COMFYUI_IMAGE = `${GHCR_IMAGES}/comfyui`;
 
+function normalizeAgentsApiBase(url: string): string {
+  const raw = (url || '').trim();
+  if (!raw) return DEFAULT_AGENTS_API_BASE_URL;
+  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  const host = parsed.host.toLowerCase();
+  if (normalizedPath.endsWith('/agents')) {
+    return `${parsed.origin}${normalizedPath}`;
+  }
+  if (normalizedPath.endsWith('/api')) {
+    if (host === 'api.agents.hypercli.com') {
+      return DEFAULT_AGENTS_API_BASE_URL;
+    }
+    if (host === 'api.agents.dev.hypercli.com') {
+      return DEV_AGENTS_API_BASE_URL;
+    }
+    return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
+  }
+  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
+    return DEFAULT_AGENTS_API_BASE_URL;
+  }
+  if (
+    host === 'api.agents.dev.hypercli.com' ||
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app'
+  ) {
+    return DEV_AGENTS_API_BASE_URL;
+  }
+  return `${raw.replace(/\/+$/, '')}/agents`;
+}
+
+function defaultAgentsWsUrl(apiBase: string): string {
+  const resolvedApiBase = normalizeAgentsApiBase(apiBase);
+  const parsed = new URL(resolvedApiBase.includes('://') ? resolvedApiBase : `https://${resolvedApiBase}`);
+  const host = parsed.host.toLowerCase();
+  if (host === 'api.agents.hypercli.com' || host === 'api.hypercli.com' || host === 'api.hyperclaw.app') {
+    return DEFAULT_AGENTS_WS_URL;
+  }
+  if (
+    host === 'api.agents.dev.hypercli.com' ||
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app'
+  ) {
+    return DEV_AGENTS_WS_URL;
+  }
+  return resolvedApiBase.replace(/^https:\/\//, 'wss://').replace(/^http:\/\//, 'ws://').replace(/\/+$/, '') + '/ws';
+}
+
 /**
  * Load config from ~/.hypercli/config
  */
@@ -106,14 +156,21 @@ export function getConfigValue(key: string, defaultValue?: string): string | und
  * Get API key from env or config file
  */
 export function getApiKey(): string | undefined {
-  return getConfigValue('HYPERCLI_API_KEY');
+  return getConfigValue('HYPER_API_KEY') || getConfigValue('HYPERCLI_API_KEY');
+}
+
+/**
+ * Get agent API key, preferring the restricted agent token.
+ */
+export function getAgentApiKey(): string | undefined {
+  return getConfigValue('HYPER_AGENTS_API_KEY') || getApiKey();
 }
 
 /**
  * Get API URL
  */
 export function getApiUrl(): string {
-  return getConfigValue('HYPERCLI_API_URL', DEFAULT_API_URL) || DEFAULT_API_URL;
+  return getConfigValue('HYPER_API_BASE') || getConfigValue('HYPERCLI_API_URL', DEFAULT_API_URL) || DEFAULT_API_URL;
 }
 
 /**
@@ -135,15 +192,29 @@ export function getWsUrl(): string {
  */
 export function getAgentsApiBaseUrl(dev: boolean = false): string {
   const fallback = dev ? DEV_AGENTS_API_BASE_URL : DEFAULT_AGENTS_API_BASE_URL;
-  return getConfigValue('AGENTS_API_BASE_URL', fallback) || fallback;
+  const configured = getConfigValue('AGENTS_API_BASE_URL');
+  if (configured) {
+    return normalizeAgentsApiBase(configured);
+  }
+  if (dev) {
+    return fallback;
+  }
+  const productBase = getConfigValue('HYPER_API_BASE') || getConfigValue('HYPERCLI_API_URL');
+  if (productBase) {
+    return normalizeAgentsApiBase(productBase);
+  }
+  return fallback;
 }
 
 /**
  * Get HyperClaw agents WebSocket URL
  */
 export function getAgentsWsUrl(dev: boolean = false): string {
-  const fallback = dev ? DEV_AGENTS_WS_URL : DEFAULT_AGENTS_WS_URL;
-  return getConfigValue('AGENTS_WS_URL', fallback) || fallback;
+  const configured = getConfigValue('AGENTS_WS_URL');
+  if (configured) {
+    return configured;
+  }
+  return defaultAgentsWsUrl(getAgentsApiBaseUrl(dev));
 }
 
 /**
@@ -170,9 +241,9 @@ export function configure(
   const config = loadConfigFile();
   
   // Update values
-  config['HYPERCLI_API_KEY'] = apiKey;
+  config['HYPER_API_KEY'] = apiKey;
   if (apiUrl) {
-    config['HYPERCLI_API_URL'] = apiUrl;
+    config['HYPER_API_BASE'] = apiUrl;
   }
   if (agentsApiBaseUrl) {
     config['AGENTS_API_BASE_URL'] = agentsApiBaseUrl;

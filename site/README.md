@@ -133,11 +133,11 @@ npm install
 npm run build
 
 cd ~/dev/hypercli/site
-npm run sdk:use-local
+npm run sdk:use-checkout
 npm run dev
 ```
 
-That local override is intentionally not committed. It installs the local SDK into the workspace without changing the pinned package manifests.
+That checkout override is intentionally not committed. It symlinks the local SDK checkout into the workspace without changing the pinned package manifests, so Netlify can still use the published version from `package-lock.json`.
 
 To remove the override and go back to the published package:
 

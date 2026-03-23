@@ -15,8 +15,9 @@ The SDK reads configuration using the same precedence as the CLI:
 
 | Variable | Description |
 | --- | --- |
-| `HYPERCLI_API_KEY` | Main REST API key used by `HyperCLI` |
-| `HYPERCLI_API_URL` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_API_KEY` | Main REST API key used by `HyperCLI` |
+| `HYPER_API_BASE` | REST API base URL. Defaults to `https://api.hypercli.com` |
+| `HYPER_AGENTS_API_KEY` | Agent-scoped API key for HyperClaw deployment and inference surfaces |
 | `HYPERCLI_WS_URL` | Override the derived WebSocket base URL |
 | `AGENTS_API_BASE_URL` | HyperClaw deployments API base. Defaults to `https://api.hypercli.com/agents` |
 | `AGENTS_WS_URL` | HyperClaw backend WebSocket base. Defaults to `wss://api.agents.hypercli.com/ws` |
@@ -25,7 +26,7 @@ The SDK reads configuration using the same precedence as the CLI:
 
 The TS SDK uses four URL concepts:
 
-- `HYPERCLI_API_URL`
+- `HYPER_API_BASE`
   - main product API
   - jobs
   - billing
@@ -47,7 +48,7 @@ The TS SDK uses four URL concepts:
 Production defaults:
 
 ```bash
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_BASE=https://api.hypercli.com
 HYPERCLI_WS_URL=wss://api.hypercli.com
 AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
@@ -56,7 +57,7 @@ AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 Dev defaults:
 
 ```bash
-HYPERCLI_API_URL=https://api.dev.hypercli.com
+HYPER_API_BASE=https://api.dev.hypercli.com
 HYPERCLI_WS_URL=wss://api.dev.hypercli.com
 AGENTS_API_BASE_URL=https://api.dev.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.dev.hypercli.com/ws
@@ -84,8 +85,8 @@ Path:
 Format:
 
 ```bash
-HYPERCLI_API_KEY=hyper_...
-HYPERCLI_API_URL=https://api.hypercli.com
+HYPER_API_KEY=hyper_...
+HYPER_API_BASE=https://api.hypercli.com
 AGENTS_API_BASE_URL=https://api.hypercli.com/agents
 AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 ```

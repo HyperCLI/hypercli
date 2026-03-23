@@ -1,6 +1,6 @@
 {
   "name": "@hypercli.com/sdk",
-  "version": "2026.3.18-1",
+  "version": "2026.3.22-1",
   "description": "TypeScript SDK for HyperCLI API",
   "type": "module",
   "main": "./dist/index.js",

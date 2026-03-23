@@ -82,12 +82,22 @@ export interface GatewayChatMessageSummary {
   timestamp?: number;
 }
 
-export interface ChatAttachment {
+export interface GatewayChatAttachmentPayload {
   type: string;
+  mimeType?: string;
+  content?: string;
+  fileName?: string;
+  [key: string]: unknown;
+}
+
+export interface BrowserChatAttachment {
+  id?: string;
+  dataUrl: string;
   mimeType: string;
-  content: string;
   fileName?: string;
 }
+
+export type ChatAttachment = GatewayChatAttachmentPayload | BrowserChatAttachment;
 
 export interface GatewayCloseInfo {
   code: number;
@@ -266,6 +276,39 @@ function asContentItems(value: unknown): Record<string, any>[] {
   return value
     .map((item) => asRecord(item))
     .filter((item): item is Record<string, any> => item !== null);
+}
+
+function isBrowserChatAttachment(attachment: ChatAttachment): attachment is BrowserChatAttachment {
+  return typeof (attachment as BrowserChatAttachment).dataUrl === "string";
+}
+
+function parseAttachmentDataUrl(
+  dataUrl: string,
+): { mimeType: string; content: string } | null {
+  const match = /^data:([^;]+);base64,(.+)$/i.exec(dataUrl.trim());
+  if (!match) return null;
+  return { mimeType: match[1], content: match[2] };
+}
+
+export function normalizeChatAttachments(
+  attachments?: ChatAttachment[],
+): GatewayChatAttachmentPayload[] | undefined {
+  if (!attachments || attachments.length === 0) return undefined;
+  return attachments.map((attachment) => {
+    if (!isBrowserChatAttachment(attachment)) {
+      return attachment;
+    }
+    const parsed = parseAttachmentDataUrl(attachment.dataUrl);
+    if (!parsed) {
+      throw new Error(`Invalid chat attachment dataUrl for mime type ${attachment.mimeType}`);
+    }
+    return {
+      type: "image",
+      mimeType: parsed.mimeType,
+      content: parsed.content,
+      ...(attachment.fileName ? { fileName: attachment.fileName } : {}),
+    };
+  });
 }
 
 function normalizeToolArgs(value: unknown): unknown {
@@ -1904,8 +1947,12 @@ export class GatewayClient {
   }
 
   async sessionsPreview(sessionKey: string, limit = 20): Promise<any[]> {
-    const res = await this.rpc("sessions.preview", { sessionKey, limit });
-    return res?.messages ?? res ?? [];
+    const res = await this.rpc("sessions.preview", { keys: [sessionKey], limit });
+    return res?.previews?.[0]?.items ?? [];
+  }
+
+  async sessionsPatch(patch: Record<string, any> & { key: string }): Promise<Record<string, any>> {
+    return await this.rpc("sessions.patch", patch);
   }
 
   async chatHistory(sessionKey?: string, limit = 50): Promise<any[]> {
@@ -1927,6 +1974,7 @@ export class GatewayClient {
     agentId?: string,
     attachments?: ChatAttachment[],
   ): Promise<any> {
+    const normalizedAttachments = normalizeChatAttachments(attachments);
     const params: Record<string, any> = {
       message,
       deliver: false,
@@ -1934,19 +1982,25 @@ export class GatewayClient {
       idempotencyKey: makeId(),
     };
     if (agentId) params.agentId = agentId;
-    if (attachments && attachments.length > 0) params.attachments = attachments;
+    if (normalizedAttachments) params.attachments = normalizedAttachments;
     return this.rpc("chat.send", params, CHAT_TIMEOUT);
   }
 
-  async sessionsReset(sessionKey: string): Promise<void> {
-    await this.rpc("sessions.reset", { sessionKey });
+  async sessionsReset(sessionKey: string, reason?: "new" | "reset"): Promise<void> {
+    const params: Record<string, any> = { key: sessionKey };
+    if (reason) params.reason = reason;
+    await this.rpc("sessions.reset", params);
   }
 
   // ---------------------------------------------------------------------------
   // Chat (streaming via events)
   // ---------------------------------------------------------------------------
 
-  async *chatSend(message: string, sessionKey: string): AsyncGenerator<ChatEvent> {
+  async *chatSend(
+    message: string,
+    sessionKey: string,
+    attachments?: ChatAttachment[],
+  ): AsyncGenerator<ChatEvent> {
     if (!this.connected || !this.ws) {
       throw new Error("Not connected");
     }
@@ -1973,12 +2027,16 @@ export class GatewayClient {
     this.eventHandlers.add(handler);
 
     try {
-      const ack = await this.rpc("chat.send", {
+      const normalizedAttachments = normalizeChatAttachments(attachments);
+      const params: Record<string, any> = {
         message,
         deliver: false,
         sessionKey,
         idempotencyKey,
-      }, CHAT_TIMEOUT);
+      };
+      if (normalizedAttachments) params.attachments = normalizedAttachments;
+
+      const ack = await this.rpc("chat.send", params, CHAT_TIMEOUT);
       const serverRunId = typeof ack?.runId === "string" ? ack.runId.trim() : "";
       if (serverRunId) {
         acceptedRunIds.add(serverRunId);
@@ -2023,6 +2081,41 @@ export class GatewayClient {
           if (text) {
             streamedDisplayText = true;
             yield { type: "content", text };
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "tool") {
+          const toolPayload = asRecord(payload.data) ?? {};
+          const phase = typeof toolPayload.phase === "string" ? toolPayload.phase.toLowerCase() : "";
+          if (phase === "start") {
+            const toolCallId =
+              typeof toolPayload.toolCallId === "string" && toolPayload.toolCallId.trim()
+                ? toolPayload.toolCallId.trim()
+                : `${typeof toolPayload.name === "string" ? toolPayload.name : "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
+            seenToolCallIds.add(toolCallId);
+            yield {
+              type: "tool_call",
+              data: {
+                ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
+                name: toolPayload.name,
+                args: toolPayload.args,
+              },
+            };
+          } else if (phase === "result") {
+            const toolCallId =
+              typeof toolPayload.toolCallId === "string" && toolPayload.toolCallId.trim()
+                ? toolPayload.toolCallId.trim()
+                : `${typeof toolPayload.name === "string" ? toolPayload.name : "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
+            seenToolResultIds.add(toolCallId);
+            yield {
+              type: "tool_result",
+              data: {
+                ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
+                name: toolPayload.name,
+                result: toolPayload.result,
+                isError: toolPayload.isError,
+              },
+            };
           }
           continue;
         }

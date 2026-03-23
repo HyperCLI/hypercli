@@ -12,7 +12,7 @@ jobs:
     runs-on: self-hosted
     container:
       image: mcr.microsoft.com/playwright:v1.58.2-noble
-      options: --ipc=host -v /home/ubuntu:/home/ubuntu
+      options: --ipc=host
     timeout-minutes: 45
     defaults:
       run:
@@ -47,7 +47,7 @@ jobs:
         working-directory: site
         run: |
           npm install
-          npm run sdk:use-local
+          npm run sdk:use-checkout
 
       - name: Allocate local E2E ports
         run: |

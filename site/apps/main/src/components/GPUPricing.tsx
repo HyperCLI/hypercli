@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useState } from "react";
-import { ContactModal, GPU_INFO, getGPUDisplayName, getRegionName, getRegionFlag } from "@hypercli/shared-ui";
+import { ContactModal, getGPUArch, getGPUDisplayName, getGPUVram, getRegionName, getRegionFlag } from "@hypercli/shared-ui";
 
 interface InstanceConfig {
   gpu_count: number;
@@ -29,6 +29,8 @@ interface InstancePricing {
 interface Instance {
   id: string;
   gpu_type: string;
+  gpu_name: string;
+  gpu_description: string;
   gpu_count: number;
   cpu_cores: number;
   memory_gb: number;
@@ -87,6 +89,8 @@ export default function GPUPricing() {
             instanceArray.push({
               id,
               gpu_type: gpuKey,
+              gpu_name: gpuData.name,
+              gpu_description: gpuData.description,
               gpu_count: config.gpu_count,
               cpu_cores: config.cpu_cores,
               memory_gb: config.memory_gb,
@@ -197,6 +201,7 @@ export default function GPUPricing() {
                       )}
                     </div>
                     <p className="text-xs text-muted mt-1">
+                      {instance.gpu_description} ·{" "}
                       {instance.cpu_cores} vCPUs · {instance.memory_gb}GB RAM
                     </p>
                   </button>
@@ -213,11 +218,12 @@ export default function GPUPricing() {
                       <h3 className="text-2xl font-bold text-white">
                         {selectedInstance.gpu_count}x {getGPUDisplayName(selectedInstance.gpu_type)}
                       </h3>
+                      <p className="text-sm text-muted mt-1">{selectedInstance.gpu_description}</p>
                       <p className="text-sm font-mono text-muted mt-1">{selectedInstance.id}</p>
                     </div>
-                    {GPU_INFO[selectedInstance.gpu_type.toUpperCase()] && (
+                    {getGPUArch(selectedInstance.gpu_type) !== "Unknown" && (
                       <span className="px-3 py-1 text-sm font-semibold rounded-full bg-primary/10 text-primary border border-primary/20">
-                        {GPU_INFO[selectedInstance.gpu_type.toUpperCase()].arch}
+                        {getGPUArch(selectedInstance.gpu_type)}
                       </span>
                     )}
                   </div>
@@ -227,7 +233,7 @@ export default function GPUPricing() {
                     <div className="bg-background rounded-xl p-4 border border-border-medium">
                       <p className="text-sm text-muted mb-1">GPU Memory</p>
                       <p className="text-lg font-bold text-white">
-                        {GPU_INFO[selectedInstance.gpu_type.toUpperCase()]?.vram || "N/A"}
+                        {getGPUVram(selectedInstance.gpu_type)}
                       </p>
                     </div>
                     <div className="bg-background rounded-xl p-4 border border-border-medium">

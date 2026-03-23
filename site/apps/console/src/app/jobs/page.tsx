@@ -587,7 +587,7 @@ export default function JobsPage() {
                       <td className="px-6 py-4 whitespace-nowrap w-24 text-sm">
                         <span className="inline-flex items-center gap-1" title={getRegionName(job.region)}>
                           <span className="text-lg">{getRegionFlag(job.region)}</span>
-                          <span className="text-foreground">{job.region}</span>
+                          <span className="text-foreground">{getRegionName(job.region)}</span>
                         </span>
                       </td>
                       <td className="px-6 py-4 text-sm font-mono w-64">

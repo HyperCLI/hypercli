@@ -200,24 +200,12 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
     setError(null);
     try {
       const token = await getToken();
-      const body: Record<string, unknown> = {
-        name: name.trim() || null,
-        start: startImmediately,
-        config: {},
-      };
-      if (showAdvanced) {
-        body.cpu = customCpuCores;
-        body.memory = customMemGb;
-      } else {
-        body.size = SIZES[selectedSize].value;
-      }
       const created = await createOpenClawAgent(token, {
-        name: typeof body.name === "string" ? body.name : undefined,
-        start: Boolean(body.start),
-        size: typeof body.size === "string" ? body.size : undefined,
-        cpu: typeof body.cpu === "number" ? body.cpu : undefined,
-        memory: typeof body.memory === "number" ? body.memory : undefined,
-        config: {},
+        name: name.trim() || undefined,
+        start: startImmediately,
+        size: showAdvanced ? undefined : SIZES[selectedSize].value,
+        cpu: showAdvanced ? customCpuCores : undefined,
+        memory: showAdvanced ? customMemGb : undefined,
       });
       onCreated(created.id, (created as any).gatewayToken ?? undefined);
     } catch (err) {

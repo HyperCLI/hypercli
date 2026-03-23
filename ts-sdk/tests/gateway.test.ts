@@ -250,6 +250,60 @@ describe("GatewayClient", () => {
     expect(onDisconnect).not.toHaveBeenCalled();
   });
 
+  it("sends sessions.patch with the raw patch payload", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ ok: true, key: "agent:main:main" });
+
+    const result = await client.sessionsPatch({
+      key: "agent:main:main",
+      model: "openai/gpt-5.2",
+      thinkingLevel: "high",
+    });
+
+    expect(rpc).toHaveBeenCalledWith("sessions.patch", {
+      key: "agent:main:main",
+      model: "openai/gpt-5.2",
+      thinkingLevel: "high",
+    });
+    expect(result).toEqual({ ok: true, key: "agent:main:main" });
+  });
+
+  it("adapts sessions.preview to the upstream keys/previews shape", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({
+      previews: [{ key: "agent:main:main", items: [{ role: "assistant", text: "hello" }] }],
+    });
+
+    const items = await client.sessionsPreview("agent:main:main", 12);
+
+    expect(rpc).toHaveBeenCalledWith("sessions.preview", {
+      keys: ["agent:main:main"],
+      limit: 12,
+    });
+    expect(items).toEqual([{ role: "assistant", text: "hello" }]);
+  });
+
+  it("sends sessions.reset with key and optional reason", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ ok: true });
+
+    await client.sessionsReset("agent:main:main", "new");
+
+    expect(rpc).toHaveBeenCalledWith("sessions.reset", {
+      key: "agent:main:main",
+      reason: "new",
+    });
+  });
+
   it("waitReady retries until configGet succeeds", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -460,6 +514,105 @@ describe("GatewayClient", () => {
     const events = await streamPromise;
     expect(events.map((event) => event.type)).toEqual(["content", "done"]);
     expect(events[0]?.text).toBe("Recovered final answer");
+  });
+
+  it("chatSend forwards pre-normalized attachments in the chat.send request", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpcSpy = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: any) => {
+      if (method === "chat.send") {
+        expect(params.attachments).toEqual([
+          { type: "image", mimeType: "image/png", content: "YWJj" },
+        ]);
+        return { runId: "attachments-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("With attachment", "main", [
+        { type: "image", mimeType: "image/png", content: "YWJj" },
+      ])) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "attachments-run",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(rpcSpy).toHaveBeenCalled();
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+  });
+
+  it("chatSend converts browser-style dataUrl attachments before sending", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    const rpcSpy = vi.spyOn(client as any, "rpc").mockImplementation(async (method: string, params: any) => {
+      if (method === "chat.send") {
+        expect(params.attachments).toEqual([
+          { type: "image", mimeType: "image/png", content: "YWJj", fileName: "clip.png" },
+        ]);
+        return { runId: "data-url-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("With image", "main", [
+        {
+          id: "att-1",
+          dataUrl: "data:image/png;base64,YWJj",
+          mimeType: "image/png",
+          fileName: "clip.png",
+        },
+      ])) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "data-url-run",
+        sessionKey: "main",
+        state: "final",
+        message: {
+          role: "assistant",
+          content: [{ type: "text", text: "done" }],
+        },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(rpcSpy).toHaveBeenCalled();
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
   });
 
   it("normalizes thinking-only and tool-rich assistant messages", () => {

@@ -2655,12 +2655,18 @@ export default function AgentsPage() {
                                 {openclawSuccess}
                               </div>
                             )}
-                            {!chat.connected && (
+                            {!chat.connected && !chat.connecting && (
                               <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
                                 Connect the agent gateway to edit OpenClaw settings.
                               </div>
                             )}
-                            {!openclawSchemaProperties && (
+                            {chat.connecting && !chat.connected && (
+                              <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted inline-flex items-center gap-2">
+                                <Loader2 className="w-4 h-4 animate-spin" />
+                                Connecting to gateway…
+                              </div>
+                            )}
+                            {chat.connected && !openclawSchemaProperties && (
                               <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
                                 No config schema available from gateway.
                               </div>
@@ -2766,12 +2772,18 @@ export default function AgentsPage() {
                               {openclawSuccess}
                             </div>
                           )}
-                          {!chat.connected && (
+                          {!chat.connected && !chat.connecting && (
                             <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
                               Connect the agent gateway to edit OpenClaw settings.
                             </div>
                           )}
-                          {!openclawSchemaProperties && (
+                          {chat.connecting && !chat.connected && (
+                            <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted inline-flex items-center gap-2">
+                              <Loader2 className="w-4 h-4 animate-spin" />
+                              Connecting to gateway…
+                            </div>
+                          )}
+                          {chat.connected && !openclawSchemaProperties && (
                             <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
                               No config schema available from gateway.
                             </div>

@@ -2,7 +2,7 @@
  * Main HyperCLI client
  */
 import { HTTPClient } from './http.js';
-import { getAgentsApiBaseUrl, getAgentsWsUrl, getApiKey, getApiUrl } from './config.js';
+import { getAgentApiKey, getAgentsApiBaseUrl, getAgentsWsUrl, getApiKey, getApiUrl } from './config.js';
 import { Billing } from './billing.js';
 import { Jobs } from './jobs.js';
 import { UserAPI } from './user.js';
@@ -30,7 +30,7 @@ export interface HyperCLIOptions {
  * ```typescript
  * import { HyperCLI } from '@hypercli/sdk';
  * 
- * const client = new HyperCLI(); // Uses HYPERCLI_API_KEY from env or ~/.hypercli/config
+ * const client = new HyperCLI(); // Uses HYPER_API_KEY from env or ~/.hypercli/config
  * // or
  * const client = new HyperCLI({ apiKey: 'your_key' });
  * 
@@ -67,11 +67,13 @@ export class HyperCLI {
 
   constructor(options: HyperCLIOptions = {}) {
     // Handle explicit undefined vs explicitly passed empty string
-    this._apiKey = options.apiKey !== undefined ? options.apiKey : (getApiKey() || '');
+    const productApiKey = options.apiKey !== undefined ? options.apiKey : (getApiKey() || '');
+    const resolvedAgentApiKey = options.agentApiKey !== undefined ? options.agentApiKey : (getAgentApiKey() || '');
+    this._apiKey = productApiKey || resolvedAgentApiKey;
     
     if (!this._apiKey) {
       throw new Error(
-        'API key required. Set HYPERCLI_API_KEY env var, ' +
+        'API key required. Set HYPER_API_KEY/HYPERCLI_API_KEY or HYPER_AGENTS_API_KEY, ' +
         'create ~/.hypercli/config, or pass apiKey parameter.'
       );
     }
@@ -89,13 +91,13 @@ export class HyperCLI {
     this.keys = new KeysAPI(this._http);
     this.agent = new HyperAgent(
       this._http,
-      options.agentApiKey,
+      resolvedAgentApiKey,
       options.agentDev,
       options.agentsApiBaseUrl || getAgentsApiBaseUrl(Boolean(options.agentDev)),
     );
     this.deployments = new Deployments(
       this._http,
-      options.agentApiKey,
+      resolvedAgentApiKey,
       options.agentsApiBaseUrl || getAgentsApiBaseUrl(Boolean(options.agentDev)),
       options.agentsWsUrl || getAgentsWsUrl(Boolean(options.agentDev)),
     );

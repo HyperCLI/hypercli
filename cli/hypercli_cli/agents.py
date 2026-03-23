@@ -18,8 +18,6 @@ app = typer.Typer(help="Manage OpenClaw agent pods")
 console = Console()
 PROD_API_BASE = "https://api.hypercli.com"
 DEV_API_BASE = "https://api.dev.hypercli.com"
-PROD_AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
-DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 _GLOBAL_DEV = False
 _GLOBAL_AGENTS_WS_URL: str | None = None
 
@@ -49,7 +47,10 @@ def agents_root(
 
 def _get_agent_api_key() -> str:
     """Resolve HyperClaw API key from env or saved key file."""
-    key = os.environ.get("HYPER_API_KEY", "")
+    key = os.environ.get("HYPER_AGENTS_API_KEY", "").strip()
+    if key:
+        return key
+    key = os.environ.get("HYPER_API_KEY", "").strip()
     if key:
         return key
     if AGENT_KEY_PATH.exists():
@@ -59,7 +60,7 @@ def _get_agent_api_key() -> str:
         if key:
             return key
     console.print("[red]❌ No HyperClaw API key found.[/red]")
-    console.print("Set HYPER_API_KEY or subscribe: [bold]hyper agent subscribe 1aiu[/bold]")
+    console.print("Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe: [bold]hyper agent subscribe 1aiu[/bold]")
     raise typer.Exit(1)
 
 
@@ -67,12 +68,13 @@ def _get_deployments_client(agents_ws_url: str | None = None) -> Deployments:
     """Create a Deployments client using the HyperClaw API key."""
     from hypercli.http import HTTPClient
     api_key = _get_agent_api_key()
-    api_base = os.environ.get("HYPERCLI_API_URL") or (DEV_API_BASE if _GLOBAL_DEV else PROD_API_BASE)
+    api_base = (
+        os.environ.get("AGENTS_API_BASE_URL")
+        or os.environ.get("HYPER_API_BASE")
+        or os.environ.get("HYPERCLI_API_URL")
+        or (DEV_API_BASE if _GLOBAL_DEV else PROD_API_BASE)
+    )
     resolved_agents_ws_url = agents_ws_url or _GLOBAL_AGENTS_WS_URL or os.environ.get("AGENTS_WS_URL")
-    if _GLOBAL_DEV and not resolved_agents_ws_url:
-        resolved_agents_ws_url = DEV_AGENTS_WS_URL
-    if not _GLOBAL_DEV and not resolved_agents_ws_url and os.environ.get("HYPERCLI_API_URL", "").strip() == "":
-        resolved_agents_ws_url = PROD_AGENTS_WS_URL
     http = HTTPClient(api_base, api_key)
     return Deployments(http, api_key=api_key, api_base=api_base, agents_ws_url=resolved_agents_ws_url)
 
