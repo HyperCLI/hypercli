@@ -733,6 +733,104 @@ export function createOpenClawConfigValue(value: unknown): unknown {
   }
 }
 
+function resolveSchemaRef(
+  ref: string,
+  root: Record<string, any>,
+): Record<string, any> | null {
+  // Handle JSON Pointer style refs: #/$defs/Name, #/definitions/Name
+  if (!ref.startsWith('#/')) return null;
+  const parts = ref.slice(2).split('/');
+  let cursor: any = root;
+  for (const part of parts) {
+    cursor = asRecord(cursor)?.[part];
+    if (cursor === undefined || cursor === null) return null;
+  }
+  return asRecord(cursor);
+}
+
+function mergeAllOfSchemas(schemas: Record<string, any>[]): Record<string, any> {
+  const merged: Record<string, any> = {};
+  for (const schema of schemas) {
+    for (const [key, value] of Object.entries(schema)) {
+      if (key === 'properties') {
+        merged.properties = { ...(asRecord(merged.properties) ?? {}), ...(asRecord(value) ?? {}) };
+      } else if (key === 'required' && Array.isArray(value)) {
+        merged.required = [...(Array.isArray(merged.required) ? merged.required : []), ...value];
+      } else if (!(key in merged)) {
+        merged[key] = value;
+      }
+    }
+  }
+  return merged;
+}
+
+function resolveSchemaNode(
+  node: Record<string, any>,
+  root: Record<string, any>,
+  visited: Set<string>,
+): Record<string, any> {
+  // Resolve $ref
+  const ref = typeof node.$ref === 'string' ? node.$ref : null;
+  if (ref) {
+    if (visited.has(ref)) return node; // circular reference guard
+    visited.add(ref);
+    const resolved = resolveSchemaRef(ref, root);
+    if (resolved) {
+      // Merge any sibling properties (e.g. title, description) with the resolved ref
+      const { $ref: _, ...siblings } = node;
+      const resolvedNode = resolveSchemaNode(resolved, root, visited);
+      return Object.keys(siblings).length > 0
+        ? { ...resolvedNode, ...siblings, ...(resolvedNode.properties && siblings.properties ? { properties: { ...resolvedNode.properties, ...siblings.properties } } : {}) }
+        : resolvedNode;
+    }
+  }
+
+  // Resolve allOf
+  const allOf = Array.isArray(node.allOf) ? node.allOf : null;
+  if (allOf) {
+    const resolved = allOf
+      .map((entry: unknown) => asRecord(entry))
+      .filter((entry): entry is Record<string, any> => entry !== null)
+      .map((entry) => resolveSchemaNode(entry, root, new Set(visited)));
+    const { allOf: _, ...rest } = node;
+    const merged = mergeAllOfSchemas([...resolved, rest]);
+    return merged;
+  }
+
+  // Recursively resolve properties
+  const props = asRecord(node.properties);
+  if (props) {
+    const resolvedProps: Record<string, any> = {};
+    for (const [key, child] of Object.entries(props)) {
+      const childSchema = asRecord(child);
+      if (childSchema) {
+        resolvedProps[key] = resolveSchemaNode(childSchema, root, new Set(visited));
+      } else {
+        resolvedProps[key] = child;
+      }
+    }
+    return { ...node, properties: resolvedProps };
+  }
+
+  // Resolve additionalProperties if it's a schema object
+  const additionalProps = asRecord(node.additionalProperties);
+  if (additionalProps) {
+    return { ...node, additionalProperties: resolveSchemaNode(additionalProps, root, new Set(visited)) };
+  }
+
+  // Resolve items (for array schemas)
+  const items = asRecord(node.items);
+  if (items) {
+    return { ...node, items: resolveSchemaNode(items, root, new Set(visited)) };
+  }
+
+  return node;
+}
+
+function resolveSchemaRefs(schema: Record<string, any>): Record<string, any> {
+  return resolveSchemaNode(schema, schema, new Set());
+}
+
 export function normalizeOpenClawConfigSchema(
   value: unknown,
 ): OpenClawConfigSchemaResponse | null {
@@ -741,8 +839,11 @@ export function normalizeOpenClawConfigSchema(
 
   const wrappedSchema = asRecord(raw.schema);
   const uiHints = asRecord(raw.uiHints) ?? {};
+  const resolvedSchema = wrappedSchema
+    ? resolveSchemaRefs(wrappedSchema)
+    : resolveSchemaRefs(raw);
   const normalized: OpenClawConfigSchemaResponse = {
-    schema: wrappedSchema ?? raw,
+    schema: resolvedSchema,
     uiHints: uiHints as Record<string, OpenClawConfigUiHint>,
   };
 

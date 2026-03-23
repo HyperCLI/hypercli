@@ -1097,7 +1097,34 @@ export default function AgentsPage() {
       const dynamicEntries = descriptor.additionalProperties && currentValue && typeof currentValue === "object" && !Array.isArray(currentValue)
         ? Object.entries(currentValue as JsonObject).filter(([childKey]) => !(childKey in propertyKeys))
         : [];
-      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) return null;
+      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) {
+        // Fallback: render JSON editor for object schemas with no resolved properties (e.g. unresolved $ref)
+        if (typeof console !== "undefined") {
+          console.warn(`[OpenClaw] Section "${key}" has type "object" but no resolved properties. Schema may contain unresolved $ref.`, schema);
+        }
+        const onFallbackChange = (raw: string) => {
+          try {
+            updateOpenclawPath(path, JSON.parse(raw));
+            setOpenclawError(null);
+          } catch {
+            setOpenclawError(`Invalid JSON at ${path.join(".")}`);
+          }
+        };
+        return (
+          <div key={key} className="space-y-1">
+            <label className="block text-sm text-text-secondary">{title}</label>
+            {description && <p className="text-xs text-text-muted">{description}</p>}
+            <textarea
+              value={typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2)}
+              onChange={(e) => onFallbackChange(e.target.value)}
+              rows={6}
+              spellCheck={false}
+              placeholder={placeholder}
+              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+            />
+          </div>
+        );
+      }
       return (
         <div key={key} className={depth > 0 ? "rounded-lg border border-border p-3 space-y-3" : "space-y-3"}>
           {depth > 0 && (
