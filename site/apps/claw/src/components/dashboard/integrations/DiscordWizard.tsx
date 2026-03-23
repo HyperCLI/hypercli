@@ -12,29 +12,24 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
   const [step, setStep] = useState(1);
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [validating, setValidating] = useState(false);
   const [botUsername, setBotUsername] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
+  const [serverId, setServerId] = useState("");
+  const [userId, setUserId] = useState("");
   const [connecting, setConnecting] = useState(false);
 
   const validateToken = () => {
-    setValidating(true);
     setTokenError(null);
     setBotUsername(null);
-    // Discord API does not allow CORS from browsers, so we validate the
-    // token format client-side. The actual token is validated server-side
-    // when OpenClaw connects to Discord.
     const trimmed = token.trim();
     if (!trimmed) {
       setTokenError("Please enter a bot token");
-      setValidating(false);
       return;
     }
     // Discord bot tokens are base64-encoded and contain two dots
     const parts = trimmed.split(".");
     if (parts.length < 2) {
       setTokenError("Invalid token format — Discord bot tokens contain at least two dots");
-      setValidating(false);
       return;
     }
     // Try to decode the first segment (bot user ID)
@@ -42,28 +37,38 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
       const decoded = atob(parts[0]);
       if (!/^\d+$/.test(decoded)) {
         setTokenError("Invalid token — the first segment should encode a numeric bot ID");
-        setValidating(false);
         return;
       }
     } catch {
       setTokenError("Invalid token format — could not decode bot ID");
-      setValidating(false);
       return;
     }
     setBotUsername(`Bot (ID: ${atob(parts[0])})`);
-    setValidating(false);
   };
 
   const handleConnect = async () => {
     setConnecting(true);
     try {
-      await onConnect({
-        channels: {
-          discord: {
-            enabled: true,
-            botToken: token,
+      const discordConfig: Record<string, unknown> = {
+        enabled: true,
+        token: token,
+      };
+
+      // If both server ID and user ID provided, configure guild allowlist
+      const trimmedServerId = serverId.trim();
+      const trimmedUserId = userId.trim();
+      if (trimmedServerId && trimmedUserId) {
+        discordConfig.groupPolicy = "allowlist";
+        discordConfig.guilds = {
+          [trimmedServerId]: {
+            requireMention: true,
+            users: [trimmedUserId],
           },
-        },
+        };
+      }
+
+      await onConnect({
+        channels: { discord: discordConfig },
       });
       setStep(3);
     } catch {
@@ -125,7 +130,8 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
                     className="text-[var(--primary)] hover:underline inline-flex items-center gap-1"
                   >
                     Discord Developer Portal <ExternalLink className="w-3 h-3" />
-                  </a>
+                  </a>{" "}
+                  &rarr; <strong>New Application</strong>
                 </p>
               </div>
             </div>
@@ -135,10 +141,7 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
               </span>
               <div>
                 <p>
-                  Click <strong>New Application</strong>, give it a name, then go to the <strong>Bot</strong> tab
-                </p>
-                <p className="text-text-tertiary mt-1">
-                  Click &quot;Reset Token&quot; to generate a bot token and copy it
+                  Go to the <strong>Bot</strong> tab and set the username
                 </p>
               </div>
             </div>
@@ -148,11 +151,20 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
               </span>
               <div>
                 <p>
-                  Go to <strong>OAuth2 &rarr; URL Generator</strong>
+                  <strong>Enable Privileged Intents</strong> on the Bot page:
                 </p>
-                <p className="text-text-tertiary mt-1">
-                  Select <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">bot</code> scope, then add <strong>Send Messages</strong> and <strong>Read Message History</strong> permissions
-                </p>
+                <div className="mt-1.5 space-y-1">
+                  <p className="flex items-center gap-1.5">
+                    <span className="text-[var(--primary)]">&#10003;</span>
+                    <strong>Message Content Intent</strong>
+                    <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--error)]/10 text-[var(--error)] font-medium">required</span>
+                  </p>
+                  <p className="flex items-center gap-1.5">
+                    <span className="text-[var(--primary)]">&#10003;</span>
+                    <strong>Server Members Intent</strong>
+                    <span className="text-text-tertiary">(recommended)</span>
+                  </p>
+                </div>
               </div>
             </div>
             <div className="flex gap-3">
@@ -160,7 +172,34 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
                 4
               </span>
               <div>
-                <p>Copy the generated URL and open it to invite the bot to your server</p>
+                <p>
+                  Click <strong>Reset Token</strong> &rarr; copy and save it securely
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
+                5
+              </span>
+              <div>
+                <p>
+                  Go to <strong>OAuth2 &rarr; URL Generator</strong>
+                </p>
+                <p className="text-text-tertiary mt-1">
+                  Scopes: <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">bot</code>{" "}
+                  <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">applications.commands</code>
+                </p>
+                <p className="text-text-tertiary mt-1">
+                  Permissions: View Channels, Send Messages, Read Message History, Embed Links, Attach Files
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
+                6
+              </span>
+              <div>
+                <p>Copy the generated invite URL &rarr; open in browser &rarr; add bot to your server</p>
               </div>
             </div>
           </div>
@@ -202,10 +241,10 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
               </div>
               <button
                 onClick={validateToken}
-                disabled={!token.trim() || validating}
+                disabled={!token.trim()}
                 className="btn-secondary px-3 py-2 rounded-lg text-sm font-medium disabled:opacity-40"
               >
-                {validating ? <Loader2 className="w-4 h-4 animate-spin" /> : "Validate"}
+                Validate
               </button>
             </div>
             {botUsername && (
@@ -216,10 +255,37 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
             {tokenError && <p className="text-xs text-[var(--error)]">{tokenError}</p>}
           </div>
 
-          <div className="glass-card p-3 text-xs text-text-tertiary">
-            <p>
-              Make sure your bot has been invited to at least one server. The bot will respond to messages in channels it has access to.
+          {/* Optional: Server & User IDs */}
+          <div className="space-y-3">
+            <div className="flex items-center gap-2">
+              <label className="text-sm font-medium text-foreground">Server Setup</label>
+              <span className="text-[10px] px-1.5 py-0.5 rounded bg-[var(--surface-high)] text-text-tertiary font-medium">optional</span>
+            </div>
+            <p className="text-xs text-text-tertiary">
+              Add your Server ID and User ID to pre-configure the guild allowlist. Enable <strong>Developer Mode</strong> in Discord (User Settings &rarr; Advanced), then right-click to copy IDs.
             </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Server ID</label>
+                <input
+                  type="text"
+                  value={serverId}
+                  onChange={(e) => setServerId(e.target.value)}
+                  placeholder="e.g. 123456789012345678"
+                  className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-sm text-foreground placeholder:text-text-tertiary focus:outline-none focus:border-[var(--primary)]/50"
+                />
+              </div>
+              <div>
+                <label className="block text-xs text-text-muted mb-1">Your User ID</label>
+                <input
+                  type="text"
+                  value={userId}
+                  onChange={(e) => setUserId(e.target.value)}
+                  placeholder="e.g. 987654321098765432"
+                  className="w-full px-3 py-2 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-sm text-foreground placeholder:text-text-tertiary focus:outline-none focus:border-[var(--primary)]/50"
+                />
+              </div>
+            </div>
           </div>
 
           <div className="flex justify-between pt-2">
@@ -263,10 +329,18 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
           <div className="glass-card p-4 space-y-2 text-sm text-text-secondary">
             <p className="font-medium text-foreground">To start chatting:</p>
             <ol className="list-decimal list-inside space-y-1 text-text-secondary">
-              <li>Go to a server where your bot has been invited</li>
-              <li>Mention the bot or send a DM</li>
-              <li>Your agent will respond automatically</li>
+              <li>DM your bot in Discord</li>
+              <li>You&apos;ll receive an 8-character pairing code</li>
+              <li>
+                Approve it in the Shell tab:{" "}
+                <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">
+                  openclaw pairing approve discord &lt;CODE&gt;
+                </code>
+              </li>
             </ol>
+            <p className="text-xs text-text-tertiary mt-2">
+              Pairing codes expire after 1 hour
+            </p>
           </div>
           <div className="flex justify-center pt-2">
             <button onClick={onClose} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium">

@@ -12,6 +12,10 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
   const [step, setStep] = useState(1);
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
+  const [appToken, setAppToken] = useState("");
+  const [showAppToken, setShowAppToken] = useState(false);
+  const [appTokenValid, setAppTokenValid] = useState(false);
+  const [appTokenError, setAppTokenError] = useState<string | null>(null);
   const [validating, setValidating] = useState(false);
   const [botName, setBotName] = useState<string | null>(null);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -64,6 +68,7 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
           slack: {
             enabled: true,
             botToken: token,
+            appToken: appToken,
           },
         },
       });
@@ -173,10 +178,34 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
                 </p>
               </div>
             </div>
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
+                5
+              </span>
+              <div>
+                <p>
+                  Go to <strong>Basic Information &rarr; App-Level Tokens</strong> and click <strong>Generate Token and Scopes</strong>
+                </p>
+                <p className="text-text-tertiary mt-1">
+                  Add the <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">connections:write</code> scope, name it (e.g. &quot;openclaw&quot;), and generate
+                </p>
+              </div>
+            </div>
+            <div className="flex gap-3">
+              <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
+                6
+              </span>
+              <div>
+                <p>Copy the <strong>App-Level Token</strong></p>
+                <p className="text-text-tertiary mt-1">
+                  It starts with: <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">xapp-1-...</code>
+                </p>
+              </div>
+            </div>
           </div>
           <div className="flex justify-end pt-2">
             <button onClick={() => setStep(2)} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
-              I have my token <ArrowRight className="w-4 h-4" />
+              I have my tokens <ArrowRight className="w-4 h-4" />
             </button>
           </div>
         </div>
@@ -226,6 +255,45 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
             {tokenError && <p className="text-xs text-[var(--error)]">{tokenError}</p>}
           </div>
 
+          {/* App token input */}
+          <div className="space-y-2">
+            <label className="text-sm font-medium text-foreground">App-Level Token</label>
+            <div className="relative">
+              <input
+                type={showAppToken ? "text" : "password"}
+                value={appToken}
+                onChange={(e) => {
+                  const val = e.target.value;
+                  setAppToken(val);
+                  setAppTokenError(null);
+                  const trimmed = val.trim();
+                  if (!trimmed) {
+                    setAppTokenValid(false);
+                  } else if (!trimmed.startsWith("xapp-")) {
+                    setAppTokenValid(false);
+                    setAppTokenError("App tokens start with xapp-");
+                  } else {
+                    setAppTokenValid(true);
+                  }
+                }}
+                placeholder="xapp-1-..."
+                className="w-full px-3 py-2 pr-10 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-sm text-foreground placeholder:text-text-tertiary focus:outline-none focus:border-[var(--primary)]/50"
+              />
+              <button
+                onClick={() => setShowAppToken(!showAppToken)}
+                className="absolute right-3 top-1/2 -translate-y-1/2 text-text-tertiary hover:text-foreground"
+              >
+                {showAppToken ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
+              </button>
+            </div>
+            {appTokenValid && (
+              <p className="text-xs text-[var(--primary)] flex items-center gap-1">
+                <Check className="w-3 h-3" /> Format valid
+              </p>
+            )}
+            {appTokenError && <p className="text-xs text-[var(--error)]">{appTokenError}</p>}
+          </div>
+
           <div className="glass-card p-3 text-xs text-text-tertiary">
             <p>
               After connecting, invite your bot to channels with{" "}
@@ -243,7 +311,7 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
             </button>
             <button
               onClick={handleConnect}
-              disabled={!botName || connecting}
+              disabled={!botName || !appTokenValid || connecting}
               className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-40"
             >
               {connecting ? (
