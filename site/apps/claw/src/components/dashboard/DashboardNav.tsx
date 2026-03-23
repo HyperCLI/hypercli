@@ -19,6 +19,7 @@ import {
   FolderOpen,
   HardDrive,
   SlidersHorizontal,
+  Plug,
   Trash2,
   Loader2,
 } from "lucide-react";
@@ -72,6 +73,7 @@ export function DashboardNav() {
     { key: "files", label: "Files", icon: HardDrive },
     { key: "workspace", label: "Workspace", icon: FolderOpen },
     { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
+    { key: "integrations", label: "Integrations", icon: Plug },
     { key: "settings", label: "Settings", icon: Settings },
   ];
 

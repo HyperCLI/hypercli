@@ -38,6 +38,7 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
+  Plug,
   Upload,
   Paperclip,
   Mic,
@@ -59,6 +60,7 @@ import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { IntegrationsPage } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
@@ -894,6 +896,7 @@ export default function AgentsPage() {
     shell: "Shell",
     workspace: "Workspace",
     openclaw: "OpenClaw",
+    integrations: "Integrations",
     settings: "Settings",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
@@ -903,6 +906,7 @@ export default function AgentsPage() {
     { key: "files", label: "Files", icon: HardDrive },
     { key: "workspace", label: "Workspace", icon: FolderOpen },
     { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
+    { key: "integrations", label: "Integrations", icon: Plug },
     { key: "settings", label: "Settings", icon: Settings },
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
@@ -936,7 +940,7 @@ export default function AgentsPage() {
     if (!isSelectedRunning) return null;
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -2839,6 +2843,15 @@ export default function AgentsPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                ) : mainTab === "integrations" && selectedAgent ? (
+                  /* ── Integrations Tab ── */
+                  <div className="flex-1 overflow-y-auto">
+                    <IntegrationsPage
+                      config={chat.config as Record<string, unknown> | null}
+                      connected={chat.connected}
+                      onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
+                    />
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
