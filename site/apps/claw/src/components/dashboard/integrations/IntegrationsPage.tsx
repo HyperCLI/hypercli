@@ -33,8 +33,8 @@ interface IntegrationsPageProps {
 
 interface ChannelState {
   telegram?: { enabled?: boolean; botToken?: string; username?: string };
-  discord?: { enabled?: boolean; botToken?: string };
-  slack?: { enabled?: boolean; botToken?: string };
+  discord?: { enabled?: boolean; token?: string; groupPolicy?: string };
+  slack?: { enabled?: boolean; botToken?: string; appToken?: string };
 }
 
 interface PrefsState {
