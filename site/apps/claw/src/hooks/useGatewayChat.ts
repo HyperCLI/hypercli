@@ -426,7 +426,11 @@ export function useGatewayChat(
               console.error("[useGatewayChat] configGet failed:", cfgResult.reason);
               setConfig({});
             }
-            if (schemaResult.status === "fulfilled") setConfigSchema(schemaResult.value);
+            if (schemaResult.status === "fulfilled") {
+              setConfigSchema(schemaResult.value);
+            } else {
+              console.error("[useGatewayChat] configSchema failed:", schemaResult.reason);
+            }
           }
         }
 

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 import {
@@ -121,6 +121,28 @@ interface S3FilesResponse {
   directories: S3FileEntry[];
   files: S3FileEntry[];
   truncated: boolean;
+}
+
+// ── Error Boundary ──
+
+class OpenClawErrorBoundary extends React.Component<
+  { children: React.ReactNode },
+  { error: Error | null }
+> {
+  state = { error: null as Error | null };
+  static getDerivedStateFromError(error: Error) { return { error }; }
+  render() {
+    if (this.state.error) {
+      return (
+        <div className="p-6 text-sm text-[#d05f5f]">
+          <p className="font-semibold">OpenClaw config render error</p>
+          <pre className="mt-2 text-xs whitespace-pre-wrap">{this.state.error.message}</pre>
+          <button onClick={() => this.setState({ error: null })} className="mt-2 text-xs underline">Retry</button>
+        </div>
+      );
+    }
+    return this.props.children;
+  }
 }
 
 // ── Constants ──
@@ -1017,6 +1039,18 @@ export default function AgentsPage() {
     }
   }, [isDesktopViewport, mainTab, selectedAgentId]);
 
+  useEffect(() => {
+    if (mainTab !== "openclaw") return;
+    console.log("[OpenClaw] State:", {
+      connected: chat.connected,
+      schemaProperties: openclawSchemaProperties ? Object.keys(openclawSchemaProperties) : null,
+      draft: openclawDraft ? Object.keys(openclawDraft) : null,
+      effectiveSection: effectiveOpenclawSection,
+      visibleSections: visibleOpenclawSections.length,
+      isDesktopViewport,
+    });
+  }, [mainTab, chat.connected, openclawSchemaProperties, openclawDraft, effectiveOpenclawSection, visibleOpenclawSections, isDesktopViewport]);
+
   const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
     setOpenclawDraft((prev) => {
       const base = prev ? deepCloneJsonObject(prev) : {};
@@ -1071,7 +1105,8 @@ export default function AgentsPage() {
     await saveOpenclawPatch(openclawDraft, "Saved all OpenClaw settings");
   }, [openclawDraft, saveOpenclawPatch]);
 
-  const renderOpenclawField = useCallback((schemaRaw: unknown, path: string[], depth = 0) => {
+  const renderOpenclawField = useCallback((schemaRaw: unknown, path: string[], depth = 0): React.ReactNode => {
+    try {
     const schema = normalizeOpenClawConfigSchemaNode(schemaRaw);
     const descriptor = describeOpenClawConfigNode(schemaRaw);
     const hint = getOpenClawUiHint(openclawSchemaBundle, path);
@@ -1277,6 +1312,15 @@ export default function AgentsPage() {
         )}
       </div>
     );
+    } catch (err) {
+      const key = path.join(".");
+      console.error(`[OpenClaw] Failed to render field "${key}":`, err);
+      return (
+        <div key={key} className="text-xs text-[#d05f5f] p-2 rounded border border-[#d05f5f]/30">
+          Failed to render {key}: {err instanceof Error ? err.message : String(err)}
+        </div>
+      );
+    }
   }, [addOpenclawMapEntry, openclawDraft, openclawMapDraftKeys, openclawSchemaBundle, removeOpenclawPath, updateOpenclawPath]);
 
   // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
@@ -2616,12 +2660,12 @@ export default function AgentsPage() {
                   <div className="h-full min-h-0 flex flex-col md:flex-row">
                     {isDesktopViewport ? (
                       <>
-                        <aside className="w-64 shrink-0 border-r border-border bg-surface-low/20">
-                          <div className="h-full overflow-y-auto p-4">
-                            <p className="mb-3 text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
+                        <aside className="w-48 lg:w-56 xl:w-64 shrink-0 border-r border-border bg-surface-low/20">
+                          <div className="h-full overflow-y-auto p-3 lg:p-4">
+                            <p className="mb-2 lg:mb-3 text-[10px] lg:text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
                               Sections
                             </p>
-                            <div className="space-y-1">
+                            <div className="space-y-0.5">
                               {openclawSections.map(([sectionKey, sectionSchema]) => {
                                 const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
                                 const sectionLabel =
@@ -2638,7 +2682,7 @@ export default function AgentsPage() {
                                   <button
                                     key={`nav-${sectionKey}`}
                                     onClick={() => setActiveOpenclawSection(sectionKey)}
-                                    className={`block w-full rounded-md px-3 py-2 text-left text-sm transition-colors ${
+                                    className={`block w-full rounded-md px-2.5 py-1.5 lg:px-3 lg:py-2 text-left text-xs lg:text-sm transition-colors truncate ${
                                       effectiveOpenclawSection === sectionKey
                                         ? "bg-primary/15 text-foreground font-medium border-l-2 border-primary"
                                         : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
@@ -2654,6 +2698,7 @@ export default function AgentsPage() {
                         </aside>
 
                         <div ref={openclawPaneRef} className="flex-1 min-w-0 overflow-y-auto p-6">
+                          <OpenClawErrorBoundary>
                           <div className="mx-auto max-w-5xl space-y-4">
                             <div className="flex flex-wrap items-center justify-between gap-3">
                               <div>
@@ -2724,6 +2769,7 @@ export default function AgentsPage() {
                               </div>
                             )}
                           </div>
+                          </OpenClawErrorBoundary>
                         </div>
                       </>
                     ) : mobileOpenclawMenuOpen ? (
@@ -2769,6 +2815,7 @@ export default function AgentsPage() {
                       </div>
                     ) : (
                       <div className="flex-1 min-w-0 overflow-y-auto p-4">
+                        <OpenClawErrorBoundary>
                         <div className="mx-auto max-w-xl space-y-4">
                           <div className="flex flex-wrap items-center justify-between gap-3">
                             <div>
@@ -2841,6 +2888,7 @@ export default function AgentsPage() {
                             </div>
                           )}
                         </div>
+                        </OpenClawErrorBoundary>
                       </div>
                     )}
                   </div>
