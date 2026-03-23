@@ -52,9 +52,9 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
 const SIZES = [
-  { label: "Small", tag: "Starter", desc: "1 CPU · 1 GiB", value: "small" },
-  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", value: "medium" },
-  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", value: "large" },
+  { label: "Small", tag: "Starter", desc: "1 CPU · 1 GiB", value: "small", disabled: true },
+  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", value: "medium", disabled: true },
+  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", value: "large", disabled: false },
 ];
 
 const TOTAL_STEPS = 3;
@@ -98,10 +98,10 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2: Configuration
-  const [selectedSize, setSelectedSize] = useState(1); // Medium default
+  const [selectedSize, setSelectedSize] = useState(2); // Large default (OpenClaw requires 4 GiB)
   const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customCpu, setCustomCpu] = useState("2000");
-  const [customMem, setCustomMem] = useState("2048");
+  const [customCpu, setCustomCpu] = useState("4000");
+  const [customMem, setCustomMem] = useState("4096");
   const [startImmediately, setStartImmediately] = useState(true);
 
   // Step 3: Creating state
@@ -112,7 +112,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   const currentHue = HUES[selectedIcon];
   const CurrentIcon = ICONS[selectedIcon].icon;
   const customCpuCores = Math.max(1, Math.round(Number(customCpu) / 1000));
-  const customMemGb = Math.max(1, Math.round(Number(customMem) / 1024));
+  const customMemGb = Math.max(4, Math.round(Number(customMem) / 1024));
 
   const budgetRemaining = budget
     ? {
@@ -143,10 +143,10 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       setSelectedIcon(0);
       setCustomAvatar(null);
       setDescription("");
-      setSelectedSize(1);
+      setSelectedSize(2);
       setShowAdvanced(false);
-      setCustomCpu("2000");
-      setCustomMem("2048");
+      setCustomCpu("4000");
+      setCustomMem("4096");
       setStartImmediately(true);
       setCreating(false);
       setError(null);
@@ -373,28 +373,35 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
             return (
               <button
                 key={s.label}
+                disabled={s.disabled}
                 onClick={() => {
+                  if (s.disabled) return;
                   setSelectedSize(i);
                   setShowAdvanced(false);
                 }}
                 className={`relative p-4 rounded-xl border text-center transition-all ${
-                  isSelected
-                    ? "border-primary bg-primary/10 text-foreground"
-                    : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
+                  s.disabled
+                    ? "opacity-40 cursor-not-allowed border-border bg-surface-low text-text-secondary"
+                    : isSelected
+                      ? "border-primary bg-primary/10 text-foreground"
+                      : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
                 }`}
               >
-                {s.tag === "Recommended" && (
+                {s.tag === "Recommended" && !s.disabled && (
                   <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
                     {s.tag}
                   </span>
                 )}
-                {s.tag !== "Recommended" && (
+                {(s.tag !== "Recommended" || s.disabled) && (
                   <span className="text-[10px] text-text-muted uppercase tracking-wider">
-                    {s.tag}
+                    {s.disabled ? "" : s.tag}
                   </span>
                 )}
                 <div className="text-sm font-semibold mt-1">{s.label}</div>
                 <div className="text-xs text-text-muted mt-1">{s.desc}</div>
+                {s.disabled && (
+                  <div className="text-[10px] text-text-muted mt-1">Temporarily unavailable</div>
+                )}
               </button>
             );
           })}
@@ -437,10 +444,14 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                 <input
                   value={customMem}
                   onChange={(e) => setCustomMem(e.target.value)}
+                  onBlur={() => {
+                    if (Number(customMem) < 4096) setCustomMem("4096");
+                  }}
                   type="number"
-                  min={256}
+                  min={4096}
                   className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
                 />
+                <span className="text-[10px] text-text-muted mt-1 block">Minimum 4096 MiB required</span>
               </div>
             </div>
           </>

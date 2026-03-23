@@ -38,6 +38,7 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
+  Plug,
   Upload,
   Paperclip,
   Mic,
@@ -59,6 +60,7 @@ import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { IntegrationsPage } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
@@ -894,15 +896,17 @@ export default function AgentsPage() {
     shell: "Shell",
     workspace: "Workspace",
     openclaw: "OpenClaw",
+    integrations: "Integrations",
     settings: "Settings",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
-    { key: "chat", label: "Chat", icon: MessageSquare },
+    { key: "chat", label: "Chatt", icon: MessageSquare },
     { key: "logs", label: "Logs", icon: TerminalSquare },
     { key: "shell", label: "Shell", icon: TerminalSquare },
     { key: "files", label: "Files", icon: HardDrive },
     { key: "workspace", label: "Workspace", icon: FolderOpen },
     { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
+    { key: "integrations", label: "Integrations", icon: Plug },
     { key: "settings", label: "Settings", icon: Settings },
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
@@ -936,7 +940,7 @@ export default function AgentsPage() {
     if (!isSelectedRunning) return null;
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -1097,7 +1101,34 @@ export default function AgentsPage() {
       const dynamicEntries = descriptor.additionalProperties && currentValue && typeof currentValue === "object" && !Array.isArray(currentValue)
         ? Object.entries(currentValue as JsonObject).filter(([childKey]) => !(childKey in propertyKeys))
         : [];
-      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) return null;
+      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) {
+        // Fallback: render JSON editor for object schemas with no resolved properties (e.g. unresolved $ref)
+        if (typeof console !== "undefined") {
+          console.warn(`[OpenClaw] Section "${key}" has type "object" but no resolved properties. Schema may contain unresolved $ref.`, schema);
+        }
+        const onFallbackChange = (raw: string) => {
+          try {
+            updateOpenclawPath(path, JSON.parse(raw));
+            setOpenclawError(null);
+          } catch {
+            setOpenclawError(`Invalid JSON at ${path.join(".")}`);
+          }
+        };
+        return (
+          <div key={key} className="space-y-1">
+            <label className="block text-sm text-text-secondary">{title}</label>
+            {description && <p className="text-xs text-text-muted">{description}</p>}
+            <textarea
+              value={typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2)}
+              onChange={(e) => onFallbackChange(e.target.value)}
+              rows={6}
+              spellCheck={false}
+              placeholder={placeholder}
+              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+            />
+          </div>
+        );
+      }
       return (
         <div key={key} className={depth > 0 ? "rounded-lg border border-border p-3 space-y-3" : "space-y-3"}>
           {depth > 0 && (
@@ -2812,6 +2843,15 @@ export default function AgentsPage() {
                         </div>
                       </div>
                     )}
+                  </div>
+                ) : mainTab === "integrations" && selectedAgent ? (
+                  /* ── Integrations Tab ── */
+                  <div className="flex-1 overflow-y-auto">
+                    <IntegrationsPage
+                      config={chat.config as Record<string, unknown> | null}
+                      connected={chat.connected}
+                      onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
+                    />
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */

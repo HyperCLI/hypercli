@@ -414,17 +414,15 @@ export function useGatewayChat(
         setConnecting(false);
         setError(null);
 
-        try {
-          const [cfg, schemaResp] = await Promise.all([
+        {
+          const [cfgResult, schemaResult] = await Promise.allSettled([
             gw.configGet(),
             gw.configSchema(),
           ]);
           if (!cancelled) {
-            setConfig(cfg);
-            setConfigSchema(schemaResp);
+            if (cfgResult.status === "fulfilled") setConfig(cfgResult.value);
+            if (schemaResult.status === "fulfilled") setConfigSchema(schemaResult.value);
           }
-        } catch {
-          // Leave config state unset if the gateway rejects config calls.
         }
 
         try {
