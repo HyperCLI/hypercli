@@ -1039,18 +1039,6 @@ export default function AgentsPage() {
     }
   }, [isDesktopViewport, mainTab, selectedAgentId]);
 
-  useEffect(() => {
-    if (mainTab !== "openclaw") return;
-    console.log("[OpenClaw] State:", {
-      connected: chat.connected,
-      schemaProperties: openclawSchemaProperties ? Object.keys(openclawSchemaProperties) : null,
-      draft: openclawDraft ? Object.keys(openclawDraft) : null,
-      effectiveSection: effectiveOpenclawSection,
-      visibleSections: visibleOpenclawSections.length,
-      isDesktopViewport,
-    });
-  }, [mainTab, chat.connected, openclawSchemaProperties, openclawDraft, effectiveOpenclawSection, visibleOpenclawSections, isDesktopViewport]);
-
   const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
     setOpenclawDraft((prev) => {
       const base = prev ? deepCloneJsonObject(prev) : {};
@@ -2657,12 +2645,12 @@ export default function AgentsPage() {
                   />
                 ) : mainTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
-                  <div className="h-full min-h-0 flex flex-col md:flex-row">
+                  <div className={`h-full min-h-0 flex ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
                     {isDesktopViewport ? (
                       <>
-                        <aside className="w-48 lg:w-56 xl:w-64 shrink-0 border-r border-border bg-surface-low/20">
-                          <div className="h-full overflow-y-auto p-3 lg:p-4">
-                            <p className="mb-2 lg:mb-3 text-[10px] lg:text-[11px] font-medium uppercase tracking-[0.18em] text-text-muted">
+                        <aside className="w-[200px] shrink-0 border-r border-border bg-surface-low/20" style={{ minWidth: 160, maxWidth: 260 }}>
+                          <div className="h-full overflow-y-auto p-3">
+                            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">
                               Sections
                             </p>
                             <div className="space-y-0.5">
@@ -2682,7 +2670,7 @@ export default function AgentsPage() {
                                   <button
                                     key={`nav-${sectionKey}`}
                                     onClick={() => setActiveOpenclawSection(sectionKey)}
-                                    className={`block w-full rounded-md px-2.5 py-1.5 lg:px-3 lg:py-2 text-left text-xs lg:text-sm transition-colors truncate ${
+                                    className={`block w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors truncate ${
                                       effectiveOpenclawSection === sectionKey
                                         ? "bg-primary/15 text-foreground font-medium border-l-2 border-primary"
                                         : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
