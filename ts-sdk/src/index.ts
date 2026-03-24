@@ -143,6 +143,17 @@ export {
   type GradioJobOptions,
 } from './job/gradio.js';
 
+// x402 pay-per-use
+export {
+  X402Client,
+  type X402Signer,
+  type X402JobLaunch,
+  type X402FlowCreate,
+  type FlowCatalogItem,
+  type X402CreateJobOptions,
+  type X402CreateFlowOptions,
+} from './x402.js';
+
 export {
   GatewayClient,
   type GatewayOptions,
