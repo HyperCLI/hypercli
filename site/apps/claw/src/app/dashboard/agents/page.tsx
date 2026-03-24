@@ -1838,152 +1838,122 @@ export default function AgentsPage() {
 
   return (
     <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
-      {/* Header */}
-      <div className="relative flex items-center justify-between px-4 sm:px-6 lg:px-8 py-4 border-b border-border">
-        <div className="flex items-center gap-3">
+      {/* Mobile header + menu (hidden on desktop) */}
+      {!isDesktopViewport && (
+        <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
+          <div className="flex items-center gap-2 text-xl font-bold">
+            <span aria-label="HyperClaw brand">
+              <span className="text-foreground">Hyper</span>
+              <span className="text-primary">Claw</span>
+            </span>
+            <span className="text-text-muted font-medium">Agents</span>
+          </div>
           <button
-            onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-            className={`${isDesktopViewport ? "block" : "hidden"} text-text-muted transition-colors hover:text-foreground`}
-            aria-label={sidebarCollapsed ? "Expand agents sidebar" : "Collapse agents sidebar"}
+            onClick={() => setMobileAgentMenuOpen((open) => !open)}
+            className="p-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            aria-label={mobileAgentMenuOpen ? "Close agent menu" : "Open agent menu"}
           >
-            {sidebarCollapsed ? <PanelLeft className="w-5 h-5" /> : <PanelLeftClose className="w-5 h-5" />}
+            {mobileAgentMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
           </button>
-          {isDesktopViewport ? (
-            <h1 className="text-xl font-bold text-foreground">Agents</h1>
-          ) : (
-            <div className="flex items-center gap-2 text-xl font-bold">
-              <span aria-label="HyperClaw brand">
-                <span className="text-foreground">Hyper</span>
-                <span className="text-primary">Claw</span>
-              </span>
-              <span className="text-text-muted font-medium">Agents</span>
-            </div>
-          )}
-        </div>
-        <div className="flex items-center gap-3">
-          {budget && (
-            <div className="hidden xl:flex gap-4 mr-3 min-w-[440px]">
-              <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
-              <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
-              <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
-            </div>
-          )}
-          {isDesktopViewport ? (
-            <button
-              onClick={() => setShowCreateDialog(true)}
-              className="btn-primary px-3 py-1.5 rounded-lg text-sm font-medium flex items-center gap-1.5"
-            >
-              <Plus className="w-4 h-4" />
-              <span>New Agent</span>
-            </button>
-          ) : (
-            <button
-              onClick={() => setMobileAgentMenuOpen((open) => !open)}
-              className="p-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-              aria-label={mobileAgentMenuOpen ? "Close agent menu" : "Open agent menu"}
-            >
-              {mobileAgentMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-            </button>
-          )}
-        </div>
 
-        {!isDesktopViewport && mobileAgentMenuOpen && (
-          <div className="absolute right-4 top-[calc(100%-0.25rem)] z-30 w-64 rounded-xl border border-border bg-background shadow-2xl">
-            <div className="p-2 space-y-1">
-              <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
-                Dashboard
-              </p>
-              {dashboardNavItems.map(({ label, href, icon: Icon }) => (
+          {mobileAgentMenuOpen && (
+            <div className="absolute right-4 top-[calc(100%-0.25rem)] z-30 w-64 rounded-xl border border-border bg-background shadow-2xl">
+              <div className="p-2 space-y-1">
+                <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                  Dashboard
+                </p>
+                {dashboardNavItems.map(({ label, href, icon: Icon }) => (
+                  <button
+                    key={`mobile-nav-${href}`}
+                    onClick={() => {
+                      router.push(href);
+                      setMobileAgentMenuOpen(false);
+                    }}
+                    className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                  >
+                    <Icon className="w-4 h-4" />
+                    <span>{label}</span>
+                  </button>
+                ))}
                 <button
-                  key={`mobile-nav-${href}`}
                   onClick={() => {
-                    router.push(href);
+                    setShowCreateDialog(true);
                     setMobileAgentMenuOpen(false);
                   }}
                   className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
                 >
-                  <Icon className="w-4 h-4" />
-                  <span>{label}</span>
+                  <Plus className="w-4 h-4" />
+                  <span>Add Agent</span>
                 </button>
-              ))}
-              <button
-                onClick={() => {
-                  setShowCreateDialog(true);
-                  setMobileAgentMenuOpen(false);
-                }}
-                className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-              >
-                <Plus className="w-4 h-4" />
-                <span>Add Agent</span>
-              </button>
+              </div>
+              {selectedAgent && (
+                <>
+                  <div className="border-t border-border p-2 space-y-1">
+                    <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
+                      Agent
+                    </p>
+                    {agentTabItems.map(({ key, label, icon: Icon }) => (
+                      <button
+                        key={`mobile-tab-${key}`}
+                        onClick={() => {
+                          setMainTab(key);
+                          setMobileAgentMenuOpen(false);
+                        }}
+                        className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
+                          mainTab === key
+                            ? "bg-surface-low text-foreground"
+                            : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{label}</span>
+                      </button>
+                    ))}
+                  </div>
+                  <div className="border-t border-border p-2 space-y-1">
+                    {(mainTab === "logs" || mainTab === "shell") && (
+                      <button
+                        onClick={() => {
+                          setReconnectNonce((value) => value + 1);
+                          setMobileAgentMenuOpen(false);
+                        }}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
+                      >
+                        <RefreshCw className="w-4 h-4" />
+                        <span>Reconnect</span>
+                      </button>
+                    )}
+                    {isSelectedRunning && selectedAgent.hostname && (
+                      <button
+                        onClick={() => {
+                          void handleOpenDesktop(selectedAgent);
+                          setMobileAgentMenuOpen(false);
+                        }}
+                        disabled={openingDesktopId === selectedAgent.id}
+                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70 disabled:opacity-60"
+                      >
+                        {openingDesktopId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
+                        <span>Desktop</span>
+                      </button>
+                    )}
+                    <button
+                      onClick={() => {
+                        setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
+                        setMobileAgentMenuOpen(false);
+                      }}
+                      disabled={deletingId === selectedAgent.id}
+                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-[#d05f5f] hover:bg-surface-low/70 disabled:opacity-60"
+                    >
+                      {deletingId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
+                      <span>Delete Agent</span>
+                    </button>
+                  </div>
+                </>
+              )}
             </div>
-            {selectedAgent && (
-              <>
-                <div className="border-t border-border p-2 space-y-1">
-                  <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
-                    Agent
-                  </p>
-                  {agentTabItems.map(({ key, label, icon: Icon }) => (
-                    <button
-                      key={`mobile-tab-${key}`}
-                      onClick={() => {
-                        setMainTab(key);
-                        setMobileAgentMenuOpen(false);
-                      }}
-                      className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                        mainTab === key
-                          ? "bg-surface-low text-foreground"
-                          : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                      }`}
-                    >
-                      <Icon className="w-4 h-4" />
-                      <span>{label}</span>
-                    </button>
-                  ))}
-                </div>
-                <div className="border-t border-border p-2 space-y-1">
-                  {(mainTab === "logs" || mainTab === "shell") && (
-                    <button
-                      onClick={() => {
-                        setReconnectNonce((value) => value + 1);
-                        setMobileAgentMenuOpen(false);
-                      }}
-                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                    >
-                      <RefreshCw className="w-4 h-4" />
-                      <span>Reconnect</span>
-                    </button>
-                  )}
-                  {isSelectedRunning && selectedAgent.hostname && (
-                    <button
-                      onClick={() => {
-                        void handleOpenDesktop(selectedAgent);
-                        setMobileAgentMenuOpen(false);
-                      }}
-                      disabled={openingDesktopId === selectedAgent.id}
-                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70 disabled:opacity-60"
-                    >
-                      {openingDesktopId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
-                      <span>Desktop</span>
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
-                      setMobileAgentMenuOpen(false);
-                    }}
-                    disabled={deletingId === selectedAgent.id}
-                    className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-[#d05f5f] hover:bg-surface-low/70 disabled:opacity-60"
-                  >
-                    {deletingId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                    <span>Delete Agent</span>
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        )}
-      </div>
+          )}
+        </div>
+      )}
 
       {/* Error banner */}
       <AnimatePresence>
@@ -2045,10 +2015,21 @@ export default function AgentsPage() {
 
           {/* Sidebar header */}
           <div className="px-3 py-2 border-b border-border flex items-center justify-between">
-            {!sidebarCollapsed && <span className="text-xs text-text-muted font-medium uppercase tracking-wider">Agents</span>}
-            <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
-              <RefreshCw className="w-3.5 h-3.5" />
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+                className="text-text-muted transition-colors hover:text-foreground"
+                aria-label={sidebarCollapsed ? "Expand agents sidebar" : "Collapse agents sidebar"}
+              >
+                {sidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
+              </button>
+              {!sidebarCollapsed && <span className="text-xs text-text-muted font-medium uppercase tracking-wider">Agents</span>}
+            </div>
+            {!sidebarCollapsed && (
+              <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
+                <RefreshCw className="w-3.5 h-3.5" />
+              </button>
+            )}
           </div>
 
           {/* Agent list */}
@@ -2172,7 +2153,7 @@ export default function AgentsPage() {
 
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2 xl:hidden">
+            <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
               <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
               <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
               <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
