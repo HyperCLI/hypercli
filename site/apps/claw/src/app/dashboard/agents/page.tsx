@@ -1512,6 +1512,8 @@ export default function AgentsPage() {
   const handleStart = async (agentId: string) => {
     setStartingId(agentId);
     setError(null);
+    delete gatewayTokensRef.current[agentId];
+    removeAgentState(agentId);
     try {
       const token = await getToken();
       await startOpenClawAgent(token, agentId);

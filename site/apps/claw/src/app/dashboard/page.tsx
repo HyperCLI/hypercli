@@ -178,6 +178,7 @@ export default function DashboardPage() {
 
   const handleStartAgent = async (agentId: string) => {
     setStartingId(agentId);
+    removeAgentState(agentId);
     try {
       const token = await getToken();
       await startOpenClawAgent(token, agentId);
