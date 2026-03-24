@@ -1000,6 +1000,59 @@ def gateway_cron(
     _run_async(_run())
 
 
+@app.command("cron-add")
+def gateway_cron_add(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    job_json: str = typer.Argument(..., help='Cron job JSON, e.g. \'{"name":"backup","schedule":"0 * * * *","command":"echo hi"}\''),
+):
+    """Add a cron job to an agent's gateway."""
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+    try:
+        job_data = json.loads(job_json)
+    except json.JSONDecodeError as e:
+        console.print(f"[red]Invalid JSON: {e}[/red]")
+        raise typer.Exit(1)
+
+    async def _run():
+        result = await pod.cron_add(job_data)
+        console.print(f"[green]Cron job added[/green]")
+        console.print_json(json.dumps(result, default=str))
+
+    _run_async(_run())
+
+
+@app.command("cron-remove")
+def gateway_cron_remove(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    job_id: str = typer.Argument(..., help="Cron job ID to remove"),
+):
+    """Remove a cron job from an agent's gateway."""
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+
+    async def _run():
+        await pod.cron_remove(job_id)
+        console.print(f"[green]Cron job {job_id} removed[/green]")
+
+    _run_async(_run())
+
+
+@app.command("cron-run")
+def gateway_cron_run(
+    agent_id: str = typer.Argument(None, help="Agent ID or name"),
+    job_id: str = typer.Argument(..., help="Cron job ID to trigger"),
+):
+    """Manually trigger a cron job on an agent's gateway."""
+    pod = _require_openclaw_agent(_get_pod_with_token(agent_id))
+
+    async def _run():
+        result = await pod.cron_run(job_id)
+        console.print(f"[green]Cron job {job_id} triggered[/green]")
+        if result:
+            console.print_json(json.dumps(result, default=str))
+
+    _run_async(_run())
+
+
 @app.command("gateway-chat")
 def gateway_chat(
     agent_id: str = typer.Argument(None, help="Agent ID or name"),

@@ -19,6 +19,7 @@ export interface Job {
   runtime: number;
   hostname: string | null;
   coldBoot: boolean;
+  tags?: Record<string, string> | null;
   createdAt: number | null;
   startedAt: number | null;
   completedAt: number | null;
@@ -70,6 +71,7 @@ export interface CreateJobOptions {
     username: string;
     password: string;
   };
+  tags?: Record<string, string>;
   dockerfile?: string;
   dryRun?: boolean;
 }
@@ -90,6 +92,7 @@ function jobFromDict(data: any): Job {
     runtime: data.runtime || 0,
     hostname: data.hostname || null,
     coldBoot: data.cold_boot ?? true,
+    tags: data.tags || null,
     createdAt: data.created_at || null,
     startedAt: data.started_at || null,
     completedAt: data.completed_at || null,
@@ -140,10 +143,13 @@ export class Jobs {
   /**
    * List all jobs
    */
-  async list(state?: string): Promise<Job[]> {
+  async list(state?: string, tags?: Record<string, string>): Promise<Job[]> {
     const params: Record<string, string> = {};
     if (state) {
       params.state = state;
+    }
+    if (tags) {
+      params.tag = Object.entries(tags).map(([k, v]) => `${k}:${v}`).join(",");
     }
 
     const data = await this.http.get('/api/jobs', params);
@@ -177,6 +183,7 @@ export class Jobs {
       ports,
       auth,
       registryAuth,
+      tags,
       dockerfile,
       dryRun = false,
     } = options;
@@ -196,6 +203,7 @@ export class Jobs {
     if (ports) payload.ports = ports;
     if (auth) payload.auth = auth;
     if (registryAuth) payload.registry_auth = registryAuth;
+    if (tags) payload.tags = tags;
     if (dockerfile) payload.dockerfile = dockerfile;
     if (dryRun) payload.dry_run = true;
 

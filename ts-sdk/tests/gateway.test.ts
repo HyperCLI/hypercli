@@ -704,6 +704,45 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("sends cron.run RPC with jobId", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ ok: true });
+
+    await client.cronRun("cron-job-1");
+
+    expect(rpc).toHaveBeenCalledWith("cron.run", { jobId: "cron-job-1" });
+  });
+
+  it("sends agents.get RPC and unwraps agent", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({
+      agent: { id: "main", name: "default-agent" },
+    });
+
+    const result = await client.agentGet("main");
+
+    expect(rpc).toHaveBeenCalledWith("agents.get", { agentId: "main" });
+    expect(result).toEqual({ id: "main", name: "default-agent" });
+  });
+
+  it("agentGet defaults to 'main' agentId", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client, "rpc").mockResolvedValue({ agent: { id: "main" } });
+
+    await client.agentGet();
+
+    expect(rpc).toHaveBeenCalledWith("agents.get", { agentId: "main" });
+  });
+
   it("auto-approves pairing through trusted exec and reconnects", async () => {
     const fetchMock = vi.fn().mockResolvedValue({
       ok: true,

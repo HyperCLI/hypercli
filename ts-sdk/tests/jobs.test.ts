@@ -61,4 +61,68 @@ describe('Jobs API', () => {
 
     expect((http.post as any).mock.calls[0][1].constraints).toEqual({ cpu_vendor: 'intel' });
   });
+
+  it('parses tags from API responses', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        job_id: 'job-tagged',
+        job_key: 'job-key',
+        state: 'running',
+        gpu_type: 'l40s',
+        gpu_count: 1,
+        region: 'us',
+        constraints: null,
+        interruptible: true,
+        price_per_hour: 1.0,
+        price_per_second: 1.0 / 3600,
+        docker_image: 'ubuntu',
+        runtime: 60,
+        tags: { env: 'prod', team: 'ml' },
+      }),
+    } as unknown as HTTPClient;
+
+    const job = await new Jobs(http).get('job-tagged');
+
+    expect(job.tags).toEqual({ env: 'prod', team: 'ml' });
+  });
+
+  it('includes tags when creating jobs', async () => {
+    const http = {
+      post: vi.fn().mockResolvedValue({
+        job_id: 'job-with-tags',
+        job_key: 'job-key',
+        state: 'dry_run',
+        gpu_type: 'l40s',
+        gpu_count: 1,
+        region: 'us',
+        constraints: null,
+        interruptible: true,
+        price_per_hour: 1.0,
+        price_per_second: 1.0 / 3600,
+        docker_image: 'ubuntu',
+        runtime: 60,
+        tags: { env: 'staging' },
+      }),
+    } as unknown as HTTPClient;
+
+    await new Jobs(http).create({
+      image: 'ubuntu',
+      tags: { env: 'staging' },
+      dryRun: true,
+    });
+
+    expect((http.post as any).mock.calls[0][1].tags).toEqual({ env: 'staging' });
+  });
+
+  it('passes tags as comma-joined filter to list', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({ jobs: [] }),
+    } as unknown as HTTPClient;
+
+    await new Jobs(http).list(undefined, { env: 'prod', team: 'ml' });
+
+    const params = (http.get as any).mock.calls[0][1];
+    expect(params.tag).toContain('env:prod');
+    expect(params.tag).toContain('team:ml');
+  });
 });
