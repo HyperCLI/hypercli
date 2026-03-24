@@ -11,7 +11,7 @@ import {
   type OpenClawConfigSchemaResponse,
   type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/gateway";
-import { getGatewayToken, setGatewayToken } from "@/lib/agent-store";
+import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1529,6 +1529,8 @@ export default function AgentsPage() {
     try {
       const token = await getToken();
       await createAgentClient(token).stop(agentId);
+      delete gatewayTokensRef.current[agentId];
+      removeAgentState(agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");

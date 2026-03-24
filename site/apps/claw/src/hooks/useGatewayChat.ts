@@ -10,7 +10,7 @@ import {
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/gateway";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
-import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
+import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState } from "@/lib/agent-store";
 
 export type ChatAttachment = GatewayChatAttachmentPayload;
 
@@ -476,6 +476,7 @@ export function useGatewayChat(
       gw?.close();
       gwRef.current?.close();
       gwRef.current = null;
+      if (agent?.id) removeAgentState(agent.id);
       setConnected(false);
       setConnecting(false);
       setMessages([]);
