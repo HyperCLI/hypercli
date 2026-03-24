@@ -2269,14 +2269,6 @@ export default function AgentsPage() {
                         </button>
                       )}
 
-                      <button
-                        onClick={() => setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id })}
-                        disabled={deletingId === selectedAgent.id}
-                        className="p-1 text-text-muted hover:text-[#d05f5f] transition-colors"
-                        title="Delete agent"
-                      >
-                        {deletingId === selectedAgent.id ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Trash2 className="w-3.5 h-3.5" />}
-                      </button>
                     </div>
                   </div>
                 </div>
