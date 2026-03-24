@@ -44,17 +44,28 @@ def _resolve_job_id(client: HyperCLI, job_id: str) -> str:
 def list_jobs(
     state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
     tag: list[str] = typer.Option([], "--tag", help="Filter by tag as KEY=VALUE", metavar="KEY=VALUE"),
+    page: int = typer.Option(1, "--page", min=1, help="Page number (1-indexed)"),
+    page_size: int = typer.Option(50, "--page-size", min=1, max=100, help="Items per page (max 100)"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List all jobs"""
     client = get_client()
     tags = _parse_tags(tag) if tag else None
     with spinner("Fetching jobs..."):
-        jobs = client.jobs.list(state=state, tags=tags)
+        result = client.jobs.list_page(state=state, tags=tags, page=page, page_size=page_size)
 
     if fmt == "json":
-        output(jobs, "json")
+        output(
+            {
+                "jobs": [job.__dict__ for job in result.jobs],
+                "total_count": result.total_count,
+                "page": result.page,
+                "page_size": result.page_size,
+            },
+            "json",
+        )
     else:
+        jobs = result.jobs
         if not jobs:
             console.print("[dim]No jobs found[/dim]")
             return
@@ -62,6 +73,11 @@ def list_jobs(
             jobs,
             "table",
             ["job_id", "state", "gpu_type", "gpu_count", "region", "time_left", "runtime", "hostname"],
+        )
+        total_pages = max((result.total_count + result.page_size - 1) // result.page_size, 1)
+        console.print(
+            f"[dim]Page {result.page}/{total_pages} | "
+            f"{len(result.jobs)} shown | {result.total_count} total[/dim]"
         )
 
 

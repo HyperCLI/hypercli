@@ -17,7 +17,7 @@ from .config import (
 )
 from .http import APIError, AsyncHTTPClient
 from .instances import GPUType, GPUConfig, Region, GPUPricing, PricingTier
-from .jobs import Job, JobMetrics, GPUMetrics, find_job, find_by_id, find_by_hostname, find_by_ip
+from .jobs import Job, JobListPage, JobMetrics, GPUMetrics, find_job, find_by_id, find_by_hostname, find_by_ip
 from .renders import Render, RenderStatus
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
@@ -63,6 +63,7 @@ __all__ = [
     "PricingTier",
     # Jobs API
     "Job",
+    "JobListPage",
     "JobMetrics",
     "GPUMetrics",
     # Renders API

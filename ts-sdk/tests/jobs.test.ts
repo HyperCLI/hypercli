@@ -114,7 +114,7 @@ describe('Jobs API', () => {
     expect((http.post as any).mock.calls[0][1].tags).toEqual({ env: 'staging' });
   });
 
-  it('passes tags as comma-joined filter to list', async () => {
+  it('passes repeated tag filters to list', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({ jobs: [] }),
     } as unknown as HTTPClient;
@@ -122,7 +122,47 @@ describe('Jobs API', () => {
     await new Jobs(http).list(undefined, { env: 'prod', team: 'ml' });
 
     const params = (http.get as any).mock.calls[0][1];
-    expect(params.tag).toContain('env:prod');
-    expect(params.tag).toContain('team:ml');
+    expect(params.tag).toEqual(['env:prod', 'team:ml']);
+  });
+
+  it('sends tag filters and backend pagination when listing jobs', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        jobs: [
+          {
+            job_id: 'job-1',
+            job_key: 'job-key',
+            state: 'running',
+            gpu_type: 'l40s',
+            gpu_count: 1,
+            region: 'oh',
+            tags: { team: 'ml' },
+            interruptible: true,
+            price_per_hour: 1.2,
+            price_per_second: 1.2 / 3600,
+            docker_image: 'nvidia/cuda:12.0-base-ubuntu22.04',
+            runtime: 300,
+          },
+        ],
+        total_count: 1,
+        page: 2,
+        page_size: 25,
+      }),
+    } as unknown as HTTPClient;
+
+    const result = await new Jobs(http).listPage({
+      state: 'running',
+      tags: { team: 'ml', env: 'prod' },
+      page: 2,
+      pageSize: 25,
+    });
+
+    expect(result.totalCount).toBe(1);
+    expect(result.page).toBe(2);
+    expect(result.jobs[0]?.tags).toEqual({ team: 'ml' });
+    expect((http.get as any).mock.calls[0]).toEqual([
+      '/api/jobs',
+      { state: 'running', tag: ['team:ml', 'env:prod'], page: 2, page_size: 25 },
+    ]);
   });
 });

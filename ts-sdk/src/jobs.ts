@@ -19,10 +19,10 @@ export interface Job {
   runtime: number;
   hostname: string | null;
   coldBoot: boolean;
-  tags?: Record<string, string> | null;
   createdAt: number | null;
   startedAt: number | null;
   completedAt: number | null;
+  tags?: Record<string, string> | null;
 }
 
 export interface ExecResult {
@@ -76,6 +76,20 @@ export interface CreateJobOptions {
   dryRun?: boolean;
 }
 
+export interface ListJobsOptions {
+  state?: string;
+  tags?: Record<string, string>;
+  page?: number;
+  pageSize?: number;
+}
+
+export interface JobListPage {
+  jobs: Job[];
+  totalCount: number;
+  page: number;
+  pageSize: number;
+}
+
 function jobFromDict(data: any): Job {
   return {
     jobId: data.job_id || '',
@@ -92,10 +106,20 @@ function jobFromDict(data: any): Job {
     runtime: data.runtime || 0,
     hostname: data.hostname || null,
     coldBoot: data.cold_boot ?? true,
-    tags: data.tags || null,
     createdAt: data.created_at || null,
     startedAt: data.started_at || null,
     completedAt: data.completed_at || null,
+    tags: data.tags || null,
+  };
+}
+
+function jobListPageFromDict(data: any): JobListPage {
+  const jobs = Array.isArray(data?.jobs) ? data.jobs.map(jobFromDict) : [];
+  return {
+    jobs,
+    totalCount: Number(data?.total_count ?? jobs.length),
+    page: Number(data?.page ?? 1),
+    pageSize: Number(data?.page_size ?? (jobs.length || 50)),
   };
 }
 
@@ -140,22 +164,52 @@ function jobMetricsFromDict(data: any): JobMetrics {
 export class Jobs {
   constructor(private http: HTTPClient) {}
 
+  private buildListParams(options: ListJobsOptions = {}): Record<string, string | number | string[]> {
+    const params: Record<string, string | number | string[]> = {};
+    if (options.state) {
+      params.state = options.state;
+    }
+    if (options.tags && Object.keys(options.tags).length > 0) {
+      params.tag = Object.entries(options.tags).map(([key, value]) => `${key}:${value}`);
+    }
+    if (options.page !== undefined) {
+      params.page = options.page;
+    }
+    if (options.pageSize !== undefined) {
+      params.page_size = options.pageSize;
+    }
+    return params;
+  }
+
   /**
    * List all jobs
    */
-  async list(state?: string, tags?: Record<string, string>): Promise<Job[]> {
-    const params: Record<string, string> = {};
-    if (state) {
-      params.state = state;
+  async list(state?: string, tags?: Record<string, string>): Promise<Job[]>;
+  async list(options?: ListJobsOptions): Promise<Job[]>;
+  async list(stateOrOptions?: string | ListJobsOptions, tags?: Record<string, string>): Promise<Job[]> {
+    let options: ListJobsOptions;
+    if (typeof stateOrOptions === 'string') {
+      options = { state: stateOrOptions, tags };
+    } else if (stateOrOptions) {
+      options = stateOrOptions;
+    } else {
+      options = tags ? { tags } : {};
     }
-    if (tags) {
-      params.tag = Object.entries(tags).map(([k, v]) => `${k}:${v}`).join(",");
-    }
+    return (await this.listPage(options)).jobs;
+  }
 
-    const data = await this.http.get('/api/jobs', params);
-    // API returns {"jobs": [...], "total_count": ...}
-    const jobs = typeof data === 'object' && data.jobs ? data.jobs : data;
-    return (jobs || []).map(jobFromDict);
+  async listPage(options: ListJobsOptions = {}): Promise<JobListPage> {
+    const data = await this.http.get('/api/jobs', this.buildListParams(options));
+    if (typeof data === 'object' && data && Array.isArray(data.jobs)) {
+      return jobListPageFromDict(data);
+    }
+    const jobs = (data || []).map(jobFromDict);
+    return {
+      jobs,
+      totalCount: jobs.length,
+      page: options.page ?? 1,
+      pageSize: options.pageSize ?? (jobs.length || 50),
+    };
   }
 
   /**

@@ -1,4 +1,4 @@
-from hypercli.jobs import Job, Jobs
+from hypercli.jobs import Job, JobListPage, Jobs
 
 
 class DummyHTTP:
@@ -76,6 +76,21 @@ def test_jobs_list_sends_repeated_tag_filters():
         "get",
         "/api/jobs",
         {"state": "running", "tag": ["team:ml", "env:prod"]},
+    )
+
+
+def test_jobs_list_page_sends_backend_pagination():
+    http = DummyHTTP()
+    jobs = Jobs(http)
+
+    result = jobs.list_page(state="running", tags={"team": "ml"}, page=2, page_size=25)
+
+    assert isinstance(result, JobListPage)
+    assert result.jobs[0].job_id == "job-1"
+    assert http.calls[0] == (
+        "get",
+        "/api/jobs",
+        {"state": "running", "tag": ["team:ml"], "page": 2, "page_size": 25},
     )
 
 

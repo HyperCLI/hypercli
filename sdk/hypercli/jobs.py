@@ -140,25 +140,77 @@ class ExecResult:
         )
 
 
+@dataclass
+class JobListPage:
+    jobs: list[Job] = field(default_factory=list)
+    total_count: int = 0
+    page: int = 1
+    page_size: int = 50
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "JobListPage":
+        jobs = data.get("jobs", []) if isinstance(data, dict) else []
+        return cls(
+            jobs=[Job.from_dict(j) for j in jobs],
+            total_count=int(data.get("total_count", len(jobs))) if isinstance(data, dict) else len(jobs),
+            page=int(data.get("page", 1)) if isinstance(data, dict) else 1,
+            page_size=int(data.get("page_size", len(jobs) or 50)) if isinstance(data, dict) else (len(jobs) or 50),
+        )
+
+
 class Jobs:
     """Jobs API wrapper"""
 
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
-    def list(self, state: str = None, tags: dict[str, str] | None = None) -> list[Job]:
-        """List all jobs"""
+    def _list_params(
+        self,
+        *,
+        state: str | None = None,
+        tags: dict[str, str] | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> dict | None:
         params = {}
         if state:
             params["state"] = state
         if tags:
             params["tag"] = [f"{key}:{value}" for key, value in tags.items()]
+        if page is not None:
+            params["page"] = page
+        if page_size is not None:
+            params["page_size"] = page_size
         if not params:
-            params = None
-        data = self._http.get("/api/jobs", params=params)
-        # API returns {"jobs": [...], "total_count": ...}
-        jobs = data.get("jobs", []) if isinstance(data, dict) else data
-        return [Job.from_dict(j) for j in jobs]
+            return None
+        return params
+
+    def list_page(
+        self,
+        state: str = None,
+        tags: dict[str, str] | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> JobListPage:
+        """List jobs with backend pagination metadata."""
+        data = self._http.get(
+            "/api/jobs",
+            params=self._list_params(state=state, tags=tags, page=page, page_size=page_size),
+        )
+        if isinstance(data, dict):
+            return JobListPage.from_dict(data)
+        jobs = [Job.from_dict(j) for j in data]
+        return JobListPage(jobs=jobs, total_count=len(jobs), page=page or 1, page_size=page_size or len(jobs) or 50)
+
+    def list(
+        self,
+        state: str = None,
+        tags: dict[str, str] | None = None,
+        page: int | None = None,
+        page_size: int | None = None,
+    ) -> list[Job]:
+        """List jobs. Use list_page() when you need total_count/page metadata."""
+        return self.list_page(state=state, tags=tags, page=page, page_size=page_size).jobs
 
     def get(self, job_id: str) -> Job:
         """Get job details"""

@@ -8,7 +8,7 @@ export interface RequestOptions {
   url: string;
   headers?: Record<string, string>;
   body?: any;
-  params?: Record<string, string>;
+  params?: Record<string, string | number | Array<string | number>>;
   retries?: number;
   backoff?: number;
   timeout?: number;
@@ -35,6 +35,14 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
     const searchParams = new URLSearchParams();
     for (const [key, value] of Object.entries(params)) {
       if (value !== undefined && value !== null) {
+        if (Array.isArray(value)) {
+          for (const item of value) {
+            if (item !== undefined && item !== null) {
+              searchParams.append(key, String(item));
+            }
+          }
+          continue;
+        }
         searchParams.append(key, String(value));
       }
     }
@@ -126,7 +134,7 @@ export class HTTPClient {
     };
   }
 
-  async get<T = any>(path: string, params?: Record<string, string>): Promise<T> {
+  async get<T = any>(path: string, params?: Record<string, string | number | Array<string | number>>): Promise<T> {
     const response = await requestWithRetry({
       method: 'GET',
       url: `${this.baseUrl}${path}`,

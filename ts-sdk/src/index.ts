@@ -38,11 +38,13 @@ export { Billing, type Balance, type Transaction } from './billing.js';
 export {
   Jobs,
   type Job,
+  type JobListPage,
   type GPUMetrics,
   type SystemMetrics,
   type JobMetrics,
   type ExecResult,
   type CreateJobOptions,
+  type ListJobsOptions,
   findJob,
   findById,
   findByHostname,
