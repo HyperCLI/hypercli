@@ -2393,6 +2393,11 @@ export class GatewayClient {
       : [];
   }
 
+  async agentGet(agentId = "main"): Promise<any> {
+    const res = await this.rpc("agents.get", { agentId });
+    return res?.agent ?? res ?? {};
+  }
+
   // ---------------------------------------------------------------------------
   // Cron
   // ---------------------------------------------------------------------------
@@ -2408,6 +2413,10 @@ export class GatewayClient {
 
   async cronRemove(jobId: string): Promise<void> {
     await this.rpc("cron.remove", { jobId });
+  }
+
+  async cronRun(jobId: string): Promise<any> {
+    return this.rpc("cron.run", { jobId });
   }
 
   async execApprove(execId: string): Promise<void> {

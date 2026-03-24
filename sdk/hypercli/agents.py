@@ -581,6 +581,18 @@ class OpenClawAgent(Agent):
         async with self.connect(**kwargs) as gw:
             return await gw.cron_list()
 
+    async def cron_add(self, job: dict, **kwargs) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.cron_add(job)
+
+    async def cron_remove(self, job_id: str, **kwargs) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.cron_remove(job_id)
+
+    async def cron_run(self, job_id: str, **kwargs) -> dict:
+        async with self.connect(**kwargs) as gw:
+            return await gw.cron_run(job_id)
+
     async def chat_history(
         self,
         session_key: str | None = None,
