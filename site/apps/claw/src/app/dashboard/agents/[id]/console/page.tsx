@@ -30,7 +30,7 @@ import {
   type OpenClawConfigSchemaResponse,
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/gateway";
-import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
+import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState } from "@/lib/agent-store";
 
 // -----------------------------------------------------------------------
 // Types
@@ -480,6 +480,7 @@ export default function AgentConsolePage() {
     return () => {
       gwRef.current?.close();
       gwRef.current = null;
+      if (agent?.id) removeAgentState(agent.id);
     };
   }, [agent?.state, connectGateway]);
 

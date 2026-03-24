@@ -20,6 +20,7 @@ import Link from "next/link";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { agentApiFetch } from "@/lib/api";
 import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
+import { removeAgentState } from "@/lib/agent-store";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -191,6 +192,7 @@ export default function DashboardPage() {
     try {
       const token = await getToken();
       await createAgentClient(token).stop(agentId);
+      removeAgentState(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStoppingId(null);
