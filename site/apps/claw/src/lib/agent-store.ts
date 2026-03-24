@@ -49,3 +49,29 @@ export function removeAgentState(agentId: string): void {
     // ignore
   }
 }
+
+/**
+ * Clear the SDK's device auth token for a specific agent.
+ *
+ * The GatewayClient stores device tokens in `openclaw.device.auth.v1`
+ * keyed by `{deploymentId}|operator`. When an agent is stopped and
+ * restarted, it gets a new gateway token but the old device token
+ * lingers, causing AUTH_DEVICE_TOKEN_MISMATCH on reconnect.
+ */
+export function clearDeviceAuthToken(agentId: string): void {
+  if (typeof window === "undefined") return;
+  const STORAGE_KEY = "openclaw.device.auth.v1";
+  try {
+    const raw = localStorage.getItem(STORAGE_KEY);
+    if (!raw) return;
+    const store = JSON.parse(raw);
+    if (!store?.tokens) return;
+    const key = `${agentId}|operator`;
+    if (!store.tokens[key]) return;
+    const nextTokens = { ...store.tokens };
+    delete nextTokens[key];
+    localStorage.setItem(STORAGE_KEY, JSON.stringify({ ...store, tokens: nextTokens }));
+  } catch {
+    // ignore
+  }
+}

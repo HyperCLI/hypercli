@@ -11,7 +11,7 @@ import {
   type OpenClawConfigSchemaResponse,
   type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/gateway";
-import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
+import { getGatewayToken, setGatewayToken, removeAgentState, clearDeviceAuthToken } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -787,7 +787,13 @@ export default function AgentsPage() {
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [recentlyStoppedIds, setRecentlyStoppedIds] = useState<Set<string>>(new Set());
+  const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
+
+  useEffect(() => {
+    return () => { stoppedTimersRef.current.forEach((t) => clearTimeout(t)); };
+  }, []);
 
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
@@ -1514,10 +1520,13 @@ export default function AgentsPage() {
     setError(null);
     delete gatewayTokensRef.current[agentId];
     removeAgentState(agentId);
+    clearDeviceAuthToken(agentId);
     try {
       const token = await getToken();
       const started = await startOpenClawAgent(token, agentId);
-      const gwToken = (started as any).gatewayToken as string | undefined;
+      const gwToken = started && typeof started === "object" && "gatewayToken" in started
+        ? (started.gatewayToken as string | undefined)
+        : undefined;
       if (gwToken) {
         gatewayTokensRef.current[agentId] = gwToken;
         setGatewayToken(agentId, gwToken);
@@ -1538,6 +1547,15 @@ export default function AgentsPage() {
       await createAgentClient(token).stop(agentId);
       delete gatewayTokensRef.current[agentId];
       removeAgentState(agentId);
+      clearDeviceAuthToken(agentId);
+      // Cooldown: disable Start for 5s while backend cleans up
+      setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
+      const existing = stoppedTimersRef.current.get(agentId);
+      if (existing) clearTimeout(existing);
+      stoppedTimersRef.current.set(agentId, setTimeout(() => {
+        setRecentlyStoppedIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
+        stoppedTimersRef.current.delete(agentId);
+      }, 10000));
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
@@ -2126,28 +2144,29 @@ export default function AgentsPage() {
                   );
                 })}
 
+                {/* New Agent row */}
+                {sidebarCollapsed ? (
+                  <button
+                    onClick={() => setShowCreateDialog(true)}
+                    className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50"
+                    title="New Agent"
+                  >
+                    <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-text-muted" />
+                    </div>
+                  </button>
+                ) : (
+                  <button
+                    onClick={() => setShowCreateDialog(true)}
+                    className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50"
+                  >
+                    <div className="flex-shrink-0 w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                      <Plus className="w-4 h-4 text-text-muted" />
+                    </div>
+                    <span className="text-sm text-text-bright">New Agent</span>
+                  </button>
+                )}
               </div>
-            )}
-          </div>
-
-          {/* Create new agent button — pinned outside scroll area */}
-          <div className="border-t border-border">
-            {sidebarCollapsed ? (
-              <button
-                onClick={() => setShowCreateDialog(true)}
-                className="w-full p-3 flex items-center justify-center text-text-bright hover:bg-surface-low/50 transition-colors"
-                title="New Agent"
-              >
-                <Plus className="w-4 h-4" />
-              </button>
-            ) : (
-              <button
-                onClick={() => setShowCreateDialog(true)}
-                className="w-full px-3 py-2.5 flex items-center gap-2 text-sm font-medium text-text-bright hover:bg-surface-low/50 transition-colors"
-              >
-                <Plus className="w-4 h-4" />
-                <span>New Agent</span>
-              </button>
             )}
           </div>
 
@@ -2226,12 +2245,12 @@ export default function AgentsPage() {
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
-                        disabled={startingId === selectedAgent.id}
+                        disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                         className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                         aria-label="Start agent"
-                        title="Start"
+                        title={recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start"}
                       >
-                        {startingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                        {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                         <span className="hidden xl:inline">Start</span>
                       </button>
                     ) : isSelectedRunning || isSelectedTransitioning ? (
@@ -2255,12 +2274,12 @@ export default function AgentsPage() {
                       {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                         <button
                           onClick={() => handleStart(selectedAgent.id)}
-                          disabled={startingId === selectedAgent.id}
+                          disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                           className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                           aria-label="Start agent"
-                          title="Start"
+                          title={recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start"}
                         >
-                          {startingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+                          {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                           <span className="hidden xl:inline">Start</span>
                         </button>
                       ) : isSelectedRunning || isSelectedTransitioning ? (
@@ -2317,7 +2336,7 @@ export default function AgentsPage() {
                 ) : !isSelectedRunning && mainTab !== "files" ? (
                   <AgentLaunchPrompt
                     label={stoppedTabLabel[mainTab as Exclude<MainTab, "files">]}
-                    launching={startingId === selectedAgent.id}
+                    launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                     onLaunch={() => { void handleStart(selectedAgent.id); }}
                   />
                 ) : mainTab === "chat" ? (
