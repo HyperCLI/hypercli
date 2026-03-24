@@ -288,7 +288,7 @@ export default function DashboardPage() {
                     </div>
 
                     <div className="min-w-0 flex-1">
-                      <Link href={`/dashboard/agents/${agent.id}/console`} className="text-sm font-semibold text-foreground truncate hover:text-accent transition-colors block">{agent.name}</Link>
+                      <Link href="/dashboard/agents" className="text-sm font-semibold text-foreground truncate hover:text-accent transition-colors block">{agent.name}</Link>
                       <p className="text-xs text-text-muted">
                         {agent.cpu} vCPU · {agent.memory} GiB
                       </p>
@@ -336,7 +336,7 @@ export default function DashboardPage() {
                     )}
                     {isRunning && (
                       <Link
-                        href={`/dashboard/agents/${agent.id}/console`}
+                        href="/dashboard/agents"
                         className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low flex items-center gap-1"
                       >
                         <MessageSquare className="w-3 h-3" />
