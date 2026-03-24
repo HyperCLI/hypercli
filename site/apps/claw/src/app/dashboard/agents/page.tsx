@@ -1516,7 +1516,12 @@ export default function AgentsPage() {
     removeAgentState(agentId);
     try {
       const token = await getToken();
-      await startOpenClawAgent(token, agentId);
+      const started = await startOpenClawAgent(token, agentId);
+      const gwToken = (started as any).gatewayToken as string | undefined;
+      if (gwToken) {
+        gatewayTokensRef.current[agentId] = gwToken;
+        setGatewayToken(agentId, gwToken);
+      }
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to start agent");
@@ -2122,6 +2127,27 @@ export default function AgentsPage() {
                 })}
 
               </div>
+            )}
+          </div>
+
+          {/* Create new agent button — pinned outside scroll area */}
+          <div className="border-t border-border">
+            {sidebarCollapsed ? (
+              <button
+                onClick={() => setShowCreateDialog(true)}
+                className="w-full p-3 flex items-center justify-center text-text-bright hover:bg-surface-low/50 transition-colors"
+                title="New Agent"
+              >
+                <Plus className="w-4 h-4" />
+              </button>
+            ) : (
+              <button
+                onClick={() => setShowCreateDialog(true)}
+                className="w-full px-3 py-2.5 flex items-center gap-2 text-sm font-medium text-text-bright hover:bg-surface-low/50 transition-colors"
+              >
+                <Plus className="w-4 h-4" />
+                <span>New Agent</span>
+              </button>
             )}
           </div>
 

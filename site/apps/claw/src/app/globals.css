@@ -16,6 +16,7 @@
   --text-secondary: #a1a1a6;
   --text-tertiary: #6b6b70;
   --text-muted: #48484d;
+  --text-bright: #ffffff;
   --card: #141416;
   --card-foreground: #fafafa;
   --popover: #1c1c1f;
@@ -74,6 +75,7 @@
   --text-secondary: #3d4752;
   --text-tertiary: #5f6b7a;
   --text-muted: #8a94a3;
+  --text-bright: #0f1419;
   --card: #ffffff;
   --card-foreground: #0f1419;
   --popover: #ffffff;
@@ -148,6 +150,7 @@
   --color-text-secondary: var(--text-secondary);
   --color-text-tertiary: var(--text-tertiary);
   --color-text-muted: var(--text-muted);
+  --color-text-bright: var(--text-bright);
   --font-sans: "Plus Jakarta Sans", -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
   --radius-sm: calc(var(--radius) - 4px);
   --radius-md: calc(var(--radius) - 2px);
