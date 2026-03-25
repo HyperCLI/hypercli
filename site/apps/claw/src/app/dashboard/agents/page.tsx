@@ -666,7 +666,6 @@ function S3FilesPanel({
             title="/home/ubuntu"
           >
             <House className="h-3.5 w-3.5" />
-            <span>$HOME</span>
           </button>
           {pathParts.map((part, idx) => {
             const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
