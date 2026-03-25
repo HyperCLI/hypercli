@@ -18,7 +18,8 @@ const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
-const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'registry_url', 'registry_auth']);
+const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'registry_url', 'registry_auth']);
+const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/ubuntu';
 
 export interface AgentExecResult {
   exitCode: number;
@@ -77,6 +78,8 @@ export interface BuildAgentConfigOptions {
   command?: string[] | null;
   entrypoint?: string[] | null;
   image?: string | null;
+  syncRoot?: string | null;
+  syncEnabled?: boolean | null;
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
   gatewayToken?: string | null;
@@ -385,6 +388,8 @@ export function buildAgentConfig(
   if (options.command !== undefined && options.command !== null) prepared.command = options.command;
   if (options.entrypoint !== undefined && options.entrypoint !== null) prepared.entrypoint = options.entrypoint;
   if (options.image !== undefined && options.image !== null) prepared.image = options.image;
+  if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
+  if (options.syncEnabled !== undefined && options.syncEnabled !== null) prepared.sync_enabled = options.syncEnabled;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
 
@@ -1214,6 +1219,8 @@ export class Deployments {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
+    if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
+    if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.create(effectiveOptions);
   }
 
@@ -1277,6 +1284,8 @@ export class Deployments {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
+    if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
+    if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentId, effectiveOptions);
   }
 

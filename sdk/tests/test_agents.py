@@ -518,6 +518,56 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert agent._deployments is agents_client
 
 
+def test_create_openclaw_defaults_sync_root(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(name="test-agent")
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["sync_root"] == "/home/ubuntu"
+        assert posted_json["sync_enabled"] is True
+
+
+def test_start_openclaw_defaults_sync_root(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.start_openclaw("agent-123")
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["sync_root"] == "/home/ubuntu"
+        assert posted_json["sync_enabled"] is True
+
+
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()

@@ -101,6 +101,8 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
+      sync_root: '/home/ubuntu',
+      sync_enabled: true,
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },
@@ -126,7 +128,37 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
+      sync_root: '/home/ubuntu',
+      sync_enabled: true,
       routes: {},
+    }));
+  });
+
+  it('startOpenClaw defaults sync root', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-openclaw',
+      user_id: 'user-1',
+      pod_id: 'pod-1',
+      pod_name: 'pod-1',
+      state: 'starting',
+      openclaw_url: 'wss://agent.dev.hypercli.com',
+    });
+    const deployments = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+
+    await deployments.startOpenClaw('agent-123');
+
+    expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', expect.objectContaining({
+      image: DEFAULT_OPENCLAW_IMAGE,
+      sync_root: '/home/ubuntu',
+      sync_enabled: true,
+      routes: {
+        openclaw: { port: 18789, auth: false, prefix: '' },
+        desktop: { port: 3000, auth: true, prefix: 'desktop' },
+      },
     }));
   });
 

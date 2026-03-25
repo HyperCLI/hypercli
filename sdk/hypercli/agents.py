@@ -31,7 +31,8 @@ AGENTS_WS_URL = "wss://api.agents.hypercli.com/ws"
 DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
-LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "registry_url", "registry_auth"})
+LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "registry_url", "registry_auth"})
+DEFAULT_OPENCLAW_SYNC_ROOT = "/home/ubuntu"
 
 
 def _is_directory_listing_payload(value: object) -> bool:
@@ -185,6 +186,8 @@ def _build_agent_launch(
     command: list[str] | None = None,
     entrypoint: list[str] | None = None,
     image: str | None = None,
+    sync_root: str | None = None,
+    sync_enabled: bool | None = None,
     registry_url: str | None = None,
     registry_auth: dict | None = None,
     gateway_token: str | None = None,
@@ -220,6 +223,10 @@ def _build_agent_launch(
         launch["entrypoint"] = entrypoint
     if image is not None:
         launch["image"] = image
+    if sync_root is not None:
+        launch["sync_root"] = sync_root
+    if sync_enabled is not None:
+        launch["sync_enabled"] = sync_enabled
     if registry_url is not None:
         launch["registry_url"] = registry_url
     if registry_auth is not None:
@@ -976,6 +983,8 @@ class Deployments:
         command: list[str] = None,
         entrypoint: list[str] = None,
         image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
@@ -1005,6 +1014,8 @@ class Deployments:
             command=command,
             entrypoint=entrypoint,
             image=image,
+            sync_root=sync_root,
+            sync_enabled=sync_enabled,
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
@@ -1042,6 +1053,8 @@ class Deployments:
         command: list[str] = None,
         entrypoint: list[str] = None,
         image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
@@ -1066,6 +1079,8 @@ class Deployments:
             command=command,
             entrypoint=entrypoint,
             image=_default_openclaw_image(image),
+            sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
+            sync_enabled=True if sync_enabled is None else sync_enabled,
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
@@ -1138,6 +1153,8 @@ class Deployments:
         command: list[str] = None,
         entrypoint: list[str] = None,
         image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
@@ -1159,6 +1176,8 @@ class Deployments:
             command=command,
             entrypoint=entrypoint,
             image=image,
+            sync_root=sync_root,
+            sync_enabled=sync_enabled,
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
@@ -1185,6 +1204,8 @@ class Deployments:
         command: list[str] = None,
         entrypoint: list[str] = None,
         image: str = None,
+        sync_root: str = None,
+        sync_enabled: bool = None,
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
@@ -1205,6 +1226,8 @@ class Deployments:
             command=command,
             entrypoint=entrypoint,
             image=_default_openclaw_image(image),
+            sync_root=sync_root if sync_root is not None else DEFAULT_OPENCLAW_SYNC_ROOT,
+            sync_enabled=True if sync_enabled is None else sync_enabled,
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
