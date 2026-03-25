@@ -172,3 +172,20 @@ def test_agent_shell_command(monkeypatch):
 
     assert result.exit_code == 0
     assert called["agent_id"] == "agent-xyz"
+
+
+def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
+    class FakeDeployments:
+        def cp_from(self, _pod, src_path, dst_path):
+            assert src_path == ".openclaw"
+            assert str(dst_path).endswith("download")
+            raise ValueError("Path is a directory: .openclaw. Use files_list(path) instead.")
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+    monkeypatch.setattr("hypercli_cli.agents._get_pod_with_token", lambda agent_id: SimpleNamespace(id=agent_id))
+
+    result = runner.invoke(app, ["agents", "cp", "agent-xyz:.openclaw", str(tmp_path / "download")])
+
+    assert result.exit_code == 1
+    assert "Path is a directory: .openclaw." in result.stdout
+    assert "Copy expects a file path, not a directory." in result.stdout

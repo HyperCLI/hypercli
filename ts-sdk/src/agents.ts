@@ -121,6 +121,25 @@ export interface AgentExecOptions {
   dryRun?: boolean;
 }
 
+export interface AgentFileEntry {
+  name: string;
+  path: string;
+  type: 'file' | 'directory';
+  size?: number;
+  size_formatted?: string;
+  last_modified?: string;
+  [key: string]: any;
+}
+
+export interface AgentDirectoryListing {
+  type: 'directory';
+  prefix: string;
+  directories: AgentFileEntry[];
+  files: AgentFileEntry[];
+  truncated?: boolean;
+  [key: string]: any;
+}
+
 export interface AgentStateFields {
   id: string;
   userId: string;
@@ -201,6 +220,16 @@ function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>):
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListing {
+  if (!value || typeof value !== 'object') return false;
+  const payload = value as Record<string, unknown>;
+  return (
+    payload.type === 'directory' &&
+    Array.isArray(payload.directories) &&
+    Array.isArray(payload.files)
+  );
 }
 
 function toWsBaseUrl(baseUrl: string): string {
@@ -530,7 +559,7 @@ export class Agent {
     return this.requireDeployments().health(this);
   }
 
-  async filesList(path: string = ''): Promise<any[]> {
+  async filesList(path: string = ''): Promise<AgentFileEntry[]> {
     return this.requireDeployments().filesList(this, path);
   }
 
@@ -1301,11 +1330,11 @@ export class Deployments {
     return (await response.json()) as Record<string, any>;
   }
 
-  async filesList(target: Agent | string, path: string = ''): Promise<any[]> {
+  async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {
     const encodedPath = encodeFilePath(path);
     const suffix = encodedPath ? `/${encodedPath}` : '';
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}`);
-    const payload = (await response.json()) as { directories?: any[]; files?: any[] };
+    const payload = (await response.json()) as AgentDirectoryListing;
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
 
@@ -1314,7 +1343,21 @@ export class Deployments {
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}`, {
       redirect: 'follow',
     });
-    return new Uint8Array(await response.arrayBuffer());
+    const bytes = new Uint8Array(await response.arrayBuffer());
+    const contentType = response.headers.get('content-type') || '';
+    if (contentType.includes('application/json')) {
+      try {
+        const payload = JSON.parse(decodeUtf8(bytes));
+        if (isDirectoryListingPayload(payload)) {
+          throw new Error(`Path is a directory: ${path}. Use filesList(path) instead.`);
+        }
+      } catch (error) {
+        if (error instanceof Error && error.message.startsWith('Path is a directory:')) {
+          throw error;
+        }
+      }
+    }
+    return bytes;
   }
 
   async fileRead(target: Agent | string, path: string): Promise<string> {

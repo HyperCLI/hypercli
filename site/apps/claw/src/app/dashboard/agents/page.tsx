@@ -445,6 +445,14 @@ function isHiddenEntry(name: string): boolean {
   return name.startsWith(".");
 }
 
+function describeFileBrowserError(error: unknown, fallback: string): string {
+  const message = error instanceof Error ? error.message : fallback;
+  if (message.startsWith("Path is a directory:")) {
+    return "Cannot download a directory. Open it in the file browser instead.";
+  }
+  return message;
+}
+
 function S3FilesPanel({
   agentId,
   getToken,
@@ -543,7 +551,7 @@ function S3FilesPanel({
       const content = await createAgentClient(token).fileReadBytes(agentId, path);
       downloadBrowserFile(content, path.split("/").filter(Boolean).pop() || "download");
     } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Download failed");
+      setError(describeFileBrowserError(e, "Download failed"));
     }
   }, [agentId, getToken]);
 

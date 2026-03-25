@@ -11,6 +11,7 @@ from dataclasses import dataclass, field
 from datetime import datetime
 from pathlib import Path
 import copy
+import json
 import os
 import secrets
 import time
@@ -31,6 +32,15 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "registry_url", "registry_auth"})
+
+
+def _is_directory_listing_payload(value: object) -> bool:
+    return (
+        isinstance(value, dict)
+        and value.get("type") == "directory"
+        and isinstance(value.get("directories"), list)
+        and isinstance(value.get("files"), list)
+    )
 
 
 def build_openclaw_routes(
@@ -1317,6 +1327,14 @@ class Deployments:
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
+        content_type = resp.headers.get("content-type", "")
+        if "application/json" in content_type.lower():
+            try:
+                payload = json.loads(resp.content.decode(errors="replace"))
+            except Exception:
+                payload = None
+            if _is_directory_listing_payload(payload):
+                raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
         return resp.content
 
     def file_read(self, pod: Agent | str, path: str) -> str:

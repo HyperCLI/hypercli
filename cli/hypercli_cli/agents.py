@@ -653,7 +653,10 @@ def cp(
             local_path = agents.cp_from(pod, src_path, dst_path)
             console.print(f"[green]✓[/green] Copied [bold]{src_agent_id[:12]}:{src_path}[/bold] to [bold]{local_path}[/bold]")
     except Exception as e:
-        console.print(f"[red]❌ Copy failed: {e}[/red]")
+        message = str(e)
+        if message.startswith("Path is a directory:"):
+            message = f"{message} Copy expects a file path, not a directory."
+        console.print(f"[red]❌ Copy failed: {message}[/red]")
         raise typer.Exit(1)
 
 

@@ -544,11 +544,12 @@ def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client
 
 def test_agents_file_ops_use_backend_file_api(agents_client):
     class FakeResponse:
-        def __init__(self, status_code=200, json_data=None, text="", content=b""):
+        def __init__(self, status_code=200, json_data=None, text="", content=b"", headers=None):
             self.status_code = status_code
             self._json_data = json_data or {}
             self.text = text
             self.content = content
+            self.headers = headers or {}
 
         def json(self):
             return self._json_data
@@ -572,6 +573,17 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
             if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
                 return FakeResponse(content=b"hello")
+            if url.endswith("/deployments/agent-123/files/.openclaw"):
+                return FakeResponse(
+                    json_data={
+                        "type": "directory",
+                        "prefix": ".openclaw/",
+                        "directories": [{"name": "workspace", "type": "directory"}],
+                        "files": [{"name": "openclaw.json", "type": "file"}],
+                    },
+                    content=b'{"type":"directory","directories":[],"files":[]}',
+                    headers={"content-type": "application/json"},
+                )
             raise AssertionError(url)
 
         def put(self, url, headers=None, content=None):
@@ -588,10 +600,14 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         agent = Agent(id="agent-123", user_id="user-456", pod_id="pod-789", pod_name="pod", state="running")
 
         entries = agents_client.files_list(agent, "workspace")
+        hidden_entries = agents_client.files_list(agent, ".openclaw")
         assert entries == [{"name": "dir", "type": "directory"}, {"name": "a.txt", "type": "file"}]
+        assert hidden_entries == [{"name": "workspace", "type": "directory"}, {"name": "openclaw.json", "type": "file"}]
         assert agents_client.file_read(agent, "workspace/a.txt") == "hello"
         assert agents_client.file_write_bytes(agent, "workspace/a.txt", b"payload") == {"status": "ok"}
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
+        with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
+            agents_client.file_read(agent, ".openclaw")
 
 
 def test_agents_list(agents_client):

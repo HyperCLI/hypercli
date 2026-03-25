@@ -622,6 +622,17 @@ describe('HyperClaw agents SDK', () => {
       if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
+      if (url.endsWith('/deployments/agent-1/files/.openclaw') && (!init || !init.method)) {
+        return new Response(JSON.stringify({
+          type: 'directory',
+          prefix: '.openclaw/',
+          directories: [{ name: 'workspace', path: '.openclaw/workspace/', type: 'directory' }],
+          files: [{ name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' }],
+        }), {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        });
+      }
       throw new Error(`Unexpected fetch: ${url}`);
     });
     vi.stubGlobal('fetch', fetchMock as any);
@@ -633,6 +644,7 @@ describe('HyperClaw agents SDK', () => {
     );
 
     const entries = await agents.filesList('agent-1', 'workspace');
+    const hiddenEntries = await agents.filesList('agent-1', '.openclaw');
     const content = await agents.fileRead('agent-1', 'workspace/a.txt');
     const writeResult = await agents.fileWrite('agent-1', 'workspace/a.txt', 'payload');
     const deleteResult = await agents.fileDelete('agent-1', 'workspace/a.txt');
@@ -641,8 +653,13 @@ describe('HyperClaw agents SDK', () => {
       { name: 'dir', path: 'workspace/dir/', type: 'directory' },
       { name: 'a.txt', path: 'workspace/a.txt', type: 'file' },
     ]);
+    expect(hiddenEntries).toEqual([
+      { name: 'workspace', path: '.openclaw/workspace/', type: 'directory' },
+      { name: 'openclaw.json', path: '.openclaw/openclaw.json', type: 'file' },
+    ]);
     expect(content).toBe('hello');
     expect(writeResult).toEqual({ status: 'ok', target: 'pod' });
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
+    await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
   });
 });
