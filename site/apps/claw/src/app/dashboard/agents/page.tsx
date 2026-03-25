@@ -22,6 +22,7 @@ import {
   CreditCard,
   Download,
   ExternalLink,
+  House,
   FolderOpen,
   HardDrive,
   Loader2,
@@ -659,7 +660,14 @@ function S3FilesPanel({
           >
             {">"}
           </button>
-          <button onClick={() => goToPrefix("")} className="whitespace-nowrap text-foreground hover:text-foreground/80">/</button>
+          <button
+            onClick={() => goToPrefix("")}
+            className="flex items-center gap-1 whitespace-nowrap text-foreground hover:text-foreground/80"
+            title="/home/ubuntu"
+          >
+            <House className="h-3.5 w-3.5" />
+            <span>$HOME</span>
+          </button>
           {pathParts.map((part, idx) => {
             const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
             return (

@@ -9,6 +9,7 @@ import {
   Download,
   File,
   FolderOpen,
+  House,
   Loader2,
   MessageSquare,
   RefreshCw,
@@ -1047,13 +1048,20 @@ function S3FilesPanel({
       </div>
 
       <div className="px-4 py-2 border-b border-zinc-800 bg-zinc-900/50 text-xs text-zinc-400 font-mono flex items-center gap-1 overflow-x-auto">
-        <button onClick={() => goToPrefix("")} className="hover:text-white">/</button>
+        <button
+          onClick={() => goToPrefix("")}
+          className="flex items-center gap-1 whitespace-nowrap hover:text-white"
+          title="/home/ubuntu"
+        >
+          <House className="h-3.5 w-3.5" />
+          <span>$HOME</span>
+        </button>
         {pathParts.map((part, idx) => {
           const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
           return (
-            <span key={partPrefix} className="flex items-center gap-1">
+            <span key={partPrefix} className="flex items-center gap-1 whitespace-nowrap">
               <span>/</span>
-              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-white whitespace-nowrap">{part}</button>
+              <button onClick={() => goToPrefix(partPrefix)} className="hover:text-white">{part}</button>
             </span>
           );
         })}
