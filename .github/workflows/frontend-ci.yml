@@ -27,6 +27,6 @@ jobs:
     secrets: inherit
 
   e2e-agents:
-    needs: e2e-console
+    needs: build-site
     uses: ./.github/workflows/e2e-agents.yml
     secrets: inherit
