@@ -9,7 +9,7 @@ from .files import File, AsyncFiles
 from .job import BaseJob, ComfyUIJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
 
-__version__ = "2026.3.22"
+__version__ = "2026.3.25.1"
 __all__ = [
     "HyperCLI",
     "configure",
