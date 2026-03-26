@@ -1,0 +1,3 @@
+# Redirect legacy Compute3 domains to HyperCLI marketing site
+https://compute3.ai/*      https://hypercli.com/:splat      301!
+https://www.compute3.ai/*  https://hypercli.com/:splat      301!
