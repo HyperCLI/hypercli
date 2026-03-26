@@ -9,8 +9,9 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory } from "@/lib/format";
+import { formatCpu, formatMemory, type Plan } from "@/lib/format";
 
 // ── Types ──
 
@@ -26,6 +27,29 @@ interface AgentCreationWizardProps {
     used_cpu: number;
     used_memory: number;
   } | null;
+}
+
+interface AgentTypePreset {
+  id: string;
+  name: string;
+  cpu: number;
+  memory: number;
+  cpu_limit: number;
+  memory_limit: number;
+}
+
+interface AgentTypePlan {
+  id: string;
+  name: string;
+  price: number;
+  agents: number;
+  agent_type: string;
+  highlighted: boolean;
+}
+
+interface AgentTypeCatalogResponse {
+  types: AgentTypePreset[];
+  plans: AgentTypePlan[];
 }
 
 // ── Constants ──
@@ -51,11 +75,12 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
-const SIZES = [
-  { label: "Small", tag: "Starter", desc: "1 CPU · 1 GiB", value: "small", disabled: true },
-  { label: "Medium", tag: "Recommended", desc: "2 CPU · 2 GiB", value: "medium", disabled: true },
-  { label: "Large", tag: "Pro", desc: "4 CPU · 4 GiB", value: "large", disabled: false },
+const FALLBACK_TYPES: AgentTypePreset[] = [
+  { id: "small", name: "Small", cpu: 0.5, memory: 4, cpu_limit: 2.0, memory_limit: 4 },
+  { id: "medium", name: "Medium", cpu: 1.0, memory: 4, cpu_limit: 2.0, memory_limit: 6 },
+  { id: "large", name: "Large", cpu: 2.0, memory: 4, cpu_limit: 4.0, memory_limit: 8 },
 ];
+const TYPE_ORDER = ["small", "medium", "large"];
 
 const TOTAL_STEPS = 3;
 
@@ -98,11 +123,13 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   // Step 2: Configuration
-  const [selectedSize, setSelectedSize] = useState(2); // Large default (OpenClaw requires 4 GiB)
+  const [selectedTypeId, setSelectedTypeId] = useState("large");
   const [showAdvanced, setShowAdvanced] = useState(false);
   const [customCpu, setCustomCpu] = useState("4000");
   const [customMem, setCustomMem] = useState("4096");
   const [startImmediately, setStartImmediately] = useState(true);
+  const [typeCatalog, setTypeCatalog] = useState<AgentTypeCatalogResponse | null>(null);
+  const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
 
   // Step 3: Creating state
   const [creating, setCreating] = useState(false);
@@ -113,6 +140,16 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   const CurrentIcon = ICONS[selectedIcon].icon;
   const customCpuCores = Math.max(1, Math.round(Number(customCpu) / 1000));
   const customMemGb = Math.max(4, Math.round(Number(customMem) / 1024));
+  const sizeOptions = [...(typeCatalog?.types || FALLBACK_TYPES)].sort((a, b) => {
+    const aIndex = TYPE_ORDER.indexOf(a.id);
+    const bIndex = TYPE_ORDER.indexOf(b.id);
+    return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
+  });
+  const currentPlanTypeId =
+    currentPlanId
+      ? typeCatalog?.plans.find((plan) => plan.id === currentPlanId)?.agent_type ?? null
+      : null;
+  const selectedType = sizeOptions.find((option) => option.id === selectedTypeId) || sizeOptions[0] || FALLBACK_TYPES[2];
 
   const budgetRemaining = budget
     ? {
@@ -143,7 +180,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       setSelectedIcon(0);
       setCustomAvatar(null);
       setDescription("");
-      setSelectedSize(2);
+      setSelectedTypeId("large");
       setShowAdvanced(false);
       setCustomCpu("4000");
       setCustomMem("4096");
@@ -152,6 +189,42 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       setError(null);
     }
   }, [open]);
+
+  useEffect(() => {
+    if (!open) return;
+    let cancelled = false;
+
+    const loadTypeCatalog = async () => {
+      try {
+        const [catalogResponse, token] = await Promise.all([
+          fetch(`${API_BASE_URL}/types`),
+          getToken(),
+        ]);
+        const planResponse = await agentApiFetch<Plan>("/plans/current", token);
+        if (cancelled) return;
+        if (catalogResponse.ok) {
+          const payload = (await catalogResponse.json()) as AgentTypeCatalogResponse;
+          setTypeCatalog(payload);
+        }
+        setCurrentPlanId(planResponse.id);
+      } catch {
+        if (!cancelled) {
+          setTypeCatalog(null);
+          setCurrentPlanId(null);
+        }
+      }
+    };
+
+    void loadTypeCatalog();
+    return () => {
+      cancelled = true;
+    };
+  }, [getToken, open]);
+
+  useEffect(() => {
+    if (!open || showAdvanced || !currentPlanTypeId) return;
+    setSelectedTypeId(currentPlanTypeId);
+  }, [currentPlanTypeId, open, showAdvanced]);
 
   // ── Navigation ──
 
@@ -203,7 +276,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       const created = await createOpenClawAgent(token, {
         name: name.trim() || undefined,
         start: startImmediately,
-        size: showAdvanced ? undefined : SIZES[selectedSize].value,
+        size: showAdvanced ? undefined : selectedType.id,
         cpu: showAdvanced ? customCpuCores : undefined,
         memory: showAdvanced ? customMemGb : undefined,
       });
@@ -368,40 +441,47 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       <div>
         <label className="block text-sm text-text-secondary mb-3">Size</label>
         <div className="grid grid-cols-3 gap-3">
-          {SIZES.map((s, i) => {
-            const isSelected = selectedSize === i && !showAdvanced;
+          {sizeOptions.map((option) => {
+            const includedPlanCandidates = (typeCatalog?.plans || [])
+              .filter((plan) => plan.agent_type === option.id)
+              .sort((a, b) => a.price - b.price);
+            const includedPlan = includedPlanCandidates[0] || null;
+            const includedPlanLabel = includedPlan
+              ? `Included in ${includedPlan.name}${includedPlanCandidates.length > 1 ? "+" : ""}`
+              : "Unavailable";
+            const isSelectable = currentPlanTypeId ? currentPlanTypeId === option.id : option.id === selectedType.id;
+            const isSelected = selectedType.id === option.id && !showAdvanced;
             return (
               <button
-                key={s.label}
-                disabled={s.disabled}
+                key={option.id}
+                disabled={!isSelectable}
                 onClick={() => {
-                  if (s.disabled) return;
-                  setSelectedSize(i);
+                  if (!isSelectable) return;
+                  setSelectedTypeId(option.id);
                   setShowAdvanced(false);
                 }}
                 className={`relative p-4 rounded-xl border text-center transition-all ${
-                  s.disabled
+                  !isSelectable
                     ? "opacity-40 cursor-not-allowed border-border bg-surface-low text-text-secondary"
                     : isSelected
                       ? "border-primary bg-primary/10 text-foreground"
                       : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
                 }`}
               >
-                {s.tag === "Recommended" && !s.disabled && (
+                {isSelectable && (
                   <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
-                    {s.tag}
+                    Included in your plan
                   </span>
                 )}
-                {(s.tag !== "Recommended" || s.disabled) && (
+                {!isSelectable && (
                   <span className="text-[10px] text-text-muted uppercase tracking-wider">
-                    {s.disabled ? "" : s.tag}
+                    {includedPlanLabel}
                   </span>
                 )}
-                <div className="text-sm font-semibold mt-1">{s.label}</div>
-                <div className="text-xs text-text-muted mt-1">{s.desc}</div>
-                {s.disabled && (
-                  <div className="text-[10px] text-text-muted mt-1">Temporarily unavailable</div>
-                )}
+                <div className="text-sm font-semibold mt-1">{option.name}</div>
+                <div className="text-xs text-text-muted mt-1">
+                  {formatCpu(option.cpu * 1000)} · {option.memory} GiB
+                </div>
               </button>
             );
           })}
@@ -510,7 +590,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
             <span className="text-foreground">
               {showAdvanced
                 ? `${customCpuCores} CPU · ${customMemGb} GiB`
-                : `${SIZES[selectedSize].label} (${SIZES[selectedSize].desc})`}
+                : `${selectedType.name} (${formatCpu(selectedType.cpu * 1000)} · ${selectedType.memory} GiB)`}
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">
