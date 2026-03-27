@@ -2029,7 +2029,7 @@ export default function AgentsPage() {
         } ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}>
 
           {/* Sidebar header */}
-          <div className="px-3 py-3 min-h-[52px] border-b border-border flex items-center justify-between">
+          <div className="px-3 h-14 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <button
                 onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
@@ -2188,7 +2188,7 @@ export default function AgentsPage() {
           ) : (
             <>
               {/* Agent header + tabs */}
-              <div className="relative px-4 py-3 border-b border-border flex items-center gap-3 min-w-0">
+              <div className="relative px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
