@@ -16,7 +16,15 @@
  */
 
 import { test, expect } from "@playwright/test";
-import { privyLogin, BASE_URL, PRIVY_EMAIL } from "./helpers";
+import {
+  privyLogin,
+  BASE_URL,
+  PRIVY_EMAIL,
+  launchAgentFromDashboard,
+  cancelActiveStripeSubscriptionsForTestUser,
+  triggerBackendStripeRepairSweep,
+  waitForAgentStoppedInDashboard,
+} from "./helpers";
 
 const STRIPE_TEST_CARD = "4242424242424242";
 const STRIPE_TEST_EXP = "1230"; // MMYY
@@ -24,9 +32,9 @@ const STRIPE_TEST_CVC = "123";
 const STRIPE_TEST_NAME = "E2E Test";
 
 test.describe("Flow 02: Stripe Checkout", () => {
-  test.setTimeout(120_000);
+  test.setTimeout(240_000);
 
-  test("Login → Plans → Subscribe → Stripe → Payment → Redirect", async ({
+  test("Login → Plans → Subscribe → Stripe → Payment → Launch Agent → Stripe loss stops agent", async ({
     page,
   }) => {
     // ── Login ──
@@ -111,5 +119,20 @@ test.describe("Flow 02: Stripe Checkout", () => {
     await page.waitForTimeout(2000);
     await page.screenshot({ path: "e2e/screenshots/02-06-success.png" });
     console.log("✓ Payment complete:", page.url());
+
+    const launched = await launchAgentFromDashboard(page);
+    await page.screenshot({ path: "e2e/screenshots/02-07-agent-running.png" });
+    console.log(`✓ Agent launched after Stripe checkout (${launched.id || "unknown-id"})`);
+
+    const cancelledSubscriptions = await cancelActiveStripeSubscriptionsForTestUser();
+    expect(cancelledSubscriptions.length).toBeGreaterThan(0);
+    console.log(`✓ Cancelled Stripe subscriptions: ${cancelledSubscriptions.join(", ")}`);
+
+    const repairResult = await triggerBackendStripeRepairSweep();
+    console.log("✓ Triggered backend repair sweep:", JSON.stringify(repairResult));
+
+    await waitForAgentStoppedInDashboard(page);
+    await page.screenshot({ path: "e2e/screenshots/02-08-agent-stopped-after-stripe-loss.png" });
+    console.log("✓ Agent stopped after Stripe access loss");
   });
 });

@@ -12,6 +12,10 @@ Purchases a plan via Stripe test card after logging in via Privy.
 6. Fill test card: `4242 4242 4242 4242`, any future expiry, any CVC
 7. Submit payment
 8. Stripe processes → redirect back to `/dashboard/plans?session_id=...`
+9. Navigate to Agents and launch a real agent
+10. Cancel/refund the Stripe test subscription
+11. Trigger backend Stripe repair
+12. Verify the running agent is stopped by the backend
 
 ## Prerequisites
 
@@ -26,8 +30,11 @@ Same as Flow 01, plus:
 | Variable | Required | Default | Description |
 |---|---|---|---|
 | `IMAP_PASS` | **yes** | — | IMAP password (for login) |
+| `TEST_STRIPE_AGENTS_SECRET_KEY` | **yes** | — | Stripe test secret used to cancel/refund the subscription |
+| `TEST_BACKEND_API_KEY` | **yes** | — | Backend admin key used to trigger the Stripe repair sweep |
+| `TEST_AGENTS_API_BASE_URL` | no | `https://api.dev.hypercli.com/agents` | Agents API base used to derive the backend admin URL |
 
-No additional Stripe env needed — test card details are hardcoded.
+Test card details are hardcoded; the extra env above is only for the teardown/reconciliation half of the flow.
 
 ## Stripe Test Card
 
@@ -59,6 +66,8 @@ Saved to `e2e/screenshots/`:
 - `02-04-stripe-checkout.png` — Stripe hosted checkout page
 - `02-05-card-filled.png` — test card details entered
 - `02-06-success.png` — back on plans page after payment
+- `02-07-agent-running.png` — launched agent after Stripe checkout
+- `02-08-agent-stopped-after-stripe-loss.png` — backend downgraded the user and stopped the agent
 
 ## Key Files
 
@@ -71,5 +80,6 @@ Saved to `e2e/screenshots/`:
 - Stripe Checkout uses direct inputs (not iframed) on the hosted page
 - Don't use `waitForLoadState("networkidle")` on Stripe — it keeps connections alive
 - The test subscribes to the first available plan; if the test user already has a plan, it clicks "Upgrade" instead
-- Typical runtime: ~40s
+- After checkout it launches a real agent, cancels the Stripe test subscription, and triggers the backend repair sweep so the downgrade path has to stop the running agent
+- Typical runtime: ~60-90s
 - Backend must return the checkout URL from `POST /stripe/{plan_id}`
