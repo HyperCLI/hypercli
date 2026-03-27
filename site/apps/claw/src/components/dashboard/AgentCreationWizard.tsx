@@ -442,13 +442,6 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         <label className="block text-sm text-text-secondary mb-3">Size</label>
         <div className="grid grid-cols-3 gap-3">
           {sizeOptions.map((option) => {
-            const includedPlanCandidates = (typeCatalog?.plans || [])
-              .filter((plan) => plan.agent_type === option.id)
-              .sort((a, b) => a.price - b.price);
-            const includedPlan = includedPlanCandidates[0] || null;
-            const includedPlanLabel = includedPlan
-              ? `Included in ${includedPlan.name}${includedPlanCandidates.length > 1 ? "+" : ""}`
-              : "Unavailable";
             const currentPlanTierIndex = currentPlanTypeId ? TYPE_ORDER.indexOf(currentPlanTypeId) : -1;
             const optionTierIndex = TYPE_ORDER.indexOf(option.id);
             const isSelectable = currentPlanTierIndex >= 0
@@ -472,17 +465,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                       : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
                 }`}
               >
-                {isSelectable && (
-                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
-                    Included in your plan
-                  </span>
-                )}
-                {!isSelectable && (
-                  <span className="text-[10px] text-text-muted uppercase tracking-wider">
-                    {includedPlanLabel}
-                  </span>
-                )}
-                <div className="text-sm font-semibold mt-1">{option.name}</div>
+                <div className="text-sm font-semibold">{option.name}</div>
                 <div className="text-xs text-text-muted mt-1">
                   {formatCpu(option.cpu * 1000)} · {option.memory} GiB
                 </div>

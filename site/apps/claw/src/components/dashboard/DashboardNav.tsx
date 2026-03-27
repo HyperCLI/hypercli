@@ -30,9 +30,12 @@ const navItems = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Agents", href: "/dashboard/agents", icon: Bot },
   { label: "API Keys", href: "/dashboard/keys", icon: Key, mobileLabel: "Keys" },
+  { label: "Settings", href: "/dashboard/settings", icon: Settings },
+];
+
+const dropdownNavItems = [
   { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 export function DashboardNav() {
@@ -136,12 +139,27 @@ export function DashboardNav() {
                     animate={{ opacity: 1, y: 0, scale: 1 }}
                     exit={{ opacity: 0, y: -4, scale: 0.97 }}
                     transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-12 w-56 glass-card p-1 shadow-xl"
+                    className="absolute right-0 top-12 w-56 glass-card p-1 shadow-xl bg-[rgba(20,20,22,0.92)]"
                   >
                     {/* User info */}
                     <div className="px-3 py-2 border-b border-border mb-1">
                       <p className="text-sm text-foreground font-medium truncate">{user?.email || "User"}</p>
                     </div>
+
+                    {dropdownNavItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setUserMenuOpen(false)}
+                          className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors"
+                        >
+                          <Icon className="w-4 h-4" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
 
                     <Link
                       href="/dashboard/settings"
@@ -206,6 +224,28 @@ export function DashboardNav() {
 
                 <div className="space-y-1 mb-3 pb-3 border-b border-border">
                   {navItems.map((item) => {
+                    const Icon = item.icon;
+                    return (
+                      <Link
+                        key={item.href}
+                        href={item.href}
+                        onClick={() => setMobileMenuOpen(false)}
+                        className={`flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors ${
+                          isActive(item.href)
+                            ? "text-foreground bg-surface-low"
+                            : "text-text-tertiary hover:text-foreground hover:bg-surface-low"
+                        }`}
+                      >
+                        <Icon className="w-4 h-4" />
+                        <span>{item.label}</span>
+                      </Link>
+                    );
+                  })}
+                </div>
+
+                <div className="space-y-1 mb-3 pb-3 border-b border-border">
+                  <p className="px-2 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">Account</p>
+                  {dropdownNavItems.map((item) => {
                     const Icon = item.icon;
                     return (
                       <Link
