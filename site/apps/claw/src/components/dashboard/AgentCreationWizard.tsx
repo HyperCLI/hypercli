@@ -76,9 +76,9 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
 const FALLBACK_TYPES: AgentTypePreset[] = [
-  { id: "small", name: "Small", cpu: 0.5, memory: 4, cpu_limit: 2.0, memory_limit: 4 },
-  { id: "medium", name: "Medium", cpu: 1.0, memory: 4, cpu_limit: 2.0, memory_limit: 6 },
-  { id: "large", name: "Large", cpu: 2.0, memory: 4, cpu_limit: 4.0, memory_limit: 8 },
+  { id: "small", name: "Small", cpu: 1, memory: 1, cpu_limit: 1, memory_limit: 1 },
+  { id: "medium", name: "Medium", cpu: 2, memory: 2, cpu_limit: 2, memory_limit: 2 },
+  { id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 },
 ];
 const TYPE_ORDER = ["small", "medium", "large"];
 
@@ -449,7 +449,11 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
             const includedPlanLabel = includedPlan
               ? `Included in ${includedPlan.name}${includedPlanCandidates.length > 1 ? "+" : ""}`
               : "Unavailable";
-            const isSelectable = currentPlanTypeId ? currentPlanTypeId === option.id : option.id === selectedType.id;
+            const currentPlanTierIndex = currentPlanTypeId ? TYPE_ORDER.indexOf(currentPlanTypeId) : -1;
+            const optionTierIndex = TYPE_ORDER.indexOf(option.id);
+            const isSelectable = currentPlanTierIndex >= 0
+              ? optionTierIndex >= 0 && optionTierIndex <= currentPlanTierIndex
+              : option.id === selectedType.id;
             const isSelected = selectedType.id === option.id && !showAdvanced;
             return (
               <button
