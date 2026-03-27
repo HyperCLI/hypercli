@@ -5,12 +5,10 @@ import { usePathname } from "next/navigation";
 import Link from "next/link";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  LayoutDashboard,
   Key,
   CreditCard,
   Settings,
   LogOut,
-  Bot,
   Menu,
   X,
   ChevronDown,
@@ -25,11 +23,6 @@ import {
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
-
-const navItems = [
-  { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
-  { label: "Agents", href: "/dashboard/agents", icon: Bot },
-];
 
 const dropdownNavItems = [
   { label: "API Keys", href: "/dashboard/keys", icon: Key },
@@ -86,41 +79,21 @@ export function DashboardNav() {
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
             {/* Logo + Dashboard badge */}
-            <div className="flex items-center gap-3">
+            <div className="flex items-center space-x-12">
               <Link href="/" className="flex items-center gap-2">
                 <span className="text-lg font-bold">
                   <span className="text-foreground">Hyper</span>
                   <span className="text-primary">Claw</span>
                 </span>
               </Link>
-              <span className="text-xs bg-surface-low text-text-tertiary px-2 py-0.5 rounded">
+              <Link href="/dashboard" className="text-md font-medium text-text-tertiary hover:text-foreground transition-colors">
                 Dashboard
-              </span>
+              </Link>
             </div>
 
-            {/* Desktop nav links */}
-            <nav className="max-md:hidden flex items-center gap-1">
-              {navItems.map((item) => {
-                const Icon = item.icon;
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={`flex items-center gap-2 px-3 py-1.5 rounded-md text-sm font-medium transition-colors ${
-                      isActive(item.href)
-                        ? "text-foreground bg-surface-low"
-                        : "text-text-tertiary hover:text-foreground hover:bg-surface-low"
-                    }`}
-                  >
-                    <Icon className="w-4 h-4" />
-                    {item.label}
-                  </Link>
-                );
-              })}
-            </nav>
-
-            {/* Desktop right side — avatar dropdown */}
-            <div className="max-md:hidden flex items-center relative" ref={userMenuRef}>
+            {/* Right side — avatar dropdown + mobile hamburger */}
+            <div className="flex items-center gap-1">
+            <div className="flex items-center relative" ref={userMenuRef}>
               <button
                 onClick={() => setUserMenuOpen(!userMenuOpen)}
                 className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-surface-low transition-colors"
@@ -198,6 +171,7 @@ export function DashboardNav() {
                 )}
               </button>
             )}
+            </div>
           </div>
         </div>
 
@@ -219,27 +193,6 @@ export function DashboardNav() {
                   <div className="min-w-0 flex-1">
                     <p className="text-sm text-foreground truncate">{user?.email || "User"}</p>
                   </div>
-                </div>
-
-                <div className="space-y-1 mb-3 pb-3 border-b border-border">
-                  {navItems.map((item) => {
-                    const Icon = item.icon;
-                    return (
-                      <Link
-                        key={item.href}
-                        href={item.href}
-                        onClick={() => setMobileMenuOpen(false)}
-                        className={`flex items-center gap-2 px-2 py-2 rounded-md text-sm transition-colors ${
-                          isActive(item.href)
-                            ? "text-foreground bg-surface-low"
-                            : "text-text-tertiary hover:text-foreground hover:bg-surface-low"
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{item.label}</span>
-                      </Link>
-                    );
-                  })}
                 </div>
 
                 <div className="space-y-1 mb-3 pb-3 border-b border-border">
