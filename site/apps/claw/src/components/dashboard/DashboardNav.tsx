@@ -30,7 +30,6 @@ const navItems = [
   { label: "Overview", href: "/dashboard", icon: LayoutDashboard },
   { label: "Agents", href: "/dashboard/agents", icon: Bot },
   { label: "API Keys", href: "/dashboard/keys", icon: Key, mobileLabel: "Keys" },
-  { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
 const dropdownNavItems = [
