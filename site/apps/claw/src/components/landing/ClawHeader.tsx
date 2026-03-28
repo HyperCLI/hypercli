@@ -2,7 +2,8 @@
 
 import { useState, useEffect, useRef } from "react";
 import { useRouter } from "next/navigation";
-import { Menu, X, LogOut } from "lucide-react";
+import { Menu, X, LogOut, Key, CreditCard, Settings } from "lucide-react";
+import Link from "next/link";
 import { AnimatePresence, motion } from "framer-motion";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -16,6 +17,12 @@ const navLinks = [
     href: "https://docs.hypercli.com/hyperclaw",
     external: true,
   },
+];
+
+const dropdownNavItems = [
+  { label: "API Keys", href: "/dashboard/keys", icon: Key },
+  { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
+  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
 ];
 
 export function ClawHeader() {
@@ -131,13 +138,38 @@ export function ClawHeader() {
                           animate={{ opacity: 1, y: 0, scale: 1 }}
                           exit={{ opacity: 0, y: -4, scale: 0.97 }}
                           transition={{ duration: 0.15 }}
-                          className="absolute right-0 top-10 w-48 glass-card p-1 shadow-xl z-50"
+                          className="absolute right-0 top-10 w-56 glass-card p-1 shadow-xl z-50"
                         >
                           <div className="px-3 py-2 border-b border-border mb-1">
                             <p className="text-sm text-foreground font-medium truncate">
                               {user?.email || "User"}
                             </p>
                           </div>
+
+                          {dropdownNavItems.map((item) => {
+                            const Icon = item.icon;
+                            return (
+                              <Link
+                                key={item.href}
+                                href={item.href}
+                                onClick={() => setUserMenuOpen(false)}
+                                className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors"
+                              >
+                                <Icon className="w-4 h-4" />
+                                {item.label}
+                              </Link>
+                            );
+                          })}
+
+                          <Link
+                            href="/dashboard/settings"
+                            onClick={() => setUserMenuOpen(false)}
+                            className="flex items-center gap-2 px-3 py-2 text-sm text-text-secondary hover:text-foreground hover:bg-surface-low rounded-md transition-colors"
+                          >
+                            <Settings className="w-4 h-4" />
+                            Settings
+                          </Link>
+
                           <button
                             onClick={() => {
                               setUserMenuOpen(false);
@@ -214,6 +246,28 @@ export function ClawHeader() {
                     >
                       Dashboard
                     </button>
+                    {dropdownNavItems.map((item) => {
+                      const Icon = item.icon;
+                      return (
+                        <Link
+                          key={item.href}
+                          href={item.href}
+                          onClick={() => setMobileOpen(false)}
+                          className="flex items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
+                        >
+                          <Icon className="w-4 h-4" />
+                          {item.label}
+                        </Link>
+                      );
+                    })}
+                    <Link
+                      href="/dashboard/settings"
+                      onClick={() => setMobileOpen(false)}
+                      className="flex items-center gap-2 px-4 py-2 text-sm text-text-secondary hover:text-foreground transition-colors"
+                    >
+                      <Settings className="w-4 h-4" />
+                      Settings
+                    </Link>
                     <button
                       onClick={() => {
                         setMobileOpen(false);

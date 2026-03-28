@@ -254,8 +254,8 @@ export default function DashboardPage() {
         <div className="mb-6">
           <div className="flex items-center justify-between mb-3">
             <h2 className="text-lg font-semibold text-foreground">Your Agents</h2>
-            <Link href="/dashboard/agents" className="text-xs text-text-muted hover:text-foreground flex items-center gap-1 transition-colors">
-              Manage Agents <ArrowRight className="w-3 h-3" />
+            <Link href="/dashboard/agents" className="text-sm font-medium text-text-secondary hover:text-foreground flex items-center gap-1.5 transition-colors">
+              Manage Agents <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
@@ -421,7 +421,7 @@ export default function DashboardPage() {
         <div className="grid sm:grid-cols-4 gap-3">
           <Link
             href="/dashboard/agents"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
+            className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-low transition-colors"
           >
             <Bot className="w-5 h-5 text-text-secondary" />
             <span className="text-sm text-text-secondary">Manage Agents</span>

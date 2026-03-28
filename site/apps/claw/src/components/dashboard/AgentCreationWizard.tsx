@@ -76,9 +76,9 @@ const ICONS: { icon: LucideIcon; name: string }[] = [
 const HUES = [157, 180, 210, 240, 260, 280, 310, 340, 10, 30, 50, 70, 90, 120, 140, 200];
 
 const FALLBACK_TYPES: AgentTypePreset[] = [
-  { id: "small", name: "Small", cpu: 0.5, memory: 4, cpu_limit: 2.0, memory_limit: 4 },
-  { id: "medium", name: "Medium", cpu: 1.0, memory: 4, cpu_limit: 2.0, memory_limit: 6 },
-  { id: "large", name: "Large", cpu: 2.0, memory: 4, cpu_limit: 4.0, memory_limit: 8 },
+  { id: "small", name: "Small", cpu: 1, memory: 1, cpu_limit: 1, memory_limit: 1 },
+  { id: "medium", name: "Medium", cpu: 2, memory: 2, cpu_limit: 2, memory_limit: 2 },
+  { id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 },
 ];
 const TYPE_ORDER = ["small", "medium", "large"];
 
@@ -442,14 +442,11 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         <label className="block text-sm text-text-secondary mb-3">Size</label>
         <div className="grid grid-cols-3 gap-3">
           {sizeOptions.map((option) => {
-            const includedPlanCandidates = (typeCatalog?.plans || [])
-              .filter((plan) => plan.agent_type === option.id)
-              .sort((a, b) => a.price - b.price);
-            const includedPlan = includedPlanCandidates[0] || null;
-            const includedPlanLabel = includedPlan
-              ? `Included in ${includedPlan.name}${includedPlanCandidates.length > 1 ? "+" : ""}`
-              : "Unavailable";
-            const isSelectable = currentPlanTypeId ? currentPlanTypeId === option.id : option.id === selectedType.id;
+            const currentPlanTierIndex = currentPlanTypeId ? TYPE_ORDER.indexOf(currentPlanTypeId) : -1;
+            const optionTierIndex = TYPE_ORDER.indexOf(option.id);
+            const isSelectable = currentPlanTierIndex >= 0
+              ? optionTierIndex >= 0 && optionTierIndex <= currentPlanTierIndex
+              : option.id === selectedType.id;
             const isSelected = selectedType.id === option.id && !showAdvanced;
             return (
               <button
@@ -468,17 +465,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                       : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
                 }`}
               >
-                {isSelectable && (
-                  <span className="absolute -top-2.5 left-1/2 -translate-x-1/2 text-[10px] font-medium px-2 py-0.5 rounded-full bg-primary text-primary-foreground">
-                    Included in your plan
-                  </span>
-                )}
-                {!isSelectable && (
-                  <span className="text-[10px] text-text-muted uppercase tracking-wider">
-                    {includedPlanLabel}
-                  </span>
-                )}
-                <div className="text-sm font-semibold mt-1">{option.name}</div>
+                <div className="text-sm font-semibold">{option.name}</div>
                 <div className="text-xs text-text-muted mt-1">
                   {formatCpu(option.cpu * 1000)} · {option.memory} GiB
                 </div>
