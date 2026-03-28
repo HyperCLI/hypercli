@@ -1365,7 +1365,8 @@ export default function AgentsPage() {
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
       const tokenData = await agentApiFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
-      return `https://desktop-${hostname}/_jwt_auth?jwt=${encodeURIComponent(tokenData.token)}`;
+      const desktopHost = hostname.replace(/\.hyperclaw\.app$/, '.hypercli.com');
+      return `https://desktop-${desktopHost}/_jwt_auth?jwt=${encodeURIComponent(tokenData.token)}`;
     },
     [getToken]
   );
