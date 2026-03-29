@@ -23,13 +23,13 @@ export function SlideOver({ open, onClose, title, description, children }: Slide
         side="right"
         className="w-full sm:max-w-[480px] bg-[var(--background)] border-l border-[var(--border)] overflow-y-auto"
       >
-        <SheetHeader className="pb-4 border-b border-[var(--border)]">
+        <SheetHeader className="px-6 pb-4 border-b border-[var(--border)]">
           <SheetTitle className="text-foreground">{title}</SheetTitle>
           {description && (
             <SheetDescription className="text-text-secondary">{description}</SheetDescription>
           )}
         </SheetHeader>
-        <div className="pt-6">{children}</div>
+        <div className="pt-6 px-6">{children}</div>
       </SheetContent>
     </Sheet>
   );
