@@ -2913,6 +2913,7 @@ export default function AgentsPage() {
                   <div className="flex-1 overflow-y-auto">
                     <IntegrationsPage
                       config={chat.config as Record<string, unknown> | null}
+                      configSchema={chat.configSchema}
                       connected={chat.connected}
                       onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
                     />

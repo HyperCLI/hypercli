@@ -2,31 +2,33 @@
 
 import { useEffect, useState } from "react";
 import {
-  Send, MessageCircle, Hash, MessageSquareMore, Mail, Phone,
+  Send, MessageCircle, Hash,
   Volume2, Mic, Eye, Image, Video, Box,
 } from "lucide-react";
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
+import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
 import { SlideOver } from "../SlideOver";
 import { TelegramWizard } from "./TelegramWizard";
 import { DiscordWizard } from "./DiscordWizard";
 import { SlackWizard } from "./SlackWizard";
 import { TtsPanel } from "./TtsPanel";
 import { SttPanel } from "./SttPanel";
+import { VisionPanel } from "./VisionPanel";
+import { ImagesPanel } from "./ImagesPanel";
+import { VideoPanel } from "./VideoPanel";
+import { ThreeDPanel } from "./ThreeDPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
+import { PluginCard } from "./PluginCard";
+import { PluginConfigPanel } from "./PluginConfigPanel";
+import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
+import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
 
-type PanelType =
-  | "telegram"
-  | "telegram-manage"
-  | "discord"
-  | "discord-manage"
-  | "slack"
-  | "slack-manage"
-  | "tts"
-  | "stt"
-  | null;
+/** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
+type PanelType = string | null;
 
 interface IntegrationsPageProps {
   config: Record<string, unknown> | null;
+  configSchema: OpenClawConfigSchemaResponse | null;
   connected: boolean;
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
 }
@@ -58,7 +60,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function IntegrationsPage({ config: initialConfig, connected, onSaveConfig }: IntegrationsPageProps) {
+export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig }: IntegrationsPageProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
@@ -113,80 +115,223 @@ export function IntegrationsPage({ config: initialConfig, connected, onSaveConfi
     );
   }
 
-  return (
-    <div className="p-6 space-y-8">
-      {/* Channels */}
-      <section className="space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Channels</h3>
-          <p className="text-xs text-text-tertiary mt-0.5">
-            Give your agent a presence on messaging platforms
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <IntegrationCard
-            icon={Send}
-            name="Telegram"
-            status={telegramInfo.status}
-            statusText={telegramInfo.statusText}
-            ctaLabel={telegramInfo.cta}
-            onClick={() => setActivePanel(telegramConnected ? "telegram-manage" : "telegram")}
-          />
-          <IntegrationCard
-            icon={MessageCircle}
-            name="Discord"
-            status={discordConnected ? "connected" : "available"}
-            statusText={discordConnected ? "Active" : undefined}
-            ctaLabel={discordConnected ? "Manage" : "Set up \u2192"}
-            onClick={() => setActivePanel(discordConnected ? "discord-manage" : "discord")}
-          />
-          <IntegrationCard
-            icon={Hash}
-            name="Slack"
-            status={slackConnected ? "connected" : "available"}
-            statusText={slackConnected ? "Active" : undefined}
-            ctaLabel={slackConnected ? "Manage" : "Set up \u2192"}
-            onClick={() => setActivePanel(slackConnected ? "slack-manage" : "slack")}
-          />
-          <IntegrationCard icon={Phone} name="WhatsApp" status="coming-soon" />
-          <IntegrationCard icon={Mail} name="Email" status="coming-soon" />
-          <IntegrationCard icon={MessageSquareMore} name="Mattermost" status="coming-soon" />
-        </div>
-      </section>
+  const chatPlugins = getPluginsByCategory("chat");
+  const chatActiveCount = countEnabledInCategory("chat", config);
+  const aiPlugins = getPluginsByCategory("ai-providers");
+  const aiActiveCount = countEnabledInCategory("ai-providers", config);
+  const toolPlugins = getPluginsByCategory("tools");
+  const toolActiveCount = countEnabledInCategory("tools", config);
 
-      {/* Capabilities */}
-      <section className="space-y-3">
-        <div>
-          <h3 className="text-sm font-semibold text-foreground">Built-in Capabilities</h3>
-          <p className="text-xs text-text-tertiary mt-0.5">
-            Your agent already has these superpowers
-          </p>
-        </div>
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          <IntegrationCard
-            icon={Volume2}
-            name="Voice"
-            status="built-in"
-            description="9 preset speakers + voice cloning"
-            statusText={integrations?.voice?.speaker ? `Speaker: ${integrations.voice.speaker}` : "Qwen3-TTS"}
-            ctaLabel="Customize \u2192"
-            onClick={() => setActivePanel("tts")}
-          />
-          <IntegrationCard
-            icon={Mic}
-            name="Speech"
-            status="built-in"
-            description="Transcribes any audio file"
-            statusText="faster-whisper turbo"
-            ctaLabel="Learn more"
-            onClick={() => setActivePanel("stt")}
-          />
-          <IntegrationCard icon={Eye} name="Vision" status="coming-soon" description="Image understanding" />
-          <IntegrationCard icon={Image} name="Images" status="coming-soon" description="30+ generation models" />
-          <IntegrationCard icon={Video} name="Video" status="coming-soon" description="Text & image to video" />
-          <IntegrationCard icon={Box} name="3D" status="coming-soon" description="Image to 3D model" />
-        </div>
-      </section>
+  const handlePluginToggle = async (pluginId: string, enabled: boolean) => {
+    await handleConfigPatch({
+      plugins: { entries: { [pluginId]: { enabled } } },
+    });
+  };
+
+  return (
+    <div className="p-6">
+      <Accordion type="multiple" defaultValue={["channels", "built-in", ...(aiActiveCount > 0 ? ["ai-providers"] : []), ...(toolActiveCount > 0 ? ["tools"] : [])]}>
+        {/* Chat & Messaging */}
+        <AccordionItem value="channels" className="border-b border-[var(--border)] last:border-b-0">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground text-left">Chat & Messaging</h3>
+                <p className="text-xs text-text-tertiary mt-0.5 text-left">
+                  Give your agent a presence on messaging platforms
+                </p>
+              </div>
+              {chatActiveCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] text-xs font-medium">
+                  {chatActiveCount} active
+                </span>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {/* Telegram — existing wizard */}
+              <IntegrationCard
+                icon={Send}
+                name="Telegram"
+                status={telegramInfo.status}
+                statusText={telegramInfo.statusText}
+                ctaLabel={telegramInfo.cta}
+                onClick={() => setActivePanel(telegramConnected ? "telegram-manage" : "telegram")}
+              />
+              {/* Discord — existing wizard */}
+              <IntegrationCard
+                icon={MessageCircle}
+                name="Discord"
+                status={discordConnected ? "connected" : "available"}
+                statusText={discordConnected ? "Active" : undefined}
+                ctaLabel={discordConnected ? "Manage" : "Set up \u2192"}
+                onClick={() => setActivePanel(discordConnected ? "discord-manage" : "discord")}
+              />
+              {/* Slack — existing wizard */}
+              <IntegrationCard
+                icon={Hash}
+                name="Slack"
+                status={slackConnected ? "connected" : "available"}
+                statusText={slackConnected ? "Active" : undefined}
+                ctaLabel={slackConnected ? "Manage" : "Set up \u2192"}
+                onClick={() => setActivePanel(slackConnected ? "slack-manage" : "slack")}
+              />
+              {/* Remaining 19 chat plugins — dynamic PluginCards */}
+              {chatPlugins
+                .filter((p) => !p.hasWizard)
+                .map((plugin) => (
+                  <PluginCard
+                    key={plugin.id}
+                    plugin={plugin}
+                    enabled={isPluginEnabled(plugin, config)}
+                    onToggle={(enabled) => handlePluginToggle(plugin.id, enabled)}
+                    onClick={() => setActivePanel(`plugin:${plugin.id}`)}
+                  />
+                ))}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Built-in Capabilities */}
+        <AccordionItem value="built-in" className="border-b border-[var(--border)] last:border-b-0">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground text-left">Built-in Capabilities</h3>
+                <p className="text-xs text-text-tertiary mt-0.5 text-left">
+                  Your agent already has these superpowers
+                </p>
+              </div>
+              <span className="px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] text-xs font-medium">
+                6 active
+              </span>
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              <IntegrationCard
+                icon={Volume2}
+                name="Voice"
+                status="built-in"
+                description="9 preset speakers + voice cloning"
+                statusText={integrations?.voice?.speaker ? `Speaker: ${integrations.voice.speaker}` : "Qwen3-TTS"}
+                ctaLabel="Customize \u2192"
+                onClick={() => setActivePanel("tts")}
+              />
+              <IntegrationCard
+                icon={Mic}
+                name="Speech"
+                status="built-in"
+                description="Transcribes any audio file"
+                statusText="faster-whisper turbo"
+                ctaLabel="Learn more"
+                onClick={() => setActivePanel("stt")}
+              />
+              <IntegrationCard
+                icon={Eye}
+                name="Vision"
+                status="built-in"
+                description="Understands images in chat"
+                statusText="Kimi K2.5 + vision models"
+                ctaLabel="Learn more"
+                onClick={() => setActivePanel("vision")}
+              />
+              <IntegrationCard
+                icon={Image}
+                name="Images"
+                status="built-in"
+                description="Text-to-image & image editing"
+                statusText="Qwen-Image + HiDream"
+                ctaLabel="Learn more"
+                onClick={() => setActivePanel("images")}
+              />
+              <IntegrationCard
+                icon={Video}
+                name="Video"
+                status="built-in"
+                description="Text & image to video"
+                statusText="Wan 2.2 + HuMo"
+                ctaLabel="Learn more"
+                onClick={() => setActivePanel("video")}
+              />
+              <IntegrationCard
+                icon={Box}
+                name="3D"
+                status="built-in"
+                description="Image to 3D model"
+                statusText="Hunyuan3D 2.1"
+                ctaLabel="Learn more"
+                onClick={() => setActivePanel("3d")}
+              />
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* AI Model Providers */}
+        <AccordionItem value="ai-providers" className="border-b border-[var(--border)] last:border-b-0">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground text-left">AI Model Providers</h3>
+                <p className="text-xs text-text-tertiary mt-0.5 text-left">
+                  Connect external AI model providers
+                </p>
+              </div>
+              {aiActiveCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] text-xs font-medium">
+                  {aiActiveCount} active
+                </span>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {aiPlugins.map((plugin) => (
+                <PluginCard
+                  key={plugin.id}
+                  plugin={plugin}
+                  enabled={isPluginEnabled(plugin, config)}
+                  onToggle={(enabled) => handlePluginToggle(plugin.id, enabled)}
+                  onClick={() => setActivePanel(`plugin:${plugin.id}`)}
+                />
+              ))}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+
+        {/* Tools & Services */}
+        <AccordionItem value="tools" className="border-b border-[var(--border)] last:border-b-0">
+          <AccordionTrigger className="hover:no-underline py-4">
+            <div className="flex items-center gap-3">
+              <div>
+                <h3 className="text-sm font-semibold text-foreground text-left">Tools & Services</h3>
+                <p className="text-xs text-text-tertiary mt-0.5 text-left">
+                  Search, speech, media, memory, and automation
+                </p>
+              </div>
+              {toolActiveCount > 0 && (
+                <span className="px-2 py-0.5 rounded-full bg-[var(--primary)]/10 text-[var(--primary)] text-xs font-medium">
+                  {toolActiveCount} active
+                </span>
+              )}
+            </div>
+          </AccordionTrigger>
+          <AccordionContent>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {toolPlugins.map((plugin) => (
+                <PluginCard
+                  key={plugin.id}
+                  plugin={plugin}
+                  enabled={isPluginEnabled(plugin, config)}
+                  onToggle={(enabled) => handlePluginToggle(plugin.id, enabled)}
+                  onClick={() => setActivePanel(`plugin:${plugin.id}`)}
+                />
+              ))}
+            </div>
+          </AccordionContent>
+        </AccordionItem>
+      </Accordion>
 
       {/* Telegram Setup Wizard */}
       <SlideOver
@@ -323,6 +468,70 @@ export function IntegrationsPage({ config: initialConfig, connected, onSaveConfi
       >
         <SttPanel onClose={() => setActivePanel(null)} />
       </SlideOver>
+
+      {/* Vision Panel */}
+      <SlideOver
+        open={activePanel === "vision"}
+        onClose={() => setActivePanel(null)}
+        title="Vision"
+        description="Image understanding capabilities"
+      >
+        <VisionPanel onClose={() => setActivePanel(null)} />
+      </SlideOver>
+
+      {/* Images Panel */}
+      <SlideOver
+        open={activePanel === "images"}
+        onClose={() => setActivePanel(null)}
+        title="Image Generation"
+        description="Text-to-image and image editing"
+      >
+        <ImagesPanel onClose={() => setActivePanel(null)} />
+      </SlideOver>
+
+      {/* Video Panel */}
+      <SlideOver
+        open={activePanel === "video"}
+        onClose={() => setActivePanel(null)}
+        title="Video Generation"
+        description="Text, image, and audio to video"
+      >
+        <VideoPanel onClose={() => setActivePanel(null)} />
+      </SlideOver>
+
+      {/* 3D Panel */}
+      <SlideOver
+        open={activePanel === "3d"}
+        onClose={() => setActivePanel(null)}
+        title="3D Generation"
+        description="Image to 3D model generation"
+      >
+        <ThreeDPanel onClose={() => setActivePanel(null)} />
+      </SlideOver>
+
+      {/* Generic Plugin Config Panel */}
+      {(() => {
+        const pluginId = activePanel?.startsWith("plugin:") ? activePanel.slice(7) : null;
+        const pluginMeta = pluginId ? getPlugin(pluginId) : null;
+        return (
+          <SlideOver
+            open={!!pluginMeta}
+            onClose={() => setActivePanel(null)}
+            title={pluginMeta?.displayName ?? "Plugin"}
+            description={pluginMeta?.description ?? ""}
+          >
+            {pluginMeta && (
+              <PluginConfigPanel
+                plugin={pluginMeta}
+                config={config}
+                configSchema={configSchema}
+                onSave={handleConfigPatch}
+                onClose={() => setActivePanel(null)}
+              />
+            )}
+          </SlideOver>
+        );
+      })()}
 
       {/* Disconnect Confirmation */}
       <ConfirmDialog
