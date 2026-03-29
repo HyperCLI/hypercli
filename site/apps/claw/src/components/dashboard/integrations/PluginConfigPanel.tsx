@@ -106,20 +106,83 @@ export function PluginConfigPanel({
     }
   };
 
-  // No config fields — show info-only panel
+  // No config fields — show contextual guidance based on plugin category
   if (fields.length === 0) {
+    const isChatPlugin = plugin.category === "chat";
+    const isAiProvider = plugin.category === "ai-providers";
+    const isToolPlugin = plugin.category === "tools";
+
     return (
       <div className="space-y-6">
         <div className="w-12 h-12 rounded-full bg-[var(--primary)]/10 flex items-center justify-center">
           <Icon className="w-6 h-6 text-[var(--primary)]" />
         </div>
         <p className="text-sm text-text-secondary">{plugin.description}</p>
-        <div className="glass-card p-3 text-xs text-text-tertiary">
-          <p>
-            This plugin can be enabled or disabled using the toggle on the integration card.
-            No additional configuration is needed.
-          </p>
+
+        <div className="space-y-3">
+          <h4 className="text-sm font-medium text-foreground">How to set up</h4>
+          <ol className="space-y-2 text-sm text-text-secondary">
+            <li className="flex items-start gap-2">
+              <span className="text-[var(--primary)] font-medium flex-shrink-0">1.</span>
+              Enable the plugin using the toggle on the integration card
+            </li>
+            {isChatPlugin && (
+              <>
+                <li className="flex items-start gap-2">
+                  <span className="text-[var(--primary)] font-medium flex-shrink-0">2.</span>
+                  Open the <span className="font-medium text-foreground">Shell</span> tab on your agent
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[var(--primary)] font-medium flex-shrink-0">3.</span>
+                  Follow the on-screen prompts to complete the connection (e.g. scan a QR code, enter credentials)
+                </li>
+              </>
+            )}
+            {isAiProvider && (
+              <>
+                <li className="flex items-start gap-2">
+                  <span className="text-[var(--primary)] font-medium flex-shrink-0">2.</span>
+                  Open the <span className="font-medium text-foreground">OpenClaw</span> tab on your agent
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[var(--primary)] font-medium flex-shrink-0">3.</span>
+                  Add your API key under the provider&apos;s configuration section
+                </li>
+              </>
+            )}
+            {isToolPlugin && (
+              <>
+                <li className="flex items-start gap-2">
+                  <span className="text-[var(--primary)] font-medium flex-shrink-0">2.</span>
+                  If the tool requires an API key, add it in the <span className="font-medium text-foreground">OpenClaw</span> tab under plugin settings
+                </li>
+                <li className="flex items-start gap-2">
+                  <span className="text-[var(--primary)] font-medium flex-shrink-0">3.</span>
+                  Your agent will automatically use this tool when relevant
+                </li>
+              </>
+            )}
+          </ol>
         </div>
+
+        {isChatPlugin && (
+          <div className="glass-card p-3 text-xs text-text-tertiary">
+            <p>
+              After enabling, your agent will guide you through the setup process when you open the Shell tab.
+              The connection details (tokens, QR codes) are handled securely inside the agent.
+            </p>
+          </div>
+        )}
+
+        {(isAiProvider || isToolPlugin) && (
+          <div className="glass-card p-3 text-xs text-text-tertiary">
+            <p>
+              Most providers require an API key. You can set it in the <span className="text-text-secondary">OpenClaw</span> config tab
+              or as an environment variable in your agent settings.
+            </p>
+          </div>
+        )}
+
         <div className="flex justify-end pt-2">
           <button onClick={onClose} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium">
             Got it

@@ -3,7 +3,7 @@
 import { useEffect, useState } from "react";
 import {
   Send, MessageCircle, Hash,
-  Volume2, Mic, Eye, Image, Video, Box,
+  Volume2, Mic, Eye, Image, Video, Box, Loader2,
 } from "lucide-react";
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
@@ -64,11 +64,17 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
+  const [applyingChanges, setApplyingChanges] = useState(false);
 
   // Sync when parent config updates
   useEffect(() => {
     if (initialConfig) setConfig(initialConfig);
   }, [initialConfig]);
+
+  // Clear "applying changes" overlay when gateway reconnects
+  useEffect(() => {
+    if (connected && applyingChanges) setApplyingChanges(false);
+  }, [connected, applyingChanges]);
 
   const channels = (config as any)?.channels as ChannelState | undefined;
   const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
@@ -79,9 +85,15 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
   const handleConfigPatch = async (patch: Record<string, unknown>) => {
     if (!connected) throw new Error("Not connected to agent");
-    await onSaveConfig(patch);
-    // Optimistically merge patch into local state
-    setConfig(prev => prev ? deepMerge(prev, patch) : patch);
+    setApplyingChanges(true);
+    try {
+      await onSaveConfig(patch);
+      // Optimistically merge patch into local state
+      setConfig(prev => prev ? deepMerge(prev, patch) : patch);
+    } catch (err) {
+      setApplyingChanges(false);
+      throw err;
+    }
   };
 
   const handleDisconnect = async (channel: string) => {
@@ -105,7 +117,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
   const telegramInfo = getTelegramStatus();
 
-  if (!connected) {
+  if (!connected && !applyingChanges) {
     return (
       <div className="p-6">
         <div className="rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-text-muted">
@@ -129,8 +141,17 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   };
 
   return (
-    <div className="p-6">
-      <Accordion type="multiple" defaultValue={["channels", "built-in", ...(aiActiveCount > 0 ? ["ai-providers"] : []), ...(toolActiveCount > 0 ? ["tools"] : [])]}>
+    <div className="p-6 h-full overflow-y-auto relative">
+      {/* Overlay while gateway restarts after config change */}
+      {applyingChanges && !connected && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--background)]/80 backdrop-blur-sm rounded-lg">
+          <div className="flex items-center gap-3 text-sm text-text-secondary">
+            <Loader2 className="w-4 h-4 animate-spin text-[var(--primary)]" />
+            Applying changes...
+          </div>
+        </div>
+      )}
+      <Accordion type="multiple" defaultValue={["channels", "built-in", ...(aiActiveCount > 0 ? ["ai-providers"] : []), ...(toolActiveCount > 0 ? ["tools"] : [])]} className="pb-8">
         {/* Chat & Messaging */}
         <AccordionItem value="channels" className="border-b border-[var(--border)] last:border-b-0">
           <AccordionTrigger className="hover:no-underline py-4">
