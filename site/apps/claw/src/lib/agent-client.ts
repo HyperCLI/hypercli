@@ -56,9 +56,9 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
   };
   const browserOrigin = typeof window !== "undefined" ? window.location.origin : null;
   const envOrigin = resolveControlUiOrigin(process.env.NEXT_PUBLIC_AGENTS_URL || "");
-  const controlUiOrigin = browserOrigin || envOrigin;
-  if (controlUiOrigin && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
-    env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+  const origins = [...new Set([browserOrigin, envOrigin].filter(Boolean))];
+  if (origins.length > 0 && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
+    env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = origins.join(",");
   }
 
   return {
