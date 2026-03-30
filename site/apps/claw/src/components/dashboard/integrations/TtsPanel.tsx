@@ -1,7 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { Check, Loader2, Volume2 } from "lucide-react";
+import { useState, useRef, useEffect, useCallback } from "react";
+import { Check, Loader2, Volume2, Square } from "lucide-react";
+import { useAgentAuth } from "@/hooks/useAgentAuth";
+import { VOICE_API_URL } from "@/lib/api";
 
 const SPEAKERS = [
   "Aria", "Ryan", "Luna", "Serena", "Daniel", "Ethan", "Nova", "Chelsie", "Aidan",
@@ -20,6 +22,97 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
   const [speaker, setSpeaker] = useState(currentSpeaker || "Aria");
   const [format, setFormat] = useState(currentFormat || "opus");
   const [saving, setSaving] = useState(false);
+  const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
+  const [previewState, setPreviewState] = useState<"loading" | "playing" | null>(null);
+  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const blobUrlRef = useRef<string | null>(null);
+  const abortRef = useRef<AbortController | null>(null);
+  const { getToken } = useAgentAuth();
+
+  const stopPreview = useCallback(() => {
+    if (abortRef.current) {
+      abortRef.current.abort();
+      abortRef.current = null;
+    }
+    if (audioRef.current) {
+      audioRef.current.onended = null;
+      audioRef.current.onerror = null;
+      audioRef.current.pause();
+      audioRef.current.src = "";
+      audioRef.current = null;
+    }
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+    setPreviewingVoice(null);
+    setPreviewState(null);
+  }, []);
+
+  const handlePreviewClick = useCallback(async (voiceName: string) => {
+    if (previewingVoice === voiceName) {
+      stopPreview();
+      return;
+    }
+
+    stopPreview();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    setPreviewingVoice(voiceName);
+    setPreviewState("loading");
+
+    try {
+      const token = await getToken();
+      const response = await fetch(`${VOICE_API_URL}/tts`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          text: `Hi, my name is ${voiceName}. How can I help you today?`,
+          voice: voiceName,
+          language: "auto",
+          response_format: "mp3",
+        }),
+        signal: controller.signal,
+      });
+
+      if (!response.ok) {
+        throw new Error(`TTS request failed: ${response.status}`);
+      }
+
+      const blob = await response.blob();
+      const url = URL.createObjectURL(blob);
+      blobUrlRef.current = url;
+
+      const audio = new Audio(url);
+      audioRef.current = audio;
+      audio.onended = () => stopPreview();
+      audio.onerror = () => stopPreview();
+
+      await audio.play();
+      setPreviewState("playing");
+    } catch (err) {
+      if (err instanceof DOMException && err.name === "AbortError") return;
+      stopPreview();
+    }
+  }, [previewingVoice, stopPreview, getToken]);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+      if (audioRef.current) {
+        audioRef.current.onended = null;
+        audioRef.current.onerror = null;
+        audioRef.current.pause();
+        audioRef.current.src = "";
+      }
+      if (blobUrlRef.current) {
+        URL.revokeObjectURL(blobUrlRef.current);
+      }
+    };
+  }, []);
 
   const handleSave = async () => {
     setSaving(true);
@@ -65,12 +158,23 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
               <button
                 onClick={(e) => {
                   e.preventDefault();
-                  // Audio preview placeholder
+                  handlePreviewClick(s);
                 }}
-                className="text-text-tertiary hover:text-foreground p-1"
-                title={`Preview ${s}`}
+                disabled={previewState === "loading" && previewingVoice !== s}
+                className={`p-1 transition-colors ${
+                  previewingVoice === s && previewState === "playing"
+                    ? "text-[var(--primary)]"
+                    : "text-text-tertiary hover:text-foreground"
+                } disabled:opacity-30 disabled:cursor-not-allowed`}
+                title={previewingVoice === s ? `Stop ${s}` : `Preview ${s}`}
               >
-                <Volume2 className="w-3.5 h-3.5" />
+                {previewingVoice === s && previewState === "loading" ? (
+                  <Loader2 className="w-3.5 h-3.5 animate-spin" />
+                ) : previewingVoice === s && previewState === "playing" ? (
+                  <Square className="w-3 h-3 fill-current" />
+                ) : (
+                  <Volume2 className="w-3.5 h-3.5" />
+                )}
               </button>
             </label>
           ))}
