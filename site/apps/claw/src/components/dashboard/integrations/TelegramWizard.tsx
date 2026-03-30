@@ -15,20 +15,16 @@ interface TelegramWizardProps {
 type DmPolicy = "pairing" | "open" | "allowlist" | "disabled";
 
 /**
- * Determine whether the channels.status response indicates Telegram is live.
- * The gateway response shape isn't typed, so we check common field patterns.
+ * Check whether a channel is live from the channelsStatus(probe=true) response.
+ *
+ * Response shape (from gateway):
+ *   { channels: { telegram: { configured, running, probe: { ok } } } }
  */
-export function isTelegramLive(status: Record<string, any> | null | undefined): boolean {
+export function isChannelLive(status: Record<string, any> | null | undefined, channel: string): boolean {
   if (!status) return false;
-  const tg = status.telegram;
-  if (!tg || typeof tg !== "object") return false;
-  // Check known possible field patterns from the gateway
-  if (tg.connected === true || tg.active === true || tg.ok === true) return true;
-  if (tg.status === "connected" || tg.status === "ok" || tg.status === "running") return true;
-  // If the gateway returned a telegram object with substantive fields
-  // (e.g. username, botId) but no explicit status flag, treat as live
-  if (tg.username || tg.botId || tg.bot_id) return true;
-  return false;
+  const ch = status.channels?.[channel];
+  if (!ch || typeof ch !== "object") return false;
+  return ch.configured === true && ch.running === true;
 }
 
 export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified, initialStep, initialBotUsername }: TelegramWizardProps) {
@@ -80,10 +76,8 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
       if (cancelVerifyRef.current) return;
       try {
         const status = await onChannelProbe();
-        // TODO: remove after confirming response shape in dev
-        console.log("[TelegramWizard] channelsStatus probe response:", JSON.stringify(status, null, 2));
         if (cancelVerifyRef.current) return;
-        if (isTelegramLive(status)) {
+        if (isChannelLive(status, "telegram")) {
           setVerified(true);
           setVerifying(false);
           setStep(4);
