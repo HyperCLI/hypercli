@@ -2918,6 +2918,7 @@ export default function AgentsPage() {
                       configSchema={chat.configSchema}
                       connected={chat.connected}
                       onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
+                      onChannelProbe={async () => chat.channelsStatus(true)}
                     />
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
