@@ -56,13 +56,29 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
   };
   const browserOrigin = typeof window !== "undefined" ? window.location.origin : null;
   const envOrigin = resolveControlUiOrigin(process.env.NEXT_PUBLIC_AGENTS_URL || "");
-  const origins = [...new Set([browserOrigin, envOrigin].filter(Boolean))];
-  if (origins.length > 0 && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
-    env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = origins.join(",");
+  const allowedOrigins = [...new Set([browserOrigin, envOrigin].filter(Boolean))];
+
+  // Set the env var for backwards compatibility (single origin)
+  if (envOrigin && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
+    env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = envOrigin;
+  }
+
+  // Set config with proper array to support multiple origins
+  const config = options.config ?? {};
+  if (allowedOrigins.length > 0) {
+    const gateway = (config.gateway ?? {}) as Record<string, unknown>;
+    const controlUi = (gateway.controlUi ?? {}) as Record<string, unknown>;
+    if (!controlUi.allowedOrigins) {
+      config.gateway = {
+        ...gateway,
+        controlUi: { ...controlUi, allowedOrigins },
+      };
+    }
   }
 
   return {
     ...options,
+    config,
     env,
     image: options.image ?? DEFAULT_OPENCLAW_IMAGE,
     routes: options.routes ?? DEFAULT_OPENCLAW_ROUTES,
