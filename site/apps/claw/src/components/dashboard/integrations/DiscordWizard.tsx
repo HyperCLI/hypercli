@@ -1,22 +1,34 @@
 "use client";
 
-import { useState } from "react";
-import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ExternalLink, Loader2 } from "lucide-react";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { ArrowLeft, ArrowRight, Check, Eye, EyeOff, ExternalLink, Loader2, AlertCircle, RefreshCw } from "lucide-react";
+import { isChannelLive } from "./TelegramWizard";
 
 interface DiscordWizardProps {
   onConnect: (config: Record<string, unknown>) => Promise<void>;
+  onChannelProbe: () => Promise<Record<string, any>>;
   onClose: () => void;
+  onVerified?: () => void;
+  initialStep?: number;
+  initialBotUsername?: string;
 }
 
-export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
-  const [step, setStep] = useState(1);
+export function DiscordWizard({ onConnect, onChannelProbe, onClose, onVerified, initialStep, initialBotUsername }: DiscordWizardProps) {
+  const [step, setStep] = useState(initialStep ?? 1);
   const [token, setToken] = useState("");
   const [showToken, setShowToken] = useState(false);
-  const [botUsername, setBotUsername] = useState<string | null>(null);
+  const [botUsername, setBotUsername] = useState<string | null>(initialBotUsername ?? null);
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [serverId, setServerId] = useState("");
   const [userId, setUserId] = useState("");
   const [connecting, setConnecting] = useState(false);
+
+  // Verification state
+  const [verifying, setVerifying] = useState(initialStep === 3);
+  const [verified, setVerified] = useState(false);
+  const [verifyError, setVerifyError] = useState<string | null>(null);
+  const cancelVerifyRef = useRef(false);
+  const verifyStartedRef = useRef(false);
 
   const validateToken = () => {
     setTokenError(null);
@@ -46,6 +58,51 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
     setBotUsername(`Bot (ID: ${atob(parts[0])})`);
   };
 
+  const verifyChannel = useCallback(async () => {
+    cancelVerifyRef.current = false;
+    setVerifying(true);
+    setVerifyError(null);
+
+    const maxAttempts = 8;
+    const intervalMs = 4000;
+
+    for (let i = 0; i < maxAttempts; i++) {
+      if (cancelVerifyRef.current) return;
+      try {
+        const status = await onChannelProbe();
+        if (cancelVerifyRef.current) return;
+        if (isChannelLive(status, "discord")) {
+          setVerified(true);
+          setVerifying(false);
+          setStep(4);
+          onVerified?.();
+          return;
+        }
+      } catch {
+        // Probe may fail while gateway restarts — keep trying
+      }
+      if (i < maxAttempts - 1 && !cancelVerifyRef.current) {
+        await new Promise((r) => setTimeout(r, intervalMs));
+      }
+    }
+
+    if (!cancelVerifyRef.current) {
+      setVerifying(false);
+      setVerifyError("Bot verification timed out. Your agent may still be starting up.");
+    }
+  }, [onChannelProbe, onVerified]);
+
+  // Auto-start verification when reopening at step 3 (from pending card click)
+  useEffect(() => {
+    if (initialStep === 3 && !verifyStartedRef.current) {
+      verifyStartedRef.current = true;
+      verifyChannel();
+    }
+    return () => { cancelVerifyRef.current = true; };
+    // Only run on mount
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
   const handleConnect = async () => {
     setConnecting(true);
     try {
@@ -70,7 +127,11 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
       await onConnect({
         channels: { discord: discordConfig },
       });
+      // Set verifying BEFORE step change so step 3 renders spinner immediately
+      setVerifying(true);
       setStep(3);
+      // Start verification after config is saved
+      verifyChannel();
     } catch {
       setTokenError("Failed to save config — try again");
     } finally {
@@ -78,11 +139,13 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
     }
   };
 
+  const stepLabels = ["Create", "Configure", "Connect", "Verify"];
+
   return (
     <div className="space-y-6">
       {/* Step indicator */}
       <div className="flex items-center gap-2 text-xs text-text-tertiary">
-        {["Create", "Configure", "Connect"].map((label, i) => (
+        {stepLabels.map((label, i) => (
           <div key={label} className="flex items-center gap-2">
             {i > 0 && <div className="w-8 h-px bg-[var(--border)]" />}
             <div
@@ -314,32 +377,63 @@ export function DiscordWizard({ onConnect, onClose }: DiscordWizardProps) {
         </div>
       )}
 
-      {/* Step 3: Success */}
+      {/* Step 3: Connecting / Verifying */}
       {step === 3 && (
+        <div className="space-y-4">
+          {(verifying || (!verifyError && !verified)) && (
+            <>
+              <div className="w-12 h-12 rounded-full bg-[var(--primary)]/15 flex items-center justify-center mx-auto">
+                <Loader2 className="w-6 h-6 text-[var(--primary)] animate-spin" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-base font-semibold text-foreground">Setting up your Discord bot...</h3>
+                <p className="text-sm text-text-secondary mt-1">
+                  Verifying that your bot is live and reachable. This may take a moment while the agent restarts.
+                </p>
+              </div>
+            </>
+          )}
+
+          {!verifying && verifyError && (
+            <>
+              <div className="w-12 h-12 rounded-full bg-amber-500/15 flex items-center justify-center mx-auto">
+                <AlertCircle className="w-6 h-6 text-amber-500" />
+              </div>
+              <div className="text-center">
+                <h3 className="text-base font-semibold text-foreground">Verification pending</h3>
+                <p className="text-sm text-text-secondary mt-1">{verifyError}</p>
+              </div>
+              <div className="flex justify-center gap-3 pt-4">
+                <button
+                  onClick={() => verifyChannel()}
+                  className="btn-primary px-4 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2"
+                >
+                  <RefreshCw className="w-4 h-4" /> Retry
+                </button>
+                <button onClick={onClose} className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium">
+                  Skip for now
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+
+      {/* Step 4: Verified / Success */}
+      {step === 4 && (
         <div className="space-y-4">
           <div className="w-12 h-12 rounded-full bg-[var(--primary)]/15 flex items-center justify-center mx-auto">
             <Check className="w-6 h-6 text-[var(--primary)]" />
           </div>
           <div className="text-center">
-            <h3 className="text-base font-semibold text-foreground">Discord connected!</h3>
+            <h3 className="text-base font-semibold text-foreground">Discord is live!</h3>
             <p className="text-sm text-text-secondary mt-1">
               Your agent is now reachable as <strong>{botUsername}</strong> on Discord
             </p>
           </div>
-          <div className="glass-card p-4 space-y-2 text-sm text-text-secondary">
-            <p className="font-medium text-foreground">To start chatting:</p>
-            <ol className="list-decimal list-inside space-y-1 text-text-secondary">
-              <li>DM your bot in Discord</li>
-              <li>You&apos;ll receive an 8-character pairing code</li>
-              <li>
-                Approve it in the Shell tab:{" "}
-                <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">
-                  openclaw pairing approve discord &lt;CODE&gt;
-                </code>
-              </li>
-            </ol>
-            <p className="text-xs text-text-tertiary mt-2">
-              Pairing codes expire after 1 hour
+          <div className="glass-card p-4 text-sm text-text-secondary">
+            <p>
+              When users DM your bot, they&apos;ll be automatically paired. You can manage approved devices from the Shell tab.
             </p>
           </div>
           <div className="flex justify-center pt-4">
