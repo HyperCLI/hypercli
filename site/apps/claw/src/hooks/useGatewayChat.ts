@@ -629,6 +629,12 @@ export function useGatewayChat(
     await gw.configPatch(patch);
   }, []);
 
+  const channelsStatus = useCallback(async (probe = false, timeoutMs?: number) => {
+    const gw = gwRef.current;
+    if (!gw) throw new Error("Not connected");
+    return gw.channelsStatus(probe, timeoutMs);
+  }, []);
+
   return {
     messages,
     sendMessage,
@@ -644,6 +650,7 @@ export function useGatewayChat(
     openFile,
     saveFile,
     saveConfig,
+    channelsStatus,
     pendingFiles,
     pendingAttachments,
     addPendingFiles,

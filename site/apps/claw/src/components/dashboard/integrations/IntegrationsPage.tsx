@@ -31,6 +31,7 @@ interface IntegrationsPageProps {
   configSchema: OpenClawConfigSchemaResponse | null;
   connected: boolean;
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
+  onChannelProbe?: () => Promise<Record<string, any>>;
 }
 
 interface ChannelState {
@@ -60,11 +61,12 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig }: IntegrationsPageProps) {
+export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe }: IntegrationsPageProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [applyingChanges, setApplyingChanges] = useState(false);
+  const [telegramVerified, setTelegramVerified] = useState(false);
 
   // Sync when parent config updates
   useEffect(() => {
@@ -77,9 +79,26 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   }, [connected, applyingChanges]);
 
   const channels = (config as any)?.channels as ChannelState | undefined;
-  const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
+  const telegramEnabled = !!channels?.telegram?.enabled;
 
-  const telegramConnected = !!channels?.telegram?.enabled;
+  // Probe telegram channel status on mount / reconnect to determine verified state
+  useEffect(() => {
+    if (!connected || !onChannelProbe || !telegramEnabled) return;
+    let cancelled = false;
+    onChannelProbe().then((status) => {
+      if (!cancelled && (status?.telegram?.connected || status?.telegram?.active)) {
+        setTelegramVerified(true);
+      }
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [connected, onChannelProbe, telegramEnabled]);
+
+  // Reset verified state when telegram is disconnected
+  useEffect(() => {
+    if (!telegramEnabled) setTelegramVerified(false);
+  }, [telegramEnabled]);
+
+  const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
   const discordConnected = !!channels?.discord?.enabled;
   const slackConnected = !!channels?.slack?.enabled;
 
@@ -103,13 +122,20 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   };
 
   const getTelegramStatus = (): { status: CardStatus; statusText?: string; cta?: string } => {
-    if (telegramConnected) {
+    if (telegramEnabled && telegramVerified) {
       return {
         status: "connected",
         statusText: channels?.telegram?.username
           ? `@${channels.telegram.username}`
           : "Active",
         cta: "Manage",
+      };
+    }
+    if (telegramEnabled && !telegramVerified) {
+      return {
+        status: "pending",
+        statusText: "Pending verification",
+        cta: "Complete setup \u2192",
       };
     }
     return { status: "available", cta: "Set up \u2192" };
@@ -178,7 +204,13 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 status={telegramInfo.status}
                 statusText={telegramInfo.statusText}
                 ctaLabel={telegramInfo.cta}
-                onClick={() => setActivePanel(telegramConnected ? "telegram-manage" : "telegram")}
+                onClick={() => setActivePanel(
+                  telegramEnabled && telegramVerified
+                    ? "telegram-manage"
+                    : telegramEnabled
+                      ? "telegram-verify"
+                      : "telegram"
+                )}
               />
               {/* Discord — existing wizard */}
               <IntegrationCard
@@ -356,14 +388,29 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
       {/* Telegram Setup Wizard */}
       <SlideOver
-        open={activePanel === "telegram"}
+        open={activePanel === "telegram" || activePanel === "telegram-verify"}
         onClose={() => setActivePanel(null)}
         title="Connect Telegram"
         description="Give your agent a Telegram presence"
       >
         <TelegramWizard
+          key={activePanel === "telegram-verify" ? "verify" : "setup"}
           onConnect={handleConfigPatch}
-          onClose={() => setActivePanel(null)}
+          onChannelProbe={onChannelProbe ?? (async () => ({}))}
+          initialStep={activePanel === "telegram-verify" ? 3 : undefined}
+          initialBotUsername={activePanel === "telegram-verify" ? channels?.telegram?.username : undefined}
+          onClose={() => {
+            setActivePanel(null);
+            // Re-probe after wizard closes to update card status
+            if (onChannelProbe && channels?.telegram?.enabled) {
+              onChannelProbe().then((status) => {
+                if (status?.telegram?.connected || status?.telegram?.active) {
+                  setTelegramVerified(true);
+                }
+              }).catch(() => {});
+            }
+          }}
+          onVerified={() => setTelegramVerified(true)}
         />
       </SlideOver>
 

@@ -3,7 +3,7 @@
 import { motion } from "framer-motion";
 import type { LucideIcon } from "lucide-react";
 
-export type CardStatus = "connected" | "available" | "coming-soon" | "built-in";
+export type CardStatus = "connected" | "pending" | "available" | "coming-soon" | "built-in";
 
 interface IntegrationCardProps {
   icon: LucideIcon;
@@ -33,9 +33,11 @@ export function IntegrationCard({
       className={`text-left p-4 rounded-xl border transition-colors w-full ${
         status === "connected"
           ? "border-[var(--primary)]/30 bg-[var(--primary)]/5 hover:bg-[var(--primary)]/8"
-          : status === "coming-soon"
-            ? "border-[var(--border)] bg-transparent opacity-50 cursor-default"
-            : "border-[var(--border)] hover:border-[var(--border-medium)] hover:bg-[var(--surface-low)]"
+          : status === "pending"
+            ? "border-amber-500/30 bg-amber-500/5 hover:bg-amber-500/8"
+            : status === "coming-soon"
+              ? "border-[var(--border)] bg-transparent opacity-50 cursor-default"
+              : "border-[var(--border)] hover:border-[var(--border-medium)] hover:bg-[var(--surface-low)]"
       }`}
       whileHover={isDisabled ? undefined : { scale: 1.01 }}
       whileTap={isDisabled ? undefined : { scale: 0.99 }}
@@ -46,9 +48,11 @@ export function IntegrationCard({
           className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
             status === "connected"
               ? "bg-[var(--primary)]/15 text-[var(--primary)]"
-              : status === "built-in"
-                ? "bg-[var(--primary)]/10 text-[var(--primary)]"
-                : "bg-[var(--surface-high)] text-[var(--text-secondary)]"
+              : status === "pending"
+                ? "bg-amber-500/15 text-amber-500"
+                : status === "built-in"
+                  ? "bg-[var(--primary)]/10 text-[var(--primary)]"
+                  : "bg-[var(--surface-high)] text-[var(--text-secondary)]"
           }`}
         >
           <Icon className="w-4.5 h-4.5" />
@@ -58,6 +62,9 @@ export function IntegrationCard({
             <span className="text-sm font-medium text-foreground">{name}</span>
             {status === "connected" && (
               <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+            )}
+            {status === "pending" && (
+              <span className="w-2 h-2 rounded-full bg-amber-500 animate-pulse" />
             )}
             {status === "coming-soon" && (
               <span className="text-[10px] font-medium uppercase tracking-wider text-text-tertiary">
