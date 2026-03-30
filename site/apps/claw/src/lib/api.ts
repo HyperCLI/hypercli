@@ -25,6 +25,7 @@ const normalizedAgentModelsUrl = trimTrailingSlash(rawAgentModelsUrl || "");
 export const API_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/agents` : "/agents";
 export const AUTH_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/api` : "/api";
 export const X402_BASE_URL = API_BASE_URL;
+export const VOICE_API_URL = normalizedApiBase ? `${normalizedApiBase}/voice` : "/voice";
 export const HYPER_AGENT_MODELS_URL = normalizedAgentModelsUrl || `${API_BASE_URL}/models`;
 
 const TOKEN_KEY = "claw_auth_token";
