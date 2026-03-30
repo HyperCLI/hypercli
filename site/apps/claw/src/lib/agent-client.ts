@@ -54,7 +54,9 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
   const env = {
     ...(options.env ?? {}),
   };
-  const controlUiOrigin = resolveControlUiOrigin(process.env.NEXT_PUBLIC_AGENTS_URL || "");
+  const browserOrigin = typeof window !== "undefined" ? window.location.origin : null;
+  const envOrigin = resolveControlUiOrigin(process.env.NEXT_PUBLIC_AGENTS_URL || "");
+  const controlUiOrigin = browserOrigin || envOrigin;
   if (controlUiOrigin && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
     env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
   }
