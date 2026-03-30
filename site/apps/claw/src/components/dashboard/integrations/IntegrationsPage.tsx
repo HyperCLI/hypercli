@@ -8,7 +8,7 @@ import {
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
 import { SlideOver } from "../SlideOver";
-import { TelegramWizard, isTelegramLive } from "./TelegramWizard";
+import { TelegramWizard, isChannelLive } from "./TelegramWizard";
 import { DiscordWizard } from "./DiscordWizard";
 import { SlackWizard } from "./SlackWizard";
 import { TtsPanel } from "./TtsPanel";
@@ -86,7 +86,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
     if (!connected || !onChannelProbe || !telegramEnabled) return;
     let cancelled = false;
     onChannelProbe().then((status) => {
-      if (!cancelled && isTelegramLive(status)) {
+      if (!cancelled && isChannelLive(status, "telegram")) {
         setTelegramVerified(true);
       }
     }).catch(() => {});
@@ -404,7 +404,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
             // Re-probe after wizard closes to update card status
             if (onChannelProbe && channels?.telegram?.enabled) {
               onChannelProbe().then((status) => {
-                if (isTelegramLive(status)) {
+                if (isChannelLive(status, "telegram")) {
                   setTelegramVerified(true);
                 }
               }).catch(() => {});
