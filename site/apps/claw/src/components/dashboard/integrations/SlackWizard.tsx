@@ -86,7 +86,7 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
       <div className="flex items-center gap-2 text-xs text-text-tertiary">
         {["Create", "Configure", "Connect"].map((label, i) => (
           <div key={label} className="flex items-center gap-2">
-            {i > 0 && <div className="w-6 h-px bg-[var(--border)]" />}
+            {i > 0 && <div className="w-8 h-px bg-[var(--border)]" />}
             <div
               className={`flex items-center gap-1.5 ${
                 step === i + 1
@@ -117,8 +117,8 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
       {step === 1 && (
         <div className="space-y-4">
           <h3 className="text-base font-semibold text-foreground">Create your Slack app</h3>
-          <div className="space-y-3 text-sm text-text-secondary">
-            <div className="flex gap-3">
+          <div className="space-y-4 text-sm text-text-secondary">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 1
               </span>
@@ -140,7 +140,7 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 2
               </span>
@@ -148,16 +148,16 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
                 <p>
                   Go to <strong>OAuth &amp; Permissions</strong> and add these Bot Token Scopes:
                 </p>
-                <div className="flex flex-wrap gap-1.5 mt-1.5">
+                <div className="flex flex-wrap gap-2 mt-2">
                   {["chat:write", "channels:read", "channels:history", "groups:read", "groups:history", "im:read", "im:history", "im:write"].map((scope) => (
-                    <code key={scope} className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">
+                    <code key={scope} className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">
                       {scope}
                     </code>
                   ))}
                 </div>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 3
               </span>
@@ -167,18 +167,18 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 4
               </span>
               <div>
                 <p>Copy the <strong>Bot User OAuth Token</strong></p>
                 <p className="text-text-tertiary mt-1">
-                  It starts with: <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">xoxb-...</code>
+                  It starts with: <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">xoxb-...</code>
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 5
               </span>
@@ -187,23 +187,23 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
                   Go to <strong>Basic Information &rarr; App-Level Tokens</strong> and click <strong>Generate Token and Scopes</strong>
                 </p>
                 <p className="text-text-tertiary mt-1">
-                  Add the <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">connections:write</code> scope, name it (e.g. &quot;openclaw&quot;), and generate
+                  Add the <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">connections:write</code> scope, name it (e.g. &quot;openclaw&quot;), and generate
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 6
               </span>
               <div>
                 <p>Copy the <strong>App-Level Token</strong></p>
                 <p className="text-text-tertiary mt-1">
-                  It starts with: <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">xapp-1-...</code>
+                  It starts with: <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">xapp-1-...</code>
                 </p>
               </div>
             </div>
           </div>
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end pt-4">
             <button onClick={() => setStep(2)} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
               I have my tokens <ArrowRight className="w-4 h-4" />
             </button>
@@ -294,15 +294,15 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
             {appTokenError && <p className="text-xs text-[var(--error)]">{appTokenError}</p>}
           </div>
 
-          <div className="glass-card p-3 text-xs text-text-tertiary">
+          <div className="glass-card p-4 text-xs text-text-tertiary">
             <p>
               After connecting, invite your bot to channels with{" "}
-              <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">/invite @YourBot</code>{" "}
+              <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">/invite @YourBot</code>{" "}
               so it can read and respond to messages.
             </p>
           </div>
 
-          <div className="flex justify-between pt-2">
+          <div className="flex justify-between pt-4">
             <button
               onClick={() => setStep(1)}
               className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
@@ -345,13 +345,13 @@ export function SlackWizard({ onConnect, onClose }: SlackWizardProps) {
             <ol className="list-decimal list-inside space-y-1 text-text-secondary">
               <li>
                 Invite the bot to a channel:{" "}
-                <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">/invite @{botName}</code>
+                <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">/invite @{botName}</code>
               </li>
               <li>Mention the bot or send it a direct message</li>
               <li>Your agent will respond automatically</li>
             </ol>
           </div>
-          <div className="flex justify-center pt-2">
+          <div className="flex justify-center pt-4">
             <button onClick={onClose} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium">
               Done
             </button>
