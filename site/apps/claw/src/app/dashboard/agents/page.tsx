@@ -1360,6 +1360,15 @@ export default function AgentsPage() {
     }
   }, [chat.messages]);
 
+  // Scroll to bottom when user switches back to chat tab.
+  // useLayoutEffect runs synchronously after DOM commit (refs are set)
+  // but before browser paint, so the user never sees the un-scrolled state.
+  useLayoutEffect(() => {
+    if (mainTab === "chat" && chatEndRef.current) {
+      chatEndRef.current.scrollIntoView({ behavior: "auto" });
+    }
+  }, [mainTab]);
+
   // ── Desktop launch bootstrap ──
   const issueAgentAccessToken = useCallback(
     async (agentId: string, hostname: string): Promise<string> => {
