@@ -67,6 +67,8 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [applyingChanges, setApplyingChanges] = useState(false);
   const [telegramVerified, setTelegramVerified] = useState(false);
+  const [discordVerified, setDiscordVerified] = useState(false);
+  const [slackVerified, setSlackVerified] = useState(false);
 
   // Sync when parent config updates
   useEffect(() => {
@@ -80,27 +82,31 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
   const channels = (config as any)?.channels as ChannelState | undefined;
   const telegramEnabled = !!channels?.telegram?.enabled;
+  const discordEnabled = !!channels?.discord?.enabled;
+  const slackEnabled = !!channels?.slack?.enabled;
 
-  // Probe telegram channel status on mount / reconnect to determine verified state
+  // Probe channel status on mount / reconnect to determine verified state
   useEffect(() => {
-    if (!connected || !onChannelProbe || !telegramEnabled) return;
+    if (!connected || !onChannelProbe) return;
+    if (!telegramEnabled && !discordEnabled && !slackEnabled) return;
     let cancelled = false;
     onChannelProbe().then((status) => {
-      if (!cancelled && isChannelLive(status, "telegram")) {
-        setTelegramVerified(true);
-      }
+      if (cancelled) return;
+      if (telegramEnabled && isChannelLive(status, "telegram")) setTelegramVerified(true);
+      if (discordEnabled && isChannelLive(status, "discord")) setDiscordVerified(true);
+      if (slackEnabled && isChannelLive(status, "slack")) setSlackVerified(true);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [connected, onChannelProbe, telegramEnabled]);
+  }, [connected, onChannelProbe, telegramEnabled, discordEnabled, slackEnabled]);
 
-  // Reset verified state when telegram is disconnected
+  // Reset verified state when channels are disconnected
   useEffect(() => {
     if (!telegramEnabled) setTelegramVerified(false);
-  }, [telegramEnabled]);
+    if (!discordEnabled) setDiscordVerified(false);
+    if (!slackEnabled) setSlackVerified(false);
+  }, [telegramEnabled, discordEnabled, slackEnabled]);
 
   const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
-  const discordConnected = !!channels?.discord?.enabled;
-  const slackConnected = !!channels?.slack?.enabled;
 
   const handleConfigPatch = async (patch: Record<string, unknown>) => {
     if (!connected) throw new Error("Not connected to agent");
@@ -216,19 +222,31 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               <IntegrationCard
                 icon={MessageCircle}
                 name="Discord"
-                status={discordConnected ? "connected" : "available"}
-                statusText={discordConnected ? "Active" : undefined}
-                ctaLabel={discordConnected ? "Manage" : "Set up \u2192"}
-                onClick={() => setActivePanel(discordConnected ? "discord-manage" : "discord")}
+                status={discordEnabled && discordVerified ? "connected" : discordEnabled ? "pending" : "available"}
+                statusText={discordEnabled && discordVerified ? "Active" : discordEnabled ? "Pending verification" : undefined}
+                ctaLabel={discordEnabled && discordVerified ? "Manage" : discordEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                onClick={() => setActivePanel(
+                  discordEnabled && discordVerified
+                    ? "discord-manage"
+                    : discordEnabled
+                      ? "discord-verify"
+                      : "discord"
+                )}
               />
               {/* Slack — existing wizard */}
               <IntegrationCard
                 icon={Hash}
                 name="Slack"
-                status={slackConnected ? "connected" : "available"}
-                statusText={slackConnected ? "Active" : undefined}
-                ctaLabel={slackConnected ? "Manage" : "Set up \u2192"}
-                onClick={() => setActivePanel(slackConnected ? "slack-manage" : "slack")}
+                status={slackEnabled && slackVerified ? "connected" : slackEnabled ? "pending" : "available"}
+                statusText={slackEnabled && slackVerified ? "Active" : slackEnabled ? "Pending verification" : undefined}
+                ctaLabel={slackEnabled && slackVerified ? "Manage" : slackEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                onClick={() => setActivePanel(
+                  slackEnabled && slackVerified
+                    ? "slack-manage"
+                    : slackEnabled
+                      ? "slack-verify"
+                      : "slack"
+                )}
               />
               {/* Remaining 19 chat plugins — dynamic PluginCards */}
               {chatPlugins
@@ -442,14 +460,26 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
       {/* Discord Setup Wizard */}
       <SlideOver
-        open={activePanel === "discord"}
+        open={activePanel === "discord" || activePanel === "discord-verify"}
         onClose={() => setActivePanel(null)}
         title="Connect Discord"
         description="Give your agent a Discord presence"
       >
         <DiscordWizard
+          key={activePanel === "discord-verify" ? "verify" : "setup"}
           onConnect={handleConfigPatch}
-          onClose={() => setActivePanel(null)}
+          onChannelProbe={onChannelProbe ?? (async () => ({}))}
+          initialStep={activePanel === "discord-verify" ? 3 : undefined}
+          initialBotUsername={activePanel === "discord-verify" ? "Discord Bot" : undefined}
+          onClose={() => {
+            setActivePanel(null);
+            if (onChannelProbe && channels?.discord?.enabled) {
+              onChannelProbe().then((status) => {
+                if (isChannelLive(status, "discord")) setDiscordVerified(true);
+              }).catch(() => {});
+            }
+          }}
+          onVerified={() => setDiscordVerified(true)}
         />
       </SlideOver>
 
@@ -478,14 +508,26 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
       {/* Slack Setup Wizard */}
       <SlideOver
-        open={activePanel === "slack"}
+        open={activePanel === "slack" || activePanel === "slack-verify"}
         onClose={() => setActivePanel(null)}
         title="Connect Slack"
         description="Give your agent a Slack presence"
       >
         <SlackWizard
+          key={activePanel === "slack-verify" ? "verify" : "setup"}
           onConnect={handleConfigPatch}
-          onClose={() => setActivePanel(null)}
+          onChannelProbe={onChannelProbe ?? (async () => ({}))}
+          initialStep={activePanel === "slack-verify" ? 3 : undefined}
+          initialBotName={activePanel === "slack-verify" ? "Slack Bot" : undefined}
+          onClose={() => {
+            setActivePanel(null);
+            if (onChannelProbe && channels?.slack?.enabled) {
+              onChannelProbe().then((status) => {
+                if (isChannelLive(status, "slack")) setSlackVerified(true);
+              }).catch(() => {});
+            }
+          }}
+          onVerified={() => setSlackVerified(true)}
         />
       </SlideOver>
 
