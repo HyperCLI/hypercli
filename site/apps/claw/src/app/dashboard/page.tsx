@@ -348,7 +348,7 @@ export default function DashboardPage() {
                     )}
                     {isRunning && agent.hostname && (
                       <a
-                        href={`https://desktop-${agent.hostname.replace(/\.hyperclaw\.app$/, '.hypercli.com')}`}
+                        href={`https://${agent.hostname}`}
                         target="_blank"
                         rel="noopener noreferrer"
                         className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low flex items-center gap-1"
