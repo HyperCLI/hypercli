@@ -334,7 +334,7 @@ function ConnectionStatusIndicator({
   const connecting = status === "connecting";
   return (
     <span
-      className={`inline-flex items-center gap-1.5 text-xs font-medium ${
+      className={`inline-flex items-center gap-1.5 text-xs font-medium min-w-[5.25rem] ${
         connected
           ? "text-[#38D39F]"
           : connecting
@@ -2199,7 +2199,7 @@ export default function AgentsPage() {
                 </button>
 
                 {/* Agent name + status */}
-                <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
+                <div className="relative z-10 flex items-center gap-2 min-w-0 flex-shrink-0">
                   {(() => {
                     const avatar = agentAvatar(selectedAgent.name || selectedAgent.id);
                     const AvatarIcon = avatar.icon;
@@ -2215,9 +2215,9 @@ export default function AgentsPage() {
                   {activeConnectionStatus && <ConnectionStatusIndicator status={activeConnectionStatus} />}
                 </div>
 
-                {/* Tabs */}
-                <div className={`${isDesktopViewport ? "flex" : "hidden"} flex-1 min-w-0 items-center justify-center overflow-x-auto`}>
-                  <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
+                {/* Tabs – absolutely centered so left/right content changes don't shift them */}
+                <div className={`${isDesktopViewport ? "flex" : "hidden"} absolute inset-0 items-center justify-center overflow-x-auto pointer-events-none`}>
+                  <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden pointer-events-auto">
                     {agentTabItems.map(({ key, label, icon: Icon }, index) => (
                       <button
                         key={key}
@@ -2235,8 +2235,11 @@ export default function AgentsPage() {
                   </div>
                 </div>
 
+                {/* Spacer to push right actions to the edge */}
+                <div className="flex-1 min-w-0" />
+
                 {/* Right actions */}
-                <div className="flex items-center gap-2 flex-shrink-0">
+                <div className="relative z-10 flex items-center gap-2 flex-shrink-0">
                   <div className={`${isDesktopViewport ? "hidden" : "flex"} items-center gap-1`}>
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
