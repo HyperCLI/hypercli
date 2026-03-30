@@ -74,7 +74,7 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
       <div className="flex items-center gap-2 text-xs text-text-tertiary">
         {["Create", "Configure", "Connect"].map((label, i) => (
           <div key={label} className="flex items-center gap-2">
-            {i > 0 && <div className="w-6 h-px bg-[var(--border)]" />}
+            {i > 0 && <div className="w-8 h-px bg-[var(--border)]" />}
             <div
               className={`flex items-center gap-1.5 ${
                 step === i + 1
@@ -105,8 +105,8 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
       {step === 1 && (
         <div className="space-y-4">
           <h3 className="text-base font-semibold text-foreground">Create your bot</h3>
-          <div className="space-y-3 text-sm text-text-secondary">
-            <div className="flex gap-3">
+          <div className="space-y-4 text-sm text-text-secondary">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 1
               </span>
@@ -124,38 +124,38 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 2
               </span>
               <div>
                 <p>
-                  Send <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">/newbot</code> and follow the prompts
+                  Send <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">/newbot</code> and follow the prompts
                 </p>
                 <p className="text-text-tertiary mt-1">
                   Pick a display name and a username ending in &quot;bot&quot;
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 3
               </span>
               <div>
                 <p>Copy the token BotFather gives you</p>
                 <p className="text-text-tertiary mt-1">
-                  It looks like: <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">4839574812:AAFD39kkd...</code>
+                  It looks like: <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">4839574812:AAFD39kkd...</code>
                 </p>
               </div>
             </div>
-            <div className="flex gap-3">
+            <div className="flex gap-4">
               <span className="w-5 h-5 rounded-full bg-[var(--surface-high)] flex items-center justify-center text-xs font-medium text-foreground flex-shrink-0 mt-0.5">
                 4
               </span>
               <div>
                 <p>
                   <span className="text-text-tertiary">(Optional)</span> Send{" "}
-                  <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">/setprivacy</code>{" "}
+                  <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">/setprivacy</code>{" "}
                   &rarr; Disable
                 </p>
                 <p className="text-text-tertiary mt-1">
@@ -164,7 +164,7 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
               </div>
             </div>
           </div>
-          <div className="flex justify-end pt-2">
+          <div className="flex justify-end pt-4">
             <button onClick={() => setStep(2)} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2">
               I have my token <ArrowRight className="w-4 h-4" />
             </button>
@@ -219,7 +219,7 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
           {/* DM Policy */}
           <div className="space-y-2">
             <label className="text-sm font-medium text-foreground">Who can DM your agent?</label>
-            <div className="space-y-1.5">
+            <div className="space-y-2">
               {dmPolicyOptions.map((opt) => (
                 <label
                   key={opt.value}
@@ -267,7 +267,7 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
             </label>
           </div>
 
-          <div className="flex justify-between pt-2">
+          <div className="flex justify-between pt-4">
             <button
               onClick={() => setStep(1)}
               className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
@@ -321,13 +321,13 @@ export function TelegramWizard({ onConnect, onClose }: TelegramWizardProps) {
               <li>You&apos;ll receive a pairing code</li>
               <li>
                 Approve it in the Shell tab:{" "}
-                <code className="px-1.5 py-0.5 bg-[var(--surface-high)] rounded text-xs font-mono">
+                <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">
                   openclaw pairing approve telegram &lt;CODE&gt;
                 </code>
               </li>
             </ol>
           </div>
-          <div className="flex justify-center gap-3 pt-2">
+          <div className="flex justify-center gap-3 pt-4">
             <a
               href={`https://t.me/${botUsername}`}
               target="_blank"
