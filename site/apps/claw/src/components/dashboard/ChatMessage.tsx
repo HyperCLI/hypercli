@@ -4,10 +4,13 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
+import { API_BASE_URL } from "@/lib/api";
+import { encodePath, extractImagePath } from "@/lib/image-tools";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   inlineAudioUrl?: string | null;
+  agentId?: string | null;
 }
 
 const THINKING_PREVIEW_LINES = 2;
@@ -35,7 +38,7 @@ function toolCallSummary(tc: { name: string; args: string; result?: string }): s
   return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
 }
 
-export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessageProps) {
+export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = null }: ChatMessageProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
@@ -127,6 +130,10 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessag
         {message.toolCalls?.map((tc, j) => {
           const hasResult = Boolean(tc.result);
           const summary = toolCallSummary(tc);
+          const imagePath = agentId ? extractImagePath(tc) : null;
+          const imageUrl = imagePath && agentId
+            ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
+            : null;
           return (
             <div
               key={j}
@@ -164,6 +171,19 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessag
                     </>
                   )}
                 </pre>
+              )}
+              {imageUrl && (
+                <div className="px-2.5 py-2 border-t border-border">
+                  <a href={imageUrl} target="_blank" rel="noopener noreferrer">
+                    <img
+                      src={imageUrl}
+                      alt={imagePath?.split("/").pop() || "generated image"}
+                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                      loading="lazy"
+                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                    />
+                  </a>
+                </div>
               )}
             </div>
           );
