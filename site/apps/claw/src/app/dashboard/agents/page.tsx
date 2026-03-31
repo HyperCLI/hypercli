@@ -2418,7 +2418,7 @@ export default function AgentsPage() {
                         const inlineAudioUrl = voicePath && selectedAgent
                           ? `${API_BASE_URL}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
                           : null;
-                        return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} />;
+                        return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} agentId={selectedAgent?.id} />;
                       })}
 
                       {chat.sending && chat.messages[chat.messages.length - 1]?.role !== "assistant" && (
