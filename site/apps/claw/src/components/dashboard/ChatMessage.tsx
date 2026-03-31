@@ -41,24 +41,35 @@ function toolCallSummary(tc: { name: string; args: string; result?: string }): s
 export function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const blobRef = useRef<string | null>(null);
 
   useEffect(() => {
-    let revoke: string | null = null;
+    setBlobUrl(null);
+    setFailed(false);
+    if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
+
     const token = getStoredToken();
     if (!token) { setFailed(true); return; }
 
-    fetch(src, { headers: { Authorization: `Bearer ${token}` } })
+    const controller = new AbortController();
+    fetch(src, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
       .then((res) => {
         if (!res.ok) throw new Error(`${res.status}`);
         return res.blob();
       })
       .then((blob) => {
-        revoke = URL.createObjectURL(blob);
-        setBlobUrl(revoke);
+        const url = URL.createObjectURL(blob);
+        blobRef.current = url;
+        setBlobUrl(url);
       })
-      .catch(() => setFailed(true));
+      .catch((err) => {
+        if (err?.name !== "AbortError") setFailed(true);
+      });
 
-    return () => { if (revoke) URL.revokeObjectURL(revoke); };
+    return () => {
+      controller.abort();
+      if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
+    };
   }, [src]);
 
   if (failed || !blobUrl) return null;
