@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
-import { API_BASE_URL } from "@/lib/api";
+import { API_BASE_URL, getStoredToken } from "@/lib/api";
 import { encodePath, extractImagePath } from "@/lib/image-tools";
 
 interface ChatMessageProps {
@@ -36,6 +36,38 @@ function toolCallSummary(tc: { name: string; args: string; result?: string }): s
   }
   const trimmed = tc.args.trim().slice(0, 60);
   return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
+}
+
+export function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+  const [blobUrl, setBlobUrl] = useState<string | null>(null);
+  const [failed, setFailed] = useState(false);
+
+  useEffect(() => {
+    let revoke: string | null = null;
+    const token = getStoredToken();
+    if (!token) { setFailed(true); return; }
+
+    fetch(src, { headers: { Authorization: `Bearer ${token}` } })
+      .then((res) => {
+        if (!res.ok) throw new Error(`${res.status}`);
+        return res.blob();
+      })
+      .then((blob) => {
+        revoke = URL.createObjectURL(blob);
+        setBlobUrl(revoke);
+      })
+      .catch(() => setFailed(true));
+
+    return () => { if (revoke) URL.revokeObjectURL(revoke); };
+  }, [src]);
+
+  if (failed || !blobUrl) return null;
+
+  return (
+    <a href={blobUrl} target="_blank" rel="noopener noreferrer">
+      <img src={blobUrl} alt={alt} className={className} loading="lazy" />
+    </a>
+  );
 }
 
 export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = null }: ChatMessageProps) {
@@ -134,9 +166,6 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
           const imageUrl = imagePath && agentId
             ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
             : null;
-          if (tc.name === "read" || imagePath) {
-            console.log("[HYP-27 DEBUG] ChatMessage render tc:", tc.name, "agentId:", agentId, "imagePath:", imagePath, "imageUrl:", imageUrl, "args:", tc.args?.slice(0, 100));
-          }
           return (
             <div
               key={j}
@@ -177,15 +206,11 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
               )}
               {imageUrl && (
                 <div className="px-2.5 py-2 border-t border-border">
-                  <a href={imageUrl} target="_blank" rel="noopener noreferrer">
-                    <img
-                      src={imageUrl}
-                      alt={imagePath?.split("/").pop() || "generated image"}
-                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
-                      loading="lazy"
-                      onError={(e) => { console.error("[HYP-27 DEBUG] image load FAILED:", imageUrl); (e.target as HTMLImageElement).style.display = "none"; }}
-                    />
-                  </a>
+                  <AuthImage
+                    src={imageUrl}
+                    alt={imagePath?.split("/").pop() || "generated image"}
+                    className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                  />
                 </div>
               )}
             </div>

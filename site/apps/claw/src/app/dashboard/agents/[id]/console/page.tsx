@@ -22,8 +22,9 @@ import {
 } from "lucide-react";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL, agentApiFetch } from "@/lib/api";
+import { API_BASE_URL, agentApiFetch, getStoredToken } from "@/lib/api";
 import { encodePath, extractImagePath } from "@/lib/image-tools";
+import { AuthImage } from "@/components/dashboard/ChatMessage";
 import { createAgentClient } from "@/lib/agent-client";
 import {
   GatewayClient,
@@ -736,15 +737,11 @@ function ChatPanel({
                     {tc.result && <pre className="text-text-muted mt-1">{tc.result}</pre>}
                     {imageUrl && (
                       <div className="mt-2">
-                        <a href={imageUrl} target="_blank" rel="noopener noreferrer">
-                          <img
-                            src={imageUrl}
-                            alt={imagePath?.split("/").pop() || "generated image"}
-                            className="max-w-[320px] max-h-[320px] rounded-md object-contain"
-                            loading="lazy"
-                            onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
-                          />
-                        </a>
+                        <AuthImage
+                          src={imageUrl}
+                          alt={imagePath?.split("/").pop() || "generated image"}
+                          className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                        />
                       </div>
                     )}
                   </div>
