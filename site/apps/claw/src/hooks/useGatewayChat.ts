@@ -175,6 +175,9 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
   const mergedToolCalls = incoming.toolCalls
     ? mergeToolCalls(current.toolCalls ?? [], incoming.toolCalls)
     : current.toolCalls;
+  if (current.toolCalls?.length) {
+    console.log("[HYP-27 DEBUG] mergeAssistantMessage: current has", current.toolCalls.length, "toolCalls, incoming has", incoming.toolCalls?.length ?? 0, "→ merged:", mergedToolCalls?.length ?? 0);
+  }
   return {
     ...current,
     content: mergedContent,
@@ -353,23 +356,35 @@ export function useGatewayChat(
               const toolCallId = data.toolCallId as string | undefined;
               if (phase === "start" && toolName) {
                 const args = data.args ? formatToolValue(data.args) : "";
-                setMessages((prev) => upsertAssistantMessage(prev, {
-                  role: "assistant",
-                  content: "",
-                  toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }],
-                  timestamp: Date.now(),
-                }));
+                const tc = { ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args };
+                console.log("[HYP-27 DEBUG] → injecting tool_call from agent stream:", JSON.stringify(tc));
+                setMessages((prev) => {
+                  const next = upsertAssistantMessage(prev, {
+                    role: "assistant",
+                    content: "",
+                    toolCalls: [tc],
+                    timestamp: Date.now(),
+                  });
+                  console.log("[HYP-27 DEBUG] → messages after inject:", next.length, "last toolCalls:", JSON.stringify(next[next.length - 1]?.toolCalls?.map(t => t.name)));
+                  return next;
+                });
               } else if (phase === "result" && toolName) {
                 const meta = (data.meta as string) || "";
                 const isError = Boolean(data.isError);
                 const resultText = isError ? `Error: ${meta}` : meta;
                 if (resultText) {
-                  setMessages((prev) => upsertAssistantMessage(prev, {
-                    role: "assistant",
-                    content: "",
-                    toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }],
-                    timestamp: Date.now(),
-                  }));
+                  const tc = { ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText };
+                  console.log("[HYP-27 DEBUG] → injecting tool_result from agent stream:", JSON.stringify(tc));
+                  setMessages((prev) => {
+                    const next = upsertAssistantMessage(prev, {
+                      role: "assistant",
+                      content: "",
+                      toolCalls: [tc],
+                      timestamp: Date.now(),
+                    });
+                    console.log("[HYP-27 DEBUG] → messages after result:", next.length, "last toolCalls:", JSON.stringify(next[next.length - 1]?.toolCalls?.map(t => t.name)));
+                    return next;
+                  });
                 }
               }
             }
