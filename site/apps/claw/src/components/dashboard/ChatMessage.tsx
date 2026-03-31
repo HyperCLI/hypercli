@@ -134,6 +134,9 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
           const imageUrl = imagePath && agentId
             ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
             : null;
+          if (tc.name === "read" || imagePath) {
+            console.log("[HYP-27 DEBUG] ChatMessage render tc:", tc.name, "agentId:", agentId, "imagePath:", imagePath, "imageUrl:", imageUrl, "args:", tc.args?.slice(0, 100));
+          }
           return (
             <div
               key={j}
@@ -180,7 +183,7 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
                       alt={imagePath?.split("/").pop() || "generated image"}
                       className="max-w-[320px] max-h-[320px] rounded-md object-contain"
                       loading="lazy"
-                      onError={(e) => { (e.target as HTMLImageElement).style.display = "none"; }}
+                      onError={(e) => { console.error("[HYP-27 DEBUG] image load FAILED:", imageUrl); (e.target as HTMLImageElement).style.display = "none"; }}
                     />
                   </a>
                 </div>

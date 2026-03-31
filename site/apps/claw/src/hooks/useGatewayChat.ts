@@ -175,9 +175,6 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
   const mergedToolCalls = incoming.toolCalls
     ? mergeToolCalls(current.toolCalls ?? [], incoming.toolCalls)
     : current.toolCalls;
-  if (current.toolCalls?.length) {
-    console.log("[HYP-27 DEBUG] mergeAssistantMessage: current has", current.toolCalls.length, "toolCalls, incoming has", incoming.toolCalls?.length ?? 0, "→ merged:", mergedToolCalls?.length ?? 0);
-  }
   return {
     ...current,
     content: mergedContent,
@@ -346,9 +343,8 @@ export function useGatewayChat(
           const event = gatewayEvent.event;
           const payload = gatewayEvent.payload ?? {};
 
-          // HYP-27 debug: log agent tool stream events
+          // HYP-27: process agent tool stream events into ChatMessage toolCalls
           if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
-            console.log("[HYP-27 DEBUG] agent tool stream:", JSON.stringify(payload, null, 2));
             const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;
             if (data) {
               const phase = data.phase as string;
@@ -356,35 +352,23 @@ export function useGatewayChat(
               const toolCallId = data.toolCallId as string | undefined;
               if (phase === "start" && toolName) {
                 const args = data.args ? formatToolValue(data.args) : "";
-                const tc = { ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args };
-                console.log("[HYP-27 DEBUG] → injecting tool_call from agent stream:", JSON.stringify(tc));
-                setMessages((prev) => {
-                  const next = upsertAssistantMessage(prev, {
-                    role: "assistant",
-                    content: "",
-                    toolCalls: [tc],
-                    timestamp: Date.now(),
-                  });
-                  console.log("[HYP-27 DEBUG] → messages after inject:", next.length, "last toolCalls:", JSON.stringify(next[next.length - 1]?.toolCalls?.map(t => t.name)));
-                  return next;
-                });
+                setMessages((prev) => upsertAssistantMessage(prev, {
+                  role: "assistant",
+                  content: "",
+                  toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }],
+                  timestamp: Date.now(),
+                }));
               } else if (phase === "result" && toolName) {
                 const meta = (data.meta as string) || "";
                 const isError = Boolean(data.isError);
                 const resultText = isError ? `Error: ${meta}` : meta;
                 if (resultText) {
-                  const tc = { ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText };
-                  console.log("[HYP-27 DEBUG] → injecting tool_result from agent stream:", JSON.stringify(tc));
-                  setMessages((prev) => {
-                    const next = upsertAssistantMessage(prev, {
-                      role: "assistant",
-                      content: "",
-                      toolCalls: [tc],
-                      timestamp: Date.now(),
-                    });
-                    console.log("[HYP-27 DEBUG] → messages after result:", next.length, "last toolCalls:", JSON.stringify(next[next.length - 1]?.toolCalls?.map(t => t.name)));
-                    return next;
-                  });
+                  setMessages((prev) => upsertAssistantMessage(prev, {
+                    role: "assistant",
+                    content: "",
+                    toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }],
+                    timestamp: Date.now(),
+                  }));
                 }
               }
             }
@@ -392,10 +376,8 @@ export function useGatewayChat(
 
           if (event === "chat") {
             const chatPayload = payload as Record<string, unknown>;
-            console.log("[HYP-27 DEBUG] chat snapshot payload:", JSON.stringify(chatPayload, null, 2));
             const normalized = normalizeHistoryMessage(chatPayload.message);
             if (normalized?.role === "assistant") {
-              console.log("[HYP-27 DEBUG] chat snapshot normalized toolCalls:", JSON.stringify(normalized.toolCalls, null, 2));
               setMessages((prev) => upsertAssistantMessage(prev, normalized));
             }
 
@@ -424,10 +406,8 @@ export function useGatewayChat(
               });
             });
           } else if (event === "chat.tool_call") {
-            console.log("[HYP-27 DEBUG] chat.tool_call raw payload:", JSON.stringify(payload, null, 2));
             const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
             if (!toolCall) return;
-            console.log("[HYP-27 DEBUG] normalized tool_call:", JSON.stringify(toolCall, null, 2));
             setMessages((prev) => upsertAssistantMessage(prev, {
               role: "assistant",
               content: "",
@@ -435,10 +415,8 @@ export function useGatewayChat(
               timestamp: Date.now(),
             }));
           } else if (event === "chat.tool_result") {
-            console.log("[HYP-27 DEBUG] chat.tool_result raw payload:", JSON.stringify(payload, null, 2));
             const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
             if (!toolResult) return;
-            console.log("[HYP-27 DEBUG] normalized tool_result:", JSON.stringify(toolResult, null, 2));
             setMessages((prev) => upsertAssistantMessage(prev, {
               role: "assistant",
               content: "",
