@@ -2932,7 +2932,7 @@ export default function AgentsPage() {
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
-                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-8">
+                  <div className="h-full overflow-y-auto p-4 sm:p-6 pb-8">
                     <div className="max-w-2xl w-full mx-auto space-y-8">
                       {/* Agent Identity Section */}
                       <div>
