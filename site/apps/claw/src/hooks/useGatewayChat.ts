@@ -346,12 +346,41 @@ export function useGatewayChat(
           // HYP-27 debug: log agent tool stream events
           if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
             console.log("[HYP-27 DEBUG] agent tool stream:", JSON.stringify(payload, null, 2));
+            const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;
+            if (data) {
+              const phase = data.phase as string;
+              const toolName = (data.name as string) || "";
+              const toolCallId = data.toolCallId as string | undefined;
+              if (phase === "start" && toolName) {
+                const args = data.args ? formatToolValue(data.args) : "";
+                setMessages((prev) => upsertAssistantMessage(prev, {
+                  role: "assistant",
+                  content: "",
+                  toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }],
+                  timestamp: Date.now(),
+                }));
+              } else if (phase === "result" && toolName) {
+                const meta = (data.meta as string) || "";
+                const isError = Boolean(data.isError);
+                const resultText = isError ? `Error: ${meta}` : meta;
+                if (resultText) {
+                  setMessages((prev) => upsertAssistantMessage(prev, {
+                    role: "assistant",
+                    content: "",
+                    toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }],
+                    timestamp: Date.now(),
+                  }));
+                }
+              }
+            }
           }
 
           if (event === "chat") {
             const chatPayload = payload as Record<string, unknown>;
+            console.log("[HYP-27 DEBUG] chat snapshot payload:", JSON.stringify(chatPayload, null, 2));
             const normalized = normalizeHistoryMessage(chatPayload.message);
             if (normalized?.role === "assistant") {
+              console.log("[HYP-27 DEBUG] chat snapshot normalized toolCalls:", JSON.stringify(normalized.toolCalls, null, 2));
               setMessages((prev) => upsertAssistantMessage(prev, normalized));
             }
 
