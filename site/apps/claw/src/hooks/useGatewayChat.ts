@@ -67,6 +67,11 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
+/** Detect internal heartbeat poll prompts that should never be shown to users. */
+function isHeartbeatMessage(content: string): boolean {
+  return content.includes("HEARTBEAT.md");
+}
+
 function formatToolValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return maybeDecodeMojibake(value);
@@ -95,6 +100,7 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const normalized = normalizeGatewayChatMessage(message);
   if (!normalized) return null;
   const content = maybeDecodeMojibake(normalized.text);
+  if (isHeartbeatMessage(content)) return null;
   const thinking = maybeDecodeMojibake(normalized.thinking).trim();
   const toolCalls = summarizeToolCalls(normalized.toolCalls);
   const mediaUrls = normalized.mediaUrls;
