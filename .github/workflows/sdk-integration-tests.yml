@@ -36,6 +36,9 @@ jobs:
     container:
       image: python:3.12-bookworm
     timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
     steps:
       - uses: actions/checkout@v4
 
