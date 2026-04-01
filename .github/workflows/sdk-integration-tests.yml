@@ -8,7 +8,61 @@ env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
 
 jobs:
+  ts-sdk-unit:
+    runs-on: self-hosted
+    container:
+      image: node:22-bookworm
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: ts-sdk
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install TS SDK dependencies
+        run: npm ci
+
+      - name: Run TS SDK unit tests
+        run: npm test
+
+      - name: Restore runner workspace ownership
+        if: always()
+        run: |
+          chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
+
+  python-sdk-unit:
+    runs-on: self-hosted
+    container:
+      image: python:3.12-bookworm
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install Python SDK and CLI
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e "sdk[dev]" -e cli
+
+      - name: Run Python SDK and CLI unit tests
+        run: |
+          source .venv/bin/activate
+          pytest --import-mode=importlib -q \
+            sdk/tests/test_jobs.py \
+            sdk/tests/test_agents.py \
+            sdk/tests/test_exec_shell_dryrun.py \
+            cli/tests/test_jobs_list_tags.py \
+            cli/tests/test_exec_shell_dryrun.py
+
+      - name: Restore runner workspace ownership
+        if: always()
+        run: |
+          chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
+
   ts-sdk-integration:
+    needs: [ts-sdk-unit, python-sdk-unit]
     runs-on: self-hosted
     container:
       image: node:22-bookworm
@@ -36,6 +90,7 @@ jobs:
           chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
 
   python-sdk-integration:
+    needs: [ts-sdk-unit, python-sdk-unit]
     runs-on: self-hosted
     container:
       image: python:3.12-bookworm
@@ -70,6 +125,8 @@ jobs:
 
   notify-sdk-integration:
     needs:
+      - ts-sdk-unit
+      - python-sdk-unit
       - ts-sdk-integration
       - python-sdk-integration
     if: always()
@@ -83,12 +140,12 @@ jobs:
           NOTIFY_URL: https://api.hypercli.com/notify
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          if [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ]; then
+          if [ "${{ needs.ts-sdk-unit.result }}" = "success" ] && [ "${{ needs.python-sdk-unit.result }}" = "success" ] && [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ]; then
             STATUS="success"
-            MESSAGE="SDK integration tests passed"
+            MESSAGE="SDK unit and integration tests passed"
           else
             STATUS="failure"
-            MESSAGE="SDK integration tests failed"
+            MESSAGE="SDK unit or integration tests failed"
           fi
 
           python3 .github/scripts/ci_notify.py \
@@ -101,6 +158,6 @@ jobs:
             --channel github \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
-      - name: Fail workflow when integration jobs fail
-        if: needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success'
+      - name: Fail workflow when SDK jobs fail
+        if: needs.ts-sdk-unit.result != 'success' || needs.python-sdk-unit.result != 'success' || needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success'
         run: exit 1

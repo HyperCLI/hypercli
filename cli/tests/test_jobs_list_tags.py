@@ -30,7 +30,7 @@ def test_jobs_list_passes_tags(monkeypatch):
     assert result.exit_code == 0
     assert captured == {
         "state": "running",
-        "tags": {"team": "ml", "env": "prod"},
+        "tags": ["team=ml", "env=prod"],
         "page": 1,
         "page_size": 50,
     }

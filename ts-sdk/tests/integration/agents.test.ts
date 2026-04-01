@@ -1,4 +1,6 @@
 import { createIntegrationClient, agentsIt } from "./helpers.js";
+import { HyperCLI } from "../../src/client.js";
+import { APIError } from "../../src/errors.js";
 
 describe("TS SDK integration: agents", () => {
   if (!process.env.TEST_AGENT_API_KEY) {
@@ -13,6 +15,54 @@ describe("TS SDK integration: agents", () => {
     const client = createIntegrationClient();
     const result = await client.deployments.list();
 
-    expect(Array.isArray(result.items)).toBe(true);
+    expect(Array.isArray(result)).toBe(true);
+  });
+
+  agentsIt("creates an exact-agent child key that only sees one agent", async () => {
+    const client = createIntegrationClient();
+    const agentA = await client.deployments.create({
+      name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+      size: "small",
+      start: false,
+      tags: ["team=dev", "suite=ts-integration"],
+    });
+    const agentB = await client.deployments.create({
+      name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+      size: "small",
+      start: false,
+      tags: ["team=ops", "suite=ts-integration"],
+    });
+
+    try {
+      const child = await client.deployments.createScopedKey(agentA.id, "ts-scoped-child");
+      const scoped = new HyperCLI({
+        apiKey: process.env.TEST_API_KEY,
+        apiUrl: process.env.TEST_API_BASE,
+        agentApiKey: child.api_key,
+      });
+
+      const visible = await scoped.deployments.list();
+      const ids = new Set(visible.map((agent) => agent.id));
+      expect(ids.has(agentA.id)).toBe(true);
+      expect(ids.has(agentB.id)).toBe(false);
+
+      const fetched = await scoped.deployments.get(agentA.id);
+      expect(fetched.id).toBe(agentA.id);
+
+      const deniedGet = scoped.deployments.get(agentB.id);
+      await expect(deniedGet).rejects.toBeInstanceOf(APIError);
+      await expect(deniedGet).rejects.toMatchObject({ statusCode: 404 });
+
+      const deniedCreate = scoped.deployments.create({
+        name: `ts-denied-${Math.random().toString(16).slice(2, 10)}`,
+        size: "small",
+        start: false,
+      });
+      await expect(deniedCreate).rejects.toBeInstanceOf(APIError);
+      await expect(deniedCreate).rejects.toMatchObject({ statusCode: 403 });
+    } finally {
+      await client.deployments.delete(agentA.id);
+      await client.deployments.delete(agentB.id);
+    }
   });
 });

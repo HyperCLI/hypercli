@@ -177,6 +177,23 @@ Turnkey stores session data in:
 
 API key authentication is used for SDK, CLI, and direct API access.
 
+### Tagged API Keys
+
+API keys now carry raw tag strings that define access.
+
+Examples:
+
+- `jobs:*`
+- `jobs:self`
+- `agents:*`
+- `agents:self`
+- `user:self`
+- `api:self`
+- `team=dev`
+- `agent=<agent-id>`
+
+Resources also carry tags. Access is granted when the key's effective tags are a subset of the resource tags, or when the key has a family-wide baseline such as `jobs:*`.
+
 ### Getting Your API Key
 
 1. Visit the [console](https://console.hypercli.com)

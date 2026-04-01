@@ -20,7 +20,7 @@ job = client.jobs.create(
     env={"KEY": "value"},
     ports={"lb": 8080},
     auth=True,
-    tags={"team": "ml", "env": "prod"},
+    tags=["team=ml", "env=prod"],
 )
 ```
 
@@ -39,23 +39,23 @@ job = client.jobs.create(
 | `ports` | `dict` | `None` | Port mappings passed through to the API |
 | `auth` | `bool` | `False` | Require bearer auth on the load balancer |
 | `registry_auth` | `dict` | `None` | Private registry credentials |
-| `tags` | `dict[str, str]` | `None` | String tags for organization and filtering |
+| `tags` | `list[str] \| dict[str, str]` | `None` | Raw tag strings like `team=ml` |
 | `dockerfile` | `str` | `None` | Base64-encoded Dockerfile payload |
 | `dry_run` | `bool` | `False` | Validate without creating the job |
 
 ## Tags
 
-Jobs can include an optional `tags` dictionary of string key-value pairs.
+Jobs can include optional raw tag strings. The Python SDK also accepts a dict as a convenience and serializes it to `key=value` strings.
 
 ```python
 job = client.jobs.create(
     image="nvidia/cuda:12.0",
     command="python train.py",
     gpu_type="l40s",
-    tags={"team": "ml", "env": "prod"},
+    tags=["team=ml", "env=prod"],
 )
 
-jobs = client.jobs.list(tags={"team": "ml", "env": "prod"})
+jobs = client.jobs.list(tags=["team=ml", "env=prod"])
 ```
 
 ## Port Exposure
@@ -84,7 +84,7 @@ job = client.jobs.create(
 ```python
 jobs = client.jobs.list()
 jobs = client.jobs.list(state="running")
-jobs = client.jobs.list(tags={"team": "ml"})
+jobs = client.jobs.list(tags=["team=ml"])
 job = client.jobs.get("job_id")
 ```
 
@@ -104,7 +104,7 @@ job = client.jobs.get("job_id")
 | `price_per_second` | `float` | Per-second price |
 | `command` | `str \| None` | Decoded command when returned |
 | `env_vars` | `dict \| None` | Environment variables when returned |
-| `tags` | `dict \| None` | Tags when present |
+| `tags` | `list[str] \| None` | Tags when present, including auto-tags such as `owner=<id>` and `job=<id>` |
 | `cold_boot` | `bool` | Whether placement required cold provisioning |
 
 ## Logs, Metrics, Exec, And Lifecycle

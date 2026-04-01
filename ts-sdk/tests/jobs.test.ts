@@ -77,13 +77,13 @@ describe('Jobs API', () => {
         price_per_second: 1.0 / 3600,
         docker_image: 'ubuntu',
         runtime: 60,
-        tags: { env: 'prod', team: 'ml' },
+        tags: ['env=prod', 'team=ml'],
       }),
     } as unknown as HTTPClient;
 
     const job = await new Jobs(http).get('job-tagged');
 
-    expect(job.tags).toEqual({ env: 'prod', team: 'ml' });
+    expect(job.tags).toEqual(['env=prod', 'team=ml']);
   });
 
   it('includes tags when creating jobs', async () => {
@@ -101,17 +101,17 @@ describe('Jobs API', () => {
         price_per_second: 1.0 / 3600,
         docker_image: 'ubuntu',
         runtime: 60,
-        tags: { env: 'staging' },
+        tags: ['env=staging'],
       }),
     } as unknown as HTTPClient;
 
     await new Jobs(http).create({
       image: 'ubuntu',
-      tags: { env: 'staging' },
+      tags: ['env=staging'],
       dryRun: true,
     });
 
-    expect((http.post as any).mock.calls[0][1].tags).toEqual({ env: 'staging' });
+    expect((http.post as any).mock.calls[0][1].tags).toEqual(['env=staging']);
   });
 
   it('passes repeated tag filters to list', async () => {
@@ -122,7 +122,7 @@ describe('Jobs API', () => {
     await new Jobs(http).list(undefined, { env: 'prod', team: 'ml' });
 
     const params = (http.get as any).mock.calls[0][1];
-    expect(params.tag).toEqual(['env:prod', 'team:ml']);
+    expect(params.tag).toEqual(['env=prod', 'team=ml']);
   });
 
   it('sends tag filters and backend pagination when listing jobs', async () => {
@@ -136,7 +136,7 @@ describe('Jobs API', () => {
             gpu_type: 'l40s',
             gpu_count: 1,
             region: 'oh',
-            tags: { team: 'ml' },
+            tags: ['team=ml'],
             interruptible: true,
             price_per_hour: 1.2,
             price_per_second: 1.2 / 3600,
@@ -159,10 +159,10 @@ describe('Jobs API', () => {
 
     expect(result.totalCount).toBe(1);
     expect(result.page).toBe(2);
-    expect(result.jobs[0]?.tags).toEqual({ team: 'ml' });
+    expect(result.jobs[0]?.tags).toEqual(['team=ml']);
     expect((http.get as any).mock.calls[0]).toEqual([
       '/api/jobs',
-      { state: 'running', tag: ['team:ml', 'env:prod'], page: 2, page_size: 25 },
+      { state: 'running', tag: ['team=ml', 'env=prod'], page: 2, page_size: 25 },
     ]);
   });
 });

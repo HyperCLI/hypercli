@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Jobs API"""
 import base64
 from dataclasses import dataclass, field
@@ -25,7 +27,7 @@ class Job:
     time_left: int = 0
     command: str | None = None
     env_vars: dict[str, str] | None = None
-    tags: dict[str, str] | None = None
+    tags: list[str] | None = None
     hostname: str | None = None
     cold_boot: bool = True
     created_at: float | None = None
@@ -164,19 +166,28 @@ class Jobs:
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
+    @staticmethod
+    def _normalize_tags(tags: dict[str, str] | list[str] | None) -> list[str] | None:
+        if tags is None:
+            return None
+        if isinstance(tags, dict):
+            return [f"{key}={value}" for key, value in tags.items()]
+        return list(tags)
+
     def _list_params(
         self,
         *,
         state: str | None = None,
-        tags: dict[str, str] | None = None,
+        tags: dict[str, str] | list[str] | None = None,
         page: int | None = None,
         page_size: int | None = None,
     ) -> dict | None:
         params = {}
         if state:
             params["state"] = state
-        if tags:
-            params["tag"] = [f"{key}:{value}" for key, value in tags.items()]
+        normalized_tags = self._normalize_tags(tags)
+        if normalized_tags:
+            params["tag"] = normalized_tags
         if page is not None:
             params["page"] = page
         if page_size is not None:
@@ -188,7 +199,7 @@ class Jobs:
     def list_page(
         self,
         state: str = None,
-        tags: dict[str, str] | None = None,
+        tags: dict[str, str] | list[str] | None = None,
         page: int | None = None,
         page_size: int | None = None,
     ) -> JobListPage:
@@ -205,7 +216,7 @@ class Jobs:
     def list(
         self,
         state: str = None,
-        tags: dict[str, str] | None = None,
+        tags: dict[str, str] | list[str] | None = None,
         page: int | None = None,
         page_size: int | None = None,
     ) -> list[Job]:
@@ -231,7 +242,7 @@ class Jobs:
         ports: dict[str, int] = None,
         auth: bool = False,
         registry_auth: dict[str, str] = None,
-        tags: dict[str, str] = None,
+        tags: dict[str, str] | list[str] = None,
         dockerfile: str = None,
         dry_run: bool = False,
     ) -> Job:
@@ -274,8 +285,9 @@ class Jobs:
             payload["auth"] = auth
         if registry_auth:
             payload["registry_auth"] = registry_auth
-        if tags:
-            payload["tags"] = tags
+        normalized_tags = self._normalize_tags(tags)
+        if normalized_tags:
+            payload["tags"] = normalized_tags
         if dockerfile:
             payload["dockerfile"] = dockerfile
         if dry_run:

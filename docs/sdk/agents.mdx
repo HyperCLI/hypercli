@@ -90,6 +90,7 @@ Accepted create/start options:
 - `cpu`
 - `memory`
 - `config`
+- `tags`
 - `env`
 - `ports`
 - `routes`
@@ -110,6 +111,7 @@ Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw r
 agent = client.deployments.create_openclaw(
     name="docs-demo",
     start=True,
+    tags=["team=dev"],
 )
 ```
 
@@ -189,6 +191,7 @@ A hydrated `Agent` contains:
 - `cpu`
 - `memory`
 - `hostname`
+- `tags`
 - `jwt_token`
 - `jwt_expires_at`
 - `routes`
@@ -296,6 +299,15 @@ When the backend includes gateway metadata, the SDK hydrates `OpenClawAgent`.
 - `slack_upsert()`
 - `discord_upsert()`
 - `cron_list()`
+
+`resolve_gateway_token()` now uses `GET /api/deployments/{id}/inference/token`. Use that endpoint for scoped agent keys instead of reading `OPENCLAW_GATEWAY_TOKEN` from `/env`.
+
+To mint a child key for one exact agent:
+
+```python
+scoped = client.deployments.create_scoped_key(agent.id, name="agent-client")
+print(scoped["api_key"])
+```
 
 ### Gateway URL Semantics
 

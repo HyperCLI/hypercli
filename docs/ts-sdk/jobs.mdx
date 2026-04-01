@@ -34,6 +34,7 @@ const job = await client.jobs.create({
 | `ports` | `Record<string, number>` | Port exposure config |
 | `auth` | `boolean` | Require bearer auth on the load balancer |
 | `registryAuth` | `{ username, password }` | Private registry credentials |
+| `tags` | `string[] \| Record<string, string>` | Raw tag strings like `team=ml` |
 | `dockerfile` | `string` | Base64-encoded Dockerfile payload |
 | `dryRun` | `boolean` | Validate without creating the job |
 
@@ -61,10 +62,11 @@ const apiJob = await client.jobs.create({
 
 ```ts
 const running = await client.jobs.list("running");
+const tagged = await client.jobs.list({ tags: ["team=ml", "env=prod"] });
 const details = await client.jobs.get(job.jobId);
 ```
 
-The SDK currently exposes state filtering only. If you need tag-based filtering, call the REST API directly or use the Python SDK/CLI for now.
+Job responses include `tags` as a string array. Orchestra also adds system tags such as `owner=<id>`, `resource=<id>`, and `job=<id>`.
 
 ## Logs and Metrics
 

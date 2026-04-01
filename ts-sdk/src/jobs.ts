@@ -22,7 +22,7 @@ export interface Job {
   createdAt: number | null;
   startedAt: number | null;
   completedAt: number | null;
-  tags?: Record<string, string> | null;
+  tags?: string[] | null;
 }
 
 export interface ExecResult {
@@ -71,14 +71,14 @@ export interface CreateJobOptions {
     username: string;
     password: string;
   };
-  tags?: Record<string, string>;
+  tags?: Record<string, string> | string[];
   dockerfile?: string;
   dryRun?: boolean;
 }
 
 export interface ListJobsOptions {
   state?: string;
-  tags?: Record<string, string>;
+  tags?: Record<string, string> | string[];
   page?: number;
   pageSize?: number;
 }
@@ -111,6 +111,12 @@ function jobFromDict(data: any): Job {
     completedAt: data.completed_at || null,
     tags: data.tags || null,
   };
+}
+
+function normalizeTags(tags?: Record<string, string> | string[] | null): string[] | undefined {
+  if (!tags) return undefined;
+  if (Array.isArray(tags)) return [...tags];
+  return Object.entries(tags).map(([key, value]) => `${key}=${value}`);
 }
 
 function jobListPageFromDict(data: any): JobListPage {
@@ -169,8 +175,9 @@ export class Jobs {
     if (options.state) {
       params.state = options.state;
     }
-    if (options.tags && Object.keys(options.tags).length > 0) {
-      params.tag = Object.entries(options.tags).map(([key, value]) => `${key}:${value}`);
+    const normalizedTags = normalizeTags(options.tags);
+    if (normalizedTags && normalizedTags.length > 0) {
+      params.tag = normalizedTags;
     }
     if (options.page !== undefined) {
       params.page = options.page;
@@ -184,9 +191,9 @@ export class Jobs {
   /**
    * List all jobs
    */
-  async list(state?: string, tags?: Record<string, string>): Promise<Job[]>;
+  async list(state?: string, tags?: Record<string, string> | string[]): Promise<Job[]>;
   async list(options?: ListJobsOptions): Promise<Job[]>;
-  async list(stateOrOptions?: string | ListJobsOptions, tags?: Record<string, string>): Promise<Job[]> {
+  async list(stateOrOptions?: string | ListJobsOptions, tags?: Record<string, string> | string[]): Promise<Job[]> {
     let options: ListJobsOptions;
     if (typeof stateOrOptions === 'string') {
       options = { state: stateOrOptions, tags };
@@ -257,7 +264,8 @@ export class Jobs {
     if (ports) payload.ports = ports;
     if (auth) payload.auth = auth;
     if (registryAuth) payload.registry_auth = registryAuth;
-    if (tags) payload.tags = tags;
+    const normalizedTags = normalizeTags(tags);
+    if (normalizedTags) payload.tags = normalizedTags;
     if (dockerfile) payload.dockerfile = dockerfile;
     if (dryRun) payload.dry_run = true;
 

@@ -23,13 +23,18 @@ def _get_client():
 
 
 @app.command("create")
-def create_key(name: str = typer.Option("default", help="Key name")):
+def create_key(
+    name: str = typer.Option("default", help="Key name"),
+    tag: list[str] = typer.Option(None, "--tag", help="Repeat as --tag team=dev"),
+):
     """Create a new API key"""
     client = _get_client()
-    key = client.keys.create(name=name)
+    key = client.keys.create(name=name, tags=tag or None)
     console.print(f"\n[bold green]API key created![/bold green]\n")
     console.print(f"  Key ID:  {key.key_id}")
     console.print(f"  Name:    {key.name}")
+    if key.tags:
+        console.print(f"  Tags:    {', '.join(key.tags)}")
     console.print(f"  API Key: [bold]{key.api_key}[/bold]")
     console.print(f"\n[yellow]⚠ Save this key now — it won't be shown again.[/yellow]\n")
 
@@ -47,6 +52,7 @@ def list_keys():
     table = Table(title="API Keys")
     table.add_column("Key ID", style="dim")
     table.add_column("Name")
+    table.add_column("Tags")
     table.add_column("Key Preview")
     table.add_column("Active", justify="center")
     table.add_column("Created")
@@ -58,6 +64,7 @@ def list_keys():
         table.add_row(
             key.key_id[:8] + "...",
             key.name or "",
+            ", ".join(key.tags or []),
             key.api_key_preview or "",
             f"[{active_style}]{active}[/{active_style}]",
             _fmt_ts(key.created_at),

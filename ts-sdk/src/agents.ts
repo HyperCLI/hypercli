@@ -35,6 +35,12 @@ export interface AgentTokenResponse {
   expires_at?: string | null;
 }
 
+export interface AgentInferenceTokenResponse {
+  agent_id?: string;
+  openclaw_url?: string | null;
+  gateway_token?: string | null;
+}
+
 export interface AgentShellTokenResponse {
   agent_id?: string;
   jwt: string;
@@ -102,6 +108,7 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
   cpu?: number;
   memory?: number;
   config?: Record<string, any>;
+  tags?: string[];
   dryRun?: boolean;
   start?: boolean;
 }
@@ -153,6 +160,7 @@ export interface AgentStateFields {
   cpu: number;
   memory: number;
   hostname?: string | null;
+  tags?: string[];
   jwtToken?: string | null;
   jwtExpiresAt?: Date | null;
   startedAt?: Date | null;
@@ -178,6 +186,7 @@ export interface AgentHydrationData {
   cpu?: number;
   memory?: number;
   hostname?: string | null;
+  tags?: string[] | null;
   jwt_token?: string | null;
   jwt_expires_at?: string | null;
   started_at?: string | null;
@@ -346,6 +355,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     cpu: data.cpu ?? 0,
     memory: data.memory ?? 0,
     hostname: data.hostname ?? null,
+    tags: Array.isArray(data.tags) ? data.tags : [],
     jwtToken: data.jwt_token ?? null,
     jwtExpiresAt: parseDate(data.jwt_expires_at),
     startedAt: parseDate(data.started_at),
@@ -441,6 +451,7 @@ export class Agent {
   public readonly cpu: number;
   public readonly memory: number;
   public readonly hostname: string | null;
+  public readonly tags: string[];
   public jwtToken: string | null;
   public jwtExpiresAt: Date | null;
   public readonly startedAt: Date | null;
@@ -466,6 +477,7 @@ export class Agent {
     this.cpu = fields.cpu;
     this.memory = fields.memory;
     this.hostname = fields.hostname ?? null;
+    this.tags = [...(fields.tags ?? [])];
     this.jwtToken = fields.jwtToken ?? null;
     this.jwtExpiresAt = fields.jwtExpiresAt ?? null;
     this.startedAt = fields.startedAt ?? null;
@@ -625,8 +637,9 @@ export class OpenClawAgent extends Agent {
    */
   async resolveGatewayToken(): Promise<string | null> {
     if (this.gatewayToken) return this.gatewayToken;
-    const envData = await this.env();
-    this.gatewayToken = envData.OPENCLAW_GATEWAY_TOKEN ?? null;
+    const tokenData = await this.requireDeployments().inferenceToken(this.id);
+    this.gatewayToken = tokenData.gateway_token ?? null;
+    this.gatewayUrl = tokenData.openclaw_url ?? this.gatewayUrl;
     return this.gatewayToken;
   }
 
@@ -1201,6 +1214,7 @@ export class Deployments {
     if (options.size) body.size = options.size;
     if (options.cpu !== undefined) body.cpu = options.cpu;
     if (options.memory !== undefined) body.memory = options.memory;
+    if (options.tags?.length) body.tags = [...options.tags];
 
     const data = await this.http.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
     const agent = this.hydrateAgent(data);
@@ -1300,6 +1314,16 @@ export class Deployments {
 
   async refreshToken(agentId: string): Promise<AgentTokenResponse> {
     return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
+  }
+
+  async inferenceToken(agentId: string): Promise<AgentInferenceTokenResponse> {
+    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/inference/token`);
+  }
+
+  async createScopedKey(agentId: string, name?: string): Promise<Record<string, any>> {
+    const payload: Record<string, string> = {};
+    if (name) payload.name = name;
+    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/keys`, Object.keys(payload).length ? payload : undefined);
   }
 
   async logsToken(agentId: string): Promise<AgentLogsTokenResponse> {

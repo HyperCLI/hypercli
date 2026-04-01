@@ -6,6 +6,7 @@ import type { HTTPClient } from './http.js';
 export interface ApiKey {
   keyId: string;
   name: string;
+  tags: string[];
   apiKey: string | null; // Full key only on create
   apiKeyPreview: string | null; // Masked key on list
   last4: string | null;
@@ -18,6 +19,7 @@ function apiKeyFromDict(data: any): ApiKey {
   return {
     keyId: data.key_id || '',
     name: data.name || '',
+    tags: Array.isArray(data.tags) ? data.tags : [],
     apiKey: data.api_key || null,
     apiKeyPreview: data.api_key_preview || null,
     last4: data.last4 || null,
@@ -33,8 +35,12 @@ export class KeysAPI {
   /**
    * Create a new API key
    */
-  async create(name: string = 'default'): Promise<ApiKey> {
-    const data = await this.http.post('/api/keys', { name });
+  async create(name: string = 'default', tags?: string[]): Promise<ApiKey> {
+    const payload: Record<string, unknown> = { name };
+    if (tags !== undefined) {
+      payload.tags = tags;
+    }
+    const data = await this.http.post('/api/keys', payload);
     return apiKeyFromDict(data);
   }
 
