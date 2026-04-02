@@ -11,14 +11,14 @@ def get_client() -> HyperCLI:
     return HyperCLI()
 
 
-def _parse_tags(tag_args: list[str]) -> dict[str, str]:
-    tags: dict[str, str] = {}
+def _parse_tags(tag_args: list[str]) -> list[str]:
+    tags: list[str] = []
     for tag in tag_args:
         key, sep, value = tag.partition("=")
         if not sep or not key or not value:
             console.print(f"[red]Error:[/red] Invalid tag '{tag}'. Expected KEY=VALUE.")
             raise typer.Exit(1)
-        tags[key] = value
+        tags.append(tag)
     return tags
 
 

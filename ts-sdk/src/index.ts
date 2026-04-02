@@ -112,7 +112,6 @@ export {
   type AgentExecResult,
   type AgentTokenResponse,
   type AgentShellTokenResponse,
-  type AgentListResponse,
   type AgentRouteConfig,
   type RegistryAuth,
   type BuildAgentConfigOptions,

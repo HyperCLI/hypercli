@@ -21,7 +21,7 @@ class DummyHTTP:
                     "price_per_second": 0.0003,
                     "docker_image": "nvidia/cuda",
                     "runtime": 120,
-                    "tags": {"team": "ml", "env": "prod"},
+                    "tags": ["team=ml", "env=prod"],
                 }
             ]
         }
@@ -58,11 +58,11 @@ def test_job_from_dict_preserves_tags():
             "price_per_second": 0.0003,
             "docker_image": "nvidia/cuda",
             "runtime": 120,
-            "tags": {"team": "ml"},
+            "tags": ["team=ml"],
         }
     )
 
-    assert job.tags == {"team": "ml"}
+    assert job.tags == ["team=ml"]
 
 
 def test_jobs_list_sends_repeated_tag_filters():
@@ -71,11 +71,11 @@ def test_jobs_list_sends_repeated_tag_filters():
 
     result = jobs.list(state="running", tags={"team": "ml", "env": "prod"})
 
-    assert result[0].tags == {"team": "ml", "env": "prod"}
+    assert result[0].tags == ["team=ml", "env=prod"]
     assert http.calls[0] == (
         "get",
         "/api/jobs",
-        {"state": "running", "tag": ["team:ml", "env:prod"]},
+        {"state": "running", "tag": ["team=ml", "env=prod"]},
     )
 
 
@@ -90,7 +90,7 @@ def test_jobs_list_page_sends_backend_pagination():
     assert http.calls[0] == (
         "get",
         "/api/jobs",
-        {"state": "running", "tag": ["team:ml"], "page": 2, "page_size": 25},
+        {"state": "running", "tag": ["team=ml"], "page": 2, "page_size": 25},
     )
 
 
@@ -104,8 +104,8 @@ def test_jobs_create_includes_tags():
         tags={"team": "ml", "env": "prod"},
     )
 
-    assert result.tags == {"team": "ml", "env": "prod"}
-    assert http.calls[0][2]["tags"] == {"team": "ml", "env": "prod"}
+    assert result.tags == ["team=ml", "env=prod"]
+    assert http.calls[0][2]["tags"] == ["team=ml", "env=prod"]
 
 
 def test_job_from_dict_preserves_constraints():

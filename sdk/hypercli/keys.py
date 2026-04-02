@@ -10,6 +10,7 @@ if TYPE_CHECKING:
 class ApiKey:
     key_id: str
     name: str
+    tags: list[str]
     api_key: Optional[str]  # Full key only on create
     api_key_preview: Optional[str]  # Masked key on list
     last4: Optional[str]
@@ -22,6 +23,7 @@ class ApiKey:
         return cls(
             key_id=data.get("key_id", ""),
             name=data.get("name", ""),
+            tags=list(data.get("tags") or []),
             api_key=data.get("api_key"),
             api_key_preview=data.get("api_key_preview"),
             last4=data.get("last4"),
@@ -37,9 +39,12 @@ class KeysAPI:
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
-    def create(self, name: str = "default") -> ApiKey:
+    def create(self, name: str = "default", tags: list[str] | None = None) -> ApiKey:
         """Create a new API key"""
-        data = self._http.post("/api/keys", json={"name": name})
+        payload = {"name": name}
+        if tags is not None:
+            payload["tags"] = tags
+        data = self._http.post("/api/keys", json=payload)
         return ApiKey.from_dict(data)
 
     def list(self) -> List[ApiKey]:

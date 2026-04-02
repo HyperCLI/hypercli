@@ -64,3 +64,10 @@ def test_agents_base_tracks_product_base_when_agents_base_missing(monkeypatch):
 
     assert config.get_agents_api_base_url() == "https://api.dev.hypercli.com/agents"
     assert config.get_agents_ws_url() == "wss://api.agents.dev.hypercli.com/ws"
+
+
+def test_agents_base_can_be_derived_from_explicit_product_base():
+    import hypercli.config as config
+
+    assert config.get_agents_api_base_url_from_product_base("https://api.dev.hypercli.com") == "https://api.dev.hypercli.com/agents"
+    assert config.get_agents_ws_url_from_product_base("https://api.dev.hypercli.com") == "wss://api.agents.dev.hypercli.com/ws"

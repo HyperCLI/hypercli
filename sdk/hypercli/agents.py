@@ -268,6 +268,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "cpu": data.get("cpu", 0),
         "memory": data.get("memory", 0),
         "hostname": data.get("hostname"),
+        "tags": list(data.get("tags") or []),
         "jwt_token": data.get("jwt_token"),
         "jwt_expires_at": _parse_dt(data.get("jwt_expires_at")),
         "started_at": _parse_dt(data.get("started_at")),
@@ -296,6 +297,7 @@ class Agent:
     cpu: int = 0              # cores
     memory: int = 0           # GB
     hostname: Optional[str] = None
+    tags: list[str] = field(default_factory=list)
     jwt_token: Optional[str] = None
     jwt_expires_at: Optional[datetime] = None
     started_at: Optional[datetime] = None
@@ -449,8 +451,9 @@ class OpenClawAgent(Agent):
         """Resolve the gateway token. Fetches from pod env if not set locally."""
         if self.gateway_token:
             return self.gateway_token
-        env_data = self.env()
-        self.gateway_token = env_data.get("OPENCLAW_GATEWAY_TOKEN")
+        token_data = self._require_deployments().inference_token(self.id)
+        self.gateway_token = token_data.get("gateway_token")
+        self.gateway_url = token_data.get("openclaw_url") or self.gateway_url
         return self.gateway_token
 
     def gateway(self, **kwargs) -> "GatewayClient":
@@ -977,6 +980,7 @@ class Deployments:
         cpu: int = None,
         memory: int = None,
         config: dict = None,
+        tags: list[str] = None,
         env: dict = None,
         ports: list = None,
         routes: dict = None,
@@ -1031,6 +1035,8 @@ class Deployments:
             body["cpu"] = cpu
         if memory is not None:
             body["memory"] = memory
+        if tags:
+            body["tags"] = list(tags)
         data = self._post(AGENTS_API_PREFIX, json=body)
         agent = self._hydrate_agent(data)
         if isinstance(agent, OpenClawAgent):
@@ -1047,6 +1053,7 @@ class Deployments:
         cpu: int = None,
         memory: int = None,
         config: dict = None,
+        tags: list[str] = None,
         env: dict = None,
         ports: list = None,
         routes: dict = None,
@@ -1069,6 +1076,7 @@ class Deployments:
             cpu=cpu,
             memory=memory,
             config=config,
+            tags=tags,
             env=env,
             ports=ports,
             routes=_resolve_openclaw_routes(
@@ -1267,6 +1275,14 @@ class Deployments:
             Dict with agent_id, pod_id, token, expires_at.
         """
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/token")
+
+    def inference_token(self, agent_id: str) -> dict:
+        """Fetch the scoped OpenClaw gateway token for an agent."""
+        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/inference/token")
+
+    def create_scoped_key(self, agent_id: str, name: str | None = None) -> dict:
+        payload = {"name": name} if name is not None else {}
+        return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/keys", json=payload or None)
 
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived JWT token for backend log streaming."""

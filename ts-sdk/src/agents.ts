@@ -2,7 +2,8 @@
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
-import type { HTTPClient } from './http.js';
+import { APIError } from './errors.js';
+import { HTTPClient } from './http.js';
 import {
   GatewayClient,
   type ChatAttachment,
@@ -35,6 +36,12 @@ export interface AgentTokenResponse {
   expires_at?: string | null;
 }
 
+export interface AgentInferenceTokenResponse {
+  agent_id?: string;
+  openclaw_url?: string | null;
+  gateway_token?: string | null;
+}
+
 export interface AgentShellTokenResponse {
   agent_id?: string;
   jwt: string;
@@ -49,11 +56,6 @@ export interface AgentLogsTokenResponse {
   jwt: string;
   expires_at?: string | null;
   ws_url?: string;
-}
-
-export interface AgentListResponse {
-  items: Agent[];
-  budget?: Record<string, any>;
 }
 
 export interface AgentRouteConfig {
@@ -102,6 +104,7 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
   cpu?: number;
   memory?: number;
   config?: Record<string, any>;
+  tags?: string[];
   dryRun?: boolean;
   start?: boolean;
 }
@@ -153,6 +156,7 @@ export interface AgentStateFields {
   cpu: number;
   memory: number;
   hostname?: string | null;
+  tags?: string[];
   jwtToken?: string | null;
   jwtExpiresAt?: Date | null;
   startedAt?: Date | null;
@@ -178,6 +182,7 @@ export interface AgentHydrationData {
   cpu?: number;
   memory?: number;
   hostname?: string | null;
+  tags?: string[] | null;
   jwt_token?: string | null;
   jwt_expires_at?: string | null;
   started_at?: string | null;
@@ -346,6 +351,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     cpu: data.cpu ?? 0,
     memory: data.memory ?? 0,
     hostname: data.hostname ?? null,
+    tags: Array.isArray(data.tags) ? data.tags : [],
     jwtToken: data.jwt_token ?? null,
     jwtExpiresAt: parseDate(data.jwt_expires_at),
     startedAt: parseDate(data.started_at),
@@ -441,6 +447,7 @@ export class Agent {
   public readonly cpu: number;
   public readonly memory: number;
   public readonly hostname: string | null;
+  public readonly tags: string[];
   public jwtToken: string | null;
   public jwtExpiresAt: Date | null;
   public readonly startedAt: Date | null;
@@ -466,6 +473,7 @@ export class Agent {
     this.cpu = fields.cpu;
     this.memory = fields.memory;
     this.hostname = fields.hostname ?? null;
+    this.tags = [...(fields.tags ?? [])];
     this.jwtToken = fields.jwtToken ?? null;
     this.jwtExpiresAt = fields.jwtExpiresAt ?? null;
     this.startedAt = fields.startedAt ?? null;
@@ -625,8 +633,9 @@ export class OpenClawAgent extends Agent {
    */
   async resolveGatewayToken(): Promise<string | null> {
     if (this.gatewayToken) return this.gatewayToken;
-    const envData = await this.env();
-    this.gatewayToken = envData.OPENCLAW_GATEWAY_TOKEN ?? null;
+    const tokenData = await this.requireDeployments().inferenceToken(this.id);
+    this.gatewayToken = tokenData.gateway_token ?? null;
+    this.gatewayUrl = tokenData.openclaw_url ?? this.gatewayUrl;
     return this.gatewayToken;
   }
 
@@ -1151,6 +1160,7 @@ export class Deployments {
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
+  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'delete'>;
 
   constructor(
     private readonly http: HTTPClient,
@@ -1161,6 +1171,7 @@ export class Deployments {
     this.apiKey = agentApiKey || (http as any).apiKey;
     this.apiBase = resolveAgentsApiBase(agentApiBase || getAgentsApiBaseUrl());
     this.agentsWsUrl = normalizeAgentsWsUrl(agentsWsUrl || getConfigValue('AGENTS_WS_URL') || defaultAgentsWsUrl(this.apiBase));
+    this.agentHttp = http instanceof HTTPClient ? new HTTPClient(this.apiBase, this.apiKey) : http;
   }
 
   get agentApiKey(): string {
@@ -1186,9 +1197,26 @@ export class Deployments {
   private async fetchRaw(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers ?? {});
     headers.set('Authorization', `Bearer ${this.apiKey}`);
-    const response = await fetch(`${this.apiBase}${path}`, { ...init, headers });
+    const contentType = headers.get('Content-Type');
+    const body =
+      init.body && contentType?.includes('application/json') && typeof init.body !== 'string'
+        ? JSON.stringify(init.body)
+        : init.body;
+    const response = await fetch(`${this.apiBase}${path}`, {
+      ...init,
+      headers,
+      body,
+    });
     if (!response.ok) {
-      throw new Error(`Agent request failed: ${response.status} ${response.statusText}`);
+      let detail = response.statusText;
+      try {
+        const payload = await response.clone().json() as Record<string, unknown>;
+        detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
+      } catch {
+        const text = await response.text();
+        detail = text || response.statusText;
+      }
+      throw new APIError(response.status, detail);
     }
     return response;
   }
@@ -1201,8 +1229,9 @@ export class Deployments {
     if (options.size) body.size = options.size;
     if (options.cpu !== undefined) body.cpu = options.cpu;
     if (options.memory !== undefined) body.memory = options.memory;
+    if (options.tags?.length) body.tags = [...options.tags];
 
-    const data = await this.http.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
+    const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent) {
       agent.gatewayToken = gatewayToken;
@@ -1225,24 +1254,21 @@ export class Deployments {
   }
 
   async budget(): Promise<Record<string, any>> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
+    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
   }
 
   async metrics(agentId: string): Promise<Record<string, any>> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
+    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
   }
 
-  async list(): Promise<AgentListResponse> {
-    const data = await this.http.get<any>(DEPLOYMENTS_API_PREFIX);
+  async list(): Promise<Agent[]> {
+    const data = await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX);
     const items = Array.isArray(data) ? data : data.items ?? [];
-    return {
-      items: items.map((item: AgentHydrationData) => this.hydrateAgent(item)),
-      budget: Array.isArray(data) ? undefined : data.budget,
-    };
+    return items.map((item: AgentHydrationData) => this.hydrateAgent(item));
   }
 
   async get(agentId: string): Promise<Agent> {
-    const data = await this.http.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    const data = await this.agentHttp.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
     return this.hydrateAgent(data);
   }
 
@@ -1267,7 +1293,7 @@ export class Deployments {
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
-    const data = await this.http.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
+    const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent) {
       agent.gatewayToken = gatewayToken;
@@ -1290,24 +1316,34 @@ export class Deployments {
   }
 
   async stop(agentId: string): Promise<Agent> {
-    const data = await this.http.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
+    const data = await this.agentHttp.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
     return this.hydrateAgent(data);
   }
 
   async delete(agentId: string): Promise<Record<string, any>> {
-    return this.http.delete(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    return this.agentHttp.delete(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
   }
 
   async refreshToken(agentId: string): Promise<AgentTokenResponse> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
+    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
+  }
+
+  async inferenceToken(agentId: string): Promise<AgentInferenceTokenResponse> {
+    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/inference/token`);
+  }
+
+  async createScopedKey(agentId: string, name?: string): Promise<Record<string, any>> {
+    const payload: Record<string, string> = {};
+    if (name) payload.name = name;
+    return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/keys`, Object.keys(payload).length ? payload : undefined);
   }
 
   async logsToken(agentId: string): Promise<AgentLogsTokenResponse> {
-    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
+    return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
   }
 
   async env(agentId: string): Promise<{ agent_id: string; env: Record<string, string> }> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
+    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
@@ -1317,7 +1353,7 @@ export class Deployments {
       timeout: options.timeout ?? 30,
     };
     if (options.dryRun) payload.dry_run = true;
-    const data = await this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/exec`, payload);
+    const data = await this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/exec`, payload);
     return execResultFromDict(data);
   }
 
@@ -1455,7 +1491,7 @@ export class Deployments {
     const selectedShell = shell ?? '/bin/bash';
     const payload: Record<string, any> = { shell: selectedShell };
     if (dryRun) payload.dry_run = true;
-    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
+    return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
   }
 
   async shellConnect(agentId: string, shell?: string): Promise<WebSocket> {

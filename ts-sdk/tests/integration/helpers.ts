@@ -6,7 +6,7 @@ export const TEST_API_KEY = process.env.TEST_API_KEY?.trim() || "";
 export const TEST_API_BASE =
   process.env.TEST_API_BASE?.trim() || "https://api.hypercli.com";
 export const TEST_AGENT_API_KEY = process.env.TEST_AGENT_API_KEY?.trim() || "";
-export const EXPECTED_TEST_EMAIL = "agent@nedos.io";
+export const EXPECTED_TEST_EMAIL = process.env.EXPECTED_TEST_EMAIL?.trim() || "agent@nedos.io";
 
 export const integrationIt = TEST_API_KEY ? it : it.skip;
 export const integrationDescribe = TEST_API_KEY ? describe : describe.skip;

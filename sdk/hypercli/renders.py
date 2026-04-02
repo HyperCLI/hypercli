@@ -1,3 +1,5 @@
+from __future__ import annotations
+
 """Renders API"""
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, List, Optional
@@ -12,6 +14,7 @@ class Render:
     state: str
     template: str | None = None
     render_type: str | None = None
+    tags: list[str] | None = None
     result_url: str | None = None
     error: str | None = None
     created_at: float | None = None
@@ -25,6 +28,7 @@ class Render:
             state=data.get("state", ""),
             template=data.get("template") or data.get("meta", {}).get("template"),
             render_type=data.get("type") or data.get("render_type"),
+            tags=list(data.get("tags") or []),
             result_url=data.get("result_url"),
             error=data.get("error"),
             created_at=data.get("created_at"),
@@ -59,6 +63,7 @@ class Renders:
         state: str = None,
         template: str = None,
         type: str = None,
+        tags: list[str] | None = None,
     ) -> list[Render]:
         """List all renders.
 
@@ -74,6 +79,8 @@ class Renders:
             params["template"] = template
         if type:
             params["type"] = type
+        if tags:
+            params["tag"] = list(tags)
 
         data = self._http.get("/api/renders", params=params or None)
         # Handle paginated response
@@ -90,6 +97,7 @@ class Renders:
         params: dict,
         render_type: str = "comfyui",
         notify_url: str = None,
+        tags: list[str] | None = None,
     ) -> Render:
         """Create a new render.
 
@@ -104,6 +112,8 @@ class Renders:
         }
         if notify_url:
             payload["notify_url"] = notify_url
+        if tags:
+            payload["tags"] = list(tags)
 
         data = self._http.post("/api/renders", json=payload)
         return Render.from_dict(data)

@@ -5,21 +5,18 @@ description: Tag jobs on creation, filter job lists, and read tags back in respo
 
 ## Overview
 
-Job tags are optional string key-value pairs you can attach at creation time:
+Job tags are optional raw tag strings you can attach at creation time:
 
 ```json
 {
-  "tags": {
-    "team": "ml",
-    "env": "prod"
-  }
+  "tags": ["team=ml", "env=prod"]
 }
 ```
 
 - Orchestra `POST https://api.hypercli.com/api/jobs` accepts `tags`
-- Orchestra `GET https://api.hypercli.com/api/jobs` filters with repeated `tag=key:value`
+- Orchestra `GET https://api.hypercli.com/api/jobs` filters with repeated `tag=key=value`
 - HyperClaw `POST https://api.hypercli.com/api/x402/job` also accepts `tags`
-- Job responses include `tags` when present
+- Job responses include user tags plus system tags like `owner=<id>`, `resource=<id>`, and `job=<id>`
 
 ## Create A Tagged Job
 
@@ -32,23 +29,20 @@ curl -X POST https://api.hypercli.com/api/jobs \
     "gpu_count": 1,
     "docker_image": "nvidia/cuda:12.0",
     "command": "cHl0aG9uIHRyYWluLnB5",
-    "tags": {
-      "team": "ml",
-      "env": "prod"
-    }
+    "tags": ["team=ml", "env=prod"]
   }'
 ```
 
-Use the same `tags` object with HyperClaw x402 job creation at `POST https://api.hypercli.com/api/x402/job`.
+Use the same `tags` array with HyperClaw x402 job creation at `POST https://api.hypercli.com/api/x402/job`.
 
 ## Filter Jobs By Tag
 
 ```bash
-curl "https://api.hypercli.com/api/jobs?tag=team:ml&tag=env:prod" \
+curl "https://api.hypercli.com/api/jobs?tag=team=ml&tag=env=prod" \
   -H "Authorization: Bearer <api-key>"
 ```
 
-Each `tag` query param is an exact `key:value` match. In the CLI, the same filter is:
+Each `tag` query param is an exact `key=value` match. In the CLI, the same filter is:
 
 ```bash
 hyper jobs list --tag team=ml --tag env=prod

@@ -788,6 +788,73 @@ def test_agents_refresh_token(agents_client):
         assert result["token"] == "jwt-new-token"
 
 
+def test_agents_inference_token(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "agent_id": "agent-123",
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "gateway_token": "gw-inference",
+        }
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        result = agents_client.inference_token("agent-123")
+
+        assert result["gateway_token"] == "gw-inference"
+        assert mock_client.get.call_args[0][0].endswith("/deployments/agent-123/inference/token")
+
+
+def test_agents_create_scoped_key(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "key_id": "key-123",
+            "name": "agent-client",
+            "api_key": "hyper_api_scoped",
+            "tags": ["agent=agent-123"],
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        result = agents_client.create_scoped_key("agent-123", name="agent-client")
+
+        assert result["api_key"] == "hyper_api_scoped"
+        assert mock_client.post.call_args[0][0].endswith("/deployments/agent-123/keys")
+        assert mock_client.post.call_args[1]["json"] == {"name": "agent-client"}
+
+
+def test_openclaw_agent_resolve_gateway_token_uses_inference_endpoint():
+    manager = Mock()
+    manager.inference_token.return_value = {
+        "openclaw_url": "wss://openclaw-test.hypercli.com",
+        "gateway_token": "gw-fetched",
+    }
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        _deployments=manager,
+    )
+
+    token = agent.resolve_gateway_token()
+
+    assert token == "gw-fetched"
+    assert agent.gateway_token == "gw-fetched"
+    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    manager.inference_token.assert_called_once_with("agent-123")
+
+
 def test_agents_api_error(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()

@@ -74,6 +74,7 @@ Create/start options:
 - `cpu`
 - `memory`
 - `config`
+- `tags`
 - `env`
 - `ports`
 - `routes`
@@ -93,6 +94,7 @@ Use the OpenClaw-specific helpers when you want the SDK to provide the standard 
 const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
   start: true,
+  tags: ["team=dev"],
 });
 ```
 
@@ -153,6 +155,7 @@ Important fields:
 - `state`
 - `name`
 - `hostname`
+- `tags`
 - `cpu`
 - `memory`
 - `jwtToken`
@@ -257,6 +260,15 @@ Important additions:
 - `slackUpsert()`
 - `discordUpsert()`
 - `cronList()`
+
+`resolveGatewayToken()` now uses `GET /api/deployments/{id}/inference/token`, which is the supported path for scoped agent access.
+
+To mint a child key for one exact agent:
+
+```ts
+const scoped = await client.deployments.createScopedKey(agent.id, "agent-client");
+console.log(scoped.api_key);
+```
 
 ### Gateway URL Semantics
 

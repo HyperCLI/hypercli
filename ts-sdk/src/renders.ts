@@ -8,6 +8,7 @@ export interface Render {
   state: string;
   template: string | null;
   renderType: string | null;
+  tags: string[] | null;
   resultUrl: string | null;
   error: string | null;
   createdAt: number | null;
@@ -27,6 +28,7 @@ function renderFromDict(data: any): Render {
     state: data.state || '',
     template: data.template || data.meta?.template || null,
     renderType: data.type || data.render_type || null,
+    tags: Array.isArray(data.tags) ? data.tags : null,
     resultUrl: data.result_url || null,
     error: data.error || null,
     createdAt: data.created_at || null,
@@ -53,11 +55,15 @@ export class Renders {
     state?: string;
     template?: string;
     type?: string;
+    tags?: string[];
   }): Promise<Render[]> {
     const params: Record<string, string> = {};
     if (options?.state) params.state = options.state;
     if (options?.template) params.template = options.template;
     if (options?.type) params.type = options.type;
+    if (options?.tags?.length) {
+      (params as unknown as Record<string, string | string[]>).tag = [...options.tags];
+    }
 
     const data = await this.http.get('/api/renders', params);
     const items = typeof data === 'object' && data.items ? data.items : data;
@@ -78,7 +84,8 @@ export class Renders {
   async create(
     params: Record<string, any>,
     renderType: string = 'comfyui',
-    notifyUrl?: string
+    notifyUrl?: string,
+    tags?: string[],
   ): Promise<Render> {
     const payload: any = {
       type: renderType,
@@ -86,6 +93,9 @@ export class Renders {
     };
     if (notifyUrl) {
       payload.notify_url = notifyUrl;
+    }
+    if (tags?.length) {
+      payload.tags = [...tags];
     }
 
     const data = await this.http.post('/api/renders', payload);

@@ -106,6 +106,7 @@ function renderFromX402(data: any): Render {
     state: render.state || '',
     template: render.template || render.meta?.template || null,
     renderType: render.type || render.render_type || null,
+    tags: Array.isArray(render.tags) ? render.tags : null,
     resultUrl: render.result_url || null,
     error: render.error || null,
     createdAt: render.created_at || null,

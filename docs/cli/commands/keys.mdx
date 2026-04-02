@@ -10,9 +10,29 @@ Create a new API key.
 ```bash
 hyper keys create
 hyper keys create --name ci-bot
+hyper keys create --name team-dev --tag jobs:self --tag team=dev
 ```
 
 The full API key value is only shown once at creation time.
+
+Tags are the entire authorization model for API keys.
+
+Common baseline tags:
+
+- `jobs:*`
+- `jobs:self`
+- `renders:*`
+- `renders:self`
+- `agents:*`
+- `agents:self`
+- `user:self`
+- `api:self`
+
+Common selector tags:
+
+- `team=dev`
+- `project=alpha`
+- `agent=<agent-id>`
 
 ## list
 
@@ -26,6 +46,7 @@ The table includes:
 
 - key ID
 - name
+- tags
 - preview
 - active status
 - created time
