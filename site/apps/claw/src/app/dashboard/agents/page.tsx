@@ -858,6 +858,7 @@ export default function AgentsPage() {
   // Settings tab state
   const [settingsName, setSettingsName] = useState("");
   const [settingsDesc, setSettingsDesc] = useState("");
+  const [savingName, setSavingName] = useState(false);
   const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
   const [openclawSaving, setOpenclawSaving] = useState(false);
   const [openclawError, setOpenclawError] = useState<string | null>(null);
@@ -1602,6 +1603,25 @@ export default function AgentsPage() {
     } finally {
       setDeletingId(null);
       setPendingAgentDelete(null);
+    }
+  };
+
+  const handleSaveName = async () => {
+    if (!selectedAgent || selectedAgent.state !== "STOPPED") return;
+    const trimmed = settingsName.trim();
+    if (!trimmed || trimmed === (selectedAgent.name || "")) return;
+    setSavingName(true);
+    try {
+      const token = await getToken();
+      await agentApiFetch(`/deployments/${selectedAgent.id}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ name: trimmed }),
+      });
+      await fetchAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to rename agent");
+    } finally {
+      setSavingName(false);
     }
   };
 
@@ -2944,10 +2964,23 @@ export default function AgentsPage() {
                               <input
                                 value={settingsName}
                                 onChange={(e) => setSettingsName(e.target.value)}
-                                className="flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+                                disabled={selectedAgent.state !== "STOPPED"}
+                                className={`flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong ${selectedAgent.state !== "STOPPED" ? "opacity-50 cursor-not-allowed" : ""}`}
                                 placeholder="Agent name"
                               />
+                              {selectedAgent.state === "STOPPED" && settingsName.trim() && settingsName.trim() !== (selectedAgent.name || "") && (
+                                <button
+                                  onClick={handleSaveName}
+                                  disabled={savingName}
+                                  className="flex-shrink-0 px-3 py-2 rounded-lg text-sm bg-[#38D39F] text-[#0a0a0b] font-medium hover:bg-[#38D39F]/90 disabled:opacity-60"
+                                >
+                                  {savingName ? "Saving..." : "Save"}
+                                </button>
+                              )}
                             </div>
+                            {selectedAgent.state !== "STOPPED" && (
+                              <p className="text-xs text-text-muted mt-1">Stop the agent to change its name</p>
+                            )}
                           </div>
                           <div>
                             <label className="block text-sm text-text-secondary mb-1">Description</label>
