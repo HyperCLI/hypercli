@@ -194,12 +194,27 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
         }> = [];
 
         for (const uid of uids) {
-          const message = await client.fetchOne(String(uid), {
+          let message:
+            | {
+                envelope?: { from?: Array<{ address?: string | null }>; subject?: string | null };
+                source?: Buffer;
+                internalDate?: Date | string;
+              }
+            | null = null;
+
+          for await (const item of client.fetch(String(uid), {
             uid: true,
             envelope: true,
             source: true,
             internalDate: true,
-          });
+          }, { uid: true })) {
+            message = item as typeof message;
+            break;
+          }
+
+          if (!message) {
+            continue;
+          }
 
           const fromValue = message?.envelope?.from?.map((entry) => entry.address || "").join(" ") || "";
           const source = message?.source;

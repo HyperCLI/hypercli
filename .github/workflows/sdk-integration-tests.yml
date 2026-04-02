@@ -81,10 +81,10 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Install bootstrap dependencies
-        run: apt-get update && apt-get install -y python3 python3-pip
+        run: apt-get update && apt-get install -y python3 python3-pip python3-venv
 
       - name: Bootstrap live integration credentials
-        working-directory: .
+        working-directory: ${{ github.workspace }}
         run: |
           python3 -m venv .bootstrap-venv
           source .bootstrap-venv/bin/activate
@@ -100,7 +100,7 @@ jobs:
 
       - name: Cleanup bootstrapped credentials
         if: always()
-        working-directory: .
+        working-directory: ${{ github.workspace }}
         run: |
           if [ -d .bootstrap-venv ]; then
             source .bootstrap-venv/bin/activate
@@ -131,7 +131,7 @@ jobs:
       - uses: actions/checkout@v4
 
       - name: Bootstrap live integration credentials
-        working-directory: ..
+        working-directory: ${{ github.workspace }}
         run: |
           python -m venv .bootstrap-venv
           source .bootstrap-venv/bin/activate
@@ -153,7 +153,7 @@ jobs:
 
       - name: Cleanup bootstrapped credentials
         if: always()
-        working-directory: ..
+        working-directory: ${{ github.workspace }}
         run: |
           if [ -d .bootstrap-venv ]; then
             source .bootstrap-venv/bin/activate
