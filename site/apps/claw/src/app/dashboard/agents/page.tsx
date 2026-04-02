@@ -879,10 +879,14 @@ export default function AgentsPage() {
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
-      const data = await createAgentClient(token).list();
-      const items = (data.items || []).map(sdkAgentToPageAgent);
+      const agentClient = createAgentClient(token);
+      const [listedAgents, budgetData] = await Promise.all([
+        agentClient.list(),
+        agentClient.budget().catch(() => null),
+      ]);
+      const items = listedAgents.map(sdkAgentToPageAgent);
       setAgents(items);
-      setBudget((data.budget as AgentBudget | undefined) || null);
+      setBudget((budgetData as AgentBudget | null) || null);
       const currentId = selectedAgentIdRef.current;
       if (!currentId && items.length > 0) {
         setSelectedAgentId(items[0].id);

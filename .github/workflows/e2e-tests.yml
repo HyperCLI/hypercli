@@ -20,7 +20,7 @@ jobs:
     env:
       TEST_HOSTNAME: 127.0.0.1
       TEST_API_BASE_URL: https://api.dev.hypercli.com
-      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_EMAIL: ${{ vars.TEST_EMAIL }}
       TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ vars.TEST_IMAP_USER }}
@@ -48,6 +48,17 @@ jobs:
         run: |
           npm install
           npm run sdk:use-checkout
+
+      - name: Install bootstrap dependencies
+        run: apt-get update && apt-get install -y python3 python3-pip python3-venv
+
+      - name: Bootstrap console E2E API key
+        run: |
+          python3 -m venv .bootstrap-venv
+          source .bootstrap-venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install requests
+          python .github/scripts/bootstrap_console_test_key.py bootstrap --format github-env >> "$GITHUB_ENV"
 
       - name: Allocate local E2E ports
         run: |
@@ -84,6 +95,16 @@ jobs:
             site/playwright-report
             site/test-results
           if-no-files-found: ignore
+
+      - name: Cleanup bootstrapped credentials
+        if: always()
+        run: |
+          if [ -d .bootstrap-venv ]; then
+            source .bootstrap-venv/bin/activate
+          fi
+          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
+            python .github/scripts/bootstrap_console_test_key.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
+          fi
 
       - name: Restore runner workspace ownership
         if: always()
