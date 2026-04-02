@@ -21,9 +21,9 @@ jobs:
       TEST_HOSTNAME: 127.0.0.1
       TEST_API_BASE_URL: https://api.dev.hypercli.com
       TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
-      TEST_EMAIL: ${{ secrets.TEST_EMAIL }}
-      TEST_IMAP_HOST: ${{ secrets.TEST_IMAP_HOST }}
-      TEST_IMAP_USER: ${{ secrets.TEST_IMAP_USER }}
+      TEST_EMAIL: ${{ vars.TEST_EMAIL }}
+      TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
+      TEST_IMAP_USER: ${{ vars.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
     steps:

@@ -75,17 +75,33 @@ jobs:
         shell: bash
         working-directory: ts-sdk
     env:
-      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE: https://api.dev.hypercli.com
-      TEST_AGENT_API_KEY: ${{ secrets.TEST_AGENT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Install bootstrap dependencies
+        run: apt-get update && apt-get install -y python3 python3-pip
+
+      - name: Bootstrap live integration credentials
+        working-directory: .
+        run: |
+          python3 -m pip install requests
+          python3 .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"
 
       - name: Install TS SDK dependencies
         run: npm ci
 
       - name: Run TS SDK integration tests
         run: npm run test:integration
+
+      - name: Cleanup bootstrapped credentials
+        if: always()
+        working-directory: .
+        run: |
+          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
+            python3 .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
+          fi
 
       - name: Restore runner workspace ownership
         if: always()
@@ -103,11 +119,16 @@ jobs:
         shell: bash
         working-directory: sdk
     env:
-      TEST_API_KEY: ${{ secrets.TEST_API_KEY }}
+      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE: https://api.dev.hypercli.com
-      TEST_AGENT_API_KEY: ${{ secrets.TEST_AGENT_API_KEY }}
     steps:
       - uses: actions/checkout@v4
+
+      - name: Bootstrap live integration credentials
+        working-directory: ..
+        run: |
+          python -m pip install requests
+          python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"
 
       - name: Install Python SDK
         run: |
@@ -120,6 +141,14 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest -q tests/integration
+
+      - name: Cleanup bootstrapped credentials
+        if: always()
+        working-directory: ..
+        run: |
+          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
+            python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
+          fi
 
       - name: Restore runner workspace ownership
         if: always()
