@@ -540,7 +540,7 @@ describe('HyperClaw agents SDK', () => {
     expect((agent as OpenClawAgent).gatewayToken).toMatch(/^ab+/);
   });
 
-  it('list returns hydrated items and budget', async () => {
+  it('list returns hydrated items', async () => {
     const get = vi.fn().mockResolvedValue({
       items: [
         {
@@ -557,9 +557,8 @@ describe('HyperClaw agents SDK', () => {
 
     const result = await agents.list();
 
-    expect(result.items).toHaveLength(1);
-    expect(result.items[0]).toBeInstanceOf(Agent);
-    expect(result.budget).toEqual({ total_cpu: 8 });
+    expect(result).toHaveLength(1);
+    expect(result[0]).toBeInstanceOf(Agent);
   });
 
   it('exec forwards dry_run payload', async () => {
