@@ -7,7 +7,7 @@ export default function SettingsPage() {
   const { user, logout } = useAgentAuth();
 
   return (
-    <div>
+    <div className="h-full overflow-y-auto">
       {/* Header */}
       <div className="mb-8">
         <h1 className="text-3xl font-bold text-foreground">Settings</h1>
