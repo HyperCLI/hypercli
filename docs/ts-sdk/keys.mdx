@@ -1,0 +1,112 @@
+---
+title: Keys SDK
+description: Generate API keys from TypeScript apps, including narrowed scoped keys for users, jobs, renders, and exact agents.
+---
+
+## Overview
+
+Use `client.keys` to manage account API keys from TypeScript apps.
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const client = new HyperCLI({ apiKey: process.env.HYPER_API_KEY });
+```
+
+The TypeScript SDK exposes:
+
+- `client.keys.create(...)`
+- `client.keys.list()`
+- `client.keys.get(...)`
+- `client.keys.rename(...)`
+- `client.keys.disable(...)`
+
+## Create Scoped Keys
+
+Tags define access.
+
+Common baseline tags:
+
+- `jobs:*`
+- `jobs:self`
+- `renders:*`
+- `renders:self`
+- `agents:*`
+- `agents:self`
+- `user:self`
+- `api:self`
+
+Common selector tags:
+
+- `team=dev`
+- `project=alpha`
+- `agent=<agent-id>`
+
+Example:
+
+```ts
+const scoped = await client.keys.create("team-dev-app", [
+  "jobs:self",
+  "renders:self",
+  "user:self",
+  "team=dev",
+]);
+
+console.log(scoped.apiKey);
+```
+
+That key can be handed to your own backend, frontend proxy, or worker app.
+
+## Child Keys For One Exact Agent
+
+For embedded agent clients, mint an exact-agent child key:
+
+```ts
+const agent = await client.deployments.get("agent-id");
+const child = await client.deployments.createScopedKey(agent.id, "agent-client");
+
+console.log(child.api_key);
+```
+
+That child key is intended for:
+
+- viewing that agent
+- start/stop
+- matched logs/state
+- inference access through the dedicated inference token endpoint
+
+## List, Inspect, Rename, Disable
+
+```ts
+const keys = await client.keys.list();
+const key = await client.keys.get(keys[0]!.keyId);
+const renamed = await client.keys.rename(key.keyId, "frontend-prod");
+await client.keys.disable(renamed.keyId);
+```
+
+`list()` and `get()` return masked keys. The full `apiKey` value is only returned on creation.
+
+## App Pattern
+
+Typical backend app flow:
+
+```ts
+const root = new HyperCLI({ apiKey: process.env.HYPER_API_KEY });
+
+const customerKey = await root.keys.create("customer-app", [
+  "jobs:self",
+  "user:self",
+  "team=customer-a",
+]);
+```
+
+Typical agent app flow:
+
+```ts
+const root = new HyperCLI({
+  apiKey: process.env.HYPER_API_KEY,
+  agentApiKey: process.env.HYPER_AGENTS_API_KEY,
+});
+
+const child = await root.deployments.createScopedKey("agent-id", "embedded-agent-client");
+```

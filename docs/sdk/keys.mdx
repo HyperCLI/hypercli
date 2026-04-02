@@ -1,0 +1,109 @@
+---
+title: Keys SDK
+description: Generate API keys from Python apps, including narrowed scoped keys for users, jobs, renders, and exact agents.
+---
+
+## Overview
+
+Use `client.keys` to manage account API keys from Python apps.
+
+```python
+from hypercli import HyperCLI
+
+client = HyperCLI(api_key="hyper_...")
+```
+
+The Python SDK exposes:
+
+- `client.keys.create(...)`
+- `client.keys.list()`
+- `client.keys.get(...)`
+- `client.keys.rename(...)`
+- `client.keys.disable(...)`
+
+## Create Scoped Keys
+
+Tags are the entire API-key authorization model.
+
+Common baseline tags:
+
+- `jobs:*`
+- `jobs:self`
+- `renders:*`
+- `renders:self`
+- `agents:*`
+- `agents:self`
+- `user:self`
+- `api:self`
+
+Common selector tags:
+
+- `team=dev`
+- `project=alpha`
+- `agent=<agent-id>`
+
+Example:
+
+```python
+scoped = client.keys.create(
+    name="team-dev-app",
+    tags=["jobs:self", "renders:self", "user:self", "team=dev"],
+)
+
+print(scoped.api_key)
+```
+
+That key can be embedded in your own app and used directly against the product API.
+
+## Child Keys For One Exact Agent
+
+When you want to mint a key that only works for a single agent, use the deployments helper:
+
+```python
+agent = client.deployments.get("agent-id")
+child = client.deployments.create_scoped_key(agent.id, name="agent-client")
+
+print(child["api_key"])
+```
+
+That child key is intended for:
+
+- viewing that agent
+- start/stop
+- matched logs/state
+- inference access via the dedicated inference token flow
+
+## List, Inspect, Rename, Disable
+
+```python
+keys = client.keys.list()
+key = client.keys.get(keys[0].key_id)
+renamed = client.keys.rename(key.key_id, "frontend-prod")
+client.keys.disable(renamed.key_id)
+```
+
+`list()` and `get()` return masked keys. The full `api_key` value is only returned on creation.
+
+## App Pattern
+
+Typical backend app flow:
+
+```python
+root = HyperCLI(api_key=os.environ["HYPER_API_KEY"])
+
+customer_key = root.keys.create(
+    name="customer-app",
+    tags=["jobs:self", "user:self", "team=customer-a"],
+)
+```
+
+Typical agent app flow:
+
+```python
+root = HyperCLI(
+    api_key=os.environ["HYPER_API_KEY"],
+    agent_api_key=os.environ.get("HYPER_AGENTS_API_KEY"),
+)
+
+child = root.deployments.create_scoped_key("agent-id", name="embedded-agent-client")
+```
