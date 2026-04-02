@@ -49,6 +49,10 @@ describe("TS SDK integration: agents", () => {
       const fetched = await scoped.deployments.get(agentA.id);
       expect(fetched.id).toBe(agentA.id);
 
+      const dryStarted = await scoped.deployments.startOpenClaw(agentA.id, { dryRun: true });
+      expect(dryStarted.id).toBe(agentA.id);
+      expect(dryStarted.dryRun).toBe(true);
+
       const deniedGet = scoped.deployments.get(agentB.id);
       await expect(deniedGet).rejects.toBeInstanceOf(APIError);
       await expect(deniedGet).rejects.toMatchObject({ statusCode: 404 });

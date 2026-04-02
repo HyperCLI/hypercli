@@ -57,6 +57,10 @@ def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str
             scoped.deployments.get(agent_b.id)
         assert missing_exc.value.status_code == 404
 
+        dry_started = scoped.deployments.start_openclaw(agent_a.id, dry_run=True)
+        assert dry_started.id == agent_a.id
+        assert getattr(dry_started, "dry_run", False) is True
+
         with pytest.raises(APIError) as create_exc:
             scoped.deployments.create(
                 name=f"sdk-scope-{uuid.uuid4().hex[:8]}",

@@ -2,7 +2,9 @@
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
+import { APIError } from './errors.js';
 import type { HTTPClient } from './http.js';
+import { requestWithRetry } from './http.js';
 import {
   GatewayClient,
   type ChatAttachment,
@@ -1199,11 +1201,58 @@ export class Deployments {
   private async fetchRaw(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers ?? {});
     headers.set('Authorization', `Bearer ${this.apiKey}`);
-    const response = await fetch(`${this.apiBase}${path}`, { ...init, headers });
+    const contentType = headers.get('Content-Type');
+    const body =
+      init.body && contentType?.includes('application/json') && typeof init.body !== 'string'
+        ? JSON.stringify(init.body)
+        : init.body;
+    const response = await requestWithRetry({
+      method: init.method ?? 'GET',
+      url: `${this.apiBase}${path}`,
+      headers: Object.fromEntries(headers.entries()),
+      body,
+      timeout: 30000,
+    });
     if (!response.ok) {
-      throw new Error(`Agent request failed: ${response.status} ${response.statusText}`);
+      let detail = response.statusText;
+      try {
+        const payload = await response.clone().json() as Record<string, unknown>;
+        detail = typeof payload.detail === 'string' ? payload.detail : response.statusText;
+      } catch {
+        const text = await response.text();
+        detail = text || response.statusText;
+      }
+      throw new APIError(response.status, detail);
     }
     return response;
+  }
+
+  private async getJson<T = any>(path: string): Promise<T> {
+    const response = await this.fetchRaw(path);
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
+  }
+
+  private async postJson<T = any>(path: string, body?: Record<string, any>): Promise<T> {
+    const response = await this.fetchRaw(path, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body,
+    });
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
+  }
+
+  private async deleteJson<T = any>(path: string): Promise<T> {
+    const response = await this.fetchRaw(path, { method: 'DELETE' });
+    if (response.status === 204) {
+      return undefined as T;
+    }
+    return (await response.json()) as T;
   }
 
   async create(options: CreateAgentOptions = {}): Promise<Agent> {
@@ -1216,7 +1265,7 @@ export class Deployments {
     if (options.memory !== undefined) body.memory = options.memory;
     if (options.tags?.length) body.tags = [...options.tags];
 
-    const data = await this.http.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
+    const data = await this.postJson<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent) {
       agent.gatewayToken = gatewayToken;
@@ -1239,15 +1288,15 @@ export class Deployments {
   }
 
   async budget(): Promise<Record<string, any>> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/budget`);
+    return this.getJson(`${DEPLOYMENTS_API_PREFIX}/budget`);
   }
 
   async metrics(agentId: string): Promise<Record<string, any>> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
+    return this.getJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
   }
 
   async list(): Promise<AgentListResponse> {
-    const data = await this.http.get<any>(DEPLOYMENTS_API_PREFIX);
+    const data = await this.getJson<any>(DEPLOYMENTS_API_PREFIX);
     const items = Array.isArray(data) ? data : data.items ?? [];
     return {
       items: items.map((item: AgentHydrationData) => this.hydrateAgent(item)),
@@ -1256,7 +1305,7 @@ export class Deployments {
   }
 
   async get(agentId: string): Promise<Agent> {
-    const data = await this.http.get<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    const data = await this.getJson<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
     return this.hydrateAgent(data);
   }
 
@@ -1281,7 +1330,7 @@ export class Deployments {
     const { config, gatewayToken } = buildAgentConfig(options.config ?? {}, options);
     const body: Record<string, any> = { ...config };
     if (options.dryRun) body.dry_run = true;
-    const data = await this.http.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
+    const data = await this.postJson<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/start`, body);
     const agent = this.hydrateAgent(data);
     if (agent instanceof OpenClawAgent) {
       agent.gatewayToken = gatewayToken;
@@ -1304,34 +1353,34 @@ export class Deployments {
   }
 
   async stop(agentId: string): Promise<Agent> {
-    const data = await this.http.post<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
+    const data = await this.postJson<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}/stop`);
     return this.hydrateAgent(data);
   }
 
   async delete(agentId: string): Promise<Record<string, any>> {
-    return this.http.delete(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
+    return this.deleteJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}`);
   }
 
   async refreshToken(agentId: string): Promise<AgentTokenResponse> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
+    return this.getJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
   }
 
   async inferenceToken(agentId: string): Promise<AgentInferenceTokenResponse> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/inference/token`);
+    return this.getJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/inference/token`);
   }
 
   async createScopedKey(agentId: string, name?: string): Promise<Record<string, any>> {
     const payload: Record<string, string> = {};
     if (name) payload.name = name;
-    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/keys`, Object.keys(payload).length ? payload : undefined);
+    return this.postJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/keys`, Object.keys(payload).length ? payload : undefined);
   }
 
   async logsToken(agentId: string): Promise<AgentLogsTokenResponse> {
-    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
+    return this.postJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/logs/token`);
   }
 
   async env(agentId: string): Promise<{ agent_id: string; env: Record<string, string> }> {
-    return this.http.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
+    return this.getJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/env`);
   }
 
   async exec(target: Agent | string, command: string, options: AgentExecOptions = {}): Promise<AgentExecResult> {
@@ -1341,7 +1390,7 @@ export class Deployments {
       timeout: options.timeout ?? 30,
     };
     if (options.dryRun) payload.dry_run = true;
-    const data = await this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/exec`, payload);
+    const data = await this.postJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/exec`, payload);
     return execResultFromDict(data);
   }
 
@@ -1479,7 +1528,7 @@ export class Deployments {
     const selectedShell = shell ?? '/bin/bash';
     const payload: Record<string, any> = { shell: selectedShell };
     if (dryRun) payload.dry_run = true;
-    return this.http.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
+    return this.postJson(`${DEPLOYMENTS_API_PREFIX}/${agentId}/shell/token`, payload);
   }
 
   async shellConnect(agentId: string, shell?: string): Promise<WebSocket> {
