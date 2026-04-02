@@ -2,7 +2,15 @@
  * Main HyperCLI client
  */
 import { HTTPClient } from './http.js';
-import { getAgentApiKey, getAgentsApiBaseUrl, getAgentsWsUrl, getApiKey, getApiUrl } from './config.js';
+import {
+  getAgentApiKey,
+  getAgentsApiBaseUrl,
+  getAgentsApiBaseUrlFromProductBase,
+  getAgentsWsUrl,
+  getAgentsWsUrlFromProductBase,
+  getApiKey,
+  getApiUrl,
+} from './config.js';
 import { Billing } from './billing.js';
 import { Jobs } from './jobs.js';
 import { UserAPI } from './user.js';
@@ -12,6 +20,14 @@ import { Files } from './files.js';
 import { HyperAgent } from './agent.js';
 import { KeysAPI } from './keys.js';
 import { Deployments } from './agents.js';
+
+function deriveAgentsApiBase(apiUrl: string, agentDev: boolean): string {
+  return agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl);
+}
+
+function deriveAgentsWsUrl(apiUrl: string, agentDev: boolean): string {
+  return agentDev ? getAgentsWsUrl(true) : getAgentsWsUrlFromProductBase(apiUrl);
+}
 
 export interface HyperCLIOptions {
   apiKey?: string;
@@ -89,17 +105,24 @@ export class HyperCLI {
     this.renders = new Renders(this._http);
     this.files = new Files(this._http);
     this.keys = new KeysAPI(this._http);
+    const resolvedAgentsApiBase =
+      options.agentsApiBaseUrl ||
+      (options.apiUrl ? deriveAgentsApiBase(this._apiUrl, Boolean(options.agentDev)) : getAgentsApiBaseUrl(Boolean(options.agentDev)));
+    const resolvedAgentsWsUrl =
+      options.agentsWsUrl ||
+      (options.apiUrl ? deriveAgentsWsUrl(this._apiUrl, Boolean(options.agentDev)) : getAgentsWsUrl(Boolean(options.agentDev)));
+
     this.agent = new HyperAgent(
       this._http,
       resolvedAgentApiKey,
       options.agentDev,
-      options.agentsApiBaseUrl || getAgentsApiBaseUrl(Boolean(options.agentDev)),
+      resolvedAgentsApiBase,
     );
     this.deployments = new Deployments(
       this._http,
       resolvedAgentApiKey,
-      options.agentsApiBaseUrl || getAgentsApiBaseUrl(Boolean(options.agentDev)),
-      options.agentsWsUrl || getAgentsWsUrl(Boolean(options.agentDev)),
+      resolvedAgentsApiBase,
+      resolvedAgentsWsUrl,
     );
   }
 

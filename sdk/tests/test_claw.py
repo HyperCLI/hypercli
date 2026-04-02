@@ -191,3 +191,19 @@ def test_hypercli_uses_agent_env_for_agent_clients(monkeypatch):
     assert client.deployments._api_key == "sk-agent"
     assert client.agent._api_key == "sk-agent"
     assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"
+
+
+def test_hypercli_derives_agent_urls_from_explicit_api_url(monkeypatch):
+    monkeypatch.delenv("AGENTS_API_BASE_URL", raising=False)
+    monkeypatch.delenv("AGENTS_WS_URL", raising=False)
+    monkeypatch.delenv("HYPER_API_BASE", raising=False)
+    monkeypatch.delenv("HYPERCLI_API_URL", raising=False)
+
+    client = HyperCLI(
+        api_key="sk-product",
+        agent_api_key="sk-agent",
+        api_url="https://api.dev.hypercli.com",
+    )
+
+    assert client.deployments._api_base == "https://api.dev.hypercli.com/agents"
+    assert client.agent._base_url == "https://api.agents.dev.hypercli.com/v1"

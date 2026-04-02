@@ -206,6 +206,10 @@ export function getAgentsApiBaseUrl(dev: boolean = false): string {
   return fallback;
 }
 
+export function getAgentsApiBaseUrlFromProductBase(productBase: string): string {
+  return normalizeAgentsApiBase(productBase);
+}
+
 /**
  * Get HyperClaw agents WebSocket URL
  */
@@ -215,6 +219,10 @@ export function getAgentsWsUrl(dev: boolean = false): string {
     return configured;
   }
   return defaultAgentsWsUrl(getAgentsApiBaseUrl(dev));
+}
+
+export function getAgentsWsUrlFromProductBase(productBase: string): string {
+  return defaultAgentsWsUrl(getAgentsApiBaseUrlFromProductBase(productBase));
 }
 
 /**

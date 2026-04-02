@@ -137,12 +137,22 @@ def get_agents_api_base_url(dev: bool = False) -> str:
     return default
 
 
+def get_agents_api_base_url_from_product_base(product_base: str) -> str:
+    """Derive the HyperClaw agents API base URL from an explicit product API base."""
+    return _normalize_agents_api_base(product_base)
+
+
 def get_agents_ws_url(dev: bool = False) -> str:
     """Get HyperClaw agents WebSocket base URL."""
     ws = get_config_value("AGENTS_WS_URL")
     if ws:
         return ws
     return _default_agents_ws_url(get_agents_api_base_url(dev))
+
+
+def get_agents_ws_url_from_product_base(product_base: str) -> str:
+    """Derive the HyperClaw agents WebSocket URL from an explicit product API base."""
+    return _default_agents_ws_url(get_agents_api_base_url_from_product_base(product_base))
 
 
 def configure(

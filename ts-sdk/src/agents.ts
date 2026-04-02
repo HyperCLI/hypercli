@@ -58,11 +58,6 @@ export interface AgentLogsTokenResponse {
   ws_url?: string;
 }
 
-export interface AgentListResponse {
-  items: Agent[];
-  budget?: Record<string, any>;
-}
-
 export interface AgentRouteConfig {
   port: number;
   prefix?: string;
@@ -1266,13 +1261,10 @@ export class Deployments {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/metrics`);
   }
 
-  async list(): Promise<AgentListResponse> {
+  async list(): Promise<Agent[]> {
     const data = await this.agentHttp.get<any>(DEPLOYMENTS_API_PREFIX);
     const items = Array.isArray(data) ? data : data.items ?? [];
-    return {
-      items: items.map((item: AgentHydrationData) => this.hydrateAgent(item)),
-      budget: Array.isArray(data) ? undefined : data.budget,
-    };
+    return items.map((item: AgentHydrationData) => this.hydrateAgent(item));
   }
 
   async get(agentId: string): Promise<Agent> {

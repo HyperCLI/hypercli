@@ -2,7 +2,9 @@
 from .config import (
     get_agent_api_key,
     get_agents_api_base_url,
+    get_agents_api_base_url_from_product_base,
     get_agents_ws_url,
+    get_agents_ws_url_from_product_base,
     get_api_key,
     get_api_url,
 )
@@ -16,6 +18,14 @@ from .files import Files
 from .agents import Deployments
 from .agent import HyperAgent
 from .keys import KeysAPI
+
+
+def _derive_agents_api_base(api_url: str, agent_dev: bool) -> str:
+    return get_agents_api_base_url(agent_dev) if agent_dev else get_agents_api_base_url_from_product_base(api_url)
+
+
+def _derive_agents_ws_url(api_url: str, agent_dev: bool) -> str:
+    return get_agents_ws_url(agent_dev) if agent_dev else get_agents_ws_url_from_product_base(api_url)
 
 
 class HyperCLI:
@@ -67,8 +77,14 @@ class HyperCLI:
         self._http = HTTPClient(self._api_url, self._api_key)
 
         # API namespaces
-        resolved_agents_api_base = agents_api_base_url or get_agents_api_base_url(agent_dev)
-        resolved_agents_ws_url = agents_ws_url or get_agents_ws_url(agent_dev)
+        resolved_agents_api_base = (
+            agents_api_base_url
+            or (_derive_agents_api_base(self._api_url, agent_dev) if api_url else get_agents_api_base_url(agent_dev))
+        )
+        resolved_agents_ws_url = (
+            agents_ws_url
+            or (_derive_agents_ws_url(self._api_url, agent_dev) if api_url else get_agents_ws_url(agent_dev))
+        )
         self.deployments = Deployments(
             self._http,
             api_key=resolved_agent_api_key,
@@ -92,3 +108,7 @@ class HyperCLI:
     @property
     def api_url(self) -> str:
         return self._api_url
+
+    @property
+    def api_key(self) -> str:
+        return self._api_key

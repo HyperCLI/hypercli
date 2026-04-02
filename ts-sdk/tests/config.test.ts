@@ -4,7 +4,9 @@ import {
   getAgentApiKey,
   getApiUrl,
   getAgentsApiBaseUrl,
+  getAgentsApiBaseUrlFromProductBase,
   getAgentsWsUrl,
+  getAgentsWsUrlFromProductBase,
   getWsUrl,
   DEFAULT_API_URL,
   DEFAULT_AGENTS_API_BASE_URL,
@@ -102,5 +104,10 @@ describe('Config', () => {
 
     expect(getAgentsApiBaseUrl()).toBe('https://api.dev.hypercli.com/agents');
     expect(getAgentsWsUrl()).toBe('wss://api.agents.dev.hypercli.com/ws');
+  });
+
+  it('should derive agents endpoints from an explicit product base', () => {
+    expect(getAgentsApiBaseUrlFromProductBase('https://api.dev.hypercli.com')).toBe('https://api.dev.hypercli.com/agents');
+    expect(getAgentsWsUrlFromProductBase('https://api.dev.hypercli.com')).toBe('wss://api.agents.dev.hypercli.com/ws');
   });
 });
