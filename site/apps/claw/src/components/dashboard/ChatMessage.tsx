@@ -4,13 +4,10 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
-import { API_BASE_URL, getStoredToken } from "@/lib/api";
-import { encodePath, extractImagePath } from "@/lib/image-tools";
 
 interface ChatMessageProps {
   message: ChatMessageType;
   inlineAudioUrl?: string | null;
-  agentId?: string | null;
 }
 
 const THINKING_PREVIEW_LINES = 2;
@@ -38,50 +35,7 @@ function toolCallSummary(tc: { name: string; args: string; result?: string }): s
   return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
 }
 
-export function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const blobRef = useRef<string | null>(null);
-
-  useEffect(() => {
-    setBlobUrl(null);
-    setFailed(false);
-    if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
-
-    const token = getStoredToken();
-    if (!token) { setFailed(true); return; }
-
-    const controller = new AbortController();
-    fetch(src, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`${res.status}`);
-        return res.blob();
-      })
-      .then((blob) => {
-        const url = URL.createObjectURL(blob);
-        blobRef.current = url;
-        setBlobUrl(url);
-      })
-      .catch((err) => {
-        if (err?.name !== "AbortError") setFailed(true);
-      });
-
-    return () => {
-      controller.abort();
-      if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
-    };
-  }, [src]);
-
-  if (failed || !blobUrl) return null;
-
-  return (
-    <a href={blobUrl} target="_blank" rel="noopener noreferrer">
-      <img src={blobUrl} alt={alt} className={className} loading="lazy" />
-    </a>
-  );
-}
-
-export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = null }: ChatMessageProps) {
+export function ChatMessageBubble({ message, inlineAudioUrl = null }: ChatMessageProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
@@ -173,10 +127,6 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
         {message.toolCalls?.map((tc, j) => {
           const hasResult = Boolean(tc.result);
           const summary = toolCallSummary(tc);
-          const imagePath = agentId ? extractImagePath(tc) : null;
-          const imageUrl = imagePath && agentId
-            ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
-            : null;
           return (
             <div
               key={j}
@@ -214,15 +164,6 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
                     </>
                   )}
                 </pre>
-              )}
-              {imageUrl && (
-                <div className="px-2.5 py-2 border-t border-border">
-                  <AuthImage
-                    src={imageUrl}
-                    alt={imagePath?.split("/").pop() || "generated image"}
-                    className="max-w-[320px] max-h-[320px] rounded-md object-contain"
-                  />
-                </div>
               )}
             </div>
           );

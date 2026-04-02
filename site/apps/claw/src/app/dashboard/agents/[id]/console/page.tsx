@@ -22,9 +22,7 @@ import {
 } from "lucide-react";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL, agentApiFetch, getStoredToken } from "@/lib/api";
-import { encodePath, extractImagePath } from "@/lib/image-tools";
-import { AuthImage } from "@/components/dashboard/ChatMessage";
+import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import {
   GatewayClient,
@@ -77,6 +75,14 @@ interface S3FilesResponse {
 }
 
 type Panel = "chat" | "workspace" | "files" | "config";
+
+function encodePath(path: string): string {
+  return path
+    .split("/")
+    .filter(Boolean)
+    .map((part) => encodeURIComponent(part))
+    .join("/");
+}
 
 function downloadBrowserFile(content: BlobPart | Uint8Array, filename: string, mimeType = "application/octet-stream") {
   const blobContent =
@@ -637,7 +643,6 @@ export default function AgentConsolePage() {
             onInputChange={setInput}
             onSend={sendMessage}
             chatEndRef={chatEndRef}
-            agentId={agentId}
           />
         )}
 
@@ -689,7 +694,6 @@ function ChatPanel({
   onInputChange,
   onSend,
   chatEndRef,
-  agentId,
 }: {
   messages: ChatMessage[];
   input: string;
@@ -698,7 +702,6 @@ function ChatPanel({
   onInputChange: (v: string) => void;
   onSend: () => void;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
-  agentId: string;
 }) {
   return (
     <div className="flex flex-col h-full">
@@ -726,27 +729,12 @@ function ChatPanel({
                   <pre className="text-xs text-text-muted whitespace-pre-wrap mt-1">{msg.thinking}</pre>
                 </details>
               )}
-              {msg.toolCalls?.map((tc, j) => {
-                const imagePath = extractImagePath(tc);
-                const imageUrl = imagePath
-                  ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
-                  : null;
-                return (
-                  <div key={j} className="mb-2 text-xs bg-background/50 rounded p-2 font-mono">
-                    <span className="text-[#f0c56c]">{tc.name}</span>
-                    {tc.result && <pre className="text-text-muted mt-1">{tc.result}</pre>}
-                    {imageUrl && (
-                      <div className="mt-2">
-                        <AuthImage
-                          src={imageUrl}
-                          alt={imagePath?.split("/").pop() || "generated image"}
-                          className="max-w-[320px] max-h-[320px] rounded-md object-contain"
-                        />
-                      </div>
-                    )}
-                  </div>
-                );
-              })}
+              {msg.toolCalls?.map((tc, j) => (
+                <div key={j} className="mb-2 text-xs bg-background/50 rounded p-2 font-mono">
+                  <span className="text-[#f0c56c]">{tc.name}</span>
+                  {tc.result && <pre className="text-text-muted mt-1">{tc.result}</pre>}
+                </div>
+              ))}
               <div className="whitespace-pre-wrap">{msg.content}</div>
             </div>
           </div>
