@@ -1,8 +1,11 @@
 """HTTP client utilities"""
 import time
 import httpx
+import logging
 from typing import Any, Optional, Iterator, Callable
 from dataclasses import dataclass
+
+logger = logging.getLogger(__name__)
 
 
 def request_with_retry(
@@ -51,9 +54,24 @@ class APIError(Exception):
     """API error with status code and detail"""
     status_code: int
     detail: str
+    method: str | None = None
+    url: str | None = None
+    response_text: str | None = None
 
     def __str__(self):
-        return f"API Error {self.status_code}: {self.detail}"
+        context = []
+        if self.method:
+            context.append(self.method)
+        if self.url:
+            context.append(self.url)
+        prefix = f" ({' '.join(context)})" if context else ""
+        return f"API Error {self.status_code}{prefix}: {self.detail}"
+
+
+def _truncate_for_log(value: str, limit: int = 1000) -> str:
+    if len(value) <= limit:
+        return value
+    return value[:limit] + "...<truncated>"
 
 
 def _handle_response(response: httpx.Response) -> Any:
@@ -63,7 +81,24 @@ def _handle_response(response: httpx.Response) -> Any:
             detail = response.json().get("detail", response.text)
         except Exception:
             detail = response.text
-        raise APIError(response.status_code, detail)
+        body = response.text or ""
+        method = response.request.method if response.request else None
+        url = str(response.request.url) if response.request else None
+        logger.error(
+            "HyperCLI API request failed: method=%s url=%s status=%s detail=%r body=%r",
+            method,
+            url,
+            response.status_code,
+            detail,
+            _truncate_for_log(body),
+        )
+        raise APIError(
+            response.status_code,
+            detail,
+            method=method,
+            url=url,
+            response_text=body,
+        )
     if response.status_code == 204:
         return None
     return response.json()
