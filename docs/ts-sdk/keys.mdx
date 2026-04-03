@@ -27,13 +27,18 @@ Tags define access.
 
 Common baseline tags:
 
+- `*:*`
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
 - `renders:self`
+- `files:*`
+- `files:self`
 - `agents:*`
 - `agents:self`
+- `user:*`
 - `user:self`
+- `api:*`
 - `api:self`
 
 Common selector tags:
@@ -56,6 +61,8 @@ console.log(scoped.apiKey);
 ```
 
 That key can be handed to your own backend, frontend proxy, or worker app.
+
+New keys are deny-by-default unless tags are supplied. Use `*:*` only for trusted full-access keys or legacy migration.
 
 ## Child Keys For One Exact Agent
 

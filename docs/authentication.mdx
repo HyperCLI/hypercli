@@ -181,10 +181,22 @@ API key authentication is used for SDK, CLI, and direct API access.
 
 API keys now carry raw tag strings that define access.
 
+New keys are deny-by-default unless you attach tags explicitly.
+
+There are two kinds of tags:
+
+- family baseline tags such as `jobs:*` or `files:self`
+- selector tags such as `team=dev` or `agent=<agent-id>`
+
 Examples:
 
+- `*:*`
 - `jobs:*`
 - `jobs:self`
+- `renders:*`
+- `renders:self`
+- `files:*`
+- `files:self`
 - `agents:*`
 - `agents:self`
 - `user:self`
@@ -193,6 +205,32 @@ Examples:
 - `agent=<agent-id>`
 
 Resources also carry tags. Access is granted when the key's effective tags are a subset of the resource tags, or when the key has a family-wide baseline such as `jobs:*`.
+
+### Resource Families
+
+The current user-facing families are:
+
+- `api:* | api:self | api:none`
+- `user:* | user:self | user:none`
+- `jobs:* | jobs:self | jobs:none`
+- `renders:* | renders:self | renders:none`
+- `files:* | files:self | files:none`
+- `agents:* | agents:self | agents:none`
+
+Typical meaning:
+
+- `api:*` lets a key manage API keys for the same account
+- `user:self` lets a key read or update the current account profile
+- `jobs:*` grants broad job access
+- `renders:*` grants broad render/flow access
+- `files:*` grants file upload/download/delete access
+- `agents:*` grants broad agent access
+
+### Global Access
+
+`*:*` is the global full-access baseline.
+
+It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer narrower family tags such as `renders:*` plus selector tags like `team=dev`.
 
 ### Getting Your API Key
 

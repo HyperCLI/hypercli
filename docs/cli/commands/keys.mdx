@@ -17,15 +17,22 @@ The full API key value is only shown once at creation time.
 
 Tags are the entire authorization model for API keys.
 
+New keys default to no access unless you attach tags.
+
 Common baseline tags:
 
+- `*:*`
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
 - `renders:self`
+- `files:*`
+- `files:self`
 - `agents:*`
 - `agents:self`
+- `user:*`
 - `user:self`
+- `api:*`
 - `api:self`
 
 Common selector tags:
@@ -33,6 +40,8 @@ Common selector tags:
 - `team=dev`
 - `project=alpha`
 - `agent=<agent-id>`
+
+Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `renders:*` and `files:*`.
 
 ## list
 

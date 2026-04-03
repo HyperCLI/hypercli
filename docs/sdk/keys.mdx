@@ -27,13 +27,18 @@ Tags are the entire API-key authorization model.
 
 Common baseline tags:
 
+- `*:*`
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
 - `renders:self`
+- `files:*`
+- `files:self`
 - `agents:*`
 - `agents:self`
+- `user:*`
 - `user:self`
+- `api:*`
 - `api:self`
 
 Common selector tags:
@@ -54,6 +59,8 @@ print(scoped.api_key)
 ```
 
 That key can be embedded in your own app and used directly against the product API.
+
+New keys are deny-by-default unless tags are supplied. Use `*:*` only for trusted full-access keys or legacy migration.
 
 ## Child Keys For One Exact Agent
 
