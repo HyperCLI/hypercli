@@ -327,6 +327,7 @@ export { WalletProvider, useWallet } from "./contexts/WalletContext";
 export { RainbowKitProvider } from "./providers/RainbowKitProvider";
 export { WalletAuth } from "./components/WalletAuth";
 export { TopUpModal } from "./components/TopUpModal";
+export { ApiKeysManager } from "./components/ApiKeysManager";
 
 // Invoice Components
 export { InvoiceList } from "./invoices/InvoiceList";
