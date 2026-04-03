@@ -71,7 +71,7 @@ export default function DashboardLayout({
 
   return (
     <DashboardMobileAgentMenuProvider>
-      <div className={isAgentsRoute ? "h-dvh overflow-hidden bg-background" : "min-h-screen bg-background"}>
+      <div className="h-dvh overflow-hidden bg-background">
         {showDashboardNav ? (
           <DashboardNav />
         ) : null}
@@ -79,14 +79,14 @@ export default function DashboardLayout({
           className={
             isAgentsRoute
               ? `overflow-hidden pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
-              : "pt-14 pb-0"
+              : `pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
           }
         >
           <div
             className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${
               isAgentsRoute
                 ? `${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-hidden py-0`
-                : "py-8"
+                : `${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
             }`}
           >
             {isLoading ? (

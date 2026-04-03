@@ -67,6 +67,11 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
+/** Detect internal heartbeat poll prompts that should never be shown to users. */
+function isHeartbeatMessage(content: string): boolean {
+  return content.includes("HEARTBEAT.md");
+}
+
 function formatToolValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return maybeDecodeMojibake(value);
@@ -95,6 +100,7 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const normalized = normalizeGatewayChatMessage(message);
   if (!normalized) return null;
   const content = maybeDecodeMojibake(normalized.text);
+  if (isHeartbeatMessage(content)) return null;
   const thinking = maybeDecodeMojibake(normalized.thinking).trim();
   const toolCalls = summarizeToolCalls(normalized.toolCalls);
   const mediaUrls = normalized.mediaUrls;
@@ -342,6 +348,37 @@ export function useGatewayChat(
           if (cancelled) return;
           const event = gatewayEvent.event;
           const payload = gatewayEvent.payload ?? {};
+
+          // HYP-27: process agent tool stream events into ChatMessage toolCalls
+          if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
+            const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;
+            if (data) {
+              const phase = data.phase as string;
+              const toolName = (data.name as string) || "";
+              const toolCallId = data.toolCallId as string | undefined;
+              if (phase === "start" && toolName) {
+                const args = data.args ? formatToolValue(data.args) : "";
+                setMessages((prev) => upsertAssistantMessage(prev, {
+                  role: "assistant",
+                  content: "",
+                  toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }],
+                  timestamp: Date.now(),
+                }));
+              } else if (phase === "result" && toolName) {
+                const meta = (data.meta as string) || "";
+                const isError = Boolean(data.isError);
+                const resultText = isError ? `Error: ${meta}` : meta;
+                if (resultText) {
+                  setMessages((prev) => upsertAssistantMessage(prev, {
+                    role: "assistant",
+                    content: "",
+                    toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }],
+                    timestamp: Date.now(),
+                  }));
+                }
+              }
+            }
+          }
 
           if (event === "chat") {
             const chatPayload = payload as Record<string, unknown>;

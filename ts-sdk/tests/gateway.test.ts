@@ -232,9 +232,20 @@ describe("GatewayClient", () => {
     expect(request.params.auth.token).toBe("device-token-1");
 
     ws.emitConnectError(request.id, "AUTH_DEVICE_TOKEN_MISMATCH");
-    await flushMicrotasks();
 
-    expect(ws.closedWith).toEqual({ code: 4008, reason: "connect failed" });
+    // After AUTH_DEVICE_TOKEN_MISMATCH the client retries sendConnect inline
+    // on the same socket (no close) using the gatewayToken fallback.
+    // Wait for the retry frame to be sent (async due to device identity loading).
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (ws.sent.length > 1) break;
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(ws.closedWith).toBeNull();
+    expect(ws.sent.length).toBe(2); // original + retry
+    const retryRequest = JSON.parse(ws.sent[1] ?? "{}");
+    expect(retryRequest.params.auth.token).toBe("gw-token");
+
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.tokens?.[URL_SCOPE_KEY]).toBeUndefined();
   });
@@ -790,8 +801,9 @@ describe("GatewayClient", () => {
       }),
     );
 
+    // Auto-approve runs silently — no intermediate pendingPairings stored.
     const storedAfterPairingError = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
-    expect(storedAfterPairingError.pendingPairings).toBeTruthy();
+    expect(storedAfterPairingError.pendingPairings).toBeUndefined();
 
     await new Promise((resolve) => setTimeout(resolve, 850));
     await flushMicrotasks();

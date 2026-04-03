@@ -7,13 +7,9 @@
     "build": "next build",
     "start": "sh -lc 'next start --port ${PORT:-4003}'",
     "lint": "eslint",
-    "clean": "rm -rf .next",
-    "storybook": "storybook dev -p 6006",
-    "build-storybook": "storybook build",
-    "test:ct": "playwright test --config=playwright-ct.config.ts"
+    "clean": "rm -rf .next"
   },
   "dependencies": {
-    "@esbuild/linux-x64": "^0.27.5",
     "@hypercli.com/sdk": "2026.3.25-1",
     "@hypercli/shared-ui": "*",
     "@privy-io/react-auth": "^3.13.1",
@@ -31,9 +27,6 @@
     "viem": "^2.39.0"
   },
   "devDependencies": {
-    "@playwright/experimental-ct-react": "^1.59.1",
-    "@storybook/react": "^10.3.4",
-    "@storybook/react-vite": "^10.3.4",
     "@tailwindcss/postcss": "*",
     "@types/node": "*",
     "@types/react": "*",
@@ -42,7 +35,6 @@
     "eslint": "*",
     "eslint-config-next": "*",
     "null-loader": "^4.0.1",
-    "storybook": "^10.3.4",
     "tailwindcss": "*",
     "typescript": "5.9.3"
   }
