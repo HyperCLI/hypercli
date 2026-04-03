@@ -3,10 +3,99 @@ from __future__ import annotations
 """Jobs API"""
 import base64
 from dataclasses import dataclass, field
+from datetime import datetime, timezone
 from typing import TYPE_CHECKING, Iterator
 
 if TYPE_CHECKING:
     from .http import HTTPClient
+
+
+TERMINAL_JOB_STATES = {"succeeded", "failed", "terminated", "canceled", "cancelled"}
+
+
+def normalize_job_tags(tags: dict[str, str] | list[str] | None) -> dict[str, str]:
+    if tags is None:
+        return {}
+    if isinstance(tags, dict):
+        return {str(key): str(value) for key, value in tags.items()}
+    normalized: dict[str, str] = {}
+    for raw_tag in tags:
+        if not isinstance(raw_tag, str) or "=" not in raw_tag:
+            continue
+        key, value = raw_tag.split("=", 1)
+        normalized[str(key)] = str(value)
+    return normalized
+
+
+def get_job_tags(job: "Job | dict | object") -> dict[str, str]:
+    if isinstance(job, dict):
+        raw_tags = job.get("tags", job)
+    else:
+        raw_tags = getattr(job, "tags", None)
+    return normalize_job_tags(raw_tags if isinstance(raw_tags, (dict, list)) else None)
+
+
+def job_has_tags(
+    job: "Job | dict | object",
+    required_tags: dict[str, str] | list[str] | None,
+) -> bool:
+    if not required_tags:
+        return True
+    tags = get_job_tags(job)
+    required = normalize_job_tags(required_tags)
+    return all(tags.get(str(key)) == str(value) for key, value in required.items())
+
+
+def _parse_runtime_seconds(value: object) -> int | None:
+    try:
+        return max(int(float(value)), 0)
+    except (TypeError, ValueError):
+        return None
+
+
+def _parse_timestamp(value: object) -> datetime | None:
+    if value is None:
+        return None
+    try:
+        if isinstance(value, (int, float)):
+            return datetime.fromtimestamp(float(value), tz=timezone.utc)
+        if isinstance(value, datetime):
+            if value.tzinfo is None:
+                return value.replace(tzinfo=timezone.utc)
+            return value.astimezone(timezone.utc)
+        parsed = datetime.fromisoformat(str(value).replace("Z", "+00:00"))
+        if parsed.tzinfo is None:
+            return parsed.replace(tzinfo=timezone.utc)
+        return parsed.astimezone(timezone.utc)
+    except (TypeError, ValueError):
+        return None
+
+
+def _derive_runtime_fields(data: dict) -> tuple[int, int]:
+    runtime_seconds = _parse_runtime_seconds(data.get("runtime"))
+    if runtime_seconds is None:
+        return 0, 0
+
+    state = str(data.get("state", "")).strip().lower()
+    if state == "dry_run":
+        return 0, runtime_seconds
+
+    started_at = _parse_timestamp(data.get("started_at"))
+    created_at = _parse_timestamp(data.get("created_at"))
+    completed_at = _parse_timestamp(data.get("completed_at"))
+
+    anchor = started_at
+    if anchor is None and (state == "running" or completed_at is not None or state in TERMINAL_JOB_STATES):
+        anchor = created_at
+
+    if anchor is None:
+        return 0, runtime_seconds
+
+    end_time = completed_at or datetime.now(timezone.utc)
+    elapsed = max(int((end_time - anchor).total_seconds()), 0)
+    if completed_at is not None or state in TERMINAL_JOB_STATES:
+        return elapsed, 0
+    return elapsed, max(runtime_seconds - elapsed, 0)
 
 
 @dataclass
@@ -34,6 +123,13 @@ class Job:
     started_at: float | None = None
     completed_at: float | None = None
 
+    @property
+    def tag_map(self) -> dict[str, str]:
+        return get_job_tags(self)
+
+    def has_tags(self, required_tags: dict[str, str] | list[str] | None) -> bool:
+        return job_has_tags(self, required_tags)
+
     @classmethod
     def from_dict(cls, data: dict) -> "Job":
         command_b64 = data.get("command")
@@ -43,6 +139,7 @@ class Job:
                 command = base64.b64decode(command_b64).decode()
             except Exception:
                 command = command_b64
+        elapsed, time_left = _derive_runtime_fields(data)
         return cls(
             job_id=data.get("job_id", ""),
             job_key=data.get("job_key", ""),
@@ -59,8 +156,8 @@ class Job:
             env_vars=data.get("env_vars"),
             tags=data.get("tags"),
             runtime=data.get("runtime", 0),
-            elapsed=data.get("elapsed", 0),
-            time_left=data.get("time_left", 0),
+            elapsed=elapsed,
+            time_left=time_left,
             hostname=data.get("hostname"),
             cold_boot=data.get("cold_boot", True),
             created_at=data.get("created_at"),
