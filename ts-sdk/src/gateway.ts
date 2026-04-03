@@ -1347,7 +1347,6 @@ export class GatewayClient {
   private pendingConnectError: GatewayErrorShape | null = null;
   private pairingState: GatewayPairingState | null = null;
   private autoApproveAttemptedRequestIds = new Set<string>();
-  private deviceTokenMismatchRetried = false;
   private lastSeq: number | null = null;
   private connectPromise: Promise<void> | null = null;
   private resolveConnectPromise: (() => void) | null = null;
@@ -1406,11 +1405,6 @@ export class GatewayClient {
 
   get pendingPairing() {
     return this.pairingState;
-  }
-
-  /** Update the gateway token for subsequent connect attempts. */
-  setGatewayToken(token: string): void {
-    this.gatewayToken = token.trim() || undefined;
   }
 
   private storageScope(): string {
@@ -1743,7 +1737,6 @@ export class GatewayClient {
       this.connected = true;
       this.pendingConnectError = null;
       this.backoffMs = INITIAL_BACKOFF_MS;
-      this.deviceTokenMismatchRetried = false;
       this.updatePairingState(null);
 
       if (this.resolveConnectPromise) {
@@ -1758,29 +1751,42 @@ export class GatewayClient {
       this.pendingConnectError = toCloseError(error);
       const detailCode = readConnectErrorCode(error);
       const requestId = readConnectPairingRequestId(error);
-
-      // Stale device token after agent restart — clear it and retry on the
-      // same socket instead of forcing a full reconnect cycle. Guard with a
-      // one-shot flag to prevent infinite recursion if the retry also fails.
-      if (identity && detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && !this.deviceTokenMismatchRetried) {
-        this.deviceTokenMismatchRetried = true;
-        clearStoredDeviceToken(identity.deviceId, this.storageScope(), OPERATOR_ROLE);
-        this.connectSent = false;
-        this.pendingConnectError = null;
-        await this.sendConnect();
-        return;
-      }
-
-      if (identity && detailCode === CONNECT_ERROR_PAIRING_REQUIRED) {
+      if (
+        identity &&
+        (detailCode === CONNECT_ERROR_PAIRING_REQUIRED ||
+          detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH)
+      ) {
         clearStoredDeviceToken(identity.deviceId, this.storageScope(), OPERATOR_ROLE);
       }
       if (detailCode === CONNECT_ERROR_PAIRING_REQUIRED && requestId) {
+        this.updatePairingState({
+          requestId,
+          role: OPERATOR_ROLE,
+          gatewayUrl: this.url,
+          ...(identity ? { deviceId: identity.deviceId } : {}),
+          status: "pending",
+          updatedAtMs: Date.now(),
+        });
         if (this.canAutoApprovePairing() && !this.autoApproveAttemptedRequestIds.has(requestId)) {
-          // Auto-approve silently — don't emit intermediate pairing states
-          // that would cause UI flicker in the dashboard.
           this.autoApproveAttemptedRequestIds.add(requestId);
           try {
+            this.updatePairingState({
+              requestId,
+              role: OPERATOR_ROLE,
+              gatewayUrl: this.url,
+              ...(identity ? { deviceId: identity.deviceId } : {}),
+              status: "approving",
+              updatedAtMs: Date.now(),
+            });
             await this.approvePairingRequest(requestId);
+            this.updatePairingState({
+              requestId,
+              role: OPERATOR_ROLE,
+              gatewayUrl: this.url,
+              ...(identity ? { deviceId: identity.deviceId } : {}),
+              status: "approved",
+              updatedAtMs: Date.now(),
+            });
             this.pendingConnectError = {
               code: "PAIRING_APPROVED",
               message: "Pairing approved, reconnecting",
@@ -1797,16 +1803,6 @@ export class GatewayClient {
               error: approvalError instanceof Error ? approvalError.message : String(approvalError),
             });
           }
-        } else {
-          // No auto-approve — surface pairing state so the UI can prompt.
-          this.updatePairingState({
-            requestId,
-            role: OPERATOR_ROLE,
-            gatewayUrl: this.url,
-            ...(identity ? { deviceId: identity.deviceId } : {}),
-            status: "pending",
-            updatedAtMs: Date.now(),
-          });
         }
       }
       if (this.ws) {

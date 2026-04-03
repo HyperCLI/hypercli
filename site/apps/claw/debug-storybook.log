@@ -1,0 +1,82 @@
+[13:49:06.559] [INFO] storybook v10.3.4
+[13:49:06.799] [ERROR] [38;2;241;97;97mSB_CORE-SERVER_0007 (MainFileEvaluationError): Storybook couldn't evaluate your [33m.storybook/main.ts[39m file.
+
+Original error:
+[37mError: 
+You installed esbuild for another platform than the one you're currently using.
+This won't work because esbuild is written with native code and needs to
+install a platform-specific binary executable.
+
+Specifically the "@esbuild/win32-x64" package is present but this platform
+needs the "@esbuild/linux-x64" package instead. People often get into this
+situation by installing esbuild on Windows or macOS and copying "node_modules"
+into a Docker image that runs Linux, or by copying "node_modules" between
+Windows and WSL environments.
+
+If you are installing with npm, you can try not copying the "node_modules"
+directory when you copy the files over, and running "npm ci" or "npm install"
+on the destination platform after the copy. Or you could consider using yarn
+instead of npm which has built-in support for installing a package on multiple
+platforms simultaneously.
+
+If you are installing with yarn, you can try listing both this platform and the
+other platform in your ".yarnrc.yml" file using the "supportedArchitectures"
+feature: https://yarnpkg.com/configuration/yarnrc/#supportedArchitectures
+Keep in mind that this means multiple copies of esbuild will be present.
+
+Another alternative is to use the "esbuild-wasm" package instead, which works
+the same way on all platforms. But it comes with a heavy performance cost and
+can sometimes be 10x slower than the "esbuild" package, so you may also not
+want to do that.
+
+    at generateBinPath (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2029:17)
+    at esbuildCommandAndArgs (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2110:33)
+    at ensureServiceIsRunning (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2267:25)
+    at transform (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2168:37)
+    at load (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/bin/loader.js:77:113)
+    at async nextLoad (node:internal/modules/esm/hooks:748:22)
+    at async Hooks.load (node:internal/modules/esm/hooks:385:20)
+    at async MessagePort.handleMessage (node:internal/modules/esm/worker:199:18)[39m[39m
+    at loadMainConfig (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/_node-chunks/chunk-3LP2BDDH.js:11712:11)
+    at async buildDevStandalone (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/core-server/index.js:7953:16)
+    at async withTelemetry (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/_node-chunks/chunk-HUYNFPPD.js:225:12)
+    at async dev (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/bin/core.js:2736:3)
+    at async _Command.<anonymous> (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/bin/core.js:2806:92)
+[13:49:06.808] [WARN] Broken build, fix the error above.
+You may need to refresh the browser.
+[13:49:06.815] [WARN]   Failed to load preset: "/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/apps/claw/.storybook/main.ts"
+[13:49:06.815] [ERROR] [38;2;241;97;97mError: 
+You installed esbuild for another platform than the one you're currently using.
+This won't work because esbuild is written with native code and needs to
+install a platform-specific binary executable.
+
+Specifically the "@esbuild/win32-x64" package is present but this platform
+needs the "@esbuild/linux-x64" package instead. People often get into this
+situation by installing esbuild on Windows or macOS and copying "node_modules"
+into a Docker image that runs Linux, or by copying "node_modules" between
+Windows and WSL environments.
+
+If you are installing with npm, you can try not copying the "node_modules"
+directory when you copy the files over, and running "npm ci" or "npm install"
+on the destination platform after the copy. Or you could consider using yarn
+instead of npm which has built-in support for installing a package on multiple
+platforms simultaneously.
+
+If you are installing with yarn, you can try listing both this platform and the
+other platform in your ".yarnrc.yml" file using the "supportedArchitectures"
+feature: https://yarnpkg.com/configuration/yarnrc/#supportedArchitectures
+Keep in mind that this means multiple copies of esbuild will be present.
+
+Another alternative is to use the "esbuild-wasm" package instead, which works
+the same way on all platforms. But it comes with a heavy performance cost and
+can sometimes be 10x slower than the "esbuild" package, so you may also not
+want to do that.
+[39m
+    at generateBinPath (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2029:17)
+    at esbuildCommandAndArgs (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2110:33)
+    at ensureServiceIsRunning (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2267:25)
+    at transform (/mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/esbuild/lib/main.js:2168:37)
+    at load (file:///mnt/c/Users/franc/OneDrive/Documentos/Projects/hypercli/site/node_modules/storybook/dist/bin/loader.js:77:113)
+    at async nextLoad (node:internal/modules/esm/hooks:748:22)
+    at async Hooks.load (node:internal/modules/esm/hooks:385:20)
+    at async MessagePort.handleMessage (node:internal/modules/esm/worker:199:18)

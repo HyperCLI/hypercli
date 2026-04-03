@@ -37,12 +37,10 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
   return (
     <motion.button
       onClick={onClick}
-      className={`text-left p-4 rounded-xl border transition-all duration-200 w-full ${
-        saving
-          ? "border-[var(--border)] bg-[var(--surface-low)] opacity-70 pointer-events-none"
-          : enabled
-            ? "border-[var(--primary)]/30 border-l-2 border-l-[var(--primary)] bg-[var(--primary)]/5 hover:bg-[var(--primary)]/8 hover:border-[var(--primary)]/50 hover:border-l-[var(--primary)] hover:shadow-[0_0_12px_rgba(56,211,159,0.08)]"
-            : "border-[var(--border)] hover:border-[var(--primary)]/20 hover:bg-[var(--surface-low)] hover:shadow-[0_0_8px_rgba(56,211,159,0.04)]"
+      className={`text-left p-4 rounded-xl border transition-colors w-full ${
+        enabled
+          ? "border-[var(--primary)]/30 bg-[var(--primary)]/5 hover:bg-[var(--primary)]/8"
+          : "border-[var(--border)] hover:border-[var(--border-medium)] hover:bg-[var(--surface-low)]"
       }`}
       whileHover={{ scale: 1.01 }}
       whileTap={{ scale: 0.99 }}
@@ -50,13 +48,13 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
     >
       <div className="flex items-start gap-3">
         <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
+          className={`w-9 h-9 rounded-lg flex items-center justify-center flex-shrink-0 ${
             enabled
               ? "bg-[var(--primary)]/15 text-[var(--primary)]"
               : "bg-[var(--surface-high)] text-[var(--text-secondary)]"
           }`}
         >
-          <Icon className="w-5 h-5" />
+          <Icon className="w-4.5 h-4.5" />
         </div>
         <div className="flex-1 min-w-0">
           <div className="flex items-center justify-between gap-2">

@@ -285,7 +285,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 icon={Volume2}
                 name="Voice"
                 status="built-in"
-                description="Speak aloud with 9 voices or clone any voice"
+                description="9 preset speakers + voice cloning"
                 statusText={integrations?.voice?.speaker ? `Speaker: ${integrations.voice.speaker}` : "Qwen3-TTS"}
                 ctaLabel="Customize \u2192"
                 onClick={() => setActivePanel("tts")}
@@ -296,7 +296,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 status="built-in"
                 description="Transcribes any audio file"
                 statusText="faster-whisper turbo"
-                ctaLabel="Details →"
+                ctaLabel="Learn more"
                 onClick={() => setActivePanel("stt")}
               />
               <IntegrationCard
@@ -305,7 +305,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 status="built-in"
                 description="Understands images in chat"
                 statusText="Kimi K2.5 + vision models"
-                ctaLabel="Details →"
+                ctaLabel="Learn more"
                 onClick={() => setActivePanel("vision")}
               />
               <IntegrationCard
@@ -314,7 +314,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 status="built-in"
                 description="Text-to-image & image editing"
                 statusText="Qwen-Image + HiDream"
-                ctaLabel="Details →"
+                ctaLabel="Learn more"
                 onClick={() => setActivePanel("images")}
               />
               <IntegrationCard
@@ -323,7 +323,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 status="built-in"
                 description="Text & image to video"
                 statusText="Wan 2.2 + HuMo"
-                ctaLabel="Details →"
+                ctaLabel="Learn more"
                 onClick={() => setActivePanel("video")}
               />
               <IntegrationCard
@@ -332,7 +332,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 status="built-in"
                 description="Image to 3D model"
                 statusText="Hunyuan3D 2.1"
-                ctaLabel="Details →"
+                ctaLabel="Learn more"
                 onClick={() => setActivePanel("3d")}
               />
             </div>
