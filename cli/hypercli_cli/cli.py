@@ -9,6 +9,7 @@ from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
 from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, user, wallet
+from .output import output, spinner
 
 console = Console()
 
@@ -68,6 +69,17 @@ app.add_typer(keys.app, name="keys")
 app.add_typer(jobs.app, name="jobs")
 app.add_typer(user.app, name="user")
 app.add_typer(wallet.app, name="wallet")
+
+
+@app.command("me")
+def me_cmd(
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Resolve the current auth context and show key capabilities."""
+    client = HyperCLI()
+    with spinner("Resolving auth context..."):
+        auth_me = client.user.auth_me()
+    output(auth_me, fmt)
 
 
 @app.command("configure")

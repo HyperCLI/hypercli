@@ -85,6 +85,7 @@ class HyperCLI:
             agents_ws_url
             or (_derive_agents_ws_url(self._api_url, agent_dev) if api_url else get_agents_ws_url(agent_dev))
         )
+        auth_http = HTTPClient(resolved_agents_api_base, self._api_key)
         self.deployments = Deployments(
             self._http,
             api_key=resolved_agent_api_key,
@@ -93,7 +94,7 @@ class HyperCLI:
         )
         self.billing = Billing(self._http)
         self.jobs = Jobs(self._http)
-        self.user = UserAPI(self._http)
+        self.user = UserAPI(self._http, auth_http=auth_http)
         self.instances = Instances(self._http)
         self.renders = Renders(self._http)
         self.files = Files(self._http)

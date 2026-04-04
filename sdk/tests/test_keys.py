@@ -1,4 +1,5 @@
 from hypercli.keys import KeysAPI
+from hypercli.user import UserAPI
 
 
 class DummyHTTP:
@@ -103,3 +104,30 @@ def test_keys_disable():
 
     assert result["status"] == "deactivated"
     assert http.calls[0] == ("delete", "/api/keys/key-123", None)
+
+
+def test_user_auth_me_returns_capabilities():
+    class DummyUserHTTP:
+        def get(self, path):
+            raise AssertionError(f"unexpected product path {path}")
+
+    class DummyAuthHTTP:
+        def get(self, path):
+            assert path == "/auth/me"
+            return {
+                "user_id": "user-123",
+                "orchestra_user_id": "orch-123",
+                "team_id": "team-123",
+                "plan_id": "pro",
+                "email": "user@example.com",
+                "auth_type": "orchestra_key",
+                "capabilities": ["models:*", "voice:*"],
+                "key_id": "key-123",
+                "key_name": "runtime-key",
+            }
+
+    auth_me = UserAPI(DummyUserHTTP(), auth_http=DummyAuthHTTP()).auth_me()
+
+    assert auth_me.user_id == "user-123"
+    assert auth_me.capabilities == ["models:*", "voice:*"]
+    assert auth_me.key_id == "key-123"

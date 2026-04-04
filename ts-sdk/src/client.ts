@@ -96,21 +96,22 @@ export class HyperCLI {
 
     this._apiUrl = options.apiUrl || getApiUrl();
     this._http = new HTTPClient(this._apiUrl, this._apiKey, options.timeout);
-
-    // API namespaces
-    this.billing = new Billing(this._http);
-    this.jobs = new Jobs(this._http);
-    this.user = new UserAPI(this._http);
-    this.instances = new Instances(this._http);
-    this.renders = new Renders(this._http);
-    this.files = new Files(this._http);
-    this.keys = new KeysAPI(this._http);
     const resolvedAgentsApiBase =
       options.agentsApiBaseUrl ||
       (options.apiUrl ? deriveAgentsApiBase(this._apiUrl, Boolean(options.agentDev)) : getAgentsApiBaseUrl(Boolean(options.agentDev)));
     const resolvedAgentsWsUrl =
       options.agentsWsUrl ||
       (options.apiUrl ? deriveAgentsWsUrl(this._apiUrl, Boolean(options.agentDev)) : getAgentsWsUrl(Boolean(options.agentDev)));
+    const authHttp = new HTTPClient(resolvedAgentsApiBase, this._apiKey, options.timeout);
+
+    // API namespaces
+    this.billing = new Billing(this._http);
+    this.jobs = new Jobs(this._http);
+    this.user = new UserAPI(this._http, authHttp);
+    this.instances = new Instances(this._http);
+    this.renders = new Renders(this._http);
+    this.files = new Files(this._http);
+    this.keys = new KeysAPI(this._http);
 
     this.agent = new HyperAgent(
       this._http,
