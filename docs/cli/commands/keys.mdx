@@ -30,6 +30,8 @@ Common baseline tags:
 - `files:self`
 - `agents:*`
 - `agents:self`
+- `models:*`
+- `voice:*`
 - `user:*`
 - `user:self`
 - `api:*`
@@ -40,8 +42,16 @@ Common selector tags:
 - `team=dev`
 - `project=alpha`
 - `agent=<agent-id>`
+- `model=kimi-k2.5`
+- `voice=alloy`
 
 Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `renders:*` and `files:*`.
+
+For HyperClaw routes:
+
+- `models:*` covers `GET /v1/models`
+- inference requests can be narrowed with `--tag model=kimi-k2.5`
+- voice compatibility requests can be narrowed with `--tag voice=alloy`
 
 ## list
 

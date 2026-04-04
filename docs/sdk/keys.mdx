@@ -36,6 +36,8 @@ Common baseline tags:
 - `files:self`
 - `agents:*`
 - `agents:self`
+- `models:*`
+- `voice:*`
 - `user:*`
 - `user:self`
 - `api:*`
@@ -46,6 +48,8 @@ Common selector tags:
 - `team=dev`
 - `project=alpha`
 - `agent=<agent-id>`
+- `model=kimi-k2.5`
+- `voice=alloy`
 
 Example:
 
@@ -61,6 +65,12 @@ print(scoped.api_key)
 That key can be embedded in your own app and used directly against the product API.
 
 New keys are deny-by-default unless tags are supplied. Use `*:*` only for trusted full-access keys or legacy migration.
+
+For HyperClaw inference:
+
+- `models:*` is enough for `GET /v1/models`
+- actual inference routes can be narrowed with exact selectors such as `model=kimi-k2.5`
+- voice compatibility routes can be narrowed with selectors such as `voice=alloy`
 
 ## Child Keys For One Exact Agent
 

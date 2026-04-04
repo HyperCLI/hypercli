@@ -186,7 +186,7 @@ New keys are deny-by-default unless you attach tags explicitly.
 There are two kinds of tags:
 
 - family baseline tags such as `jobs:*` or `files:self`
-- selector tags such as `team=dev` or `agent=<agent-id>`
+- selector tags such as `team=dev`, `agent=<agent-id>`, `model=kimi-k2.5`, or `voice=alloy`
 
 Examples:
 
@@ -199,10 +199,14 @@ Examples:
 - `files:self`
 - `agents:*`
 - `agents:self`
+- `models:*`
+- `voice:*`
 - `user:self`
 - `api:self`
 - `team=dev`
 - `agent=<agent-id>`
+- `model=kimi-k2.5`
+- `voice=alloy`
 
 Resources also carry tags. Access is granted when the key's effective tags are a subset of the resource tags, or when the key has a family-wide baseline such as `jobs:*`.
 
@@ -216,6 +220,8 @@ The current user-facing families are:
 - `renders:* | renders:self | renders:none`
 - `files:* | files:self | files:none`
 - `agents:* | agents:self | agents:none`
+- `models:* | models:none`
+- `voice:* | voice:none`
 
 Typical meaning:
 
@@ -225,6 +231,35 @@ Typical meaning:
 - `renders:*` grants broad render/flow access
 - `files:*` grants file upload/download/delete access
 - `agents:*` grants broad agent access
+- `models:*` grants model discovery and broad inference access
+- `voice:*` grants voice compatibility access
+
+### Inference And Voice Selectors
+
+For LLM access:
+
+- `GET /v1/models` requires only `models:*`
+- `POST /v1/completions`
+- `POST /v1/chat/completions`
+- `POST /v1/messages`
+- `POST /v1/embeddings`
+- `POST /v1/responses`
+
+The inference routes above can also be narrowed with selector tags such as:
+
+- `model=kimi-k2.5`
+- `model=glm-5`
+- `model=qwen3-embedding-4b`
+
+Provider-specific aliases still resolve back to the canonical model. For example, `kimi-k2.5-anthropic` maps to the same underlying model as `kimi-k2.5`.
+
+Voice compatibility routes work the same way:
+
+- `POST /v1/tts`
+- `POST /v1/clone`
+- `POST /v1/design`
+
+Use `voice:*` for broad access, or narrower tags such as `voice=alloy` when you want to pin a key to a specific voice.
 
 ### Global Access
 
