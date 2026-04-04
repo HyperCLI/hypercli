@@ -59,7 +59,7 @@ def _post_voice(
 ):
     """POST to voice endpoint and save audio output."""
     api_base = _resolve_api_base(base_url)
-    url = f"{api_base}/voice/{endpoint}"
+    url = f"{api_base}/agents/voice/{endpoint}"
 
     console.print(f"[dim]→ POST {url}[/dim]")
 
