@@ -102,10 +102,15 @@ job = client.jobs.get("job_id")
 | `interruptible` | `bool` | Whether the job uses interruptible capacity |
 | `price_per_hour` | `float` | Hourly price |
 | `price_per_second` | `float` | Per-second price |
+| `runtime` | `int` | Max runtime in seconds |
+| `elapsed` | `int` | Elapsed runtime derived from `started_at` or `created_at` when needed |
+| `time_left` | `int` | Remaining runtime in seconds, derived defensively by the SDK |
 | `command` | `str \| None` | Decoded command when returned |
 | `env_vars` | `dict \| None` | Environment variables when returned |
 | `tags` | `list[str] \| None` | Tags when present, including auto-tags such as `owner=<id>` and `job=<id>` |
 | `cold_boot` | `bool` | Whether placement required cold provisioning |
+
+`elapsed` and `time_left` are safe to use even against older Orchestra deployments that still return stale runtime counters, because the SDK recomputes them from the job timestamps when needed.
 
 ## Logs, Metrics, Exec, And Lifecycle
 

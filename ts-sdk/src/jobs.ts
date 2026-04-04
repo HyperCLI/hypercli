@@ -4,6 +4,8 @@
 import type { HTTPClient } from './http.js';
 import WebSocket from 'ws';
 
+const TERMINAL_JOB_STATES = new Set(['succeeded', 'failed', 'terminated', 'canceled', 'cancelled']);
+
 export interface Job {
   jobId: string;
   jobKey: string;
@@ -17,6 +19,8 @@ export interface Job {
   pricePerSecond: number;
   dockerImage: string;
   runtime: number;
+  elapsed: number;
+  timeLeft: number;
   hostname: string | null;
   coldBoot: boolean;
   createdAt: number | null;
@@ -90,7 +94,65 @@ export interface JobListPage {
   pageSize: number;
 }
 
+function parseRuntimeSeconds(value: unknown): number | null {
+  const parsed = Number(value);
+  if (!Number.isFinite(parsed)) return null;
+  return Math.max(Math.trunc(parsed), 0);
+}
+
+function parseTimestampSeconds(value: unknown): number | null {
+  if (value === null || value === undefined) return null;
+  if (typeof value === 'number') {
+    return Number.isFinite(value) ? value : null;
+  }
+  if (value instanceof Date) {
+    return Number.isFinite(value.getTime()) ? value.getTime() / 1000 : null;
+  }
+  if (typeof value === 'string') {
+    const direct = Number(value);
+    if (Number.isFinite(direct)) {
+      return direct;
+    }
+    const parsed = Date.parse(value);
+    return Number.isFinite(parsed) ? parsed / 1000 : null;
+  }
+  return null;
+}
+
+function deriveRuntimeFields(data: any): { elapsed: number; timeLeft: number } {
+  const runtimeSeconds = parseRuntimeSeconds(data?.runtime);
+  if (runtimeSeconds === null) {
+    return { elapsed: 0, timeLeft: 0 };
+  }
+
+  const state = String(data?.state ?? '').trim().toLowerCase();
+  if (state === 'dry_run') {
+    return { elapsed: 0, timeLeft: runtimeSeconds };
+  }
+
+  const startedAt = parseTimestampSeconds(data?.started_at);
+  const createdAt = parseTimestampSeconds(data?.created_at);
+  const completedAt = parseTimestampSeconds(data?.completed_at);
+
+  let anchor = startedAt;
+  if (anchor === null && (state === 'running' || completedAt !== null || TERMINAL_JOB_STATES.has(state))) {
+    anchor = createdAt;
+  }
+
+  if (anchor === null) {
+    return { elapsed: 0, timeLeft: runtimeSeconds };
+  }
+
+  const endTime = completedAt ?? (Date.now() / 1000);
+  const elapsed = Math.max(Math.trunc(endTime - anchor), 0);
+  if (completedAt !== null || TERMINAL_JOB_STATES.has(state)) {
+    return { elapsed, timeLeft: 0 };
+  }
+  return { elapsed, timeLeft: Math.max(runtimeSeconds - elapsed, 0) };
+}
+
 function jobFromDict(data: any): Job {
+  const { elapsed, timeLeft } = deriveRuntimeFields(data);
   return {
     jobId: data.job_id || '',
     jobKey: data.job_key || '',
@@ -104,6 +166,8 @@ function jobFromDict(data: any): Job {
     pricePerSecond: data.price_per_second || 0,
     dockerImage: data.docker_image || '',
     runtime: data.runtime || 0,
+    elapsed,
+    timeLeft,
     hostname: data.hostname || null,
     coldBoot: data.cold_boot ?? true,
     createdAt: data.created_at || null,

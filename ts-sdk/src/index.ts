@@ -80,6 +80,7 @@ export {
 export {
   UserAPI,
   type User,
+  type AuthMe,
 } from './user.js';
 
 // Keys API

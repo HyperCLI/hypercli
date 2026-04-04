@@ -68,6 +68,14 @@ const details = await client.jobs.get(job.jobId);
 
 Job responses include `tags` as a string array. Orchestra also adds system tags such as `owner=<id>`, `resource=<id>`, and `job=<id>`.
 
+Runtime-related fields are also available on each job:
+
+- `runtime`: max runtime in seconds
+- `elapsed`: elapsed runtime derived from `startedAt` or `createdAt` when needed
+- `timeLeft`: remaining runtime in seconds, derived defensively by the SDK
+
+That means `job.timeLeft` stays trustworthy even when an older Orchestra deployment returns stale raw counters.
+
 ## Logs and Metrics
 
 ```ts

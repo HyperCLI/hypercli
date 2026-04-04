@@ -4,7 +4,68 @@ import type { HTTPClient } from '../src/http.js';
 
 describe('Jobs API', () => {
   afterEach(() => {
+    vi.useRealTimers();
     vi.restoreAllMocks();
+  });
+
+  it('derives elapsed and timeLeft from timestamps instead of trusting stale API values', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-02T00:00:30Z'));
+
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        job_id: 'job-1',
+        job_key: 'job-key',
+        state: 'running',
+        gpu_type: 'l40s',
+        gpu_count: 1,
+        region: 'oh',
+        constraints: null,
+        interruptible: true,
+        price_per_hour: 1.0,
+        price_per_second: 1.0 / 3600,
+        docker_image: 'ubuntu',
+        runtime: 120,
+        elapsed: 0,
+        time_left: 0,
+        created_at: '2026-04-02T00:00:00Z',
+        started_at: '2026-04-02T00:00:00Z',
+      }),
+    } as unknown as HTTPClient;
+
+    const job = await new Jobs(http).get('job-1');
+
+    expect(job.elapsed).toBe(30);
+    expect(job.timeLeft).toBe(90);
+  });
+
+  it('falls back to createdAt when a running job is missing startedAt', async () => {
+    vi.useFakeTimers();
+    vi.setSystemTime(new Date('2026-04-02T00:00:45Z'));
+
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        job_id: 'job-1',
+        job_key: 'job-key',
+        state: 'running',
+        gpu_type: 'l40s',
+        gpu_count: 1,
+        region: 'oh',
+        constraints: null,
+        interruptible: true,
+        price_per_hour: 1.0,
+        price_per_second: 1.0 / 3600,
+        docker_image: 'ubuntu',
+        runtime: 300,
+        created_at: '2026-04-02T00:00:00Z',
+        started_at: null,
+      }),
+    } as unknown as HTTPClient;
+
+    const job = await new Jobs(http).get('job-1');
+
+    expect(job.elapsed).toBe(45);
+    expect(job.timeLeft).toBe(255);
   });
 
   it('preserves constraints from API responses', async () => {
