@@ -84,6 +84,17 @@ hyper config openclaw --apply
 
 Without `--apply`, the command prints the generated JSON blob to stdout.
 
+With `--apply`, the command:
+
+- writes `~/.openclaw/openclaw.json`
+- runs `openclaw models list` to regenerate the active agent `models.json`
+
+It does not restart OpenClaw automatically. Restart when you are ready:
+
+```bash
+openclaw gateway restart
+```
+
 ### `openclaw-setup`
 
 Patch `~/.openclaw/openclaw.json` directly using the saved HyperClaw key.

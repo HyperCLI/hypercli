@@ -1,4 +1,6 @@
-from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config
+from pathlib import Path
+
+from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config, _show_snippet
 
 
 def test_config_openclaw_limits_runtime_models_to_supported_set():
@@ -116,3 +118,42 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
         "primary": "hyperclaw/kimi-k2.5",
     }
     assert merged["gateway"]["port"] == 18789
+
+
+def test_show_snippet_openclaw_apply_regenerates_models_cache(monkeypatch, tmp_path):
+    calls = []
+
+    def fake_run(args, capture_output, text, timeout, check):
+        calls.append(args)
+        class Result:
+            returncode = 0
+        return Result()
+
+    monkeypatch.setattr("hypercli_cli.agent.shutil.which", lambda name: "/usr/bin/openclaw")
+    monkeypatch.setattr("hypercli_cli.agent.subprocess.run", fake_run)
+
+    target = tmp_path / "openclaw.json"
+    data = {
+        "models": {
+            "providers": {
+                "hyperclaw": {
+                    "baseUrl": "https://api.agents.hypercli.com",
+                    "apiKey": "hyper_api_xxx",
+                    "api": "anthropic-messages",
+                    "authHeader": True,
+                    "models": [{"id": "kimi-k2.5"}],
+                }
+            }
+        },
+        "agents": {
+            "defaults": {
+                "model": {"primary": "hyperclaw/kimi-k2.5"},
+                "models": {"hyperclaw/kimi-k2.5": {"alias": "kimi"}},
+            }
+        },
+    }
+
+    _show_snippet("OpenClaw", str(Path("~/.openclaw/openclaw.json")), data, True, target)
+
+    assert target.exists()
+    assert calls == [["openclaw", "models", "list"]]

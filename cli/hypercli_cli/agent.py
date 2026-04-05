@@ -2,6 +2,8 @@
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 import typer
@@ -923,6 +925,31 @@ def _show_snippet(name: str, path_hint: str, data: dict, apply: bool, target_pat
             json.dump(merged, f, indent=2)
             f.write("\n")
         console.print(f"[green]✅ Written to {target_path}[/green]\n")
+        if name == "OpenClaw":
+            _refresh_openclaw_runtime()
+
+
+def _refresh_openclaw_runtime():
+    """Best-effort refresh of OpenClaw generated runtime state after config changes."""
+    if shutil.which("openclaw") is None:
+        console.print("[yellow]⚠[/yellow] OpenClaw CLI not found in PATH.")
+        console.print("Run after install: [bold]openclaw models list[/bold]")
+        console.print("Then restart when ready: [bold]openclaw gateway restart[/bold]\n")
+        return
+
+    try:
+        subprocess.run(
+            ["openclaw", "models", "list"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        console.print("[green]✓[/green] Regenerated OpenClaw model cache.")
+    except Exception:
+        console.print("[yellow]⚠[/yellow] Could not regenerate OpenClaw model cache automatically.")
+        console.print("Run manually: [bold]openclaw models list[/bold]")
+    console.print("Restart when ready: [bold]openclaw gateway restart[/bold]\n")
 
 
 def _deep_merge(base: dict, overlay: dict):
