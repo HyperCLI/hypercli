@@ -20,8 +20,8 @@ const navLinks = [
 ];
 
 const dropdownNavItems = [
-  { label: "API Keys", href: "/dashboard/keys", icon: Key },
-  { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
+  { label: "API Keys", href: "/keys", icon: Key },
+  { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
 ];
 

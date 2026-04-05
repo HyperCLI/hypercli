@@ -18,9 +18,19 @@ export {
 } from './gateway.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
-import { KeysAPI } from './keys.js';
+import {
+  API_KEY_BASELINE_FAMILIES,
+  KeysAPI,
+  type ApiKeyBaselineFamily,
+  type ApiKeyBaselineValue,
+} from './keys.js';
 import { UserAPI } from './user.js';
 import { VoiceAPI } from './voice.js';
+export {
+  API_KEY_BASELINE_FAMILIES,
+  type ApiKeyBaselineFamily,
+  type ApiKeyBaselineValue,
+} from './keys.js';
 
 export interface BrowserHyperCLIOptions {
   apiUrl: string;

@@ -6,17 +6,21 @@ import { useCallback, useEffect, useMemo, useState } from "react";
 import Modal from "./Modal";
 import { formatDateTime } from "../utils/datetime";
 
-const FAMILY_OPTIONS = [
-  { key: "api", label: "API Keys" },
-  { key: "user", label: "Profile" },
-  { key: "jobs", label: "Jobs" },
-  { key: "renders", label: "Renders" },
-  { key: "files", label: "Files" },
-  { key: "agents", label: "Agents" },
+const API_KEY_BASELINE_FAMILIES = [
+  { key: "api", label: "API Keys", allowed: ["none", "self", "*"] },
+  { key: "user", label: "Profile", allowed: ["none", "self", "*"] },
+  { key: "jobs", label: "Jobs", allowed: ["none", "self", "*"] },
+  { key: "renders", label: "Renders", allowed: ["none", "self", "*"] },
+  { key: "files", label: "Files", allowed: ["none", "self", "*"] },
+  { key: "agents", label: "Agents", allowed: ["none", "self", "*"] },
+  { key: "models", label: "Models", allowed: ["none", "*"] },
+  { key: "voice", label: "Voice", allowed: ["none", "*"] },
+  { key: "flow", label: "Flows", allowed: ["none", "*"] },
 ] as const;
 
-type FamilyKey = (typeof FAMILY_OPTIONS)[number]["key"];
+type FamilyKey = (typeof API_KEY_BASELINE_FAMILIES)[number]["key"];
 type BaselineValue = "none" | "self" | "*";
+type AccessPreset = "full" | "scoped";
 
 const BASELINE_LABELS: Record<BaselineValue, string> = {
   none: "None",
@@ -24,16 +28,13 @@ const BASELINE_LABELS: Record<BaselineValue, string> = {
   "*": "All",
 };
 
+const FULL_ACCESS_TAG = "*:*";
+
 const SELECTOR_TAG_RE = /^[A-Za-z0-9_+-]+=[A-Za-z0-9_+-]+$/;
 
-const DEFAULT_BASELINES: Record<FamilyKey, BaselineValue> = {
-  api: "*",
-  user: "*",
-  jobs: "*",
-  renders: "*",
-  files: "*",
-  agents: "*",
-};
+const DEFAULT_BASELINES = Object.fromEntries(
+  API_KEY_BASELINE_FAMILIES.map(({ key }) => [key, "none"])
+) as Record<FamilyKey, BaselineValue>;
 
 export interface ApiKeysManagerProps {
   apiBaseUrl: string;
@@ -71,7 +72,7 @@ function validateSelectorTags(tags: string[]): string[] {
       );
     }
     const key = tag.split("=")[0]!;
-    if (FAMILY_OPTIONS.some((family) => family.key === key)) {
+    if (API_KEY_BASELINE_FAMILIES.some((family) => family.key === key)) {
       throw new Error(`Reserved family key '${key}' must use family:value baselines.`);
     }
     if (seenKeys.has(key)) {
@@ -85,14 +86,28 @@ function validateSelectorTags(tags: string[]): string[] {
 }
 
 function buildTags(
+  accessPreset: AccessPreset,
   baselines: Record<FamilyKey, BaselineValue>,
   selectorInput: string
 ): string[] {
-  const tags = FAMILY_OPTIONS.flatMap(({ key }) =>
+  if (accessPreset === "full") {
+    return [FULL_ACCESS_TAG];
+  }
+  const tags = API_KEY_BASELINE_FAMILIES.flatMap(({ key }) =>
     baselines[key] === "none" ? [] : [`${key}:${baselines[key]}`]
   );
   const selectors = validateSelectorTags(splitTagInput(selectorInput));
   return [...tags, ...selectors];
+}
+
+function listBaselineTags(
+  baselines: Record<FamilyKey, BaselineValue>
+): Array<{ family: FamilyKey; tag: string }> {
+  return API_KEY_BASELINE_FAMILIES.flatMap(({ key }) =>
+    baselines[key] === "none"
+      ? []
+      : [{ family: key, tag: `${key}:${baselines[key]}` }]
+  );
 }
 
 function statusLabel(key: ManagedApiKey): string {
@@ -103,7 +118,7 @@ export function ApiKeysManager({
   apiBaseUrl,
   getToken,
   title = "API Keys",
-  description = "Generate scoped API keys for apps and services.",
+  description = "Create full-access API keys by default, or narrow them with baseline and selector tags.",
   emptyTitle = "No API keys yet",
   emptyDescription = "Create your first key to start using the API.",
   className,
@@ -116,6 +131,7 @@ export function ApiKeysManager({
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
+  const [accessPreset, setAccessPreset] = useState<AccessPreset>("full");
   const [selectorInput, setSelectorInput] = useState("");
   const [baselines, setBaselines] = useState<Record<FamilyKey, BaselineValue>>(DEFAULT_BASELINES);
   const [createdKey, setCreatedKey] = useState<ManagedApiKey | null>(null);
@@ -152,14 +168,20 @@ export function ApiKeysManager({
 
   const effectiveTags = useMemo(() => {
     try {
-      return buildTags(baselines, selectorInput);
+      return buildTags(accessPreset, baselines, selectorInput);
     } catch {
       return [];
     }
-  }, [baselines, selectorInput]);
+  }, [accessPreset, baselines, selectorInput]);
+
+  const selectedBaselineTags = useMemo(
+    () => listBaselineTags(baselines),
+    [baselines]
+  );
 
   const resetCreateState = () => {
     setNewKeyName("");
+    setAccessPreset("full");
     setSelectorInput("");
     setBaselines(DEFAULT_BASELINES);
   };
@@ -172,7 +194,7 @@ export function ApiKeysManager({
 
     let tags: string[];
     try {
-      tags = buildTags(baselines, selectorInput);
+      tags = buildTags(accessPreset, baselines, selectorInput);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Invalid tag configuration");
       return;
@@ -200,7 +222,7 @@ export function ApiKeysManager({
   };
 
   const handleDisable = async (keyId: string) => {
-    if (!window.confirm("Deactivate this API key? This cannot be undone.")) {
+    if (!window.confirm("Disable this API key? This cannot be undone.")) {
       return;
     }
     setRevokingKeyId(keyId);
@@ -210,7 +232,7 @@ export function ApiKeysManager({
       await client.keys.disable(keyId);
       await fetchKeys();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to deactivate API key");
+      setError(err instanceof Error ? err.message : "Failed to disable API key");
     } finally {
       setRevokingKeyId(null);
     }
@@ -270,6 +292,19 @@ export function ApiKeysManager({
           <p className="text-sm font-medium text-foreground mb-2">
             API key created. Copy it now, it will not be shown again.
           </p>
+          <div className="mb-3 flex flex-wrap gap-2 text-xs text-muted-foreground">
+            <span className="rounded-full border border-border bg-background px-2 py-1">
+              {createdKey.keyId}
+            </span>
+            {createdKey.tags.map((tag) => (
+              <span
+                key={tag}
+                className="rounded-full border border-border bg-background px-2 py-1"
+              >
+                {tag}
+              </span>
+            ))}
+          </div>
           <div className="flex items-center gap-2">
             <code className="flex-1 break-all rounded-lg bg-background px-3 py-2 text-sm text-foreground">
               {createdKey.apiKey}
@@ -298,8 +333,9 @@ export function ApiKeysManager({
             <table className="min-w-full divide-y divide-border">
               <thead className="bg-background">
                 <tr>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Key ID</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Name</th>
-                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Key</th>
+                  <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Preview</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Tags</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Status</th>
                   <th className="px-6 py-3 text-left text-xs font-semibold uppercase tracking-wider text-muted-foreground">Created</th>
@@ -312,6 +348,9 @@ export function ApiKeysManager({
                   const isEditing = editingKeyId === key.keyId;
                   return (
                     <tr key={key.keyId} className="hover:bg-surface-medium/50">
+                      <td className="px-6 py-4 text-sm font-mono text-muted-foreground">
+                        {key.keyId}
+                      </td>
                       <td className="px-6 py-4 text-sm text-foreground">
                         {isEditing ? (
                           <div className="flex items-center gap-2">
@@ -400,7 +439,7 @@ export function ApiKeysManager({
                               disabled={revokingKeyId === key.keyId}
                               className="text-red-300 hover:text-red-200 disabled:opacity-50"
                             >
-                              Revoke
+                              Disable
                             </button>
                           ) : null}
                         </div>
@@ -437,52 +476,113 @@ export function ApiKeysManager({
           </div>
 
           <div>
-            <h3 className="text-sm font-medium text-foreground mb-3">Permissions</h3>
+            <h3 className="mb-3 text-sm font-medium text-foreground">Access</h3>
             <div className="grid gap-3 sm:grid-cols-2">
-              {FAMILY_OPTIONS.map(({ key, label }) => (
-                <label
-                  key={key}
-                  className="rounded-lg border border-border bg-surface-low p-3"
-                >
-                  <span className="mb-2 block text-sm font-medium text-foreground">{label}</span>
-                  <select
-                    value={baselines[key]}
-                    onChange={(event) =>
-                      setBaselines((current) => ({
-                        ...current,
-                        [key]: event.target.value as BaselineValue,
-                      }))
-                    }
-                    className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
-                    disabled={creating}
-                  >
-                    {(["none", "self", "*"] as BaselineValue[]).map((value) => (
-                      <option key={value} value={value}>
-                        {BASELINE_LABELS[value]}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-              ))}
+              <button
+                type="button"
+                onClick={() => setAccessPreset("full")}
+                className={`rounded-lg border p-4 text-left transition-colors ${
+                  accessPreset === "full"
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-surface-low hover:bg-background"
+                }`}
+                disabled={creating}
+              >
+                <div className="mb-2 flex items-center justify-between gap-3">
+                  <span className="text-sm font-medium text-foreground">Full access</span>
+                  <code className="rounded bg-background px-2 py-1 text-xs text-foreground">
+                    {FULL_ACCESS_TAG}
+                  </code>
+                </div>
+                <p className="text-xs text-muted-foreground">
+                  Recommended default for most users and trusted internal apps.
+                </p>
+              </button>
+              <button
+                type="button"
+                onClick={() => setAccessPreset("scoped")}
+                className={`rounded-lg border p-4 text-left transition-colors ${
+                  accessPreset === "scoped"
+                    ? "border-primary bg-primary/10"
+                    : "border-border bg-surface-low hover:bg-background"
+                }`}
+                disabled={creating}
+              >
+                <div className="mb-2 text-sm font-medium text-foreground">Scoped access</div>
+                <p className="text-xs text-muted-foreground">
+                  Narrow access with family baselines like `jobs:self` plus selector tags like `team=dev`.
+                </p>
+              </button>
             </div>
-            <p className="mt-2 text-xs text-muted-foreground">
-              Family baselines use the reserved `family:value` format such as `agents:self` or `jobs:*`.
-            </p>
           </div>
 
-          <div>
-            <label className="mb-2 block text-sm font-medium text-foreground">Selector Tags</label>
-            <textarea
-              value={selectorInput}
-              onChange={(event) => setSelectorInput(event.target.value)}
-              placeholder={"team=dev\nproject=alpha"}
-              className="min-h-28 w-full rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
-              disabled={creating}
-            />
-            <p className="mt-2 text-xs text-muted-foreground">
-              Use `key=value` tags only. Colons are reserved for family baselines.
-            </p>
-          </div>
+          {accessPreset === "scoped" ? (
+            <>
+              <div>
+                <h3 className="mb-3 text-sm font-medium text-foreground">Family Baselines</h3>
+                <div className="grid gap-3 sm:grid-cols-2">
+                  {API_KEY_BASELINE_FAMILIES.map(({ key, label, allowed }) => (
+                    <label
+                      key={key}
+                      className="rounded-lg border border-border bg-surface-low p-3"
+                    >
+                      <span className="mb-2 block text-sm font-medium text-foreground">{label}</span>
+                      <select
+                        value={baselines[key]}
+                        onChange={(event) =>
+                          setBaselines((current) => ({
+                            ...current,
+                            [key]: event.target.value as BaselineValue,
+                          }))
+                        }
+                        className="w-full rounded-lg border border-border bg-background px-3 py-2 text-sm text-foreground"
+                        disabled={creating}
+                      >
+                        {allowed.map((value) => (
+                          <option key={value} value={value}>
+                            {BASELINE_LABELS[value]}
+                          </option>
+                        ))}
+                      </select>
+                    </label>
+                  ))}
+                </div>
+                <div className="mt-3 flex min-h-12 flex-wrap gap-2 rounded-lg border border-border bg-background p-3">
+                  {selectedBaselineTags.length > 0 ? (
+                    selectedBaselineTags.map(({ tag }) => (
+                      <span
+                        key={tag}
+                        className="rounded-full border border-border bg-surface-low px-2 py-1 text-xs text-muted-foreground"
+                      >
+                        {tag}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-sm text-muted-foreground">
+                      No family baselines selected yet.
+                    </span>
+                  )}
+                </div>
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Family baselines use `family:value`, for example `agents:self` or `jobs:*`.
+                </p>
+              </div>
+
+              <div>
+                <label className="mb-2 block text-sm font-medium text-foreground">Selector Tags</label>
+                <textarea
+                  value={selectorInput}
+                  onChange={(event) => setSelectorInput(event.target.value)}
+                  placeholder={"team=dev\nproject=alpha"}
+                  className="min-h-28 w-full rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-foreground placeholder:text-muted-foreground focus:outline-none focus:border-primary"
+                  disabled={creating}
+                />
+                <p className="mt-2 text-xs text-muted-foreground">
+                  Use `key=value` tags only. Colons are reserved for family baselines.
+                </p>
+              </div>
+            </>
+          ) : null}
 
           <div>
             <h3 className="mb-2 text-sm font-medium text-foreground">Resulting Tags</h3>

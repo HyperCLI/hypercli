@@ -95,6 +95,9 @@ export {
 export {
   KeysAPI,
   type ApiKey,
+  type ApiKeyBaselineValue,
+  type ApiKeyBaselineFamily,
+  API_KEY_BASELINE_FAMILIES,
 } from './keys.js';
 
 // Logs

@@ -24,7 +24,7 @@ export function PricingSection() {
 
   const handleSelect = () => {
     if (isAuthenticated) {
-      window.location.href = "/dashboard/plans";
+      window.location.href = "/plans";
     } else {
       setIsLoginModalOpen(true);
     }
@@ -146,7 +146,7 @@ export function PricingSection() {
         apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
         onSuccess={() => {
-          window.location.href = "/dashboard/plans";
+          window.location.href = "/plans";
         }}
       />
     </>

@@ -1,6 +1,6 @@
 {
   "name": "@hypercli.com/sdk",
-  "version": "2026.3.25-1",
+  "version": "2026.4.5",
   "description": "TypeScript SDK for HyperCLI API",
   "type": "module",
   "main": "./dist/index.js",
@@ -21,6 +21,10 @@
     "./gateway": {
       "import": "./dist/gateway.js",
       "types": "./dist/gateway.d.ts"
+    },
+    "./keys": {
+      "import": "./dist/keys.js",
+      "types": "./dist/keys.d.ts"
     },
     "./http": {
       "import": "./dist/http.js",

@@ -578,7 +578,7 @@ export default function AgentConsolePage() {
     return (
       <div className="flex flex-col items-center justify-center h-full gap-4">
         <p className="text-[#d05f5f]">{error || "Agent not found"}</p>
-        <button onClick={() => router.push("/dashboard/agents")} className="text-text-secondary hover:underline">
+        <button onClick={() => router.push("/agents")} className="text-text-secondary hover:underline">
           &larr; Back to agents
         </button>
       </div>
@@ -589,7 +589,7 @@ export default function AgentConsolePage() {
     <div className="flex flex-col h-[calc(100vh-4rem)]">
       {/* Header */}
       <div className="flex items-center gap-3 px-4 py-2 border-b border-border bg-background">
-        <button onClick={() => router.push("/dashboard/agents")} className="text-text-muted hover:text-foreground">
+        <button onClick={() => router.push("/agents")} className="text-text-muted hover:text-foreground">
           <ArrowLeft className="w-4 h-4" />
         </button>
         <Bot className="w-5 h-5 text-text-secondary" />

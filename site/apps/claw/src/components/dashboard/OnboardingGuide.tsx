@@ -61,7 +61,7 @@ export function OnboardingGuide({ onDismiss }: OnboardingGuideProps) {
             <Step number={3} icon={Zap} text="Monitor usage in dashboard" />
           </div>
           <Link
-            href="/dashboard/keys"
+            href="/keys"
             className="mt-4 btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 w-full"
           >
             Create API Key
@@ -88,7 +88,7 @@ export function OnboardingGuide({ onDismiss }: OnboardingGuideProps) {
             <Step number={3} icon={ArrowRight} text="Deploy and go live" />
           </div>
           <Link
-            href="/dashboard/agents"
+            href="/agents"
             className="mt-4 btn-secondary px-4 py-2 rounded-lg text-sm font-medium flex items-center justify-center gap-2 w-full"
           >
             Create Agent

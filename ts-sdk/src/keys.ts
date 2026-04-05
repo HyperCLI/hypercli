@@ -3,6 +3,26 @@
  */
 import type { HTTPClient } from './http.js';
 
+export type ApiKeyBaselineValue = 'none' | 'self' | '*';
+
+export interface ApiKeyBaselineFamily {
+  key: string;
+  label: string;
+  allowed: readonly ApiKeyBaselineValue[];
+}
+
+export const API_KEY_BASELINE_FAMILIES = [
+  { key: 'api', label: 'API Keys', allowed: ['none', 'self', '*'] },
+  { key: 'user', label: 'Profile', allowed: ['none', 'self', '*'] },
+  { key: 'jobs', label: 'Jobs', allowed: ['none', 'self', '*'] },
+  { key: 'renders', label: 'Renders', allowed: ['none', 'self', '*'] },
+  { key: 'files', label: 'Files', allowed: ['none', 'self', '*'] },
+  { key: 'agents', label: 'Agents', allowed: ['none', 'self', '*'] },
+  { key: 'models', label: 'Models', allowed: ['none', '*'] },
+  { key: 'voice', label: 'Voice', allowed: ['none', '*'] },
+  { key: 'flow', label: 'Flows', allowed: ['none', '*'] },
+] as const satisfies readonly ApiKeyBaselineFamily[];
+
 export interface ApiKey {
   keyId: string;
   name: string;

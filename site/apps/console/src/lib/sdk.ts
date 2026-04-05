@@ -52,6 +52,7 @@ export interface ConsoleTransactionsResponse {
 export interface ConsoleApiKey {
   key_id: string;
   name: string;
+  tags: string[];
   api_key: string | null;
   api_key_preview: string | null;
   last4: string | null;
@@ -273,6 +274,7 @@ export async function getConsoleApiKeys(): Promise<ConsoleApiKey[]> {
   return keys.map((key) => ({
     key_id: key.keyId,
     name: key.name,
+    tags: key.tags,
     api_key: key.apiKey,
     api_key_preview: key.apiKeyPreview,
     last4: key.last4,
@@ -282,11 +284,12 @@ export async function getConsoleApiKeys(): Promise<ConsoleApiKey[]> {
   }));
 }
 
-export async function createConsoleApiKey(name: string): Promise<ConsoleApiKey> {
-  const key = await requireClient().keys.create(name);
+export async function createConsoleApiKey(name: string, tags?: string[]): Promise<ConsoleApiKey> {
+  const key = await requireClient().keys.create(name, tags);
   return {
     key_id: key.keyId,
     name: key.name,
+    tags: key.tags,
     api_key: key.apiKey,
     api_key_preview: key.apiKeyPreview,
     last4: key.last4,
