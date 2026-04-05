@@ -111,7 +111,7 @@ export class HyperCLI {
     this.jobs = new Jobs(this._http);
     this.user = new UserAPI(this._http, authHttp);
     this.instances = new Instances(this._http);
-    this.renders = new Renders(this._http);
+    this.renders = new Renders(this._http, authHttp);
     this.files = new Files(this._http);
     this.voice = new VoiceAPI(this._http);
     this.keys = new KeysAPI(this._http);

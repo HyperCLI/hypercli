@@ -2,10 +2,11 @@ from __future__ import annotations
 
 """Renders API"""
 from dataclasses import dataclass
-from typing import TYPE_CHECKING, List, Optional
+from typing import TYPE_CHECKING, Any, List
 
 if TYPE_CHECKING:
     from .http import HTTPClient
+from .http import APIError
 
 
 @dataclass
@@ -55,8 +56,59 @@ class RenderStatus:
 class Renders:
     """Renders API wrapper"""
 
-    def __init__(self, http: "HTTPClient"):
+    def __init__(self, http: "HTTPClient", auth_http: "HTTPClient" | None = None):
         self._http = http
+        self._auth_http = auth_http or http
+        self._auth_me_cache: dict[str, Any] | None = None
+
+    def _auth_me(self) -> dict[str, Any]:
+        if self._auth_me_cache is None:
+            self._auth_me_cache = self._auth_http.get("/auth/me")
+        return self._auth_me_cache
+
+    def _supports_subscription_family(self, family: str, resource: str | None = None) -> bool:
+        try:
+            auth_me = self._auth_me()
+        except APIError:
+            return False
+        if not auth_me.get("has_active_subscription"):
+            return False
+        if auth_me.get("auth_type") == "user":
+            return True
+        capabilities = set(auth_me.get("capabilities") or [])
+        if f"{family}:*" in capabilities:
+            return True
+        if resource and f"{family}:{resource}" in capabilities:
+            return True
+        return False
+
+    def _post_flow(self, flow_type: str, payload: dict[str, Any]) -> dict[str, Any]:
+        primary = f"/agents/flow/{flow_type}" if self._supports_subscription_family("renders", flow_type) else f"/api/flow/{flow_type}"
+        try:
+            return self._http.post(primary, json=payload)
+        except APIError as exc:
+            if primary.startswith("/agents/flow/") and exc.status_code in {403, 404}:
+                return self._http.post(f"/api/flow/{flow_type}", json=payload)
+            raise
+
+    def _get_render(self, render_id: str, *, status: bool = False) -> dict[str, Any]:
+        suffix = "/status" if status else ""
+        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._supports_subscription_family("renders") else f"/api/renders/{render_id}{suffix}"
+        try:
+            return self._http.get(primary)
+        except APIError as exc:
+            if primary.startswith("/agents/flow/") and exc.status_code in {403, 404}:
+                return self._http.get(f"/api/renders/{render_id}{suffix}")
+            raise
+
+    def _delete_render(self, render_id: str) -> dict:
+        primary = f"/agents/flow/renders/{render_id}" if self._supports_subscription_family("renders") else f"/api/renders/{render_id}"
+        try:
+            return self._http.delete(primary)
+        except APIError as exc:
+            if primary.startswith("/agents/flow/") and exc.status_code in {403, 404}:
+                return self._http.delete(f"/api/renders/{render_id}")
+            raise
 
     def list(
         self,
@@ -89,7 +141,7 @@ class Renders:
 
     def get(self, render_id: str) -> Render:
         """Get render details"""
-        data = self._http.get(f"/api/renders/{render_id}")
+        data = self._get_render(render_id)
         return Render.from_dict(data)
 
     def create(
@@ -120,21 +172,21 @@ class Renders:
 
     def cancel(self, render_id: str) -> dict:
         """Cancel a render"""
-        return self._http.delete(f"/api/renders/{render_id}")
+        return self._delete_render(render_id)
 
     def status(self, render_id: str) -> RenderStatus:
         """Get render status (lightweight polling endpoint)"""
-        data = self._http.get(f"/api/renders/{render_id}/status")
+        data = self._get_render(render_id, status=True)
         return RenderStatus.from_dict(data)
 
     # =========================================================================
     # Flow endpoints - simplified interfaces
     # =========================================================================
 
-    def _flow(self, endpoint: str, **kwargs) -> Render:
-        """Helper for flow endpoints. Filters None values from payload."""
+    def create_flow(self, flow_type: str, **kwargs) -> Render:
+        """Create a flow render via subscription flow when available, otherwise paid flow."""
         payload = {k: v for k, v in kwargs.items() if v is not None}
-        data = self._http.post(endpoint, json=payload)
+        data = self._post_flow(flow_type, payload)
         return Render.from_dict(data)
 
     def text_to_image(
@@ -157,7 +209,7 @@ class Renders:
         Example:
             render = client.renders.text_to_image("a cat wearing sunglasses")
         """
-        return self._flow("/api/flow/text-to-image", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("text-to-image", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def text_to_image_hidream(
         self,
@@ -179,7 +231,7 @@ class Renders:
         Example:
             render = client.renders.text_to_image_hidream("a mystical forest")
         """
-        return self._flow("/api/flow/text-to-image-hidream", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("text-to-image-hidream", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def text_to_video(
         self,
@@ -201,7 +253,7 @@ class Renders:
         Example:
             render = client.renders.text_to_video("a cat walking through a garden")
         """
-        return self._flow("/api/flow/text-to-video", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("text-to-video", prompt=prompt, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def image_to_video(
         self,
@@ -227,7 +279,7 @@ class Renders:
         Example:
             render = client.renders.image_to_video("dancing", image_url="https://example.com/img.png")
         """
-        return self._flow("/api/flow/image-to-video", prompt=prompt, image_url=image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("image-to-video", prompt=prompt, image_url=image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def speaking_video(
         self,
@@ -265,7 +317,7 @@ class Renders:
                 audio_url="https://example.com/speech.mp3"
             )
         """
-        return self._flow("/api/flow/speaking-video", prompt=prompt, image_url=image_url, audio_url=audio_url, file_ids=file_ids, negative=negative, length=length, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("speaking-video", prompt=prompt, image_url=image_url, audio_url=audio_url, file_ids=file_ids, negative=negative, length=length, width=width, height=height, notify_url=notify_url)
 
     def speaking_video_wan(
         self,
@@ -295,7 +347,7 @@ class Renders:
                 "https://example.com/song.mp3"
             )
         """
-        return self._flow("/api/flow/speaking-video-wan", prompt=prompt, image_url=image_url, audio_url=audio_url, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("speaking-video-wan", prompt=prompt, image_url=image_url, audio_url=audio_url, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def image_to_image(
         self,
@@ -324,7 +376,7 @@ class Renders:
                 image_urls=["https://example.com/subject.jpg", "https://example.com/style.jpg"]
             )
         """
-        return self._flow("/api/flow/image-to-image", prompt=prompt, image_urls=image_urls, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("image-to-image", prompt=prompt, image_urls=image_urls, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def first_last_frame_video(
         self,
@@ -356,7 +408,7 @@ class Renders:
                 end_image_url="https://example.com/night.png"
             )
         """
-        return self._flow("/api/flow/first-last-frame-video", prompt=prompt, start_image_url=start_image_url, end_image_url=end_image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
+        return self.create_flow("first-last-frame-video", prompt=prompt, start_image_url=start_image_url, end_image_url=end_image_url, file_ids=file_ids, negative=negative, width=width, height=height, notify_url=notify_url)
 
     def audio_to_text(
         self,

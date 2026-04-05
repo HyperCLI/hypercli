@@ -34,6 +34,7 @@ class AuthMe:
     email: str | None
     auth_type: str
     capabilities: list[str]
+    has_active_subscription: bool
     key_id: str | None
     key_name: str | None
 
@@ -47,6 +48,7 @@ class AuthMe:
             email=data.get("email"),
             auth_type=data.get("auth_type", ""),
             capabilities=list(data.get("capabilities") or []),
+            has_active_subscription=bool(data.get("has_active_subscription")),
             key_id=data.get("key_id"),
             key_name=data.get("key_name"),
         )

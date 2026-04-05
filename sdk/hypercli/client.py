@@ -97,7 +97,7 @@ class HyperCLI:
         self.jobs = Jobs(self._http)
         self.user = UserAPI(self._http, auth_http=auth_http)
         self.instances = Instances(self._http)
-        self.renders = Renders(self._http)
+        self.renders = Renders(self._http, auth_http=auth_http)
         self.files = Files(self._http)
         self.voice = VoiceAPI(self._http)
         self.keys = KeysAPI(self._http)

@@ -47,7 +47,7 @@ Common selector tags:
 
 - `team=dev`
 - `project=alpha`
-- `agent=<agent-id>`
+- `agent=<agent-uuid>`
 - `model=kimi-k2.5`
 - `voice=alloy`
 
@@ -84,6 +84,8 @@ const child = await client.deployments.createScopedKey(agent.id, "agent-client")
 
 console.log(child.api_key);
 ```
+
+The underlying exact-agent selector is `agent=<agent-uuid>`. Do not use `agents:<uuid>` or `agent=<name>`.
 
 That child key is intended for:
 

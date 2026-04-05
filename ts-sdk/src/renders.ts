@@ -2,6 +2,7 @@
  * Renders API - managed AI rendering workflows
  */
 import type { HTTPClient } from './http.js';
+import { APIError } from './errors.js';
 
 export interface Render {
   renderId: string;
@@ -46,7 +47,81 @@ function renderStatusFromDict(data: any): RenderStatus {
 }
 
 export class Renders {
-  constructor(private http: HTTPClient) {}
+  private authMeCache: any | null = null;
+
+  constructor(private http: HTTPClient, private authHttp: HTTPClient = http) {}
+
+  private async authMe(): Promise<any> {
+    if (this.authMeCache == null) {
+      this.authMeCache = await this.authHttp.get('/auth/me');
+    }
+    return this.authMeCache;
+  }
+
+  private async supportsSubscriptionFamily(family: string, resource?: string): Promise<boolean> {
+    try {
+      const authMe = await this.authMe();
+      if (!authMe?.has_active_subscription) {
+        return false;
+      }
+      if (authMe.auth_type === 'user') {
+        return true;
+      }
+      const capabilities = new Set(Array.isArray(authMe.capabilities) ? authMe.capabilities : []);
+      if (capabilities.has(`${family}:*`)) {
+        return true;
+      }
+      return Boolean(resource && capabilities.has(`${family}:${resource}`));
+    } catch (error) {
+      if (error instanceof APIError) {
+        return false;
+      }
+      throw error;
+    }
+  }
+
+  private async postFlow(flowType: string, payload: Record<string, any>): Promise<any> {
+    const primary = (await this.supportsSubscriptionFamily('renders', flowType))
+      ? `/agents/flow/${flowType}`
+      : `/api/flow/${flowType}`;
+    try {
+      return await this.http.post(primary, payload);
+    } catch (error) {
+      if (primary.startsWith('/agents/flow/') && error instanceof APIError && (error.statusCode === 403 || error.statusCode === 404)) {
+        return await this.http.post(`/api/flow/${flowType}`, payload);
+      }
+      throw error;
+    }
+  }
+
+  private async getRender(renderId: string, status: boolean = false): Promise<any> {
+    const suffix = status ? '/status' : '';
+    const primary = (await this.supportsSubscriptionFamily('renders'))
+      ? `/agents/flow/renders/${renderId}${suffix}`
+      : `/api/renders/${renderId}${suffix}`;
+    try {
+      return await this.http.get(primary);
+    } catch (error) {
+      if (primary.startsWith('/agents/flow/') && error instanceof APIError && (error.statusCode === 403 || error.statusCode === 404)) {
+        return await this.http.get(`/api/renders/${renderId}${suffix}`);
+      }
+      throw error;
+    }
+  }
+
+  private async deleteRender(renderId: string): Promise<any> {
+    const primary = (await this.supportsSubscriptionFamily('renders'))
+      ? `/agents/flow/renders/${renderId}`
+      : `/api/renders/${renderId}`;
+    try {
+      return await this.http.delete(primary);
+    } catch (error) {
+      if (primary.startsWith('/agents/flow/') && error instanceof APIError && (error.statusCode === 403 || error.statusCode === 404)) {
+        return await this.http.delete(`/api/renders/${renderId}`);
+      }
+      throw error;
+    }
+  }
 
   /**
    * List all renders
@@ -74,7 +149,7 @@ export class Renders {
    * Get render details
    */
   async get(renderId: string): Promise<Render> {
-    const data = await this.http.get(`/api/renders/${renderId}`);
+    const data = await this.getRender(renderId);
     return renderFromDict(data);
   }
 
@@ -106,14 +181,14 @@ export class Renders {
    * Cancel a render
    */
   async cancel(renderId: string): Promise<any> {
-    return await this.http.delete(`/api/renders/${renderId}`);
+    return await this.deleteRender(renderId);
   }
 
   /**
    * Get render status (lightweight polling endpoint)
    */
   async status(renderId: string): Promise<RenderStatus> {
-    const data = await this.http.get(`/api/renders/${renderId}/status`);
+    const data = await this.getRender(renderId, true);
     return renderStatusFromDict(data);
   }
 
@@ -121,7 +196,7 @@ export class Renders {
   // Flow endpoints - simplified interfaces
   // =========================================================================
 
-  private async flow(endpoint: string, params: Record<string, any>): Promise<Render> {
+  async flow(flowType: string, params: Record<string, any>): Promise<Render> {
     // Filter out null/undefined values
     const payload: Record<string, any> = {};
     for (const [key, value] of Object.entries(params)) {
@@ -130,7 +205,7 @@ export class Renders {
       }
     }
 
-    const data = await this.http.post(endpoint, payload);
+    const data = await this.postFlow(flowType, payload);
     return renderFromDict(data);
   }
 
@@ -144,7 +219,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/text-to-image', {
+    return this.flow('text-to-image', {
       prompt: options.prompt,
       negative: options.negative,
       width: options.width,
@@ -163,7 +238,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/text-to-image-hidream', {
+    return this.flow('text-to-image-hidream', {
       prompt: options.prompt,
       negative: options.negative,
       width: options.width,
@@ -182,7 +257,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/text-to-video', {
+    return this.flow('text-to-video', {
       prompt: options.prompt,
       negative: options.negative,
       width: options.width,
@@ -203,7 +278,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/image-to-video', {
+    return this.flow('image-to-video', {
       prompt: options.prompt,
       image_url: options.imageUrl,
       file_ids: options.fileIds,
@@ -228,7 +303,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/speaking-video', {
+    return this.flow('speaking-video', {
       prompt: options.prompt,
       image_url: options.imageUrl,
       audio_url: options.audioUrl,
@@ -253,7 +328,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/speaking-video-wan', {
+    return this.flow('speaking-video-wan', {
       prompt: options.prompt,
       image_url: options.imageUrl,
       audio_url: options.audioUrl,
@@ -276,7 +351,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/image-to-image', {
+    return this.flow('image-to-image', {
       prompt: options.prompt,
       image_urls: options.imageUrls,
       file_ids: options.fileIds,
@@ -300,7 +375,7 @@ export class Renders {
     height?: number;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/first-last-frame-video', {
+    return this.flow('first-last-frame-video', {
       prompt: options.prompt,
       start_image_url: options.startImageUrl,
       end_image_url: options.endImageUrl,
@@ -320,7 +395,7 @@ export class Renders {
     fileIds?: string[];
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/audio-to-text', {
+    return this.flow('audio-to-text', {
       audio_url: options.audioUrl,
       file_ids: options.fileIds,
       notify_url: options.notifyUrl,
@@ -344,7 +419,7 @@ export class Renders {
     useXvectorOnly?: boolean;
     notifyUrl?: string;
   }): Promise<Render> {
-    return this.flow('/api/flow/text-to-speech', {
+    return this.flow('text-to-speech', {
       text: options.text,
       mode: options.mode,
       language: options.language,

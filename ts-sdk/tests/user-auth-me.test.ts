@@ -20,6 +20,7 @@ describe('User auth me API', () => {
           email: 'user@example.com',
           auth_type: 'orchestra_key',
           capabilities: ['models:*', 'voice:*'],
+          has_active_subscription: true,
           key_id: 'key-123',
           key_name: 'runtime-key',
         };
@@ -30,6 +31,7 @@ describe('User auth me API', () => {
 
     expect(authMe.userId).toBe('user-123');
     expect(authMe.capabilities).toEqual(['models:*', 'voice:*']);
+    expect(authMe.hasActiveSubscription).toBe(true);
     expect(authMe.keyId).toBe('key-123');
   });
 });

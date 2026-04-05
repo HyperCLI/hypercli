@@ -186,7 +186,7 @@ New keys are deny-by-default unless you attach tags explicitly.
 There are two kinds of tags:
 
 - family baseline tags such as `jobs:*` or `files:self`
-- selector tags such as `team=dev`, `agent=<agent-id>`, `model=kimi-k2.5`, or `voice=alloy`
+- selector tags such as `team=dev`, `agent=<agent-uuid>`, `model=kimi-k2.5`, or `voice=alloy`
 
 Examples:
 
@@ -204,7 +204,7 @@ Examples:
 - `user:self`
 - `api:self`
 - `team=dev`
-- `agent=<agent-id>`
+- `agent=<agent-uuid>`
 - `model=kimi-k2.5`
 - `voice=alloy`
 
@@ -233,6 +233,31 @@ Typical meaning:
 - `agents:*` grants broad agent access
 - `models:*` grants model discovery and broad inference access
 - `voice:*` grants voice compatibility access
+
+### Exact Agent Keys
+
+Broad agent access uses the `agents:* | agents:self | agents:none` family tags.
+
+Exact agent binding is separate and uses the selector tag:
+
+- `agent=<agent-uuid>`
+
+So:
+
+- `agents:<uuid>` is not an exact-agent tag
+- `agent=<name>` is not supported
+- the stable exact selector is the agent UUID
+
+In practice, prefer minting exact-agent child keys through the agent API instead of hand-writing tags:
+
+```bash
+curl -X POST https://api.hypercli.com/api/deployments/<agent-uuid>/keys \
+  -H "Authorization: Bearer $HYPER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"agent-client"}'
+```
+
+That endpoint issues the correctly scoped key for that one agent.
 
 ### Inference And Voice Selectors
 

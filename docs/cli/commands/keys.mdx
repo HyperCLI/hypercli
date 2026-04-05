@@ -41,11 +41,13 @@ Common selector tags:
 
 - `team=dev`
 - `project=alpha`
-- `agent=<agent-id>`
+- `agent=<agent-uuid>`
 - `model=kimi-k2.5`
 - `voice=alloy`
 
 Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `renders:*` and `files:*`.
+
+For one exact agent, mint a child key through the API or SDK. The underlying exact-agent selector is `agent=<agent-uuid>`. Do not use `agents:<uuid>` or `agent=<name>`.
 
 For HyperClaw routes:
 

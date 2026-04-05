@@ -117,7 +117,7 @@ def _create_flow_render(
         return x402_result.render, x402_result
 
     with spinner("Creating render..."):
-        render = get_client().renders._flow(f"/api/flow/{flow_type}", **clean_payload)
+        render = get_client().renders.create_flow(flow_type, **clean_payload)
     return render, None
 
 
