@@ -1,0 +1,44 @@
+---
+title: hyper llm
+description: Basic direct LLM chat commands against the OpenAI-compatible /v1 surface.
+---
+
+`hyper llm` is the smallest direct inference surface in the CLI.
+
+Use it when you want a one-off chat completion without setting up an agent.
+
+## chat
+
+Send one prompt to `/v1/chat/completions`:
+
+```bash
+hyper llm chat "Say hello"
+hyper llm chat "Summarize this file" --model glm-5
+hyper llm chat "Answer in one word" --no-stream
+hyper llm chat "You are terse" --system "Be concise" --json
+```
+
+### Defaults
+
+- uses the configured product API base
+- uses your configured API key
+- defaults to:
+  - `kimi-k2.5` when available
+  - otherwise the first non-embedding model from `/v1/models`
+
+### Useful flags
+
+- `--model`, `-m`
+- `--system`, `-s`
+- `--stream/--no-stream`
+- `--json`
+- `--temperature`
+- `--max-tokens`
+- `--base-url`, `-b`
+- `--key`, `-k`
+
+### Notes
+
+- this is a direct model call, not an agent session
+- voice and embedding helpers still live under `hyper agent`
+- agent lifecycle and OpenClaw gateway behavior still live under `hyper agents`

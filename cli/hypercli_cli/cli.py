@@ -8,7 +8,7 @@ from rich.prompt import Prompt
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, user, wallet
+from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, user, wallet
 from .output import output, spinner
 
 console = Console()
@@ -67,6 +67,7 @@ app.add_typer(flow.app, name="flow")
 app.add_typer(instances.app, name="instances")
 app.add_typer(keys.app, name="keys")
 app.add_typer(jobs.app, name="jobs")
+app.add_typer(llm.app, name="llm")
 app.add_typer(user.app, name="user")
 app.add_typer(wallet.app, name="wallet")
 
