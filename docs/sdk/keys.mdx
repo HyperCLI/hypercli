@@ -48,8 +48,8 @@ Common selector tags:
 - `team=dev`
 - `project=alpha`
 - `agent=<agent-uuid>`
-- `model=kimi-k2.5`
-- `voice=alloy`
+- `model=kimi-k2-5`
+- `runtime=agent`
 
 Example:
 
@@ -69,8 +69,8 @@ New keys are deny-by-default unless tags are supplied. Use `*:*` only for truste
 For HyperClaw inference:
 
 - `models:*` is enough for `GET /v1/models`
-- actual inference routes can be narrowed with exact selectors such as `model=kimi-k2.5`
-- voice compatibility routes can be narrowed with selectors such as `voice=alloy`
+- actual inference routes can be narrowed with exact selectors such as `model=kimi-k2-5`
+- subscription voice routes use the `voice:*` family and the current `/agents/voice/*` surface
 
 ## Child Keys For One Exact Agent
 

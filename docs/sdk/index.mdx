@@ -27,6 +27,7 @@ The Python SDK has two distinct halves:
   - files
   - keys
   - user
+  - voice
 - HyperClaw / agent APIs
   - `client.agent` for plan and model metadata
   - `client.deployments` for agent lifecycle and runtime access
@@ -69,6 +70,7 @@ Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI
 - `client.files`
 - `client.keys`
 - `client.user`
+- `client.voice`
 
 ### HyperClaw
 
@@ -88,7 +90,7 @@ Use `agent_api_key` when your HyperClaw key is different from your main HyperCLI
 ```python
 from hypercli import HyperCLI
 
-client = HyperCLI(api_key="hyper_...", agent_api_key="sk-...")
+client = HyperCLI(api_key="hyper_...")
 
 agent = client.deployments.create_openclaw(
     name="docs-demo",
@@ -118,6 +120,35 @@ That means:
 There is no default `shell-<host>` platform route anymore.
 
 ## Recommended Access Patterns
+
+### Use `client.user.auth_me()` for capability introspection
+
+The Python SDK exposes the current auth context, including resolved key capabilities:
+
+```python
+auth = client.user.auth_me()
+print(auth.auth_type)
+print(auth.capabilities)
+print(auth.key_id)
+```
+
+This uses the agents auth surface behind the scenes rather than the legacy product `/api/auth/me` route.
+
+### Use `client.voice` for subscription voice routes
+
+Voice helpers go through the current `/agents/voice/*` surface:
+
+```python
+audio = client.voice.tts("Hello from HyperClaw", voice="Chelsie", response_format="mp3")
+
+with open("hello.mp3", "wb") as f:
+    f.write(audio)
+```
+
+Additional helpers:
+
+- `client.voice.clone(...)`
+- `client.voice.design(...)`
 
 ### Use backend `/ws/*` for logs and shells
 
@@ -156,5 +187,5 @@ They only make sense if you have explicitly created an executor-style route. For
 
 - [Keys SDK](/sdk/keys)
 - [Agents SDK](/sdk/agents)
-- [Gateway Client SDK](/sdk/gateway)
 - [Python SDK Reference](/sdk/reference)
+- [Gateway Client SDK](/sdk/gateway)

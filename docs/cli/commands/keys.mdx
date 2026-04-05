@@ -42,8 +42,8 @@ Common selector tags:
 - `team=dev`
 - `project=alpha`
 - `agent=<agent-uuid>`
-- `model=kimi-k2.5`
-- `voice=alloy`
+- `model=kimi-k2-5`
+- `runtime=agent`
 
 Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `renders:*` and `files:*`.
 
@@ -52,8 +52,8 @@ For one exact agent, mint a child key through the API or SDK. The underlying exa
 For HyperClaw routes:
 
 - `models:*` covers `GET /v1/models`
-- inference requests can be narrowed with `--tag model=kimi-k2.5`
-- voice compatibility requests can be narrowed with `--tag voice=alloy`
+- inference requests can be narrowed with `--tag model=kimi-k2-5`
+- subscription voice requests use the `/agents/voice/*` surface and the `voice:*` family
 
 ## list
 
