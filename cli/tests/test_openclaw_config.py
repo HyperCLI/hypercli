@@ -72,6 +72,10 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
         },
         "agents": {
             "defaults": {
+                "model": {
+                    "primary": "hyperclaw/glm-5",
+                    "fallbacks": ["anthropic/claude-opus-4-6"],
+                },
                 "models": {
                     "kimi-coding/kimi-k2.5": {"alias": "kimi"},
                     "hyperclaw/glm-5": {"alias": "glm"},
@@ -90,6 +94,9 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
         },
         "agents": {
             "defaults": {
+                "model": {
+                    "primary": "hyperclaw/kimi-k2.5",
+                },
                 "models": {
                     "hyperclaw/kimi-k2.5": {"alias": "kimi"},
                     "hyperclaw/glm-5": {"alias": "glm"},
@@ -104,5 +111,8 @@ def test_merge_openclaw_config_replaces_stale_provider_sections():
     assert set(merged["agents"]["defaults"]["models"]) == {
         "hyperclaw/kimi-k2.5",
         "hyperclaw/glm-5",
+    }
+    assert merged["agents"]["defaults"]["model"] == {
+        "primary": "hyperclaw/kimi-k2.5",
     }
     assert merged["gateway"]["port"] == 18789

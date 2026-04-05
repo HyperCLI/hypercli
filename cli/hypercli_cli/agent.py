@@ -950,4 +950,10 @@ def _merge_openclaw_config(existing: dict, snippet: dict) -> dict:
         merged["agents"].setdefault("defaults", {})
         merged["agents"]["defaults"]["models"] = snippet_defaults
 
+    snippet_model_config = (((snippet.get("agents") or {}).get("defaults") or {}).get("model") or {})
+    if snippet_model_config:
+        merged.setdefault("agents", {})
+        merged["agents"].setdefault("defaults", {})
+        merged["agents"]["defaults"]["model"] = snippet_model_config
+
     return merged
