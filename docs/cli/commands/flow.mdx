@@ -54,6 +54,8 @@ When you pass a local path to an image or audio argument, the CLI uploads it aut
 ```bash
 hyper flow text-to-image "a cyberpunk alley" --x402
 hyper flow text-to-image "a cyberpunk alley" --x402 --amount 0.10
+hyper flow list --x402
+hyper flow get <render_id> --x402
 ```
 
 For x402 flows:
@@ -62,6 +64,12 @@ For x402 flows:
 - the CLI reads the fixed price from the flow catalog
 - `--amount` must match that fixed price exactly
 - the result includes an access key plus status and cancel URLs
+
+For read commands like `list`, `history`, `get`, `status`, and `cancel`, `--x402` means:
+
+- authenticate with the local wallet against `/api/auth/wallet/*`
+- use the wallet-backed HyperCLI user context
+- fetch real backend render history, not local files
 
 ## Flow History
 
@@ -75,11 +83,13 @@ hyper flow list
 
 `hyper flow history` and `hyper flow list` both use the remote render API. `history` is just the more natural “show me my recent flow runs” view.
 
-For wallet-funded usage, log the wallet into a real HyperCLI user first:
+Examples:
 
 ```bash
-hyper wallet login
-hyper flow history
+hyper flow list
+hyper flow list --state completed
+hyper flow list --x402
+hyper flow history --x402
 ```
 
 Download a completed flow result directly:

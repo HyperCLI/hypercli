@@ -20,6 +20,16 @@ def get_client() -> HyperCLI:
     return HyperCLI()
 
 
+def _get_flow_client(x402: bool = False) -> HyperCLI:
+    if not x402:
+        return get_client()
+
+    from .wallet import get_wallet_auth_token, require_wallet_deps
+
+    require_wallet_deps()
+    return HyperCLI(api_key=get_wallet_auth_token())
+
+
 def get_audio_duration(file_path: str) -> float | None:
     """Get audio duration in seconds using mutagen. Returns None on failure."""
     try:
@@ -201,10 +211,11 @@ def flow_history(
     state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
     template: Optional[str] = typer.Option(None, "--template", "-t", help="Filter by template"),
     type: Optional[str] = typer.Option(None, "--type", help="Filter by render type"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List recent flow renders from the remote render API."""
-    client = get_client()
+    client = _get_flow_client(x402=x402)
     with spinner("Fetching flow history..."):
         renders = client.renders.list(state=state, template=template, type=type)
 
@@ -225,10 +236,11 @@ def flow_list(
     state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
     template: Optional[str] = typer.Option(None, "--template", "-t", help="Filter by template"),
     type: Optional[str] = typer.Option(None, "--type", help="Filter by render type"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """List flow renders available to the current auth context."""
-    client = get_client()
+    client = _get_flow_client(x402=x402)
     with spinner("Fetching flow renders..."):
         renders = client.renders.list(state=state, template=template, type=type)
 
@@ -252,10 +264,11 @@ def flow_get(
         "-o",
         help="Write completed render output to file. Legacy: `-o json` or `-o table`.",
     ),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
     fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
 ):
     """Get flow render details."""
-    client = get_client()
+    client = _get_flow_client(x402=x402)
     with spinner("Fetching flow render..."):
         render = client.renders.get(render_id)
 
@@ -275,10 +288,11 @@ def flow_get(
 def flow_status(
     render_id: str = typer.Argument(..., help="Flow render ID"),
     watch: bool = typer.Option(False, "--watch", "-w", help="Watch status live"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
     """Get flow render status."""
-    client = get_client()
+    client = _get_flow_client(x402=x402)
     if watch:
         _watch_flow_status(client, render_id)
         return
@@ -290,9 +304,10 @@ def flow_status(
 @app.command("cancel")
 def flow_cancel(
     render_id: str = typer.Argument(..., help="Flow render ID"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
 ):
     """Cancel a flow render."""
-    client = get_client()
+    client = _get_flow_client(x402=x402)
     with spinner("Cancelling flow render..."):
         client.renders.cancel(render_id)
     success(f"Flow render {render_id} cancelled")

@@ -1,6 +1,6 @@
 ---
 title: hyper wallet
-description: Manage the encrypted Ethereum wallet used for x402 payments.
+description: Manage the local Ethereum wallet used for x402 payments.
 ---
 
 ## Overview
@@ -23,6 +23,32 @@ hyper wallet create
 ```
 
 Creates an encrypted keystore at `~/.hypercli/wallet.json`.
+
+If you want a migration-friendly plaintext wallet file first:
+
+```bash
+hyper wallet create --no-passphrase
+```
+
+That writes a plaintext private-key wallet file at the same path. You can encrypt it later.
+
+## encrypt
+
+```bash
+hyper wallet encrypt --passphrase "your-passphrase"
+```
+
+Encrypts a plaintext wallet file in-place.
+
+Legacy encrypted keystores continue to load unchanged. This command only rewrites the file when you explicitly run it.
+
+## decrypt
+
+```bash
+hyper wallet decrypt --passphrase "your-passphrase"
+```
+
+Decrypts an encrypted keystore into a plaintext wallet file in-place.
 
 ## address
 
@@ -47,6 +73,8 @@ To skip repeated passphrase prompts:
 ```bash
 export HYPERCLI_WALLET_PASSPHRASE="your-secure-passphrase"
 ```
+
+This only applies when the wallet file is encrypted.
 
 ## Next Steps
 

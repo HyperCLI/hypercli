@@ -1,11 +1,11 @@
 """Wallet management commands for HyperCLI"""
-import json
 import getpass
+import json
 import os
 from pathlib import Path
+
 import typer
 from rich.console import Console
-from rich.table import Table
 
 app = typer.Typer(help="Wallet management commands")
 console = Console()
@@ -34,6 +34,139 @@ def require_wallet_deps():
         raise typer.Exit(1)
 
 
+def _read_wallet_data() -> dict:
+    if not WALLET_PATH.exists():
+        console.print(f"[red]❌ No wallet found at {WALLET_PATH}[/red]")
+        console.print("Create one with: [bold]hyper wallet create[/bold]")
+        raise typer.Exit(1)
+
+    with open(WALLET_PATH) as f:
+        data = json.load(f)
+    if not isinstance(data, dict):
+        console.print(f"[red]❌ Wallet file at {WALLET_PATH} is malformed[/red]")
+        raise typer.Exit(1)
+    return data
+
+
+def _write_wallet_data(data: dict) -> None:
+    WALLET_DIR.mkdir(parents=True, exist_ok=True)
+    with open(WALLET_PATH, "w") as f:
+        json.dump(data, f, indent=2)
+    os.chmod(WALLET_PATH, 0o600)
+
+
+def _normalize_address(value: str | None) -> str:
+    raw = str(value or "").strip().lower()
+    if raw.startswith("0x"):
+        return raw
+    if raw:
+        return f"0x{raw}"
+    return ""
+
+
+def _wallet_is_encrypted(data: dict) -> bool:
+    return "crypto" in data or "Crypto" in data
+
+
+def _wallet_is_plaintext(data: dict) -> bool:
+    return data.get("type") == "plaintext_private_key" or "private_key" in data
+
+
+def _wallet_address(data: dict) -> str:
+    if _wallet_is_plaintext(data):
+        return _normalize_address(data.get("address"))
+    return _normalize_address(data.get("address"))
+
+
+def _plaintext_wallet_data(account) -> dict:
+    return {
+        "type": "plaintext_private_key",
+        "address": account.address.lower(),
+        "private_key": "0x" + account.key.hex(),
+    }
+
+
+def _get_new_wallet_passphrase(
+    provided: str | None = None,
+    *,
+    prompt: str = "Set keystore passphrase: ",
+) -> str:
+    if provided is not None:
+        return provided
+
+    passphrase_env = os.getenv("HYPERCLI_WALLET_PASSPHRASE")
+    if passphrase_env:
+        console.print("[dim]Using passphrase from HYPERCLI_WALLET_PASSPHRASE[/dim]")
+        return passphrase_env
+
+    passphrase = getpass.getpass(prompt)
+    confirm = getpass.getpass("Confirm passphrase: ")
+    if passphrase != confirm:
+        console.print("[red]❌ Passphrases don't match![/red]")
+        raise typer.Exit(1)
+    return passphrase
+
+
+def _account_from_wallet_data(data: dict, passphrase: str | None = None):
+    if _wallet_is_plaintext(data):
+        private_key = data.get("private_key")
+        if not private_key:
+            console.print(f"[red]❌ Plaintext wallet at {WALLET_PATH} is missing private_key[/red]")
+            raise typer.Exit(1)
+        try:
+            return Account.from_key(private_key)
+        except Exception as e:
+            console.print(f"[red]❌ Failed to load plaintext wallet: {e}[/red]")
+            raise typer.Exit(1)
+
+    if _wallet_is_encrypted(data):
+        wallet_passphrase = passphrase if passphrase is not None else _get_wallet_passphrase()
+        try:
+            private_key = Account.decrypt(data, wallet_passphrase)
+            return Account.from_key(private_key)
+        except Exception as e:
+            console.print(f"[red]❌ Failed to unlock wallet: {e}[/red]")
+            raise typer.Exit(1)
+
+    console.print(f"[red]❌ Unsupported wallet format at {WALLET_PATH}[/red]")
+    raise typer.Exit(1)
+
+
+def get_wallet_auth_token(api_url: str | None = None) -> str:
+    """Authenticate the local wallet and return a short-lived JWT bearer token."""
+    from eth_account.messages import encode_defunct
+    import httpx
+    from hypercli.config import get_api_url
+
+    account = load_wallet()
+    base_url = (api_url or get_api_url()).rstrip("/")
+
+    with httpx.Client(timeout=15) as client:
+        challenge_resp = client.post(
+            f"{base_url}/api/auth/wallet/challenge",
+            json={"wallet": account.address},
+        )
+        if challenge_resp.status_code != 200:
+            console.print(f"[red]❌ Wallet challenge failed: {challenge_resp.text}[/red]")
+            raise typer.Exit(1)
+        challenge = challenge_resp.json()
+
+        message = encode_defunct(text=challenge["message"])
+        signed = account.sign_message(message)
+
+        login_resp = client.post(
+            f"{base_url}/api/auth/wallet/login",
+            json={
+                "wallet": account.address,
+                "signature": signed.signature.hex(),
+                "timestamp": challenge["timestamp"],
+            },
+        )
+        if login_resp.status_code != 200:
+            console.print(f"[red]❌ Wallet login failed: {login_resp.text}[/red]")
+            raise typer.Exit(1)
+        return login_resp.json()["token"]
+
 
 def _get_wallet_passphrase(prompt: str = "Unlock keystore passphrase: ") -> str:
     passphrase_env = os.getenv("HYPERCLI_WALLET_PASSPHRASE")
@@ -49,51 +182,51 @@ def _get_wallet_passphrase(prompt: str = "Unlock keystore passphrase: ") -> str:
     return getpass.getpass(prompt)
 
 @app.command("create")
-def create():
-    """Create a new wallet with encrypted keystore"""
+def create(
+    no_passphrase: bool = typer.Option(
+        False,
+        "--no-passphrase",
+        help="Create a plaintext wallet file instead of an encrypted keystore.",
+    ),
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Keystore passphrase. Skips interactive prompts.",
+    ),
+):
+    """Create a new wallet."""
     require_wallet_deps()
-    
+
     if WALLET_PATH.exists():
         console.print(f"[yellow]Wallet already exists at {WALLET_PATH}[/yellow]")
         overwrite = typer.confirm("Overwrite existing wallet?", default=False)
         if not overwrite:
             console.print("Cancelled.")
             raise typer.Exit(0)
-    
+
+    if no_passphrase and passphrase is not None:
+        console.print("[red]❌ --no-passphrase cannot be combined with --passphrase[/red]")
+        raise typer.Exit(1)
+
     console.print("\n[bold]Creating new Ethereum wallet...[/bold]\n")
-    
+
     # Generate random account
     account = Account.create()
-    
+
     console.print(f"[green]✓[/green] Wallet address: [bold]{account.address}[/bold]")
-    
-    # Get passphrase (check env first)
-    passphrase_env = os.getenv("HYPERCLI_WALLET_PASSPHRASE")
-    if passphrase_env:
-        passphrase = passphrase_env
-        console.print("[dim]Using passphrase from HYPERCLI_WALLET_PASSPHRASE[/dim]")
+
+    if no_passphrase:
+        _write_wallet_data(_plaintext_wallet_data(account))
+        console.print(f"\n[green]✓[/green] Plaintext wallet saved to [bold]{WALLET_PATH}[/bold]")
     else:
-        passphrase = getpass.getpass("Set keystore passphrase: ")
-        confirm = getpass.getpass("Confirm passphrase: ")
-        
-        if passphrase != confirm:
-            console.print("[red]❌ Passphrases don't match![/red]")
-            raise typer.Exit(1)
-    
-    # Encrypt and save keystore
-    keystore = account.encrypt(passphrase)
-    
-    WALLET_DIR.mkdir(parents=True, exist_ok=True)
-    with open(WALLET_PATH, "w") as f:
-        json.dump(keystore, f, indent=2)
-    
-    # Set restrictive permissions
-    os.chmod(WALLET_PATH, 0o600)
-    
-    console.print(f"\n[green]✓[/green] Keystore saved to [bold]{WALLET_PATH}[/bold]")
+        target_passphrase = _get_new_wallet_passphrase(passphrase)
+        keystore = account.encrypt(target_passphrase)
+        _write_wallet_data(keystore)
+        console.print(f"\n[green]✓[/green] Encrypted keystore saved to [bold]{WALLET_PATH}[/bold]")
+
     console.print(f"[green]✓[/green] Address: [bold]{account.address}[/bold]")
     console.print("\n[yellow]⚠️  Fund this address with USDC on Base to use for payments![/yellow]")
-    
+
     # Show QR code for easy mobile scanning
     try:
         import qrcode
@@ -111,21 +244,67 @@ def create():
         console.print("\n[dim]Tip: run 'hyper wallet qr' to display address as QR code[/dim]")
 
 
+@app.command("encrypt")
+def encrypt_wallet(
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Passphrase to use for the encrypted keystore.",
+    ),
+):
+    """Encrypt a plaintext wallet in-place."""
+    require_wallet_deps()
+    wallet_data = _read_wallet_data()
+
+    if _wallet_is_encrypted(wallet_data):
+        console.print("[yellow]Wallet is already encrypted.[/yellow]")
+        raise typer.Exit(0)
+
+    if not _wallet_is_plaintext(wallet_data):
+        console.print(f"[red]❌ Unsupported wallet format at {WALLET_PATH}[/red]")
+        raise typer.Exit(1)
+
+    account = _account_from_wallet_data(wallet_data)
+    target_passphrase = _get_new_wallet_passphrase(passphrase, prompt="Encrypt wallet with passphrase: ")
+    _write_wallet_data(account.encrypt(target_passphrase))
+    console.print(f"[green]✓[/green] Encrypted wallet saved to [bold]{WALLET_PATH}[/bold]")
+    console.print(f"[green]✓[/green] Address: [bold]{account.address}[/bold]")
+
+
+@app.command("decrypt")
+def decrypt_wallet(
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Current keystore passphrase.",
+    ),
+):
+    """Decrypt an encrypted keystore into a plaintext wallet file."""
+    require_wallet_deps()
+    wallet_data = _read_wallet_data()
+
+    if _wallet_is_plaintext(wallet_data):
+        console.print("[yellow]Wallet is already decrypted.[/yellow]")
+        raise typer.Exit(0)
+
+    if not _wallet_is_encrypted(wallet_data):
+        console.print(f"[red]❌ Unsupported wallet format at {WALLET_PATH}[/red]")
+        raise typer.Exit(1)
+
+    account = _account_from_wallet_data(wallet_data, passphrase=passphrase)
+    _write_wallet_data(_plaintext_wallet_data(account))
+    console.print(f"[green]✓[/green] Decrypted wallet saved to [bold]{WALLET_PATH}[/bold]")
+    console.print(f"[green]✓[/green] Address: [bold]{account.address}[/bold]")
+
+
 @app.command("address")
 def address():
     """Show wallet address"""
     require_wallet_deps()
-    
-    if not WALLET_PATH.exists():
-        console.print(f"[red]❌ No wallet found at {WALLET_PATH}[/red]")
-        console.print("Create one with: [bold]hyper wallet create[/bold]")
-        raise typer.Exit(1)
-    
-    with open(WALLET_PATH) as f:
-        keystore = json.load(f)
-    
-    addr = keystore.get("address", "unknown")
-    console.print(f"\n[bold]Wallet address:[/bold] 0x{addr}")
+
+    wallet_data = _read_wallet_data()
+    addr = _wallet_address(wallet_data)
+    console.print(f"\n[bold]Wallet address:[/bold] {addr or 'unknown'}")
 
 
 @app.command("qr")
@@ -147,11 +326,9 @@ def qr(
         console.print(f"[red]❌ No wallet found at {WALLET_PATH}[/red]")
         console.print("Create one with: [bold]hyper wallet create[/bold]")
         raise typer.Exit(1)
-    
-    with open(WALLET_PATH) as f:
-        keystore = json.load(f)
-    
-    addr = "0x" + keystore.get("address", "")
+
+    wallet_data = _read_wallet_data()
+    addr = _wallet_address(wallet_data)
     
     if output:
         # Save as PNG
@@ -201,24 +378,9 @@ def qr(
 def balance():
     """Check USDC balance on Base"""
     require_wallet_deps()
-    
-    if not WALLET_PATH.exists():
-        console.print(f"[red]❌ No wallet found at {WALLET_PATH}[/red]")
-        console.print("Create one with: [bold]hyper wallet create[/bold]")
-        raise typer.Exit(1)
-    
-    with open(WALLET_PATH) as f:
-        keystore = json.load(f)
-    
-    passphrase = _get_wallet_passphrase()
-    
-    try:
-        private_key = Account.decrypt(keystore, passphrase)
-        account = Account.from_key(private_key)
-    except Exception as e:
-        console.print(f"[red]❌ Failed to unlock wallet: {e}[/red]")
-        raise typer.Exit(1)
-    
+
+    account = load_wallet()
+
     console.print(f"\n[bold]Checking USDC balance on Base...[/bold]\n")
     
     # Connect to Base
@@ -431,8 +593,6 @@ def wallet_login(
     2. hyper wallet login
     """
     require_wallet_deps()
-    from eth_account.messages import encode_defunct
-    import httpx
     from hypercli.config import get_api_url, configure
 
     base_url = (api_url or get_api_url()).rstrip("/")
@@ -440,40 +600,8 @@ def wallet_login(
     # Step 1: Load wallet
     account = load_wallet()
     console.print(f"[green]✓[/green] Wallet: {account.address}\n")
-
-    # Step 2: Get challenge
     console.print("[bold]Requesting login challenge...[/bold]")
-    with httpx.Client(timeout=15) as client:
-        resp = client.post(
-            f"{base_url}/api/auth/wallet/challenge",
-            json={"wallet": account.address},
-        )
-        if resp.status_code != 200:
-            console.print(f"[red]❌ Challenge failed: {resp.text}[/red]")
-            raise typer.Exit(1)
-        challenge = resp.json()
-
-    # Step 3: Sign the challenge
-    console.print("[bold]Signing challenge...[/bold]")
-    message = encode_defunct(text=challenge["message"])
-    signed = account.sign_message(message)
-
-    # Step 4: Login
-    console.print("[bold]Logging in...[/bold]")
-    with httpx.Client(timeout=15) as client:
-        resp = client.post(
-            f"{base_url}/api/auth/wallet/login",
-            json={
-                "wallet": account.address,
-                "signature": signed.signature.hex(),
-                "timestamp": challenge["timestamp"],
-            },
-        )
-        if resp.status_code != 200:
-            console.print(f"[red]❌ Login failed: {resp.text}[/red]")
-            raise typer.Exit(1)
-        jwt_token = resp.json()["token"]
-
+    jwt_token = get_wallet_auth_token(api_url=base_url)
     console.print("[green]✓[/green] Authenticated\n")
 
     # Step 5: Create API key using JWT
@@ -504,21 +632,6 @@ def wallet_login(
 def load_wallet():
     """Load and decrypt wallet (helper function for other commands)"""
     require_wallet_deps()
-    
-    if not WALLET_PATH.exists():
-        console.print(f"[red]❌ No wallet found at {WALLET_PATH}[/red]")
-        console.print("Create one with: [bold]hyper wallet create[/bold]")
-        raise typer.Exit(1)
-    
-    with open(WALLET_PATH) as f:
-        keystore = json.load(f)
-    
-    passphrase = _get_wallet_passphrase()
-    
-    try:
-        private_key = Account.decrypt(keystore, passphrase)
-        account = Account.from_key(private_key)
-        return account
-    except Exception as e:
-        console.print(f"[red]❌ Failed to unlock wallet: {e}[/red]")
-        raise typer.Exit(1)
+
+    wallet_data = _read_wallet_data()
+    return _account_from_wallet_data(wallet_data)

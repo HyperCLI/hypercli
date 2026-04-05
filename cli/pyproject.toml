@@ -63,3 +63,8 @@ packages = ["hypercli_cli"]
 
 [tool.ruff]
 line-length = 100
+
+[tool.pytest.ini_options]
+markers = [
+    "integration: exercises live or heavyweight end-to-end CLI behavior",
+]
