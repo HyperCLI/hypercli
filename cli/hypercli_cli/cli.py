@@ -4,6 +4,7 @@ import json
 import typer
 from rich.console import Console
 from rich.prompt import Prompt
+from rich.table import Table
 
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
@@ -80,7 +81,27 @@ def me_cmd(
     client = HyperCLI()
     with spinner("Resolving auth context..."):
         auth_me = client.user.auth_me()
-    output(auth_me, fmt)
+    if fmt == "json":
+        output(auth_me, fmt)
+        return
+
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
+    table.add_row("user_id", auth_me.user_id)
+    table.add_row("orchestra_user_id", str(auth_me.orchestra_user_id or ""))
+    table.add_row("team_id", auth_me.team_id)
+    table.add_row("plan_id", auth_me.plan_id)
+    table.add_row("email", str(auth_me.email or ""))
+    table.add_row("auth_type", auth_me.auth_type)
+    has_active_subscription = bool(getattr(auth_me, "has_active_subscription", False))
+    table.add_row("has_active_subscription", "yes" if has_active_subscription else "no")
+    table.add_row("key_id", str(getattr(auth_me, "key_id", None) or ""))
+    table.add_row("key_name", str(getattr(auth_me, "key_name", None) or ""))
+    raw_capabilities = list(getattr(auth_me, "capabilities", []) or [])
+    capabilities = "\n".join(raw_capabilities) if raw_capabilities else ""
+    table.add_row("capabilities", capabilities)
+    console.print(table)
 
 
 @app.command("configure")
