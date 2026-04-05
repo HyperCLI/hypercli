@@ -70,3 +70,16 @@ hyper flow list
 hyper flow get <render_id>
 hyper flow status <render_id>
 ```
+
+Download a completed flow result directly:
+
+```bash
+hyper flow get <render_id> -o output.mp4
+```
+
+Structured inspection is still available with:
+
+```bash
+hyper flow get <render_id> --format json
+hyper flow status <render_id> --format json
+```

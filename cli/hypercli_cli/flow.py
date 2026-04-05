@@ -6,6 +6,7 @@ from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import typer
 from pathlib import Path
 from typing import Any, Optional, List
+from urllib.parse import urlparse
 
 from hypercli import HyperCLI, X402Client
 from .output import output, console, spinner, success
@@ -183,6 +184,28 @@ def _watch_flow_status(client: HyperCLI, render_id: str, poll_interval: float = 
             time.sleep(poll_interval)
 
 
+def _download_flow_result(render, destination: Path) -> Path:
+    import httpx
+
+    if not render.result_url:
+        raise typer.BadParameter("Render has no result URL to download yet.")
+
+    target = destination.expanduser()
+    if target.is_dir():
+        parsed = urlparse(render.result_url)
+        filename = Path(parsed.path).name or f"{render.render_id}.bin"
+        target = target / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    with httpx.stream("GET", render.result_url, follow_redirects=True, timeout=60) as response:
+        response.raise_for_status()
+        with target.open("wb") as handle:
+            for chunk in response.iter_bytes():
+                handle.write(chunk)
+
+    return target
+
+
 # =============================================================================
 # Common option definitions
 # =============================================================================
@@ -313,12 +336,28 @@ def flow_list(
 @app.command("get")
 def flow_get(
     render_id: str = typer.Argument(..., help="Flow render ID"),
-    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+    output_path: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write completed render output to file. Legacy: `-o json` or `-o table`.",
+    ),
+    fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
 ):
     """Get flow render details."""
     client = get_client()
     with spinner("Fetching flow render..."):
         render = client.renders.get(render_id)
+
+    if output_path in {"json", "table"} and fmt == "table":
+        fmt = output_path
+        output_path = None
+
+    if output_path:
+        saved = _download_flow_result(render, Path(output_path))
+        success(f"Saved flow output to {saved}")
+        return
+
     output(render, fmt)
 
 
