@@ -104,6 +104,34 @@ def _handle_response(response: httpx.Response) -> Any:
     return response.json()
 
 
+def _handle_bytes_response(response: httpx.Response) -> bytes:
+    """Handle API response and return raw bytes on success."""
+    if response.status_code >= 400:
+        try:
+            detail = response.json().get("detail", response.text)
+        except Exception:
+            detail = response.text
+        body = response.text or ""
+        method = response.request.method if response.request else None
+        url = str(response.request.url) if response.request else None
+        logger.error(
+            "HyperCLI API request failed: method=%s url=%s status=%s detail=%r body=%r",
+            method,
+            url,
+            response.status_code,
+            detail,
+            _truncate_for_log(body),
+        )
+        raise APIError(
+            response.status_code,
+            detail,
+            method=method,
+            url=url,
+            response_text=body,
+        )
+    return response.content
+
+
 class HTTPClient:
     """Sync HTTP client"""
 
@@ -137,6 +165,13 @@ class HTTPClient:
             headers=self.headers, timeout=self.timeout, json=json
         )
         return _handle_response(resp)
+
+    def post_bytes(self, path: str, json: dict = None) -> bytes:
+        resp = request_with_retry(
+            "post", f"{self.base_url}{path}",
+            headers=self.headers, timeout=self.timeout, json=json
+        )
+        return _handle_bytes_response(resp)
 
     def patch(self, path: str, json: dict = None) -> Any:
         resp = request_with_retry(

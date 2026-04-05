@@ -31,6 +31,7 @@ from .jobs import (
     normalize_job_tags,
 )
 from .renders import Render, RenderStatus
+from .voice import VoiceAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
@@ -84,6 +85,7 @@ __all__ = [
     # Renders API
     "Render",
     "RenderStatus",
+    "VoiceAPI",
     # x402 API
     "X402Client",
     "X402JobLaunch",

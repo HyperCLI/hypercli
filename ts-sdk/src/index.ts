@@ -76,6 +76,14 @@ export {
   type File,
 } from './files.js';
 
+// Voice API
+export {
+  VoiceAPI,
+  type TTSOptions,
+  type CloneOptions,
+  type DesignOptions,
+} from './voice.js';
+
 // User API
 export {
   UserAPI,

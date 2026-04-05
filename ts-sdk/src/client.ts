@@ -17,6 +17,7 @@ import { UserAPI } from './user.js';
 import { Instances } from './instances.js';
 import { Renders } from './renders.js';
 import { Files } from './files.js';
+import { VoiceAPI } from './voice.js';
 import { HyperAgent } from './agent.js';
 import { KeysAPI } from './keys.js';
 import { Deployments } from './agents.js';
@@ -77,6 +78,7 @@ export class HyperCLI {
   public readonly instances: Instances;
   public readonly renders: Renders;
   public readonly files: Files;
+  public readonly voice: VoiceAPI;
   public readonly keys: KeysAPI;
   public readonly agent: HyperAgent;
   public readonly deployments: Deployments;
@@ -111,6 +113,7 @@ export class HyperCLI {
     this.instances = new Instances(this._http);
     this.renders = new Renders(this._http);
     this.files = new Files(this._http);
+    this.voice = new VoiceAPI(this._http);
     this.keys = new KeysAPI(this._http);
 
     this.agent = new HyperAgent(

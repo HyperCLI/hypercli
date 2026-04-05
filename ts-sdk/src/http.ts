@@ -113,6 +113,21 @@ async function handleResponse<T = any>(response: Response): Promise<T> {
   return (await response.json()) as T;
 }
 
+async function handleBytesResponse(response: Response): Promise<Uint8Array> {
+  if (response.status >= 400) {
+    let detail: string;
+    try {
+      const json: any = await response.json();
+      detail = json.detail || response.statusText;
+    } catch {
+      detail = response.statusText || await response.text();
+    }
+    throw new APIError(response.status, detail);
+  }
+
+  return new Uint8Array(await response.arrayBuffer());
+}
+
 /**
  * HTTP Client for making authenticated requests to the API
  */
@@ -154,6 +169,17 @@ export class HTTPClient {
       timeout: this.timeout,
     });
     return handleResponse<T>(response);
+  }
+
+  async postBytes(path: string, body?: any): Promise<Uint8Array> {
+    const response = await requestWithRetry({
+      method: 'POST',
+      url: `${this.baseUrl}${path}`,
+      headers: this.headers,
+      body,
+      timeout: this.timeout,
+    });
+    return handleBytesResponse(response);
   }
 
   async patch<T = any>(path: string, body?: any): Promise<T> {

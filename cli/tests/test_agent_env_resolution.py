@@ -50,31 +50,23 @@ def test_voice_cli_posts_to_agents_voice_prefix(monkeypatch, tmp_path):
 
     called = {}
 
-    class _FakeClient:
-        def __init__(self, *args, **kwargs):
-            return None
+    class _FakeVoice:
+        def tts(self, **kwargs):
+            called["kwargs"] = kwargs
+            return b"audio"
 
-        def __enter__(self):
-            return self
+    class _FakeHyperCLI:
+        def __init__(self, *, api_key, api_url):
+            called["api_key"] = api_key
+            called["api_url"] = api_url
+            self.voice = _FakeVoice()
 
-        def __exit__(self, exc_type, exc, tb):
-            return False
-
-        def post(self, url, json=None, headers=None):
-            called["url"] = url
-            called["json"] = json
-            called["headers"] = headers
-
-            class _Resp:
-                status_code = 200
-                content = b"audio"
-
-            return _Resp()
-
-    monkeypatch.setattr(voice.httpx, "Client", _FakeClient)
+    monkeypatch.setattr(voice, "HyperCLI", _FakeHyperCLI)
 
     out = tmp_path / "voice.wav"
-    voice._post_voice("tts", {"text": "hello", "voice": "Chelsie"}, "sk-product", out)
+    voice._post_voice("tts", "sk-product", out, text="hello", voice="Chelsie")
 
-    assert called["url"] == "https://api.dev.hypercli.com/agents/voice/tts"
+    assert called["api_url"] == "https://api.dev.hypercli.com"
+    assert called["api_key"] == "sk-product"
+    assert called["kwargs"] == {"text": "hello", "voice": "Chelsie"}
     assert out.read_bytes() == b"audio"
