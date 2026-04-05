@@ -8,6 +8,7 @@ description: Recommended media generation commands, with optional x402 pay-per-u
 ## Commands
 
 ```bash
+hyper flow history
 hyper flow list
 hyper flow get <render_id>
 hyper flow status <render_id>
@@ -52,24 +53,30 @@ For x402 flows:
 - `--amount` must match that fixed price exactly
 - the result includes an access key plus status and cancel URLs
 
-## x402 Flow History
+## Flow History
+
+Remote flow history comes from the real render API:
+
+```bash
+hyper flow history
+hyper flow history --state completed
+hyper flow list
+```
+
+`hyper flow history` and `hyper flow list` both use the remote render API. `history` is just the more natural “show me my recent flow runs” view.
+
+## x402 Local History
 
 The CLI stores pay-per-use flow history in `~/.hypercli/x402_renders.jsonl`.
 
 Inspect it with:
 
 ```bash
-hyper flow history
-hyper flow history --check
+hyper flow x402-history
+hyper flow x402-history --check
 ```
 
-`hyper flow history` only shows local x402 pay-per-use history. For normal account or subscription-backed renders, use:
-
-```bash
-hyper flow list
-hyper flow get <render_id>
-hyper flow status <render_id>
-```
+This is only a best-effort local journal for `--x402` runs.
 
 Download a completed flow result directly:
 

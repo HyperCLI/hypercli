@@ -140,3 +140,46 @@ def test_flow_list_uses_renders_api(monkeypatch):
     assert result.exit_code == 0
     assert "render-123" in result.stdout
     assert "completed" in result.stdout
+
+
+def test_flow_history_uses_renders_api(monkeypatch):
+    class FakeRenders:
+        def list(self, state=None, template=None, type=None):
+            assert state == "completed"
+            assert template is None
+            assert type is None
+            return [
+                SimpleNamespace(
+                    render_id="render-456",
+                    state="completed",
+                    template="video_wan2_2_14B_i2v",
+                    render_type="comfyui",
+                    created_at="2026-04-05T14:50:30Z",
+                )
+            ]
+
+    class FakeClient:
+        renders = FakeRenders()
+
+    monkeypatch.setattr("hypercli_cli.flow.HyperCLI", lambda: FakeClient())
+
+    result = runner.invoke(app, ["flow", "history", "--state", "completed"])
+
+    assert result.exit_code == 0
+    assert "render-456" in result.stdout
+    assert "completed" in result.stdout
+
+
+def test_flow_x402_history_uses_local_journal(monkeypatch, tmp_path):
+    journal = tmp_path / "x402_renders.jsonl"
+    journal.write_text(
+        '{"ts":"2026-04-05T16:00:00Z","flow_type":"image-to-video","render_id":"render-x402","amount_usd":0.15}\n',
+        encoding="utf-8",
+    )
+    monkeypatch.setattr("hypercli_cli.flow.X402_RENDERS_FILE", journal)
+
+    result = runner.invoke(app, ["flow", "x402-history"])
+
+    assert result.exit_code == 0
+    assert "render-x402" in result.stdout
+    assert "image-to-video" in result.stdout

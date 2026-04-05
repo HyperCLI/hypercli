@@ -219,7 +219,7 @@ OPT_AMOUNT = typer.Option(None, "--amount", help="USDC amount to spend with --x4
 OPT_FMT = typer.Option("table", "--output", "-o", help="Output format: table|json")
 
 
-def _list_flow_history(
+def _list_x402_flow_history(
     limit: int = typer.Option(10, "--limit", "-n", help="Number of recent renders to show"),
     check: bool = typer.Option(False, "--check", "-c", help="Check current status of each render"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
@@ -292,12 +292,38 @@ def _list_flow_history(
 
 @app.command("history")
 def flow_history(
+    limit: int = typer.Option(20, "--limit", "-n", help="Number of recent runs to show"),
+    state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
+    template: Optional[str] = typer.Option(None, "--template", "-t", help="Filter by template"),
+    type: Optional[str] = typer.Option(None, "--type", help="Filter by render type"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List recent flow renders from the remote render API."""
+    client = get_client()
+    with spinner("Fetching flow history..."):
+        renders = client.renders.list(state=state, template=template, type=type)
+
+    renders = renders[:limit]
+
+    if fmt == "json":
+        output(renders, "json")
+        return
+
+    if not renders:
+        console.print("[dim]No flow renders found[/dim]")
+        return
+
+    output(renders, "table", ["render_id", "state", "template", "render_type", "created_at"])
+
+
+@app.command("x402-history")
+def flow_x402_history(
     limit: int = typer.Option(10, "--limit", "-n", help="Number of recent runs to show"),
     check: bool = typer.Option(False, "--check", "-c", help="Check current status of each run"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
-    """List saved x402 flow history from ~/.hypercli/x402_renders.jsonl"""
-    _list_flow_history(limit=limit, check=check, fmt=fmt)
+    """List local x402 flow history from ~/.hypercli/x402_renders.jsonl."""
+    _list_x402_flow_history(limit=limit, check=check, fmt=fmt)
 
 
 @app.command("renders", hidden=True)
@@ -306,8 +332,8 @@ def flow_renders_legacy(
     check: bool = typer.Option(False, "--check", "-c", help="Check current status of each run"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
-    """Deprecated alias for `hyper flow history`."""
-    _list_flow_history(limit=limit, check=check, fmt=fmt)
+    """Deprecated alias for `hyper flow x402-history`."""
+    _list_x402_flow_history(limit=limit, check=check, fmt=fmt)
 
 
 @app.command("list")
