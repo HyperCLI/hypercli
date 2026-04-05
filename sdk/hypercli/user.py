@@ -68,5 +68,5 @@ class UserAPI:
 
     def auth_me(self) -> AuthMe:
         """Resolve the current auth context, including key capabilities."""
-        data = self._auth_http.get("/auth/me")
+        data = self._auth_http.get("/api/auth/me")
         return AuthMe.from_dict(data)

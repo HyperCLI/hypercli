@@ -194,6 +194,7 @@ Examples:
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
+- `flows:*`
 - `renders:self`
 - `files:*`
 - `files:self`
@@ -218,6 +219,7 @@ The current user-facing families are:
 - `user:* | user:self | user:none`
 - `jobs:* | jobs:self | jobs:none`
 - `renders:* | renders:self | renders:none`
+- `flows:* | flows:self | flows:none`
 - `files:* | files:self | files:none`
 - `agents:* | agents:self | agents:none`
 - `models:* | models:none`
@@ -228,7 +230,8 @@ Typical meaning:
 - `api:*` lets a key manage API keys for the same account
 - `user:self` lets a key read or update the current account profile
 - `jobs:*` grants broad job access
-- `renders:*` grants broad render/flow access
+- `renders:*` grants broad raw render access
+- `flows:*` grants broad curated flow access
 - `files:*` grants file upload/download/delete access
 - `agents:*` grants broad agent access
 - `models:*` grants model discovery and broad inference access
@@ -290,7 +293,7 @@ Use `voice:*` for broad access. The current user-facing contract does not requir
 
 `*:*` is the global full-access baseline.
 
-It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer narrower family tags such as `renders:*` plus selector tags like `team=dev`.
+It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer family tags that match the surface you are exposing, such as `flows:*` for curated subscription flows or `renders:*` for raw render access, plus selector tags like `team=dev`.
 
 ### Getting Your API Key
 

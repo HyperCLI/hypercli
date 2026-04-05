@@ -8,10 +8,10 @@ describe('Renders subscription routing', () => {
     const http = {
       get: async (path: string) => {
         calls.push(['get', path]);
-        if (path === '/auth/me') {
+        if (path === '/api/auth/me') {
           return {
             auth_type: 'orchestra_key',
-            capabilities: ['renders:*'],
+            capabilities: ['flows:*'],
             has_active_subscription: true,
           };
         }
@@ -27,11 +27,11 @@ describe('Renders subscription routing', () => {
       },
     };
 
-    const renders = new Renders(http as any, http as any);
+    const renders = new Renders(http as any);
     const render = await renders.flow('text-to-image', { prompt: 'hello' });
 
     expect(render.renderId).toBe('render-123');
-    expect(calls[0]).toEqual(['get', '/auth/me']);
+    expect(calls[0]).toEqual(['get', '/api/auth/me']);
     expect(calls[1]).toEqual(['post', '/agents/flow/text-to-image', { prompt: 'hello' }]);
   });
 
@@ -43,7 +43,7 @@ describe('Renders subscription routing', () => {
         calls.push(['get', path]);
         return {
           auth_type: 'orchestra_key',
-          capabilities: ['renders:*'],
+          capabilities: ['flows:*'],
           has_active_subscription: true,
         };
       },
@@ -58,7 +58,7 @@ describe('Renders subscription routing', () => {
       delete: async (_path: string) => ({ status: 'cancelled' }),
     };
 
-    const renders = new Renders(http as any, http as any);
+    const renders = new Renders(http as any);
     const render = await renders.flow('text-to-image', { prompt: 'hello' });
 
     expect(render.renderId).toBe('render-123');
@@ -71,7 +71,7 @@ describe('Renders subscription routing', () => {
     const http = {
       get: async (path: string) => {
         calls.push(['get', path]);
-        if (path === '/auth/me') {
+        if (path === '/api/auth/me') {
           return {
             auth_type: 'user',
             capabilities: [],
@@ -90,7 +90,7 @@ describe('Renders subscription routing', () => {
       },
     };
 
-    const renders = new Renders(http as any, http as any);
+    const renders = new Renders(http as any);
     await renders.get('render-123');
     await renders.status('render-123');
     await renders.cancel('render-123');

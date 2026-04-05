@@ -104,14 +104,12 @@ export class HyperCLI {
     const resolvedAgentsWsUrl =
       options.agentsWsUrl ||
       (options.apiUrl ? deriveAgentsWsUrl(this._apiUrl, Boolean(options.agentDev)) : getAgentsWsUrl(Boolean(options.agentDev)));
-    const authHttp = new HTTPClient(resolvedAgentsApiBase, this._apiKey, options.timeout);
-
     // API namespaces
     this.billing = new Billing(this._http);
     this.jobs = new Jobs(this._http);
-    this.user = new UserAPI(this._http, authHttp);
+    this.user = new UserAPI(this._http);
     this.instances = new Instances(this._http);
-    this.renders = new Renders(this._http, authHttp);
+    this.renders = new Renders(this._http);
     this.files = new Files(this._http);
     this.voice = new VoiceAPI(this._http);
     this.keys = new KeysAPI(this._http);

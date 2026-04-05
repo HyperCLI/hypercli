@@ -77,7 +77,7 @@ export class UserAPI {
    * Resolve the current auth context, including key capabilities.
    */
   async authMe(): Promise<AuthMe> {
-    const data = await this.authHttp.get('/auth/me');
+    const data = await this.authHttp.get('/api/auth/me');
     return authMeFromDict(data);
   }
 

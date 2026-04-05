@@ -63,7 +63,7 @@ class Renders:
 
     def _auth_me(self) -> dict[str, Any]:
         if self._auth_me_cache is None:
-            self._auth_me_cache = self._auth_http.get("/auth/me")
+            self._auth_me_cache = self._auth_http.get("/api/auth/me")
         return self._auth_me_cache
 
     def _supports_subscription_family(self, family: str, resource: str | None = None) -> bool:
@@ -83,7 +83,7 @@ class Renders:
         return False
 
     def _post_flow(self, flow_type: str, payload: dict[str, Any]) -> dict[str, Any]:
-        primary = f"/agents/flow/{flow_type}" if self._supports_subscription_family("renders", flow_type) else f"/api/flow/{flow_type}"
+        primary = f"/agents/flow/{flow_type}" if self._supports_subscription_family("flows", flow_type) else f"/api/flow/{flow_type}"
         try:
             return self._http.post(primary, json=payload)
         except APIError as exc:
@@ -93,7 +93,7 @@ class Renders:
 
     def _get_render(self, render_id: str, *, status: bool = False) -> dict[str, Any]:
         suffix = "/status" if status else ""
-        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._supports_subscription_family("renders") else f"/api/renders/{render_id}{suffix}"
+        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._supports_subscription_family("flows") else f"/api/renders/{render_id}{suffix}"
         try:
             return self._http.get(primary)
         except APIError as exc:
@@ -102,7 +102,7 @@ class Renders:
             raise
 
     def _delete_render(self, render_id: str) -> dict:
-        primary = f"/agents/flow/renders/{render_id}" if self._supports_subscription_family("renders") else f"/api/renders/{render_id}"
+        primary = f"/agents/flow/renders/{render_id}" if self._supports_subscription_family("flows") else f"/api/renders/{render_id}"
         try:
             return self._http.delete(primary)
         except APIError as exc:

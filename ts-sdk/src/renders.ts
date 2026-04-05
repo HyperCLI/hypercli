@@ -53,7 +53,7 @@ export class Renders {
 
   private async authMe(): Promise<any> {
     if (this.authMeCache == null) {
-      this.authMeCache = await this.authHttp.get('/auth/me');
+      this.authMeCache = await this.authHttp.get('/api/auth/me');
     }
     return this.authMeCache;
   }
@@ -81,7 +81,7 @@ export class Renders {
   }
 
   private async postFlow(flowType: string, payload: Record<string, any>): Promise<any> {
-    const primary = (await this.supportsSubscriptionFamily('renders', flowType))
+    const primary = (await this.supportsSubscriptionFamily('flows', flowType))
       ? `/agents/flow/${flowType}`
       : `/api/flow/${flowType}`;
     try {
@@ -96,7 +96,7 @@ export class Renders {
 
   private async getRender(renderId: string, status: boolean = false): Promise<any> {
     const suffix = status ? '/status' : '';
-    const primary = (await this.supportsSubscriptionFamily('renders'))
+    const primary = (await this.supportsSubscriptionFamily('flows'))
       ? `/agents/flow/renders/${renderId}${suffix}`
       : `/api/renders/${renderId}${suffix}`;
     try {
@@ -110,7 +110,7 @@ export class Renders {
   }
 
   private async deleteRender(renderId: string): Promise<any> {
-    const primary = (await this.supportsSubscriptionFamily('renders'))
+    const primary = (await this.supportsSubscriptionFamily('flows'))
       ? `/agents/flow/renders/${renderId}`
       : `/api/renders/${renderId}`;
     try {

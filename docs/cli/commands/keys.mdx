@@ -25,6 +25,7 @@ Common baseline tags:
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
+- `flows:*`
 - `renders:self`
 - `files:*`
 - `files:self`
@@ -45,7 +46,7 @@ Common selector tags:
 - `model=kimi-k2-5`
 - `runtime=agent`
 
-Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `renders:*` and `files:*`.
+Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `flows:*` and `files:*`, or `renders:*` only when you need raw render access.
 
 For one exact agent, mint a child key through the API or SDK. The underlying exact-agent selector is `agent=<agent-uuid>`. Do not use `agents:<uuid>` or `agent=<name>`.
 

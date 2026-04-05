@@ -109,11 +109,7 @@ def test_keys_disable():
 def test_user_auth_me_returns_capabilities():
     class DummyUserHTTP:
         def get(self, path):
-            raise AssertionError(f"unexpected product path {path}")
-
-    class DummyAuthHTTP:
-        def get(self, path):
-            assert path == "/auth/me"
+            assert path == "/api/auth/me"
             return {
                 "user_id": "user-123",
                 "orchestra_user_id": "orch-123",
@@ -127,7 +123,7 @@ def test_user_auth_me_returns_capabilities():
                 "key_name": "runtime-key",
             }
 
-    auth_me = UserAPI(DummyUserHTTP(), auth_http=DummyAuthHTTP()).auth_me()
+    auth_me = UserAPI(DummyUserHTTP()).auth_me()
 
     assert auth_me.user_id == "user-123"
     assert auth_me.capabilities == ["models:*", "voice:*"]
