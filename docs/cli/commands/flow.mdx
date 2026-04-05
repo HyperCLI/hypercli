@@ -5,6 +5,15 @@ description: Recommended media generation commands, with optional x402 pay-per-u
 
 `hyper flow` is the recommended CLI surface for media generation.
 
+## Billing Order
+
+Normal flow commands use this order automatically:
+
+1. Active subscription flow access
+2. Account balance / paid render API
+
+`x402` is never the default path. It is only used when you explicitly pass `--x402`.
+
 ## Commands
 
 ```bash
@@ -49,6 +58,7 @@ hyper flow text-to-image "a cyberpunk alley" --x402 --amount 0.10
 
 For x402 flows:
 
+- `--x402` is required
 - the CLI reads the fixed price from the flow catalog
 - `--amount` must match that fixed price exactly
 - the result includes an access key plus status and cancel URLs
@@ -65,18 +75,12 @@ hyper flow list
 
 `hyper flow history` and `hyper flow list` both use the remote render API. `history` is just the more natural “show me my recent flow runs” view.
 
-## x402 Local History
-
-The CLI stores pay-per-use flow history in `~/.hypercli/x402_renders.jsonl`.
-
-Inspect it with:
+For wallet-funded usage, log the wallet into a real HyperCLI user first:
 
 ```bash
-hyper flow x402-history
-hyper flow x402-history --check
+hyper wallet login
+hyper flow history
 ```
-
-This is only a best-effort local journal for `--x402` runs.
 
 Download a completed flow result directly:
 
