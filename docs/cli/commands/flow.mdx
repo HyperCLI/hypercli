@@ -8,6 +8,10 @@ description: Recommended media generation commands, with optional x402 pay-per-u
 ## Commands
 
 ```bash
+hyper flow list
+hyper flow get <render_id>
+hyper flow status <render_id>
+hyper flow cancel <render_id>
 hyper flow text-to-image <prompt>
 hyper flow text-to-image-hidream <prompt>
 hyper flow text-to-video <prompt>
@@ -57,4 +61,12 @@ Inspect it with:
 ```bash
 hyper flow history
 hyper flow history --check
+```
+
+`hyper flow history` only shows local x402 pay-per-use history. For normal account or subscription-backed renders, use:
+
+```bash
+hyper flow list
+hyper flow get <render_id>
+hyper flow status <render_id>
 ```

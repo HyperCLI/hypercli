@@ -8,7 +8,7 @@ from pathlib import Path
 from typing import Any, Optional, List
 
 from hypercli import HyperCLI, X402Client
-from .output import output, console, spinner
+from .output import output, console, spinner, success
 
 X402_RENDERS_FILE = Path.home() / ".hypercli" / "x402_renders.jsonl"
 
@@ -150,6 +150,39 @@ def print_render_result(render, fmt: str, x402_result=None):
         console.print(f"  Cancel URL: {x402_result.cancel_url}")
 
 
+def _watch_flow_status(client: HyperCLI, render_id: str, poll_interval: float = 2.0):
+    """Watch flow render status live."""
+    import time
+    from rich.live import Live
+    from rich.panel import Panel
+    from rich.table import Table
+
+    def render_status_panel(status, render=None):
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="cyan")
+        table.add_column("Value")
+        table.add_row("ID", status.render_id)
+        table.add_row("State", status.state)
+        if status.progress is not None:
+            table.add_row("Progress", f"{status.progress:.0%}")
+        if render and render.result_url:
+            table.add_row("Result", render.result_url)
+        if render and render.error:
+            table.add_row("Error", render.error)
+        return Panel(table, title="[bold]Flow Status[/bold]")
+
+    with Live(console=console, refresh_per_second=2) as live:
+        while True:
+            status = client.renders.status(render_id)
+            render = None
+            if status.state in ("completed", "failed", "cancelled"):
+                render = client.renders.get(render_id)
+                live.update(render_status_panel(status, render))
+                break
+            live.update(render_status_panel(status))
+            time.sleep(poll_interval)
+
+
 # =============================================================================
 # Common option definitions
 # =============================================================================
@@ -252,6 +285,68 @@ def flow_renders_legacy(
 ):
     """Deprecated alias for `hyper flow history`."""
     _list_flow_history(limit=limit, check=check, fmt=fmt)
+
+
+@app.command("list")
+def flow_list(
+    state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
+    template: Optional[str] = typer.Option(None, "--template", "-t", help="Filter by template"),
+    type: Optional[str] = typer.Option(None, "--type", help="Filter by render type"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List flow renders available to the current auth context."""
+    client = get_client()
+    with spinner("Fetching flow renders..."):
+        renders = client.renders.list(state=state, template=template, type=type)
+
+    if fmt == "json":
+        output(renders, "json")
+        return
+
+    if not renders:
+        console.print("[dim]No flow renders found[/dim]")
+        return
+
+    output(renders, "table", ["render_id", "state", "template", "render_type", "created_at"])
+
+
+@app.command("get")
+def flow_get(
+    render_id: str = typer.Argument(..., help="Flow render ID"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Get flow render details."""
+    client = get_client()
+    with spinner("Fetching flow render..."):
+        render = client.renders.get(render_id)
+    output(render, fmt)
+
+
+@app.command("status")
+def flow_status(
+    render_id: str = typer.Argument(..., help="Flow render ID"),
+    watch: bool = typer.Option(False, "--watch", "-w", help="Watch status live"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Get flow render status."""
+    client = get_client()
+    if watch:
+        _watch_flow_status(client, render_id)
+        return
+    with spinner("Fetching flow status..."):
+        status = client.renders.status(render_id)
+    output(status, fmt)
+
+
+@app.command("cancel")
+def flow_cancel(
+    render_id: str = typer.Argument(..., help="Flow render ID"),
+):
+    """Cancel a flow render."""
+    client = get_client()
+    with spinner("Cancelling flow render..."):
+        client.renders.cancel(render_id)
+    success(f"Flow render {render_id} cancelled")
 
 
 @app.command("text-to-image")
