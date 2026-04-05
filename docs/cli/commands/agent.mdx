@@ -76,6 +76,14 @@ hyper agent config openclaw --apply
 hyper agent config env
 ```
 
+Preferred flat alias:
+
+```bash
+hyper config openclaw --apply
+```
+
+Without `--apply`, the command prints the generated JSON blob to stdout.
+
 ### `openclaw-setup`
 
 Patch `~/.openclaw/openclaw.json` directly using the saved HyperClaw key.
@@ -86,7 +94,7 @@ hyper agent openclaw-setup --default
 ```
 
 With `--default`, the generated OpenClaw config sets the primary coding model to
-`hyperclaw/kimi-k2.5-anthropic`.
+`hyperclaw/kimi-k2.5`.
 
 ### `exec` and `shell`
 
@@ -114,5 +122,5 @@ Embedding helpers against HyperClaw.
 1. `hyper agent plans`
 2. `hyper agent subscribe 1aiu`
 3. `hyper agent status`
-4. `hyper agent openclaw-setup --default`
+4. `hyper config openclaw --apply`
 5. `hyper agents create ...`

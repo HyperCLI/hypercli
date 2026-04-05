@@ -68,7 +68,7 @@ response = client.chat.completions.create(
 print(response.choices[0].message.content)
 ```
 
-`hyper agent config openclaw --apply` already configures both the Anthropic and OpenAI-compatible HyperClaw endpoints automatically.
+`hyper config openclaw --apply` configures OpenClaw to use the single `hyperclaw` provider plus the `/v1` memory-search remote automatically.
 
 ## Option 2: CLI
 

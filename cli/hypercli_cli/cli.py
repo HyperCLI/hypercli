@@ -57,10 +57,16 @@ app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+config_app = typer.Typer(
+    help="Generate config for OpenClaw and other tools",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 # Register subcommands
 app.add_typer(agents.app, name="agents")
 app.add_typer(agent.app, name="agent")
+app.add_typer(config_app, name="config")
 app.add_typer(billing.app, name="billing")
 app.add_typer(comfyui.app, name="comfyui")
 app.add_typer(files.app, name="files")
@@ -71,6 +77,25 @@ app.add_typer(jobs.app, name="jobs")
 app.add_typer(llm.app, name="llm")
 app.add_typer(user.app, name="user")
 app.add_typer(wallet.app, name="wallet")
+
+
+@config_app.command("openclaw")
+def config_openclaw_cmd(
+    key: str = typer.Option(None, "--key", "-k", help="API key. Falls back to ~/.hypercli/agent-key.json"),
+    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults"),
+    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write ${ENV_VAR} placeholders into generated config instead of literal API keys"),
+    apply: bool = typer.Option(False, "--apply", help="Write directly to ~/.openclaw/openclaw.json"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+):
+    """Generate or apply OpenClaw config."""
+    agent.config_cmd(
+        format="openclaw",
+        key=key,
+        base_url=base_url,
+        placeholder_env=placeholder_env,
+        apply=apply,
+        dev=dev,
+    )
 
 
 @app.command("me")
