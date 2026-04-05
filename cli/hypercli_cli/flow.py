@@ -163,13 +163,12 @@ OPT_AMOUNT = typer.Option(None, "--amount", help="USDC amount to spend with --x4
 OPT_FMT = typer.Option("table", "--output", "-o", help="Output format: table|json")
 
 
-@app.command("renders")
-def list_renders(
+def _list_flow_history(
     limit: int = typer.Option(10, "--limit", "-n", help="Number of recent renders to show"),
     check: bool = typer.Option(False, "--check", "-c", help="Check current status of each render"),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
-    """List saved x402 render history from ~/.hypercli/x402_renders.jsonl"""
+    """List saved x402 flow history from ~/.hypercli/x402_renders.jsonl"""
     if not X402_RENDERS_FILE.exists():
         console.print("[dim]No x402 renders recorded yet.[/dim]")
         raise typer.Exit(0)
@@ -212,7 +211,7 @@ def list_renders(
         return
 
     from rich.table import Table
-    table = Table(title="x402 Renders")
+    table = Table(title="x402 Flow History")
     table.add_column("Time", style="dim")
     table.add_column("Flow")
     table.add_column("Render ID", style="cyan")
@@ -233,6 +232,26 @@ def list_renders(
         table.add_row(*row)
 
     console.print(table)
+
+
+@app.command("history")
+def flow_history(
+    limit: int = typer.Option(10, "--limit", "-n", help="Number of recent runs to show"),
+    check: bool = typer.Option(False, "--check", "-c", help="Check current status of each run"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List saved x402 flow history from ~/.hypercli/x402_renders.jsonl"""
+    _list_flow_history(limit=limit, check=check, fmt=fmt)
+
+
+@app.command("renders", hidden=True)
+def flow_renders_legacy(
+    limit: int = typer.Option(10, "--limit", "-n", help="Number of recent runs to show"),
+    check: bool = typer.Option(False, "--check", "-c", help="Check current status of each run"),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Deprecated alias for `hyper flow history`."""
+    _list_flow_history(limit=limit, check=check, fmt=fmt)
 
 
 @app.command("text-to-image")
