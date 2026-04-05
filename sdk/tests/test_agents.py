@@ -740,6 +740,40 @@ def test_agents_start_stop_delete(agents_client):
         assert agents_client.delete("agent-123") == {"status": "deleted"}
 
 
+def test_agents_start_preserves_generic_launch_fields(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-generic"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-456",
+            "user_id": "user-456",
+            "pod_id": "pod-456",
+            "pod_name": "generic-pod",
+            "state": "starting",
+            "hostname": "generic.hypercli.com",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agent = agents_client.start(
+            "agent-456",
+            image="python:3.12-alpine",
+            command=["sh", "-c", "python -m http.server 80"],
+            routes={"web": {"port": 80, "auth": False, "prefix": ""}},
+            sync_enabled=True,
+        )
+
+        assert isinstance(agent, Agent)
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["image"] == "python:3.12-alpine"
+        assert posted_json["command"] == ["sh", "-c", "python -m http.server 80"]
+        assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
+        assert posted_json["sync_enabled"] is True
+
+
 def test_build_agent_launch_rejects_nested_launch_fields():
     with pytest.raises(ValueError, match="Launch settings must be top-level fields"):
         _build_agent_launch(
