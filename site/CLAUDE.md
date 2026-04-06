@@ -41,7 +41,7 @@ Environment: copy `env.sample` to each app's `.env.local`. Required vars are val
 | `/dashboard/agents/` | `app/dashboard/agents/page.tsx` | **Main agent interface** — sidebar + tabbed panels (1568 lines) |
 | `/dashboard/agents/[id]/console/` | `app/dashboard/agents/[id]/console/page.tsx` | Simplified 3-panel agent console (chat/files/config) |
 | `/dashboard/keys/` | `app/dashboard/keys/page.tsx` | API key management (create, rename, revoke) |
-| `/dashboard/plans/` | `app/dashboard/plans/page.tsx` | Plan selection + checkout (Stripe + x402 USDC) |
+| `/plans/` | `app/plans/page.tsx` | Plan selection + checkout (Stripe + x402 USDC) |
 | `/dashboard/settings/` | `app/dashboard/settings/page.tsx` | User settings |
 | `/privacy/`, `/terms/` | Static legal pages | |
 
@@ -89,7 +89,7 @@ The largest file — manages the full agent experience:
 
 **Tabs**:
 - **Chat** — Uses `useGatewayChat` hook. Messages, files, config loaded from gateway.
-- **Logs** — WebSocket to `wss://api.{domain}/ws/{agent_id}?jwt=...`. Backend streams from in-memory buffer (fed by Lagoon ingest).
+- **Logs** — WebSocket to `wss://api.{domain}/ws/logs/{agent_id}?jwt=...`. Backend streams from the per-agent buffer fed by Lagoon's shared ingest firehose.
 - **Shell** — xterm.js terminal + WebSocket to `wss://api.{domain}/ws/shell/{agent_id}?jwt=...`. Backend proxies → Lagoon → K8s exec. Resize via `\x1b[8;{rows};{cols}t` escape.
 - **Files** — Gateway RPC file operations (requires RUNNING agent).
 - **OpenClaw** — JSON config editor built from gateway schema. Uses `configPatch()`.

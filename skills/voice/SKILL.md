@@ -46,7 +46,7 @@ hyper agent voice design "Hello" --desc "deep male voice, British accent, warm t
 hyper agent voice clone "Status update: deployment complete." --ref ~/voice_ref.wav -f ogg -o /tmp/update.ogg
 
 # Chain with STT: transcribe incoming audio, respond with cloned voice
-hyper agent transcribe incoming.ogg > /tmp/transcript.txt
+hyper voice transcribe incoming.ogg > /tmp/transcript.txt
 hyper agent voice clone "$(cat response.txt)" --ref ~/my_voice.wav -f ogg -o reply.ogg
 ```
 

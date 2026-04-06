@@ -420,7 +420,7 @@ def image_to_video(
     print_render_result(render, fmt, x402_result)
 
 
-@app.command("speaking-video")
+@app.command("speaking-video", hidden=True)
 def speaking_video(
     prompt: str = typer.Argument(..., help="Scene description prompt"),
     image: Optional[str] = typer.Option(None, "--image", "-i", help="Portrait image URL or local file path"),
@@ -579,7 +579,7 @@ def first_last_frame_video(
     print_render_result(render, fmt, x402_result)
 
 
-@app.command("audio-to-text")
+@app.command("audio-to-text", hidden=True)
 def audio_to_text(
     input: Optional[str] = typer.Argument(None, help="Audio URL or local file path"),
     file_id: Optional[str] = typer.Option(None, "--file-id", help="Pre-uploaded audio file ID"),
@@ -612,7 +612,7 @@ def audio_to_text(
     print_render_result(render, fmt, x402_result)
 
 
-@app.command("text-to-speech")
+@app.command("text-to-speech", hidden=True)
 def text_to_speech(
     text: str = typer.Argument(..., help="Text to synthesize"),
     mode: str = typer.Option("design", "--mode", "-m", help="TTS mode: custom, design, or clone"),

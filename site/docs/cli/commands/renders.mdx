@@ -1,91 +1,30 @@
 ---
-title: hyper renders
-description: Render management commands
+title: Renders And Flows
+description: Direct renders are still supported alongside the higher-level flow surface.
 ---
 
-## list
+HyperCLI supports two render surfaces:
 
-List renders.
+- `hyper flow ...` for the managed flow catalog we curate
+- direct renders via the REST API and SDKs when you want to work with raw render jobs yourself
 
-```bash
-hyper renders list
-hyper renders list -s completed
-hyper renders list -t hidream_i1_full
-hyper renders list -o json
-```
+`hyper flow` is the recommended CLI entrypoint for media generation today.
 
-**Options:**
-- `-s, --state` - Filter by state: `pending`, `running`, `completed`, `failed`
-- `-t, --template` - Filter by template name
-- `--type` - Filter by render type (e.g., `comfyui`)
-- `-o, --output` - Output format: `table` or `json`
+Use it when you want:
 
-## create
-
-Create a render.
+- stable managed templates
+- flow-level pricing and x402 support
+- higher-level commands like `text-to-image` and `image-to-video`
 
 ```bash
-hyper renders create <template> -p <prompt> [options]
-
-# Examples
-hyper renders create hidream_i1_full -p "a cat in space"
-hyper renders create hidream_i1_full -p "sunset over mountains" --gpu L40S --region kr
-hyper renders create hidream_i1_full -p "portrait of a robot" --wait
+hyper flow text-to-image "a cat in space"
+hyper flow text-to-video "a cat walking through snow"
+hyper flow list
+hyper flow get <render_id>
 ```
 
-**Arguments:**
-- `template` - Template name (required)
+Use direct renders when you want lower-level control over render jobs via the API or SDKs:
 
-**Options:**
-- `-p, --prompt` - Text prompt (required)
-- `-g, --gpu` - GPU type (default: L40S)
-- `-r, --region` - Region code (e.g., `kr`)
-- `-t, --type` - Render type (default: comfyui)
-- `-w, --wait` - Wait for render to complete
-- `--notify` - Webhook URL for completion notification
-- `-o, --output` - Output format: `table` or `json`
-
-## get
-
-Get render details.
-
-```bash
-hyper renders get <render_id>
-hyper renders get <render_id> -o json
-```
-
-## status
-
-Get render status (lightweight polling endpoint).
-
-```bash
-hyper renders status <render_id>
-hyper renders status <render_id> -w   # Watch live
-hyper renders status <render_id> -o json
-```
-
-**Options:**
-- `-w, --watch` - Watch status live until completion
-- `-o, --output` - Output format: `table` or `json`
-
-## cancel
-
-Cancel a render.
-
-```bash
-hyper renders cancel <render_id>
-```
-
-## Example Workflow
-
-```bash
-# Create a render and wait for completion
-hyper renders create hidream_i1_full -p "a cat in space" --wait
-
-# Or create and poll separately
-hyper renders create hidream_i1_full -p "a cat in space"
-# Returns: Render created: abc123...
-
-hyper renders status abc123 --watch
-# Watches until completion, then shows result URL
-```
+- [Python renders SDK](/sdk/renders)
+- [TypeScript renders SDK](/ts-sdk/renders)
+- [Render API](/render)

@@ -1,6 +1,6 @@
 # STT — Voice Message Transcription
 
-Transcribe voice messages and audio files using `hyper agent transcribe` (faster-whisper, local, no API needed).
+Transcribe voice messages and audio files using `hyper voice transcribe` (faster-whisper, local, no API needed).
 
 ## When to Use
 
@@ -10,19 +10,19 @@ When you receive a voice message or audio attachment (`audio/ogg`, `audio/mpeg`,
 
 ```bash
 # Transcribe any audio file (auto-detects language)
-hyper agent transcribe <audio_file>
+hyper voice transcribe <audio_file>
 
 # Specify language and model
-hyper agent transcribe message.ogg --model turbo --language en
+hyper voice transcribe message.ogg --model turbo --language en
 
 # JSON output with timestamps
-hyper agent transcribe meeting.mp3 --json -o transcript.json
+hyper voice transcribe meeting.mp3 --json -o transcript.json
 ```
 
 If the audio is in an unsupported format, convert first:
 ```bash
 ffmpeg -i <input_file> -f wav -ar 16000 -ac 1 /tmp/transcribe.wav -y
-hyper agent transcribe /tmp/transcribe.wav
+hyper voice transcribe /tmp/transcribe.wav
 ```
 
 ## Important

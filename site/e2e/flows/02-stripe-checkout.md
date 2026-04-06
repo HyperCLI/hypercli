@@ -11,7 +11,7 @@ Purchases a plan via Stripe test card after logging in via Privy.
 5. Redirect to **Stripe Checkout** (checkout.stripe.com)
 6. Fill test card: `4242 4242 4242 4242`, any future expiry, any CVC
 7. Submit payment
-8. Stripe processes → redirect back to `/dashboard/plans?session_id=...`
+8. Stripe processes → redirect back to `/plans?session_id=...`
 9. Navigate to Agents and launch a real agent
 10. Cancel/refund the Stripe test subscription
 11. Trigger backend Stripe repair
