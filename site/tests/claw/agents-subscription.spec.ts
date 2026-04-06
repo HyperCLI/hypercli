@@ -17,7 +17,7 @@ test.describe.serial("Agents subscription", () => {
     test.setTimeout(360_000);
 
     await loginWithPrivy(page);
-    await page.goto("/dashboard/plans", { waitUntil: "domcontentloaded" });
+    await page.goto("/plans", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: /^plans$/i })).toBeVisible({ timeout: 30_000 });
 
     const subscribeButton = page.getByRole("button", { name: /subscribe|upgrade/i }).first();
@@ -34,7 +34,7 @@ test.describe.serial("Agents subscription", () => {
 
     await expect
       .poll(() => page.url(), { timeout: 60_000 })
-      .toContain("/dashboard/plans");
+      .toContain("/plans");
 
     const currentPlan = await waitForPaidClawPlan(page);
     expect(currentPlan.id).not.toBe("free");
