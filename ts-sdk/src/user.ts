@@ -23,6 +23,7 @@ export interface AuthMe {
   email: string | null;
   authType: string;
   capabilities: string[];
+  hasActiveSubscription: boolean;
   keyId: string | null;
   keyName: string | null;
 }
@@ -55,6 +56,7 @@ function authMeFromDict(data: any): AuthMe {
     email: data.email || null,
     authType: data.auth_type || '',
     capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
+    hasActiveSubscription: Boolean(data.has_active_subscription),
     keyId: data.key_id || null,
     keyName: data.key_name || null,
   };
@@ -75,7 +77,7 @@ export class UserAPI {
    * Resolve the current auth context, including key capabilities.
    */
   async authMe(): Promise<AuthMe> {
-    const data = await this.authHttp.get('/auth/me');
+    const data = await this.authHttp.get('/api/auth/me');
     return authMeFromDict(data);
   }
 

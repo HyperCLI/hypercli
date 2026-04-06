@@ -1,57 +1,24 @@
 ---
-title: hyper renders
-description: Lower-level managed render commands.
+title: hyper renders (legacy)
+description: Legacy note for the removed top-level renders command.
 ---
 
-Use `hyper renders` when you want the older managed render API directly. For most new workflows, prefer `hyper flow`.
+`hyper renders` is no longer a live top-level CLI command.
 
-## list
+Use:
 
-```bash
-hyper renders list
-hyper renders list --state completed
-hyper renders list --template hidream_i1_full
-hyper renders list --type comfyui
-hyper renders list --output json
-```
-
-## create
+- `hyper flow ...` for current media generation
+- `client.renders` in the Python SDK
+- `client.renders` in the TypeScript SDK
 
 ```bash
-hyper renders create hidream_i1_full --prompt "a cat in space"
-hyper renders create hidream_i1_full --prompt "a cat in space" --wait
-hyper renders create hidream_i1_full --prompt "a cat in space" --gpu L40S --region kr
+hyper flow text-to-image "a cat in space"
+hyper flow text-to-video "a cat walking through snow"
+hyper flow list
+hyper flow get <render_id>
 ```
 
-Key flags:
+For managed render APIs in code, see:
 
-- `--prompt`, `-p`
-- `--gpu`, `-g`
-- `--region`, `-r`
-- `--type`, `-t`
-- `--wait`, `-w`
-- `--notify`
-- `--output`, `-o`
-
-`--x402` is intentionally not supported here. Use `hyper flow ... --x402` instead.
-
-## get
-
-```bash
-hyper renders get <render_id>
-hyper renders get <render_id> --output json
-```
-
-## status
-
-```bash
-hyper renders status <render_id>
-hyper renders status <render_id> --watch
-hyper renders status <render_id> --output json
-```
-
-## cancel
-
-```bash
-hyper renders cancel <render_id>
-```
+- [Python renders SDK](/sdk/renders)
+- [TypeScript renders SDK](/ts-sdk/renders)

@@ -186,7 +186,7 @@ New keys are deny-by-default unless you attach tags explicitly.
 There are two kinds of tags:
 
 - family baseline tags such as `jobs:*` or `files:self`
-- selector tags such as `team=dev`, `agent=<agent-id>`, `model=kimi-k2.5`, or `voice=alloy`
+- selector tags such as `team=dev`, `agent=<agent-uuid>`, `model=kimi-k2-5`, or `runtime=agent`
 
 Examples:
 
@@ -194,6 +194,7 @@ Examples:
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
+- `flows:*`
 - `renders:self`
 - `files:*`
 - `files:self`
@@ -204,9 +205,9 @@ Examples:
 - `user:self`
 - `api:self`
 - `team=dev`
-- `agent=<agent-id>`
-- `model=kimi-k2.5`
-- `voice=alloy`
+- `agent=<agent-uuid>`
+- `model=kimi-k2-5`
+- `runtime=agent`
 
 Resources also carry tags. Access is granted when the key's effective tags are a subset of the resource tags, or when the key has a family-wide baseline such as `jobs:*`.
 
@@ -218,6 +219,7 @@ The current user-facing families are:
 - `user:* | user:self | user:none`
 - `jobs:* | jobs:self | jobs:none`
 - `renders:* | renders:self | renders:none`
+- `flows:* | flows:self | flows:none`
 - `files:* | files:self | files:none`
 - `agents:* | agents:self | agents:none`
 - `models:* | models:none`
@@ -228,11 +230,37 @@ Typical meaning:
 - `api:*` lets a key manage API keys for the same account
 - `user:self` lets a key read or update the current account profile
 - `jobs:*` grants broad job access
-- `renders:*` grants broad render/flow access
+- `renders:*` grants broad raw render access
+- `flows:*` grants broad curated flow access
 - `files:*` grants file upload/download/delete access
 - `agents:*` grants broad agent access
 - `models:*` grants model discovery and broad inference access
 - `voice:*` grants voice compatibility access
+
+### Exact Agent Keys
+
+Broad agent access uses the `agents:* | agents:self | agents:none` family tags.
+
+Exact agent binding is separate and uses the selector tag:
+
+- `agent=<agent-uuid>`
+
+So:
+
+- `agents:<uuid>` is not an exact-agent tag
+- `agent=<name>` is not supported
+- the stable exact selector is the agent UUID
+
+In practice, prefer minting exact-agent child keys through the agent API instead of hand-writing tags:
+
+```bash
+curl -X POST https://api.hypercli.com/api/deployments/<agent-uuid>/keys \
+  -H "Authorization: Bearer $HYPER_API_KEY" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"agent-client"}'
+```
+
+That endpoint issues the correctly scoped key for that one agent.
 
 ### Inference And Voice Selectors
 
@@ -247,25 +275,25 @@ For LLM access:
 
 The inference routes above can also be narrowed with selector tags such as:
 
-- `model=kimi-k2.5`
+- `model=kimi-k2-5`
 - `model=glm-5`
 - `model=qwen3-embedding-4b`
 
-Provider-specific aliases still resolve back to the canonical model. For example, `kimi-k2.5-anthropic` maps to the same underlying model as `kimi-k2.5`.
+Provider-specific aliases still resolve back to the canonical model. For example, `kimi-k2.5-anthropic` maps to the same underlying model as `kimi-k2-5`.
 
-Voice compatibility routes work the same way:
+Subscription voice routes are:
 
-- `POST /v1/tts`
-- `POST /v1/clone`
-- `POST /v1/design`
+- `POST /agents/voice/tts`
+- `POST /agents/voice/clone`
+- `POST /agents/voice/design`
 
-Use `voice:*` for broad access, or narrower tags such as `voice=alloy` when you want to pin a key to a specific voice.
+Use `voice:*` for broad access. The current user-facing contract does not require narrower `voice=<name>` selectors in docs.
 
 ### Global Access
 
 `*:*` is the global full-access baseline.
 
-It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer narrower family tags such as `renders:*` plus selector tags like `team=dev`.
+It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer family tags that match the surface you are exposing, such as `flows:*` for curated subscription flows or `renders:*` for raw render access, plus selector tags like `team=dev`.
 
 ### Getting Your API Key
 

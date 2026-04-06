@@ -76,6 +76,14 @@ export {
   type File,
 } from './files.js';
 
+// Voice API
+export {
+  VoiceAPI,
+  type TTSOptions,
+  type CloneOptions,
+  type DesignOptions,
+} from './voice.js';
+
 // User API
 export {
   UserAPI,
@@ -87,6 +95,9 @@ export {
 export {
   KeysAPI,
   type ApiKey,
+  type ApiKeyBaselineValue,
+  type ApiKeyBaselineFamily,
+  API_KEY_BASELINE_FAMILIES,
 } from './keys.js';
 
 // Logs

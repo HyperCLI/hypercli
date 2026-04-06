@@ -5,13 +5,7 @@ describe('User auth me API', () => {
   it('returns capability-aware auth context', async () => {
     const http = {
       get: async (path: string) => {
-        throw new Error(`unexpected product path ${path}`);
-      },
-    };
-
-    const authHttp = {
-      get: async (path: string) => {
-        expect(path).toBe('/auth/me');
+        expect(path).toBe('/api/auth/me');
         return {
           user_id: 'user-123',
           orchestra_user_id: 'orch-123',
@@ -20,16 +14,18 @@ describe('User auth me API', () => {
           email: 'user@example.com',
           auth_type: 'orchestra_key',
           capabilities: ['models:*', 'voice:*'],
+          has_active_subscription: true,
           key_id: 'key-123',
           key_name: 'runtime-key',
         };
       },
     };
 
-    const authMe = await new UserAPI(http as any, authHttp as any).authMe();
+    const authMe = await new UserAPI(http as any).authMe();
 
     expect(authMe.userId).toBe('user-123');
     expect(authMe.capabilities).toEqual(['models:*', 'voice:*']);
+    expect(authMe.hasActiveSubscription).toBe(true);
     expect(authMe.keyId).toBe('key-123');
   });
 });

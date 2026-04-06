@@ -18,8 +18,19 @@ export {
 } from './gateway.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
-import { KeysAPI } from './keys.js';
+import {
+  API_KEY_BASELINE_FAMILIES,
+  KeysAPI,
+  type ApiKeyBaselineFamily,
+  type ApiKeyBaselineValue,
+} from './keys.js';
 import { UserAPI } from './user.js';
+import { VoiceAPI } from './voice.js';
+export {
+  API_KEY_BASELINE_FAMILIES,
+  type ApiKeyBaselineFamily,
+  type ApiKeyBaselineValue,
+} from './keys.js';
 
 export interface BrowserHyperCLIOptions {
   apiUrl: string;
@@ -42,6 +53,7 @@ export class BrowserHyperCLI {
   public readonly user: UserAPI;
   public readonly instances: Instances;
   public readonly keys: KeysAPI;
+  public readonly voice: VoiceAPI;
 
   constructor(options: BrowserHyperCLIOptions) {
     const apiUrl = normalizeApiUrl(options.apiUrl);
@@ -51,5 +63,6 @@ export class BrowserHyperCLI {
     this.user = new UserAPI(this.http);
     this.instances = new Instances(this.http);
     this.keys = new KeysAPI(this.http);
+    this.voice = new VoiceAPI(this.http);
   }
 }

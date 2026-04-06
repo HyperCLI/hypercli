@@ -27,6 +27,7 @@ const client = new HyperCLI({
 - `files`
 - `keys`
 - `user`
+- `voice`
 - `agent`
 - `deployments`
 
@@ -39,6 +40,21 @@ Major methods:
 - `get(keyId)`
 - `rename(keyId, name)`
 - `disable(keyId)`
+
+## `user`
+
+Major methods:
+
+- `get()`
+- `authMe()`
+
+## `voice`
+
+Major methods:
+
+- `tts({ text, voice?, language?, responseFormat? })`
+- `clone({ text, refAudio, language?, xVectorOnly?, responseFormat? })`
+- `design({ text, description, language?, responseFormat? })`
 
 ## Agent Types
 

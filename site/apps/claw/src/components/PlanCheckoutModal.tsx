@@ -51,8 +51,8 @@ export function PlanCheckoutModal({
         {
           method: "POST",
           body: JSON.stringify({
-            success_url: `${window.location.origin}/dashboard/plans?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${window.location.origin}/dashboard/plans?cancelled=true`,
+            success_url: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
+            cancel_url: `${window.location.origin}/plans?cancelled=true`,
           }),
         }
       );

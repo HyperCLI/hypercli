@@ -30,8 +30,16 @@ interface OpenClawAgentOptions {
   routes?: Record<string, unknown>;
   command?: string[];
   entrypoint?: string[];
+  sync_root?: string;
+  sync_enabled?: boolean;
   registry_url?: string;
   registry_auth?: Record<string, unknown>;
+}
+
+function randomHexToken(bytes: number): string {
+  const buffer = new Uint8Array(bytes);
+  globalThis.crypto.getRandomValues(buffer);
+  return Array.from(buffer, (value) => value.toString(16).padStart(2, "0")).join("");
 }
 
 export function createAgentClient(apiKey: string): Deployments {
@@ -58,12 +66,16 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
   if (controlUiOrigin && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN) {
     env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
   }
+  if (!env.OPENCLAW_GATEWAY_TOKEN?.trim()) {
+    env.OPENCLAW_GATEWAY_TOKEN = randomHexToken(32);
+  }
 
   return {
     ...options,
     env,
     image: options.image ?? DEFAULT_OPENCLAW_IMAGE,
     routes: options.routes ?? DEFAULT_OPENCLAW_ROUTES,
+    sync_enabled: options.sync_enabled ?? true,
   };
 }
 

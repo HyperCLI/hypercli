@@ -5,9 +5,23 @@ description: Recommended media generation commands, with optional x402 pay-per-u
 
 `hyper flow` is the recommended CLI surface for media generation.
 
+## Billing Order
+
+Normal flow commands use this order automatically:
+
+1. Active subscription flow access
+2. Account balance / paid render API
+
+`x402` is never the default path. It is only used when you explicitly pass `--x402`.
+
 ## Commands
 
 ```bash
+hyper flow history
+hyper flow list
+hyper flow get <render_id>
+hyper flow status <render_id>
+hyper flow cancel <render_id>
 hyper flow text-to-image <prompt>
 hyper flow text-to-image-hidream <prompt>
 hyper flow text-to-video <prompt>
@@ -40,21 +54,53 @@ When you pass a local path to an image or audio argument, the CLI uploads it aut
 ```bash
 hyper flow text-to-image "a cyberpunk alley" --x402
 hyper flow text-to-image "a cyberpunk alley" --x402 --amount 0.10
+hyper flow list --x402
+hyper flow get <render_id> --x402
 ```
 
 For x402 flows:
 
+- `--x402` is required
 - the CLI reads the fixed price from the flow catalog
 - `--amount` must match that fixed price exactly
 - the result includes an access key plus status and cancel URLs
 
-## x402 Render History
+For read commands like `list`, `history`, `get`, `status`, and `cancel`, `--x402` means:
 
-The CLI stores pay-per-use render history in `~/.hypercli/x402_renders.jsonl`.
+- authenticate with the local wallet against `/api/auth/wallet/*`
+- use the wallet-backed HyperCLI user context
+- fetch real backend render history, not local files
 
-Inspect it with:
+## Flow History
+
+Remote flow history comes from the real render API:
 
 ```bash
-hyper flow renders
-hyper flow renders --check
+hyper flow history
+hyper flow history --state completed
+hyper flow list
+```
+
+`hyper flow history` and `hyper flow list` both use the remote render API. `history` is just the more natural “show me my recent flow runs” view.
+
+Examples:
+
+```bash
+hyper flow list
+hyper flow list --state completed
+hyper flow list --x402
+hyper flow history --x402
+```
+
+Download a completed flow result directly:
+
+```bash
+hyper flow get <render_id> -o output.mp4
+```
+
+Structured inspection is still available with:
+
+```bash
+hyper flow get <render_id> --format json
+hyper flow status <render_id> --format json
 ```

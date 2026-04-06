@@ -31,6 +31,7 @@ Common baseline tags:
 - `jobs:*`
 - `jobs:self`
 - `renders:*`
+- `flows:*`
 - `renders:self`
 - `files:*`
 - `files:self`
@@ -47,9 +48,9 @@ Common selector tags:
 
 - `team=dev`
 - `project=alpha`
-- `agent=<agent-id>`
-- `model=kimi-k2.5`
-- `voice=alloy`
+- `agent=<agent-uuid>`
+- `model=kimi-k2-5`
+- `runtime=agent`
 
 Example:
 
@@ -71,8 +72,8 @@ New keys are deny-by-default unless tags are supplied. Use `*:*` only for truste
 For HyperClaw inference:
 
 - `models:*` is enough for `GET /v1/models`
-- actual inference routes can be narrowed with selectors such as `model=kimi-k2.5`
-- voice compatibility routes can be narrowed with selectors such as `voice=alloy`
+- actual inference routes can be narrowed with selectors such as `model=kimi-k2-5`
+- subscription voice routes use the `voice:*` family and the current `/agents/voice/*` surface
 
 ## Child Keys For One Exact Agent
 
@@ -84,6 +85,8 @@ const child = await client.deployments.createScopedKey(agent.id, "agent-client")
 
 console.log(child.api_key);
 ```
+
+The underlying exact-agent selector is `agent=<agent-uuid>`. Do not use `agents:<uuid>` or `agent=<name>`.
 
 That child key is intended for:
 

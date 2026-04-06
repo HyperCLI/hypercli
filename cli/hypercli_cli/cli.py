@@ -4,11 +4,12 @@ import json
 import typer
 from rich.console import Console
 from rich.prompt import Prompt
+from rich.table import Table
 
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, user, wallet
+from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, user, wallet
 from .output import output, spinner
 
 console = Console()
@@ -56,10 +57,16 @@ app = typer.Typer(
     no_args_is_help=True,
     rich_markup_mode="rich",
 )
+config_app = typer.Typer(
+    help="Generate config for OpenClaw and other tools",
+    no_args_is_help=True,
+    rich_markup_mode="rich",
+)
 
 # Register subcommands
 app.add_typer(agents.app, name="agents")
 app.add_typer(agent.app, name="agent")
+app.add_typer(config_app, name="config")
 app.add_typer(billing.app, name="billing")
 app.add_typer(comfyui.app, name="comfyui")
 app.add_typer(files.app, name="files")
@@ -67,8 +74,28 @@ app.add_typer(flow.app, name="flow")
 app.add_typer(instances.app, name="instances")
 app.add_typer(keys.app, name="keys")
 app.add_typer(jobs.app, name="jobs")
+app.add_typer(llm.app, name="llm")
 app.add_typer(user.app, name="user")
 app.add_typer(wallet.app, name="wallet")
+
+
+@config_app.command("openclaw")
+def config_openclaw_cmd(
+    key: str = typer.Option(None, "--key", "-k", help="API key. Falls back to ~/.hypercli/agent-key.json"),
+    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults"),
+    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write ${ENV_VAR} placeholders into generated config instead of literal API keys"),
+    apply: bool = typer.Option(False, "--apply", help="Write directly to ~/.openclaw/openclaw.json"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+):
+    """Generate or apply OpenClaw config."""
+    agent.config_cmd(
+        format="openclaw",
+        key=key,
+        base_url=base_url,
+        placeholder_env=placeholder_env,
+        apply=apply,
+        dev=dev,
+    )
 
 
 @app.command("me")
@@ -79,7 +106,27 @@ def me_cmd(
     client = HyperCLI()
     with spinner("Resolving auth context..."):
         auth_me = client.user.auth_me()
-    output(auth_me, fmt)
+    if fmt == "json":
+        output(auth_me, fmt)
+        return
+
+    table = Table(show_header=False, box=None)
+    table.add_column("Key", style="bold cyan")
+    table.add_column("Value")
+    table.add_row("user_id", auth_me.user_id)
+    table.add_row("orchestra_user_id", str(auth_me.orchestra_user_id or ""))
+    table.add_row("team_id", auth_me.team_id)
+    table.add_row("plan_id", auth_me.plan_id)
+    table.add_row("email", str(auth_me.email or ""))
+    table.add_row("auth_type", auth_me.auth_type)
+    has_active_subscription = bool(getattr(auth_me, "has_active_subscription", False))
+    table.add_row("has_active_subscription", "yes" if has_active_subscription else "no")
+    table.add_row("key_id", str(getattr(auth_me, "key_id", None) or ""))
+    table.add_row("key_name", str(getattr(auth_me, "key_name", None) or ""))
+    raw_capabilities = list(getattr(auth_me, "capabilities", []) or [])
+    capabilities = "\n".join(raw_capabilities) if raw_capabilities else ""
+    table.add_row("capabilities", capabilities)
+    console.print(table)
 
 
 @app.command("configure")

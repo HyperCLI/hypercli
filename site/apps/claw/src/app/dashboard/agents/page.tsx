@@ -959,9 +959,9 @@ export default function AgentsPage() {
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
     { label: "Overview", href: "/dashboard", icon: Bot },
-    { label: "Agents", href: "/dashboard/agents", icon: Bot },
-    { label: "API Keys", href: "/dashboard/keys", icon: Key },
-    { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
+    { label: "Agents", href: "/agents", icon: Bot },
+    { label: "API Keys", href: "/keys", icon: Key },
+    { label: "Plans", href: "/plans", icon: CreditCard },
     { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
     { label: "Settings", href: "/dashboard/settings", icon: Settings },
   ];

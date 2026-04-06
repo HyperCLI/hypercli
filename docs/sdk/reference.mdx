@@ -13,8 +13,8 @@ client = HyperCLI(
     api_url=None,
     agent_api_key=None,
     agent_dev=False,
+    agents_api_base_url=None,
     agents_ws_url=None,
-    timeout=None,
 )
 ```
 
@@ -27,8 +27,24 @@ client = HyperCLI(
 - `client.files`
 - `client.keys`
 - `client.user`
+- `client.voice`
 - `client.agent`
 - `client.deployments`
+
+## `client.user`
+
+Major methods:
+
+- `get()`
+- `auth_me()`
+
+## `client.voice`
+
+Major methods:
+
+- `tts(text, voice="Chelsie", language="auto", response_format="mp3")`
+- `clone(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3")`
+- `design(text, description=..., language="auto", response_format="mp3")`
 
 ## `client.keys`
 

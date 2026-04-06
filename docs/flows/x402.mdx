@@ -108,3 +108,19 @@ Optional explicit amount (must equal flow fixed price):
 ```bash
 hyper flow text-to-image "studio portrait" --x402 --amount 0.10
 ```
+
+If you want backend-backed history after using a wallet, you have two paths:
+
+```bash
+hyper wallet login
+hyper flow history
+hyper flow get <render_id>
+```
+
+Or use the wallet context directly on read commands:
+
+```bash
+hyper flow list --x402
+hyper flow get <render_id> --x402
+hyper flow status <render_id> --x402
+```

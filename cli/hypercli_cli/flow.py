@@ -1,16 +1,13 @@
 """hyper flow commands - simplified flow interfaces"""
-import json
 import math
-from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation, ROUND_HALF_UP
 import typer
 from pathlib import Path
 from typing import Any, Optional, List
+from urllib.parse import urlparse
 
 from hypercli import HyperCLI, X402Client
-from .output import output, console, spinner
-
-X402_RENDERS_FILE = Path.home() / ".hypercli" / "x402_renders.jsonl"
+from .output import output, console, spinner, success
 
 HUMO_FPS = 25  # HuMo video_humo template frame rate
 USDC_ATOMIC_UNITS = Decimal("1000000")
@@ -21,6 +18,16 @@ app = typer.Typer(help="Simplified render flows for images, video, speech, and t
 
 def get_client() -> HyperCLI:
     return HyperCLI()
+
+
+def _get_flow_client(x402: bool = False) -> HyperCLI:
+    if not x402:
+        return get_client()
+
+    from .wallet import get_wallet_auth_token, require_wallet_deps
+
+    require_wallet_deps()
+    return HyperCLI(api_key=get_wallet_auth_token())
 
 
 def get_audio_duration(file_path: str) -> float | None:
@@ -56,32 +63,13 @@ def _usd_to_atomic(amount_usd: float) -> int:
     return int((usd * USDC_ATOMIC_UNITS).to_integral_value(rounding=ROUND_HALF_UP))
 
 
-def _save_x402_render(flow_type: str, amount: float, x402_result) -> None:
-    """Append x402 render info to ~/.hypercli/x402_renders.jsonl"""
-    try:
-        X402_RENDERS_FILE.parent.mkdir(parents=True, exist_ok=True)
-        entry = {
-            "ts": datetime.now(timezone.utc).isoformat(),
-            "flow_type": flow_type,
-            "render_id": x402_result.render.render_id,
-            "amount_usd": amount,
-            "access_key": x402_result.access_key,
-            "status_url": x402_result.status_url,
-            "cancel_url": x402_result.cancel_url,
-        }
-        with open(X402_RENDERS_FILE, "a") as f:
-            f.write(json.dumps(entry) + "\n")
-    except Exception:
-        pass  # best-effort, don't break the flow
-
-
 def _create_flow_render(
     flow_type: str,
     payload: dict[str, Any],
     x402: bool,
     amount: Optional[float],
 ):
-    """Create a flow render either via account billing or x402."""
+    """Create a flow render via subscription/account billing unless --x402 is explicit."""
     clean_payload = {k: v for k, v in payload.items() if v is not None}
 
     if x402:
@@ -113,11 +101,10 @@ def _create_flow_render(
                 params=clean_payload,
                 notify_url=notify_url,
             )
-        _save_x402_render(flow_type, amount, x402_result)
         return x402_result.render, x402_result
 
     with spinner("Creating render..."):
-        render = get_client().renders._flow(f"/api/flow/{flow_type}", **clean_payload)
+        render = get_client().renders.create_flow(flow_type, **clean_payload)
     return render, None
 
 
@@ -150,6 +137,61 @@ def print_render_result(render, fmt: str, x402_result=None):
         console.print(f"  Cancel URL: {x402_result.cancel_url}")
 
 
+def _watch_flow_status(client: HyperCLI, render_id: str, poll_interval: float = 2.0):
+    """Watch flow render status live."""
+    import time
+    from rich.live import Live
+    from rich.panel import Panel
+    from rich.table import Table
+
+    def render_status_panel(status, render=None):
+        table = Table(show_header=False, box=None)
+        table.add_column("Key", style="cyan")
+        table.add_column("Value")
+        table.add_row("ID", status.render_id)
+        table.add_row("State", status.state)
+        if status.progress is not None:
+            table.add_row("Progress", f"{status.progress:.0%}")
+        if render and render.result_url:
+            table.add_row("Result", render.result_url)
+        if render and render.error:
+            table.add_row("Error", render.error)
+        return Panel(table, title="[bold]Flow Status[/bold]")
+
+    with Live(console=console, refresh_per_second=2) as live:
+        while True:
+            status = client.renders.status(render_id)
+            render = None
+            if status.state in ("completed", "failed", "cancelled"):
+                render = client.renders.get(render_id)
+                live.update(render_status_panel(status, render))
+                break
+            live.update(render_status_panel(status))
+            time.sleep(poll_interval)
+
+
+def _download_flow_result(render, destination: Path) -> Path:
+    import httpx
+
+    if not render.result_url:
+        raise typer.BadParameter("Render has no result URL to download yet.")
+
+    target = destination.expanduser()
+    if target.is_dir():
+        parsed = urlparse(render.result_url)
+        filename = Path(parsed.path).name or f"{render.render_id}.bin"
+        target = target / filename
+    target.parent.mkdir(parents=True, exist_ok=True)
+
+    with httpx.stream("GET", render.result_url, follow_redirects=True, timeout=60) as response:
+        response.raise_for_status()
+        with target.open("wb") as handle:
+            for chunk in response.iter_bytes():
+                handle.write(chunk)
+
+    return target
+
+
 # =============================================================================
 # Common option definitions
 # =============================================================================
@@ -163,76 +205,112 @@ OPT_AMOUNT = typer.Option(None, "--amount", help="USDC amount to spend with --x4
 OPT_FMT = typer.Option("table", "--output", "-o", help="Output format: table|json")
 
 
-@app.command("renders")
-def list_renders(
-    limit: int = typer.Option(10, "--limit", "-n", help="Number of recent renders to show"),
-    check: bool = typer.Option(False, "--check", "-c", help="Check current status of each render"),
+@app.command("history")
+def flow_history(
+    limit: int = typer.Option(20, "--limit", "-n", help="Number of recent runs to show"),
+    state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
+    template: Optional[str] = typer.Option(None, "--template", "-t", help="Filter by template"),
+    type: Optional[str] = typer.Option(None, "--type", help="Filter by render type"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
     fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
 ):
-    """List saved x402 render history from ~/.hypercli/x402_renders.jsonl"""
-    if not X402_RENDERS_FILE.exists():
-        console.print("[dim]No x402 renders recorded yet.[/dim]")
-        raise typer.Exit(0)
+    """List recent flow renders from the remote render API."""
+    client = _get_flow_client(x402=x402)
+    with spinner("Fetching flow history..."):
+        renders = client.renders.list(state=state, template=template, type=type)
 
-    entries = []
-    with open(X402_RENDERS_FILE) as f:
-        for line in f:
-            line = line.strip()
-            if line:
-                try:
-                    entries.append(json.loads(line))
-                except json.JSONDecodeError:
-                    pass
-
-    if not entries:
-        console.print("[dim]No x402 renders recorded yet.[/dim]")
-        raise typer.Exit(0)
-
-    entries = entries[-limit:]
-
-    if check:
-        import httpx
-        for entry in entries:
-            access_key = entry.get("access_key", "")
-            status_path = entry.get("status_url", "")
-            if access_key and status_path:
-                try:
-                    url = f"https://api.hypercli.com/api{status_path}" if status_path.startswith("/flow") else f"https://api.hypercli.com{status_path}"
-                    resp = httpx.get(url, headers={"Authorization": f"Bearer {access_key}"}, timeout=10)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        entry["live_state"] = data.get("state", "?")
-                        entry["result_url"] = data.get("result_url")
-                        entry["error"] = data.get("error")
-                except Exception:
-                    entry["live_state"] = "error"
+    renders = renders[:limit]
 
     if fmt == "json":
-        output(entries, "json")
+        output(renders, "json")
         return
 
-    from rich.table import Table
-    table = Table(title="x402 Renders")
-    table.add_column("Time", style="dim")
-    table.add_column("Flow")
-    table.add_column("Render ID", style="cyan")
-    table.add_column("USD", justify="right")
-    if check:
-        table.add_column("State")
-        table.add_column("Result")
+    if not renders:
+        console.print("[dim]No flow renders found[/dim]")
+        return
 
-    for e in entries:
-        ts = e.get("ts", "?")[:19].replace("T", " ")
-        row = [ts, e.get("flow_type", "?"), e.get("render_id", "?")[:13] + "…", f"${e.get('amount_usd', 0):.2f}"]
-        if check:
-            state = e.get("live_state", "?")
-            style = "green" if state == "completed" else "red" if state == "failed" else "yellow"
-            row.append(f"[{style}]{state}[/{style}]")
-            result = e.get("result_url") or e.get("error") or ""
-            row.append(result[:60] if result else "")
-        table.add_row(*row)
+    output(renders, "table", ["render_id", "state", "template", "render_type", "created_at"])
 
-    console.print(table)
+@app.command("list")
+def flow_list(
+    state: Optional[str] = typer.Option(None, "--state", "-s", help="Filter by state"),
+    template: Optional[str] = typer.Option(None, "--template", "-t", help="Filter by template"),
+    type: Optional[str] = typer.Option(None, "--type", help="Filter by render type"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """List flow renders available to the current auth context."""
+    client = _get_flow_client(x402=x402)
+    with spinner("Fetching flow renders..."):
+        renders = client.renders.list(state=state, template=template, type=type)
+
+    if fmt == "json":
+        output(renders, "json")
+        return
+
+    if not renders:
+        console.print("[dim]No flow renders found[/dim]")
+        return
+
+    output(renders, "table", ["render_id", "state", "template", "render_type", "created_at"])
+
+
+@app.command("get")
+def flow_get(
+    render_id: str = typer.Argument(..., help="Flow render ID"),
+    output_path: Optional[str] = typer.Option(
+        None,
+        "--output",
+        "-o",
+        help="Write completed render output to file. Legacy: `-o json` or `-o table`.",
+    ),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
+    fmt: str = typer.Option("table", "--format", "-f", help="Output format: table|json"),
+):
+    """Get flow render details."""
+    client = _get_flow_client(x402=x402)
+    with spinner("Fetching flow render..."):
+        render = client.renders.get(render_id)
+
+    if output_path in {"json", "table"} and fmt == "table":
+        fmt = output_path
+        output_path = None
+
+    if output_path:
+        saved = _download_flow_result(render, Path(output_path))
+        success(f"Saved flow output to {saved}")
+        return
+
+    output(render, fmt)
+
+
+@app.command("status")
+def flow_status(
+    render_id: str = typer.Argument(..., help="Flow render ID"),
+    watch: bool = typer.Option(False, "--watch", "-w", help="Watch status live"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Get flow render status."""
+    client = _get_flow_client(x402=x402)
+    if watch:
+        _watch_flow_status(client, render_id)
+        return
+    with spinner("Fetching flow status..."):
+        status = client.renders.status(render_id)
+    output(status, fmt)
+
+
+@app.command("cancel")
+def flow_cancel(
+    render_id: str = typer.Argument(..., help="Flow render ID"),
+    x402: bool = typer.Option(False, "--x402", help="Use the local wallet's backend x402 user context."),
+):
+    """Cancel a flow render."""
+    client = _get_flow_client(x402=x402)
+    with spinner("Cancelling flow render..."):
+        client.renders.cancel(render_id)
+    success(f"Flow render {render_id} cancelled")
 
 
 @app.command("text-to-image")

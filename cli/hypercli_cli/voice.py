@@ -1,13 +1,11 @@
 """HyperClaw Voice API commands — TTS, clone, design"""
-import base64
 import json
 import os
-import sys
 from pathlib import Path
 
-import httpx
 import typer
 from rich.console import Console
+from hypercli import HyperCLI, APIError
 
 app = typer.Typer(help="Voice API — text-to-speech, voice cloning, voice design")
 console = Console()
@@ -50,43 +48,39 @@ def _resolve_api_base(base_url: str | None) -> str:
     return DEFAULT_API_BASE
 
 
-def _post_voice(
-    endpoint: str,
-    payload: dict,
-    api_key: str,
-    output: Path,
-    base_url: str | None = None,
-):
-    """POST to voice endpoint and save audio output."""
+def _voice_client(api_key: str, base_url: str | None = None) -> HyperCLI:
+    api_base = _resolve_api_base(base_url)
+    return HyperCLI(api_key=api_key, api_url=api_base)
+
+
+def _save_voice_output(output: Path, audio: bytes) -> None:
+    output.parent.mkdir(parents=True, exist_ok=True)
+    output.write_bytes(audio)
+    size_kb = len(audio) / 1024
+    console.print(f"[green]✅ Saved {output} ({size_kb:.1f} KB)[/green]")
+
+
+def _handle_voice_error(error: APIError) -> None:
+    detail = error.detail if isinstance(error.detail, str) else json.dumps(error.detail)
+    console.print(f"[red]❌ {error.status_code}: {detail[:500]}[/red]")
+    raise typer.Exit(1)
+
+
+def _post_voice(endpoint: str, api_key: str, output: Path, base_url: str | None = None, **kwargs) -> None:
+    """POST to voice endpoint through the SDK and save audio output."""
     api_base = _resolve_api_base(base_url)
     url = f"{api_base}/agents/voice/{endpoint}"
-
     console.print(f"[dim]→ POST {url}[/dim]")
 
     try:
-        with httpx.Client(timeout=600.0) as client:
-            resp = client.post(
-                url,
-                json=payload,
-                headers={
-                    "Authorization": f"Bearer {api_key}",
-                    "Content-Type": "application/json",
-                },
-            )
-
-        if resp.status_code != 200:
-            console.print(f"[red]❌ {resp.status_code}: {resp.text[:500]}[/red]")
-            raise typer.Exit(1)
-
-        output.parent.mkdir(parents=True, exist_ok=True)
-        with open(output, "wb") as f:
-            f.write(resp.content)
-
-        size_kb = len(resp.content) / 1024
-        console.print(f"[green]✅ Saved {output} ({size_kb:.1f} KB)[/green]")
-
-    except httpx.HTTPError as e:
-        console.print(f"[red]❌ Request failed: {e}[/red]")
+        client = _voice_client(api_key, base_url)
+        method = getattr(client.voice, endpoint)
+        audio = method(**kwargs)
+        _save_voice_output(output, audio)
+    except APIError as error:
+        _handle_voice_error(error)
+    except OSError as e:
+        console.print(f"[red]❌ File error: {e}[/red]")
         raise typer.Exit(1)
 
 
@@ -109,13 +103,16 @@ def tts(
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")
-    payload = {
-        "text": text,
-        "voice": voice,
-        "language": language,
-        "response_format": format,
-    }
-    _post_voice("tts", payload, api_key, output, base_url)
+    _post_voice(
+        "tts",
+        api_key,
+        output,
+        base_url,
+        text=text,
+        voice=voice,
+        language=language,
+        response_format=format,
+    )
 
 
 @app.command("clone")
@@ -143,19 +140,18 @@ def clone(
         console.print(f"[red]❌ Reference audio not found: {ref_audio}[/red]")
         raise typer.Exit(1)
 
-    with open(ref_audio, "rb") as f:
-        ref_b64 = base64.b64encode(f.read()).decode()
-
     console.print(f"[dim]Reference: {ref_audio} ({ref_audio.stat().st_size / 1024:.1f} KB)[/dim]")
-
-    payload = {
-        "text": text,
-        "ref_audio_base64": ref_b64,
-        "language": language,
-        "x_vector_only": x_vector_only,
-        "response_format": format,
-    }
-    _post_voice("clone", payload, api_key, output, base_url)
+    _post_voice(
+        "clone",
+        api_key,
+        output,
+        base_url,
+        text=text,
+        ref_audio=ref_audio,
+        language=language,
+        x_vector_only=x_vector_only,
+        response_format=format,
+    )
 
 
 @app.command("design")
@@ -177,10 +173,13 @@ def design(
     api_key = _get_api_key(key)
     if output is None:
         output = Path(f"output.{format}")
-    payload = {
-        "text": text,
-        "instruct": description,
-        "language": language,
-        "response_format": format,
-    }
-    _post_voice("design", payload, api_key, output, base_url)
+    _post_voice(
+        "design",
+        api_key,
+        output,
+        base_url,
+        text=text,
+        description=description,
+        language=language,
+        response_format=format,
+    )

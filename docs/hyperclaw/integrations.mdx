@@ -10,7 +10,7 @@ HyperClaw exposes two chat surfaces:
 
 For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
 
-`hyper agent config openclaw --apply` already configures both endpoints automatically.
+`hyper config openclaw --apply` already configures the `hyperclaw` provider and the `/v1` memory-search remote automatically.
 
 ## Anthropic Messages API
 
@@ -83,14 +83,14 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
         "authHeader": true,
         "models": [
           {
-            "id": "kimi-k2.5-anthropic",
+            "id": "kimi-k2.5",
             "name": "Kimi K2.5",
             "reasoning": true,
             "input": ["text", "image"],
             "contextWindow": 262144
           },
           {
-            "id": "glm-5-anthropic",
+            "id": "glm-5",
             "name": "GLM-5",
             "reasoning": true,
             "input": ["text", "image"],
@@ -116,7 +116,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
 ```
 
 For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
-For the branded HyperClaw setup, use `hyperclaw/kimi-k2.5-anthropic` and `hyperclaw/glm-5-anthropic` directly.
+For the branded HyperClaw setup, use `hyperclaw/kimi-k2.5` and `hyperclaw/glm-5` directly.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
 

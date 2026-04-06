@@ -11,7 +11,7 @@ export default function KeysPage() {
     <ApiKeysManager
       apiBaseUrl={AUTH_BASE_URL}
       getToken={getToken}
-      description="Generate scoped API keys for apps and services. Family baselines control broad access, and selector tags narrow by resource tags."
+      description="Create full-access API keys by default with `*:*`, or switch to scoped tags when you need narrower access."
       cardClassName="glass-card overflow-auto max-h-[calc(100vh-16rem)]"
       createButtonClassName="btn-primary px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
     />

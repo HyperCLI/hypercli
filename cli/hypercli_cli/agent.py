@@ -2,6 +2,8 @@
 import asyncio
 import json
 import os
+import shutil
+import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
 import typer
@@ -151,7 +153,7 @@ def subscribe(
         console.print(f"Limits: {result['tpm_limit']:,} TPM / {result['rpm_limit']:,} RPM")
         console.print(f"\n[green]✓[/green] Key saved to [bold]{AGENT_KEY_PATH}[/bold]")
         console.print(f"[green]✓[/green] Key history: [bold]{keys_history_path}[/bold]")
-        console.print("\nConfigure OpenClaw with: [bold]hyper agent openclaw-setup[/bold]")
+        console.print("\nConfigure OpenClaw with: [bold]hyper config openclaw --apply[/bold]")
 
 
 async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = None):
@@ -538,7 +540,7 @@ def login(
     console.print(f"  Wallet:  {wallet_addr}")
     console.print(f"\n[green]You're all set![/green]")
     console.print(f"  Launch agent:   [bold]hyper agents create[/bold]")
-    console.print(f"  Configure:      [bold]hyper agent config openclaw --apply[/bold]")
+    console.print(f"  Configure:      [bold]hyper config openclaw --apply[/bold]")
 
 
 OPENCLAW_CONFIG_PATH = Path.home() / ".openclaw" / "openclaw.json"
@@ -734,15 +736,16 @@ def _config_openclaw(
     embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
     kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
     glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
-    openai_chat_models = [
+    other_chat_models = [
         m for m in chat_models
         if m not in kimi_models and m not in glm_models
     ]
+    provider_models = kimi_models + glm_models + other_chat_models
     embedding_model_id = embedding_models[0]["id"] if embedding_models else None
     primary_model = (
-        f"kimi-coding/{kimi_models[0]['id']}" if kimi_models else (
+        f"hyperclaw/{kimi_models[0]['id']}" if kimi_models else (
             f"hyperclaw/{glm_models[0]['id']}" if glm_models else (
-                f"hyperclaw-openai/{openai_chat_models[0]['id']}" if openai_chat_models else None
+                f"hyperclaw/{other_chat_models[0]['id']}" if other_chat_models else None
             )
         )
     )
@@ -756,46 +759,18 @@ def _config_openclaw(
                     "baseUrl": api_base,
                     "apiKey": config_api_key,
                     "api": "anthropic-messages",
-                    "models": glm_models,
-                },
-                **(
-                    {
-                        "kimi-coding": {
-                            # Use the upstream Kimi provider semantics while still
-                            # routing requests through the HyperClaw Anthropic proxy.
-                            "baseUrl": api_base,
-                            "apiKey": config_api_key,
-                            "api": "anthropic-messages",
-                            "headers": {
-                                "User-Agent": "claude-code/0.1.0",
-                            },
-                            "models": kimi_models,
-                        },
-                    }
-                    if kimi_models
-                    else {}
-                ),
-                **(
-                    {
-                        "hyperclaw-openai": {
-                            "baseUrl": f"{api_base}/v1",
-                            "apiKey": config_api_key,
-                            "api": "openai-completions",
-                            "models": openai_chat_models,
-                        },
-                    }
-                    if openai_chat_models
-                    else {}
-                ),
+                    "authHeader": True,
+                    "models": provider_models,
+                }
             }
         },
         "agents": {
             "defaults": {
                 **({"model": {"primary": primary_model}} if primary_model else {}),
                 "models": {
+                    **{f"hyperclaw/{m['id']}": {"alias": "kimi"} for m in kimi_models},
                     **{f"hyperclaw/{m['id']}": {"alias": "glm"} for m in glm_models},
-                    **{f"kimi-coding/{m['id']}": {"alias": "kimi"} for m in kimi_models},
-                    **{f"hyperclaw-openai/{m['id']}": {"alias": m['id'].split('-')[0]} for m in openai_chat_models},
+                    **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in other_chat_models},
                 },
                 **(
                     {
@@ -890,10 +865,10 @@ def config_cmd(
 
     Examples:
       hyper agent config                          # Show all configs
-      hyper agent config openclaw                 # OpenClaw snippet
+      hyper config openclaw                       # OpenClaw snippet
       hyper agent config opencode --key sk-...    # OpenCode with explicit key
-      hyper agent config openclaw --base-url https://api.dev.hypercli.com
-      hyper agent config openclaw --apply         # Write directly to openclaw.json
+      hyper config openclaw --base-url https://api.dev.hypercli.com
+      hyper config openclaw --apply               # Write directly to openclaw.json
       hyper agent config env                      # Shell export lines
     """
     api_key = _resolve_api_key(key)
@@ -937,8 +912,11 @@ def _show_snippet(name: str, path_hint: str, data: dict, apply: bool, target_pat
         if target_path.exists():
             with open(target_path) as f:
                 existing = json.load(f)
-            _deep_merge(existing, data)
-            merged = existing
+            if name == "OpenClaw":
+                merged = _merge_openclaw_config(existing, data)
+            else:
+                _deep_merge(existing, data)
+                merged = existing
         else:
             merged = data
 
@@ -947,6 +925,31 @@ def _show_snippet(name: str, path_hint: str, data: dict, apply: bool, target_pat
             json.dump(merged, f, indent=2)
             f.write("\n")
         console.print(f"[green]✅ Written to {target_path}[/green]\n")
+        if name == "OpenClaw":
+            _refresh_openclaw_runtime()
+
+
+def _refresh_openclaw_runtime():
+    """Best-effort refresh of OpenClaw generated runtime state after config changes."""
+    if shutil.which("openclaw") is None:
+        console.print("[yellow]⚠[/yellow] OpenClaw CLI not found in PATH.")
+        console.print("Run after install: [bold]openclaw models list[/bold]")
+        console.print("Then restart when ready: [bold]openclaw gateway restart[/bold]\n")
+        return
+
+    try:
+        subprocess.run(
+            ["openclaw", "models", "list"],
+            capture_output=True,
+            text=True,
+            timeout=30,
+            check=True,
+        )
+        console.print("[green]✓[/green] Regenerated OpenClaw model cache.")
+    except Exception:
+        console.print("[yellow]⚠[/yellow] Could not regenerate OpenClaw model cache automatically.")
+        console.print("Run manually: [bold]openclaw models list[/bold]")
+    console.print("Restart when ready: [bold]openclaw gateway restart[/bold]\n")
 
 
 def _deep_merge(base: dict, overlay: dict):
@@ -956,3 +959,28 @@ def _deep_merge(base: dict, overlay: dict):
             _deep_merge(base[k], v)
         else:
             base[k] = v
+
+
+def _merge_openclaw_config(existing: dict, snippet: dict) -> dict:
+    """Merge OpenClaw config while replacing generated provider/model sections exactly."""
+    merged = dict(existing)
+    _deep_merge(merged, snippet)
+
+    snippet_models = ((snippet.get("models") or {}).get("providers") or {})
+    if snippet_models:
+        merged.setdefault("models", {})
+        merged["models"]["providers"] = snippet_models
+
+    snippet_defaults = (((snippet.get("agents") or {}).get("defaults") or {}).get("models") or {})
+    if snippet_defaults:
+        merged.setdefault("agents", {})
+        merged["agents"].setdefault("defaults", {})
+        merged["agents"]["defaults"]["models"] = snippet_defaults
+
+    snippet_model_config = (((snippet.get("agents") or {}).get("defaults") or {}).get("model") or {})
+    if snippet_model_config:
+        merged.setdefault("agents", {})
+        merged["agents"].setdefault("defaults", {})
+        merged["agents"]["defaults"]["model"] = snippet_model_config
+
+    return merged

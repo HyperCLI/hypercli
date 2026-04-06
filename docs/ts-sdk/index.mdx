@@ -43,6 +43,7 @@ Platform:
 - `files`
 - `keys`
 - `user`
+- `voice`
 
 HyperClaw:
 
@@ -64,6 +65,32 @@ That means:
 - `agent.shellUrl` is only populated when you explicitly define a `shell` route
 
 ## Recommended Access Patterns
+
+### Use `client.user.authMe()` for capability introspection
+
+```ts
+const auth = await client.user.authMe();
+console.log(auth.authType);
+console.log(auth.capabilities);
+console.log(auth.keyId);
+```
+
+This resolves against the main product auth route at `/api/auth/me`.
+
+### Use `client.voice` for subscription voice routes
+
+```ts
+const audio = await client.voice.tts({
+  text: "Hello from HyperClaw",
+  voice: "Chelsie",
+  responseFormat: "mp3",
+});
+```
+
+Additional helpers:
+
+- `client.voice.clone(...)`
+- `client.voice.design(...)`
 
 Preferred current helpers:
 
@@ -100,5 +127,5 @@ console.log(running.desktopUrl);
 
 - [Keys SDK](/ts-sdk/keys)
 - [Agents And Deployments](/ts-sdk/agents)
-- [Gateway Client](/ts-sdk/gateway)
 - [TypeScript SDK Reference](/ts-sdk/reference)
+- [Gateway Client](/ts-sdk/gateway)

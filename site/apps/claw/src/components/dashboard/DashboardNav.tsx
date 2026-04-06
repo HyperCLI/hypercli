@@ -25,8 +25,8 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 const dropdownNavItems = [
-  { label: "API Keys", href: "/dashboard/keys", icon: Key },
-  { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
+  { label: "API Keys", href: "/keys", icon: Key },
+  { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
 ];
 
@@ -41,7 +41,10 @@ export function DashboardNav() {
   const isActive = (href: string) =>
     pathname === href ||
     (href !== "/dashboard" && pathname.startsWith(href));
-  const hideMobileHamburger = pathname.startsWith("/dashboard/agents");
+  const hideMobileHamburger =
+    pathname === "/agents" ||
+    pathname.startsWith("/agents/") ||
+    pathname.startsWith("/dashboard/agents");
 
   // Close user menu on click outside
   useEffect(() => {

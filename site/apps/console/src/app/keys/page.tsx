@@ -45,7 +45,7 @@ export default function ApiKeysPage() {
           <ApiKeysManager
             apiBaseUrl={getAuthBackendUrl()}
             getToken={getConsoleToken}
-            description="Generate scoped API keys for apps and services. Use family baselines for broad access and selector tags to narrow resources."
+            description="Create full-access API keys by default with `*:*`, or switch to scoped tags for narrower app access."
           />
         </div>
       </main>
