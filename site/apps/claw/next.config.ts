@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+import dotenv from "dotenv";
+
+dotenv.config();
+
 const requiredEnvVars = [
   "NEXT_PUBLIC_MAIN_SITE_URL",
   "NEXT_PUBLIC_CONSOLE_URL",
