@@ -18,11 +18,14 @@ function stripApiSuffix(value: string): string {
 
 const rawApiBase = process.env.NEXT_PUBLIC_API_BASE_URL || "";
 const rawAgentModelsUrl = process.env.NEXT_PUBLIC_HYPER_AGENT_MODELS_URL || "";
+const rawAgentsApiBase = process.env.NEXT_PUBLIC_AGENTS_API_BASE_URL || "";
 
 const normalizedApiBase = stripApiSuffix(rawApiBase || "");
 const normalizedAgentModelsUrl = trimTrailingSlash(rawAgentModelsUrl || "");
 
-export const API_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/agents` : "/agents";
+export const API_BASE_URL = rawAgentsApiBase
+  ? trimTrailingSlash(rawAgentsApiBase)
+  : normalizedApiBase ? `${normalizedApiBase}/agents` : "/agents";
 export const AUTH_BASE_URL = normalizedApiBase ? `${normalizedApiBase}/api` : "/api";
 export const X402_BASE_URL = API_BASE_URL;
 export const VOICE_API_URL = normalizedApiBase ? `${normalizedApiBase}/voice` : "/voice";

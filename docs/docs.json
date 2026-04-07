@@ -276,6 +276,7 @@
               "POST /api/auth/login",
               "GET /api/auth/me",
               "GET /api/models",
+              "GET /api/types",
               "GET /api/plans",
               "GET /api/plans/current",
               "POST /api/x402/{plan_id}"
@@ -296,6 +297,19 @@
             ]
           },
           {
+            "group": "HyperClaw Billing",
+            "openapi": "hyperclaw-openapi.json",
+            "pages": [
+              "GET /api/billing/info",
+              "GET /api/billing/profile",
+              "PUT /api/billing/profile",
+              "GET /api/billing/payments",
+              "GET /api/billing/payments/{payment_id}",
+              "GET /api/subscriptions",
+              "POST /api/subscriptions/{subscription_id}/cancel"
+            ]
+          },
+          {
             "group": "HyperClaw Deployments",
             "openapi": "hyperclaw-openapi.json",
             "pages": [
@@ -312,6 +326,8 @@
               "GET /api/deployments/{agent_id}/files/{path}",
               "PUT /api/deployments/{agent_id}/files/{path}",
               "DELETE /api/deployments/{agent_id}/files/{path}",
+              "GET /api/deployments/{agent_id}/inference/token",
+              "POST /api/deployments/{agent_id}/keys",
               "GET /api/deployments/{agent_id}/logs",
               "POST /api/deployments/{agent_id}/logs/token",
               "GET /api/deployments/{agent_id}/metrics",
@@ -320,7 +336,17 @@
               "POST /api/deployments/{agent_id}/stop",
               "GET /api/deployments/{agent_id}/token",
               "GET /api/ecr/auth/{region}",
-              "GET /api/ecr/registry-auth/{region}"
+              "GET /api/ecr/registry-auth/{region}",
+              "POST /api/clusters/register"
+            ]
+          },
+          {
+            "group": "HyperClaw Voice",
+            "openapi": "hyperclaw-openapi.json",
+            "pages": [
+              "POST /api/voice/tts",
+              "POST /api/voice/clone",
+              "POST /api/voice/design"
             ]
           }
         ]

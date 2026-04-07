@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
-import { agentApiFetch } from "@/lib/api";
+import { agentApiFetch, AUTH_BASE_URL } from "@/lib/api";
 import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
 import { formatTokens } from "@/lib/format";
 
@@ -57,17 +57,22 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      const data = await agentApiFetch<{ checkout_url: string }>(
-        `/stripe/${plan.id}`,
-        token,
-        {
-          method: "POST",
-          body: JSON.stringify({
-            success_url: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${window.location.origin}/plans?cancelled=true`,
-          }),
-        }
-      );
+      const stripeRes = await fetch(`${AUTH_BASE_URL}/stripe/${plan.id}`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+          "Content-Type": "application/json",
+        },
+        body: JSON.stringify({
+          success_url: `${window.location.origin}/dashboard/plans?session_id={CHECKOUT_SESSION_ID}`,
+          cancel_url: `${window.location.origin}/dashboard/plans?cancelled=true`,
+        }),
+      });
+      if (!stripeRes.ok) {
+        const errText = await stripeRes.text();
+        throw new Error(`API error: ${stripeRes.status} - ${errText}`);
+      }
+      const data = await stripeRes.json() as { checkout_url: string };
       window.location.href = data.checkout_url;
     } catch (err) {
       setError(
