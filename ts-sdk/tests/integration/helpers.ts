@@ -24,7 +24,11 @@ export function createIntegrationClient(): HyperCLI {
 }
 
 export async function resolveAvailableAgentTier(client: HyperCLI): Promise<string> {
-  const summary = await client.agent.subscriptionSummary();
+  const summaryClient = new HyperCLI({
+    apiKey: TEST_API_KEY,
+    apiUrl: TEST_API_BASE,
+  });
+  const summary = await summaryClient.agent.subscriptionSummary();
   for (const tier of ["large", "medium", "small"]) {
     const inventory = summary.slotInventory?.[tier];
     if (inventory && Number(inventory.available || 0) > 0) {

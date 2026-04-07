@@ -9,7 +9,11 @@ from hypercli.http import APIError
 
 
 def _resolve_available_agent_tier(client: HyperCLI) -> str:
-    summary = client.agent.subscription_summary()
+    summary_client = HyperCLI(
+        api_key=client.api_key,
+        api_url=client.api_url,
+    )
+    summary = summary_client.agent.subscription_summary()
     for tier in ("large", "medium", "small"):
         inventory = (summary.slot_inventory or {}).get(tier) or {}
         if int(inventory.get("available", 0) or 0) > 0:
