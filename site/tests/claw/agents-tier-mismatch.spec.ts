@@ -6,8 +6,9 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 
-test("agents page explains exact-tier slot mismatches and offers a create-new-agent path", async ({ page }) => {
+test("agents page resizes a stopped agent to an available tier before starting it", async ({ page }) => {
   let startCalls = 0;
+  let patchCalls = 0;
 
   await page.context().addCookies([
     {
@@ -94,9 +95,42 @@ test("agents page explains exact-tier slot mismatches and offers a create-new-ag
     if (pathName.endsWith("/agents/deployments/agent-1/start")) {
       startCalls += 1;
       await route.fulfill({
-        status: 429,
+        status: 200,
         contentType: "application/json",
-        body: JSON.stringify({ detail: "No available 'medium' entitlement slots" }),
+        body: JSON.stringify({
+          id: "agent-1",
+          name: "Deep Sage Agent",
+          user_id: "user-1",
+          pod_id: "pod-1",
+          pod_name: "deep-sage-agent",
+          state: "RUNNING",
+          cpu: 4,
+          memory: 4,
+          hostname: "deep-sage-agent.hypercli.app",
+          openclaw_url: "wss://deep-sage-agent.hypercli.app",
+          gateway_token: "gw-token-1",
+        }),
+      });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/deployments/agent-1") && route.request().method() === "PATCH") {
+      patchCalls += 1;
+      expect(route.request().postDataJSON()).toEqual({ size: "large" });
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "agent-1",
+          name: "Deep Sage Agent",
+          user_id: "user-1",
+          pod_id: null,
+          pod_name: null,
+          state: "STOPPED",
+          cpu: 4,
+          memory: 4,
+          hostname: "deep-sage-agent.hypercli.app",
+        }),
       });
       return;
     }
@@ -107,17 +141,15 @@ test("agents page explains exact-tier slot mismatches and offers a create-new-ag
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
   await expect(page).toHaveURL(/\/dashboard\/agents$/);
 
-  await expect(page.getByText(/Medium slot required/i)).toBeVisible();
-  await expect(page.getByText(/This agent was created as a Medium agent/i)).toBeVisible();
-  await expect(page.getByText(/4 free Large slots available/i)).toBeVisible();
+  await page.getByRole("button", { name: /start agent/i }).click();
+  const selector = page.locator(".glass-card").filter({ hasText: "Medium slot required" }).first();
+  await expect(selector.getByRole("heading", { name: /medium slot required/i })).toBeVisible();
+  await expect(selector.getByText(/This agent was created as a Medium agent/i)).toBeVisible();
+  await expect(selector.getByRole("button", { name: /Large\s+4 free/i })).toBeVisible();
+  await expect(selector.getByRole("button", { name: /^Medium$/i })).toHaveCount(0);
 
-  const startButtons = page.getByRole("button", { name: /start agent/i });
-  await expect(startButtons.first()).toBeDisabled();
+  await selector.getByRole("button", { name: /Large\s+4 free/i }).click();
 
-  await page.getByRole("button", { name: /create large agent/i }).click();
-  await expect(page.getByRole("heading", { name: /configuration/i })).toBeVisible();
-  await expect(page.getByRole("button", { name: /large/i })).toContainText(/4 free \/ 4 total/i);
-  await expect(page.getByRole("button", { name: /^back$/i })).toBeVisible();
-
-  expect(startCalls).toBe(0);
+  await expect.poll(() => patchCalls).toBe(1);
+  await expect.poll(() => startCalls).toBe(1);
 });

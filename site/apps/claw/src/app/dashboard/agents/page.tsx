@@ -230,6 +230,11 @@ interface AgentTierStartGuidance {
   availableTiers: Array<{ tier: string; available: number }>;
 }
 
+interface AgentTierSelectionState {
+  agentId: string;
+  guidance: AgentTierStartGuidance;
+}
+
 function getAgentSizePresets(
   budget: AgentBudget | null,
 ): Record<string, { cpu_millicores: number; memory_mib: number }> {
@@ -962,6 +967,7 @@ export default function AgentsPage() {
   const [showCreateDialog, setShowCreateDialog] = useState(false);
   const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
   const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
+  const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
   const gatewayTokensRef = useRef<Record<string, string>>({});
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -1733,7 +1739,11 @@ export default function AgentsPage() {
     const agent = agents.find((entry) => entry.id === agentId) ?? null;
     const guidance = describeAgentTierStartGuidance(agent, budget);
     if (guidance) {
-      setError(guidance.message);
+      if (guidance.availableTiers.length > 0) {
+        setTierSelection({ agentId, guidance });
+      } else {
+        setError(guidance.message);
+      }
       return;
     }
     setStartingId(agentId);
@@ -1789,14 +1799,12 @@ export default function AgentsPage() {
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
     setStartingId(agentId);
     setError(null);
+    setTierSelection(null);
     delete gatewayTokensRef.current[agentId];
     removeAgentState(agentId);
     try {
       const token = await getToken();
-      await agentApiFetch(`/deployments/${agentId}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ size: tier }),
-      });
+      await createAgentClient(token).resize(agentId, { size: tier });
       const started = await startOpenClawAgent(token, agentId);
       const gwToken = started && typeof started === "object" && "gatewayToken" in started
         ? (started.gatewayToken as string | undefined)
@@ -1812,6 +1820,9 @@ export default function AgentsPage() {
       setStartingId(null);
     }
   }, [fetchAgents, getToken]);
+
+  const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
+  const selectedAgentLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
 
   const selectedAgentSuggestedTierActions = useMemo(
     () =>
@@ -1874,10 +1885,7 @@ export default function AgentsPage() {
     setSavingName(true);
     try {
       const token = await getToken();
-      await agentApiFetch(`/deployments/${selectedAgent.id}`, token, {
-        method: "PATCH",
-        body: JSON.stringify({ name: trimmed }),
-      });
+      await createAgentClient(token).update(selectedAgent.id, { name: trimmed });
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rename agent");
@@ -2310,6 +2318,52 @@ export default function AgentsPage() {
           if (pendingAgentDelete) void handleDelete(pendingAgentDelete.id);
         }}
       />
+      <AnimatePresence>
+        {tierSelection && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+            onClick={() => setTierSelection(null)}
+          >
+            <motion.div
+              initial={{ scale: 0.95, opacity: 0 }}
+              animate={{ scale: 1, opacity: 1 }}
+              exit={{ scale: 0.95, opacity: 0 }}
+              transition={{ type: "spring", stiffness: 400, damping: 30 }}
+              className="glass-card w-full max-w-md mx-4 p-6"
+              onClick={(event) => event.stopPropagation()}
+            >
+              <div className="flex items-start justify-between gap-3">
+                <div>
+                  <h3 className="text-base font-semibold text-foreground">{tierSelection.guidance.title}</h3>
+                  <p className="mt-1 text-sm text-text-secondary">{tierSelection.guidance.message}</p>
+                </div>
+                <button
+                  onClick={() => setTierSelection(null)}
+                  className="text-text-muted transition-colors hover:text-foreground"
+                  aria-label="Close size selector"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              </div>
+              <div className="mt-4 space-y-2">
+                {tierSelection.guidance.availableTiers.map((entry) => (
+                  <button
+                    key={entry.tier}
+                    onClick={() => { void handleResizeAndStart(tierSelection.agentId, entry.tier); }}
+                    className="flex w-full items-center justify-between rounded-lg border border-border px-4 py-3 text-left transition-colors hover:bg-surface-low"
+                  >
+                    <span className="text-sm font-medium text-foreground">{titleizeTier(entry.tier)}</span>
+                    <span className="text-xs text-text-muted">{entry.available} free</span>
+                  </button>
+                ))}
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Main layout: Sidebar + Panel */}
       <div className="flex flex-1 min-h-0">
@@ -2576,12 +2630,14 @@ export default function AgentsPage() {
                         disabled={
                           startingId === selectedAgent.id ||
                           recentlyStoppedIds.has(selectedAgent.id) ||
-                          Boolean(selectedAgentStartGuidance)
+                          selectedAgentLaunchBlocked
                         }
                         className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                         aria-label="Start agent"
                         title={
-                          selectedAgentStartGuidance?.title ||
+                          selectedAgentLaunchBlocked
+                            ? selectedAgentStartGuidance?.title
+                            : selectedAgentStartGuidance?.title ||
                           (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")
                         }
                       >
@@ -2612,12 +2668,14 @@ export default function AgentsPage() {
                           disabled={
                             startingId === selectedAgent.id ||
                             recentlyStoppedIds.has(selectedAgent.id) ||
-                            Boolean(selectedAgentStartGuidance)
+                            selectedAgentLaunchBlocked
                           }
                           className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                           aria-label="Start agent"
                           title={
-                            selectedAgentStartGuidance?.title ||
+                            selectedAgentLaunchBlocked
+                              ? selectedAgentStartGuidance?.title
+                              : selectedAgentStartGuidance?.title ||
                             (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")
                           }
                         >

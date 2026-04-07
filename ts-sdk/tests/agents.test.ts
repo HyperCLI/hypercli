@@ -91,6 +91,62 @@ describe('Agents SDK', () => {
     ]);
   });
 
+  it('updates agents through the public patch surface', async () => {
+    const http = {
+      patch: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: null,
+        pod_name: null,
+        state: 'stopped',
+        cpu: 4,
+        memory: 4,
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.update('agent-123', { size: 'large', refreshFromLagoon: true });
+
+    expect(agent.id).toBe('agent-123');
+    expect((http.patch as any).mock.calls[0]).toEqual([
+      '/deployments/agent-123',
+      { size: 'large', refresh_from_lagoon: true },
+    ]);
+  });
+
+  it('supports bound resize on hydrated agents', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: null,
+        pod_name: null,
+        state: 'stopped',
+        cpu: 2,
+        memory: 2,
+      }),
+      patch: vi.fn().mockResolvedValue({
+        id: 'agent-123',
+        user_id: 'user-456',
+        pod_id: null,
+        pod_name: null,
+        state: 'stopped',
+        cpu: 4,
+        memory: 4,
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = await deployments.get('agent-123');
+    const resized = await agent.resize({ size: 'large' });
+
+    expect(resized.cpu).toBe(4);
+    expect((http.patch as any).mock.calls[0]).toEqual([
+      '/deployments/agent-123',
+      { size: 'large' },
+    ]);
+  });
+
   it('resolves missing gateway tokens through inferenceToken', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

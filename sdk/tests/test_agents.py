@@ -785,6 +785,77 @@ def test_agents_start_stop_delete(agents_client):
         assert agents_client.delete("agent-123") == {"status": "deleted"}
 
 
+def test_agents_update_and_resize(agents_client):
+    patch_calls = []
+
+    def fake_patch(path, json=None):
+        patch_calls.append((path, json))
+        return {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": None,
+            "pod_name": None,
+            "state": "stopped",
+            "cpu": 4,
+            "memory": 4,
+        }
+
+    agents_client._http.patch = fake_patch
+
+    updated = agents_client.update("agent-123", size="large", refresh_from_lagoon=True)
+    assert updated.id == "agent-123"
+    assert patch_calls[0] == (
+        "/deployments/agent-123",
+        {"size": "large", "refresh_from_lagoon": True},
+    )
+
+    resized = agents_client.resize("agent-123", size="large")
+    assert resized.id == "agent-123"
+    assert patch_calls[1] == ("/deployments/agent-123", {"size": "large"})
+
+
+def test_bound_agent_resize_delegates_to_deployments(agents_client):
+    patch_calls = []
+
+    def fake_patch(path, json=None):
+        patch_calls.append((path, json))
+        return {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": None,
+            "pod_name": None,
+            "state": "stopped",
+            "cpu": 4,
+            "memory": 4,
+        }
+
+    agents_client._http.patch = fake_patch
+
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        get_response = Mock()
+        get_response.status_code = 200
+        get_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": None,
+            "pod_name": None,
+            "state": "stopped",
+            "cpu": 2,
+            "memory": 2,
+        }
+        mock_client.get.return_value = get_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agent = agents_client.get("agent-123")
+        resized = agent.resize(size="large")
+
+        assert resized.cpu == 4
+        assert patch_calls == [("/deployments/agent-123", {"size": "large"})]
+
+
 def test_agents_start_preserves_generic_launch_fields(agents_client):
     with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-generic"):
         mock_client = MagicMock()

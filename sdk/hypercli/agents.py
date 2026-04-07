@@ -386,6 +386,32 @@ class Agent:
         self._deployments = agent._deployments
         return self
 
+    def update(
+        self,
+        *,
+        name: str | None = None,
+        size: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+        refresh_from_lagoon: bool | None = None,
+        last_error: str | None = None,
+    ) -> "Agent":
+        agent = self._require_deployments().update(
+            self.id,
+            name=name,
+            size=size,
+            cpu=cpu,
+            memory=memory,
+            refresh_from_lagoon=refresh_from_lagoon,
+            last_error=last_error,
+        )
+        self.__dict__.update(agent.__dict__)
+        self._deployments = agent._deployments
+        return self
+
+    def resize(self, *, size: str | None = None, cpu: float | None = None, memory: int | None = None) -> "Agent":
+        return self.update(size=size, cpu=cpu, memory=memory)
+
     def env(self) -> dict[str, str]:
         """Fetch runtime environment from the pod's K8s secret."""
         data = self._require_deployments().env(self.id)
@@ -1249,6 +1275,43 @@ class Deployments:
             gateway_token=gateway_token,
             dry_run=dry_run,
         )
+
+    def update(
+        self,
+        agent_id: str,
+        *,
+        name: str | None = None,
+        size: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+        refresh_from_lagoon: bool | None = None,
+        last_error: str | None = None,
+    ) -> Agent:
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if size is not None:
+            body["size"] = size
+        if cpu is not None:
+            body["cpu"] = cpu
+        if memory is not None:
+            body["memory"] = memory
+        if refresh_from_lagoon is not None:
+            body["refresh_from_lagoon"] = refresh_from_lagoon
+        if last_error is not None:
+            body["last_error"] = last_error
+        data = self._http.patch(f"{AGENTS_API_PREFIX}/{agent_id}", json=body)
+        return self._hydrate_agent(data)
+
+    def resize(
+        self,
+        agent_id: str,
+        *,
+        size: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+    ) -> Agent:
+        return self.update(agent_id, size=size, cpu=cpu, memory=memory)
 
     def stop(self, agent_id: str) -> Agent:
         """Stop an agent (tears down pod, keeps DB record).

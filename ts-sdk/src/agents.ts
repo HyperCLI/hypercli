@@ -197,6 +197,15 @@ export interface StartAgentOptions extends BuildAgentConfigOptions {
   dryRun?: boolean;
 }
 
+export interface UpdateAgentOptions {
+  name?: string;
+  size?: string;
+  cpu?: number;
+  memory?: number;
+  refreshFromLagoon?: boolean;
+  lastError?: string | null;
+}
+
 export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
   openClawRoutes?: OpenClawRouteOptions | null;
 }
@@ -645,6 +654,14 @@ export class Agent {
 
   async waitRunning(timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
     return this.requireDeployments().waitRunning(this.id, timeoutMs, pollIntervalMs);
+  }
+
+  async update(options: UpdateAgentOptions): Promise<Agent> {
+    return this.requireDeployments().update(this.id, options);
+  }
+
+  async resize(options: Pick<UpdateAgentOptions, 'size' | 'cpu' | 'memory'>): Promise<Agent> {
+    return this.requireDeployments().resize(this.id, options);
   }
 
   async env(): Promise<Record<string, string>> {
@@ -1235,7 +1252,7 @@ export class Deployments {
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
-  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'delete'>;
+  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'patch' | 'delete'>;
 
   constructor(
     private readonly http: HTTPClient,
@@ -1389,6 +1406,25 @@ export class Deployments {
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentId, effectiveOptions);
+  }
+
+  async update(agentId: string, options: UpdateAgentOptions = {}): Promise<Agent> {
+    const body: Record<string, any> = {};
+    if (options.name !== undefined) body.name = options.name;
+    if (options.size !== undefined) body.size = options.size;
+    if (options.cpu !== undefined) body.cpu = options.cpu;
+    if (options.memory !== undefined) body.memory = options.memory;
+    if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
+    if (options.lastError !== undefined) body.last_error = options.lastError;
+    const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
+    return this.hydrateAgent(data);
+  }
+
+  async resize(
+    agentId: string,
+    options: Pick<UpdateAgentOptions, 'size' | 'cpu' | 'memory'>,
+  ): Promise<Agent> {
+    return this.update(agentId, options);
   }
 
   async stop(agentId: string): Promise<Agent> {
