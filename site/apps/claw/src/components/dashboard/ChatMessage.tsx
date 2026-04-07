@@ -29,13 +29,42 @@ function truncateToLines(text: string, maxLines: number): { preview: string; tru
   return { preview, truncated: text.split("\n").length > maxLines || text.length > preview.length + 50 };
 }
 
-function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
-  if (tc.result) {
-    const trimmed = tc.result.trim().slice(0, 60);
-    return trimmed.length < tc.result.trim().length ? `${trimmed}…` : trimmed;
+/** Extract a human-readable summary from a tool arg/result string (may be JSON). */
+function extractReadableSummary(raw: string, maxLen: number): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  // Try to extract meaningful text from JSON structures
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      // Content block array: [{type:"text", text:"..."}]
+      if (Array.isArray(parsed)) {
+        const texts = parsed
+          .filter((b: unknown) => (b as Record<string, unknown>)?.type === "text" && typeof (b as Record<string, unknown>)?.text === "string")
+          .map((b: unknown) => (b as Record<string, string>).text);
+        if (texts.length > 0) {
+          const joined = texts.join(" ").trim();
+          return joined.length > maxLen ? `${joined.slice(0, maxLen)}…` : joined;
+        }
+      }
+      // Error shape: {status:"error", error:"..."}
+      if (typeof parsed === "object" && parsed !== null) {
+        if (typeof parsed.error === "string") {
+          const msg = `Error: ${parsed.error}`;
+          return msg.length > maxLen ? `${msg.slice(0, maxLen)}…` : msg;
+        }
+        // Success shape: {ok: true, ...}
+        if (parsed.ok === true) return "Success";
+        if (parsed.ok === false) return "Failed";
+      }
+    } catch { /* fall through to raw slice */ }
   }
-  const trimmed = tc.args.trim().slice(0, 60);
-  return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
+  return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
+}
+
+function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
+  if (tc.result) return extractReadableSummary(tc.result, 60);
+  return extractReadableSummary(tc.args, 60);
 }
 
 /**
@@ -178,9 +207,21 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
     audio.pause();
   }, []);
 
+  // Suppress content that's a JSON echo of tool results already shown in the tool call UI.
+  // Must verify it's actually valid JSON — text like "[Updated] config applied" starts with [ but isn't JSON.
+  const hasToolResults = message.toolCalls?.some((tc) => tc.result != null) ?? false;
+  let contentIsJson = false;
+  if (hasToolResults) {
+    const trimmedContent = message.content.trim();
+    if (trimmedContent.startsWith("{") || trimmedContent.startsWith("[")) {
+      try { JSON.parse(trimmedContent); contentIsJson = true; } catch { /* not JSON */ }
+    }
+  }
+  const effectiveContent = contentIsJson ? "" : message.content;
+
   // Typewriter only for v2 streaming — v1 uses cursor, v3 uses shimmer, both render text instantly
   const typewriterActive = isStreaming && message.role === "assistant" && streamingVariant === "v2";
-  const displayedContent = useTypewriter(message.content, typewriterActive);
+  const displayedContent = useTypewriter(effectiveContent, typewriterActive);
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -195,7 +236,94 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
     );
   }
 
-  const thinkingPreview = message.thinking ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES) : null;
+  const thinkingPreview = message.thinking
+    ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES)
+    : null;
+
+  const effectiveName = agentName || "Agent";
+
+  // ── Bubble styles (shape from bubblesVariant, color from themeVariant) ──
+  let shapeClass: string;
+  if (bubblesVariant === "v1") {
+    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "max-w-[80%] rounded-2xl px-4 py-3 text-sm";
+  } else if (bubblesVariant === "v2") {
+    shapeClass = isUser ? "max-w-[80%] rounded-3xl px-5 py-3 text-sm" : "max-w-[80%] rounded-3xl px-5 py-3 text-sm";
+  } else if (bubblesVariant === "v3") {
+    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "rounded-2xl px-4 py-3 text-sm w-full";
+  } else {
+    shapeClass = "max-w-[80%] rounded-lg px-4 py-2.5 text-sm";
+  }
+
+  let colorClass: string;
+  if (themeVariant === "v1") {
+    // Warm: user = dark warm + amber border; assistant = transparent with green left stripe
+    colorClass = isUser
+      ? "bg-[#1e1c1a] border border-[#f0c56c]/25"
+      : "border-l-2 border-[#38D39F]/40";
+  } else if (themeVariant === "v2") {
+    // Contrast: user = green-tinted card; assistant = dark card
+    colorClass = isUser
+      ? "bg-[#38D39F]/10 border border-[#38D39F]/25"
+      : "bg-[#0d0d0f] border border-[#2a2a2c]";
+  } else if (themeVariant === "v3") {
+    // Vivid: user = amber tint; assistant = cool blue left stripe
+    colorClass = isUser
+      ? "bg-[#f0c56c]/10 border border-[#f0c56c]/20"
+      : "bg-[#141416] border-l-2 border-[#4285f4]/60";
+  } else {
+    // Default: colors from bubblesVariant
+    if (bubblesVariant === "v1") colorClass = isUser ? "bg-[#303030]" : "";
+    else if (bubblesVariant === "v2") colorClass = isUser ? "bg-[#2f2f2f]" : "";
+    else if (bubblesVariant === "v3") colorClass = isUser ? "bg-surface-high border border-border" : "";
+    else colorClass = isUser ? "bg-surface-high" : "bg-surface-low";
+  }
+
+  const bubbleClass = [shapeClass, colorClass, "text-foreground"].filter(Boolean).join(" ");
+
+  // ── Name display ──
+  const showV1Name = !isUser && nameVariant === "v1"; // gradient monogram above
+  const showV2Name = !isUser && nameVariant === "v2"; // avatar to the left
+  const showV3Name = !isUser && nameVariant === "v3"; // sparkle + bold above
+
+  // ── Timestamp ──
+  // v2 → inside bubble after content; everything else → outside below bubble
+  function renderTimestamp(where: "inside" | "outside") {
+    if (!message.timestamp) return null;
+    if (timestampVariant === "v2" && where === "inside") {
+      return (
+        <div className={`text-[10px] text-text-muted/50 mt-2 pt-1.5 border-t border-border/20 ${isUser ? "text-right" : "text-left"}`}>
+          {formatTime(message.timestamp)}
+        </div>
+      );
+    }
+    if (timestampVariant !== "v2" && where === "outside") {
+      if (timestampVariant === "off") {
+        // hover-only (production default)
+        return (
+          <div className={`text-[10px] text-text-muted mt-1 opacity-0 group-hover:opacity-100 transition-opacity ${isUser ? "text-right" : "text-left"}`}>
+            {formatTime(message.timestamp)}
+          </div>
+        );
+      }
+      if (timestampVariant === "v1") {
+        // Always visible, plain HH:MM
+        return (
+          <div className={`text-[10px] text-text-muted mt-1 ${isUser ? "text-right" : "text-left"}`}>
+            {formatTime(message.timestamp)}
+          </div>
+        );
+      }
+      if (timestampVariant === "v3") {
+        // Relative time in accent tint
+        return (
+          <div className={`text-[10px] text-[#38D39F]/60 mt-1 font-mono ${isUser ? "text-right" : "text-left"}`}>
+            {formatRelativeTime(message.timestamp)}
+          </div>
+        );
+      }
+    }
+    return null;
+  }
 
   return (
     <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
@@ -239,19 +367,26 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
           </div>
         )}
 
-        {/* Tool calls */}
-        {message.toolCalls?.map((tc, j) => {
-          const hasResult = Boolean(tc.result);
-          const summary = toolCallSummary(tc);
-          const imagePath = agentId ? extractImagePath(tc) : null;
-          const imageUrl = imagePath && agentId
-            ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
-            : null;
-          return (
-            <div
-              key={j}
-              className="mb-2 text-xs bg-background/50 border border-border rounded-md overflow-hidden"
-            >
+        {/* v3 name: gradient sparkle circle + bold name above bubble */}
+        {showV3Name && (
+          <div className="flex items-center gap-1.5 mb-1">
+            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] via-[#38D39F] to-[#f0c56c] flex items-center justify-center">
+              <Sparkles className="w-3 h-3 text-white" />
+            </div>
+            <span className="text-[11px] font-semibold text-foreground">{effectiveName}</span>
+          </div>
+        )}
+
+        {/* v2 name: text above when avatar present */}
+        {showV2Name && (
+          <span className="text-[11px] text-text-muted mb-0.5">{effectiveName}</span>
+        )}
+
+        {/* ── Bubble ── */}
+        <div className={`${bubbleClass}${isStreaming && streamingVariant === "v3" ? " relative overflow-hidden" : ""}`}>
+          {/* Thinking block — only visible during active streaming, hidden for history */}
+          {message.thinking && isStreaming && (
+            <div className={getThinkingBlockClass(themeVariant)}>
               <button
                 onClick={() =>
                   setToolsOpen((prev) => ({ ...prev, [j]: !prev[j] }))
@@ -285,13 +420,93 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
                   )}
                 </pre>
               )}
-              {imageUrl && (
-                <div className="px-2.5 py-2 border-t border-border">
-                  <AuthImage
-                    src={imageUrl}
-                    alt={imagePath?.split("/").pop() || "generated image"}
-                    className="max-w-[320px] max-h-[320px] rounded-md object-contain"
-                  />
+              {thinkingOpen && (
+                <pre className="text-xs text-text-muted whitespace-pre-wrap mt-1 italic leading-relaxed">
+                  {message.thinking}
+                </pre>
+              )}
+            </div>
+          )}
+
+          {/* Tool calls */}
+          {message.toolCalls?.map((tc, j) => {
+            const hasResult = Boolean(tc.result);
+            const summary = toolCallSummary(tc);
+            const imagePath = agentId ? extractImagePath(tc) : null;
+            const imageUrl = imagePath && agentId
+              ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
+              : null;
+            return (
+              <div key={j} className={getToolCallClass(themeVariant, hasResult)}>
+                <button
+                  onClick={() => setToolsOpen((prev) => ({ ...prev, [j]: !prev[j] }))}
+                  className="flex items-center gap-1.5 w-full px-2.5 py-1.5 hover:bg-surface-low transition-colors text-left"
+                >
+                  {hasResult ? (
+                    <Check className="w-3 h-3 text-[#38D39F] shrink-0" />
+                  ) : (
+                    <Loader2 className="w-3 h-3 text-[#f0c56c] animate-spin shrink-0" />
+                  )}
+                  <Wrench className="w-3 h-3 text-[#f0c56c] shrink-0" />
+                  <span className="text-[#f0c56c] font-medium">{tc.name}</span>
+                  {!toolsOpen[j] && summary && (
+                    <span className="text-text-muted truncate ml-1 flex-1 min-w-0">{summary}</span>
+                  )}
+                  {toolsOpen[j] ? (
+                    <ChevronDown className="w-3 h-3 text-text-muted ml-auto shrink-0" />
+                  ) : (
+                    <ChevronRight className="w-3 h-3 text-text-muted ml-auto shrink-0" />
+                  )}
+                </button>
+                {toolsOpen[j] && (
+                  <pre className="px-2.5 py-1.5 text-text-muted whitespace-pre-wrap border-t border-border font-mono max-h-48 overflow-y-auto">
+                    {tc.args}
+                    {tc.result && (
+                      <>
+                        {"\n"}
+                        <span className="text-text-secondary">{tc.result}</span>
+                      </>
+                    )}
+                  </pre>
+                )}
+                {imageUrl && (
+                  <div className="px-2.5 py-2 border-t border-border">
+                    <AuthImage
+                      src={imageUrl}
+                      alt={imagePath?.split("/").pop() || "generated image"}
+                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                    />
+                  </div>
+                )}
+              </div>
+            );
+          })}
+
+          {/* Image attachments */}
+          {message.attachments && message.attachments.length > 0 && (
+            <div className="flex flex-wrap gap-2 mb-2">
+              {message.attachments.map((att, i) => (
+                <img
+                  key={i}
+                  src={`data:${att.mimeType};base64,${att.content}`}
+                  alt={att.fileName || "attachment"}
+                  className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
+                  onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* File attachments */}
+          {message.files && message.files.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {message.files.map((file, i) => (
+                <div
+                  key={`${file.name}-${i}`}
+                  className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{file.name}</span>
                 </div>
               )}
             </div>
