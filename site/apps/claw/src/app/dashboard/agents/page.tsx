@@ -216,6 +216,103 @@ function titleizeTier(value: string): string {
   return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
+const FALLBACK_AGENT_SIZE_PRESETS: Record<string, { cpu: number; memory: number }> = {
+  small: { cpu: 1, memory: 1 },
+  medium: { cpu: 2, memory: 2 },
+  large: { cpu: 4, memory: 4 },
+};
+
+interface AgentTierStartGuidance {
+  tier: string;
+  title: string;
+  message: string;
+  suggestedTier: string | null;
+}
+
+function getAgentSizePresets(
+  budget: AgentBudget | null,
+): Record<string, { cpu_millicores: number; memory_mib: number }> {
+  const source = budget?.size_presets ?? FALLBACK_AGENT_SIZE_PRESETS;
+  return Object.fromEntries(
+    Object.entries(source).map(([tier, preset]) => [
+      tier,
+      {
+        cpu_millicores: Math.round((preset.cpu || 0) * 1000),
+        memory_mib: Math.round((preset.memory || 0) * 1024),
+      },
+    ]),
+  );
+}
+
+function inferAgentTier(agent: Pick<Agent, "cpu_millicores" | "memory_mib">, budget: AgentBudget | null): string | null {
+  const presets = getAgentSizePresets(budget);
+  for (const [tier, preset] of Object.entries(presets)) {
+    if (preset.cpu_millicores === agent.cpu_millicores && preset.memory_mib === agent.memory_mib) {
+      return tier;
+    }
+  }
+  return null;
+}
+
+function describeAgentTierStartGuidance(
+  agent: Pick<Agent, "cpu_millicores" | "memory_mib"> | null,
+  budget: AgentBudget | null,
+): AgentTierStartGuidance | null {
+  if (!agent || !budget) return null;
+  const tier = inferAgentTier(agent, budget);
+  if (!tier) return null;
+  const requested = budget.slots?.[tier] ?? { granted: 0, used: 0, available: 0 };
+  if (requested.available > 0) return null;
+
+  const requestedLabel = titleizeTier(tier);
+  const otherAvailable = Object.entries(budget.slots ?? {})
+    .filter(([entryTier, entry]) => entryTier !== tier && (entry?.available ?? 0) > 0)
+    .sort(([, left], [, right]) => (right?.available ?? 0) - (left?.available ?? 0));
+
+  if (otherAvailable.length > 0) {
+    const [suggestedTier, suggestedEntry] = otherAvailable[0];
+    const suggestedLabel = titleizeTier(suggestedTier);
+    return {
+      tier,
+      title: `${requestedLabel} slot required`,
+      suggestedTier,
+      message:
+        `This agent was created as a ${requestedLabel} agent. ` +
+        `Your account has no free ${requestedLabel} slots, but ${suggestedEntry.available} free ${suggestedLabel} ` +
+        `slot${suggestedEntry.available === 1 ? "" : "s"} available. Create a new ${suggestedLabel} agent to use the capacity you already bought.`,
+    };
+  }
+
+  if (requested.granted > 0) {
+    return {
+      tier,
+      title: `${requestedLabel} slots are fully used`,
+      suggestedTier: null,
+      message:
+        `This agent was created as a ${requestedLabel} agent. ` +
+        `All ${requestedLabel} slots on this account are currently in use. Stop another ${requestedLabel} agent or buy another ${requestedLabel} bundle to launch it.`,
+    };
+  }
+
+  return {
+    tier,
+    title: `${requestedLabel} slot required`,
+    suggestedTier: null,
+    message:
+      `This agent was created as a ${requestedLabel} agent. ` +
+      `Your account does not currently include any ${requestedLabel} slots. Buy a ${requestedLabel} bundle to launch it.`,
+  };
+}
+
+function parseEntitlementSlotTier(error: unknown): string | null {
+  const message = error instanceof Error ? error.message : String(error ?? "");
+  const quotedMatch = message.match(/No available '([^']+)' entitlement slots/i);
+  if (quotedMatch?.[1]) return quotedMatch[1].toLowerCase();
+  const plainMatch = message.match(/No available ([a-z-]+) entitlement slots/i);
+  if (plainMatch?.[1]) return plainMatch[1].toLowerCase();
+  return null;
+}
+
 function describeAgentsPageError(error: unknown): { message: string; clusterUnavailable: boolean } {
   const fallback = "Failed to load agents";
   const raw = error instanceof Error ? error.message : String(error ?? fallback);
@@ -310,32 +407,56 @@ function AgentLaunchPrompt({
   label,
   launching,
   onLaunch,
+  blockedTitle,
+  blockedMessage,
+  onCreateSuggestedAgent,
+  createSuggestedLabel,
 }: {
   label: string;
   launching: boolean;
   onLaunch: () => void;
+  blockedTitle?: string | null;
+  blockedMessage?: string | null;
+  onCreateSuggestedAgent?: (() => void) | null;
+  createSuggestedLabel?: string | null;
 }) {
+  const blocked = Boolean(blockedMessage);
   return (
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-md text-center">
         <button
           onClick={onLaunch}
-          disabled={launching}
+          disabled={launching || blocked}
           className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
           aria-label={`Launch agent to use ${label}`}
-          title="Launch Agent"
+          title={blockedTitle || "Launch Agent"}
         >
           {launching ? <Loader2 className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
         </button>
         <p className="text-base text-foreground">Launch Agent to Use {label}</p>
         <button
           onClick={onLaunch}
-          disabled={launching}
+          disabled={launching || blocked}
           className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
         >
           {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           <span>Launch Agent</span>
         </button>
+        {blockedMessage && (
+          <div className="mt-4 rounded-xl border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-4 py-3 text-left">
+            <p className="text-sm font-medium text-[#f0c56c]">{blockedTitle || "Launch blocked"}</p>
+            <p className="mt-1 text-sm text-text-secondary">{blockedMessage}</p>
+            {onCreateSuggestedAgent && createSuggestedLabel && (
+              <button
+                onClick={onCreateSuggestedAgent}
+                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
+              >
+                <Plus className="h-4 w-4" />
+                <span>{createSuggestedLabel}</span>
+              </button>
+            )}
+          </div>
+        )}
         <p className="mt-2 text-sm text-text-muted">Files remain available while stopped.</p>
       </div>
     </div>
@@ -979,6 +1100,17 @@ export default function AgentsPage() {
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
+  const selectedAgentTier = useMemo(
+    () => (selectedAgent ? inferAgentTier(selectedAgent, budget) : null),
+    [selectedAgent, budget],
+  );
+  const selectedAgentStartGuidance = useMemo(
+    () =>
+      selectedAgent && (selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED")
+        ? describeAgentTierStartGuidance(selectedAgent, budget)
+        : null,
+    [selectedAgent, budget],
+  );
   const stoppedTabLabel: Record<Exclude<MainTab, "files">, string> = {
     chat: "Chat",
     logs: "Logs",
@@ -1586,6 +1718,12 @@ export default function AgentsPage() {
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
+    const agent = agents.find((entry) => entry.id === agentId) ?? null;
+    const guidance = describeAgentTierStartGuidance(agent, budget);
+    if (guidance) {
+      setError(guidance.message);
+      return;
+    }
     setStartingId(agentId);
     setError(null);
     delete gatewayTokensRef.current[agentId];
@@ -1602,7 +1740,24 @@ export default function AgentsPage() {
       }
       await fetchAgents();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to start agent");
+      const requestedTier = parseEntitlementSlotTier(err);
+      if (requestedTier) {
+        const fallbackPreset = getAgentSizePresets(budget)[requestedTier];
+        const tierGuidance = describeAgentTierStartGuidance(
+          agent && inferAgentTier(agent, budget) === requestedTier
+            ? agent
+            : fallbackPreset
+              ? {
+                  cpu_millicores: fallbackPreset.cpu_millicores,
+                  memory_mib: fallbackPreset.memory_mib,
+                }
+              : null,
+          budget,
+        );
+        setError(tierGuidance?.message ?? (err instanceof Error ? err.message : "Failed to start agent"));
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to start agent");
+      }
     } finally {
       setStartingId(null);
     }
@@ -2353,10 +2508,17 @@ export default function AgentsPage() {
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
-                        disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
+                        disabled={
+                          startingId === selectedAgent.id ||
+                          recentlyStoppedIds.has(selectedAgent.id) ||
+                          Boolean(selectedAgentStartGuidance)
+                        }
                         className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                         aria-label="Start agent"
-                        title={recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start"}
+                        title={
+                          selectedAgentStartGuidance?.title ||
+                          (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")
+                        }
                       >
                         {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                         <span className="hidden xl:inline">Start</span>
@@ -2382,10 +2544,17 @@ export default function AgentsPage() {
                       {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                         <button
                           onClick={() => handleStart(selectedAgent.id)}
-                          disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
+                          disabled={
+                            startingId === selectedAgent.id ||
+                            recentlyStoppedIds.has(selectedAgent.id) ||
+                            Boolean(selectedAgentStartGuidance)
+                          }
                           className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                           aria-label="Start agent"
-                          title={recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start"}
+                          title={
+                            selectedAgentStartGuidance?.title ||
+                            (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")
+                          }
                         >
                           {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                           <span className="hidden xl:inline">Start</span>
@@ -2446,6 +2615,14 @@ export default function AgentsPage() {
                     label={stoppedTabLabel[mainTab as Exclude<MainTab, "files">]}
                     launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                     onLaunch={() => { void handleStart(selectedAgent.id); }}
+                    blockedTitle={selectedAgentStartGuidance?.title}
+                    blockedMessage={selectedAgentStartGuidance?.message}
+                    onCreateSuggestedAgent={selectedAgentStartGuidance?.suggestedTier ? () => setShowCreateDialog(true) : null}
+                    createSuggestedLabel={
+                      selectedAgentStartGuidance?.suggestedTier
+                        ? `Create ${titleizeTier(selectedAgentStartGuidance.suggestedTier)} Agent`
+                        : null
+                    }
                   />
                 ) : mainTab === "chat" ? (
                   /* ── Chat Tab ── */
@@ -3096,6 +3273,12 @@ export default function AgentsPage() {
                             <span className="text-sm text-text-secondary">Resources</span>
                             <span className="text-sm text-text-tertiary truncate min-w-0">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
                           </div>
+                          {selectedAgentTier && (
+                            <div className="flex items-center justify-between">
+                              <span className="text-sm text-text-secondary">Tier</span>
+                              <span className="text-sm text-text-tertiary truncate min-w-0">{titleizeTier(selectedAgentTier)}</span>
+                            </div>
+                          )}
                           {selectedAgent.hostname && (
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-text-secondary">Hostname</span>
@@ -3106,6 +3289,12 @@ export default function AgentsPage() {
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-text-secondary">Created</span>
                               <span className="text-sm text-text-tertiary">{new Date(selectedAgent.created_at).toLocaleDateString()}</span>
+                            </div>
+                          )}
+                          {selectedAgentStartGuidance && (
+                            <div className="rounded-lg border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-3 py-2 text-sm">
+                              <p className="font-medium text-[#f0c56c]">{selectedAgentStartGuidance.title}</p>
+                              <p className="mt-1 text-text-secondary">{selectedAgentStartGuidance.message}</p>
                             </div>
                           )}
                         </div>
