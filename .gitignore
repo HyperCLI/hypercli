@@ -53,3 +53,6 @@ next-env.d.ts
 # Turbo
 .turbo
 .netlify
+
+# Personal Claude Code config
+CLAUDE.local.md
