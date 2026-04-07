@@ -5,12 +5,51 @@ import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Pla
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 import { API_BASE_URL, getStoredToken } from "@/lib/api";
-import { encodePath, extractImagePath } from "@/lib/image-tools";
+import { agentAvatar } from "@/lib/avatar";
+
+// ── Helpers ──
+
+const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+
+function extractImagePath(tc: { name: string; args: string; result?: string }): string | null {
+  try {
+    const args = JSON.parse(tc.args);
+    const path = args.file_path || args.path || "";
+    if (typeof path === "string" && IMAGE_EXTENSIONS.test(path)) return path;
+  } catch { /* ignore */ }
+  return null;
+}
+
+function encodePath(path: string): string {
+  return path.split("/").filter(Boolean).map((part) => encodeURIComponent(part)).join("/");
+}
+
+// ── Variant types ──
+
+export type FeatureVariant = "off" | "v1" | "v2" | "v3";
+export type ThinkingVariant = FeatureVariant;
+export type TimestampVariant = FeatureVariant;
+export type BubblesVariant = FeatureVariant;
+export type NameVariant = FeatureVariant;
+export type AnimationVariant = FeatureVariant;
+export type ThemeVariant = FeatureVariant;
+export type StreamingVariant = FeatureVariant;
 
 interface ChatMessageProps {
   message: ChatMessageType;
   inlineAudioUrl?: string | null;
   agentId?: string | null;
+  // Feature variants — all default to "off" (current production behavior, no change)
+  timestampVariant?: TimestampVariant;
+  nameVariant?: NameVariant;
+  bubblesVariant?: BubblesVariant;
+  animationVariant?: AnimationVariant;
+  themeVariant?: ThemeVariant;
+  streamingVariant?: StreamingVariant;
+  isStreaming?: boolean;
+  agentName?: string;
+  senderName?: string;
+  isGroupChat?: boolean;
 }
 
 const THINKING_PREVIEW_LINES = 2;
@@ -82,6 +121,85 @@ export function AuthImage({ src, alt, className }: { src: string; alt: string; c
 }
 
 export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = null }: ChatMessageProps) {
+// Returns framer-motion props for the bubble entrance animation.
+// Returns {} for "off" — motion.div with no animation props is a plain div.
+function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotionProps<"div"> {
+  if (variant === "v1") {
+    // Alt 1: subtle fade + lift
+    return {
+      initial: { opacity: 0, y: 10 },
+      animate: { opacity: 1, y: 0 },
+      transition: { duration: 0.22, ease: "easeOut" },
+    };
+  }
+  if (variant === "v2") {
+    // Alt 2: spring slide from the side the message originates from
+    return {
+      initial: { opacity: 0, x: isUser ? 28 : -28 },
+      animate: { opacity: 1, x: 0 },
+      transition: { type: "spring", stiffness: 380, damping: 28 },
+    };
+  }
+  if (variant === "v3") {
+    // Alt 3: scale pop from slightly below
+    return {
+      initial: { opacity: 0, scale: 0.88, y: 6 },
+      animate: { opacity: 1, scale: 1, y: 0 },
+      transition: { type: "spring", stiffness: 460, damping: 22 },
+    };
+  }
+  return {};
+}
+
+// ── Theme helpers ──
+
+function getThinkingBlockClass(theme: ThemeVariant): string {
+  if (theme === "v1") return "mb-2 bg-[#38D39F]/8 border-l-2 border-[#38D39F]/50 pl-3 pr-2 py-1.5 rounded-r-md";
+  if (theme === "v2") return "mb-2 bg-[#0d0d0f] border border-[#38D39F]/30 pl-3 pr-2 py-1.5 rounded-lg";
+  if (theme === "v3") return "mb-2 bg-[#38D39F]/8 border-l-2 border-[#38D39F] pl-3 pr-2 py-1";
+  return "mb-2 border-l-2 border-[#38D39F]/40 pl-3";
+}
+
+function getThinkingButtonClass(theme: ThemeVariant): string {
+  if (theme === "v2") return "flex items-center gap-1.5 text-xs text-[#38D39F] hover:text-[#38D39F]/80 transition-colors font-medium";
+  if (theme !== "off") return "flex items-center gap-1.5 text-xs text-[#38D39F]/80 hover:text-[#38D39F] transition-colors";
+  return "flex items-center gap-1.5 text-xs text-[#38D39F]/70 hover:text-[#38D39F] transition-colors";
+}
+
+function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
+  if (theme === "v1") {
+    return hasResult
+      ? "mb-2 text-xs bg-[#38D39F]/8 border border-[#38D39F]/25 rounded-md overflow-hidden"
+      : "mb-2 text-xs bg-[#f0c56c]/8 border border-[#f0c56c]/25 rounded-md overflow-hidden";
+  }
+  if (theme === "v2") {
+    return hasResult
+      ? "mb-2 text-xs bg-[#38D39F]/8 border-l-4 border-[#38D39F] rounded-md overflow-hidden"
+      : "mb-2 text-xs bg-[#f0c56c]/8 border-l-4 border-[#f0c56c] rounded-md overflow-hidden";
+  }
+  if (theme === "v3") {
+    return hasResult
+      ? "mb-2 text-xs bg-[#38D39F]/10 border border-[#38D39F]/30 rounded-md overflow-hidden"
+      : "mb-2 text-xs bg-[#f0c56c]/10 border border-[#f0c56c]/30 rounded-md overflow-hidden";
+  }
+  return "mb-2 text-xs bg-background/50 border border-border rounded-md overflow-hidden";
+}
+
+export function ChatMessageBubble({
+  message,
+  inlineAudioUrl = null,
+  agentId = null,
+  timestampVariant = "off",
+  nameVariant = "off",
+  bubblesVariant = "off",
+  animationVariant = "off",
+  themeVariant = "off",
+  streamingVariant = "off",
+  isStreaming = false,
+  agentName,
+  senderName,
+  isGroupChat = false,
+}: ChatMessageProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
@@ -128,46 +246,51 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
   const thinkingPreview = message.thinking ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES) : null;
 
   return (
-    <div className={`flex ${isUser ? "justify-end" : "justify-start"} group`}>
-      <div
-        className={`max-w-[80%] rounded-lg px-4 py-2.5 text-sm ${
-          isUser
-            ? "bg-surface-high text-foreground"
-            : "bg-surface-low text-foreground"
-        }`}
-      >
-        {/* Thinking block */}
-        {message.thinking && (
-          <div className="mb-2 border-l-2 border-[#38D39F]/40 pl-3">
-            <button
-              onClick={() => setThinkingOpen(!thinkingOpen)}
-              className="flex items-center gap-1.5 text-xs text-[#38D39F]/70 hover:text-[#38D39F] transition-colors"
-            >
-              <Brain className="w-3 h-3" />
-              {thinkingOpen ? (
-                <>
-                  <span>Hide reasoning</span>
-                  <ChevronDown className="w-3 h-3" />
-                </>
-              ) : (
-                <>
-                  <span>Show reasoning</span>
-                  <ChevronRight className="w-3 h-3" />
-                </>
-              )}
-            </button>
-            {!thinkingOpen && thinkingPreview && (
-              <pre className="text-xs text-text-muted whitespace-pre-wrap mt-1 italic leading-relaxed line-clamp-2">
-                {thinkingPreview.preview}{thinkingPreview.truncated ? "…" : ""}
-              </pre>
-            )}
-            {thinkingOpen && (
-              <pre className="text-xs text-text-muted whitespace-pre-wrap mt-1 italic leading-relaxed">
-                {message.thinking}
-              </pre>
-            )}
+    <motion.div
+      className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-2 group`}
+      {...getEntranceProps(animationVariant, isUser)}
+    >
+      {/* v2 name: avatar circle to the left */}
+      {showV2Name && (() => {
+        if (isUser) {
+          return (
+            <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-surface-low flex items-center justify-center">
+              <span className="text-[10px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
+            </div>
+          );
+        }
+        const av = agentAvatar(effectiveName);
+        return (
+          <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
+            <span className="text-[10px] font-bold" style={{ color: av.fgColor }}>{effectiveName[0]?.toUpperCase() ?? "A"}</span>
           </div>
-        )}
+        );
+      })()}
+
+      <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "flex-1 min-w-0" : ""}`}>
+
+        {/* v1 name: monogram + muted label above bubble */}
+        {showV1Name && (() => {
+          if (isUser) {
+            return (
+              <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+                <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
+                  <span className="text-[9px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
+                </div>
+                <span className="text-[11px] text-text-muted">{effectiveName}</span>
+              </div>
+            );
+          }
+          const av = agentAvatar(effectiveName);
+          return (
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
+                <span className="text-[9px] font-bold" style={{ color: av.fgColor }}>{effectiveName[0]?.toUpperCase() ?? "A"}</span>
+              </div>
+              <span className="text-[11px] text-text-muted">{effectiveName}</span>
+            </div>
+          );
+        })()}
 
         {/* Tool calls */}
         {message.toolCalls?.map((tc, j) => {
