@@ -52,17 +52,17 @@ export default function PlansPage() {
       try {
         const token = await getToken();
         const agentClient = createHyperAgentClient(token);
-        const [plansData, current, subscriptions, catalogResponse] = await Promise.all([
+        const [plansData, current, subscriptions, catalogResponse] = await Promise.allSettled([
           agentClient.plans(),
           agentClient.currentPlan(),
           agentClient.subscriptionSummary(),
           fetch(`${API_BASE_URL}/types`),
         ]);
-        setPlans(plansData ?? []);
-        setCurrentPlan(current);
-        setSummary(subscriptions);
-        if (catalogResponse.ok) {
-          setTypeCatalog((await catalogResponse.json()) as AgentTypeCatalogResponse);
+        setPlans(plansData.status === "fulfilled" ? (plansData.value ?? []) : []);
+        setCurrentPlan(current.status === "fulfilled" ? current.value : null);
+        setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
+        if (catalogResponse.status === "fulfilled" && catalogResponse.value.ok) {
+          setTypeCatalog((await catalogResponse.value.json()) as AgentTypeCatalogResponse);
         } else {
           setTypeCatalog(null);
         }
@@ -80,12 +80,12 @@ export default function PlansPage() {
     try {
       const token = await getToken();
       const agentClient = createHyperAgentClient(token);
-      const [current, subscriptions] = await Promise.all([
+      const [current, subscriptions] = await Promise.allSettled([
         agentClient.currentPlan(),
         agentClient.subscriptionSummary(),
       ]);
-      setCurrentPlan(current);
-      setSummary(subscriptions);
+      setCurrentPlan(current.status === "fulfilled" ? current.value : null);
+      setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
     } catch {}
   };
 
