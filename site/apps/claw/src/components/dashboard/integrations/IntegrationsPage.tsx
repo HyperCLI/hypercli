@@ -8,7 +8,7 @@ import {
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
 import { SlideOver } from "../SlideOver";
-import { TelegramWizard, isChannelLive } from "./TelegramWizard";
+import { TelegramWizard } from "./TelegramWizard";
 import { DiscordWizard } from "./DiscordWizard";
 import { SlackWizard } from "./SlackWizard";
 import { TtsPanel } from "./TtsPanel";
@@ -21,7 +21,10 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel } from "./PluginConfigPanel";
 import { QrLoginWizard } from "./QrLoginWizard";
+import { TokenSetupWizard } from "./TokenSetupWizard";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
+import type { PluginMeta } from "./plugin-registry";
+import { isChannelLive } from "@/hooks/usePluginVerification";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
 
 /** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
@@ -69,11 +72,10 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [applyingChanges, setApplyingChanges] = useState(false);
-  const [telegramVerified, setTelegramVerified] = useState(false);
-  const [discordVerified, setDiscordVerified] = useState(false);
-  const [slackVerified, setSlackVerified] = useState(false);
-  const [whatsappVerified, setWhatsappVerified] = useState(false);
-  const [zalouserVerified, setZalouserVerified] = useState(false);
+  // Consolidated verified state for all channels/plugins
+  const [verified, setVerified] = useState<Record<string, boolean>>({});
+  const markVerified = (id: string) => setVerified((prev) => ({ ...prev, [id]: true }));
+  const clearVerified = (id: string) => setVerified((prev) => ({ ...prev, [id]: false }));
 
   // Sync when parent config updates
   useEffect(() => {
@@ -85,40 +87,50 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
     if (connected && applyingChanges) setApplyingChanges(false);
   }, [connected, applyingChanges]);
 
+  // Legacy channel enabled state
   const channels = (config as any)?.channels as ChannelState | undefined;
   const telegramEnabled = !!channels?.telegram?.enabled;
   const discordEnabled = !!channels?.discord?.enabled;
   const slackEnabled = !!channels?.slack?.enabled;
 
-  const whatsappPlugin = getPlugin("whatsapp");
-  const zalouserPlugin = getPlugin("zalouser");
-  const whatsappEnabled = whatsappPlugin ? isPluginEnabled(whatsappPlugin, config) : false;
-  const zalouserEnabled = zalouserPlugin ? isPluginEnabled(zalouserPlugin, config) : false;
+  // Plugin-based wizard channels — all use plugins.entries.<id>
+  const wizardPluginIds = ["whatsapp", "zalouser", "zalo", "line", "twitch", "irc", "mattermost"] as const;
+  const wizardPlugins = wizardPluginIds.reduce<Record<string, { meta: PluginMeta | undefined; enabled: boolean }>>((acc, id) => {
+    const meta = getPlugin(id);
+    acc[id] = { meta, enabled: meta ? isPluginEnabled(meta, config) : false };
+    return acc;
+  }, {});
 
-  // Probe channel status on mount / reconnect to determine verified state
+  // Probe channel status on mount / reconnect
   useEffect(() => {
     if (!connected || !onChannelProbe) return;
-    if (!telegramEnabled && !discordEnabled && !slackEnabled && !whatsappEnabled && !zalouserEnabled) return;
+    const anyEnabled = telegramEnabled || discordEnabled || slackEnabled ||
+      wizardPluginIds.some((id) => wizardPlugins[id].enabled);
+    if (!anyEnabled) return;
     let cancelled = false;
     onChannelProbe().then((status) => {
       if (cancelled) return;
-      if (telegramEnabled && isChannelLive(status, "telegram")) setTelegramVerified(true);
-      if (discordEnabled && isChannelLive(status, "discord")) setDiscordVerified(true);
-      if (slackEnabled && isChannelLive(status, "slack")) setSlackVerified(true);
-      if (whatsappEnabled && isChannelLive(status, "whatsapp")) setWhatsappVerified(true);
-      if (zalouserEnabled && isChannelLive(status, "zalouser")) setZalouserVerified(true);
+      // Legacy channels
+      if (telegramEnabled && isChannelLive(status, "telegram")) markVerified("telegram");
+      if (discordEnabled && isChannelLive(status, "discord")) markVerified("discord");
+      if (slackEnabled && isChannelLive(status, "slack")) markVerified("slack");
+      // Plugin-based channels
+      for (const id of wizardPluginIds) {
+        if (wizardPlugins[id].enabled && isChannelLive(status, id)) markVerified(id);
+      }
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [connected, onChannelProbe, telegramEnabled, discordEnabled, slackEnabled, whatsappEnabled, zalouserEnabled]);
+  }, [connected, onChannelProbe, telegramEnabled, discordEnabled, slackEnabled, config]);
 
   // Reset verified state when channels are disconnected
   useEffect(() => {
-    if (!telegramEnabled) setTelegramVerified(false);
-    if (!discordEnabled) setDiscordVerified(false);
-    if (!slackEnabled) setSlackVerified(false);
-    if (!whatsappEnabled) setWhatsappVerified(false);
-    if (!zalouserEnabled) setZalouserVerified(false);
-  }, [telegramEnabled, discordEnabled, slackEnabled, whatsappEnabled, zalouserEnabled]);
+    if (!telegramEnabled) clearVerified("telegram");
+    if (!discordEnabled) clearVerified("discord");
+    if (!slackEnabled) clearVerified("slack");
+    for (const id of wizardPluginIds) {
+      if (!wizardPlugins[id].enabled) clearVerified(id);
+    }
+  }, [telegramEnabled, discordEnabled, slackEnabled, config]);
 
   const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
 
@@ -136,8 +148,8 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   };
 
   const handleDisconnect = async (target: string) => {
-    // Plugin-based channels (WhatsApp, Zalo) use plugins.entries path
-    if (target === "whatsapp" || target === "zalouser") {
+    // Plugin-based channels use plugins.entries path
+    if ((wizardPluginIds as readonly string[]).includes(target)) {
       await handleConfigPatch({ plugins: { entries: { [target]: { enabled: false } } } });
     } else {
       // Legacy channels (Telegram, Discord, Slack) use channels path
@@ -148,7 +160,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   };
 
   const getTelegramStatus = (): { status: CardStatus; statusText?: string; cta?: string } => {
-    if (telegramEnabled && telegramVerified) {
+    if (telegramEnabled && verified["telegram"]) {
       return {
         status: "connected",
         statusText: channels?.telegram?.username
@@ -157,7 +169,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         cta: "Manage",
       };
     }
-    if (telegramEnabled && !telegramVerified) {
+    if (telegramEnabled && !verified["telegram"]) {
       return {
         status: "pending",
         statusText: "Pending verification",
@@ -244,7 +256,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 statusText={telegramInfo.statusText}
                 ctaLabel={telegramInfo.cta}
                 onClick={() => setActivePanel(
-                  telegramEnabled && telegramVerified
+                  telegramEnabled && verified["telegram"]
                     ? "telegram-manage"
                     : telegramEnabled
                       ? "telegram-verify"
@@ -255,11 +267,11 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               <IntegrationCard
                 icon={MessageCircle}
                 name="Discord"
-                status={discordEnabled && discordVerified ? "connected" : discordEnabled ? "pending" : "available"}
-                statusText={discordEnabled && discordVerified ? "Active" : discordEnabled ? "Pending verification" : undefined}
-                ctaLabel={discordEnabled && discordVerified ? "Manage" : discordEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                status={discordEnabled && verified["discord"] ? "connected" : discordEnabled ? "pending" : "available"}
+                statusText={discordEnabled && verified["discord"] ? "Active" : discordEnabled ? "Pending verification" : undefined}
+                ctaLabel={discordEnabled && verified["discord"] ? "Manage" : discordEnabled ? "Complete setup \u2192" : "Set up \u2192"}
                 onClick={() => setActivePanel(
-                  discordEnabled && discordVerified
+                  discordEnabled && verified["discord"]
                     ? "discord-manage"
                     : discordEnabled
                       ? "discord-verify"
@@ -270,11 +282,11 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               <IntegrationCard
                 icon={Hash}
                 name="Slack"
-                status={slackEnabled && slackVerified ? "connected" : slackEnabled ? "pending" : "available"}
-                statusText={slackEnabled && slackVerified ? "Active" : slackEnabled ? "Pending verification" : undefined}
-                ctaLabel={slackEnabled && slackVerified ? "Manage" : slackEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                status={slackEnabled && verified["slack"] ? "connected" : slackEnabled ? "pending" : "available"}
+                statusText={slackEnabled && verified["slack"] ? "Active" : slackEnabled ? "Pending verification" : undefined}
+                ctaLabel={slackEnabled && verified["slack"] ? "Manage" : slackEnabled ? "Complete setup \u2192" : "Set up \u2192"}
                 onClick={() => setActivePanel(
-                  slackEnabled && slackVerified
+                  slackEnabled && verified["slack"]
                     ? "slack-manage"
                     : slackEnabled
                       ? "slack-verify"
@@ -285,11 +297,11 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               <IntegrationCard
                 icon={Phone}
                 name="WhatsApp"
-                status={whatsappEnabled && whatsappVerified ? "connected" : whatsappEnabled ? "pending" : "available"}
-                statusText={whatsappEnabled && whatsappVerified ? "Active" : whatsappEnabled ? "Pending verification" : undefined}
-                ctaLabel={whatsappEnabled && whatsappVerified ? "Manage" : whatsappEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                status={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "connected" : wizardPlugins["whatsapp"].enabled ? "pending" : "available"}
+                statusText={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Active" : wizardPlugins["whatsapp"].enabled ? "Pending verification" : undefined}
+                ctaLabel={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Manage" : wizardPlugins["whatsapp"].enabled ? "Complete setup \u2192" : "Set up \u2192"}
                 onClick={() => setActivePanel(
-                  whatsappEnabled && whatsappVerified
+                  wizardPlugins["whatsapp"].enabled && verified["whatsapp"]
                     ? "whatsapp-manage"
                     : "whatsapp"
                 )}
@@ -298,15 +310,36 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               <IntegrationCard
                 icon={MessageSquare}
                 name="Zalo Personal"
-                status={zalouserEnabled && zalouserVerified ? "connected" : zalouserEnabled ? "pending" : "available"}
-                statusText={zalouserEnabled && zalouserVerified ? "Active" : zalouserEnabled ? "Pending verification" : undefined}
-                ctaLabel={zalouserEnabled && zalouserVerified ? "Manage" : zalouserEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                status={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "connected" : wizardPlugins["zalouser"].enabled ? "pending" : "available"}
+                statusText={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Active" : wizardPlugins["zalouser"].enabled ? "Pending verification" : undefined}
+                ctaLabel={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Manage" : wizardPlugins["zalouser"].enabled ? "Complete setup \u2192" : "Set up \u2192"}
                 onClick={() => setActivePanel(
-                  zalouserEnabled && zalouserVerified
+                  wizardPlugins["zalouser"].enabled && verified["zalouser"]
                     ? "zalouser-manage"
                     : "zalouser"
                 )}
               />
+              {/* Token-based wizard plugins (Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
+              {wizardPluginIds
+                .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
+                .map((id) => {
+                  const { meta, enabled } = wizardPlugins[id];
+                  if (!meta) return null;
+                  const isVerified = verified[id];
+                  return (
+                    <IntegrationCard
+                      key={id}
+                      icon={meta.icon}
+                      name={meta.displayName}
+                      status={enabled && isVerified ? "connected" : enabled ? "pending" : "available"}
+                      statusText={enabled && isVerified ? "Active" : enabled ? "Pending verification" : undefined}
+                      ctaLabel={enabled && isVerified ? "Manage" : enabled ? "Complete setup \u2192" : "Set up \u2192"}
+                      onClick={() => setActivePanel(
+                        enabled && isVerified ? `${id}-manage` : id
+                      )}
+                    />
+                  );
+                })}
               {/* Remaining chat plugins — dynamic PluginCards */}
               {chatPlugins
                 .filter((p) => !p.hasWizard)
@@ -482,12 +515,12 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
             if (onChannelProbe && channels?.telegram?.enabled) {
               onChannelProbe().then((status) => {
                 if (isChannelLive(status, "telegram")) {
-                  setTelegramVerified(true);
+                  markVerified("telegram");
                 }
               }).catch(() => {});
             }
           }}
-          onVerified={() => setTelegramVerified(true)}
+          onVerified={() => markVerified("telegram")}
         />
       </SlideOver>
 
@@ -534,11 +567,11 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
             setActivePanel(null);
             if (onChannelProbe && channels?.discord?.enabled) {
               onChannelProbe().then((status) => {
-                if (isChannelLive(status, "discord")) setDiscordVerified(true);
+                if (isChannelLive(status, "discord")) markVerified("discord");
               }).catch(() => {});
             }
           }}
-          onVerified={() => setDiscordVerified(true)}
+          onVerified={() => markVerified("discord")}
         />
       </SlideOver>
 
@@ -582,11 +615,11 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
             setActivePanel(null);
             if (onChannelProbe && channels?.slack?.enabled) {
               onChannelProbe().then((status) => {
-                if (isChannelLive(status, "slack")) setSlackVerified(true);
+                if (isChannelLive(status, "slack")) markVerified("slack");
               }).catch(() => {});
             }
           }}
-          onVerified={() => setSlackVerified(true)}
+          onVerified={() => markVerified("slack")}
         />
       </SlideOver>
 
@@ -690,6 +723,73 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           </button>
         </div>
       </SlideOver>
+
+      {/* Token-based plugin wizards (Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
+      {wizardPluginIds
+        .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
+        .map((id) => {
+          const meta = wizardPlugins[id].meta!;
+          return (
+            <SlideOver
+              key={`${id}-setup`}
+              open={activePanel === id}
+              onClose={() => setActivePanel(null)}
+              title={`Connect ${meta.displayName}`}
+              description={meta.description}
+            >
+              <TokenSetupWizard
+                pluginId={id}
+                displayName={meta.displayName}
+                fields={meta.setupFields!}
+                setupUrl={meta.setupUrl}
+                setupHint={meta.setupHint}
+                skipVerification={meta.skipVerification}
+                onConnect={handleConfigPatch}
+                onChannelProbe={onChannelProbe ?? (async () => ({}))}
+                onClose={() => {
+                  setActivePanel(null);
+                  if (onChannelProbe && wizardPlugins[id].enabled) {
+                    onChannelProbe().then((status) => {
+                      if (isChannelLive(status, id)) markVerified(id);
+                    }).catch(() => {});
+                  }
+                }}
+                onVerified={() => markVerified(id)}
+              />
+            </SlideOver>
+          );
+        })}
+
+      {/* Token-based plugin management panels */}
+      {wizardPluginIds
+        .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
+        .map((id) => {
+          const meta = wizardPlugins[id].meta!;
+          return (
+            <SlideOver
+              key={`${id}-manage`}
+              open={activePanel === `${id}-manage`}
+              onClose={() => setActivePanel(null)}
+              title={meta.displayName}
+              description={`Your agent's ${meta.displayName} connection`}
+            >
+              <div className="space-y-4">
+                <div className="glass-card p-4 space-y-2">
+                  <div className="flex items-center gap-2">
+                    <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+                    <span className="text-sm font-medium text-foreground">Connected</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => setDisconnectTarget(id)}
+                  className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+                >
+                  Disconnect {meta.displayName}
+                </button>
+              </div>
+            </SlideOver>
+          );
+        })}
 
       {/* TTS Panel */}
       <SlideOver
