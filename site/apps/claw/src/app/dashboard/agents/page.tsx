@@ -884,7 +884,7 @@ export default function AgentsPage() {
         agentClient.list(),
         agentClient.budget().catch(() => null),
       ]);
-      const items = listedAgents.map(sdkAgentToPageAgent);
+      const items = listedAgents.items.map(sdkAgentToPageAgent);
       setAgents(items);
       setBudget((budgetData as AgentBudget | null) || null);
       const currentId = selectedAgentIdRef.current;
