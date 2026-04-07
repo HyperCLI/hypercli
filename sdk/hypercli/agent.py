@@ -227,6 +227,7 @@ class HyperAgent:
         self._api_key = agent_api_key or http.api_key
         self._dev = dev
         self._base_url = self._resolve_base_url(agents_api_base_url, dev)
+        self._control_base_url = self._resolve_control_base_url(agents_api_base_url, dev)
         self._openai = None
 
     @classmethod
@@ -248,6 +249,30 @@ class HyperAgent:
         if raw:
             return f"{raw}/v1"
         return cls.DEV_API_BASE if dev else cls.AGENT_API_BASE
+
+    @classmethod
+    def _resolve_control_base_url(cls, agents_api_base_url: str | None, dev: bool) -> str:
+        raw = (agents_api_base_url or "").rstrip("/")
+        if not raw:
+            fallback = get_agents_api_base_url(dev).rstrip("/")
+            return cls._resolve_control_base_url(fallback, dev)
+        parsed = urlsplit(raw if "://" in raw else f"https://{raw}")
+        scheme = parsed.scheme or "https"
+        normalized_path = parsed.path.rstrip("/")
+        host = parsed.netloc.lower()
+        if normalized_path.endswith("/agents"):
+            return f"{scheme}://{parsed.netloc}{normalized_path}"
+        if normalized_path.endswith("/api"):
+            if host == "api.agents.hypercli.com":
+                return "https://api.hypercli.com/agents"
+            if host == "api.agents.dev.hypercli.com":
+                return "https://api.dev.hypercli.com/agents"
+            return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}/agents"
+        if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
+            return "https://api.hypercli.com/agents"
+        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app", "api.agents.dev.hypercli.com"}:
+            return "https://api.dev.hypercli.com/agents"
+        return f"{scheme}://{parsed.netloc}{normalized_path}/agents"
 
     @property
     def openai(self) -> "OpenAI":
@@ -312,7 +337,7 @@ class HyperAgent:
 
     def plans(self) -> List[HyperAgentPlan]:
         response = self._http._session.get(
-            f"{self._api_base_without_v1()}/api/plans",
+            f"{self._control_base_url}/api/plans",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()
@@ -321,7 +346,7 @@ class HyperAgent:
 
     def current_plan(self) -> HyperAgentCurrentPlan:
         response = self._http._session.get(
-            f"{self._api_base_without_v1()}/api/plans/current",
+            f"{self._control_base_url}/api/plans/current",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()
@@ -329,7 +354,7 @@ class HyperAgent:
 
     def subscriptions(self) -> list[HyperAgentSubscription]:
         response = self._http._session.get(
-            f"{self._api_base_without_v1()}/api/subscriptions",
+            f"{self._control_base_url}/api/subscriptions",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()
@@ -338,7 +363,7 @@ class HyperAgent:
 
     def subscription_summary(self) -> HyperAgentSubscriptionSummary:
         response = self._http._session.get(
-            f"{self._api_base_without_v1()}/api/subscriptions/summary",
+            f"{self._control_base_url}/api/subscriptions/summary",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()

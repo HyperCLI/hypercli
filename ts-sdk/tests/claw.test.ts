@@ -13,12 +13,14 @@ describe('HyperAgent API', () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     expect(agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
+    expect(agent.controlBaseUrl).toBe('https://api.hypercli.com/agents');
   });
 
   it('normalizes generic dev API hosts onto the dev agents host', () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.dev.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', true, 'https://api.dev.hypercli.com');
     expect(agent.baseUrl).toBe('https://api.agents.dev.hypercli.com/v1');
+    expect(agent.controlBaseUrl).toBe('https://api.dev.hypercli.com/agents');
   });
 
   it.skip('should list models (requires HyperAgent API key)', async () => {
@@ -63,7 +65,7 @@ describe('HyperAgent API', () => {
 
     try {
       await agent.plans();
-      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/plans');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/api/plans');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
       globalThis.fetch = fetchMock;
@@ -96,7 +98,7 @@ describe('HyperAgent API', () => {
 
     try {
       await agent.currentPlan();
-      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/plans/current');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/api/plans/current');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
       globalThis.fetch = fetchMock;
@@ -135,7 +137,7 @@ describe('HyperAgent API', () => {
     try {
       const subscriptions = await agent.subscriptions();
       expect(subscriptions[0]?.quantity).toBe(2);
-      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/subscriptions');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/api/subscriptions');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
       globalThis.fetch = fetchMock;
@@ -174,7 +176,7 @@ describe('HyperAgent API', () => {
       const summary = await agent.subscriptionSummary();
       expect(summary.currentSubscriptionId).toBe('sub-1');
       expect(summary.slotInventory.large.available).toBe(1);
-      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/subscriptions/summary');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/api/subscriptions/summary');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
       globalThis.fetch = fetchMock;

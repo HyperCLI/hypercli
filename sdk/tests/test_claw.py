@@ -136,7 +136,7 @@ class TestHyperAgentClient:
 
         assert current.id == "large"
         mock_http._session.get.assert_called_with(
-            "https://api.agents.hypercli.com/api/plans/current",
+            "https://api.hypercli.com/agents/api/plans/current",
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
 
@@ -162,7 +162,7 @@ class TestHyperAgentClient:
         assert len(subscriptions) == 1
         assert subscriptions[0].quantity == 2
         mock_http._session.get.assert_called_with(
-            "https://api.agents.hypercli.com/api/subscriptions",
+            "https://api.hypercli.com/agents/api/subscriptions",
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
 
@@ -196,7 +196,7 @@ class TestHyperAgentClient:
         assert summary.current_subscription_id == "sub-1"
         assert summary.slot_inventory["large"]["available"] == 1
         mock_http._session.get.assert_called_with(
-            "https://api.agents.hypercli.com/api/subscriptions/summary",
+            "https://api.hypercli.com/agents/api/subscriptions/summary",
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
     

@@ -35,6 +35,41 @@ function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boo
   return `${raw}/v1`;
 }
 
+function resolveHyperAgentControlBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
+  const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
+  if (!raw) {
+    const fallback = getAgentsApiBaseUrl(dev);
+    return resolveHyperAgentControlBaseUrl(fallback, dev);
+  }
+  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  const host = parsed.host.toLowerCase();
+  if (normalizedPath.endsWith('/agents')) {
+    return `${parsed.origin}${normalizedPath}`;
+  }
+  if (normalizedPath.endsWith('/api')) {
+    if (host === 'api.agents.hypercli.com') {
+      return 'https://api.hypercli.com/agents';
+    }
+    if (host === 'api.agents.dev.hypercli.com') {
+      return 'https://api.dev.hypercli.com/agents';
+    }
+    return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
+  }
+  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
+    return 'https://api.hypercli.com/agents';
+  }
+  if (
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app' ||
+    host === 'api.agents.dev.hypercli.com'
+  ) {
+    return 'https://api.dev.hypercli.com/agents';
+  }
+  return `${parsed.origin}${normalizedPath || ''}/agents`;
+}
+
 export interface HyperAgentPlan {
   id: string;
   name: string;
@@ -202,6 +237,7 @@ export class HyperAgent {
 
   public readonly apiKey: string;
   public readonly baseUrl: string;
+  public readonly controlBaseUrl: string;
 
   constructor(
     private http: HTTPClient,
@@ -213,6 +249,7 @@ export class HyperAgent {
     const fallbackBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : (dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE);
     const configuredBaseUrl = agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || fallbackBaseUrl;
     this.baseUrl = resolveHyperAgentBaseUrl(configuredBaseUrl, dev);
+    this.controlBaseUrl = resolveHyperAgentControlBaseUrl(configuredBaseUrl, dev);
   }
 
   private get baseUrlWithoutV1(): string {
@@ -220,7 +257,7 @@ export class HyperAgent {
   }
 
   async plans(): Promise<HyperAgentPlan[]> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans`, {
+    const response = await fetch(`${this.controlBaseUrl}/api/plans`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -235,7 +272,7 @@ export class HyperAgent {
   }
 
   async currentPlan(): Promise<HyperAgentCurrentPlan> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans/current`, {
+    const response = await fetch(`${this.controlBaseUrl}/api/plans/current`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -250,7 +287,7 @@ export class HyperAgent {
   }
 
   async subscriptions(): Promise<HyperAgentSubscription[]> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/subscriptions`, {
+    const response = await fetch(`${this.controlBaseUrl}/api/subscriptions`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -265,7 +302,7 @@ export class HyperAgent {
   }
 
   async subscriptionSummary(): Promise<HyperAgentSubscriptionSummary> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/subscriptions/summary`, {
+    const response = await fetch(`${this.controlBaseUrl}/api/subscriptions/summary`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
