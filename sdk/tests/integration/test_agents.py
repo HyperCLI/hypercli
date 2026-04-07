@@ -9,37 +9,35 @@ from hypercli.http import APIError
 
 
 def _create_agent_with_available_tier(client: HyperCLI, name: str, tags: list[str]) -> tuple[str, str]:
-    last_error: APIError | None = None
-    for tier in ("large", "medium", "small"):
-        agent_id: str | None = None
-        try:
-            agent = client.deployments.create(
-                name=name,
-                size=tier,
-                start=False,
-                tags=tags,
-            )
-            agent_id = agent.id
-            client.deployments.start_openclaw(agent.id, dry_run=True)
-            return agent.id, tier
-        except APIError as exc:
-            if exc.status_code == 429:
-                if agent_id:
-                    try:
-                        client.deployments.delete(agent_id)
-                    except APIError:
-                        pass
-                last_error = exc
-                continue
-            if agent_id:
-                try:
-                    client.deployments.delete(agent_id)
-                except APIError:
-                    pass
-            raise
-    if last_error is not None:
-        raise last_error
-    raise AssertionError("No available entitlement slots for integration agent tests")
+    budget = client.deployments.budget()
+    slots = (budget or {}).get("slots") or {}
+
+    tier = next((candidate for candidate in ("large", "medium", "small") if int((slots.get(candidate) or {}).get("available") or 0) > 0), None)
+    if not tier:
+        raise AssertionError("No available entitlement slots for integration agent tests")
+
+    agent_id: str | None = None
+    try:
+        agent = client.deployments.create(
+            name=name,
+            size=tier,
+            start=False,
+            tags=tags,
+        )
+        agent_id = agent.id
+        client.deployments.start_openclaw(agent.id, dry_run=True)
+        return agent.id, tier
+    except APIError as exc:
+        if agent_id:
+            try:
+                client.deployments.delete(agent_id)
+            except APIError:
+                pass
+        if exc.status_code == 429:
+            raise AssertionError(
+                f"Budget reported '{tier}' available but dry-run start was rejected for slot exhaustion"
+            ) from exc
+        raise
 
 
 def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
