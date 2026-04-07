@@ -198,17 +198,3 @@ Netlify builds via `@netlify/plugin-nextjs`. Build commands set per Netlify site
 
 **Key insight for feat-claw**: Frontend is at `feat.hypercli.com` but backend is `api.dev.hypercli.com`. Gateway cookies need `domain=.hypercli.com` to reach `openclaw-{name}.dev.hypercli.com`. The `useGatewayChat` hook handles cross-domain cookie logic automatically.
 
-## 📋 Plan Summary Rule
-
-After every plan you make, you MUST add a summary to the bottom of this file under the `## Plan History` section using this format:
-
-**_[Short Bold Italic Title]_**
-- Date: YYYY-MM-DD
-- What: Brief description of what the plan does
-- Status: `active` | `done` | `wip`
-
----
-
-## Plan History
-
-<!-- Claude will auto-append plan summaries here -->
