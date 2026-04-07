@@ -82,13 +82,42 @@ function truncateToLines(text: string, maxLines: number): { preview: string; tru
   return { preview, truncated: text.split("\n").length > maxLines || text.length > preview.length + 50 };
 }
 
-function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
-  if (tc.result) {
-    const trimmed = tc.result.trim().slice(0, 60);
-    return trimmed.length < tc.result.trim().length ? `${trimmed}…` : trimmed;
+/** Extract a human-readable summary from a tool arg/result string (may be JSON). */
+function extractReadableSummary(raw: string, maxLen: number): string {
+  const trimmed = raw.trim();
+  if (!trimmed) return "";
+  // Try to extract meaningful text from JSON structures
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      // Content block array: [{type:"text", text:"..."}]
+      if (Array.isArray(parsed)) {
+        const texts = parsed
+          .filter((b: unknown) => (b as Record<string, unknown>)?.type === "text" && typeof (b as Record<string, unknown>)?.text === "string")
+          .map((b: unknown) => (b as Record<string, string>).text);
+        if (texts.length > 0) {
+          const joined = texts.join(" ").trim();
+          return joined.length > maxLen ? `${joined.slice(0, maxLen)}…` : joined;
+        }
+      }
+      // Error shape: {status:"error", error:"..."}
+      if (typeof parsed === "object" && parsed !== null) {
+        if (typeof parsed.error === "string") {
+          const msg = `Error: ${parsed.error}`;
+          return msg.length > maxLen ? `${msg.slice(0, maxLen)}…` : msg;
+        }
+        // Success shape: {ok: true, ...}
+        if (parsed.ok === true) return "Success";
+        if (parsed.ok === false) return "Failed";
+      }
+    } catch { /* fall through to raw slice */ }
   }
-  const trimmed = tc.args.trim().slice(0, 60);
-  return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
+  return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
+}
+
+function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
+  if (tc.result) return extractReadableSummary(tc.result, 60);
+  return extractReadableSummary(tc.args, 60);
 }
 
 /**
@@ -304,9 +333,21 @@ export function ChatMessageBubble({
     audio.pause();
   }, []);
 
+  // Suppress content that's a JSON echo of tool results already shown in the tool call UI.
+  // Must verify it's actually valid JSON — text like "[Updated] config applied" starts with [ but isn't JSON.
+  const hasToolResults = message.toolCalls?.some((tc) => tc.result != null) ?? false;
+  let contentIsJson = false;
+  if (hasToolResults) {
+    const trimmedContent = message.content.trim();
+    if (trimmedContent.startsWith("{") || trimmedContent.startsWith("[")) {
+      try { JSON.parse(trimmedContent); contentIsJson = true; } catch { /* not JSON */ }
+    }
+  }
+  const effectiveContent = contentIsJson ? "" : message.content;
+
   // Typewriter only for v2 streaming — v1 uses cursor, v3 uses shimmer, both render text instantly
   const typewriterActive = isStreaming && message.role === "assistant" && streamingVariant === "v2";
-  const displayedContent = useTypewriter(message.content, typewriterActive);
+  const displayedContent = useTypewriter(effectiveContent, typewriterActive);
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -330,11 +371,11 @@ export function ChatMessageBubble({
   // ── Bubble styles (shape from bubblesVariant, color from themeVariant) ──
   let shapeClass: string;
   if (bubblesVariant === "v1") {
-    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "max-w-[80%] text-sm";
+    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "max-w-[80%] rounded-2xl px-4 py-3 text-sm";
   } else if (bubblesVariant === "v2") {
-    shapeClass = isUser ? "max-w-[80%] rounded-3xl px-5 py-3 text-sm" : "max-w-[80%] text-sm";
+    shapeClass = isUser ? "max-w-[80%] rounded-3xl px-5 py-3 text-sm" : "max-w-[80%] rounded-3xl px-5 py-3 text-sm";
   } else if (bubblesVariant === "v3") {
-    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "text-sm w-full";
+    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "rounded-2xl px-4 py-3 text-sm w-full";
   } else {
     shapeClass = "max-w-[80%] rounded-lg px-4 py-2.5 text-sm";
   }
@@ -451,8 +492,8 @@ export function ChatMessageBubble({
 
         {/* ── Bubble ── */}
         <div className={`${bubbleClass}${isStreaming && streamingVariant === "v3" ? " relative overflow-hidden" : ""}`}>
-          {/* Thinking block */}
-          {message.thinking && (
+          {/* Thinking block — only visible during active streaming, hidden for history */}
+          {message.thinking && isStreaming && (
             <div className={getThinkingBlockClass(themeVariant)}>
               <button
                 onClick={() => setThinkingOpen(!thinkingOpen)}
@@ -509,7 +550,7 @@ export function ChatMessageBubble({
                   )}
                 </button>
                 {toolsOpen[j] && (
-                  <pre className="px-2.5 py-1.5 text-text-muted whitespace-pre-wrap border-t border-border font-mono">
+                  <pre className="px-2.5 py-1.5 text-text-muted whitespace-pre-wrap border-t border-border font-mono max-h-48 overflow-y-auto">
                     {tc.args}
                     {tc.result && (
                       <>
