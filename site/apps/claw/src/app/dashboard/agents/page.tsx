@@ -301,27 +301,14 @@ function AgentLaunchPrompt({
 }) {
   return (
     <div className="h-full flex items-center justify-center p-6">
-      <div className="max-w-md text-center">
-        <button
-          onClick={onLaunch}
-          disabled={launching}
-          className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
-          aria-label={`Launch agent to use ${label}`}
-          title="Launch Agent"
-        >
-          {launching ? <Loader2 className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
-        </button>
-        <p className="text-base text-foreground">Launch Agent to Use {label}</p>
-        <button
-          onClick={onLaunch}
-          disabled={launching}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
-        >
-          {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          <span>Launch Agent</span>
-        </button>
-        <p className="mt-2 text-sm text-text-muted">Files remain available while stopped.</p>
-      </div>
+      <button
+        onClick={onLaunch}
+        disabled={launching}
+        className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
+      >
+        {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
+        <span>Launch Agent to Start {label}</span>
+      </button>
     </div>
   );
 }
