@@ -19,6 +19,8 @@ interface AgentCreationWizardProps {
   open: boolean;
   onClose: () => void;
   onCreated: (agentId?: string, gatewayToken?: string) => void;
+  initialStep?: number;
+  preferredTypeId?: string | null;
   budget?: {
     slots: SlotInventory;
     pooled_tpd: number;
@@ -104,7 +106,14 @@ const slideTransition = {
 
 // ── Component ──
 
-export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentCreationWizardProps) {
+export function AgentCreationWizard({
+  open,
+  onClose,
+  onCreated,
+  initialStep = 0,
+  preferredTypeId = null,
+  budget,
+}: AgentCreationWizardProps) {
   const { getToken } = useAgentAuth();
 
   // Step navigation
@@ -155,18 +164,19 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
 
   useEffect(() => {
     if (open) {
-      setStep(0);
+      const safeInitialStep = Math.max(0, Math.min(TOTAL_STEPS - 1, initialStep));
+      setStep(safeInitialStep);
       setDirection(0);
       setName("");
       setSelectedIcon(0);
       setCustomAvatar(null);
       setDescription("");
-      setSelectedTypeId("large");
+      setSelectedTypeId(preferredTypeId || "large");
       setStartImmediately(true);
       setCreating(false);
       setError(null);
     }
-  }, [open]);
+  }, [open, initialStep, preferredTypeId]);
 
   useEffect(() => {
     if (!open) return;

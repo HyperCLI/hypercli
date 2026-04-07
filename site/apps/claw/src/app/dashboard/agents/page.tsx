@@ -950,6 +950,8 @@ export default function AgentsPage() {
 
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
+  const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
+  const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
   const gatewayTokensRef = useRef<Record<string, string>>({});
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -1763,6 +1765,18 @@ export default function AgentsPage() {
     }
   };
 
+  const openCreateDialog = useCallback((options?: { initialStep?: number; preferredTier?: string | null }) => {
+    setCreateDialogInitialStep(options?.initialStep ?? 0);
+    setCreateDialogPreferredTier(options?.preferredTier ?? null);
+    setShowCreateDialog(true);
+  }, []);
+
+  const closeCreateDialog = useCallback(() => {
+    setShowCreateDialog(false);
+    setCreateDialogInitialStep(0);
+    setCreateDialogPreferredTier(null);
+  }, []);
+
   const handleStop = async (agentId: string) => {
     setStoppingId(agentId);
     setError(null);
@@ -2119,7 +2133,7 @@ export default function AgentsPage() {
                 ))}
                 <button
                   onClick={() => {
-                    setShowCreateDialog(true);
+                    openCreateDialog();
                     setMobileAgentMenuOpen(false);
                   }}
                   className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
@@ -2218,13 +2232,15 @@ export default function AgentsPage() {
 
       <AgentCreationWizard
         open={showCreateDialog}
-        onClose={() => setShowCreateDialog(false)}
+        onClose={closeCreateDialog}
+        initialStep={createDialogInitialStep}
+        preferredTypeId={createDialogPreferredTier}
         onCreated={(agentId, gwToken) => {
           if (agentId && gwToken) {
             gatewayTokensRef.current[agentId] = gwToken;
             setGatewayToken(agentId, gwToken);
           }
-          setShowCreateDialog(false);
+          closeCreateDialog();
           fetchAgents();
         }}
         budget={budget}
@@ -2301,7 +2317,7 @@ export default function AgentsPage() {
                     <p className="text-text-secondary text-sm mb-1">No agents yet</p>
                     <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
                     <button
-                      onClick={() => setShowCreateDialog(true)}
+                      onClick={() => openCreateDialog()}
                       className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
                     >
                       Create Your First Agent
@@ -2395,7 +2411,7 @@ export default function AgentsPage() {
                 {/* New Agent row */}
                 {sidebarCollapsed ? (
                   <button
-                    onClick={() => setShowCreateDialog(true)}
+                    onClick={() => openCreateDialog()}
                     disabled={agentClusterUnavailable}
                     className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
                     title={agentClusterUnavailable ? "Agent cluster assignment pending" : "New Agent"}
@@ -2406,7 +2422,7 @@ export default function AgentsPage() {
                   </button>
                 ) : (
                   <button
-                    onClick={() => setShowCreateDialog(true)}
+                    onClick={() => openCreateDialog()}
                     disabled={agentClusterUnavailable}
                     className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
@@ -2617,7 +2633,15 @@ export default function AgentsPage() {
                     onLaunch={() => { void handleStart(selectedAgent.id); }}
                     blockedTitle={selectedAgentStartGuidance?.title}
                     blockedMessage={selectedAgentStartGuidance?.message}
-                    onCreateSuggestedAgent={selectedAgentStartGuidance?.suggestedTier ? () => setShowCreateDialog(true) : null}
+                    onCreateSuggestedAgent={
+                      selectedAgentStartGuidance?.suggestedTier
+                        ? () =>
+                            openCreateDialog({
+                              initialStep: 1,
+                              preferredTier: selectedAgentStartGuidance.suggestedTier,
+                            })
+                        : null
+                    }
                     createSuggestedLabel={
                       selectedAgentStartGuidance?.suggestedTier
                         ? `Create ${titleizeTier(selectedAgentStartGuidance.suggestedTier)} Agent`

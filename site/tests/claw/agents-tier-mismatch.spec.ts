@@ -115,7 +115,9 @@ test("agents page explains exact-tier slot mismatches and offers a create-new-ag
   await expect(startButtons.first()).toBeDisabled();
 
   await page.getByRole("button", { name: /create large agent/i }).click();
-  await expect(page.getByRole("heading", { name: /identity & personality/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /configuration/i })).toBeVisible();
+  await expect(page.getByRole("button", { name: /large/i })).toContainText(/4 free \/ 4 total/i);
+  await expect(page.getByRole("button", { name: /^back$/i })).toBeVisible();
 
   expect(startCalls).toBe(0);
 });
