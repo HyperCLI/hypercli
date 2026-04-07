@@ -163,9 +163,10 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const handlePluginToggle = async (pluginId: string, enabled: boolean) => {
     const plugin = getPlugin(pluginId);
 
-    // AI providers: when enabling, open the config panel so user can enter API key
-    // in a single flow. The panel handles both enable + credentials in one save.
-    if (plugin?.category === "ai-providers" && enabled) {
+    // AI providers: always open the config panel (for both enable and disable).
+    // The panel handles the action behind the SlideOver so the user never sees
+    // the page flicker during gateway reconnection.
+    if (plugin?.category === "ai-providers") {
       setActivePanel(`plugin:${pluginId}`);
       return;
     }
