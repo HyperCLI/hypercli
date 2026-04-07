@@ -13,9 +13,9 @@ def _resolve_available_agent_tier(client: HyperCLI) -> str:
         api_key=client.api_key,
         api_url=client.api_url,
     )
-    summary = summary_client.agent.subscription_summary()
+    current_plan = summary_client.agent.current_plan()
     for tier in ("large", "medium", "small"):
-        inventory = (summary.slot_inventory or {}).get(tier) or {}
+        inventory = (current_plan.slot_inventory or {}).get(tier) or {}
         if int(inventory.get("available", 0) or 0) > 0:
             return tier
     raise AssertionError("No available entitlement slots for integration agent tests")

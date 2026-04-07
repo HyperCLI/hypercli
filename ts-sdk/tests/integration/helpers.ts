@@ -28,9 +28,9 @@ export async function resolveAvailableAgentTier(client: HyperCLI): Promise<strin
     apiKey: TEST_API_KEY,
     apiUrl: TEST_API_BASE,
   });
-  const summary = await summaryClient.agent.subscriptionSummary();
+  const currentPlan = await summaryClient.agent.currentPlan();
   for (const tier of ["large", "medium", "small"]) {
-    const inventory = summary.slotInventory?.[tier];
+    const inventory = currentPlan.slotInventory?.[tier];
     if (inventory && Number(inventory.available || 0) > 0) {
       return tier;
     }
