@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useRef, useState, useEffect } from "react";
+import React, { useCallback, useMemo, useRef, useState, useEffect } from "react";
 import {
   Bot,
   Loader2,
@@ -15,6 +15,7 @@ import {
   Wrench,
   Brain,
   Settings,
+  Users,
   Zap,
 } from "lucide-react";
 import {
@@ -30,7 +31,10 @@ import {
   type StreamingVariant,
 } from "@/components/dashboard/ChatMessage";
 import { AgentView, ConnectionDetail, type TabId as AgentTabId } from "@/components/dashboard/AgentView";
+import { ConversationsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type ConversationsSidebarVariant, type Participant } from "@/components/dashboard/ConversationsSidebar";
+import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
 import type { ChatMessage } from "@/hooks/useGatewayChat";
+import { agentAvatar } from "@/lib/avatar";
 
 type InputVariant = FeatureVariant;
 
@@ -319,6 +323,43 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
+// ── Mock group conversation messages ──
+
+interface GroupMessage extends ChatMessage {
+  senderId: string;
+  senderName: string;
+}
+
+const MOCK_GROUP_MESSAGES: GroupMessage[] = [
+  { role: "user", content: "Let's review the Q4 data. @research-bot can you pull the latest?", senderId: "user-1", senderName: "You", timestamp: Date.now() - 600000 },
+  { role: "assistant", content: "Pulling Q4 dataset now. I can see 3 anomalies in the revenue batch that need attention. Two are in the APAC region and one in EMEA.", senderId: "agent-research", senderName: "research-bot", timestamp: Date.now() - 540000 },
+  { role: "assistant", content: "I can cross-reference those against the API ingestion logs. Give me a moment.", senderId: "agent-data", senderName: "data-bot", timestamp: Date.now() - 480000 },
+  { role: "user", content: "Good idea. Flag anything that deviates more than 2 standard deviations from the rolling average.", senderId: "user-1", senderName: "You", timestamp: Date.now() - 420000 },
+  {
+    role: "assistant",
+    content: "Found 2 entries exceeding the threshold:\n\n| Entry | Region | Deviation | Date |\n|-------|--------|-----------|------|\n| #4821 | APAC | +3.2σ | Mar 15 |\n| #4837 | EMEA | +2.8σ | Mar 18 |\n\nBoth correlate with the ingestion pipeline deploy on March 15.",
+    senderId: "agent-research",
+    senderName: "research-bot",
+    thinking: "Looking at the Q4 data, I need to compute standard deviations for each region's revenue entries. The rolling average window is 30 days. Let me check entries that fall outside 2σ...\n\nAPAC entry #4821: value 142,000 vs rolling avg 98,500 (σ=13,600) → 3.2σ deviation\nEMEA entry #4837: value 89,200 vs rolling avg 67,100 (σ=7,900) → 2.8σ deviation\n\nBoth occurred after the March 15 deploy — likely a pipeline bug.",
+    timestamp: Date.now() - 360000,
+  },
+  { role: "assistant", content: "Confirmed — those 2 entries correlate with a schema change in the ingestion pipeline deployed on March 15. The `revenue_amount` field was briefly parsed as cents instead of dollars.", senderId: "agent-data", senderName: "data-bot", timestamp: Date.now() - 300000 },
+  { role: "system", content: "code-bot joined the conversation", senderId: "system", senderName: "System", timestamp: Date.now() - 240000 },
+  { role: "assistant", content: "I can see the commit that caused this — `a]c3f29` in the ingestion service. I can prepare a fix and a backfill script for the affected entries. Want me to proceed?", senderId: "agent-code", senderName: "code-bot", timestamp: Date.now() - 180000 },
+  { role: "user", content: "Yes, prepare the fix but don't deploy yet. We need Myo to approve before pushing to production.", senderId: "user-1", senderName: "You", timestamp: Date.now() - 120000 },
+  {
+    role: "assistant",
+    content: "Fix ready in PR #847. The backfill script will correct 2 entries. Waiting for approval before deploy.",
+    senderId: "agent-code",
+    senderName: "code-bot",
+    toolCalls: [
+      { id: "tc1", name: "Edit", args: '{"file_path": "src/ingestion/parser.ts", "old_string": "parseFloat(raw)", "new_string": "parseFloat(raw) * 100"}', result: "File edited successfully." },
+      { id: "tc2", name: "Bash", args: '{"command": "git commit -m \\"Fix revenue parsing: cents→dollars\\""}', result: "Created commit a8f2c1d." },
+    ],
+    timestamp: Date.now() - 60000,
+  },
+];
+
 // ── Streaming simulation ──
 
 const STREAMING_TEXT =
@@ -335,6 +376,7 @@ export default function DevChatPage() {
   const [streamingActive, setStreamingActive] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState<any>(null);
   const [devTab, setDevTab] = useState<"chat" | "agent-view">("chat");
+  const [controlPanelOpen, setControlPanelOpen] = useState(false);
 
   // ── Agent View toggles ──
   const [showAgentView, setShowAgentView] = useState(true);
@@ -377,6 +419,22 @@ export default function DevChatPage() {
   const [gatewayStatusVariant, setGatewayStatusVariant] = useState<FeatureVariant>("off");
   const [workspaceFilesVariant, setWorkspaceFilesVariant] = useState<FeatureVariant>("off");
 
+  // ── Group conversation modules ──
+  const [membersVariant, setMembersVariant] = useState<FeatureVariant>("off");
+  const [agentRosterVariant, setAgentRosterVariant] = useState<FeatureVariant>("off");
+  const [groupActivityFeedVariant, setGroupActivityFeedVariant] = useState<FeatureVariant>("off");
+  const [threadSummaryVariant, setThreadSummaryVariant] = useState<FeatureVariant>("off");
+  const [mentionsTasksVariant, setMentionsTasksVariant] = useState<FeatureVariant>("off");
+  const [sharedFilesVariant, setSharedFilesVariant] = useState<FeatureVariant>("off");
+  const [pinnedItemsVariant, setPinnedItemsVariant] = useState<FeatureVariant>("off");
+  const [sharedWorkspaceVariant, setSharedWorkspaceVariant] = useState<FeatureVariant>("off");
+  const [agentFocusVariant, setAgentFocusVariant] = useState<FeatureVariant>("off");
+  const [groupPermissionsVariant, setGroupPermissionsVariant] = useState<FeatureVariant>("off");
+  const [agentChangelogVariant, setAgentChangelogVariant] = useState<FeatureVariant>("off");
+  const [decisionLogVariant, setDecisionLogVariant] = useState<FeatureVariant>("off");
+  const [handoffVariant, setHandoffVariant] = useState<FeatureVariant>("off");
+  const [conversationGraphVariant, setConversationGraphVariant] = useState<FeatureVariant>("off");
+
   // ── Feature variants ──
   const [thinkingVariant, setThinkingVariant] = useState<ThinkingVariant>("off");
   const [timestampVariant, setTimestampVariant] = useState<TimestampVariant>("off");
@@ -386,6 +444,90 @@ export default function DevChatPage() {
   const [inputVariant, setInputVariant] = useState<InputVariant>("off");
   const [themeVariant, setThemeVariant] = useState<ThemeVariant>("off");
   const [streamingVariant, setStreamingVariant] = useState<StreamingVariant>("off");
+
+  // ── Conversations Sidebar ──
+  const [conversationsSidebarVariant, setConversationsSidebarVariant] = useState<ConversationsSidebarVariant | "off">("v3");
+  const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
+  const [threads, setThreads] = useState<typeof MOCK_CONVERSATION_THREADS>([]);
+  const [addParticipantOpen, setAddParticipantOpen] = useState(false);
+
+  const groupThreadIds = useMemo(
+    () => new Set(threads.filter((t) => t.kind === "group" || t.kind === "agent-agent").map((t) => t.id)),
+    [threads],
+  );
+
+  const selectedThread = useMemo(
+    () => selectedThreadId ? threads.find((t) => t.id === selectedThreadId) ?? null : null,
+    [threads, selectedThreadId],
+  );
+
+  const handleAddParticipant = useCallback((participant: Participant) => {
+    if (!selectedThreadId) return;
+    setThreads((prev) =>
+      prev.map((t) => {
+        if (t.id !== selectedThreadId) return t;
+        if (t.participants.some((p) => p.id === participant.id)) return t;
+        const newParticipants = [...t.participants, participant];
+        const agentCount = newParticipants.filter((p) => p.type === "agent").length;
+        const userCount = newParticipants.filter((p) => p.type === "user").length;
+        const newKind = agentCount >= 2 || userCount >= 2 ? "group" as const
+          : agentCount === 1 && userCount === 0 ? "agent-agent" as const
+          : "user-agent" as const;
+        return {
+          ...t,
+          participants: newParticipants,
+          kind: newKind,
+        };
+      }),
+    );
+  }, [selectedThreadId]);
+
+  const handleNewThread = useCallback(() => {
+    const id = `t-new-${Date.now()}`;
+    const newThread: typeof threads[number] = {
+      id,
+      sessionKey: `session-${id}`,
+      participants: [{ id: "user-1", name: "You", type: "user" }],
+      kind: "user-agent",
+      lastMessage: "",
+      lastMessageBy: "user-1",
+      lastMessageAt: Date.now(),
+      messageCount: 0,
+      unreadCount: 0,
+      isActive: true,
+    };
+    setThreads((prev) => [newThread, ...prev]);
+    setSelectedThreadId(id);
+    setAddParticipantOpen(true);
+  }, []);
+
+  const handleRenameThread = useCallback((threadId: string, title: string) => {
+    setThreads((prev) => prev.map((t) => t.id === threadId ? { ...t, title } : t));
+  }, []);
+
+  const [pendingDeleteId, setPendingDeleteId] = useState<string | null>(null);
+
+  const handleDeleteThread = useCallback((threadId: string) => {
+    const thread = threads.find((t) => t.id === threadId);
+    if (!thread) return;
+
+    const hasAgents = thread.participants.some((p) => p.type === "agent");
+    if (hasAgents) {
+      // Needs confirmation
+      setPendingDeleteId(threadId);
+    } else {
+      // Solo thread — delete immediately
+      setThreads((prev) => prev.filter((t) => t.id !== threadId));
+      if (selectedThreadId === threadId) setSelectedThreadId(null);
+    }
+  }, [threads, selectedThreadId]);
+
+  const confirmDelete = useCallback(() => {
+    if (!pendingDeleteId) return;
+    setThreads((prev) => prev.filter((t) => t.id !== pendingDeleteId));
+    if (selectedThreadId === pendingDeleteId) setSelectedThreadId(null);
+    setPendingDeleteId(null);
+  }, [pendingDeleteId, selectedThreadId]);
 
   const applyPreset = useCallback((v: FeatureVariant) => {
     setThinkingVariant(v);
@@ -576,9 +718,27 @@ export default function DevChatPage() {
   }
 
   return (
-    <div className="flex h-[calc(100dvh-7.5rem)] gap-4 overflow-hidden">
-      {/* ── Control Panel ── */}
-      <div className="w-72 flex-shrink-0 flex flex-col border-r border-border min-h-0">
+    <div className="flex h-[calc(100dvh-7.5rem)] overflow-hidden relative">
+      {/* ── Floating Control Panel Toggle ── */}
+      <button
+        onClick={() => setControlPanelOpen((v) => !v)}
+        className={`fixed top-20 left-4 z-50 w-9 h-9 rounded-full flex items-center justify-center transition-all shadow-lg ${
+          controlPanelOpen
+            ? "bg-[#38D39F] text-[#0a0a0b]"
+            : "bg-[#1a1a1c] border border-border text-text-muted hover:text-foreground hover:border-border-strong"
+        }`}
+        title="Toggle variant controls"
+      >
+        <Settings className="w-4 h-4" />
+      </button>
+
+      {/* ── Floating Control Panel ── */}
+      {controlPanelOpen && (
+        <>
+          {/* Backdrop */}
+          <div className="fixed inset-0 z-40" onClick={() => setControlPanelOpen(false)} />
+          {/* Panel */}
+          <div className="fixed top-16 left-4 z-50 w-80 max-h-[calc(100dvh-6rem)] flex flex-col rounded-xl border border-border bg-[#111113] shadow-2xl overflow-hidden">
         {/* Tabs */}
         <div className="flex border-b border-border flex-shrink-0">
           <button
@@ -854,6 +1014,23 @@ export default function DevChatPage() {
               { value: "v1", label: "Alt 1 — Warm (amber user / green agent)" },
               { value: "v2", label: "Alt 2 — Contrast (green user / dark agent)" },
               { value: "v3", label: "Alt 3 — Vivid (amber user / blue agent)" },
+            ]}
+          />
+        </div>
+
+        {/* Layout */}
+        <div className="space-y-4 pt-1 border-t border-border">
+          <p className="text-[11px] font-semibold text-[#f0c56c] uppercase tracking-wider">Layout</p>
+          <VariantGroup
+            label="Conversations Sidebar"
+            value={conversationsSidebarVariant}
+            onChange={setConversationsSidebarVariant}
+            options={[
+              { value: "off", label: "Off — hidden" },
+              { value: "v1", label: "Alt 1 — flat list" },
+              { value: "v2", label: "Alt 2 — grouped by agent" },
+              { value: "v3", label: "Alt 3 — handoff + list" },
+              { value: "v3.1", label: "Alt 3.1 — handoff + rename" },
             ]}
           />
         </div>
@@ -1165,36 +1342,259 @@ export default function DevChatPage() {
               { value: "v3", label: "Alt 3 — summary" },
             ]} />
           </div>
+
+          {/* Group Conversation Modules */}
+          <div className="space-y-4 pt-1 border-t border-border">
+            <p className="text-[11px] font-semibold text-[#d05f5f] uppercase tracking-wider">Group Conversation</p>
+            <VariantGroup label="Members" value={membersVariant} onChange={setMembersVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — list rows" },
+              { value: "v2", label: "Alt 2 — avatar grid" },
+              { value: "v3", label: "Alt 3 — summary" },
+            ]} />
+            <VariantGroup label="Agent Roster" value={agentRosterVariant} onChange={setAgentRosterVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — full rows" },
+              { value: "v2", label: "Alt 2 — card grid" },
+              { value: "v3", label: "Alt 3 — chip row" },
+            ]} />
+            <VariantGroup label="Activity Feed" value={groupActivityFeedVariant} onChange={setGroupActivityFeedVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — timeline" },
+              { value: "v2", label: "Alt 2 — icon rows" },
+              { value: "v3", label: "Alt 3 — grouped" },
+            ]} />
+            <VariantGroup label="Thread Summary" value={threadSummaryVariant} onChange={setThreadSummaryVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — cards" },
+              { value: "v2", label: "Alt 2 — list rows" },
+              { value: "v3", label: "Alt 3 — numbered" },
+            ]} />
+            <VariantGroup label="Mentions & Tasks" value={mentionsTasksVariant} onChange={setMentionsTasksVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — task list" },
+              { value: "v2", label: "Alt 2 — by assignee" },
+              { value: "v3", label: "Alt 3 — summary" },
+            ]} />
+            <VariantGroup label="Shared Files" value={sharedFilesVariant} onChange={setSharedFilesVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — file rows" },
+              { value: "v2", label: "Alt 2 — card grid" },
+              { value: "v3", label: "Alt 3 — chip badges" },
+            ]} />
+            <VariantGroup label="Pinned Items" value={pinnedItemsVariant} onChange={setPinnedItemsVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — cards" },
+              { value: "v2", label: "Alt 2 — list rows" },
+              { value: "v3", label: "Alt 3 — numbered" },
+            ]} />
+            <VariantGroup label="Workspace" value={sharedWorkspaceVariant} onChange={setSharedWorkspaceVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — cards" },
+              { value: "v2", label: "Alt 2 — icon grid" },
+              { value: "v3", label: "Alt 3 — summary" },
+            ]} />
+            <VariantGroup label="Agent Focus" value={agentFocusVariant} onChange={setAgentFocusVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — full layout" },
+              { value: "v2", label: "Alt 2 — compact card" },
+              { value: "v3", label: "Alt 3 — one-liner" },
+            ]} />
+            <VariantGroup label="Group Permissions" value={groupPermissionsVariant} onChange={setGroupPermissionsVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — table rows" },
+              { value: "v2", label: "Alt 2 — by role" },
+              { value: "v3", label: "Alt 3 — summary" },
+            ]} />
+            <VariantGroup label="Agent Changelog" value={agentChangelogVariant} onChange={setAgentChangelogVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — timeline" },
+              { value: "v2", label: "Alt 2 — commit list" },
+              { value: "v3", label: "Alt 3 — compact" },
+            ]} />
+            <VariantGroup label="Decision Log" value={decisionLogVariant} onChange={setDecisionLogVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — cards" },
+              { value: "v2", label: "Alt 2 — list rows" },
+              { value: "v3", label: "Alt 3 — numbered" },
+            ]} />
+            <VariantGroup label="Handoff" value={handoffVariant} onChange={setHandoffVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — sections" },
+              { value: "v2", label: "Alt 2 — bullet card" },
+              { value: "v3", label: "Alt 3 — summary" },
+            ]} />
+            <VariantGroup label="Conversation Graph" value={conversationGraphVariant} onChange={setConversationGraphVariant} options={[
+              { value: "off", label: "Off" },
+              { value: "v1", label: "Alt 1 — full graph" },
+              { value: "v2", label: "Alt 2 — compact" },
+              { value: "v3", label: "Alt 3 — nodes only" },
+            ]} />
+          </div>
         </>)}
 
         </div>
-      </div>
+          </div>
+        </>
+      )}
+
+      {/* ── Conversations Sidebar ── */}
+      {conversationsSidebarVariant !== "off" && (
+        <ConversationsSidebar
+          variant={conversationsSidebarVariant}
+          threads={threads}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={setSelectedThreadId}
+          onNewThread={handleNewThread}
+          onDeleteThread={handleDeleteThread}
+          onRenameThread={handleRenameThread}
+        />
+      )}
 
       {/* ── Chat Panel (mirrors agents page layout) ── */}
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {/* Header bar */}
         <div className="flex-shrink-0 flex items-center gap-3 border-b border-border px-4 py-3">
-          <div className="relative">
-            <div className="w-8 h-8 rounded-full bg-surface-low flex items-center justify-center text-lg">
-              <Bot className="w-5 h-5 text-[#38D39F]" />
-            </div>
-            <div
-              className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${
-                connected ? "bg-[#38D39F]" : connecting ? "bg-[#f0c56c] animate-pulse" : "bg-text-muted"
-              }`}
-            />
-          </div>
-          <div className="min-w-0">
-            <p className="text-sm font-medium text-foreground truncate">mock-agent-dev</p>
+          {/* Dynamic avatar based on conversation */}
+          {(() => {
+            if (!selectedThread) {
+              // Default — single bot icon
+              return (
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-surface-low flex items-center justify-center">
+                    <Bot className="w-5 h-5 text-[#38D39F]" />
+                  </div>
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${connected ? "bg-[#38D39F]" : connecting ? "bg-[#f0c56c] animate-pulse" : "bg-text-muted"}`} />
+                </div>
+              );
+            }
+
+            const agents = selectedThread.participants.filter((p) => p.type === "agent");
+            const isGroup = selectedThread.participants.length > 2 || selectedThread.kind === "group";
+
+            if (agents.length === 0) {
+              // New conversation with no agents yet
+              return (
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full bg-surface-low flex items-center justify-center">
+                    <Users className="w-4 h-4 text-text-muted" />
+                  </div>
+                </div>
+              );
+            }
+
+            if (!isGroup && agents.length === 1) {
+              // 1:1 — single agent avatar
+              const av = agentAvatar(agents[0].name);
+              const Icon = av.icon;
+              return (
+                <div className="relative">
+                  <div className="w-8 h-8 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
+                    <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                  </div>
+                  <div className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${selectedThread.isActive ? "bg-[#38D39F]" : "bg-text-muted"}`} />
+                </div>
+              );
+            }
+
+            // Group — stacked avatars (max 3)
+            const shown = agents.slice(0, 3);
+            return (
+              <div className="relative flex items-center" style={{ width: 8 + shown.length * 22 }}>
+                {shown.map((agent, i) => {
+                  const av = agentAvatar(agent.name);
+                  const Icon = av.icon;
+                  return (
+                    <div
+                      key={agent.id}
+                      className="rounded-full flex items-center justify-center border-2 border-background"
+                      style={{
+                        width: 28,
+                        height: 28,
+                        backgroundColor: av.bgColor,
+                        marginLeft: i > 0 ? -8 : 0,
+                        zIndex: shown.length - i,
+                      }}
+                    >
+                      <Icon className="w-3.5 h-3.5" style={{ color: av.fgColor }} />
+                    </div>
+                  );
+                })}
+                {agents.length > 3 && (
+                  <div
+                    className="w-[28px] h-[28px] rounded-full bg-surface-low flex items-center justify-center border-2 border-background text-[10px] font-medium text-text-muted"
+                    style={{ marginLeft: -8, zIndex: 0 }}
+                  >
+                    +{agents.length - 3}
+                  </div>
+                )}
+              </div>
+            );
+          })()}
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-medium text-foreground truncate">
+              {selectedThread
+                ? (selectedThread.title
+                  ?? selectedThread.participants.filter((p) => p.type === "agent").map((p) => p.name).join(", ")
+                  ?? "mock-agent-dev")
+                : "mock-agent-dev"}
+            </p>
             <p className="text-xs text-text-muted">
-              {connected ? "Connected" : connecting ? "Connecting to gateway..." : "Disconnected"}
+              {selectedThread && groupThreadIds.has(selectedThread.id)
+                ? `Group · ${selectedThread.participants.length} participants`
+                : connected ? "Connected" : connecting ? "Connecting to gateway..." : "Disconnected"}
             </p>
           </div>
+
+          {/* Add participant button */}
+          {selectedThread && (
+            <div className="relative flex-shrink-0">
+              <button
+                onClick={(e) => { e.stopPropagation(); setAddParticipantOpen((v) => !v); }}
+                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                  addParticipantOpen
+                    ? "bg-[#38D39F] text-[#0a0a0b]"
+                    : "text-text-muted hover:text-foreground hover:bg-surface-low"
+                }`}
+                title="Add participant"
+              >
+                <Plus className="w-3.5 h-3.5" />
+              </button>
+              {addParticipantOpen && (
+                <AddParticipantPanel
+                  currentParticipants={selectedThread.participants}
+                  allParticipants={MOCK_PARTICIPANTS}
+                  onAdd={handleAddParticipant}
+                  onClose={() => setAddParticipantOpen(false)}
+                  isGroup={selectedThread.kind === "group" || selectedThread.participants.length > 2}
+                />
+              )}
+            </div>
+          )}
         </div>
 
         {/* Messages area */}
         <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-          {messages.length === 0 && (
+          {/* Empty state: new conversation with only "You" */}
+          {selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
+            <div className="flex flex-col items-center justify-center h-full text-text-muted">
+              <Users className="w-10 h-10 mb-3 text-text-muted/40" />
+              <p className="text-sm font-medium text-foreground mb-1">New conversation</p>
+              <p className="text-xs text-text-muted text-center max-w-[220px]">
+                Add agents or team members to start collaborating.
+              </p>
+              <button
+                onClick={() => setAddParticipantOpen(true)}
+                className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] text-xs font-medium hover:bg-[#38D39F]/20 transition-colors"
+              >
+                <Plus className="w-3 h-3" />
+                Add participants
+              </button>
+            </div>
+          )}
+
+          {/* Empty state: no thread selected, no messages */}
+          {messages.length === 0 && (!selectedThread || (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id))) && (
             <div className="flex flex-col items-center justify-center h-full text-text-muted">
               {connecting ? (
                 <>
@@ -1216,20 +1616,29 @@ export default function DevChatPage() {
             </div>
           )}
 
-          {messages.map((msg, i) => (
-            <ChatMessageBubble
-              key={i}
-              message={msg}
-              timestampVariant={timestampVariant}
-              bubblesVariant={bubblesVariant}
-              nameVariant={nameVariant}
-              animationVariant={animationVariant}
-              themeVariant={themeVariant}
-              streamingVariant={streamingVariant}
-              isStreaming={sending && i === messages.length - 1 && msg.role === "assistant"}
-              agentName="mock-agent-dev"
-            />
-          ))}
+          {(() => {
+            const isGroupThread = selectedThreadId !== null && groupThreadIds.has(selectedThreadId);
+            const displayMessages: (ChatMessage & { senderId?: string; senderName?: string })[] =
+              isGroupThread ? MOCK_GROUP_MESSAGES : messages;
+            const effectiveNameVariant = isGroupThread && nameVariant === "off" ? "v2" as const : nameVariant;
+
+            return displayMessages.map((msg, i) => (
+              <ChatMessageBubble
+                key={`${selectedThreadId ?? "default"}-${i}`}
+                message={msg}
+                timestampVariant={timestampVariant}
+                bubblesVariant={bubblesVariant}
+                nameVariant={effectiveNameVariant}
+                animationVariant={animationVariant}
+                themeVariant={themeVariant}
+                streamingVariant={streamingVariant}
+                isStreaming={!isGroupThread && sending && i === displayMessages.length - 1 && msg.role === "assistant"}
+                agentName={isGroupThread ? undefined : "mock-agent-dev"}
+                senderName={(msg as GroupMessage).senderName}
+                isGroupChat={isGroupThread}
+              />
+            ));
+          })()}
 
           {sending && messages[messages.length - 1]?.role !== "assistant" && (
             <ChatThinkingIndicator variant={thinkingVariant} />
@@ -1386,10 +1795,73 @@ export default function DevChatPage() {
             agentUrlsVariant={agentUrlsVariant}
             gatewayStatusVariant={gatewayStatusVariant}
             workspaceFilesVariant={workspaceFilesVariant}
+            membersVariant={membersVariant}
+            agentRosterVariant={agentRosterVariant}
+            groupActivityFeedVariant={groupActivityFeedVariant}
+            threadSummaryVariant={threadSummaryVariant}
+            mentionsTasksVariant={mentionsTasksVariant}
+            sharedFilesVariant={sharedFilesVariant}
+            pinnedItemsVariant={pinnedItemsVariant}
+            sharedWorkspaceVariant={sharedWorkspaceVariant}
+            agentFocusVariant={agentFocusVariant}
+            groupPermissionsVariant={groupPermissionsVariant}
+            agentChangelogVariant={agentChangelogVariant}
+            decisionLogVariant={decisionLogVariant}
+            handoffVariant={handoffVariant}
+            conversationGraphVariant={conversationGraphVariant}
+            conversationThreads={threads}
+            selectedConversationThreadId={selectedThreadId}
           />
         )}
       </div>
       )}
+
+      {/* ── Delete Confirmation Dialog ── */}
+      {pendingDeleteId && (() => {
+        const thread = threads.find((t) => t.id === pendingDeleteId);
+        const agentNames = thread?.participants.filter((p) => p.type === "agent").map((p) => p.name) ?? [];
+        return (
+          <>
+            <div className="fixed inset-0 z-50 bg-black/50" onClick={() => setPendingDeleteId(null)} />
+            <div className="fixed z-50 top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 w-80 rounded-xl border border-border bg-[#111113] shadow-2xl p-4 space-y-3">
+              <div className="flex items-center gap-2">
+                <div className="w-8 h-8 rounded-full bg-[#d05f5f]/10 flex items-center justify-center">
+                  <Trash2 className="w-4 h-4 text-[#d05f5f]" />
+                </div>
+                <div>
+                  <p className="text-sm font-medium text-foreground">Delete conversation?</p>
+                  <p className="text-[11px] text-text-muted">This will disconnect {agentNames.length} agent{agentNames.length !== 1 ? "s" : ""}</p>
+                </div>
+              </div>
+              <div className="flex flex-wrap gap-1">
+                {agentNames.map((name) => {
+                  const av = agentAvatar(name);
+                  const Icon = av.icon;
+                  return (
+                    <span key={name} className="flex items-center gap-1 px-2 py-0.5 rounded-full text-[10px] font-medium" style={{ backgroundColor: `${av.bgColor}`, color: av.fgColor }}>
+                      <Icon className="w-3 h-3" />{name}
+                    </span>
+                  );
+                })}
+              </div>
+              <div className="flex gap-2 pt-1">
+                <button
+                  onClick={() => setPendingDeleteId(null)}
+                  className="flex-1 px-3 py-1.5 rounded-lg border border-border text-xs text-foreground hover:bg-surface-low transition-colors"
+                >
+                  Cancel
+                </button>
+                <button
+                  onClick={confirmDelete}
+                  className="flex-1 px-3 py-1.5 rounded-lg bg-[#d05f5f] text-white text-xs font-medium hover:bg-[#c04f4f] transition-colors"
+                >
+                  Delete
+                </button>
+              </div>
+            </div>
+          </>
+        );
+      })()}
     </div>
   );
 }
