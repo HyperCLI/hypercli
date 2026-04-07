@@ -783,6 +783,9 @@ class GatewayClient:
     def pending_pairing(self) -> GatewayPairingState | None:
         return self._pending_pairing
 
+    def set_gateway_token(self, token: str | None) -> None:
+        self.gateway_token = token.strip() if isinstance(token, str) and token.strip() else None
+
     def _storage_scope(self) -> str:
         return self.deployment_id or self.url
 

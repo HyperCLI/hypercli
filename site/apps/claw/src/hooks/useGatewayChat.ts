@@ -10,7 +10,8 @@ import {
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/gateway";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
-import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState, clearDeviceAuthToken } from "@/lib/agent-store";
+import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState } from "@/lib/agent-store";
+import { refreshGatewayToken } from "@/lib/gateway-auth";
 
 export type ChatAttachment = GatewayChatAttachmentPayload;
 
@@ -319,6 +320,20 @@ export function useGatewayChat(
             if (cancelled) return;
             setConnected(false);
             setConnecting(true);
+            if (code !== 1000) {
+              void (async () => {
+                try {
+                  const freshAuthToken = await getTokenRef.current();
+                  if (cancelled || !gw || !agent?.id) return;
+                  const freshGatewayToken = await refreshGatewayToken(agent.id, freshAuthToken);
+                  if (freshGatewayToken) {
+                    gw.setGatewayToken(freshGatewayToken);
+                  }
+                } catch {
+                  // Reconnect will fall back to the last known token if refresh fails.
+                }
+              })();
+            }
             if (closeError?.message) {
               setError(closeError.message);
               return;
@@ -515,7 +530,6 @@ export function useGatewayChat(
       gwRef.current = null;
       if (agent?.id) {
         removeAgentState(agent.id);
-        clearDeviceAuthToken(agent.id);
       }
       setConnected(false);
       setConnecting(false);

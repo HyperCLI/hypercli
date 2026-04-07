@@ -10,7 +10,7 @@ import {
   type OpenClawConfigSchemaResponse,
   type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/gateway";
-import { getGatewayToken, setGatewayToken, removeAgentState, clearDeviceAuthToken } from "@/lib/agent-store";
+import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -1568,7 +1568,6 @@ export default function AgentsPage() {
     setError(null);
     delete gatewayTokensRef.current[agentId];
     removeAgentState(agentId);
-    clearDeviceAuthToken(agentId);
     try {
       const token = await getToken();
       const started = await startOpenClawAgent(token, agentId);
@@ -1595,7 +1594,6 @@ export default function AgentsPage() {
       await createAgentClient(token).stop(agentId);
       delete gatewayTokensRef.current[agentId];
       removeAgentState(agentId);
-      clearDeviceAuthToken(agentId);
       // Cooldown: disable Start for 5s while backend cleans up
       setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
       const existing = stoppedTimersRef.current.get(agentId);

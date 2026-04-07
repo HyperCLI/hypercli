@@ -10,6 +10,8 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
+from hypercli import HyperCLI
+
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
 from .embed import app as embed_app
@@ -47,6 +49,30 @@ def require_x402_deps():
         console.print("\nInstall with:")
         console.print("  [bold]pip install 'hypercli-cli[wallet]'[/bold]")
         raise typer.Exit(1)
+
+
+def _resolve_agent_query_key() -> str:
+    key = os.getenv("HYPER_AGENTS_API_KEY", "").strip() or os.getenv("HYPER_API_KEY", "").strip()
+    if key:
+        return key
+    if AGENT_KEY_PATH.exists():
+        try:
+            with open(AGENT_KEY_PATH) as f:
+                data = json.load(f)
+            key = str(data.get("key") or "").strip()
+            if key:
+                return key
+        except Exception:
+            pass
+    console.print("[red]❌ No HyperClaw API key found.[/red]")
+    console.print("Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe first with [bold]hyper agent subscribe[/bold].")
+    raise typer.Exit(1)
+
+
+def _get_agent_query_client(dev: bool) -> HyperCLI:
+    key = _resolve_agent_query_key()
+    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    return HyperCLI(api_key=key, agent_api_key=key, api_url=api_base, agent_dev=dev)
 
 
 @app.command("subscribe")
@@ -323,6 +349,104 @@ def plans(
     console.print(table)
     console.print()
     console.print("Subscribe with: [bold]hyper agent subscribe <plan_id> <amount>[/bold]")
+
+
+@app.command("current-plan")
+def current_plan(
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Show the effective current HyperClaw plan."""
+    client = _get_agent_query_client(dev)
+    current = client.agent.current_plan()
+
+    if json_output:
+        console.print_json(json.dumps(current.__dict__, indent=2, default=str))
+        return
+
+    console.print("\n[bold]Current HyperClaw Plan[/bold]\n")
+    console.print(f"Plan: [bold]{current.name}[/bold] ({current.id})")
+    console.print(f"TPM/RPM: {current.tpm_limit:,} / {current.rpm_limit:,}")
+    if current.pooled_tpd:
+        console.print(f"Pooled TPD: {current.pooled_tpd:,}")
+    if current.expires_at:
+        console.print(f"Expires: {current.expires_at.strftime('%Y-%m-%d %H:%M:%S %Z')}")
+    if current.provider:
+        console.print(f"Provider: {current.provider}")
+    console.print(f"Cancel at period end: {'yes' if current.cancel_at_period_end else 'no'}")
+    if current.slot_inventory:
+        console.print("\n[bold]Slots[/bold]")
+        for tier, inventory in current.slot_inventory.items():
+            console.print(
+                f"  {tier}: {inventory.get('used', 0)}/{inventory.get('granted', 0)} "
+                f"({inventory.get('available', 0)} available)"
+            )
+
+
+@app.command("subscriptions")
+def subscriptions(
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """List your HyperClaw subscriptions/entitlements."""
+    client = _get_agent_query_client(dev)
+    items = client.agent.subscriptions()
+
+    if json_output:
+        console.print_json(json.dumps([item.__dict__ for item in items], indent=2, default=str))
+        return
+
+    table = Table(title="HyperClaw Subscriptions")
+    table.add_column("ID", style="cyan")
+    table.add_column("Plan", style="green")
+    table.add_column("Qty", justify="right")
+    table.add_column("Provider")
+    table.add_column("Status")
+    table.add_column("Expires")
+    for item in items:
+        expires = item.expires_at.strftime("%Y-%m-%d %H:%M:%S %Z") if item.expires_at else ""
+        table.add_row(item.id[:12], item.plan_name or item.plan_id, str(item.quantity), item.provider, item.status, expires)
+    console.print()
+    console.print(table)
+
+
+@app.command("subscription-summary")
+def subscription_summary(
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Show your effective HyperClaw entitlement summary."""
+    client = _get_agent_query_client(dev)
+    summary = client.agent.subscription_summary()
+
+    if json_output:
+        console.print_json(json.dumps({
+            "effective_plan_id": summary.effective_plan_id,
+            "current_subscription_id": summary.current_subscription_id,
+            "pooled_tpm_limit": summary.pooled_tpm_limit,
+            "pooled_rpm_limit": summary.pooled_rpm_limit,
+            "pooled_tpd": summary.pooled_tpd,
+            "slot_inventory": summary.slot_inventory,
+            "active_subscription_count": summary.active_subscription_count,
+            "active_subscriptions": [item.__dict__ for item in summary.active_subscriptions],
+            "subscriptions": [item.__dict__ for item in summary.subscriptions],
+            "user": summary.user,
+        }, indent=2, default=str))
+        return
+
+    console.print("\n[bold]HyperClaw Entitlement Summary[/bold]\n")
+    console.print(f"Effective plan: [bold]{summary.effective_plan_id}[/bold]")
+    console.print(f"Current subscription: {summary.current_subscription_id or ''}")
+    console.print(
+        f"Pooled limits: {summary.pooled_tpm_limit:,} TPM / "
+        f"{summary.pooled_rpm_limit:,} RPM / {summary.pooled_tpd:,} TPD"
+    )
+    console.print("\n[bold]Slots[/bold]")
+    for tier, inventory in summary.slot_inventory.items():
+        console.print(
+            f"  {tier}: {inventory.get('used', 0)}/{inventory.get('granted', 0)} "
+            f"({inventory.get('available', 0)} available)"
+        )
 
 
 @app.command("models")

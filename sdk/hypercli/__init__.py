@@ -38,7 +38,14 @@ from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Deployments, Agent, OpenClawAgent, ExecResult, build_openclaw_routes
 from .shell import ShellSession, shell_connect
-from .agent import HyperAgent, HyperAgentPlan, HyperAgentModel
+from .agent import (
+    HyperAgent,
+    HyperAgentPlan,
+    HyperAgentCurrentPlan,
+    HyperAgentSubscription,
+    HyperAgentSubscriptionSummary,
+    HyperAgentModel,
+)
 from .gateway import (
     GatewayClient,
     GatewayError,
@@ -130,6 +137,9 @@ __all__ = [
     # HyperAgent
     "HyperAgent",
     "HyperAgentPlan",
+    "HyperAgentCurrentPlan",
+    "HyperAgentSubscription",
+    "HyperAgentSubscriptionSummary",
     "HyperAgentModel",
     # OpenClaw Gateway
     "GatewayClient",

@@ -53,6 +53,45 @@ export interface HyperAgentCurrentPlan {
   rpmLimit: number;
   expiresAt: Date | null;
   cancelAtPeriodEnd: boolean;
+  provider?: string;
+  secondsRemaining?: number | null;
+  pooledTpd?: number;
+  slotInventory?: Record<string, { granted: number; used: number; available: number }>;
+}
+
+export interface HyperAgentSubscription {
+  id: string;
+  userId: string;
+  planId: string;
+  planName: string;
+  provider: string;
+  status: string;
+  quantity: number;
+  expiresAt: Date | null;
+  updatedAt: Date | null;
+  stripeSubscriptionId: string | null;
+  cancelAtPeriodEnd: boolean;
+  canCancel: boolean;
+  isCurrent: boolean;
+  meta: Record<string, any> | null;
+  planTpmLimit: number;
+  planRpmLimit: number;
+  planTpd: number;
+  planAgentTier: string | null;
+  slotGrants: Record<string, number> | null;
+}
+
+export interface HyperAgentSubscriptionSummary {
+  effectivePlanId: string;
+  currentSubscriptionId: string | null;
+  pooledTpmLimit: number;
+  pooledRpmLimit: number;
+  pooledTpd: number;
+  slotInventory: Record<string, { granted: number; used: number; available: number }>;
+  activeSubscriptionCount: number;
+  activeSubscriptions: HyperAgentSubscription[];
+  subscriptions: HyperAgentSubscription[];
+  user: Record<string, any>;
 }
 
 export interface HyperAgentModel {
@@ -85,6 +124,49 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
     rpmLimit: data.rpm_limit || 0,
     expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
     cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
+    provider: data.provider || undefined,
+    secondsRemaining: data.seconds_remaining ?? null,
+    pooledTpd: data.pooled_tpd || 0,
+    slotInventory: data.slot_inventory || undefined,
+  };
+}
+
+function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
+  return {
+    id: data.id || '',
+    userId: data.user_id || '',
+    planId: data.plan_id || '',
+    planName: data.plan_name || data.plan_id || '',
+    provider: data.provider || '',
+    status: data.status || '',
+    quantity: data.quantity || 1,
+    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
+    stripeSubscriptionId: data.stripe_subscription_id || null,
+    cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
+    canCancel: Boolean(data.can_cancel),
+    isCurrent: Boolean(data.is_current),
+    meta: data.meta || null,
+    planTpmLimit: data.plan_tpm_limit || 0,
+    planRpmLimit: data.plan_rpm_limit || 0,
+    planTpd: data.plan_tpd || 0,
+    planAgentTier: data.plan_agent_tier || null,
+    slotGrants: data.slot_grants || null,
+  };
+}
+
+function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptionSummary {
+  return {
+    effectivePlanId: data.effective_plan_id || '',
+    currentSubscriptionId: data.current_subscription_id || null,
+    pooledTpmLimit: data.pooled_tpm_limit || 0,
+    pooledRpmLimit: data.pooled_rpm_limit || 0,
+    pooledTpd: data.pooled_tpd || 0,
+    slotInventory: data.slot_inventory || {},
+    activeSubscriptionCount: data.active_subscription_count || 0,
+    activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
+    subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
+    user: data.user || {},
   };
 }
 
@@ -165,6 +247,36 @@ export class HyperAgent {
 
     const data: any = await response.json();
     return hyperAgentCurrentPlanFromDict(data);
+  }
+
+  async subscriptions(): Promise<HyperAgentSubscription[]> {
+    const response = await fetch(`${this.baseUrlWithoutV1}/api/subscriptions`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get subscriptions: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return (data.items || []).map(hyperAgentSubscriptionFromDict);
+  }
+
+  async subscriptionSummary(): Promise<HyperAgentSubscriptionSummary> {
+    const response = await fetch(`${this.baseUrlWithoutV1}/api/subscriptions/summary`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get subscription summary: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return hyperAgentSubscriptionSummaryFromDict(data);
   }
 
   async models(): Promise<HyperAgentModel[]> {

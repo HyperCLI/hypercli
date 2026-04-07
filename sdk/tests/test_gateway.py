@@ -119,6 +119,16 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
     assert client.pending_pairing is None
 
 
+def test_set_gateway_token_normalizes_blank_values() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example", gateway_token="gw-token-1")
+
+    client.set_gateway_token("  gw-token-2  ")
+    assert client.gateway_token == "gw-token-2"
+
+    client.set_gateway_token("   ")
+    assert client.gateway_token is None
+
+
 @pytest.mark.asyncio
 async def test_chat_send_accepts_chat_content_and_done_events() -> None:
     client = GatewayClient(url="wss://openclaw-agent.example")
