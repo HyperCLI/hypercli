@@ -33,8 +33,8 @@ interface IntegrationsPageProps {
   connected: boolean;
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe?: () => Promise<Record<string, any>>;
-  onWebLoginStart?: (options?: { force?: boolean; verbose?: boolean }) => Promise<Record<string, any>>;
-  onWebLoginWait?: (options?: { timeoutMs?: number }) => Promise<Record<string, any>>;
+  /** Switch the parent view to the Shell tab (for QR-based plugins) */
+  onOpenShell?: () => void;
 }
 
 interface ChannelState {
@@ -64,7 +64,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe, onWebLoginStart, onWebLoginWait }: IntegrationsPageProps) {
+export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe, onOpenShell }: IntegrationsPageProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
@@ -613,31 +613,20 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         </div>
       </SlideOver>
 
-      {/* WhatsApp QR Wizard */}
+      {/* WhatsApp Setup Wizard */}
       <SlideOver
         open={activePanel === "whatsapp"}
         onClose={() => setActivePanel(null)}
         title="Connect WhatsApp"
         description="Pair your WhatsApp account via QR code"
       >
-        {onWebLoginStart && onWebLoginWait && (
-          <QrLoginWizard
-            pluginId="whatsapp"
-            displayName="WhatsApp"
-            onWebLoginStart={onWebLoginStart}
-            onWebLoginWait={onWebLoginWait}
-            onChannelProbe={onChannelProbe ?? (async () => ({}))}
-            onClose={() => {
-              setActivePanel(null);
-              if (onChannelProbe && whatsappEnabled) {
-                onChannelProbe().then((status) => {
-                  if (isChannelLive(status, "whatsapp")) setWhatsappVerified(true);
-                }).catch(() => {});
-              }
-            }}
-            onVerified={() => setWhatsappVerified(true)}
-          />
-        )}
+        <QrLoginWizard
+          pluginId="whatsapp"
+          displayName="WhatsApp"
+          onEnable={handleConfigPatch}
+          onOpenShell={onOpenShell}
+          onClose={() => setActivePanel(null)}
+        />
       </SlideOver>
 
       {/* WhatsApp Management */}
@@ -663,31 +652,20 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         </div>
       </SlideOver>
 
-      {/* Zalo Personal QR Wizard */}
+      {/* Zalo Personal Setup Wizard */}
       <SlideOver
         open={activePanel === "zalouser"}
         onClose={() => setActivePanel(null)}
         title="Connect Zalo Personal"
         description="Pair your Zalo account via QR code"
       >
-        {onWebLoginStart && onWebLoginWait && (
-          <QrLoginWizard
-            pluginId="zalouser"
-            displayName="Zalo Personal"
-            onWebLoginStart={onWebLoginStart}
-            onWebLoginWait={onWebLoginWait}
-            onChannelProbe={onChannelProbe ?? (async () => ({}))}
-            onClose={() => {
-              setActivePanel(null);
-              if (onChannelProbe && zalouserEnabled) {
-                onChannelProbe().then((status) => {
-                  if (isChannelLive(status, "zalouser")) setZalouserVerified(true);
-                }).catch(() => {});
-              }
-            }}
-            onVerified={() => setZalouserVerified(true)}
-          />
-        )}
+        <QrLoginWizard
+          pluginId="zalouser"
+          displayName="Zalo Personal"
+          onEnable={handleConfigPatch}
+          onOpenShell={onOpenShell}
+          onClose={() => setActivePanel(null)}
+        />
       </SlideOver>
 
       {/* Zalo Personal Management */}
