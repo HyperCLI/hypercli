@@ -1,15 +1,20 @@
 ---
-title: hyper renders (legacy)
-description: Legacy note for the removed top-level renders command.
+title: Renders And Flows
+description: Direct renders are still supported alongside the higher-level flow surface.
 ---
 
-`hyper renders` is no longer a live top-level CLI command.
+HyperCLI supports two render surfaces:
 
-Use:
+- `hyper flow ...` for the managed flow catalog we curate
+- direct renders via the REST API and SDKs when you want to work with raw render jobs yourself
 
-- `hyper flow ...` for current media generation
-- `client.renders` in the Python SDK
-- `client.renders` in the TypeScript SDK
+`hyper flow` is the recommended CLI entrypoint for media generation today.
+
+Use it when you want:
+
+- stable managed templates
+- flow-level pricing and x402 support
+- higher-level commands like `text-to-image` and `image-to-video`
 
 ```bash
 hyper flow text-to-image "a cat in space"
@@ -18,7 +23,8 @@ hyper flow list
 hyper flow get <render_id>
 ```
 
-For managed render APIs in code, see:
+Use direct renders when you want lower-level control over render jobs via the API or SDKs:
 
 - [Python renders SDK](/sdk/renders)
 - [TypeScript renders SDK](/ts-sdk/renders)
+- [Render API](/render)

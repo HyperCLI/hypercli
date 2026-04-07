@@ -99,7 +99,7 @@ def _get_openai_client(api_key: str, api_base: str):
         from openai import OpenAI
     except ImportError:
         console.print("[red]❌ The llm command requires the openai package.[/red]")
-        console.print("Reinstall or upgrade with [bold]pip install 'hypercli-cli>=2026.4.5'[/bold].")
+        console.print("Reinstall or upgrade with [bold]pip install 'hypercli-cli>=2026.4.6'[/bold].")
         raise typer.Exit(1)
     return OpenAI(api_key=api_key, base_url=f"{api_base}/v1")
 

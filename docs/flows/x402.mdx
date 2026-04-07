@@ -57,7 +57,7 @@ Rules:
 - `amount` must match the fixed flow price exactly.
 - Middleware payment amount and signed transfer amount must also match that fixed price.
 - Payer wallet is resolved from the signed authorization payload.
-- If wallet has no account yet, HyperCLI creates an `x402` login user for that wallet.
+- If the wallet has no account yet, HyperCLI creates or reuses a wallet-backed user for that wallet and links it into the normal backend identity path.
 
 Success response:
 
@@ -113,7 +113,7 @@ If you want backend-backed history after using a wallet, you have two paths:
 
 ```bash
 hyper wallet login
-hyper flow history
+hyper flow list
 hyper flow get <render_id>
 ```
 

@@ -6,8 +6,9 @@ from pathlib import Path
 import typer
 from rich.console import Console
 from hypercli import HyperCLI, APIError
+from .stt import transcribe as _stt_transcribe
 
-app = typer.Typer(help="Voice API — text-to-speech, voice cloning, voice design")
+app = typer.Typer(help="Voice commands — text-to-speech, voice cloning, voice design, and local transcription")
 console = Console()
 
 HYPERCLI_DIR = Path.home() / ".hypercli"
@@ -84,6 +85,26 @@ def _post_voice(endpoint: str, api_key: str, output: Path, base_url: str | None 
         raise typer.Exit(1)
 
 
+@app.command("transcribe")
+def transcribe(
+    audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
+    model: str = typer.Option("turbo", "--model", "-m", help="Whisper model: tiny, base, small, medium, large-v3, turbo"),
+    language: str = typer.Option(None, "--language", "-l", help="Language code (e.g. en, de, fr). Auto-detect if omitted."),
+    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
+    compute_type: str = typer.Option("auto", "--compute", help="Compute type: auto, int8, float16, float32"),
+    json_output: bool = typer.Option(False, "--json", help="Output as JSON with timestamps"),
+    output: Path = typer.Option(None, "--output", "-o", help="Write transcript to file"),
+):
+    """Transcribe audio locally using faster-whisper.
+
+    Examples:
+      hyper voice transcribe voice.ogg
+      hyper voice transcribe meeting.mp3 --model large-v3 --language en
+      hyper voice transcribe audio.wav --json -o transcript.json
+    """
+    _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
+
+
 @app.command("tts")
 def tts(
     text: str = typer.Argument(..., help="Text to synthesize"),
@@ -97,8 +118,8 @@ def tts(
     """Generate speech from text using a preset voice.
 
     Examples:
-      hyper agent voice tts "Hello world"
-      hyper agent voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
+      hyper voice tts "Hello world"
+      hyper voice tts "Bonjour" -v Etienne -l french -f opus -o hello.opus
     """
     api_key = _get_api_key(key)
     if output is None:
@@ -129,8 +150,8 @@ def clone(
     """Clone a voice from reference audio.
 
     Examples:
-      hyper agent voice clone "Hello" --ref voice.wav
-      hyper agent voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
+      hyper voice clone "Hello" --ref voice.wav
+      hyper voice clone "Test" -r ref.wav -l english -f mp3 -o cloned.mp3
     """
     api_key = _get_api_key(key)
     if output is None:
@@ -167,8 +188,8 @@ def design(
     """Design a voice from a text description.
 
     Examples:
-      hyper agent voice design "Hello" --desc "deep male voice, British accent"
-      hyper agent voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
+      hyper voice design "Hello" --desc "deep male voice, British accent"
+      hyper voice design "Test" -d "young woman, cheerful" -f mp3 -o designed.mp3
     """
     api_key = _get_api_key(key)
     if output is None:

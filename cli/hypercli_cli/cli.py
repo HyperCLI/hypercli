@@ -9,7 +9,7 @@ from rich.table import Table
 from hypercli import HyperCLI, APIError, configure
 from hypercli.config import CONFIG_FILE
 
-from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, user, wallet
+from . import agent, agents, billing, comfyui, files, flow, instances, jobs, keys, llm, user, voice, wallet
 from .output import output, spinner
 
 console = Console()
@@ -76,6 +76,7 @@ app.add_typer(keys.app, name="keys")
 app.add_typer(jobs.app, name="jobs")
 app.add_typer(llm.app, name="llm")
 app.add_typer(user.app, name="user")
+app.add_typer(voice.app, name="voice")
 app.add_typer(wallet.app, name="wallet")
 
 

@@ -1806,7 +1806,7 @@ export default function AgentsPage() {
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
       const agentPath = `/home/ubuntu/${uploadPath}`;
-      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper agent transcribe ${agentPath}\``;
+      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
       // Keep input state in sync and send in one action.
       chat.setInput(voiceMessage);

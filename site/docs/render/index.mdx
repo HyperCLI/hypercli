@@ -5,17 +5,23 @@ description: Serverless GPU rendering for ComfyUI workflows
 
 ## Overview
 
-The Render API provides serverless GPU rendering for ComfyUI workflows. Submit a render request and receive results via webhook or polling - no GPU management required.
+The Render API provides serverless GPU rendering for ComfyUI workflows. Submit a render request and receive results via webhook or polling, without managing GPUs yourself.
+
+HyperCLI supports both:
+
+- managed flows, which wrap common workflows in a curated interface
+- direct renders, which let you work with raw render jobs yourself
 
 <Info>
-The Render API is available via CLI, SDK, or REST API using your standard API key.
+The Render API is available via SDK or REST API using your standard API key. For most CLI usage, use `hyper flow ...`.
 </Info>
 
 ## Quick Start
 
 <CodeGroup>
 ```bash CLI
-hyper renders create hidream_i1_full -p "a cat in space" --wait
+hyper flow text-to-image "a cat in space"
+hyper flow get <render_id> -o output.png
 ```
 
 ```python SDK
@@ -72,7 +78,7 @@ POST /api/renders
 
 ## Billing
 
-Renders are billed per-request at a fixed rate. Your balance is reserved when the render is submitted and charged upon successful completion. Failed or cancelled renders are not charged.
+Normal `hyper flow` commands use subscription access first, then account balance. `--x402` is explicit-only and uses the wallet checkout path for a single flow render.
 
 ## API Endpoints
 

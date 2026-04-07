@@ -12,7 +12,6 @@ from rich.table import Table
 
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
-from .stt import transcribe as _stt_transcribe
 from .embed import app as embed_app
 
 app = typer.Typer(help="HyperAgent inference commands")
@@ -22,26 +21,6 @@ console = Console()
 app.command("onboard")(_onboard_fn)
 app.add_typer(voice_app, name="voice")
 app.add_typer(embed_app, name="embed")
-
-
-@app.command("transcribe")
-def transcribe(
-    audio_file: Path = typer.Argument(..., help="Audio file to transcribe (wav, mp3, ogg, m4a, etc.)"),
-    model: str = typer.Option("turbo", "--model", "-m", help="Whisper model: tiny, base, small, medium, large-v3, turbo"),
-    language: str = typer.Option(None, "--language", "-l", help="Language code (e.g. en, de, fr). Auto-detect if omitted."),
-    device: str = typer.Option("auto", "--device", "-d", help="Device: auto, cpu, cuda"),
-    compute_type: str = typer.Option("auto", "--compute", help="Compute type: auto, int8, float16, float32"),
-    json_output: bool = typer.Option(False, "--json", help="Output as JSON with timestamps"),
-    output: Path = typer.Option(None, "--output", "-o", help="Write transcript to file"),
-):
-    """Transcribe audio to text using faster-whisper (runs locally).
-
-    Examples:
-      hyper agent transcribe voice.ogg
-      hyper agent transcribe meeting.mp3 --model large-v3 --language en
-      hyper agent transcribe audio.wav --json -o transcript.json
-    """
-    _stt_transcribe(audio_file, model, language, device, compute_type, json_output, output)
 
 # Check if wallet dependencies are available
 try:
