@@ -284,7 +284,7 @@ function describeAgentTierStartGuidance(
       message:
         `This agent was created as a ${requestedLabel} agent. ` +
         `Your account has no free ${requestedLabel} slots, but ${suggestedEntry.available} free ${suggestedLabel} ` +
-        `slot${suggestedEntry.available === 1 ? "" : "s"} available. Create a new ${suggestedLabel} agent to use the capacity you already bought.`,
+        `slot${suggestedEntry.available === 1 ? "" : "s"} available. Resize this agent to ${suggestedLabel} to use the capacity you already bought.`,
     };
   }
 
@@ -1786,17 +1786,44 @@ export default function AgentsPage() {
     setCreateDialogInitialStep(0);
     setCreateDialogPreferredTier(null);
   }, []);
+  const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
+    setStartingId(agentId);
+    setError(null);
+    delete gatewayTokensRef.current[agentId];
+    removeAgentState(agentId);
+    try {
+      const token = await getToken();
+      await agentApiFetch(`/deployments/${agentId}`, token, {
+        method: "PATCH",
+        body: JSON.stringify({ size: tier }),
+      });
+      const started = await startOpenClawAgent(token, agentId);
+      const gwToken = started && typeof started === "object" && "gatewayToken" in started
+        ? (started.gatewayToken as string | undefined)
+        : undefined;
+      if (gwToken) {
+        gatewayTokensRef.current[agentId] = gwToken;
+        setGatewayToken(agentId, gwToken);
+      }
+      await fetchAgents();
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to resize and start agent");
+    } finally {
+      setStartingId(null);
+    }
+  }, [fetchAgents, getToken]);
+
   const selectedAgentSuggestedTierActions = useMemo(
     () =>
       (selectedAgentStartGuidance?.availableTiers ?? []).map((entry) => ({
-        label: `Use ${titleizeTier(entry.tier)} (${entry.available} free)`,
-        onSelect: () =>
-          openCreateDialog({
-            initialStep: 1,
-            preferredTier: entry.tier,
-          }),
+        label: `Resize To ${titleizeTier(entry.tier)} And Start (${entry.available} free)`,
+        onSelect: () => {
+          if (selectedAgent) {
+            void handleResizeAndStart(selectedAgent.id, entry.tier);
+          }
+        },
       })),
-    [selectedAgentStartGuidance, openCreateDialog],
+    [handleResizeAndStart, selectedAgent, selectedAgentStartGuidance],
   );
 
   const handleStop = async (agentId: string) => {
