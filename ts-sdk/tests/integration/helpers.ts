@@ -23,6 +23,17 @@ export function createIntegrationClient(): HyperCLI {
   });
 }
 
+export async function resolveAvailableAgentTier(client: HyperCLI): Promise<string> {
+  const summary = await client.agent.subscriptionSummary();
+  for (const tier of ["large", "medium", "small"]) {
+    const inventory = summary.slotInventory?.[tier];
+    if (inventory && Number(inventory.available || 0) > 0) {
+      return tier;
+    }
+  }
+  throw new Error("No available entitlement slots for integration agent tests");
+}
+
 export function expectNonEmptyString(value: unknown): void {
   expect(typeof value).toBe("string");
   expect(String(value).length).toBeGreaterThan(0);

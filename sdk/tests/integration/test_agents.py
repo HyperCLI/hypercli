@@ -8,6 +8,15 @@ from hypercli import HyperCLI
 from hypercli.http import APIError
 
 
+def _resolve_available_agent_tier(client: HyperCLI) -> str:
+    summary = client.agent.subscription_summary()
+    for tier in ("large", "medium", "small"):
+        inventory = (summary.slot_inventory or {}).get(tier) or {}
+        if int(inventory.get("available", 0) or 0) > 0:
+            return tier
+    raise AssertionError("No available entitlement slots for integration agent tests")
+
+
 def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
     if not test_agent_api_key:
         pytest.skip(
@@ -24,15 +33,16 @@ def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str
             "TEST_AGENT_API_KEY not set; the deployments and agent APIs do not accept the account-level TEST_API_KEY"
         )
 
+    tier = _resolve_available_agent_tier(client)
     agent_a = client.deployments.create(
         name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
-        size="small",
+        size=tier,
         start=False,
         tags=["team=dev", "suite=sdk-integration"],
     )
     agent_b = client.deployments.create(
         name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
-        size="small",
+        size=tier,
         start=False,
         tags=["team=ops", "suite=sdk-integration"],
     )
@@ -64,7 +74,7 @@ def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str
         with pytest.raises(APIError) as create_exc:
             scoped.deployments.create(
                 name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
-                size="small",
+                size=tier,
                 start=False,
             )
         assert create_exc.value.status_code == 403
