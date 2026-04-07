@@ -227,6 +227,7 @@ interface AgentTierStartGuidance {
   title: string;
   message: string;
   suggestedTier: string | null;
+  availableTiers: Array<{ tier: string; available: number }>;
 }
 
 function getAgentSizePresets(
@@ -276,6 +277,10 @@ function describeAgentTierStartGuidance(
       tier,
       title: `${requestedLabel} slot required`,
       suggestedTier,
+      availableTiers: otherAvailable.map(([entryTier, entry]) => ({
+        tier: entryTier,
+        available: entry?.available ?? 0,
+      })),
       message:
         `This agent was created as a ${requestedLabel} agent. ` +
         `Your account has no free ${requestedLabel} slots, but ${suggestedEntry.available} free ${suggestedLabel} ` +
@@ -288,6 +293,7 @@ function describeAgentTierStartGuidance(
       tier,
       title: `${requestedLabel} slots are fully used`,
       suggestedTier: null,
+      availableTiers: [],
       message:
         `This agent was created as a ${requestedLabel} agent. ` +
         `All ${requestedLabel} slots on this account are currently in use. Stop another ${requestedLabel} agent or buy another ${requestedLabel} bundle to launch it.`,
@@ -298,6 +304,7 @@ function describeAgentTierStartGuidance(
     tier,
     title: `${requestedLabel} slot required`,
     suggestedTier: null,
+    availableTiers: [],
     message:
       `This agent was created as a ${requestedLabel} agent. ` +
       `Your account does not currently include any ${requestedLabel} slots. Buy a ${requestedLabel} bundle to launch it.`,
@@ -409,16 +416,14 @@ function AgentLaunchPrompt({
   onLaunch,
   blockedTitle,
   blockedMessage,
-  onCreateSuggestedAgent,
-  createSuggestedLabel,
+  suggestedTierActions,
 }: {
   label: string;
   launching: boolean;
   onLaunch: () => void;
   blockedTitle?: string | null;
   blockedMessage?: string | null;
-  onCreateSuggestedAgent?: (() => void) | null;
-  createSuggestedLabel?: string | null;
+  suggestedTierActions?: Array<{ label: string; onSelect: () => void }> | null;
 }) {
   const blocked = Boolean(blockedMessage);
   return (
@@ -446,14 +451,19 @@ function AgentLaunchPrompt({
           <div className="mt-4 rounded-xl border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-4 py-3 text-left">
             <p className="text-sm font-medium text-[#f0c56c]">{blockedTitle || "Launch blocked"}</p>
             <p className="mt-1 text-sm text-text-secondary">{blockedMessage}</p>
-            {onCreateSuggestedAgent && createSuggestedLabel && (
-              <button
-                onClick={onCreateSuggestedAgent}
-                className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
-              >
-                <Plus className="h-4 w-4" />
-                <span>{createSuggestedLabel}</span>
-              </button>
+            {suggestedTierActions && suggestedTierActions.length > 0 && (
+              <div className="mt-3 flex flex-wrap gap-2">
+                {suggestedTierActions.map((action) => (
+                  <button
+                    key={action.label}
+                    onClick={action.onSelect}
+                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
+                  >
+                    <Plus className="h-4 w-4" />
+                    <span>{action.label}</span>
+                  </button>
+                ))}
+              </div>
             )}
           </div>
         )}
@@ -1776,6 +1786,18 @@ export default function AgentsPage() {
     setCreateDialogInitialStep(0);
     setCreateDialogPreferredTier(null);
   }, []);
+  const selectedAgentSuggestedTierActions = useMemo(
+    () =>
+      (selectedAgentStartGuidance?.availableTiers ?? []).map((entry) => ({
+        label: `Use ${titleizeTier(entry.tier)} (${entry.available} free)`,
+        onSelect: () =>
+          openCreateDialog({
+            initialStep: 1,
+            preferredTier: entry.tier,
+          }),
+      })),
+    [selectedAgentStartGuidance, openCreateDialog],
+  );
 
   const handleStop = async (agentId: string) => {
     setStoppingId(agentId);
@@ -2633,20 +2655,7 @@ export default function AgentsPage() {
                     onLaunch={() => { void handleStart(selectedAgent.id); }}
                     blockedTitle={selectedAgentStartGuidance?.title}
                     blockedMessage={selectedAgentStartGuidance?.message}
-                    onCreateSuggestedAgent={
-                      selectedAgentStartGuidance?.suggestedTier
-                        ? () =>
-                            openCreateDialog({
-                              initialStep: 1,
-                              preferredTier: selectedAgentStartGuidance.suggestedTier,
-                            })
-                        : null
-                    }
-                    createSuggestedLabel={
-                      selectedAgentStartGuidance?.suggestedTier
-                        ? `Create ${titleizeTier(selectedAgentStartGuidance.suggestedTier)} Agent`
-                        : null
-                    }
+                    suggestedTierActions={selectedAgentSuggestedTierActions}
                   />
                 ) : mainTab === "chat" ? (
                   /* ── Chat Tab ── */
