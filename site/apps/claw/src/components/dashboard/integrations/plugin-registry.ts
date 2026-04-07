@@ -15,6 +15,15 @@ import {
 
 export type PluginCategory = "chat" | "ai-providers" | "tools" | "built-in";
 
+export interface TokenField {
+  key: string;
+  label: string;
+  placeholder?: string;
+  sensitive?: boolean;
+  required?: boolean;
+  helpText?: string;
+}
+
 export interface PluginMeta {
   id: string;
   displayName: string;
@@ -27,10 +36,14 @@ export interface PluginMeta {
   hasWizard?: boolean;
   /** True for tts, stt, vision, images, video, 3d — keep existing panel UI */
   hasBuiltinPanel?: boolean;
-  /** URL where users can get an API key or sign up (AI providers) */
+  /** URL where users can get an API key or sign up */
   setupUrl?: string;
-  /** One-line guidance shown in the config panel (e.g., "Get your API key from…") */
+  /** One-line guidance shown in the config panel */
   setupHint?: string;
+  /** Token/credential fields for the TokenSetupWizard */
+  setupFields?: TokenField[];
+  /** Skip verification polling (e.g., IRC has no HTTP probe) */
+  skipVerification?: boolean;
 }
 
 export interface CategoryDefinition {
@@ -67,16 +80,33 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "matrix", displayName: "Matrix", icon: Globe, category: "chat", description: "Chat on any Matrix server", configPath: "plugins.entries.matrix" },
   { id: "nostr", displayName: "Nostr", icon: Radio, category: "chat", description: "Decentralized encrypted DMs", configPath: "plugins.entries.nostr" },
   { id: "tlon", displayName: "Tlon Messenger", icon: MessagesSquare, category: "chat", description: "P2P ownership-first chat", configPath: "plugins.entries.tlon" },
-  { id: "zalo", displayName: "Zalo", icon: MessageSquare, category: "chat", description: "Zalo Bot API", configPath: "plugins.entries.zalo" },
+  { id: "zalo", displayName: "Zalo", icon: MessageSquare, category: "chat", description: "Zalo Bot API", configPath: "plugins.entries.zalo", hasWizard: true, setupUrl: "https://developers.zalo.me", setupHint: "Get your App ID and Secret from Zalo Developers", setupFields: [
+    { key: "appId", label: "App ID", placeholder: "Your Zalo app ID", required: true },
+    { key: "secretKey", label: "Secret Key", placeholder: "Your Zalo secret key", sensitive: true, required: true },
+  ] },
   { id: "zalouser", displayName: "Zalo Personal", icon: MessageSquare, category: "chat", description: "Pair via QR code", configPath: "plugins.entries.zalouser", hasWizard: true },
-  { id: "mattermost", displayName: "Mattermost", icon: MessageSquareMore, category: "chat", description: "Self-hosted team chat", configPath: "plugins.entries.mattermost" },
-  { id: "line", displayName: "LINE", icon: MessageCircle, category: "chat", description: "Chat on LINE messenger", configPath: "plugins.entries.line" },
-  { id: "feishu", displayName: "Feishu (Lark)", icon: Building2, category: "chat", description: "Chat in Feishu/Lark workspaces", configPath: "plugins.entries.feishu" },
+  { id: "mattermost", displayName: "Mattermost", icon: MessageSquareMore, category: "chat", description: "Self-hosted team chat", configPath: "plugins.entries.mattermost", hasWizard: true, setupHint: "Create a bot account in your Mattermost server", setupFields: [
+    { key: "serverUrl", label: "Server URL", placeholder: "https://mattermost.example.com", required: true },
+    { key: "botToken", label: "Bot Token", placeholder: "Your bot access token", sensitive: true, required: true },
+  ] },
+  { id: "line", displayName: "LINE", icon: MessageCircle, category: "chat", description: "LINE Messaging API", configPath: "plugins.entries.line", hasWizard: true, setupUrl: "https://developers.line.biz/console", setupHint: "Get your tokens from LINE Developers Console", setupFields: [
+    { key: "channelAccessToken", label: "Channel Access Token", placeholder: "Your LINE channel access token", sensitive: true, required: true },
+    { key: "channelSecret", label: "Channel Secret", placeholder: "Your LINE channel secret", sensitive: true, required: true },
+  ] },
+  { id: "feishu", displayName: "Feishu (Lark)", icon: Building2, category: "chat", description: "Feishu/Lark bot integration", configPath: "plugins.entries.feishu" },
   { id: "googlechat", displayName: "Google Chat", icon: MessageSquare, category: "chat", description: "Google Workspace chat", configPath: "plugins.entries.googlechat" },
   { id: "nextcloud-talk", displayName: "Nextcloud Talk", icon: Server, category: "chat", description: "Self-hosted Nextcloud chat", configPath: "plugins.entries.nextcloud-talk" },
   { id: "synology-chat", displayName: "Synology Chat", icon: Server, category: "chat", description: "Synology NAS chat", configPath: "plugins.entries.synology-chat" },
-  { id: "irc", displayName: "IRC", icon: Monitor, category: "chat", description: "Internet Relay Chat", configPath: "plugins.entries.irc" },
-  { id: "twitch", displayName: "Twitch", icon: Tv, category: "chat", description: "Respond in Twitch live chat", configPath: "plugins.entries.twitch" },
+  { id: "irc", displayName: "IRC", icon: Monitor, category: "chat", description: "Internet Relay Chat", configPath: "plugins.entries.irc", hasWizard: true, skipVerification: true, setupHint: "Enter your IRC server details", setupFields: [
+    { key: "server", label: "Server", placeholder: "irc.libera.chat:6697", required: true },
+    { key: "channel", label: "Channel", placeholder: "#mychannel", required: true },
+    { key: "nickname", label: "Nickname", placeholder: "my-agent", required: true },
+    { key: "password", label: "Password", placeholder: "Optional", sensitive: true },
+  ] },
+  { id: "twitch", displayName: "Twitch", icon: Tv, category: "chat", description: "Twitch live chat", configPath: "plugins.entries.twitch", hasWizard: true, setupUrl: "https://dev.twitch.tv/console", setupHint: "Get your OAuth token from Twitch Developer Console", setupFields: [
+    { key: "oauthToken", label: "OAuth Token", placeholder: "oauth:your-token-here", sensitive: true, required: true },
+    { key: "channelName", label: "Channel Name", placeholder: "your-channel", required: true },
+  ] },
   { id: "xiaomi", displayName: "Xiaomi", icon: Smartphone, category: "chat", description: "Xiaomi smart assistant", configPath: "plugins.entries.xiaomi" },
 
   // ── AI Model Providers (32) ────────────────────────────────────────────
