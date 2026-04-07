@@ -1,8 +1,11 @@
 "use client";
 
 import { useState } from "react";
+import { ExternalLink, Check, Key, Globe } from "lucide-react";
 import type { PluginMeta } from "./plugin-registry";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
+
+const REDACTED_KEY = "__OPENCLAW_REDACTED__";
 
 interface PluginConfigPanelProps {
   plugin: PluginMeta;
@@ -10,6 +13,22 @@ interface PluginConfigPanelProps {
   configSchema: OpenClawConfigSchemaResponse | null;
   onSave: (patch: Record<string, unknown>) => Promise<void>;
   onClose: () => void;
+}
+
+/** Read the current provider credentials from config.models.providers.<id> */
+function getProviderCredentials(
+  pluginId: string,
+  config: Record<string, unknown> | null,
+): { apiKey: string; baseUrl: string; hasExistingKey: boolean } {
+  if (!config) return { apiKey: "", baseUrl: "", hasExistingKey: false };
+  const providers = (config as any)?.models?.providers ?? {};
+  const prov = providers[pluginId] ?? {};
+  const rawKey = prov.apiKey ?? "";
+  return {
+    apiKey: rawKey === REDACTED_KEY ? "" : rawKey,
+    baseUrl: prov.baseUrl ?? "",
+    hasExistingKey: !!rawKey,
+  };
 }
 
 interface FieldDef {
@@ -124,6 +143,7 @@ export function PluginConfigPanel({
   const currentValues = getPluginConfigValues(plugin.id, config);
   const [draft, setDraft] = useState<Record<string, unknown>>({ ...currentValues });
   const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
   const Icon = plugin.icon;
@@ -155,7 +175,8 @@ export function PluginConfigPanel({
           },
         },
       });
-      onClose();
+      setSaveSuccess(true);
+      setTimeout(() => onClose(), 800);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
@@ -163,10 +184,23 @@ export function PluginConfigPanel({
     }
   };
 
+  // AI Model Providers — always show the dedicated API key + base URL form,
+  // since provider credentials live at models.providers.<id>, not plugins.entries.<id>.config.
+  if (plugin.category === "ai-providers") {
+    return (
+      <AiProviderPanel
+        plugin={plugin}
+        config={config}
+        configSchema={configSchema}
+        onSave={onSave}
+        onClose={onClose}
+      />
+    );
+  }
+
   // No config fields — show contextual guidance based on plugin category
   if (fields.length === 0) {
     const isChatPlugin = plugin.category === "chat";
-    const isAiProvider = plugin.category === "ai-providers";
     const isToolPlugin = plugin.category === "tools";
 
     return (
@@ -195,18 +229,6 @@ export function PluginConfigPanel({
                 </li>
               </>
             )}
-            {isAiProvider && (
-              <>
-                <li className="flex items-start gap-2">
-                  <span className="text-[var(--primary)] font-medium flex-shrink-0">2.</span>
-                  Open the <span className="font-medium text-foreground">OpenClaw</span> tab on your agent
-                </li>
-                <li className="flex items-start gap-2">
-                  <span className="text-[var(--primary)] font-medium flex-shrink-0">3.</span>
-                  Add your API key under the provider&apos;s configuration section
-                </li>
-              </>
-            )}
             {isToolPlugin && (
               <>
                 <li className="flex items-start gap-2">
@@ -230,11 +252,10 @@ export function PluginConfigPanel({
             </p>
           </div>
         )}
-
-        {(isAiProvider || isToolPlugin) && (
+        {isToolPlugin && (
           <div className="glass-card p-3 text-xs text-text-tertiary">
             <p>
-              Most providers require an API key. You can set it in the <span className="text-text-secondary">OpenClaw</span> config tab
+              Most tools require an API key. You can set it in the <span className="text-text-secondary">OpenClaw</span> config tab
               or as an environment variable in your agent settings.
             </p>
           </div>
@@ -255,6 +276,28 @@ export function PluginConfigPanel({
         <Icon className="w-6 h-6 text-[var(--primary)]" />
       </div>
       <p className="text-sm text-text-secondary">{plugin.description}</p>
+
+      {/* Provider-specific setup guidance */}
+      {plugin.setupHint && (
+        <div className="glass-card p-3 flex items-start gap-2.5">
+          <div className="flex-1 text-xs text-text-secondary">
+            {plugin.setupHint}
+            {plugin.setupUrl && (
+              <>
+                {" \u2014 "}
+                <a
+                  href={plugin.setupUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[var(--primary)] hover:underline"
+                >
+                  Get API key <ExternalLink className="w-3 h-3" />
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+      )}
 
       <div className="space-y-4">
         {fields.map((field) => (
@@ -318,10 +361,222 @@ export function PluginConfigPanel({
         </button>
         <button
           onClick={handleSave}
-          disabled={saving}
-          className="btn-primary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+          disabled={saving || saveSuccess}
+          className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
+            saveSuccess
+              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+              : "btn-primary"
+          }`}
         >
-          {saving ? "Saving..." : "Save"}
+          {saveSuccess ? (
+            <span className="flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5" /> Saved
+            </span>
+          ) : saving ? "Saving..." : "Save"}
+        </button>
+      </div>
+    </div>
+  );
+}
+
+// ---------------------------------------------------------------------------
+// AI Provider Panel — API key + base URL form
+// ---------------------------------------------------------------------------
+
+function AiProviderPanel({
+  plugin,
+  config,
+  configSchema,
+  onSave,
+  onClose,
+}: {
+  plugin: PluginMeta;
+  config: Record<string, unknown> | null;
+  configSchema: OpenClawConfigSchemaResponse | null;
+  onSave: (patch: Record<string, unknown>) => Promise<void>;
+  onClose: () => void;
+}) {
+  const creds = getProviderCredentials(plugin.id, config);
+  const extraFields = getPluginConfigFields(plugin.id, configSchema);
+  const extraValues = getPluginConfigValues(plugin.id, config);
+  const [apiKey, setApiKey] = useState(creds.apiKey);
+  const [baseUrl, setBaseUrl] = useState(creds.baseUrl);
+  const [extraDraft, setExtraDraft] = useState<Record<string, unknown>>({ ...extraValues });
+  const [saving, setSaving] = useState(false);
+  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const Icon = plugin.icon;
+  const hasInput = apiKey.trim() || baseUrl.trim();
+
+  const handleConnect = async () => {
+    if (!hasInput) return;
+    setSaving(true);
+    setError(null);
+    try {
+      const providerPatch: Record<string, unknown> = {};
+      if (apiKey.trim()) providerPatch.apiKey = apiKey.trim();
+      if (baseUrl.trim()) providerPatch.baseUrl = baseUrl.trim();
+
+      // Build full patch: enable plugin + set provider credentials + any extra plugin config
+      const patch: Record<string, unknown> = {
+        plugins: {
+          entries: {
+            [plugin.id]: {
+              enabled: true,
+              ...(extraFields.length > 0 ? { config: extraDraft } : {}),
+            },
+          },
+        },
+        models: {
+          providers: {
+            [plugin.id]: providerPatch,
+          },
+        },
+      };
+
+      await onSave(patch);
+      setSaveSuccess(true);
+      // Auto-close after brief confirmation — use ref-safe pattern
+      const timer = setTimeout(() => onClose(), 800);
+      return () => clearTimeout(timer);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to save");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <div className="space-y-6">
+      <div className="w-12 h-12 rounded-full bg-[var(--primary)]/10 flex items-center justify-center">
+        <Icon className="w-6 h-6 text-[var(--primary)]" />
+      </div>
+      <p className="text-sm text-text-secondary">{plugin.description}</p>
+
+      {/* Setup hint + link */}
+      {plugin.setupHint && (
+        <div className="glass-card p-3 flex items-start gap-2.5">
+          <div className="flex-1 text-xs text-text-secondary">
+            {plugin.setupHint}
+            {plugin.setupUrl && (
+              <>
+                {" \u2014 "}
+                <a
+                  href={plugin.setupUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 text-[var(--primary)] hover:underline"
+                >
+                  Get API key <ExternalLink className="w-3 h-3" />
+                </a>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* Status indicator for already-configured providers */}
+      {creds.hasExistingKey && (
+        <div className="flex items-center gap-2 text-xs text-emerald-400">
+          <span className="w-2 h-2 rounded-full bg-emerald-400" />
+          API key configured
+        </div>
+      )}
+
+      {/* API Key field */}
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+          <Key className="w-3.5 h-3.5 text-text-tertiary" />
+          API Key
+        </label>
+        <input
+          type="password"
+          value={apiKey}
+          onChange={(e) => setApiKey(e.target.value)}
+          placeholder={creds.hasExistingKey ? "Enter new key to update" : "sk-..."}
+          className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
+        />
+      </div>
+
+      {/* Base URL field (optional) */}
+      <div className="space-y-1.5">
+        <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+          <Globe className="w-3.5 h-3.5 text-text-tertiary" />
+          Base URL
+          <span className="text-xs text-text-tertiary font-normal">(optional)</span>
+        </label>
+        <input
+          type="text"
+          value={baseUrl}
+          onChange={(e) => setBaseUrl(e.target.value)}
+          placeholder="https://api.provider.com/v1"
+          className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
+        />
+        <p className="text-xs text-text-tertiary">
+          Only needed for custom endpoints or self-hosted instances.
+        </p>
+      </div>
+
+      {/* Extra schema-discovered fields (if gateway exposes additional config for this provider) */}
+      {extraFields.length > 0 && (
+        <div className="space-y-4 pt-2 border-t border-[var(--border)]">
+          <p className="text-xs text-text-tertiary">Additional settings</p>
+          {extraFields.map((field) => (
+            <div key={field.key} className="space-y-1.5">
+              <label className="text-sm font-medium text-foreground">{field.title}</label>
+              {field.description && (
+                <p className="text-xs text-text-tertiary">{field.description}</p>
+              )}
+              {field.type === "boolean" ? (
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input
+                    type="checkbox"
+                    checked={!!extraDraft[field.key]}
+                    onChange={(e) => setExtraDraft((prev) => ({ ...prev, [field.key]: e.target.checked }))}
+                    className="w-4 h-4 rounded border-[var(--border)] text-[var(--primary)] focus:ring-[var(--primary)]"
+                  />
+                  <span className="text-sm text-text-secondary">Enabled</span>
+                </label>
+              ) : (
+                <input
+                  type={field.sensitive ? "password" : "text"}
+                  value={String(extraDraft[field.key] ?? "")}
+                  onChange={(e) => setExtraDraft((prev) => ({ ...prev, [field.key]: e.target.value || undefined }))}
+                  placeholder={field.placeholder ?? (field.defaultValue != null ? String(field.defaultValue) : undefined)}
+                  className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
+                />
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+
+      {error && (
+        <p className="text-xs text-[var(--error)]">{error}</p>
+      )}
+
+      <div className="flex justify-end gap-2 pt-2">
+        <button
+          onClick={onClose}
+          className="px-4 py-2 rounded-lg text-sm font-medium text-text-secondary hover:bg-[var(--surface-low)] transition-colors"
+        >
+          Cancel
+        </button>
+        <button
+          onClick={handleConnect}
+          disabled={saving || saveSuccess || !hasInput}
+          className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
+            saveSuccess
+              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
+              : "btn-primary"
+          }`}
+        >
+          {saveSuccess ? (
+            <span className="flex items-center gap-1.5">
+              <Check className="w-3.5 h-3.5" /> Connected
+            </span>
+          ) : saving ? "Connecting..." : creds.hasExistingKey ? "Update" : "Connect"}
         </button>
       </div>
     </div>
