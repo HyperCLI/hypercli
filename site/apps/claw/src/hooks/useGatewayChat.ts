@@ -635,6 +635,18 @@ export function useGatewayChat(
     return gw.channelsStatus(probe, timeoutMs);
   }, []);
 
+  const webLoginStart = useCallback(async (options?: { force?: boolean; verbose?: boolean; accountId?: string }) => {
+    const gw = gwRef.current;
+    if (!gw) throw new Error("Not connected");
+    return gw.webLoginStart(options);
+  }, []);
+
+  const webLoginWait = useCallback(async (options?: { timeoutMs?: number; accountId?: string }) => {
+    const gw = gwRef.current;
+    if (!gw) throw new Error("Not connected");
+    return gw.webLoginWait(options);
+  }, []);
+
   return {
     messages,
     sendMessage,
@@ -651,6 +663,8 @@ export function useGatewayChat(
     saveFile,
     saveConfig,
     channelsStatus,
+    webLoginStart,
+    webLoginWait,
     pendingFiles,
     pendingAttachments,
     addPendingFiles,
