@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  Send, MessageCircle, Hash,
+  Send, MessageCircle, Hash, Phone, MessageSquare,
   Volume2, Mic, Eye, Image, Video, Box, Loader2,
 } from "lucide-react";
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
@@ -20,6 +20,7 @@ import { ThreeDPanel } from "./ThreeDPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel } from "./PluginConfigPanel";
+import { QrLoginWizard } from "./QrLoginWizard";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
 
@@ -32,6 +33,8 @@ interface IntegrationsPageProps {
   connected: boolean;
   onSaveConfig: (patch: Record<string, unknown>) => Promise<void>;
   onChannelProbe?: () => Promise<Record<string, any>>;
+  onWebLoginStart?: (options?: { force?: boolean; verbose?: boolean }) => Promise<Record<string, any>>;
+  onWebLoginWait?: (options?: { timeoutMs?: number }) => Promise<Record<string, any>>;
 }
 
 interface ChannelState {
@@ -61,7 +64,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe }: IntegrationsPageProps) {
+export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe, onWebLoginStart, onWebLoginWait }: IntegrationsPageProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
@@ -69,6 +72,8 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const [telegramVerified, setTelegramVerified] = useState(false);
   const [discordVerified, setDiscordVerified] = useState(false);
   const [slackVerified, setSlackVerified] = useState(false);
+  const [whatsappVerified, setWhatsappVerified] = useState(false);
+  const [zalouserVerified, setZalouserVerified] = useState(false);
 
   // Sync when parent config updates
   useEffect(() => {
@@ -85,26 +90,35 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const discordEnabled = !!channels?.discord?.enabled;
   const slackEnabled = !!channels?.slack?.enabled;
 
+  const whatsappPlugin = getPlugin("whatsapp");
+  const zalouserPlugin = getPlugin("zalouser");
+  const whatsappEnabled = whatsappPlugin ? isPluginEnabled(whatsappPlugin, config) : false;
+  const zalouserEnabled = zalouserPlugin ? isPluginEnabled(zalouserPlugin, config) : false;
+
   // Probe channel status on mount / reconnect to determine verified state
   useEffect(() => {
     if (!connected || !onChannelProbe) return;
-    if (!telegramEnabled && !discordEnabled && !slackEnabled) return;
+    if (!telegramEnabled && !discordEnabled && !slackEnabled && !whatsappEnabled && !zalouserEnabled) return;
     let cancelled = false;
     onChannelProbe().then((status) => {
       if (cancelled) return;
       if (telegramEnabled && isChannelLive(status, "telegram")) setTelegramVerified(true);
       if (discordEnabled && isChannelLive(status, "discord")) setDiscordVerified(true);
       if (slackEnabled && isChannelLive(status, "slack")) setSlackVerified(true);
+      if (whatsappEnabled && isChannelLive(status, "whatsapp")) setWhatsappVerified(true);
+      if (zalouserEnabled && isChannelLive(status, "zalouser")) setZalouserVerified(true);
     }).catch(() => {});
     return () => { cancelled = true; };
-  }, [connected, onChannelProbe, telegramEnabled, discordEnabled, slackEnabled]);
+  }, [connected, onChannelProbe, telegramEnabled, discordEnabled, slackEnabled, whatsappEnabled, zalouserEnabled]);
 
   // Reset verified state when channels are disconnected
   useEffect(() => {
     if (!telegramEnabled) setTelegramVerified(false);
     if (!discordEnabled) setDiscordVerified(false);
     if (!slackEnabled) setSlackVerified(false);
-  }, [telegramEnabled, discordEnabled, slackEnabled]);
+    if (!whatsappEnabled) setWhatsappVerified(false);
+    if (!zalouserEnabled) setZalouserVerified(false);
+  }, [telegramEnabled, discordEnabled, slackEnabled, whatsappEnabled, zalouserEnabled]);
 
   const integrations = (config as any)?.integrations as { voice?: PrefsState["voice"] } | undefined;
 
@@ -121,8 +135,14 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
     }
   };
 
-  const handleDisconnect = async (channel: string) => {
-    await handleConfigPatch({ channels: { [channel]: null } });
+  const handleDisconnect = async (target: string) => {
+    // Plugin-based channels (WhatsApp, Zalo) use plugins.entries path
+    if (target === "whatsapp" || target === "zalouser") {
+      await handleConfigPatch({ plugins: { entries: { [target]: { enabled: false } } } });
+    } else {
+      // Legacy channels (Telegram, Discord, Slack) use channels path
+      await handleConfigPatch({ channels: { [target]: null } });
+    }
     setDisconnectTarget(null);
     setActivePanel(null);
   };
@@ -261,7 +281,33 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                       : "slack"
                 )}
               />
-              {/* Remaining 19 chat plugins — dynamic PluginCards */}
+              {/* WhatsApp — QR wizard */}
+              <IntegrationCard
+                icon={Phone}
+                name="WhatsApp"
+                status={whatsappEnabled && whatsappVerified ? "connected" : whatsappEnabled ? "pending" : "available"}
+                statusText={whatsappEnabled && whatsappVerified ? "Active" : whatsappEnabled ? "Pending verification" : undefined}
+                ctaLabel={whatsappEnabled && whatsappVerified ? "Manage" : whatsappEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                onClick={() => setActivePanel(
+                  whatsappEnabled && whatsappVerified
+                    ? "whatsapp-manage"
+                    : "whatsapp"
+                )}
+              />
+              {/* Zalo Personal — QR wizard */}
+              <IntegrationCard
+                icon={MessageSquare}
+                name="Zalo Personal"
+                status={zalouserEnabled && zalouserVerified ? "connected" : zalouserEnabled ? "pending" : "available"}
+                statusText={zalouserEnabled && zalouserVerified ? "Active" : zalouserEnabled ? "Pending verification" : undefined}
+                ctaLabel={zalouserEnabled && zalouserVerified ? "Manage" : zalouserEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                onClick={() => setActivePanel(
+                  zalouserEnabled && zalouserVerified
+                    ? "zalouser-manage"
+                    : "zalouser"
+                )}
+              />
+              {/* Remaining chat plugins — dynamic PluginCards */}
               {chatPlugins
                 .filter((p) => !p.hasWizard)
                 .map((plugin) => (
@@ -563,6 +609,106 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
             className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
           >
             Disconnect Slack
+          </button>
+        </div>
+      </SlideOver>
+
+      {/* WhatsApp QR Wizard */}
+      <SlideOver
+        open={activePanel === "whatsapp"}
+        onClose={() => setActivePanel(null)}
+        title="Connect WhatsApp"
+        description="Pair your WhatsApp account via QR code"
+      >
+        {onWebLoginStart && onWebLoginWait && (
+          <QrLoginWizard
+            pluginId="whatsapp"
+            displayName="WhatsApp"
+            onWebLoginStart={onWebLoginStart}
+            onWebLoginWait={onWebLoginWait}
+            onChannelProbe={onChannelProbe ?? (async () => ({}))}
+            onClose={() => {
+              setActivePanel(null);
+              if (onChannelProbe && whatsappEnabled) {
+                onChannelProbe().then((status) => {
+                  if (isChannelLive(status, "whatsapp")) setWhatsappVerified(true);
+                }).catch(() => {});
+              }
+            }}
+            onVerified={() => setWhatsappVerified(true)}
+          />
+        )}
+      </SlideOver>
+
+      {/* WhatsApp Management */}
+      <SlideOver
+        open={activePanel === "whatsapp-manage"}
+        onClose={() => setActivePanel(null)}
+        title="WhatsApp"
+        description="Your agent's WhatsApp connection"
+      >
+        <div className="space-y-4">
+          <div className="glass-card p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+              <span className="text-sm font-medium text-foreground">Connected</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setDisconnectTarget("whatsapp")}
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+          >
+            Disconnect WhatsApp
+          </button>
+        </div>
+      </SlideOver>
+
+      {/* Zalo Personal QR Wizard */}
+      <SlideOver
+        open={activePanel === "zalouser"}
+        onClose={() => setActivePanel(null)}
+        title="Connect Zalo Personal"
+        description="Pair your Zalo account via QR code"
+      >
+        {onWebLoginStart && onWebLoginWait && (
+          <QrLoginWizard
+            pluginId="zalouser"
+            displayName="Zalo Personal"
+            onWebLoginStart={onWebLoginStart}
+            onWebLoginWait={onWebLoginWait}
+            onChannelProbe={onChannelProbe ?? (async () => ({}))}
+            onClose={() => {
+              setActivePanel(null);
+              if (onChannelProbe && zalouserEnabled) {
+                onChannelProbe().then((status) => {
+                  if (isChannelLive(status, "zalouser")) setZalouserVerified(true);
+                }).catch(() => {});
+              }
+            }}
+            onVerified={() => setZalouserVerified(true)}
+          />
+        )}
+      </SlideOver>
+
+      {/* Zalo Personal Management */}
+      <SlideOver
+        open={activePanel === "zalouser-manage"}
+        onClose={() => setActivePanel(null)}
+        title="Zalo Personal"
+        description="Your agent's Zalo connection"
+      >
+        <div className="space-y-4">
+          <div className="glass-card p-4 space-y-2">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
+              <span className="text-sm font-medium text-foreground">Connected</span>
+            </div>
+          </div>
+          <button
+            onClick={() => setDisconnectTarget("zalouser")}
+            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+          >
+            Disconnect Zalo Personal
           </button>
         </div>
       </SlideOver>
