@@ -17,6 +17,7 @@ import {
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 import { getStoredToken, API_BASE_URL } from "@/lib/api";
+import { agentAvatar } from "@/lib/avatar";
 
 // ── Helpers ──
 
@@ -59,6 +60,8 @@ interface ChatMessageProps {
   streamingVariant?: StreamingVariant;
   isStreaming?: boolean;
   agentName?: string;
+  senderName?: string;
+  isGroupChat?: boolean;
 }
 
 const THINKING_PREVIEW_LINES = 2;
@@ -305,6 +308,8 @@ export function ChatMessageBubble({
   streamingVariant = "off",
   isStreaming = false,
   agentName,
+  senderName,
+  isGroupChat = false,
 }: ChatMessageProps) {
   const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
@@ -366,7 +371,7 @@ export function ChatMessageBubble({
     ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES)
     : null;
 
-  const effectiveName = agentName || "Agent";
+  const effectiveName = senderName || agentName || "Agent";
 
   // ── Bubble styles (shape from bubblesVariant, color from themeVariant) ──
   let shapeClass: string;
@@ -407,9 +412,10 @@ export function ChatMessageBubble({
   const bubbleClass = [shapeClass, colorClass, "text-foreground"].filter(Boolean).join(" ");
 
   // ── Name display ──
-  const showV1Name = !isUser && nameVariant === "v1"; // gradient monogram above
-  const showV2Name = !isUser && nameVariant === "v2"; // avatar to the left
-  const showV3Name = !isUser && nameVariant === "v3"; // sparkle + bold above
+  const showAssistantName = !isUser || isGroupChat; // in group mode, show names for everyone
+  const showV1Name = showAssistantName && nameVariant === "v1"; // gradient monogram above
+  const showV2Name = showAssistantName && nameVariant === "v2"; // avatar to the left
+  const showV3Name = showAssistantName && nameVariant === "v3"; // sparkle + bold above
 
   // ── Timestamp ──
   // v2 → inside bubble after content; everything else → outside below bubble
@@ -457,33 +463,68 @@ export function ChatMessageBubble({
       {...getEntranceProps(animationVariant, isUser)}
     >
       {/* v2 name: avatar circle to the left */}
-      {showV2Name && (
-        <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-[#10a37f] flex items-center justify-center">
-          <span className="text-[10px] font-bold text-white">{effectiveName[0]?.toUpperCase() ?? "A"}</span>
-        </div>
-      )}
+      {showV2Name && (() => {
+        if (isUser) {
+          return (
+            <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full bg-surface-low flex items-center justify-center">
+              <span className="text-[10px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
+            </div>
+          );
+        }
+        const av = agentAvatar(effectiveName);
+        return (
+          <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
+            <span className="text-[10px] font-bold" style={{ color: av.fgColor }}>{effectiveName[0]?.toUpperCase() ?? "A"}</span>
+          </div>
+        );
+      })()}
 
       <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "flex-1 min-w-0" : ""}`}>
 
-        {/* v1 name: gradient monogram + muted label above bubble */}
-        {showV1Name && (
-          <div className="flex items-center gap-1.5 mb-1">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#38D39F] to-[#2ba870] flex items-center justify-center">
-              <span className="text-[9px] font-bold text-white">{effectiveName[0]?.toUpperCase() ?? "A"}</span>
+        {/* v1 name: monogram + muted label above bubble */}
+        {showV1Name && (() => {
+          if (isUser) {
+            return (
+              <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+                <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
+                  <span className="text-[9px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
+                </div>
+                <span className="text-[11px] text-text-muted">{effectiveName}</span>
+              </div>
+            );
+          }
+          const av = agentAvatar(effectiveName);
+          return (
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
+                <span className="text-[9px] font-bold" style={{ color: av.fgColor }}>{effectiveName[0]?.toUpperCase() ?? "A"}</span>
+              </div>
+              <span className="text-[11px] text-text-muted">{effectiveName}</span>
             </div>
-            <span className="text-[11px] text-text-muted">{effectiveName}</span>
-          </div>
-        )}
+          );
+        })()}
 
         {/* v3 name: gradient sparkle circle + bold name above bubble */}
-        {showV3Name && (
-          <div className="flex items-center gap-1.5 mb-1">
-            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] via-[#38D39F] to-[#f0c56c] flex items-center justify-center">
-              <Sparkles className="w-3 h-3 text-white" />
+        {showV3Name && (() => {
+          if (isUser) {
+            return (
+              <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+                <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
+                  <Sparkles className="w-3 h-3 text-text-muted" />
+                </div>
+                <span className="text-[11px] font-semibold text-foreground">{effectiveName}</span>
+              </div>
+            );
+          }
+          return (
+            <div className="flex items-center gap-1.5 mb-1">
+              <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] via-[#38D39F] to-[#f0c56c] flex items-center justify-center">
+                <Sparkles className="w-3 h-3 text-white" />
+              </div>
+              <span className="text-[11px] font-semibold text-foreground">{effectiveName}</span>
             </div>
-            <span className="text-[11px] font-semibold text-foreground">{effectiveName}</span>
-          </div>
-        )}
+          );
+        })()}
 
         {/* v2 name: text above when avatar present */}
         {showV2Name && (
