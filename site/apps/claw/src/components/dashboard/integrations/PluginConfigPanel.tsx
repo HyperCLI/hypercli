@@ -20,6 +20,7 @@ interface FieldDef {
   sensitive?: boolean;
   enumValues?: string[];
   defaultValue?: unknown;
+  placeholder?: string;
 }
 
 function getPluginConfigFields(
@@ -35,19 +36,46 @@ function getPluginConfigFields(
   if (!configProps) return [];
 
   const uiHints = configSchema.uiHints ?? {};
+  const fields: FieldDef[] = [];
 
-  return (Object.entries(configProps).map(([key, schema]: [string, any]): FieldDef | null => {
+  for (const [key, schema] of Object.entries(configProps) as [string, any][]) {
     const rawType = schema.type;
     const type = Array.isArray(rawType)
       ? (rawType.find((t: string) => t !== "null") ?? "string")
       : (rawType ?? "string");
+
+    if (type === "array") continue;
+
+    if (type === "object" && schema.properties) {
+      // Flatten one level of nested object properties (e.g. webSearch.apiKey)
+      for (const [childKey, childSchema] of Object.entries(schema.properties) as [string, any][]) {
+        const childRawType = childSchema.type;
+        const childType = Array.isArray(childRawType)
+          ? (childRawType.find((t: string) => t !== "null") ?? "string")
+          : (childRawType ?? "string");
+        if (childType === "object" || childType === "array") continue;
+
+        const hintKey = `plugins.entries.${pluginId}.config.${key}.${childKey}`;
+        const hint = uiHints[hintKey] as { label?: string; help?: string; sensitive?: boolean; placeholder?: string } | undefined;
+
+        fields.push({
+          key: `${key}.${childKey}`,
+          type: childType,
+          title: hint?.label ?? childSchema.title ?? childKey,
+          description: hint?.help ?? childSchema.description,
+          sensitive: hint?.sensitive ?? false,
+          enumValues: Array.isArray(childSchema.enum) ? childSchema.enum : undefined,
+          defaultValue: childSchema.default,
+          placeholder: hint?.placeholder,
+        });
+      }
+      continue;
+    }
+
     const hintKey = `plugins.entries.${pluginId}.config.${key}`;
-    const hint = uiHints[hintKey] as { label?: string; help?: string; sensitive?: boolean } | undefined;
+    const hint = uiHints[hintKey] as { label?: string; help?: string; sensitive?: boolean; placeholder?: string } | undefined;
 
-    // Skip object/array fields — they need a nested editor we don't support yet
-    if (type === "object" || type === "array") return null;
-
-    return {
+    fields.push({
       key,
       type,
       title: hint?.label ?? schema.title ?? key,
@@ -55,8 +83,11 @@ function getPluginConfigFields(
       sensitive: hint?.sensitive ?? false,
       enumValues: Array.isArray(schema.enum) ? schema.enum : undefined,
       defaultValue: schema.default,
-    };
-  }) as (FieldDef | null)[]).filter((f): f is FieldDef => f !== null);
+      placeholder: hint?.placeholder,
+    });
+  }
+
+  return fields;
 }
 
 function getPluginConfigValues(
@@ -66,7 +97,20 @@ function getPluginConfigValues(
   if (!config) return {};
   const entries = (config as any)?.plugins?.entries;
   if (!entries) return {};
-  return (entries[pluginId]?.config as Record<string, unknown>) ?? {};
+  const pluginConfig = (entries[pluginId]?.config as Record<string, unknown>) ?? {};
+
+  // Flatten one level of nested objects into dot-path keys to match field keys
+  const flat: Record<string, unknown> = {};
+  for (const [key, value] of Object.entries(pluginConfig)) {
+    if (value !== null && typeof value === "object" && !Array.isArray(value)) {
+      for (const [childKey, childValue] of Object.entries(value as Record<string, unknown>)) {
+        flat[`${key}.${childKey}`] = childValue;
+      }
+    } else {
+      flat[key] = value;
+    }
+  }
+  return flat;
 }
 
 export function PluginConfigPanel({
@@ -88,12 +132,25 @@ export function PluginConfigPanel({
     setSaving(true);
     setError(null);
     try {
+      // Reconstruct nested objects from dot-path draft keys (e.g. "webSearch.apiKey")
+      const pluginConfig: Record<string, unknown> = {};
+      for (const [key, value] of Object.entries(draft)) {
+        const dotIdx = key.indexOf(".");
+        if (dotIdx !== -1) {
+          const parent = key.slice(0, dotIdx);
+          const child = key.slice(dotIdx + 1);
+          if (pluginConfig[parent] == null) pluginConfig[parent] = {};
+          (pluginConfig[parent] as Record<string, unknown>)[child] = value;
+        } else {
+          pluginConfig[key] = value;
+        }
+      }
       await onSave({
         plugins: {
           entries: {
             [plugin.id]: {
               enabled: true,
-              config: draft,
+              config: pluginConfig,
             },
           },
         },
@@ -232,7 +289,7 @@ export function PluginConfigPanel({
                 type="number"
                 value={draft[field.key] != null ? String(draft[field.key]) : ""}
                 onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value ? Number(e.target.value) : undefined }))}
-                placeholder={field.defaultValue != null ? String(field.defaultValue) : undefined}
+                placeholder={field.placeholder ?? (field.defaultValue != null ? String(field.defaultValue) : undefined)}
                 className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
               />
             ) : (
@@ -240,7 +297,7 @@ export function PluginConfigPanel({
                 type={field.sensitive ? "password" : "text"}
                 value={String(draft[field.key] ?? "")}
                 onChange={(e) => setDraft((prev) => ({ ...prev, [field.key]: e.target.value || undefined }))}
-                placeholder={field.defaultValue != null ? String(field.defaultValue) : undefined}
+                placeholder={field.placeholder ?? (field.defaultValue != null ? String(field.defaultValue) : undefined)}
                 className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
               />
             )}
