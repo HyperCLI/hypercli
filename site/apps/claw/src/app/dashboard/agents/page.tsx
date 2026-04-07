@@ -2066,19 +2066,27 @@ export default function AgentsPage() {
             {loading ? (
               <div className="p-6 text-center text-text-muted text-sm">Loading...</div>
             ) : agents.length === 0 ? (
-              <div className="p-6 text-center">
-                <div className="w-16 h-16 rounded-full bg-surface-low flex items-center justify-center mx-auto mb-4">
-                  <Bot className="w-8 h-8 text-text-muted" />
-                </div>
-                <p className="text-text-secondary text-sm mb-1">No agents yet</p>
-                <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
+              sidebarCollapsed ? (
                 <button
                   onClick={() => setShowCreateDialog(true)}
-                  className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
+                  className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50"
+                  title="New Agent"
                 >
-                  Create Your First Agent
+                  <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-text-muted" />
+                  </div>
                 </button>
-              </div>
+              ) : (
+                <button
+                  onClick={() => setShowCreateDialog(true)}
+                  className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50"
+                >
+                  <div className="flex-shrink-0 w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-text-muted" />
+                  </div>
+                  <span className="text-sm text-text-bright">New Agent</span>
+                </button>
+              )
             ) : (
               <div>
                 {agents.map((agent) => {
