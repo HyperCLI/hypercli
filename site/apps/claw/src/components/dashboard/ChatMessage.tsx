@@ -5,7 +5,7 @@ import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Pla
 import Markdown from "react-markdown";
 import { motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
-import { API_BASE_URL, getStoredToken } from "@/lib/api";
+import { getStoredToken, API_BASE_URL } from "@/lib/api";
 import { agentAvatar } from "@/lib/avatar";
 
 // ── Helpers ──
