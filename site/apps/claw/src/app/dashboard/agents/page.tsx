@@ -2,6 +2,7 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
+import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 import {
   createOpenClawConfigValue,
   describeOpenClawConfigNode,
@@ -10,7 +11,7 @@ import {
   type OpenClawConfigSchemaResponse,
   type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/gateway";
-import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
+import { getGatewayToken, setGatewayToken, removeAgentState, clearDeviceAuthToken } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -53,14 +54,15 @@ import "@xterm/xterm/css/xterm.css";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory, formatTokens, type SlotInventory } from "@/lib/format";
+import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
-import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsPage } from "@/components/dashboard/integrations";
+import { AgentView, ConnectionDetail, type TabId as AgentViewTabId } from "@/components/dashboard/AgentView";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
@@ -85,13 +87,15 @@ interface Agent {
   updated_at: string | null;
   openclaw_url?: string | null;
   gatewayToken?: string | null;
-  meta?: AgentMeta | null;
 }
 
 interface AgentBudget {
-  slots: SlotInventory;
-  pooled_tpd: number;
-  size_presets?: Record<string, { cpu: number; memory: number }>;
+  max_agents: number;
+  total_cpu: number;
+  total_memory: number;
+  used_agents: number;
+  used_cpu: number;
+  used_memory: number;
 }
 
 interface AgentDesktopTokenResponse {
@@ -106,30 +110,6 @@ interface LogEvent {
   log?: string;
   detail?: string;
   status?: number;
-}
-
-interface AgentListItem {
-  id: string;
-  name: string;
-  user_id: string;
-  pod_id: string | null;
-  pod_name: string | null;
-  state: AgentState;
-  cpu: number;
-  memory: number;
-  hostname: string | null;
-  started_at: string | null;
-  stopped_at: string | null;
-  last_error: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-  openclaw_url?: string | null;
-  gatewayToken?: string | null;
-  meta?: AgentMeta | null;
-}
-
-interface AgentListResponse {
-  items?: AgentListItem[];
 }
 
 interface S3FileEntry {
@@ -204,141 +184,36 @@ function downloadBrowserFile(content: BlobPart | Uint8Array, filename: string, m
   URL.revokeObjectURL(url);
 }
 
+function sdkAgentToPageAgent(agent: SdkAgent): Agent {
+  const openclawUrl =
+    "gatewayUrl" in agent && typeof agent.gatewayUrl === "string"
+      ? agent.gatewayUrl
+      : null;
+  return {
+    id: agent.id,
+    name: agent.name ?? agent.id,
+    user_id: agent.userId,
+    pod_id: agent.podId || null,
+    pod_name: agent.podName || null,
+    state: (agent.state || "STOPPED").toUpperCase() as AgentState,
+    cpu_millicores: Math.round((agent.cpu || 0) * 1000),
+    memory_mib: Math.round((agent.memory || 0) * 1024),
+    hostname: agent.hostname ?? null,
+    started_at: agent.startedAt?.toISOString() ?? null,
+    stopped_at: agent.stoppedAt?.toISOString() ?? null,
+    last_error: agent.lastError ?? null,
+    created_at: agent.createdAt?.toISOString() ?? null,
+    updated_at: agent.updatedAt?.toISOString() ?? null,
+    openclaw_url: openclawUrl,
+  };
+}
+
 function formatFileSize(size?: number): string {
   if (size === undefined || Number.isNaN(size)) return "-";
   if (size < 1024) return `${size} B`;
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function titleizeTier(value: string): string {
-  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-const FALLBACK_AGENT_SIZE_PRESETS: Record<string, { cpu: number; memory: number }> = {
-  small: { cpu: 1, memory: 1 },
-  medium: { cpu: 2, memory: 2 },
-  large: { cpu: 4, memory: 4 },
-};
-
-interface AgentTierStartGuidance {
-  tier: string;
-  title: string;
-  message: string;
-  suggestedTier: string | null;
-  availableTiers: Array<{ tier: string; available: number }>;
-}
-
-interface AgentTierSelectionState {
-  agentId: string;
-  guidance: AgentTierStartGuidance;
-}
-
-function getAgentSizePresets(
-  budget: AgentBudget | null,
-): Record<string, { cpu_millicores: number; memory_mib: number }> {
-  const source = budget?.size_presets ?? FALLBACK_AGENT_SIZE_PRESETS;
-  return Object.fromEntries(
-    Object.entries(source).map(([tier, preset]) => [
-      tier,
-      {
-        cpu_millicores: Math.round((preset.cpu || 0) * 1000),
-        memory_mib: Math.round((preset.memory || 0) * 1024),
-      },
-    ]),
-  );
-}
-
-function inferAgentTier(agent: Pick<Agent, "cpu_millicores" | "memory_mib">, budget: AgentBudget | null): string | null {
-  const presets = getAgentSizePresets(budget);
-  for (const [tier, preset] of Object.entries(presets)) {
-    if (preset.cpu_millicores === agent.cpu_millicores && preset.memory_mib === agent.memory_mib) {
-      return tier;
-    }
-  }
-  return null;
-}
-
-function describeAgentTierStartGuidance(
-  agent: Pick<Agent, "cpu_millicores" | "memory_mib"> | null,
-  budget: AgentBudget | null,
-): AgentTierStartGuidance | null {
-  if (!agent || !budget) return null;
-  const tier = inferAgentTier(agent, budget);
-  if (!tier) return null;
-  const requested = budget.slots?.[tier] ?? { granted: 0, used: 0, available: 0 };
-  if (requested.available > 0) return null;
-
-  const requestedLabel = titleizeTier(tier);
-  const otherAvailable = Object.entries(budget.slots ?? {})
-    .filter(([entryTier, entry]) => entryTier !== tier && (entry?.available ?? 0) > 0)
-    .sort(([, left], [, right]) => (right?.available ?? 0) - (left?.available ?? 0));
-
-  if (otherAvailable.length > 0) {
-    const [suggestedTier, suggestedEntry] = otherAvailable[0];
-    const suggestedLabel = titleizeTier(suggestedTier);
-    return {
-      tier,
-      title: `${requestedLabel} slot required`,
-      suggestedTier,
-      availableTiers: otherAvailable.map(([entryTier, entry]) => ({
-        tier: entryTier,
-        available: entry?.available ?? 0,
-      })),
-      message:
-        `This agent was created as a ${requestedLabel} agent. ` +
-        `Your account has no free ${requestedLabel} slots, but ${suggestedEntry.available} free ${suggestedLabel} ` +
-        `slot${suggestedEntry.available === 1 ? "" : "s"} available. Resize this agent to ${suggestedLabel} to use the capacity you already bought.`,
-    };
-  }
-
-  if (requested.granted > 0) {
-    return {
-      tier,
-      title: `${requestedLabel} slots are fully used`,
-      suggestedTier: null,
-      availableTiers: [],
-      message:
-        `This agent was created as a ${requestedLabel} agent. ` +
-        `All ${requestedLabel} slots on this account are currently in use. Stop another ${requestedLabel} agent or buy another ${requestedLabel} bundle to launch it.`,
-    };
-  }
-
-  return {
-    tier,
-    title: `${requestedLabel} slot required`,
-    suggestedTier: null,
-    availableTiers: [],
-    message:
-      `This agent was created as a ${requestedLabel} agent. ` +
-      `Your account does not currently include any ${requestedLabel} slots. Buy a ${requestedLabel} bundle to launch it.`,
-  };
-}
-
-function parseEntitlementSlotTier(error: unknown): string | null {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  const quotedMatch = message.match(/No available '([^']+)' entitlement slots/i);
-  if (quotedMatch?.[1]) return quotedMatch[1].toLowerCase();
-  const plainMatch = message.match(/No available ([a-z-]+) entitlement slots/i);
-  if (plainMatch?.[1]) return plainMatch[1].toLowerCase();
-  return null;
-}
-
-function describeAgentsPageError(error: unknown): { message: string; clusterUnavailable: boolean } {
-  const fallback = "Failed to load agents";
-  const raw = error instanceof Error ? error.message : String(error ?? fallback);
-  const normalized = raw.trim();
-  if (normalized.includes("Agent cluster is not assigned")) {
-    return {
-      clusterUnavailable: true,
-      message: "Agent cluster assignment is still pending for this account. Try again in a minute.",
-    };
-  }
-  return {
-    clusterUnavailable: false,
-    message: normalized || fallback,
-  };
 }
 
 function extractVoicePathFromMessage(content: string): string | null {
@@ -419,59 +294,32 @@ function AgentLaunchPrompt({
   label,
   launching,
   onLaunch,
-  blockedTitle,
-  blockedMessage,
-  suggestedTierActions,
 }: {
   label: string;
   launching: boolean;
   onLaunch: () => void;
-  blockedTitle?: string | null;
-  blockedMessage?: string | null;
-  suggestedTierActions?: Array<{ label: string; onSelect: () => void }> | null;
 }) {
-  const blocked = Boolean(blockedMessage);
   return (
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-md text-center">
         <button
           onClick={onLaunch}
-          disabled={launching || blocked}
+          disabled={launching}
           className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
           aria-label={`Launch agent to use ${label}`}
-          title={blockedTitle || "Launch Agent"}
+          title="Launch Agent"
         >
           {launching ? <Loader2 className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
         </button>
         <p className="text-base text-foreground">Launch Agent to Use {label}</p>
         <button
           onClick={onLaunch}
-          disabled={launching || blocked}
+          disabled={launching}
           className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
         >
           {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
           <span>Launch Agent</span>
         </button>
-        {blockedMessage && (
-          <div className="mt-4 rounded-xl border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-4 py-3 text-left">
-            <p className="text-sm font-medium text-[#f0c56c]">{blockedTitle || "Launch blocked"}</p>
-            <p className="mt-1 text-sm text-text-secondary">{blockedMessage}</p>
-            {suggestedTierActions && suggestedTierActions.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {suggestedTierActions.map((action) => (
-                  <button
-                    key={action.label}
-                    onClick={action.onSelect}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>{action.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
         <p className="mt-2 text-sm text-text-muted">Files remain available while stopped.</p>
       </div>
     </div>
@@ -965,9 +813,6 @@ export default function AgentsPage() {
 
   // Create dialog
   const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
-  const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
-  const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
   const gatewayTokensRef = useRef<Record<string, string>>({});
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -978,6 +823,10 @@ export default function AgentsPage() {
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
+
+  // Right sidebar (AgentView)
+  const [agentViewTab, setAgentViewTab] = useState<AgentViewTabId>("overview");
+  const [selectedConnection, setSelectedConnection] = useState<any>(null);
 
   // Logs
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -1014,8 +863,6 @@ export default function AgentsPage() {
   // Settings tab state
   const [settingsName, setSettingsName] = useState("");
   const [settingsDesc, setSettingsDesc] = useState("");
-  const [agentClusterUnavailable, setAgentClusterUnavailable] = useState(false);
-  const [savingName, setSavingName] = useState(false);
   const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
   const [openclawSaving, setOpenclawSaving] = useState(false);
   const [openclawError, setOpenclawError] = useState<string | null>(null);
@@ -1036,34 +883,10 @@ export default function AgentsPage() {
   const fetchAgents = useCallback(async () => {
     try {
       const token = await getToken();
-      const agentClient = createAgentClient(token);
-      const [listedAgents, budgetData] = await Promise.all([
-        agentApiFetch<AgentListResponse | AgentListItem[]>("/deployments", token),
-        agentClient.budget().catch(() => null),
-      ]);
-      const rawItems: AgentListItem[] = Array.isArray(listedAgents) ? listedAgents : listedAgents.items || [];
-      const items = rawItems.map((agent) => ({
-        id: agent.id,
-        name: agent.name || agent.id,
-        user_id: agent.user_id,
-        pod_id: agent.pod_id || null,
-        pod_name: agent.pod_name || null,
-        state: (agent.state || "STOPPED").toUpperCase() as AgentState,
-        cpu_millicores: Math.round((agent.cpu || 0) * 1000),
-        memory_mib: Math.round((agent.memory || 0) * 1024),
-        hostname: agent.hostname ?? null,
-        started_at: agent.started_at ?? null,
-        stopped_at: agent.stopped_at ?? null,
-        last_error: agent.last_error ?? null,
-        created_at: agent.created_at ?? null,
-        updated_at: agent.updated_at ?? null,
-        openclaw_url: agent.openclaw_url ?? null,
-        gatewayToken: agent.gatewayToken ?? null,
-        meta: agent.meta ?? null,
-      }));
+      const data = await createAgentClient(token).list();
+      const items = (data.items || []).map(sdkAgentToPageAgent);
       setAgents(items);
-      setBudget((budgetData as AgentBudget | null) || null);
-      setAgentClusterUnavailable(false);
+      setBudget((data.budget as AgentBudget | undefined) || null);
       const currentId = selectedAgentIdRef.current;
       if (!currentId && items.length > 0) {
         setSelectedAgentId(items[0].id);
@@ -1072,11 +895,8 @@ export default function AgentsPage() {
         setSelectedAgentId(items[0]?.id || null);
       }
     } catch (err) {
-      const described = describeAgentsPageError(err);
-      setError(described.message);
-      setAgentClusterUnavailable(described.clusterUnavailable);
+      setError(err instanceof Error ? err.message : "Failed to load agents");
       setAgents([]);
-      setBudget(null);
     } finally {
       setLoading(false);
     }
@@ -1118,17 +938,6 @@ export default function AgentsPage() {
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
-  const selectedAgentTier = useMemo(
-    () => (selectedAgent ? inferAgentTier(selectedAgent, budget) : null),
-    [selectedAgent, budget],
-  );
-  const selectedAgentStartGuidance = useMemo(
-    () =>
-      selectedAgent && (selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED")
-        ? describeAgentTierStartGuidance(selectedAgent, budget)
-        : null,
-    [selectedAgent, budget],
-  );
   const stoppedTabLabel: Record<Exclude<MainTab, "files">, string> = {
     chat: "Chat",
     logs: "Logs",
@@ -1150,9 +959,9 @@ export default function AgentsPage() {
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
     { label: "Overview", href: "/dashboard", icon: Bot },
-    { label: "Agents", href: "/agents", icon: Bot },
-    { label: "API Keys", href: "/keys", icon: Key },
-    { label: "Plans", href: "/plans", icon: CreditCard },
+    { label: "Agents", href: "/dashboard/agents", icon: Bot },
+    { label: "API Keys", href: "/dashboard/keys", icon: Key },
+    { label: "Plans", href: "/dashboard/plans", icon: CreditCard },
     { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
     { label: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
@@ -1736,20 +1545,11 @@ export default function AgentsPage() {
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
-    const agent = agents.find((entry) => entry.id === agentId) ?? null;
-    const guidance = describeAgentTierStartGuidance(agent, budget);
-    if (guidance) {
-      if (guidance.availableTiers.length > 0) {
-        setTierSelection({ agentId, guidance });
-      } else {
-        setError(guidance.message);
-      }
-      return;
-    }
     setStartingId(agentId);
     setError(null);
     delete gatewayTokensRef.current[agentId];
     removeAgentState(agentId);
+    clearDeviceAuthToken(agentId);
     try {
       const token = await getToken();
       const started = await startOpenClawAgent(token, agentId);
@@ -1762,80 +1562,11 @@ export default function AgentsPage() {
       }
       await fetchAgents();
     } catch (err) {
-      const requestedTier = parseEntitlementSlotTier(err);
-      if (requestedTier) {
-        const fallbackPreset = getAgentSizePresets(budget)[requestedTier];
-        const tierGuidance = describeAgentTierStartGuidance(
-          agent && inferAgentTier(agent, budget) === requestedTier
-            ? agent
-            : fallbackPreset
-              ? {
-                  cpu_millicores: fallbackPreset.cpu_millicores,
-                  memory_mib: fallbackPreset.memory_mib,
-                }
-              : null,
-          budget,
-        );
-        setError(tierGuidance?.message ?? (err instanceof Error ? err.message : "Failed to start agent"));
-      } else {
-        setError(err instanceof Error ? err.message : "Failed to start agent");
-      }
+      setError(err instanceof Error ? err.message : "Failed to start agent");
     } finally {
       setStartingId(null);
     }
   };
-
-  const openCreateDialog = useCallback((options?: { initialStep?: number; preferredTier?: string | null }) => {
-    setCreateDialogInitialStep(options?.initialStep ?? 0);
-    setCreateDialogPreferredTier(options?.preferredTier ?? null);
-    setShowCreateDialog(true);
-  }, []);
-
-  const closeCreateDialog = useCallback(() => {
-    setShowCreateDialog(false);
-    setCreateDialogInitialStep(0);
-    setCreateDialogPreferredTier(null);
-  }, []);
-  const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
-    setStartingId(agentId);
-    setError(null);
-    setTierSelection(null);
-    delete gatewayTokensRef.current[agentId];
-    removeAgentState(agentId);
-    try {
-      const token = await getToken();
-      await createAgentClient(token).resize(agentId, { size: tier });
-      const started = await startOpenClawAgent(token, agentId);
-      const gwToken = started && typeof started === "object" && "gatewayToken" in started
-        ? (started.gatewayToken as string | undefined)
-        : undefined;
-      if (gwToken) {
-        gatewayTokensRef.current[agentId] = gwToken;
-        setGatewayToken(agentId, gwToken);
-      }
-      await fetchAgents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to resize and start agent");
-    } finally {
-      setStartingId(null);
-    }
-  }, [fetchAgents, getToken]);
-
-  const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
-  const selectedAgentLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
-
-  const selectedAgentSuggestedTierActions = useMemo(
-    () =>
-      (selectedAgentStartGuidance?.availableTiers ?? []).map((entry) => ({
-        label: `Resize To ${titleizeTier(entry.tier)} And Start (${entry.available} free)`,
-        onSelect: () => {
-          if (selectedAgent) {
-            void handleResizeAndStart(selectedAgent.id, entry.tier);
-          }
-        },
-      })),
-    [handleResizeAndStart, selectedAgent, selectedAgentStartGuidance],
-  );
 
   const handleStop = async (agentId: string) => {
     setStoppingId(agentId);
@@ -1845,6 +1576,7 @@ export default function AgentsPage() {
       await createAgentClient(token).stop(agentId);
       delete gatewayTokensRef.current[agentId];
       removeAgentState(agentId);
+      clearDeviceAuthToken(agentId);
       // Cooldown: disable Start for 5s while backend cleans up
       setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
       const existing = stoppedTimersRef.current.get(agentId);
@@ -1875,22 +1607,6 @@ export default function AgentsPage() {
     } finally {
       setDeletingId(null);
       setPendingAgentDelete(null);
-    }
-  };
-
-  const handleSaveName = async () => {
-    if (!selectedAgent || selectedAgent.state !== "STOPPED") return;
-    const trimmed = settingsName.trim();
-    if (!trimmed || trimmed === (selectedAgent.name || "")) return;
-    setSavingName(true);
-    try {
-      const token = await getToken();
-      await createAgentClient(token).update(selectedAgent.id, { name: trimmed });
-      await fetchAgents();
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to rename agent");
-    } finally {
-      setSavingName(false);
     }
   };
 
@@ -2071,7 +1787,7 @@ export default function AgentsPage() {
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
       const agentPath = `/home/ubuntu/${uploadPath}`;
-      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
+      const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper agent transcribe ${agentPath}\``;
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
       // Keep input state in sync and send in one action.
       chat.setInput(voiceMessage);
@@ -2190,7 +1906,7 @@ export default function AgentsPage() {
                 ))}
                 <button
                   onClick={() => {
-                    openCreateDialog();
+                    setShowCreateDialog(true);
                     setMobileAgentMenuOpen(false);
                   }}
                   className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
@@ -2289,15 +2005,13 @@ export default function AgentsPage() {
 
       <AgentCreationWizard
         open={showCreateDialog}
-        onClose={closeCreateDialog}
-        initialStep={createDialogInitialStep}
-        preferredTypeId={createDialogPreferredTier}
+        onClose={() => setShowCreateDialog(false)}
         onCreated={(agentId, gwToken) => {
           if (agentId && gwToken) {
             gatewayTokensRef.current[agentId] = gwToken;
             setGatewayToken(agentId, gwToken);
           }
-          closeCreateDialog();
+          setShowCreateDialog(false);
           fetchAgents();
         }}
         budget={budget}
@@ -2318,52 +2032,6 @@ export default function AgentsPage() {
           if (pendingAgentDelete) void handleDelete(pendingAgentDelete.id);
         }}
       />
-      <AnimatePresence>
-        {tierSelection && (
-          <motion.div
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
-            onClick={() => setTierSelection(null)}
-          >
-            <motion.div
-              initial={{ scale: 0.95, opacity: 0 }}
-              animate={{ scale: 1, opacity: 1 }}
-              exit={{ scale: 0.95, opacity: 0 }}
-              transition={{ type: "spring", stiffness: 400, damping: 30 }}
-              className="glass-card w-full max-w-md mx-4 p-6"
-              onClick={(event) => event.stopPropagation()}
-            >
-              <div className="flex items-start justify-between gap-3">
-                <div>
-                  <h3 className="text-base font-semibold text-foreground">{tierSelection.guidance.title}</h3>
-                  <p className="mt-1 text-sm text-text-secondary">{tierSelection.guidance.message}</p>
-                </div>
-                <button
-                  onClick={() => setTierSelection(null)}
-                  className="text-text-muted transition-colors hover:text-foreground"
-                  aria-label="Close size selector"
-                >
-                  <X className="h-4 w-4" />
-                </button>
-              </div>
-              <div className="mt-4 space-y-2">
-                {tierSelection.guidance.availableTiers.map((entry) => (
-                  <button
-                    key={entry.tier}
-                    onClick={() => { void handleResizeAndStart(tierSelection.agentId, entry.tier); }}
-                    className="flex w-full items-center justify-between rounded-lg border border-border px-4 py-3 text-left transition-colors hover:bg-surface-low"
-                  >
-                    <span className="text-sm font-medium text-foreground">{titleizeTier(entry.tier)}</span>
-                    <span className="text-xs text-text-muted">{entry.available} free</span>
-                  </button>
-                ))}
-              </div>
-            </motion.div>
-          </motion.div>
-        )}
-      </AnimatePresence>
 
       {/* Main layout: Sidebar + Panel */}
       <div className="flex flex-1 min-h-0">
@@ -2398,43 +2066,33 @@ export default function AgentsPage() {
             {loading ? (
               <div className="p-6 text-center text-text-muted text-sm">Loading...</div>
             ) : agents.length === 0 ? (
-              <div className="p-6 text-center">
-                <div className="w-16 h-16 rounded-full bg-surface-low flex items-center justify-center mx-auto mb-4">
-                  <Bot className="w-8 h-8 text-text-muted" />
-                </div>
-                {agentClusterUnavailable ? (
-                  <>
-                    <p className="text-text-secondary text-sm mb-1">Agent cluster assignment pending</p>
-                    <p className="text-xs text-text-muted mb-4">
-                      Your account is not attached to an agent cluster yet, so agent creation is temporarily unavailable.
-                    </p>
-                    <button
-                      onClick={() => void fetchAgents()}
-                      className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
-                    >
-                      Retry
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-text-secondary text-sm mb-1">No agents yet</p>
-                    <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
-                    <button
-                      onClick={() => openCreateDialog()}
-                      className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
-                    >
-                      Create Your First Agent
-                    </button>
-                  </>
-                )}
-              </div>
+              sidebarCollapsed ? (
+                <button
+                  onClick={() => setShowCreateDialog(true)}
+                  className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50"
+                  title="New Agent"
+                >
+                  <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-text-muted" />
+                  </div>
+                </button>
+              ) : (
+                <button
+                  onClick={() => setShowCreateDialog(true)}
+                  className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50"
+                >
+                  <div className="flex-shrink-0 w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
+                    <Plus className="w-4 h-4 text-text-muted" />
+                  </div>
+                  <span className="text-sm text-text-bright">New Agent</span>
+                </button>
+              )
             ) : (
               <div>
                 {agents.map((agent) => {
                   const isSelected = selectedAgentId === agent.id;
-                  const isRunning = agent.state === "RUNNING";
                   const isTransitioning = ["PENDING", "STARTING", "STOPPING"].includes(agent.state);
-                  const avatar = agentAvatar(agent.name || agent.id, agent.meta);
+                  const avatar = agentAvatar(agent.name || agent.id);
                   const AvatarIcon = avatar.icon;
 
                   if (sidebarCollapsed) {
@@ -2450,14 +2108,10 @@ export default function AgentsPage() {
                       >
                         <div className="relative">
                           <div
-                            className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
+                            className="w-9 h-9 rounded-full flex items-center justify-center"
                             style={{ backgroundColor: avatar.bgColor }}
                           >
-                            {avatar.imageUrl ? (
-                              <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
-                            ) : (
-                              <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
-                            )}
+                            <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
                           </div>
                           <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                         </div>
@@ -2476,33 +2130,17 @@ export default function AgentsPage() {
                       {/* Avatar */}
                       <div className="relative flex-shrink-0">
                         <div
-                          className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
+                          className="w-9 h-9 rounded-full flex items-center justify-center"
                           style={{ backgroundColor: avatar.bgColor }}
                         >
-                          {avatar.imageUrl ? (
-                            <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
-                          ) : (
-                            <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
-                          )}
+                          <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
                         </div>
                         <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                       </div>
 
                       {/* Info */}
                       <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.pod_name || agent.id}</p>
-                          <motion.span
-                            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${stateClass(agent.state)}`}
-                            animate={isTransitioning ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
-                            transition={isTransitioning ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
-                          >
-                            {agent.state}
-                          </motion.span>
-                        </div>
-                        <p className="text-xs text-text-muted mt-0.5">
-                          {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
-                        </p>
+                        <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.pod_name || agent.id}</p>
                         {agent.last_error && agent.state === "FAILED" && (
                           <p className="text-xs text-[#d05f5f] mt-0.5 truncate">{agent.last_error}</p>
                         )}
@@ -2514,10 +2152,9 @@ export default function AgentsPage() {
                 {/* New Agent row */}
                 {sidebarCollapsed ? (
                   <button
-                    onClick={() => openCreateDialog()}
-                    disabled={agentClusterUnavailable}
-                    className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    title={agentClusterUnavailable ? "Agent cluster assignment pending" : "New Agent"}
+                    onClick={() => setShowCreateDialog(true)}
+                    className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50"
+                    title="New Agent"
                   >
                     <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
                       <Plus className="w-4 h-4 text-text-muted" />
@@ -2525,9 +2162,8 @@ export default function AgentsPage() {
                   </button>
                 ) : (
                   <button
-                    onClick={() => openCreateDialog()}
-                    disabled={agentClusterUnavailable}
-                    className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    onClick={() => setShowCreateDialog(true)}
+                    className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50"
                   >
                     <div className="flex-shrink-0 w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
                       <Plus className="w-4 h-4 text-text-muted" />
@@ -2539,20 +2175,6 @@ export default function AgentsPage() {
             )}
           </div>
 
-          {/* Budget bars in sidebar footer (when expanded) */}
-          {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-text-secondary">Pooled inference</span>
-                <span className="text-text-muted">{formatTokens(budget.pooled_tpd)} / day</span>
-              </div>
-              {Object.entries(budget.slots || {})
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([tier, entry]) => (
-                  <BudgetBar key={tier} label={titleizeTier(tier)} used={entry.used} total={entry.granted} />
-                ))}
-            </div>
-          )}
         </div>
 
         {/* ── Main Panel ── */}
@@ -2567,7 +2189,7 @@ export default function AgentsPage() {
           ) : (
             <>
               {/* Agent header + tabs */}
-              <div className="relative px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">
+              <div className="px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">
                 {/* Mobile back button */}
                 <button
                   onClick={() => setMobileShowChat(false)}
@@ -2578,17 +2200,13 @@ export default function AgentsPage() {
                 </button>
 
                 {/* Agent name + status */}
-                <div className="relative z-10 flex items-center gap-2 min-w-0 flex-shrink-0">
+                <div className="flex items-center gap-2 min-w-0 flex-shrink-0">
                   {(() => {
-                    const avatar = agentAvatar(selectedAgent.name || selectedAgent.id, selectedAgent.meta);
+                    const avatar = agentAvatar(selectedAgent.name || selectedAgent.id);
                     const AvatarIcon = avatar.icon;
                     return (
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
-                        {avatar.imageUrl ? (
-                          <img src={avatar.imageUrl} alt={`${selectedAgent.name} avatar`} className="w-full h-full object-cover" />
-                        ) : (
-                          <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
-                        )}
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: avatar.bgColor }}>
+                        <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
                       </div>
                     );
                   })()}
@@ -2598,48 +2216,38 @@ export default function AgentsPage() {
                   {activeConnectionStatus && <ConnectionStatusIndicator status={activeConnectionStatus} />}
                 </div>
 
-                {/* Tabs – absolutely centered so left/right content changes don't shift them */}
-                <div className={`${isDesktopViewport ? "flex" : "hidden"} absolute inset-0 items-center justify-center overflow-x-auto pointer-events-none`}>
-                  <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden pointer-events-auto">
-                    {agentTabItems.map(({ key, label, icon: Icon }, index) => (
-                      <button
-                        key={key}
-                        onClick={() => setMainTab(key)}
-                        className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${
-                          mainTab === key
-                            ? "bg-surface-low text-foreground"
-                            : "bg-transparent text-text-muted hover:text-foreground"
-                        } ${index > 0 ? "border-l border-border" : ""}`}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{label}</span>
-                      </button>
-                    ))}
+                {/* Tabs – scrollable in available space */}
+                <div className={`${isDesktopViewport ? "flex" : "hidden"} flex-1 min-w-0 items-center justify-center`}>
+                  <div className="overflow-x-auto max-w-full scrollbar-none">
+                    <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden">
+                      {agentTabItems.map(({ key, label, icon: Icon }, index) => (
+                        <button
+                          key={key}
+                          onClick={() => setMainTab(key)}
+                          className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors whitespace-nowrap ${
+                            mainTab === key
+                              ? "bg-surface-low text-foreground"
+                              : "bg-transparent text-text-muted hover:text-foreground"
+                          } ${index > 0 ? "border-l border-border" : ""}`}
+                        >
+                          <Icon className="w-3.5 h-3.5 flex-shrink-0" />
+                          <span>{label}</span>
+                        </button>
+                      ))}
+                    </div>
                   </div>
                 </div>
 
-                {/* Spacer to push right actions to the edge */}
-                <div className="flex-1 min-w-0" />
-
                 {/* Right actions */}
-                <div className="relative z-10 flex items-center gap-2 flex-shrink-0">
+                <div className="flex items-center gap-2 flex-shrink-0">
                   <div className={`${isDesktopViewport ? "hidden" : "flex"} items-center gap-1`}>
                     {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                       <button
                         onClick={() => handleStart(selectedAgent.id)}
-                        disabled={
-                          startingId === selectedAgent.id ||
-                          recentlyStoppedIds.has(selectedAgent.id) ||
-                          selectedAgentLaunchBlocked
-                        }
+                        disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                         className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                         aria-label="Start agent"
-                        title={
-                          selectedAgentLaunchBlocked
-                            ? selectedAgentStartGuidance?.title
-                            : selectedAgentStartGuidance?.title ||
-                          (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")
-                        }
+                        title={recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start"}
                       >
                         {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                         <span className="hidden xl:inline">Start</span>
@@ -2665,19 +2273,10 @@ export default function AgentsPage() {
                       {selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED" ? (
                         <button
                           onClick={() => handleStart(selectedAgent.id)}
-                          disabled={
-                            startingId === selectedAgent.id ||
-                            recentlyStoppedIds.has(selectedAgent.id) ||
-                            selectedAgentLaunchBlocked
-                          }
+                          disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                           className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                           aria-label="Start agent"
-                          title={
-                            selectedAgentLaunchBlocked
-                              ? selectedAgentStartGuidance?.title
-                              : selectedAgentStartGuidance?.title ||
-                            (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")
-                          }
+                          title={recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start"}
                         >
                           {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                           <span className="hidden xl:inline">Start</span>
@@ -2738,9 +2337,6 @@ export default function AgentsPage() {
                     label={stoppedTabLabel[mainTab as Exclude<MainTab, "files">]}
                     launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                     onLaunch={() => { void handleStart(selectedAgent.id); }}
-                    blockedTitle={selectedAgentStartGuidance?.title}
-                    blockedMessage={selectedAgentStartGuidance?.message}
-                    suggestedTierActions={selectedAgentSuggestedTierActions}
                   />
                 ) : mainTab === "chat" ? (
                   /* ── Chat Tab ── */
@@ -2813,11 +2409,25 @@ export default function AgentsPage() {
                         const inlineAudioUrl = voicePath && selectedAgent
                           ? `${API_BASE_URL}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
                           : null;
-                        return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} agentId={selectedAgent?.id} />;
+                        return (
+                          <ChatMessageBubble
+                            key={i}
+                            message={msg}
+                            inlineAudioUrl={inlineAudioUrl}
+                            bubblesVariant="v2"
+                            themeVariant="v2"
+                            nameVariant="v2"
+                            timestampVariant="v2"
+                            animationVariant="v2"
+                            streamingVariant="v2"
+                            isStreaming={chat.sending && i === chat.messages.length - 1 && msg.role === "assistant"}
+                            agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+                          />
+                        );
                       })}
 
                       {chat.sending && chat.messages[chat.messages.length - 1]?.role !== "assistant" && (
-                        <ChatThinkingIndicator />
+                        <ChatThinkingIndicator variant="v2" />
                       )}
 
                       <div ref={chatEndRef} />
@@ -2868,7 +2478,7 @@ export default function AgentsPage() {
                           ))}
                         </div>
                       )}
-                      <div className="flex gap-2 items-center">
+                      <div className="flex gap-2 items-end">
                         {recording ? (
                           /* Recording mode: show timer + stop button */
                           <>
@@ -2933,12 +2543,33 @@ export default function AgentsPage() {
                             </button>
                           </>
                         ) : (
-                          /* Normal text mode */
+                          /* Normal text mode — v2 pill input */
                           <>
-                            <input
-                              type="text"
+                          <div className="flex-1 min-w-0 relative">
+                            {/* Paperclip inside pill (left) */}
+                            <label className="absolute left-2 bottom-2 w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-white/5 cursor-pointer flex items-center justify-center transition-colors z-10">
+                              <Paperclip className="w-4 h-4" />
+                              <input
+                                type="file"
+                                multiple
+                                className="hidden"
+                                onChange={(e) => {
+                                  if (e.target.files?.length) {
+                                    void handleChatFileDrop(e.target.files);
+                                    e.target.value = "";
+                                  }
+                                }}
+                              />
+                            </label>
+
+                            {/* Textarea */}
+                            <textarea
                               value={chat.input}
-                              onChange={(e) => chat.setInput(e.target.value)}
+                              onChange={(e) => {
+                                chat.setInput(e.target.value);
+                                e.target.style.height = "auto";
+                                e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                              }}
                               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
                               onPaste={(e) => {
                                 const items = e.clipboardData?.items;
@@ -2957,39 +2588,30 @@ export default function AgentsPage() {
                                   chat.addAttachments(dt.files);
                                 }
                               }}
+                              rows={1}
                               placeholder={chat.connected ? "Type a message..." : "Waiting for gateway..."}
                               disabled={!chat.connected || chat.sending}
-                              className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                              className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-11 pr-12 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
                             />
-                            <label className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors">
-                              <Paperclip className="w-4 h-4" />
-                              <input
-                                type="file"
-                                multiple
-                                className="hidden"
-                                onChange={(e) => {
-                                  if (e.target.files?.length) {
-                                    void handleChatFileDrop(e.target.files);
-                                    e.target.value = "";
-                                  }
-                                }}
-                              />
-                            </label>
-                            <button
-                              onClick={startRecording}
-                              disabled={!chat.connected}
-                              className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low flex items-center justify-center transition-colors"
-                              title="Record audio"
-                            >
-                              <Mic className="w-4 h-4" />
-                            </button>
+
+                            {/* Send button */}
                             <button
                               onClick={handleSendChat}
                               disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)}
-                              className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                              className="absolute right-2 bottom-2 w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center"
                             >
-                              <Send className="w-4 h-4" />
+                              <Send className="w-3.5 h-3.5" />
                             </button>
+                          </div>
+                          {/* Mic button outside pill */}
+                          <button
+                            onClick={startRecording}
+                            disabled={!chat.connected}
+                            className="flex-shrink-0 w-[38px] h-[38px] mb-[5px] rounded-full text-text-muted hover:text-foreground hover:bg-white/5 flex items-center justify-center transition-colors disabled:opacity-50"
+                            title="Record audio"
+                          >
+                            <Mic className="w-5 h-5" />
+                          </button>
                           </>
                         )}
                       </div>
@@ -3327,7 +2949,7 @@ export default function AgentsPage() {
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
-                  <div className="h-full overflow-y-auto p-4 sm:p-6 pb-8">
+                  <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-8">
                     <div className="max-w-2xl w-full mx-auto space-y-8">
                       {/* Agent Identity Section */}
                       <div>
@@ -3342,15 +2964,6 @@ export default function AgentsPage() {
                                 className="flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-text-secondary text-sm cursor-default opacity-60 focus:outline-none"
                                 placeholder="Agent name"
                               />
-                              {selectedAgent.state === "STOPPED" && settingsName.trim() && settingsName.trim() !== (selectedAgent.name || "") && (
-                                <button
-                                  onClick={handleSaveName}
-                                  disabled={savingName}
-                                  className="flex-shrink-0 px-3 py-2 rounded-lg text-sm bg-[#38D39F] text-[#0a0a0b] font-medium hover:bg-[#38D39F]/90 disabled:opacity-60"
-                                >
-                                  {savingName ? "Saving..." : "Save"}
-                                </button>
-                              )}
                             </div>
                             <p className="text-xs text-text-muted mt-1">Agent name cannot be changed after creation.</p>
                           </div>
@@ -3378,12 +2991,6 @@ export default function AgentsPage() {
                             <span className="text-sm text-text-secondary">Resources</span>
                             <span className="text-sm text-text-tertiary truncate min-w-0">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
                           </div>
-                          {selectedAgentTier && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-text-secondary">Tier</span>
-                              <span className="text-sm text-text-tertiary truncate min-w-0">{titleizeTier(selectedAgentTier)}</span>
-                            </div>
-                          )}
                           {selectedAgent.hostname && (
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-text-secondary">Hostname</span>
@@ -3394,12 +3001,6 @@ export default function AgentsPage() {
                             <div className="flex items-center justify-between">
                               <span className="text-sm text-text-secondary">Created</span>
                               <span className="text-sm text-text-tertiary">{new Date(selectedAgent.created_at).toLocaleDateString()}</span>
-                            </div>
-                          )}
-                          {selectedAgentStartGuidance && (
-                            <div className="rounded-lg border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-3 py-2 text-sm">
-                              <p className="font-medium text-[#f0c56c]">{selectedAgentStartGuidance.title}</p>
-                              <p className="mt-1 text-text-secondary">{selectedAgentStartGuidance.message}</p>
                             </div>
                           )}
                         </div>
@@ -3445,6 +3046,54 @@ export default function AgentsPage() {
             </>
           )}
         </div>
+
+        {/* ── Right Sidebar — AgentView ── */}
+        {selectedAgent && isDesktopViewport && (
+          <div className="w-80 flex-shrink-0 border-l border-border flex flex-col min-h-0">
+            {selectedConnection ? (
+              <ConnectionDetail
+                connection={selectedConnection}
+                onClose={() => setSelectedConnection(null)}
+              />
+            ) : (
+              <AgentView
+                agentName={selectedAgent.name || selectedAgent.pod_name || "Agent"}
+                onConnectionSelect={(conn) => setSelectedConnection(conn)}
+                activeTab={agentViewTab}
+                onTabChange={setAgentViewTab}
+                agentStatus={{
+                  state: (["RUNNING", "STOPPED", "STARTING", "STOPPING"].includes(selectedAgent.state) ? selectedAgent.state : "STOPPED") as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
+                  uptime: selectedAgent.started_at ? Math.floor((Date.now() - new Date(selectedAgent.started_at).getTime()) / 1000) : 0,
+                  cpu: selectedAgent.cpu_millicores ? Math.round(selectedAgent.cpu_millicores / 10) : 0,
+                  memory: { used: (selectedAgent.memory_mib || 0) * 1048576, total: 2147483648 },
+                }}
+                completenessRingVariant="v1"
+                quickActionsVariant="v1"
+                modelCapsVariant="v1"
+                toolUsageVariant="v1"
+                interactionPatternsVariant="v1"
+                examplePromptsVariant="v1"
+                limitsVariant="v1"
+                achievementsVariant="v1"
+                permissionsVariant="v1"
+                channelsVariant="v1"
+                providersVariant="v1"
+                execQueueVariant="v1"
+                agentUrlsVariant="v1"
+                gatewayStatusVariant="v1"
+                workspaceFilesVariant="v1"
+                whatCanIDoVariant="v1"
+                toolDiscoveryVariant="v1"
+                connectionRecsVariant="v1"
+                capabilityDiffVariant="v1"
+                nudgesVariant="v1"
+                onboardingVariant="v1"
+                skillsVariant="v1"
+                activityVariant="v1"
+              />
+            )}
+          </div>
+        )}
       </div>
     </div>
   );
