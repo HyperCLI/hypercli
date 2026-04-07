@@ -14,6 +14,7 @@ interface PluginCardProps {
 
 export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardProps) {
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const Icon = plugin.icon;
 
   const handleToggle = async (e: React.MouseEvent | React.KeyboardEvent) => {
@@ -21,8 +22,14 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
     e.preventDefault();
     if (saving) return;
     setSaving(true);
+    setError(null);
     try {
       await onToggle(!enabled);
+    } catch (err) {
+      const msg = err instanceof Error ? err.message : "Failed to update";
+      // Strip verbose internal error prefixes for a cleaner message
+      const clean = msg.replace(/^(GatewayRequestError:\s*|ConfigRuntimeRefreshError:\s*)/i, "");
+      setError(clean);
     } finally {
       setSaving(false);
     }
@@ -83,10 +90,12 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
               )}
             </div>
           </div>
-          {plugin.description && (
+          {error ? (
+            <p className="text-xs text-[var(--error)] mt-1 line-clamp-2">{error}</p>
+          ) : plugin.description ? (
             <p className="text-xs text-text-tertiary mt-1 line-clamp-2">{plugin.description}</p>
-          )}
-          {enabled && onClick && (
+          ) : null}
+          {enabled && onClick && !error && (
             <span className="text-xs text-[var(--primary)] font-medium mt-2 inline-block">
               Configure →
             </span>

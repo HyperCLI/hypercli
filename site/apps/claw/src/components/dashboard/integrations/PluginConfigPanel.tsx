@@ -1,8 +1,9 @@
 "use client";
 
 import { useState } from "react";
-import { ExternalLink, Check, Key, Globe } from "lucide-react";
+import { ExternalLink, Check, Key, Globe, Loader2 } from "lucide-react";
 import type { PluginMeta } from "./plugin-registry";
+import { isPluginEnabled } from "./plugin-registry";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
 
 const REDACTED_KEY = "__OPENCLAW_REDACTED__";
@@ -396,6 +397,7 @@ function AiProviderPanel({
   onSave: (patch: Record<string, unknown>) => Promise<void>;
   onClose: () => void;
 }) {
+  const enabled = isPluginEnabled(plugin, config);
   const creds = getProviderCredentials(plugin.id, config);
   const extraFields = getPluginConfigFields(plugin.id, configSchema);
   const extraValues = getPluginConfigValues(plugin.id, config);
@@ -403,7 +405,7 @@ function AiProviderPanel({
   const [baseUrl, setBaseUrl] = useState(creds.baseUrl);
   const [extraDraft, setExtraDraft] = useState<Record<string, unknown>>({ ...extraValues });
   const [saving, setSaving] = useState(false);
-  const [saveSuccess, setSaveSuccess] = useState(false);
+  const [status, setStatus] = useState<"idle" | "connected" | "disconnected">("idle");
   const [error, setError] = useState<string | null>(null);
 
   const Icon = plugin.icon;
@@ -418,8 +420,7 @@ function AiProviderPanel({
       if (apiKey.trim()) providerPatch.apiKey = apiKey.trim();
       if (baseUrl.trim()) providerPatch.baseUrl = baseUrl.trim();
 
-      // Build full patch: enable plugin + set provider credentials + any extra plugin config
-      const patch: Record<string, unknown> = {
+      await onSave({
         plugins: {
           entries: {
             [plugin.id]: {
@@ -433,19 +434,67 @@ function AiProviderPanel({
             [plugin.id]: providerPatch,
           },
         },
-      };
-
-      await onSave(patch);
-      setSaveSuccess(true);
-      // Auto-close after brief confirmation — use ref-safe pattern
-      const timer = setTimeout(() => onClose(), 800);
-      return () => clearTimeout(timer);
+      });
+      setStatus("connected");
+      setTimeout(() => onClose(), 800);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to save");
     } finally {
       setSaving(false);
     }
   };
+
+  const handleDisconnect = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await onSave({
+        plugins: {
+          entries: {
+            [plugin.id]: { enabled: false },
+          },
+        },
+      });
+      setStatus("disconnected");
+      setTimeout(() => onClose(), 800);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : "Failed to disconnect");
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // Completed action — show brief confirmation
+  if (status === "connected" || status === "disconnected") {
+    return (
+      <div className="space-y-6">
+        <div className="w-12 h-12 rounded-full bg-[var(--primary)]/10 flex items-center justify-center">
+          <Icon className="w-6 h-6 text-[var(--primary)]" />
+        </div>
+        <div className="flex items-center gap-2 text-sm">
+          <Check className={`w-4 h-4 ${status === "connected" ? "text-emerald-400" : "text-text-secondary"}`} />
+          <span className="text-foreground">
+            {status === "connected" ? `${plugin.displayName} connected` : `${plugin.displayName} disconnected`}
+          </span>
+        </div>
+      </div>
+    );
+  }
+
+  // Saving — show spinner in the panel
+  if (saving) {
+    return (
+      <div className="space-y-6">
+        <div className="w-12 h-12 rounded-full bg-[var(--primary)]/10 flex items-center justify-center">
+          <Icon className="w-6 h-6 text-[var(--primary)]" />
+        </div>
+        <div className="flex items-center gap-3 text-sm text-text-secondary">
+          <Loader2 className="w-4 h-4 animate-spin text-[var(--primary)]" />
+          {enabled ? "Disconnecting..." : "Connecting..."}
+        </div>
+      </div>
+    );
+  }
 
   return (
     <div className="space-y-6">
@@ -518,7 +567,7 @@ function AiProviderPanel({
         </p>
       </div>
 
-      {/* Extra schema-discovered fields (if gateway exposes additional config for this provider) */}
+      {/* Extra schema-discovered fields */}
       {extraFields.length > 0 && (
         <div className="space-y-4 pt-2 border-t border-[var(--border)]">
           <p className="text-xs text-text-tertiary">Additional settings</p>
@@ -563,20 +612,20 @@ function AiProviderPanel({
         >
           Cancel
         </button>
+        {enabled && (
+          <button
+            onClick={handleDisconnect}
+            className="px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+          >
+            Disconnect
+          </button>
+        )}
         <button
           onClick={handleConnect}
-          disabled={saving || saveSuccess || !hasInput}
-          className={`px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50 transition-colors ${
-            saveSuccess
-              ? "bg-emerald-500/15 text-emerald-400 border border-emerald-500/30"
-              : "btn-primary"
-          }`}
+          disabled={!hasInput}
+          className="btn-primary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
         >
-          {saveSuccess ? (
-            <span className="flex items-center gap-1.5">
-              <Check className="w-3.5 h-3.5" /> Connected
-            </span>
-          ) : saving ? "Connecting..." : creds.hasExistingKey ? "Update" : "Connect"}
+          {creds.hasExistingKey ? "Update" : "Connect"}
         </button>
       </div>
     </div>
