@@ -2932,8 +2932,7 @@ export default function AgentsPage() {
                       connected={chat.connected}
                       onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
                       onChannelProbe={async () => chat.channelsStatus(true)}
-                      onWebLoginStart={async (opts) => chat.webLoginStart(opts)}
-                      onWebLoginWait={async (opts) => chat.webLoginWait(opts)}
+                      onOpenShell={() => setMainTab("shell")}
                     />
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
