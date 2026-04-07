@@ -14,6 +14,14 @@
 - The live instances endpoints are `https://api.hypercli.com/instances/*`, not `https://api.hypercli.com/api/instances/*`.
 - The requested flow listing endpoint `GET /api/flows` returns `404` on the live API. The current SDKs only expose render listing via `GET /api/renders`.
 
+### HyperClaw frontend path mismatch (`/agents/*` vs `/api/*`)
+
+- The claw app (`site/apps/claw/src/lib/api.ts` line 25) constructs agent API URLs as `{normalizedApiBase}/agents` + endpoint → e.g. `https://api.dev.hypercli.com/agents/deployments`
+- Dmitry's authoritative HyperClaw service spec (`https://api.agents.dev.hypercli.com/api/openapi.json`) shows the service itself uses `/api/deployments` paths on the `api.agents.dev.hypercli.com` host
+- The proxy route `api.dev.hypercli.com/agents/*` → internal `/api/*` on `api.agents.dev.hypercli.com` needs to be wired by backend for claw frontend calls to succeed
+- **Frontend-side fix (if backend doesn't add proxy):** change `API_BASE_URL` in `api.ts:25` to use `/api` and point to `api.agents.dev.hypercli.com` directly
+- **Status:** backend fix required — flagged to Dmitry
+
 ### Agents / HyperAgent auth drift
 
 - The account-level `hyper_api_*` key works for the account API (`/api/user`, `/api/keys`, `/api/jobs`, `/api/balance`) but does not authenticate against the OpenAI-style agent API, which expects an `sk-*` virtual key.
