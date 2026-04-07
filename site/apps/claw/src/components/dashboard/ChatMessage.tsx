@@ -38,6 +38,72 @@ function toolCallSummary(tc: { name: string; args: string; result?: string }): s
   return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
 }
 
+/**
+ * Typewriter reveal for streaming AI responses.
+ * - Dynamic speed: short messages ~180 chars/sec, long messages cap at ~3.3s total
+ * - Messages under 20 chars skip animation entirely (avoids single-frame flicker)
+ * - Snaps to word boundaries for smoother reading
+ */
+function useTypewriter(fullText: string, isActive: boolean): string {
+  const [displayedLength, setDisplayedLength] = useState(0);
+  const rafRef = useRef(0);
+  const targetRef = useRef(0);
+  const currentRef = useRef(0);
+  const textRef = useRef(fullText);
+
+  // Keep refs in sync every render (no effect needed)
+  textRef.current = fullText;
+  targetRef.current = fullText.length;
+
+  // When not active, instantly reveal everything
+  useEffect(() => {
+    if (!isActive) {
+      setDisplayedLength(fullText.length);
+      currentRef.current = fullText.length;
+    }
+  }, [isActive, fullText.length]);
+
+  // Animation loop — reads from refs so it always sees latest text
+  useEffect(() => {
+    if (!isActive) return;
+
+    function tick() {
+      const target = targetRef.current;
+      const text = textRef.current;
+      if (currentRef.current < target) {
+        // Skip animation entirely for very short messages
+        if (target < 20) {
+          currentRef.current = target;
+          setDisplayedLength(target);
+          rafRef.current = requestAnimationFrame(tick);
+          return;
+        }
+        const charsPerFrame = Math.max(3, Math.ceil(target / 200));
+        let next = Math.min(currentRef.current + charsPerFrame, target);
+        // Snap to word boundary if within 8 chars
+        if (next < target && text[next] !== " " && text[next] !== "\n") {
+          const nextSpace = text.indexOf(" ", next);
+          const nextNewline = text.indexOf("\n", next);
+          const boundary = Math.min(
+            nextSpace === -1 ? target : nextSpace,
+            nextNewline === -1 ? target : nextNewline,
+          );
+          if (boundary - next < 8) next = boundary;
+        }
+        currentRef.current = next;
+        setDisplayedLength(next);
+      }
+      rafRef.current = requestAnimationFrame(tick);
+    }
+
+    rafRef.current = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(rafRef.current);
+  }, [isActive]);
+
+  if (!isActive) return fullText;
+  return fullText.slice(0, displayedLength);
+}
+
 export function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
@@ -111,6 +177,10 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
     }
     audio.pause();
   }, []);
+
+  // Typewriter only for v2 streaming — v1 uses cursor, v3 uses shimmer, both render text instantly
+  const typewriterActive = isStreaming && message.role === "assistant" && streamingVariant === "v2";
+  const displayedContent = useTypewriter(message.content, typewriterActive);
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -290,46 +360,98 @@ export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = nu
           </div>
         )}
 
-        {/* Content */}
-        {message.content && (
-          <div className="leading-relaxed prose-chat">
-            <Markdown
-              components={{
-                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                em: ({ children }) => <em className="italic">{children}</em>,
-                code: ({ children, className }) => {
-                  const isBlock = className?.includes("language-");
-                  return isBlock ? (
-                    <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
-                      <code>{children}</code>
-                    </pre>
-                  ) : (
-                    <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
-                  );
-                },
-                pre: ({ children }) => <>{children}</>,
-                ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                li: ({ children }) => <li>{children}</li>,
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                    {children}
-                  </a>
-                ),
-                h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
-                h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
-                blockquote: ({ children }) => (
-                  <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
-                ),
-                hr: () => <hr className="border-border my-3" />,
-                img: ({ src, alt }) => typeof src === "string" && src ? (
-                  <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
-                    <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
-                  </a>
-                ) : null,
-              }}
+          {/* Content */}
+          {displayedContent && (
+            <div className="leading-relaxed prose-chat">
+              <Markdown
+                components={{
+                  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+                  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+                  em: ({ children }) => <em className="italic">{children}</em>,
+                  code: ({ children, className }) => {
+                    const isBlock = className?.includes("language-");
+                    return isBlock ? (
+                      <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
+                        <code>{children}</code>
+                      </pre>
+                    ) : (
+                      <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+                    );
+                  },
+                  pre: ({ children }) => <>{children}</>,
+                  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+                  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+                  li: ({ children }) => <li>{children}</li>,
+                  a: ({ href, children }) => (
+                    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+                      {children}
+                    </a>
+                  ),
+                  h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+                  h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+                  h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+                  blockquote: ({ children }) => (
+                    <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
+                  ),
+                  hr: () => <hr className="border-border my-3" />,
+                  img: ({ src, alt }) =>
+                    typeof src === "string" && src ? (
+                      <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
+                        <img
+                          src={src}
+                          alt={typeof alt === "string" ? alt : "image"}
+                          className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                          loading="lazy"
+                        />
+                      </a>
+                    ) : null,
+                }}
+              >
+                {displayedContent}
+              </Markdown>
+            </div>
+          )}
+
+          {/* Streaming cursor / animation */}
+          {isStreaming && !isUser && (
+            <>
+              {streamingVariant === "v1" && (
+                // Alt 1: blinking I-beam cursor inline after text
+                <motion.span
+                  className="inline-block w-[2px] h-[0.85em] bg-foreground/70 ml-0.5 align-text-bottom rounded-sm"
+                  animate={{ opacity: [1, 0, 1] }}
+                  transition={{ repeat: Infinity, duration: 0.75, ease: "linear" }}
+                />
+              )}
+              {streamingVariant === "v2" && (
+                // Alt 2: pulsing green dot after content
+                <motion.span
+                  className="inline-block w-2 h-2 rounded-full bg-[#38D39F] ml-1.5 align-middle"
+                  animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
+                  transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut" }}
+                />
+              )}
+              {streamingVariant === "v3" && (
+                // Alt 3: shimmer sweep across the bubble
+                <motion.div
+                  className="absolute inset-0 pointer-events-none"
+                  style={{
+                    background: "linear-gradient(105deg, transparent 30%, rgba(56,211,159,0.08) 50%, transparent 70%)",
+                  }}
+                  animate={{ x: ["-120%", "140%"] }}
+                  transition={{ repeat: Infinity, duration: 1.6, ease: "linear" }}
+                />
+              )}
+            </>
+          )}
+
+          {/* Inline audio */}
+          {inlineAudioUrl && (
+            <button
+              type="button"
+              onClick={toggleInlineAudio}
+              className="mt-2 inline-flex items-center justify-center rounded-md border border-border bg-background/50 p-1.5 text-text-muted hover:text-foreground"
+              title={inlineAudioPlaying ? "Pause voice message" : "Play voice message"}
             >
               {message.content}
             </Markdown>
