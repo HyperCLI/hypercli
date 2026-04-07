@@ -35,29 +35,48 @@ function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boo
   return `${raw}/v1`;
 }
 
-function resolveHyperAgentControlBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
-  const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
-  if (!raw) {
-    const fallback = getAgentsApiBaseUrl(dev);
-    return resolveHyperAgentControlBaseUrl(fallback, dev);
-  }
-  const parsed = new URL(raw.includes('://') ? raw : `https://${raw}`);
-  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
-  const host = parsed.host.toLowerCase();
-  if (normalizedPath.endsWith('/agents')) {
+function resolveHyperAgentControlBaseUrl(
+  productApiBaseUrl: string | undefined,
+  agentsApiBaseUrl: string | undefined,
+  dev: boolean,
+): string {
+  const rawProduct = (productApiBaseUrl || '').replace(/\/+$/, '');
+  if (rawProduct) {
+    const parsed = new URL(rawProduct.includes('://') ? rawProduct : `https://${rawProduct}`);
+    const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+    if (normalizedPath.endsWith('/api')) {
+      return `${parsed.origin}${normalizedPath.slice(0, -4)}`;
+    }
+    if (normalizedPath.endsWith('/v1')) {
+      return `${parsed.origin}${normalizedPath.slice(0, -3)}`;
+    }
+    if (normalizedPath.endsWith('/agents')) {
+      return `${parsed.origin}${normalizedPath.slice(0, -7)}`;
+    }
     return `${parsed.origin}${normalizedPath}`;
   }
-  if (normalizedPath.endsWith('/api')) {
+  const rawAgents = (agentsApiBaseUrl || '').replace(/\/+$/, '');
+  if (!rawAgents) {
+    const fallback = getAgentsApiBaseUrl(dev);
+    return resolveHyperAgentControlBaseUrl(undefined, fallback, dev);
+  }
+  const parsed = new URL(rawAgents.includes('://') ? rawAgents : `https://${rawAgents}`);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  const host = parsed.host.toLowerCase();
+  if (normalizedPath.endsWith('/agents') && !normalizedPath.slice(0, -7)) {
     if (host === 'api.agents.hypercli.com') {
-      return 'https://api.hypercli.com/agents';
+      return 'https://api.hypercli.com';
     }
     if (host === 'api.agents.dev.hypercli.com') {
-      return 'https://api.dev.hypercli.com/agents';
+      return 'https://api.dev.hypercli.com';
     }
-    return `${parsed.origin}${normalizedPath.slice(0, -4)}/agents`;
+    return parsed.origin;
+  }
+  if (normalizedPath.endsWith('/api')) {
+    return `${parsed.origin}${normalizedPath.slice(0, -4)}`;
   }
   if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
-    return 'https://api.hypercli.com/agents';
+    return 'https://api.hypercli.com';
   }
   if (
     host === 'api.dev.hypercli.com' ||
@@ -65,9 +84,9 @@ function resolveHyperAgentControlBaseUrl(agentsApiBaseUrl: string | undefined, d
     host === 'dev-api.hyperclaw.app' ||
     host === 'api.agents.dev.hypercli.com'
   ) {
-    return 'https://api.dev.hypercli.com/agents';
+    return 'https://api.dev.hypercli.com';
   }
-  return `${parsed.origin}${normalizedPath || ''}/agents`;
+  return parsed.origin;
 }
 
 export interface HyperAgentPlan {
@@ -249,7 +268,7 @@ export class HyperAgent {
     const fallbackBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : (dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE);
     const configuredBaseUrl = agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || fallbackBaseUrl;
     this.baseUrl = resolveHyperAgentBaseUrl(configuredBaseUrl, dev);
-    this.controlBaseUrl = resolveHyperAgentControlBaseUrl(configuredBaseUrl, dev);
+    this.controlBaseUrl = resolveHyperAgentControlBaseUrl(http['baseUrl'], configuredBaseUrl, dev);
   }
 
   private get baseUrlWithoutV1(): string {
