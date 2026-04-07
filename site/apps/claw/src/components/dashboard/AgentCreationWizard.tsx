@@ -279,6 +279,14 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         size: showAdvanced ? undefined : selectedType.id,
         cpu: showAdvanced ? customCpuCores : undefined,
         memory: showAdvanced ? customMemGb : undefined,
+        meta: {
+          ui: {
+            avatar: {
+              image: customAvatar,
+              icon_index: selectedIcon,
+            },
+          },
+        },
       });
       onCreated(created.id, (created as any).gatewayToken ?? undefined);
     } catch (err) {

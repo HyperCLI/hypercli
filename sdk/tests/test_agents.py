@@ -40,6 +40,36 @@ def test_agent_from_dict_minimal():
     assert agent.ports == []
 
 
+def test_agent_from_dict_hydrates_only_meta_ui():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "pending",
+            "meta": {
+                "ui": {
+                    "avatar": {
+                        "image": "data:image/png;base64,abc",
+                        "icon_index": 4,
+                    }
+                },
+                "internal": {
+                    "ignored": True,
+                },
+            },
+        }
+    )
+
+    assert agent.meta_ui == {
+        "avatar": {
+            "image": "data:image/png;base64,abc",
+            "icon_index": 4,
+        }
+    }
+
+
 def test_agent_urls_and_running_state():
     agent = Agent(
         id="agent-123",
@@ -492,6 +522,12 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             size="medium",
             cpu=4,
             memory=16,
+            meta_ui={
+                "avatar": {
+                    "image": "data:image/png;base64,xyz",
+                    "icon_index": 7,
+                }
+            },
             env={"FOO": "bar"},
             ports=[{"port": 18789, "auth": False}],
             command=["nginx", "-g", "daemon off;"],
@@ -507,6 +543,14 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             "FOO": "bar",
             "OPENCLAW_GATEWAY_TOKEN": "gw-token-123",
         }
+        assert posted_json["meta"] == {
+            "ui": {
+                "avatar": {
+                    "image": "data:image/png;base64,xyz",
+                    "icon_index": 7,
+                }
+            }
+        }
         assert posted_json["command"] == ["nginx", "-g", "daemon off;"]
         assert posted_json["entrypoint"] == ["/docker-entrypoint.sh"]
         assert posted_json["image"] == "ghcr.io/hypercli/hypercli-openclaw:test"
@@ -515,6 +559,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token == "gw-token-123"
         assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+        assert agent.meta_ui is None
         assert agent._deployments is agents_client
 
 

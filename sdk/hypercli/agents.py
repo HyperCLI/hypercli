@@ -258,6 +258,7 @@ def _deep_merge_config(base: dict[str, Any], patch: dict[str, Any]) -> dict[str,
 
 
 def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     return {
         "id": data.get("id", ""),
         "user_id": data.get("user_id", ""),
@@ -277,6 +278,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": data.get("launch_config"),
+        "meta_ui": copy.deepcopy(meta.get("ui")) if isinstance(meta.get("ui"), dict) else None,
         "routes": data.get("routes") or {},
         "command": data.get("command") or [],
         "entrypoint": data.get("entrypoint") or [],
@@ -306,6 +308,7 @@ class Agent:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
+    meta_ui: Optional[dict] = None
     routes: dict[str, dict] = field(default_factory=dict)
     command: list[str] = field(default_factory=list)
     entrypoint: list[str] = field(default_factory=list)
@@ -992,6 +995,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        meta_ui: dict = None,
         dry_run: bool = False,
         start: bool = True,
     ) -> Agent:
@@ -1035,6 +1039,8 @@ class Deployments:
             body["cpu"] = cpu
         if memory is not None:
             body["memory"] = memory
+        if meta_ui:
+            body["meta"] = {"ui": copy.deepcopy(meta_ui)}
         if tags:
             body["tags"] = list(tags)
         data = self._post(AGENTS_API_PREFIX, json=body)
@@ -1065,6 +1071,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        meta_ui: dict = None,
         dry_run: bool = False,
         start: bool = True,
         openclaw_routes: dict | None = None,
@@ -1092,6 +1099,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            meta_ui=meta_ui,
             dry_run=dry_run,
             start=start,
         )

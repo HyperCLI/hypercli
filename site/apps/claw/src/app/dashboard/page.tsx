@@ -24,7 +24,7 @@ import { removeAgentState } from "@/lib/agent-store";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
-import { agentAvatar } from "@/lib/avatar";
+import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 
 // ── Types ──
 
@@ -96,10 +96,7 @@ interface Agent {
   hostname: string | null;
   started_at: string | null;
   last_error: string | null;
-}
-
-interface AgentListResponse {
-  items: Agent[];
+  meta?: AgentMeta | null;
 }
 
 function formatTokens(n: number): string {
@@ -159,14 +156,17 @@ export default function DashboardPage() {
           agentApiFetch<UsageInfo>("/usage", token),
           agentApiFetch<HistoryResponse>("/usage/history?days=7", token),
           agentApiFetch<KeyUsageResponse>("/usage/keys?days=7", token),
-          agentApiFetch<AgentListResponse>("/deployments", token),
+          agentApiFetch<{ items?: Agent[] } | Agent[]>("/deployments", token),
         ]);
 
       if (planData.status === "fulfilled") setPlan(planData.value);
       if (usageData.status === "fulfilled") setUsage(usageData.value);
       if (historyData.status === "fulfilled") setHistory(historyData.value.history);
       if (keyData.status === "fulfilled") setKeyUsage(keyData.value.keys);
-      if (agentData.status === "fulfilled") setAgents(agentData.value.items || []);
+      if (agentData.status === "fulfilled") {
+        const items = Array.isArray(agentData.value) ? agentData.value : agentData.value.items || [];
+        setAgents(items);
+      }
     } catch {
       // Graceful fallback
     } finally {
@@ -260,7 +260,7 @@ export default function DashboardPage() {
           </div>
           <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
             {agents.map((agent, i) => {
-              const avatar = agentAvatar(agent.name || agent.id);
+              const avatar = agentAvatar(agent.name || agent.id, agent.meta);
               const AvatarIcon = avatar.icon;
               const isRunning = agent.state === "RUNNING";
               const isStopped = agent.state === "STOPPED" || agent.state === "FAILED";
@@ -278,10 +278,14 @@ export default function DashboardPage() {
                     {/* Avatar */}
                     <div className="relative flex-shrink-0">
                       <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center"
+                        className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
                         style={{ backgroundColor: avatar.bgColor }}
                       >
-                        <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
+                        {avatar.imageUrl ? (
+                          <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
+                        ) : (
+                          <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
+                        )}
                       </div>
                       <motion.div
                         className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${stateDotClass(agent.state)}`}

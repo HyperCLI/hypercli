@@ -18,6 +18,14 @@ const DEFAULT_OPENCLAW_ROUTES = {
   },
 };
 
+interface AgentUiMeta {
+  avatar?: {
+    image?: string | null;
+    icon_index?: number | null;
+  } | null;
+  [key: string]: unknown;
+}
+
 interface OpenClawAgentOptions {
   name?: string;
   start?: boolean;
@@ -25,6 +33,7 @@ interface OpenClawAgentOptions {
   cpu?: number;
   memory?: number;
   config?: Record<string, unknown>;
+  meta?: { ui?: AgentUiMeta | null } | null;
   env?: Record<string, string>;
   image?: string;
   routes?: Record<string, unknown>;

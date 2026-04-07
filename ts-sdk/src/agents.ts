@@ -98,12 +98,27 @@ export interface OpenClawRouteOptions {
   desktopPrefix?: string;
 }
 
+export interface AgentUiAvatarMeta {
+  image?: string | null;
+  icon_index?: number | null;
+}
+
+export interface AgentUiMeta {
+  avatar?: AgentUiAvatarMeta | null;
+  [key: string]: any;
+}
+
+export interface AgentMeta {
+  ui?: AgentUiMeta | null;
+}
+
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
   size?: string;
   cpu?: number;
   memory?: number;
   config?: Record<string, any>;
+  meta?: AgentMeta | null;
   tags?: string[];
   dryRun?: boolean;
   start?: boolean;
@@ -165,6 +180,7 @@ export interface AgentStateFields {
   createdAt?: Date | null;
   updatedAt?: Date | null;
   launchConfig?: Record<string, any> | null;
+  meta?: AgentMeta | null;
   routes: Record<string, AgentRouteConfig>;
   command: string[];
   entrypoint: string[];
@@ -191,6 +207,7 @@ export interface AgentHydrationData {
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
+  meta?: { ui?: AgentUiMeta | null } | null;
   routes?: Record<string, AgentRouteConfig> | null;
   command?: string[] | null;
   entrypoint?: string[] | null;
@@ -360,6 +377,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig: data.launch_config ?? null,
+    meta: data.meta?.ui ? { ui: structuredClone(data.meta.ui) } : null,
     routes: data.routes ?? {},
     command: data.command ?? [],
     entrypoint: data.entrypoint ?? [],
@@ -456,6 +474,7 @@ export class Agent {
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
   public launchConfig: Record<string, any> | null;
+  public readonly meta: AgentMeta | null;
   public routes: Record<string, AgentRouteConfig>;
   public command: string[];
   public entrypoint: string[];
@@ -482,6 +501,7 @@ export class Agent {
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
     this.launchConfig = fields.launchConfig ?? null;
+    this.meta = fields.meta ? structuredClone(fields.meta) : null;
     this.routes = { ...fields.routes };
     this.command = [...fields.command];
     this.entrypoint = [...fields.entrypoint];
@@ -1229,6 +1249,7 @@ export class Deployments {
     if (options.size) body.size = options.size;
     if (options.cpu !== undefined) body.cpu = options.cpu;
     if (options.memory !== undefined) body.memory = options.memory;
+    if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
     if (options.tags?.length) body.tags = [...options.tags];
 
     const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);

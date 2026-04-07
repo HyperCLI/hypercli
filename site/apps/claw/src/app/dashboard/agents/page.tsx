@@ -2,7 +2,6 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 import {
   createOpenClawConfigValue,
   describeOpenClawConfigNode,
@@ -58,7 +57,7 @@ import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
-import { agentAvatar } from "@/lib/avatar";
+import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsPage } from "@/components/dashboard/integrations";
@@ -86,6 +85,7 @@ interface Agent {
   updated_at: string | null;
   openclaw_url?: string | null;
   gatewayToken?: string | null;
+  meta?: AgentMeta | null;
 }
 
 interface AgentBudget {
@@ -109,6 +109,30 @@ interface LogEvent {
   log?: string;
   detail?: string;
   status?: number;
+}
+
+interface AgentListItem {
+  id: string;
+  name: string;
+  user_id: string;
+  pod_id: string | null;
+  pod_name: string | null;
+  state: AgentState;
+  cpu: number;
+  memory: number;
+  hostname: string | null;
+  started_at: string | null;
+  stopped_at: string | null;
+  last_error: string | null;
+  created_at: string | null;
+  updated_at: string | null;
+  openclaw_url?: string | null;
+  gatewayToken?: string | null;
+  meta?: AgentMeta | null;
+}
+
+interface AgentListResponse {
+  items?: AgentListItem[];
 }
 
 interface S3FileEntry {
@@ -181,30 +205,6 @@ function downloadBrowserFile(content: BlobPart | Uint8Array, filename: string, m
   link.click();
   link.remove();
   URL.revokeObjectURL(url);
-}
-
-function sdkAgentToPageAgent(agent: SdkAgent): Agent {
-  const openclawUrl =
-    "gatewayUrl" in agent && typeof agent.gatewayUrl === "string"
-      ? agent.gatewayUrl
-      : null;
-  return {
-    id: agent.id,
-    name: agent.name ?? agent.id,
-    user_id: agent.userId,
-    pod_id: agent.podId || null,
-    pod_name: agent.podName || null,
-    state: (agent.state || "STOPPED").toUpperCase() as AgentState,
-    cpu_millicores: Math.round((agent.cpu || 0) * 1000),
-    memory_mib: Math.round((agent.memory || 0) * 1024),
-    hostname: agent.hostname ?? null,
-    started_at: agent.startedAt?.toISOString() ?? null,
-    stopped_at: agent.stoppedAt?.toISOString() ?? null,
-    last_error: agent.lastError ?? null,
-    created_at: agent.createdAt?.toISOString() ?? null,
-    updated_at: agent.updatedAt?.toISOString() ?? null,
-    openclaw_url: openclawUrl,
-  };
 }
 
 function formatFileSize(size?: number): string {
@@ -881,10 +881,29 @@ export default function AgentsPage() {
       const token = await getToken();
       const agentClient = createAgentClient(token);
       const [listedAgents, budgetData] = await Promise.all([
-        agentClient.list(),
+        agentApiFetch<AgentListResponse | AgentListItem[]>("/deployments", token),
         agentClient.budget().catch(() => null),
       ]);
-      const items = listedAgents.map(sdkAgentToPageAgent);
+      const rawItems: AgentListItem[] = Array.isArray(listedAgents) ? listedAgents : listedAgents.items || [];
+      const items = rawItems.map((agent) => ({
+        id: agent.id,
+        name: agent.name || agent.id,
+        user_id: agent.user_id,
+        pod_id: agent.pod_id || null,
+        pod_name: agent.pod_name || null,
+        state: (agent.state || "STOPPED").toUpperCase() as AgentState,
+        cpu_millicores: Math.round((agent.cpu || 0) * 1000),
+        memory_mib: Math.round((agent.memory || 0) * 1024),
+        hostname: agent.hostname ?? null,
+        started_at: agent.started_at ?? null,
+        stopped_at: agent.stopped_at ?? null,
+        last_error: agent.last_error ?? null,
+        created_at: agent.created_at ?? null,
+        updated_at: agent.updated_at ?? null,
+        openclaw_url: agent.openclaw_url ?? null,
+        gatewayToken: agent.gatewayToken ?? null,
+        meta: agent.meta ?? null,
+      }));
       setAgents(items);
       setBudget((budgetData as AgentBudget | null) || null);
       const currentId = selectedAgentIdRef.current;
@@ -2104,7 +2123,7 @@ export default function AgentsPage() {
                   const isSelected = selectedAgentId === agent.id;
                   const isRunning = agent.state === "RUNNING";
                   const isTransitioning = ["PENDING", "STARTING", "STOPPING"].includes(agent.state);
-                  const avatar = agentAvatar(agent.name || agent.id);
+                  const avatar = agentAvatar(agent.name || agent.id, agent.meta);
                   const AvatarIcon = avatar.icon;
 
                   if (sidebarCollapsed) {
@@ -2120,10 +2139,14 @@ export default function AgentsPage() {
                       >
                         <div className="relative">
                           <div
-                            className="w-9 h-9 rounded-full flex items-center justify-center"
+                            className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
                             style={{ backgroundColor: avatar.bgColor }}
                           >
-                            <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
+                            {avatar.imageUrl ? (
+                              <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
+                            ) : (
+                              <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
+                            )}
                           </div>
                           <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                         </div>
@@ -2142,10 +2165,14 @@ export default function AgentsPage() {
                       {/* Avatar */}
                       <div className="relative flex-shrink-0">
                         <div
-                          className="w-9 h-9 rounded-full flex items-center justify-center"
+                          className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
                           style={{ backgroundColor: avatar.bgColor }}
                         >
-                          <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
+                          {avatar.imageUrl ? (
+                            <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
+                          ) : (
+                            <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
+                          )}
                         </div>
                         <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
                       </div>
@@ -2234,11 +2261,15 @@ export default function AgentsPage() {
                 {/* Agent name + status */}
                 <div className="relative z-10 flex items-center gap-2 min-w-0 flex-shrink-0">
                   {(() => {
-                    const avatar = agentAvatar(selectedAgent.name || selectedAgent.id);
+                    const avatar = agentAvatar(selectedAgent.name || selectedAgent.id, selectedAgent.meta);
                     const AvatarIcon = avatar.icon;
                     return (
-                      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0" style={{ backgroundColor: avatar.bgColor }}>
-                        <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
+                      <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
+                        {avatar.imageUrl ? (
+                          <img src={avatar.imageUrl} alt={`${selectedAgent.name} avatar`} className="w-full h-full object-cover" />
+                        ) : (
+                          <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
+                        )}
                       </div>
                     );
                   })()}

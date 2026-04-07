@@ -540,6 +540,66 @@ describe('HyperClaw agents SDK', () => {
     expect((agent as OpenClawAgent).gatewayToken).toMatch(/^ab+/);
   });
 
+  it('create posts only meta.ui and hydrates it back onto the agent', async () => {
+    const post = vi.fn().mockResolvedValue({
+      id: 'agent-2',
+      user_id: 'user-1',
+      pod_id: 'pod-2',
+      pod_name: 'pod-name-2',
+      state: 'starting',
+      meta: {
+        ui: {
+          avatar: {
+            image: 'data:image/png;base64,xyz',
+            icon_index: 5,
+          },
+        },
+      },
+      openclaw_url: 'wss://openclaw-pod-name-2.dev.hyperclaw.app',
+    });
+    const agents = new Deployments(
+      { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hyperclaw.app',
+    );
+
+    const agent = await agents.create({
+      name: 'meta-check',
+      meta: {
+        ui: {
+          avatar: {
+            image: 'data:image/png;base64,xyz',
+            icon_index: 5,
+          },
+        },
+      },
+    });
+
+    expect(post).toHaveBeenCalledWith(
+      '/deployments',
+      expect.objectContaining({
+        name: 'meta-check',
+        meta: {
+          ui: {
+            avatar: {
+              image: 'data:image/png;base64,xyz',
+              icon_index: 5,
+            },
+          },
+        },
+      }),
+    );
+    expect((post as any).mock.calls[0][1].meta.internal).toBeUndefined();
+    expect(agent.meta).toEqual({
+      ui: {
+        avatar: {
+          image: 'data:image/png;base64,xyz',
+          icon_index: 5,
+        },
+      },
+    });
+  });
+
   it('list returns hydrated items', async () => {
     const get = vi.fn().mockResolvedValue({
       items: [
