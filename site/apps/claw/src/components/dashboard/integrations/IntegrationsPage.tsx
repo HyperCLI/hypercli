@@ -149,15 +149,9 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
   const telegramInfo = getTelegramStatus();
 
-  if (!connected && !applyingChanges) {
-    return (
-      <div className="p-6">
-        <div className="rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-text-muted">
-          Waiting for gateway connection...
-        </div>
-      </div>
-    );
-  }
+  // Show a non-destructive overlay instead of replacing the entire page,
+  // so that any open SlideOver stays visible during gateway reconnection.
+  const showWaitingOverlay = !connected && !applyingChanges;
 
   const chatPlugins = getPluginsByCategory("chat");
   const chatActiveCount = countEnabledInCategory("chat", config);
@@ -167,6 +161,15 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const toolActiveCount = countEnabledInCategory("tools", config);
 
   const handlePluginToggle = async (pluginId: string, enabled: boolean) => {
+    const plugin = getPlugin(pluginId);
+
+    // AI providers: when enabling, open the config panel so user can enter API key
+    // in a single flow. The panel handles both enable + credentials in one save.
+    if (plugin?.category === "ai-providers" && enabled) {
+      setActivePanel(`plugin:${pluginId}`);
+      return;
+    }
+
     await handleConfigPatch({
       plugins: { entries: { [pluginId]: { enabled } } },
     });
@@ -180,6 +183,15 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           <div className="flex items-center gap-3 text-sm text-text-secondary">
             <Loader2 className="w-4 h-4 animate-spin text-[var(--primary)]" />
             Applying changes...
+          </div>
+        </div>
+      )}
+      {/* Overlay while waiting for initial gateway connection */}
+      {showWaitingOverlay && (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-[var(--background)]/80 backdrop-blur-sm rounded-lg">
+          <div className="flex items-center gap-3 text-sm text-text-secondary">
+            <Loader2 className="w-4 h-4 animate-spin text-[var(--primary)]" />
+            Waiting for gateway connection...
           </div>
         </div>
       )}

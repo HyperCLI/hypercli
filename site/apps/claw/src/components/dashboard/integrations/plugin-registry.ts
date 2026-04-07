@@ -27,6 +27,10 @@ export interface PluginMeta {
   hasWizard?: boolean;
   /** True for tts, stt, vision, images, video, 3d — keep existing panel UI */
   hasBuiltinPanel?: boolean;
+  /** URL where users can get an API key or sign up (AI providers) */
+  setupUrl?: string;
+  /** One-line guidance shown in the config panel (e.g., "Get your API key from…") */
+  setupHint?: string;
 }
 
 export interface CategoryDefinition {
@@ -76,38 +80,38 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "xiaomi", displayName: "Xiaomi", icon: Smartphone, category: "chat", description: "Xiaomi smart assistant", configPath: "plugins.entries.xiaomi" },
 
   // ── AI Model Providers (32) ────────────────────────────────────────────
-  { id: "anthropic", displayName: "Anthropic", icon: Brain, category: "ai-providers", description: "Claude Pro/Max + Opus", configPath: "plugins.entries.anthropic" },
-  { id: "openai", displayName: "OpenAI", icon: Sparkles, category: "ai-providers", description: "GPT-4, GPT-5, o1", configPath: "plugins.entries.openai" },
-  { id: "google", displayName: "Google", icon: Brain, category: "ai-providers", description: "Gemini 2.5 Pro/Flash", configPath: "plugins.entries.google" },
-  { id: "deepseek", displayName: "DeepSeek", icon: Zap, category: "ai-providers", description: "DeepSeek V3 & R1", configPath: "plugins.entries.deepseek" },
-  { id: "groq", displayName: "Groq", icon: Cpu, category: "ai-providers", description: "Ultra-fast inference", configPath: "plugins.entries.groq" },
-  { id: "mistral", displayName: "Mistral", icon: Brain, category: "ai-providers", description: "Mistral Large & Codestral", configPath: "plugins.entries.mistral" },
-  { id: "ollama", displayName: "Ollama", icon: Terminal, category: "ai-providers", description: "Local open-source models", configPath: "plugins.entries.ollama" },
-  { id: "openrouter", displayName: "OpenRouter", icon: Globe, category: "ai-providers", description: "Unified API gateway", configPath: "plugins.entries.openrouter" },
-  { id: "perplexity", displayName: "Perplexity", icon: Search, category: "ai-providers", description: "Search-augmented AI", configPath: "plugins.entries.perplexity" },
-  { id: "together", displayName: "Together", icon: Cloud, category: "ai-providers", description: "Open-source model hosting", configPath: "plugins.entries.together" },
-  { id: "xai", displayName: "xAI", icon: Sparkles, category: "ai-providers", description: "Grok 3 & 4", configPath: "plugins.entries.xai" },
-  { id: "huggingface", displayName: "Hugging Face", icon: Bot, category: "ai-providers", description: "Open-source model hub", configPath: "plugins.entries.huggingface" },
-  { id: "kimi", displayName: "Kimi", icon: Brain, category: "ai-providers", description: "Moonshot Kimi models", configPath: "plugins.entries.kimi" },
-  { id: "minimax", displayName: "MiniMax", icon: Zap, category: "ai-providers", description: "MiniMax M2.5", configPath: "plugins.entries.minimax" },
-  { id: "moonshot", displayName: "Moonshot", icon: Brain, category: "ai-providers", description: "Moonshot AI models", configPath: "plugins.entries.moonshot" },
-  { id: "nvidia", displayName: "NVIDIA", icon: Cpu, category: "ai-providers", description: "NVIDIA NIM inference", configPath: "plugins.entries.nvidia" },
-  { id: "vllm", displayName: "vLLM", icon: Server, category: "ai-providers", description: "Self-hosted vLLM engine", configPath: "plugins.entries.vllm" },
-  { id: "sglang", displayName: "SGLang", icon: Server, category: "ai-providers", description: "SGLang serving engine", configPath: "plugins.entries.sglang" },
-  { id: "amazon-bedrock", displayName: "Amazon Bedrock", icon: Cloud, category: "ai-providers", description: "AWS managed AI models", configPath: "plugins.entries.amazon-bedrock" },
-  { id: "microsoft", displayName: "Microsoft Speech", icon: Volume2, category: "ai-providers", description: "Azure speech services", configPath: "plugins.entries.microsoft" },
-  { id: "venice", displayName: "Venice", icon: Brain, category: "ai-providers", description: "Privacy-focused AI", configPath: "plugins.entries.venice" },
-  { id: "byteplus", displayName: "BytePlus", icon: Cloud, category: "ai-providers", description: "ByteDance cloud AI models", configPath: "plugins.entries.byteplus" },
-  { id: "chutes", displayName: "Chutes", icon: Cloud, category: "ai-providers", description: "Pay-per-token open model hosting", configPath: "plugins.entries.chutes" },
-  { id: "cloudflare-ai-gateway", displayName: "Cloudflare AI Gateway", icon: Cloud, category: "ai-providers", description: "Cloudflare edge AI", configPath: "plugins.entries.cloudflare-ai-gateway" },
-  { id: "copilot-proxy", displayName: "Copilot Proxy", icon: Code, category: "ai-providers", description: "GitHub Copilot proxy", configPath: "plugins.entries.copilot-proxy" },
-  { id: "github-copilot", displayName: "GitHub Copilot", icon: Code, category: "ai-providers", description: "GitHub Copilot models", configPath: "plugins.entries.github-copilot" },
-  { id: "lobster", displayName: "Lobster", icon: Brain, category: "ai-providers", description: "Decentralized GPU inference", configPath: "plugins.entries.lobster" },
-  { id: "vercel-ai-gateway", displayName: "Vercel AI Gateway", icon: Globe, category: "ai-providers", description: "Hundreds of models, 1 API key", configPath: "plugins.entries.vercel-ai-gateway" },
-  { id: "qianfan", displayName: "Qianfan", icon: Brain, category: "ai-providers", description: "Baidu Qianfan platform", configPath: "plugins.entries.qianfan" },
-  { id: "volcengine", displayName: "Volcengine", icon: Cloud, category: "ai-providers", description: "ByteDance AI platform", configPath: "plugins.entries.volcengine" },
-  { id: "modelstudio", displayName: "Model Studio", icon: Brain, category: "ai-providers", description: "Alibaba Model Studio", configPath: "plugins.entries.modelstudio" },
-  { id: "qwen-portal-auth", displayName: "Qwen OAuth", icon: Brain, category: "ai-providers", description: "Qwen portal authentication", configPath: "plugins.entries.qwen-portal-auth" },
+  { id: "anthropic", displayName: "Anthropic", icon: Brain, category: "ai-providers", description: "Claude 4 Opus, Sonnet & Haiku", configPath: "plugins.entries.anthropic", setupUrl: "https://console.anthropic.com/settings/keys", setupHint: "Get your API key from the Anthropic Console" },
+  { id: "openai", displayName: "OpenAI", icon: Sparkles, category: "ai-providers", description: "GPT-4o, GPT-5 & o-series reasoning", configPath: "plugins.entries.openai", setupUrl: "https://platform.openai.com/api-keys", setupHint: "Get your API key from the OpenAI Platform" },
+  { id: "google", displayName: "Google", icon: Brain, category: "ai-providers", description: "Gemini 2.5 Pro & Flash", configPath: "plugins.entries.google", setupUrl: "https://aistudio.google.com/apikey", setupHint: "Get your API key from Google AI Studio" },
+  { id: "deepseek", displayName: "DeepSeek", icon: Zap, category: "ai-providers", description: "DeepSeek V3 & R1 reasoning", configPath: "plugins.entries.deepseek", setupUrl: "https://platform.deepseek.com/api_keys", setupHint: "Get your API key from the DeepSeek Platform" },
+  { id: "groq", displayName: "Groq", icon: Cpu, category: "ai-providers", description: "Ultra-fast LPU inference", configPath: "plugins.entries.groq", setupUrl: "https://console.groq.com/keys", setupHint: "Get your API key from the Groq Console" },
+  { id: "mistral", displayName: "Mistral", icon: Brain, category: "ai-providers", description: "Mistral Large & Codestral", configPath: "plugins.entries.mistral", setupUrl: "https://console.mistral.ai/api-keys", setupHint: "Get your API key from the Mistral Console" },
+  { id: "ollama", displayName: "Ollama", icon: Terminal, category: "ai-providers", description: "Run open-source models locally", configPath: "plugins.entries.ollama", setupUrl: "https://ollama.com/download", setupHint: "Runs locally \u2014 make sure Ollama is running on your machine" },
+  { id: "openrouter", displayName: "OpenRouter", icon: Globe, category: "ai-providers", description: "Access hundreds of models via one API", configPath: "plugins.entries.openrouter", setupUrl: "https://openrouter.ai/keys", setupHint: "Get your API key from OpenRouter" },
+  { id: "perplexity", displayName: "Perplexity", icon: Search, category: "ai-providers", description: "Search-augmented AI responses", configPath: "plugins.entries.perplexity", setupUrl: "https://www.perplexity.ai/settings/api", setupHint: "Get your API key from Perplexity Settings" },
+  { id: "together", displayName: "Together", icon: Cloud, category: "ai-providers", description: "Run open-source models in the cloud", configPath: "plugins.entries.together", setupUrl: "https://api.together.xyz/settings/api-keys", setupHint: "Get your API key from Together AI" },
+  { id: "xai", displayName: "xAI", icon: Sparkles, category: "ai-providers", description: "Grok 3 & Grok 4 models", configPath: "plugins.entries.xai", setupUrl: "https://console.x.ai", setupHint: "Get your API key from the xAI Console" },
+  { id: "huggingface", displayName: "Hugging Face", icon: Bot, category: "ai-providers", description: "Inference API for open models", configPath: "plugins.entries.huggingface", setupUrl: "https://huggingface.co/settings/tokens", setupHint: "Get your access token from Hugging Face Settings" },
+  { id: "kimi", displayName: "Kimi", icon: Brain, category: "ai-providers", description: "Moonshot Kimi long-context models", configPath: "plugins.entries.kimi", setupUrl: "https://platform.moonshot.cn/console/api-keys", setupHint: "Get your API key from the Moonshot Platform" },
+  { id: "minimax", displayName: "MiniMax", icon: Zap, category: "ai-providers", description: "MiniMax M2.5 multimodal models", configPath: "plugins.entries.minimax", setupUrl: "https://www.minimaxi.com/platform", setupHint: "Get your API key from the MiniMax Platform" },
+  { id: "moonshot", displayName: "Moonshot", icon: Brain, category: "ai-providers", description: "Moonshot AI models", configPath: "plugins.entries.moonshot", setupUrl: "https://platform.moonshot.cn/console/api-keys", setupHint: "Get your API key from the Moonshot Platform" },
+  { id: "nvidia", displayName: "NVIDIA", icon: Cpu, category: "ai-providers", description: "NVIDIA NIM optimized inference", configPath: "plugins.entries.nvidia", setupUrl: "https://build.nvidia.com", setupHint: "Get your API key from NVIDIA Build" },
+  { id: "vllm", displayName: "vLLM", icon: Server, category: "ai-providers", description: "Self-hosted vLLM inference server", configPath: "plugins.entries.vllm", setupHint: "Enter your self-hosted vLLM server URL" },
+  { id: "sglang", displayName: "SGLang", icon: Server, category: "ai-providers", description: "Self-hosted SGLang serving engine", configPath: "plugins.entries.sglang", setupHint: "Enter your self-hosted SGLang server URL" },
+  { id: "amazon-bedrock", displayName: "Amazon Bedrock", icon: Cloud, category: "ai-providers", description: "AWS managed AI model service", configPath: "plugins.entries.amazon-bedrock", setupUrl: "https://console.aws.amazon.com/bedrock", setupHint: "Configure AWS credentials with Bedrock access" },
+  { id: "microsoft", displayName: "Microsoft Speech", icon: Volume2, category: "ai-providers", description: "Azure AI speech services", configPath: "plugins.entries.microsoft", setupUrl: "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub", setupHint: "Get your key from Azure AI Services" },
+  { id: "venice", displayName: "Venice", icon: Brain, category: "ai-providers", description: "Privacy-focused AI inference", configPath: "plugins.entries.venice", setupUrl: "https://venice.ai/settings/api", setupHint: "Get your API key from Venice Settings" },
+  { id: "byteplus", displayName: "BytePlus", icon: Cloud, category: "ai-providers", description: "BytePlus AI model services", configPath: "plugins.entries.byteplus", setupUrl: "https://console.byteplus.com", setupHint: "Get your API key from the BytePlus Console" },
+  { id: "chutes", displayName: "Chutes", icon: Cloud, category: "ai-providers", description: "Chutes AI model inference", configPath: "plugins.entries.chutes", setupUrl: "https://chutes.ai", setupHint: "Get your API key from Chutes" },
+  { id: "cloudflare-ai-gateway", displayName: "Cloudflare AI Gateway", icon: Cloud, category: "ai-providers", description: "Route AI traffic through Cloudflare", configPath: "plugins.entries.cloudflare-ai-gateway", setupUrl: "https://dash.cloudflare.com", setupHint: "Set up an AI Gateway in your Cloudflare dashboard" },
+  { id: "copilot-proxy", displayName: "Copilot Proxy", icon: Code, category: "ai-providers", description: "Route through GitHub Copilot", configPath: "plugins.entries.copilot-proxy", setupHint: "Requires an active GitHub Copilot subscription" },
+  { id: "github-copilot", displayName: "GitHub Copilot", icon: Code, category: "ai-providers", description: "GitHub Copilot model access", configPath: "plugins.entries.github-copilot", setupUrl: "https://github.com/settings/copilot", setupHint: "Requires an active GitHub Copilot subscription" },
+  { id: "lobster", displayName: "Lobster", icon: Brain, category: "ai-providers", description: "Lobster AI model inference", configPath: "plugins.entries.lobster", setupHint: "Get your API key from Lobster" },
+  { id: "vercel-ai-gateway", displayName: "Vercel AI Gateway", icon: Globe, category: "ai-providers", description: "Hundreds of models, one API key", configPath: "plugins.entries.vercel-ai-gateway", setupUrl: "https://vercel.com/dashboard", setupHint: "Get your API key from the Vercel Dashboard" },
+  { id: "qianfan", displayName: "Qianfan", icon: Brain, category: "ai-providers", description: "Baidu Qianfan AI platform", configPath: "plugins.entries.qianfan", setupUrl: "https://console.bce.baidu.com/qianfan", setupHint: "Get your API key from the Baidu Qianfan Console" },
+  { id: "volcengine", displayName: "Volcengine", icon: Cloud, category: "ai-providers", description: "ByteDance AI model platform", configPath: "plugins.entries.volcengine", setupUrl: "https://console.volcengine.com", setupHint: "Get your API key from the Volcengine Console" },
+  { id: "modelstudio", displayName: "Model Studio", icon: Brain, category: "ai-providers", description: "Alibaba Cloud AI models", configPath: "plugins.entries.modelstudio", setupUrl: "https://modelstudio.aliyun.com", setupHint: "Get your API key from Alibaba Model Studio" },
+  { id: "qwen-portal-auth", displayName: "Qwen OAuth", icon: Brain, category: "ai-providers", description: "Qwen portal authentication", configPath: "plugins.entries.qwen-portal-auth", setupHint: "Sign in with your Qwen portal account" },
 
   // ── Tools & Services (26) ──────────────────────────────────────────────
   { id: "brave", displayName: "Brave Search", icon: Search, category: "tools", description: "Web search via Brave", configPath: "plugins.entries.brave" },
