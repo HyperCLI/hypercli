@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HyperCLI } from "../../src/client.js";
+import { APIError } from "../../src/errors.js";
 
 export const TEST_API_KEY = process.env.TEST_API_KEY?.trim() || "";
 export const TEST_API_BASE =
@@ -23,16 +24,27 @@ export function createIntegrationClient(): HyperCLI {
   });
 }
 
-export async function resolveAvailableAgentTier(client: HyperCLI): Promise<string> {
-  const summaryClient = new HyperCLI({
-    apiKey: TEST_API_KEY,
-    apiUrl: TEST_API_BASE,
-  });
-  const currentPlan = await summaryClient.agent.currentPlan();
+export async function createAgentWithAvailableTier(
+  client: HyperCLI,
+  options: {
+    name: string;
+    tags?: string[];
+  },
+): Promise<{ id: string; tier: string }> {
   for (const tier of ["large", "medium", "small"]) {
-    const inventory = currentPlan.slotInventory?.[tier];
-    if (inventory && Number(inventory.available || 0) > 0) {
-      return tier;
+    try {
+      const agent = await client.deployments.create({
+        name: options.name,
+        size: tier,
+        start: false,
+        tags: options.tags,
+      });
+      return { id: agent.id, tier };
+    } catch (error) {
+      if (error instanceof APIError && error.statusCode === 429) {
+        continue;
+      }
+      throw error;
     }
   }
   throw new Error("No available entitlement slots for integration agent tests");

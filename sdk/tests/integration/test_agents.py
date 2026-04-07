@@ -8,16 +8,24 @@ from hypercli import HyperCLI
 from hypercli.http import APIError
 
 
-def _resolve_available_agent_tier(client: HyperCLI) -> str:
-    summary_client = HyperCLI(
-        api_key=client.api_key,
-        api_url=client.api_url,
-    )
-    current_plan = summary_client.agent.current_plan()
+def _create_agent_with_available_tier(client: HyperCLI, name: str, tags: list[str]) -> tuple[str, str]:
+    last_error: APIError | None = None
     for tier in ("large", "medium", "small"):
-        inventory = (current_plan.slot_inventory or {}).get(tier) or {}
-        if int(inventory.get("available", 0) or 0) > 0:
-            return tier
+        try:
+            agent = client.deployments.create(
+                name=name,
+                size=tier,
+                start=False,
+                tags=tags,
+            )
+            return agent.id, tier
+        except APIError as exc:
+            if exc.status_code == 429:
+                last_error = exc
+                continue
+            raise
+    if last_error is not None:
+        raise last_error
     raise AssertionError("No available entitlement slots for integration agent tests")
 
 
@@ -37,19 +45,18 @@ def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str
             "TEST_AGENT_API_KEY not set; the deployments and agent APIs do not accept the account-level TEST_API_KEY"
         )
 
-    tier = _resolve_available_agent_tier(client)
-    agent_a = client.deployments.create(
+    agent_a_id, agent_a_tier = _create_agent_with_available_tier(
+        client,
         name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
-        size=tier,
-        start=False,
         tags=["team=dev", "suite=sdk-integration"],
     )
-    agent_b = client.deployments.create(
+    agent_b_id, _agent_b_tier = _create_agent_with_available_tier(
+        client,
         name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
-        size=tier,
-        start=False,
         tags=["team=ops", "suite=sdk-integration"],
     )
+    agent_a = client.deployments.get(agent_a_id)
+    agent_b = client.deployments.get(agent_b_id)
 
     try:
         child = client.deployments.create_scoped_key(agent_a.id, name="sdk-scoped-child")
@@ -78,7 +85,7 @@ def test_exact_agent_child_key_is_scoped_to_one_agent(client, test_api_base: str
         with pytest.raises(APIError) as create_exc:
             scoped.deployments.create(
                 name=f"sdk-scope-{uuid.uuid4().hex[:8]}",
-                size=tier,
+                size=agent_a_tier,
                 start=False,
             )
         assert create_exc.value.status_code == 403

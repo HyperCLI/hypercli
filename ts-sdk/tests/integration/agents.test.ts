@@ -1,4 +1,4 @@
-import { createIntegrationClient, agentsIt, resolveAvailableAgentTier } from "./helpers.js";
+import { createAgentWithAvailableTier, createIntegrationClient, agentsIt } from "./helpers.js";
 import { HyperCLI } from "../../src/client.js";
 import { APIError } from "../../src/errors.js";
 
@@ -20,19 +20,16 @@ describe("TS SDK integration: agents", () => {
 
   agentsIt("creates an exact-agent child key that only sees one agent", async () => {
     const client = createIntegrationClient();
-    const tier = await resolveAvailableAgentTier(client);
-    const agentA = await client.deployments.create({
+    const createdA = await createAgentWithAvailableTier(client, {
       name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-      size: tier,
-      start: false,
       tags: ["team=dev", "suite=ts-integration"],
     });
-    const agentB = await client.deployments.create({
+    const createdB = await createAgentWithAvailableTier(client, {
       name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-      size: tier,
-      start: false,
       tags: ["team=ops", "suite=ts-integration"],
     });
+    const agentA = await client.deployments.get(createdA.id);
+    const agentB = await client.deployments.get(createdB.id);
 
     try {
       const child = await client.deployments.createScopedKey(agentA.id, "ts-scoped-child");
@@ -60,7 +57,7 @@ describe("TS SDK integration: agents", () => {
 
       const deniedCreate = scoped.deployments.create({
         name: `ts-denied-${Math.random().toString(16).slice(2, 10)}`,
-        size: tier,
+        size: createdA.tier,
         start: false,
       });
       await expect(deniedCreate).rejects.toBeInstanceOf(APIError);
