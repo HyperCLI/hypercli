@@ -2324,7 +2324,7 @@ export default function AgentsPage() {
                       onBurstComplete={() => setBurstAgentId(null)}
                     />
                   </div>
-                ) : !isSelectedRunning && mainTab !== "files" ? (
+                ) : !isSelectedRunning && mainTab !== "files" && mainTab !== "settings" ? (
                   <AgentLaunchPrompt
                     label={stoppedTabLabel[mainTab as Exclude<MainTab, "files">]}
                     launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
@@ -2952,21 +2952,12 @@ export default function AgentsPage() {
                             <div className="flex items-center gap-2">
                               <input
                                 value={settingsName}
-                                onChange={(e) => setSettingsName(e.target.value)}
-                                className="flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+                                readOnly
+                                className="flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-text-secondary text-sm cursor-default opacity-60 focus:outline-none"
                                 placeholder="Agent name"
                               />
                             </div>
-                          </div>
-                          <div>
-                            <label className="block text-sm text-text-secondary mb-1">Description</label>
-                            <textarea
-                              value={settingsDesc}
-                              onChange={(e) => setSettingsDesc(e.target.value)}
-                              rows={3}
-                              className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong resize-none"
-                              placeholder="What does this agent do? (optional)"
-                            />
+                            <p className="text-xs text-text-muted mt-1">Agent name cannot be changed after creation.</p>
                           </div>
                         </div>
                       </div>
