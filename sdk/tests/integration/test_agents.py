@@ -11,6 +11,7 @@ from hypercli.http import APIError
 def _create_agent_with_available_tier(client: HyperCLI, name: str, tags: list[str]) -> tuple[str, str]:
     last_error: APIError | None = None
     for tier in ("large", "medium", "small"):
+        agent_id: str | None = None
         try:
             agent = client.deployments.create(
                 name=name,
@@ -18,11 +19,23 @@ def _create_agent_with_available_tier(client: HyperCLI, name: str, tags: list[st
                 start=False,
                 tags=tags,
             )
+            agent_id = agent.id
+            client.deployments.start_openclaw(agent.id, dry_run=True)
             return agent.id, tier
         except APIError as exc:
             if exc.status_code == 429:
+                if agent_id:
+                    try:
+                        client.deployments.delete(agent_id)
+                    except APIError:
+                        pass
                 last_error = exc
                 continue
+            if agent_id:
+                try:
+                    client.deployments.delete(agent_id)
+                except APIError:
+                    pass
             raise
     if last_error is not None:
         raise last_error

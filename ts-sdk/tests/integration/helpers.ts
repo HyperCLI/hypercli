@@ -32,6 +32,7 @@ export async function createAgentWithAvailableTier(
   },
 ): Promise<{ id: string; tier: string }> {
   for (const tier of ["large", "medium", "small"]) {
+    let agentId: string | null = null;
     try {
       const agent = await client.deployments.create({
         name: options.name,
@@ -39,10 +40,18 @@ export async function createAgentWithAvailableTier(
         start: false,
         tags: options.tags,
       });
+      agentId = agent.id;
+      await client.deployments.startOpenClaw(agent.id, { dryRun: true });
       return { id: agent.id, tier };
     } catch (error) {
       if (error instanceof APIError && error.statusCode === 429) {
+        if (agentId) {
+          await client.deployments.delete(agentId).catch(() => {});
+        }
         continue;
+      }
+      if (agentId) {
+        await client.deployments.delete(agentId).catch(() => {});
       }
       throw error;
     }
