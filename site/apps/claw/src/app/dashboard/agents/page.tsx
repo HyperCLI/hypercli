@@ -53,7 +53,7 @@ import "@xterm/xterm/css/xterm.css";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory } from "@/lib/format";
+import { formatCpu, formatMemory, formatTokens, type SlotInventory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
@@ -89,12 +89,9 @@ interface Agent {
 }
 
 interface AgentBudget {
-  max_agents: number;
-  total_cpu: number;
-  total_memory: number;
-  used_agents: number;
-  used_cpu: number;
-  used_memory: number;
+  slots: SlotInventory;
+  pooled_tpd: number;
+  size_presets?: Record<string, { cpu: number; memory: number }>;
 }
 
 interface AgentDesktopTokenResponse {
@@ -213,6 +210,26 @@ function formatFileSize(size?: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
   return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+}
+
+function titleizeTier(value: string): string {
+  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function describeAgentsPageError(error: unknown): { message: string; clusterUnavailable: boolean } {
+  const fallback = "Failed to load agents";
+  const raw = error instanceof Error ? error.message : String(error ?? fallback);
+  const normalized = raw.trim();
+  if (normalized.includes("Agent cluster is not assigned")) {
+    return {
+      clusterUnavailable: true,
+      message: "Agent cluster assignment is still pending for this account. Try again in a minute.",
+    };
+  }
+  return {
+    clusterUnavailable: false,
+    message: normalized || fallback,
+  };
 }
 
 function extractVoicePathFromMessage(content: string): string | null {
@@ -858,6 +875,7 @@ export default function AgentsPage() {
   // Settings tab state
   const [settingsName, setSettingsName] = useState("");
   const [settingsDesc, setSettingsDesc] = useState("");
+  const [agentClusterUnavailable, setAgentClusterUnavailable] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
   const [openclawSaving, setOpenclawSaving] = useState(false);
@@ -906,6 +924,7 @@ export default function AgentsPage() {
       }));
       setAgents(items);
       setBudget((budgetData as AgentBudget | null) || null);
+      setAgentClusterUnavailable(false);
       const currentId = selectedAgentIdRef.current;
       if (!currentId && items.length > 0) {
         setSelectedAgentId(items[0].id);
@@ -914,8 +933,11 @@ export default function AgentsPage() {
         setSelectedAgentId(items[0]?.id || null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
+      const described = describeAgentsPageError(err);
+      setError(described.message);
+      setAgentClusterUnavailable(described.clusterUnavailable);
       setAgents([]);
+      setBudget(null);
     } finally {
       setLoading(false);
     }
@@ -2106,14 +2128,31 @@ export default function AgentsPage() {
                 <div className="w-16 h-16 rounded-full bg-surface-low flex items-center justify-center mx-auto mb-4">
                   <Bot className="w-8 h-8 text-text-muted" />
                 </div>
-                <p className="text-text-secondary text-sm mb-1">No agents yet</p>
-                <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
-                <button
-                  onClick={() => setShowCreateDialog(true)}
-                  className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
-                >
-                  Create Your First Agent
-                </button>
+                {agentClusterUnavailable ? (
+                  <>
+                    <p className="text-text-secondary text-sm mb-1">Agent cluster assignment pending</p>
+                    <p className="text-xs text-text-muted mb-4">
+                      Your account is not attached to an agent cluster yet, so agent creation is temporarily unavailable.
+                    </p>
+                    <button
+                      onClick={() => void fetchAgents()}
+                      className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
+                    >
+                      Retry
+                    </button>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-text-secondary text-sm mb-1">No agents yet</p>
+                    <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
+                    <button
+                      onClick={() => setShowCreateDialog(true)}
+                      className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
+                    >
+                      Create Your First Agent
+                    </button>
+                  </>
+                )}
               </div>
             ) : (
               <div>
@@ -2202,8 +2241,9 @@ export default function AgentsPage() {
                 {sidebarCollapsed ? (
                   <button
                     onClick={() => setShowCreateDialog(true)}
-                    className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50"
-                    title="New Agent"
+                    disabled={agentClusterUnavailable}
+                    className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
+                    title={agentClusterUnavailable ? "Agent cluster assignment pending" : "New Agent"}
                   >
                     <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
                       <Plus className="w-4 h-4 text-text-muted" />
@@ -2212,7 +2252,8 @@ export default function AgentsPage() {
                 ) : (
                   <button
                     onClick={() => setShowCreateDialog(true)}
-                    className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50"
+                    disabled={agentClusterUnavailable}
+                    className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
                   >
                     <div className="flex-shrink-0 w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
                       <Plus className="w-4 h-4 text-text-muted" />
@@ -2227,9 +2268,15 @@ export default function AgentsPage() {
           {/* Budget bars in sidebar footer (when expanded) */}
           {budget && !sidebarCollapsed && (
             <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
-              <BudgetBar label="Agents" used={budget.used_agents} total={budget.max_agents} />
-              <BudgetBar label="CPU" used={budget.used_cpu} total={budget.total_cpu} format={formatCpu} />
-              <BudgetBar label="Memory" used={budget.used_memory} total={budget.total_memory} format={formatMemory} />
+              <div className="flex items-center justify-between text-xs">
+                <span className="text-text-secondary">Pooled inference</span>
+                <span className="text-text-muted">{formatTokens(budget.pooled_tpd)} / day</span>
+              </div>
+              {Object.entries(budget.slots || {})
+                .sort(([a], [b]) => a.localeCompare(b))
+                .map(([tier, entry]) => (
+                  <BudgetBar key={tier} label={titleizeTier(tier)} used={entry.used} total={entry.granted} />
+                ))}
             </div>
           )}
         </div>

@@ -58,11 +58,11 @@ test.describe.serial("Production Billing Smoke", () => {
     await page.goto(`${AGENTS_SITE_URL}/plans`, { waitUntil: "networkidle" });
 
     const initialPlan = await fetchClawCurrentPlan(page);
-    const subscribeButton = page.getByRole("button", { name: /subscribe|upgrade/i }).first();
+    const subscribeButton = page.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
     await expect(subscribeButton).toBeVisible({ timeout: 20_000 });
     await subscribeButton.click();
 
-    await expect(page.getByRole("heading", { name: /subscribe to/i })).toBeVisible();
+    await expect(page.getByRole("heading", { name: /purchase|subscribe|add/i })).toBeVisible();
     const payWithCardButton = page.getByRole("button", { name: /pay \$.*card/i }).first();
     await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
     await payWithCardButton.click();

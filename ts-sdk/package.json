@@ -1,6 +1,6 @@
 {
   "name": "@hypercli.com/sdk",
-  "version": "2026.4.6",
+  "version": "2026.4.7",
   "description": "TypeScript SDK for HyperCLI API",
   "type": "module",
   "main": "./dist/index.js",
@@ -13,6 +13,10 @@
     "./browser": {
       "import": "./dist/browser.js",
       "types": "./dist/browser.d.ts"
+    },
+    "./agent": {
+      "import": "./dist/agent.js",
+      "types": "./dist/agent.d.ts"
     },
     "./agents": {
       "import": "./dist/agents.js",

@@ -48,11 +48,20 @@ Use this namespace for:
 Use this namespace for:
 
 - create / start / stop / delete
-- budget / metrics
+- slot inventory / metrics
 - files
 - exec
 - backend WS logs and shells
 - OpenClaw gateway access
+
+`budget()` now returns:
+
+- `slots`
+  exact-tier granted / used / available counts
+- `pooled_tpd`
+  additive inference across active entitlements
+- `size_presets`
+  runtime CPU / memory shapes for each tier
 
 ## Create
 
@@ -260,6 +269,17 @@ Important additions:
 - `slackUpsert()`
 - `discordUpsert()`
 - `cronList()`
+
+`providerUpsert()` intentionally tracks the upstream OpenClaw provider shape instead of inventing HyperCLI-specific wrappers. Use the same provider fields you would use in `models.providers.<id>` inside OpenClaw, including:
+
+- `baseUrl`
+- `apiKey`
+- `auth`
+- `api`
+- `headers`
+- `authHeader`
+- `injectNumCtxForOpenAICompat`
+- `models`
 
 `resolveGatewayToken()` now uses `GET /api/deployments/{id}/inference/token`, which is the supported path for scoped agent access.
 

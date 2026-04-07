@@ -68,7 +68,20 @@ function resolveHyperAgentControlBaseUrl(
 export interface HyperAgentPlan {
   id: string;
   name: string;
+  price: number;
   priceUsd: number;
+  aiu: number;
+  agents: number;
+  features: string[];
+  models: string[];
+  highlighted?: boolean;
+  expiresAt?: Date | null;
+  limits: {
+    tpd: number;
+    tpm: number;
+    burstTpm: number;
+    rpm: number;
+  };
   tpmLimit: number;
   rpmLimit: number;
 }
@@ -137,9 +150,22 @@ function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   return {
     id: data.id,
     name: data.name,
-    priceUsd: data.price_usd,
-    tpmLimit: data.tpm_limit,
-    rpmLimit: data.rpm_limit,
+    price: data.price ?? data.price_usd ?? 0,
+    priceUsd: data.price_usd ?? data.price ?? 0,
+    aiu: data.aiu ?? 0,
+    agents: data.agents ?? 0,
+    features: data.features || [],
+    models: data.models || [],
+    highlighted: Boolean(data.highlighted),
+    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    limits: {
+      tpd: data.limits?.tpd || 0,
+      tpm: data.limits?.tpm || 0,
+      burstTpm: data.limits?.burst_tpm || 0,
+      rpm: data.limits?.rpm || 0,
+    },
+    tpmLimit: data.tpm_limit || data.limits?.tpm || 0,
+    rpmLimit: data.rpm_limit || data.limits?.rpm || 0,
   };
 }
 

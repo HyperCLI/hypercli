@@ -112,6 +112,74 @@ export interface AgentMeta {
   ui?: AgentUiMeta | null;
 }
 
+export type OpenClawModelApi =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'openai-codex-responses'
+  | 'anthropic-messages'
+  | 'google-generative-ai'
+  | 'github-copilot'
+  | 'bedrock-converse-stream'
+  | 'ollama';
+
+export type OpenClawModelProviderAuthMode = 'api-key' | 'aws-sdk' | 'oauth' | 'token';
+
+export type OpenClawSecretInput =
+  | string
+  | {
+      source?: string;
+      provider?: string;
+      id?: string;
+      [key: string]: any;
+    };
+
+export interface OpenClawModelCompatConfig {
+  thinkingFormat?: string;
+  supportsTools?: boolean;
+  toolSchemaProfile?: string;
+  nativeWebSearchTool?: boolean;
+  toolCallArgumentsEncoding?: string;
+  requiresMistralToolIds?: boolean;
+  requiresOpenAiAnthropicToolPayload?: boolean;
+  [key: string]: any;
+}
+
+export interface OpenClawModelDefinitionConfig {
+  id: string;
+  name?: string;
+  api?: OpenClawModelApi;
+  reasoning?: boolean;
+  input?: Array<'text' | 'image'>;
+  cost?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    [key: string]: any;
+  };
+  contextWindow?: number;
+  maxTokens?: number;
+  headers?: Record<string, string>;
+  compat?: OpenClawModelCompatConfig;
+  [key: string]: any;
+}
+
+export interface OpenClawModelProviderConfig {
+  baseUrl: string;
+  apiKey?: OpenClawSecretInput;
+  auth?: OpenClawModelProviderAuthMode;
+  api?: OpenClawModelApi;
+  injectNumCtxForOpenAICompat?: boolean;
+  headers?: Record<string, OpenClawSecretInput>;
+  authHeader?: boolean;
+  models?: OpenClawModelDefinitionConfig[];
+  [key: string]: any;
+}
+
+export type OpenClawModelProviderPatch =
+  & Partial<Omit<OpenClawModelProviderConfig, 'baseUrl'>>
+  & Pick<OpenClawModelProviderConfig, 'baseUrl'>;
+
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
   size?: string;
@@ -966,13 +1034,7 @@ export class OpenClawAgent extends Agent {
 
   async providerUpsert(
     providerId: string,
-    providerConfig: {
-      api: string;
-      baseUrl: string;
-      apiKey?: string;
-      models?: Array<Record<string, any>>;
-      [key: string]: any;
-    },
+    providerConfig: OpenClawModelProviderPatch,
     gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
     const { api, baseUrl, apiKey, models, ...extra } = providerConfig;
@@ -1005,14 +1067,7 @@ export class OpenClawAgent extends Agent {
   async modelUpsert(
     providerId: string,
     modelId: string,
-    modelConfig: {
-      name?: string;
-      reasoning?: boolean;
-      contextWindow?: number;
-      maxTokens?: number;
-      input?: string[];
-      [key: string]: any;
-    } = {},
+    modelConfig: Omit<Partial<OpenClawModelDefinitionConfig>, 'id'> = {},
     gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
     const config = await this.mutateConfig((next) => {

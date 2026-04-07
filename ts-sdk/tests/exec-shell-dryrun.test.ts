@@ -293,10 +293,20 @@ describe('HyperClaw agents SDK', () => {
     const provider = await agent.providerUpsert('moonshot', {
       api: 'anthropic-messages',
       baseUrl: 'https://moonshot.example',
-      apiKey: 'moonshot-key',
-      models: [{ id: 'kimi-k2.5', name: 'Kimi K2.5', reasoning: true }],
+      apiKey: { source: 'env', provider: 'default', id: 'MOONSHOT_API_KEY' },
+      auth: 'api-key',
+      authHeader: true,
+      headers: {
+        'x-provider': 'moonshot',
+      },
+      injectNumCtxForOpenAICompat: true,
+      models: [{ id: 'kimi-k2.5', name: 'Kimi K2.5', reasoning: true, input: ['text'] }],
     });
     expect(provider.baseUrl).toBe('https://moonshot.example');
+    expect(provider.auth).toBe('api-key');
+    expect(provider.authHeader).toBe(true);
+    expect(provider.injectNumCtxForOpenAICompat).toBe(true);
+    expect(provider.headers).toEqual({ 'x-provider': 'moonshot' });
 
     const model = await agent.modelUpsert('moonshot', 'kimi-k2.5', {
       name: 'Kimi K2.5',
@@ -335,13 +345,176 @@ describe('HyperClaw agents SDK', () => {
     expect(discord.token).toBe('discord-token');
 
     expect(applied).toHaveLength(7);
-    expect(applied[0]?.models?.providers?.moonshot?.apiKey).toBe('moonshot-key');
+    expect(applied[0]?.models?.providers?.moonshot?.apiKey).toEqual({
+      source: 'env',
+      provider: 'default',
+      id: 'MOONSHOT_API_KEY',
+    });
     expect(applied[1]?.models?.providers?.moonshot?.models?.[0]?.reasoning).toBe(true);
     expect(applied[2]?.agents?.defaults?.model?.primary).toBe('moonshot/kimi-k2.5');
     expect(applied[3]?.agents?.defaults?.memorySearch?.remote?.apiKey).toBe('embed-key');
     expect(applied[4]?.channels?.telegram?.allowFrom).toEqual(['123456']);
     expect(applied[5]?.channels?.slack?.accounts?.work?.channels?.C123?.users).toEqual(['U123']);
     expect(applied[6]?.channels?.discord?.guilds?.G123?.enabled).toBe(true);
+  });
+
+  it('providerUpsert matches the gateway provider config shape for anthropic, openai, and google providers', async () => {
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-provider-matrix',
+      user_id: 'user-1',
+      pod_id: 'pod-provider-matrix',
+      pod_name: 'pod-provider-matrix',
+      state: 'running',
+      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      gateway_token: 'gw-provider-matrix',
+      jwt_token: 'jwt-provider-matrix',
+    });
+    const baseConfig = {
+      models: {
+        providers: {},
+      },
+      agents: { defaults: {} },
+    };
+    const applied: Array<Record<string, any>> = [];
+    vi.spyOn(agent, 'configGet').mockImplementation(async () => structuredClone(baseConfig));
+    vi.spyOn(agent, 'configApply').mockImplementation(async (config) => {
+      applied.push(structuredClone(config));
+    });
+
+    await agent.providerUpsert('anthropic', {
+      api: 'anthropic-messages',
+      baseUrl: 'https://api.anthropic.com/v1',
+      apiKey: { source: 'env', provider: 'default', id: 'ANTHROPIC_API_KEY' },
+      auth: 'api-key',
+      headers: { 'anthropic-version': '2023-06-01' },
+      models: [
+        {
+          id: 'claude-sonnet-4-5',
+          name: 'Claude Sonnet 4.5',
+          reasoning: true,
+          input: ['text', 'image'],
+          contextWindow: 200000,
+          maxTokens: 64000,
+        },
+      ],
+    });
+
+    await agent.providerUpsert('openai', {
+      api: 'openai-responses',
+      baseUrl: 'https://api.openai.com/v1',
+      apiKey: { source: 'env', provider: 'default', id: 'OPENAI_API_KEY' },
+      auth: 'api-key',
+      authHeader: true,
+      injectNumCtxForOpenAICompat: true,
+      models: [
+        {
+          id: 'gpt-5.4',
+          name: 'GPT-5.4',
+          reasoning: true,
+          input: ['text', 'image'],
+          contextWindow: 400000,
+          maxTokens: 128000,
+          compat: {
+            supportsTools: true,
+            thinkingFormat: 'openrouter',
+          },
+        },
+      ],
+    });
+
+    await agent.providerUpsert('google', {
+      api: 'google-generative-ai',
+      baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+      apiKey: { source: 'env', provider: 'default', id: 'GOOGLE_API_KEY' },
+      auth: 'api-key',
+      headers: { 'x-goog-api-client': 'hypercli-test' },
+      models: [
+        {
+          id: 'gemini-2.5-pro',
+          name: 'Gemini 2.5 Pro',
+          reasoning: true,
+          input: ['text', 'image'],
+          contextWindow: 1048576,
+          maxTokens: 65536,
+        },
+      ],
+    });
+
+    expect(applied).toHaveLength(3);
+    expect(applied[0]).toMatchObject({
+      models: {
+        providers: {
+          anthropic: {
+            api: 'anthropic-messages',
+            baseUrl: 'https://api.anthropic.com/v1',
+            apiKey: { source: 'env', provider: 'default', id: 'ANTHROPIC_API_KEY' },
+            auth: 'api-key',
+            headers: { 'anthropic-version': '2023-06-01' },
+            models: [
+              {
+                id: 'claude-sonnet-4-5',
+                name: 'Claude Sonnet 4.5',
+                reasoning: true,
+                input: ['text', 'image'],
+                contextWindow: 200000,
+                maxTokens: 64000,
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(applied[1]).toMatchObject({
+      models: {
+        providers: {
+          openai: {
+            api: 'openai-responses',
+            baseUrl: 'https://api.openai.com/v1',
+            apiKey: { source: 'env', provider: 'default', id: 'OPENAI_API_KEY' },
+            auth: 'api-key',
+            authHeader: true,
+            injectNumCtxForOpenAICompat: true,
+            models: [
+              {
+                id: 'gpt-5.4',
+                name: 'GPT-5.4',
+                reasoning: true,
+                input: ['text', 'image'],
+                contextWindow: 400000,
+                maxTokens: 128000,
+                compat: {
+                  supportsTools: true,
+                  thinkingFormat: 'openrouter',
+                },
+              },
+            ],
+          },
+        },
+      },
+    });
+    expect(applied[2]).toMatchObject({
+      models: {
+        providers: {
+          google: {
+            api: 'google-generative-ai',
+            baseUrl: 'https://generativelanguage.googleapis.com/v1beta',
+            apiKey: { source: 'env', provider: 'default', id: 'GOOGLE_API_KEY' },
+            auth: 'api-key',
+            headers: { 'x-goog-api-client': 'hypercli-test' },
+            models: [
+              {
+                id: 'gemini-2.5-pro',
+                name: 'Gemini 2.5 Pro',
+                reasoning: true,
+                input: ['text', 'image'],
+                contextWindow: 1048576,
+                maxTokens: 65536,
+              },
+            ],
+          },
+        },
+      },
+    });
   });
 
   it('OpenClawAgent waitReady delegates to GatewayClient.waitReady', async () => {

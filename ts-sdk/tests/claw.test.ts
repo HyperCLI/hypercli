@@ -57,16 +57,32 @@ describe('HyperAgent API', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init });
-      return new Response(JSON.stringify({ plans: [] }), {
+      return new Response(JSON.stringify({
+        plans: [{
+          id: '5aiu',
+          name: '5 AIU',
+          price: 100,
+          aiu: 5,
+          agents: 1,
+          features: ['1 large agent'],
+          models: ['kimi-k2.5'],
+          limits: { tpd: 250000000, tpm: 173611, burst_tpm: 694444, rpm: 3472 },
+          tpm_limit: 173611,
+          rpm_limit: 3472,
+        }],
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     }) as typeof fetch;
 
     try {
-      await agent.plans();
+      const plans = await agent.plans();
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/plans');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
+      expect(plans[0]?.price).toBe(100);
+      expect(plans[0]?.features).toEqual(['1 large agent']);
+      expect(plans[0]?.limits.burstTpm).toBe(694444);
     } finally {
       globalThis.fetch = fetchMock;
     }

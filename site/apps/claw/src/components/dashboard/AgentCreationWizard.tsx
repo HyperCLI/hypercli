@@ -5,13 +5,13 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot, Brain, Cat, Crown, Dog, Eye, Flame, Globe, Heart, Leaf,
   Moon, Rocket, Shield, Sparkles, Star, Zap,
-  X, ChevronLeft, ChevronRight, Loader2, ChevronDown, ChevronUp, Upload, Check,
+  X, ChevronLeft, ChevronRight, Loader2, Upload, Check,
   type LucideIcon,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL, agentApiFetch } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api";
 import { createOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory, type Plan } from "@/lib/format";
+import { formatTokens, type SlotInventory } from "@/lib/format";
 
 // ── Types ──
 
@@ -20,12 +20,8 @@ interface AgentCreationWizardProps {
   onClose: () => void;
   onCreated: (agentId?: string, gatewayToken?: string) => void;
   budget?: {
-    max_agents: number;
-    total_cpu: number;
-    total_memory: number;
-    used_agents: number;
-    used_cpu: number;
-    used_memory: number;
+    slots: SlotInventory;
+    pooled_tpd: number;
   } | null;
 }
 
@@ -124,12 +120,8 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
 
   // Step 2: Configuration
   const [selectedTypeId, setSelectedTypeId] = useState("large");
-  const [showAdvanced, setShowAdvanced] = useState(false);
-  const [customCpu, setCustomCpu] = useState("4000");
-  const [customMem, setCustomMem] = useState("4096");
   const [startImmediately, setStartImmediately] = useState(true);
   const [typeCatalog, setTypeCatalog] = useState<AgentTypeCatalogResponse | null>(null);
-  const [currentPlanId, setCurrentPlanId] = useState<string | null>(null);
 
   // Step 3: Creating state
   const [creating, setCreating] = useState(false);
@@ -138,26 +130,15 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
   // Derived
   const currentHue = HUES[selectedIcon];
   const CurrentIcon = ICONS[selectedIcon].icon;
-  const customCpuCores = Math.max(1, Math.round(Number(customCpu) / 1000));
-  const customMemGb = Math.max(4, Math.round(Number(customMem) / 1024));
   const sizeOptions = [...(typeCatalog?.types || FALLBACK_TYPES)].sort((a, b) => {
     const aIndex = TYPE_ORDER.indexOf(a.id);
     const bIndex = TYPE_ORDER.indexOf(b.id);
     return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
   });
-  const currentPlanTypeId =
-    currentPlanId
-      ? typeCatalog?.plans.find((plan) => plan.id === currentPlanId)?.agent_type ?? null
-      : null;
   const selectedType = sizeOptions.find((option) => option.id === selectedTypeId) || sizeOptions[0] || FALLBACK_TYPES[2];
-
-  const budgetRemaining = budget
-    ? {
-        agents: budget.max_agents - budget.used_agents,
-        cpu: budget.total_cpu - budget.used_cpu,
-        memory: budget.total_memory - budget.used_memory,
-      }
-    : null;
+  const slotInventory = budget?.slots ?? {};
+  const selectedAvailability = slotInventory[selectedType.id]?.available ?? 0;
+  const totalAvailableSlots = Object.values(slotInventory).reduce((sum, entry) => sum + Math.max(0, entry.available), 0);
 
   // ── Keyboard ──
 
@@ -181,9 +162,6 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       setCustomAvatar(null);
       setDescription("");
       setSelectedTypeId("large");
-      setShowAdvanced(false);
-      setCustomCpu("4000");
-      setCustomMem("4096");
       setStartImmediately(true);
       setCreating(false);
       setError(null);
@@ -196,21 +174,15 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
 
     const loadTypeCatalog = async () => {
       try {
-        const [catalogResponse, token] = await Promise.all([
-          fetch(`${API_BASE_URL}/types`),
-          getToken(),
-        ]);
-        const planResponse = await agentApiFetch<Plan>("/plans/current", token);
+        const catalogResponse = await fetch(`${API_BASE_URL}/types`);
         if (cancelled) return;
         if (catalogResponse.ok) {
           const payload = (await catalogResponse.json()) as AgentTypeCatalogResponse;
           setTypeCatalog(payload);
         }
-        setCurrentPlanId(planResponse.id);
       } catch {
         if (!cancelled) {
           setTypeCatalog(null);
-          setCurrentPlanId(null);
         }
       }
     };
@@ -219,12 +191,18 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
     return () => {
       cancelled = true;
     };
-  }, [getToken, open]);
+  }, [open]);
 
   useEffect(() => {
-    if (!open || showAdvanced || !currentPlanTypeId) return;
-    setSelectedTypeId(currentPlanTypeId);
-  }, [currentPlanTypeId, open, showAdvanced]);
+    if (!open || sizeOptions.length === 0) return;
+    if ((slotInventory[selectedTypeId]?.available ?? 0) > 0) return;
+    const nextAvailable = sizeOptions.find((option) => (slotInventory[option.id]?.available ?? 0) > 0);
+    if (nextAvailable) {
+      setSelectedTypeId(nextAvailable.id);
+    } else if (sizeOptions[0]) {
+      setSelectedTypeId(sizeOptions[0].id);
+    }
+  }, [open, selectedTypeId, sizeOptions, slotInventory]);
 
   // ── Navigation ──
 
@@ -276,9 +254,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
       const created = await createOpenClawAgent(token, {
         name: name.trim() || undefined,
         start: startImmediately,
-        size: showAdvanced ? undefined : selectedType.id,
-        cpu: showAdvanced ? customCpuCores : undefined,
-        memory: showAdvanced ? customMemGb : undefined,
+        size: selectedType.id,
         meta: {
           ui: {
             avatar: {
@@ -298,7 +274,7 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
 
   // ── Validation ──
 
-  const canProceed = step === 0 ? true : step === 1 ? true : true;
+  const canProceed = step === 1 ? !budget || selectedAvailability > 0 : true;
 
   if (!open) return null;
 
@@ -450,12 +426,10 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         <label className="block text-sm text-text-secondary mb-3">Size</label>
         <div className="grid grid-cols-3 gap-3">
           {sizeOptions.map((option) => {
-            const currentPlanTierIndex = currentPlanTypeId ? TYPE_ORDER.indexOf(currentPlanTypeId) : -1;
-            const optionTierIndex = TYPE_ORDER.indexOf(option.id);
-            const isSelectable = currentPlanTierIndex >= 0
-              ? optionTierIndex >= 0 && optionTierIndex <= currentPlanTierIndex
-              : option.id === selectedType.id;
-            const isSelected = selectedType.id === option.id && !showAdvanced;
+            const availability = slotInventory[option.id]?.available ?? 0;
+            const granted = slotInventory[option.id]?.granted ?? 0;
+            const isSelectable = !budget || availability > 0;
+            const isSelected = selectedType.id === option.id;
             return (
               <button
                 key={option.id}
@@ -463,7 +437,6 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
                 onClick={() => {
                   if (!isSelectable) return;
                   setSelectedTypeId(option.id);
-                  setShowAdvanced(false);
                 }}
                 className={`relative p-4 rounded-xl border text-center transition-all ${
                   !isSelectable
@@ -475,62 +448,17 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
               >
                 <div className="text-sm font-semibold">{option.name}</div>
                 <div className="text-xs text-text-muted mt-1">
-                  {formatCpu(option.cpu * 1000)} · {option.memory} GiB
+                  {option.cpu} vCPU · {option.memory} GiB
                 </div>
+                {budget && (
+                  <div className="text-[11px] text-text-muted mt-2">
+                    {availability} free / {granted} total
+                  </div>
+                )}
               </button>
             );
           })}
         </div>
-      </div>
-
-      {/* Advanced toggle */}
-      <div>
-        {!showAdvanced ? (
-          <button
-            onClick={() => setShowAdvanced(true)}
-            className="text-xs text-text-muted hover:text-foreground flex items-center gap-1.5 transition-colors"
-          >
-            <ChevronDown size={14} /> Custom resources
-          </button>
-        ) : (
-          <>
-            <div className="flex items-center justify-between mb-3">
-              <label className="text-sm text-text-secondary">Custom Resources</label>
-              <button
-                onClick={() => setShowAdvanced(false)}
-                className="text-xs text-text-muted hover:text-foreground flex items-center gap-1 transition-colors"
-              >
-                <ChevronUp size={14} /> Presets
-              </button>
-            </div>
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <label className="block text-sm text-text-muted mb-1.5">CPU (millicores)</label>
-                <input
-                  value={customCpu}
-                  onChange={(e) => setCustomCpu(e.target.value)}
-                  type="number"
-                  min={500}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
-                />
-              </div>
-              <div>
-                <label className="block text-sm text-text-muted mb-1.5">Memory (MiB)</label>
-                <input
-                  value={customMem}
-                  onChange={(e) => setCustomMem(e.target.value)}
-                  onBlur={() => {
-                    if (Number(customMem) < 4096) setCustomMem("4096");
-                  }}
-                  type="number"
-                  min={4096}
-                  className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
-                />
-                <span className="text-[10px] text-text-muted mt-1 block">Minimum 4096 MiB required</span>
-              </div>
-            </div>
-          </>
-        )}
       </div>
 
       {/* Start immediately */}
@@ -553,13 +481,37 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
         </span>
       </label>
 
-      {/* Budget remaining */}
-      {budgetRemaining && (
+      {budget && (
         <div className="border border-border rounded-xl p-3 bg-surface-low/50">
-          <p className="text-xs text-text-muted">
-            Budget remaining: {budgetRemaining.agents} agent{budgetRemaining.agents !== 1 ? "s" : ""}{" "}
-            · {formatCpu(budgetRemaining.cpu)} · {formatMemory(budgetRemaining.memory)}
+          <p className="text-xs text-text-muted mb-2">
+            Pooled inference: {formatTokens(budget.pooled_tpd)} tokens/day
           </p>
+          <div className="space-y-1.5">
+            {sizeOptions.map((option) => {
+              const entry = slotInventory[option.id];
+              return (
+                <div key={option.id} className="flex items-center justify-between text-xs text-text-secondary">
+                  <span>{option.name}</span>
+                  <span>
+                    {(entry?.available ?? 0)} free / {(entry?.granted ?? 0)} total
+                  </span>
+                </div>
+              );
+            })}
+          </div>
+        </div>
+      )}
+
+      {budget && totalAvailableSlots === 0 && (
+        <div className="border border-[#d05f5f]/20 rounded-xl p-3 bg-[#d05f5f]/10">
+          <p className="text-sm text-[#d05f5f] mb-2">No agent slots are available right now.</p>
+          <button
+            type="button"
+            onClick={() => window.location.assign("/plans")}
+            className="text-xs text-foreground underline underline-offset-4"
+          >
+            Buy another agent bundle
+          </button>
         </div>
       )}
     </div>
@@ -583,15 +535,19 @@ export function AgentCreationWizard({ open, onClose, onCreated, budget }: AgentC
           <div className="flex items-center justify-between text-sm">
             <span className="text-text-muted">Size</span>
             <span className="text-foreground">
-              {showAdvanced
-                ? `${customCpuCores} CPU · ${customMemGb} GiB`
-                : `${selectedType.name} (${formatCpu(selectedType.cpu * 1000)} · ${selectedType.memory} GiB)`}
+              {selectedType.name} ({selectedType.cpu} vCPU · {selectedType.memory} GiB)
             </span>
           </div>
           <div className="flex items-center justify-between text-sm">
             <span className="text-text-muted">Start on creation</span>
             <span className="text-foreground">{startImmediately ? "Yes" : "No"}</span>
           </div>
+          {budget && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-text-muted">Slots remaining</span>
+              <span className="text-foreground">{selectedAvailability}</span>
+            </div>
+          )}
         </div>
       </div>
 

@@ -166,6 +166,15 @@ budget = client.deployments.budget()
 metrics = client.deployments.metrics(agent.id)
 ```
 
+`budget` now reports slot inventory plus pooled inference, rather than a summed CPU / memory billing pool. Expect:
+
+- `slots`
+  exact-tier granted / used / available counts
+- `pooled_tpd`
+  inference pooled across all active entitlements
+- `size_presets`
+  runtime shapes for `small`, `medium`, and `large`
+
 Wait for a running pod:
 
 ```python

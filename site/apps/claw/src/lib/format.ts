@@ -20,8 +20,17 @@ export interface PlanLimits {
   tpd: number;
   tpm: number;
   burst_tpm: number;
+  burstTpm?: number;
   rpm: number;
 }
+
+export interface SlotInventoryEntry {
+  granted: number;
+  used: number;
+  available: number;
+}
+
+export type SlotInventory = Record<string, SlotInventoryEntry>;
 
 export interface Plan {
   id: string;
@@ -33,6 +42,8 @@ export interface Plan {
   highlighted?: boolean | null;
   expires_at?: string | null;
   limits: PlanLimits;
+  slot_inventory?: SlotInventory;
+  pooled_tpd?: number;
   agent_resources?: {
     max_agents: number;
     total_cpu: string;

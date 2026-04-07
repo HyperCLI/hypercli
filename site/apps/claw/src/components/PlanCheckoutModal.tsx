@@ -5,10 +5,21 @@ import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { agentApiFetch } from "@/lib/api";
 import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
-import { Plan, formatTokens } from "@/lib/format";
+import { formatTokens } from "@/lib/format";
 
 interface PlanCheckoutModalProps {
-  plan: Plan;
+  plan: {
+    id: string;
+    name: string;
+    price: number;
+    limits: {
+      tpd: number;
+      burst_tpm?: number;
+      burstTpm?: number;
+      rpm: number;
+    };
+  };
+  ownedCount?: number;
   isOpen: boolean;
   onClose: () => void;
   onSuccess: () => void;
@@ -19,6 +30,7 @@ type PaymentMethod = "card" | "crypto";
 
 export function PlanCheckoutModal({
   plan,
+  ownedCount = 0,
   isOpen,
   onClose,
   onSuccess,
@@ -116,6 +128,7 @@ export function PlanCheckoutModal({
   };
 
   if (!isOpen) return null;
+  const burstTpm = plan.limits.burst_tpm ?? plan.limits.burstTpm ?? 0;
 
   const buttonLabel = () => {
     if (processing) return "Processing...";
@@ -137,7 +150,7 @@ export function PlanCheckoutModal({
           {/* Header */}
           <div className="flex items-center justify-between mb-6">
             <h2 className="text-xl font-bold text-foreground">
-              Subscribe to {plan.name}
+              {ownedCount > 0 ? `Add ${plan.name}` : `Purchase ${plan.name}`}
             </h2>
             <button
               onClick={handleClose}
@@ -166,10 +179,12 @@ export function PlanCheckoutModal({
                 </svg>
               </div>
               <h3 className="text-lg font-semibold text-foreground mb-2">
-                Subscription Active!
+                Entitlement Active!
               </h3>
               <p className="text-text-secondary">
-                Your {plan.name} plan is now active.
+                {ownedCount > 0
+                  ? `Another ${plan.name} entitlement is now active.`
+                  : `Your ${plan.name} entitlement is now active.`}
               </p>
             </div>
           ) : (
@@ -189,8 +204,11 @@ export function PlanCheckoutModal({
                 </div>
                 <p className="text-sm text-text-tertiary">
                   {formatTokens(plan.limits.tpd)} tokens/day &middot;{" "}
-                  Up to {formatTokens(plan.limits.burst_tpm)} TPM &middot;{" "}
+                  Up to {formatTokens(burstTpm)} TPM &middot;{" "}
                   {formatTokens(plan.limits.rpm)} RPM
+                </p>
+                <p className="text-xs text-text-muted mt-2">
+                  Each checkout adds another active entitlement. Inference pools across entitlements and agent slots stack by tier.
                 </p>
               </div>
 

@@ -20,11 +20,11 @@ test.describe.serial("Agents subscription", () => {
     await page.goto("/plans", { waitUntil: "domcontentloaded" });
     await expect(page.getByRole("heading", { name: /^plans$/i })).toBeVisible({ timeout: 30_000 });
 
-    const subscribeButton = page.getByRole("button", { name: /subscribe|upgrade/i }).first();
+    const subscribeButton = page.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
     await expect(subscribeButton).toBeVisible({ timeout: 20_000 });
     await subscribeButton.click();
 
-    await expect(page.getByRole("heading", { name: /subscribe to/i })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByRole("heading", { name: /purchase|subscribe|add/i })).toBeVisible({ timeout: 20_000 });
     const payWithCardButton = page.getByRole("button", { name: /pay \$.*card/i }).first();
     await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
     await payWithCardButton.click();
