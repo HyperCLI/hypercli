@@ -257,19 +257,6 @@ class HyperAgent:
         agents_api_base_url: str | None,
         dev: bool,
     ) -> str:
-        raw_product = product_api_base_url.rstrip("/") if isinstance(product_api_base_url, str) else ""
-        if raw_product:
-            parsed = urlsplit(raw_product if "://" in raw_product else f"https://{raw_product}")
-            scheme = parsed.scheme or "https"
-            normalized_path = parsed.path.rstrip("/")
-            if normalized_path.endswith("/api"):
-                return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}"
-            if normalized_path.endswith("/v1"):
-                return f"{scheme}://{parsed.netloc}{normalized_path[:-3]}"
-            if normalized_path.endswith("/agents"):
-                return f"{scheme}://{parsed.netloc}{normalized_path[:-7]}"
-            return f"{scheme}://{parsed.netloc}{normalized_path}"
-
         raw_agents = (agents_api_base_url or "").rstrip("/")
         if not raw_agents:
             fallback = get_agents_api_base_url(dev).rstrip("/")
@@ -278,19 +265,13 @@ class HyperAgent:
         scheme = parsed.scheme or "https"
         normalized_path = parsed.path.rstrip("/")
         host = parsed.netloc.lower()
-        if normalized_path.endswith("/agents") and not normalized_path[:-7]:
-            if host == "api.agents.hypercli.com":
-                return "https://api.hypercli.com"
-            if host == "api.agents.dev.hypercli.com":
-                return "https://api.dev.hypercli.com"
-            return f"{scheme}://{parsed.netloc}"
-        if normalized_path.endswith("/api"):
-            return f"{scheme}://{parsed.netloc}{normalized_path[:-4]}"
+        if normalized_path.endswith("/agents"):
+            return f"{scheme}://{parsed.netloc}{normalized_path}"
         if host in {"api.hypercli.com", "api.hyperclaw.app", "api.agents.hypercli.com"}:
-            return "https://api.hypercli.com"
+            return "https://api.hypercli.com/agents"
         if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app", "api.agents.dev.hypercli.com"}:
-            return "https://api.dev.hypercli.com"
-        return f"{scheme}://{parsed.netloc}"
+            return "https://api.dev.hypercli.com/agents"
+        return f"{scheme}://{parsed.netloc}/agents"
 
     @property
     def openai(self) -> "OpenAI":
@@ -355,7 +336,7 @@ class HyperAgent:
 
     def plans(self) -> List[HyperAgentPlan]:
         response = self._http._session.get(
-            f"{self._control_base_url}/api/plans",
+            f"{self._control_base_url}/plans",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()
@@ -364,7 +345,7 @@ class HyperAgent:
 
     def current_plan(self) -> HyperAgentCurrentPlan:
         response = self._http._session.get(
-            f"{self._control_base_url}/api/plans/current",
+            f"{self._control_base_url}/plans/current",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()
@@ -372,7 +353,7 @@ class HyperAgent:
 
     def subscriptions(self) -> list[HyperAgentSubscription]:
         response = self._http._session.get(
-            f"{self._control_base_url}/api/subscriptions",
+            f"{self._control_base_url}/subscriptions",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()
@@ -381,7 +362,7 @@ class HyperAgent:
 
     def subscription_summary(self) -> HyperAgentSubscriptionSummary:
         response = self._http._session.get(
-            f"{self._control_base_url}/api/subscriptions/summary",
+            f"{self._control_base_url}/subscriptions/summary",
             headers={"Authorization": f"Bearer {self._api_key}"},
         )
         response.raise_for_status()

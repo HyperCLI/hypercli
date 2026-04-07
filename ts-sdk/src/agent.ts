@@ -40,21 +40,6 @@ function resolveHyperAgentControlBaseUrl(
   agentsApiBaseUrl: string | undefined,
   dev: boolean,
 ): string {
-  const rawProduct = (productApiBaseUrl || '').replace(/\/+$/, '');
-  if (rawProduct) {
-    const parsed = new URL(rawProduct.includes('://') ? rawProduct : `https://${rawProduct}`);
-    const normalizedPath = parsed.pathname.replace(/\/+$/, '');
-    if (normalizedPath.endsWith('/api')) {
-      return `${parsed.origin}${normalizedPath.slice(0, -4)}`;
-    }
-    if (normalizedPath.endsWith('/v1')) {
-      return `${parsed.origin}${normalizedPath.slice(0, -3)}`;
-    }
-    if (normalizedPath.endsWith('/agents')) {
-      return `${parsed.origin}${normalizedPath.slice(0, -7)}`;
-    }
-    return `${parsed.origin}${normalizedPath}`;
-  }
   const rawAgents = (agentsApiBaseUrl || '').replace(/\/+$/, '');
   if (!rawAgents) {
     const fallback = getAgentsApiBaseUrl(dev);
@@ -63,20 +48,11 @@ function resolveHyperAgentControlBaseUrl(
   const parsed = new URL(rawAgents.includes('://') ? rawAgents : `https://${rawAgents}`);
   const normalizedPath = parsed.pathname.replace(/\/+$/, '');
   const host = parsed.host.toLowerCase();
-  if (normalizedPath.endsWith('/agents') && !normalizedPath.slice(0, -7)) {
-    if (host === 'api.agents.hypercli.com') {
-      return 'https://api.hypercli.com';
-    }
-    if (host === 'api.agents.dev.hypercli.com') {
-      return 'https://api.dev.hypercli.com';
-    }
-    return parsed.origin;
-  }
-  if (normalizedPath.endsWith('/api')) {
-    return `${parsed.origin}${normalizedPath.slice(0, -4)}`;
+  if (normalizedPath.endsWith('/agents')) {
+    return `${parsed.origin}${normalizedPath}`;
   }
   if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
-    return 'https://api.hypercli.com';
+    return 'https://api.hypercli.com/agents';
   }
   if (
     host === 'api.dev.hypercli.com' ||
@@ -84,9 +60,9 @@ function resolveHyperAgentControlBaseUrl(
     host === 'dev-api.hyperclaw.app' ||
     host === 'api.agents.dev.hypercli.com'
   ) {
-    return 'https://api.dev.hypercli.com';
+    return 'https://api.dev.hypercli.com/agents';
   }
-  return parsed.origin;
+  return `${parsed.origin}/agents`;
 }
 
 export interface HyperAgentPlan {
@@ -276,7 +252,7 @@ export class HyperAgent {
   }
 
   async plans(): Promise<HyperAgentPlan[]> {
-    const response = await fetch(`${this.controlBaseUrl}/api/plans`, {
+    const response = await fetch(`${this.controlBaseUrl}/plans`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -291,7 +267,7 @@ export class HyperAgent {
   }
 
   async currentPlan(): Promise<HyperAgentCurrentPlan> {
-    const response = await fetch(`${this.controlBaseUrl}/api/plans/current`, {
+    const response = await fetch(`${this.controlBaseUrl}/plans/current`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -306,7 +282,7 @@ export class HyperAgent {
   }
 
   async subscriptions(): Promise<HyperAgentSubscription[]> {
-    const response = await fetch(`${this.controlBaseUrl}/api/subscriptions`, {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -321,7 +297,7 @@ export class HyperAgent {
   }
 
   async subscriptionSummary(): Promise<HyperAgentSubscriptionSummary> {
-    const response = await fetch(`${this.controlBaseUrl}/api/subscriptions/summary`, {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/summary`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
