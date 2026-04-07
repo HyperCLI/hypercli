@@ -67,6 +67,44 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
+/**
+ * Detect and extract clean text from content that was accidentally JSON-stringified.
+ * Only extracts from objects that look like chat message shapes (have a `role` field)
+ * to avoid stripping intentional JSON content (e.g. AI showing a JSON example).
+ * Also handles double-stringified strings and content block arrays.
+ */
+function sanitizeContent(raw: string): string {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{") && !trimmed.startsWith("[")) return raw;
+  try {
+    const parsed = JSON.parse(trimmed);
+    // Double-stringified: JSON.parse('"hello"') → "hello"
+    if (typeof parsed === "string") return parsed;
+    if (typeof parsed === "object" && parsed !== null && !Array.isArray(parsed)) {
+      // Only extract from objects that look like chat messages (have a role field)
+      // to avoid stripping intentional JSON the AI meant to display
+      const hasRole = typeof parsed.role === "string";
+      if (!hasRole) return raw;
+      if (typeof parsed.content === "string") return parsed.content;
+      if (typeof parsed.text === "string") return parsed.text;
+      if (typeof parsed.message === "string") return parsed.message;
+      // Array of content blocks — join ALL text items
+      if (Array.isArray(parsed.content)) {
+        const texts = parsed.content
+          .filter((b: unknown) => {
+            const r = b as Record<string, unknown>;
+            return r?.type === "text" && typeof r?.text === "string";
+          })
+          .map((b: unknown) => (b as Record<string, string>).text);
+        if (texts.length > 0) return texts.join("\n");
+      }
+    }
+  } catch {
+    // Not valid JSON — return original
+  }
+  return raw;
+}
+
 function formatToolValue(value: unknown): string {
   if (value == null) return "";
   if (typeof value === "string") return maybeDecodeMojibake(value);
@@ -94,7 +132,7 @@ function summarizeToolCalls(
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const normalized = normalizeGatewayChatMessage(message);
   if (!normalized) return null;
-  const content = maybeDecodeMojibake(normalized.text);
+  const content = sanitizeContent(maybeDecodeMojibake(normalized.text));
   const thinking = maybeDecodeMojibake(normalized.thinking).trim();
   const toolCalls = summarizeToolCalls(normalized.toolCalls);
   const mediaUrls = normalized.mediaUrls;
@@ -354,7 +392,7 @@ export function useGatewayChat(
               setSending(false);
             }
           } else if (event === "chat.content") {
-            const text = maybeDecodeMojibake((payload.text as string) ?? "");
+            const text = sanitizeContent(maybeDecodeMojibake((payload.text as string) ?? ""));
             if (!text) return;
             setMessages((prev) => {
               return upsertAssistantMessage(prev, {
