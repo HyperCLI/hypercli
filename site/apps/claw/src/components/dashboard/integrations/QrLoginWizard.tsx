@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Check, Loader2, Smartphone, Terminal, ArrowRight } from "lucide-react";
+import { Loader2, Smartphone, ArrowRight } from "lucide-react";
 
 interface QrLoginWizardProps {
   pluginId: string;
@@ -11,6 +11,8 @@ interface QrLoginWizardProps {
   /** Switch the parent view to the Shell tab */
   onOpenShell?: () => void;
   onClose: () => void;
+  /** Config path from plugin registry — "channels.*" uses legacy shape, otherwise uses plugins.entries shape */
+  configPath?: string;
 }
 
 export function QrLoginWizard({
@@ -19,31 +21,29 @@ export function QrLoginWizard({
   onEnable,
   onOpenShell,
   onClose,
+  configPath,
 }: QrLoginWizardProps) {
-  const [step, setStep] = useState<"intro" | "enabling" | "ready">("intro");
+  const [step, setStep] = useState<"intro" | "enabling">("intro");
   const [error, setError] = useState<string | null>(null);
 
   const handleEnable = async () => {
     setStep("enabling");
     setError(null);
     try {
-      await onEnable({
-        plugins: {
-          entries: {
-            [pluginId]: { enabled: true },
-          },
-        },
-      });
-      setStep("ready");
+      // channels.* path: flat config at channels.<id> (same as Telegram/Discord/Slack)
+      // plugins.entries.* path: nested config at plugins.entries.<id>
+      const patch = configPath?.startsWith("channels.")
+        ? { channels: { [pluginId]: { enabled: true } } }
+        : { plugins: { entries: { [pluginId]: { enabled: true } } } };
+
+      await onEnable(patch);
+      // Auto-open Shell tab so user can scan the QR code immediately
+      onClose();
+      onOpenShell?.();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to enable plugin");
       setStep("intro");
     }
-  };
-
-  const handleOpenShell = () => {
-    onClose();
-    onOpenShell?.();
   };
 
   // --- Intro: explain the setup process ---
@@ -123,47 +123,6 @@ export function QrLoginWizard({
     );
   }
 
-  // --- Ready: plugin enabled, direct user to Shell ---
-  return (
-    <div className="space-y-6">
-      <div className="flex flex-col items-center gap-4 py-4">
-        <div className="w-12 h-12 rounded-full bg-emerald-500/15 flex items-center justify-center">
-          <Check className="w-6 h-6 text-emerald-400" />
-        </div>
-        <div className="text-center">
-          <p className="text-sm font-medium text-foreground">{displayName} plugin enabled</p>
-          <p className="text-xs text-text-tertiary mt-1">Now open the Shell tab to scan the QR code.</p>
-        </div>
-      </div>
-
-      <div className="glass-card p-4 space-y-3">
-        <div className="flex items-center gap-2 text-sm font-medium text-foreground">
-          <Terminal className="w-4 h-4 text-[var(--primary)]" />
-          Next step: Scan QR code
-        </div>
-        <p className="text-xs text-text-tertiary">
-          A QR code will appear in the Shell tab. Open {displayName} on your phone, go to{" "}
-          <span className="text-text-secondary">Linked Devices</span>, and scan it.
-        </p>
-      </div>
-
-      <div className="flex justify-end gap-2 pt-2">
-        <button
-          onClick={onClose}
-          className="px-4 py-2 rounded-lg text-sm font-medium text-text-secondary hover:bg-[var(--surface-low)] transition-colors"
-        >
-          Close
-        </button>
-        {onOpenShell && (
-          <button
-            onClick={handleOpenShell}
-            className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-          >
-            <Terminal className="w-3.5 h-3.5" />
-            Open Shell
-          </button>
-        )}
-      </div>
-    </div>
-  );
+  // Unreachable — enabling step always transitions to Shell via onClose + onOpenShell
+  return null;
 }
