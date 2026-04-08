@@ -13,6 +13,8 @@ interface QrLoginWizardProps {
   onClose: () => void;
   /** Config path from plugin registry — "channels.*" uses legacy shape, otherwise uses plugins.entries shape */
   configPath?: string;
+  /** Trigger web/QR login flow so the QR code appears in Shell */
+  onWebLoginStart?: (options?: { force?: boolean; verbose?: boolean; accountId?: string }) => Promise<Record<string, any>>;
 }
 
 export function QrLoginWizard({
@@ -22,6 +24,7 @@ export function QrLoginWizard({
   onOpenShell,
   onClose,
   configPath,
+  onWebLoginStart,
 }: QrLoginWizardProps) {
   const [step, setStep] = useState<"intro" | "enabling">("intro");
   const [error, setError] = useState<string | null>(null);
@@ -37,6 +40,8 @@ export function QrLoginWizard({
         : { plugins: { entries: { [pluginId]: { enabled: true } } } };
 
       await onEnable(patch);
+      // Trigger the QR login flow so the QR code appears in Shell
+      onWebLoginStart?.({ force: true, accountId: pluginId });
       // Auto-open Shell tab so user can scan the QR code immediately
       onClose();
       onOpenShell?.();

@@ -38,6 +38,8 @@ interface IntegrationsPageProps {
   onChannelProbe?: () => Promise<Record<string, any>>;
   /** Switch the parent view to the Shell tab (for QR-based plugins) */
   onOpenShell?: () => void;
+  /** Trigger web/QR login flow for a channel (e.g., WhatsApp QR code) */
+  onWebLoginStart?: (options?: { force?: boolean; verbose?: boolean; accountId?: string }) => Promise<Record<string, any>>;
 }
 
 interface ChannelState {
@@ -67,7 +69,7 @@ function deepMerge(target: Record<string, unknown>, source: Record<string, unkno
   return result;
 }
 
-export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe, onOpenShell }: IntegrationsPageProps) {
+export function IntegrationsPage({ config: initialConfig, configSchema, connected, onSaveConfig, onChannelProbe, onOpenShell, onWebLoginStart }: IntegrationsPageProps) {
   const [config, setConfig] = useState<Record<string, unknown> | null>(initialConfig);
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
@@ -661,6 +663,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           onOpenShell={onOpenShell}
           onClose={() => setActivePanel(null)}
           configPath={getPlugin("whatsapp")?.configPath}
+          onWebLoginStart={onWebLoginStart}
         />
       </SlideOver>
 
@@ -701,6 +704,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           onOpenShell={onOpenShell}
           onClose={() => setActivePanel(null)}
           configPath={getPlugin("zalouser")?.configPath}
+          onWebLoginStart={onWebLoginStart}
         />
       </SlideOver>
 
