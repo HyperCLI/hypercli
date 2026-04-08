@@ -108,15 +108,7 @@ export function QrLoginWizard({
             </li>
             <li className="flex items-start gap-2.5">
               <span className="w-4 h-4 rounded-full bg-[var(--primary)]/15 text-[var(--primary)] text-[10px] font-medium flex items-center justify-center flex-shrink-0 mt-0.5">3</span>
-              <span>
-                Open {displayName} on your phone →{" "}
-                <span className="text-foreground font-medium">Linked Devices</span> →{" "}
-                <span className="text-foreground font-medium">Link a Device</span>
-              </span>
-            </li>
-            <li className="flex items-start gap-2.5">
-              <span className="w-4 h-4 rounded-full bg-[var(--primary)]/15 text-[var(--primary)] text-[10px] font-medium flex items-center justify-center flex-shrink-0 mt-0.5">4</span>
-              <span>Scan the QR code — your agent will start receiving messages</span>
+              <span>Open {displayName} on your phone and scan the QR code to link your account</span>
             </li>
           </ol>
         </div>
