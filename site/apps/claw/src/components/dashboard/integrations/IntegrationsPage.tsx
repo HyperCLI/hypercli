@@ -93,8 +93,8 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const discordEnabled = !!channels?.discord?.enabled;
   const slackEnabled = !!channels?.slack?.enabled;
 
-  // Plugin-based wizard channels — all use plugins.entries.<id>
-  const wizardPluginIds = ["whatsapp", "zalouser", "zalo", "line", "twitch", "irc", "mattermost"] as const;
+  // Wizard-enabled channels — includes both channels.* and plugins.entries.* paths
+  const wizardPluginIds = ["whatsapp", "zalouser", "zalo", "line", "twitch", "irc", "mattermost", "msteams", "googlechat"] as const;
   const wizardPlugins = wizardPluginIds.reduce<Record<string, { meta: PluginMeta | undefined; enabled: boolean }>>((acc, id) => {
     const meta = getPlugin(id);
     acc[id] = { meta, enabled: meta ? isPluginEnabled(meta, config) : false };
@@ -148,12 +148,13 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   };
 
   const handleDisconnect = async (target: string) => {
-    // Plugin-based channels use plugins.entries path
-    if ((wizardPluginIds as readonly string[]).includes(target)) {
-      await handleConfigPatch({ plugins: { entries: { [target]: { enabled: false } } } });
-    } else {
-      // Legacy channels (Telegram, Discord, Slack) use channels path
+    const plugin = getPlugin(target);
+    if (plugin?.configPath?.startsWith("channels.")) {
+      // channels.* path (Telegram, Discord, Slack, Teams, Google Chat, WhatsApp, Zalo, etc.)
       await handleConfigPatch({ channels: { [target]: null } });
+    } else {
+      // plugins.entries.* path (LINE, Mattermost, Twitch, IRC, etc.)
+      await handleConfigPatch({ plugins: { entries: { [target]: { enabled: false } } } });
     }
     setDisconnectTarget(null);
     setActivePanel(null);
@@ -659,6 +660,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           onEnable={handleConfigPatch}
           onOpenShell={onOpenShell}
           onClose={() => setActivePanel(null)}
+          configPath={getPlugin("whatsapp")?.configPath}
         />
       </SlideOver>
 
@@ -698,6 +700,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           onEnable={handleConfigPatch}
           onOpenShell={onOpenShell}
           onClose={() => setActivePanel(null)}
+          configPath={getPlugin("zalouser")?.configPath}
         />
       </SlideOver>
 
@@ -744,6 +747,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                 setupUrl={meta.setupUrl}
                 setupHint={meta.setupHint}
                 skipVerification={meta.skipVerification}
+                configPath={meta.configPath}
                 onConnect={handleConfigPatch}
                 onChannelProbe={onChannelProbe ?? (async () => ({}))}
                 onClose={() => {

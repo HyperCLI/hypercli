@@ -72,19 +72,23 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "telegram", displayName: "Telegram", icon: Send, category: "chat", description: "Bot API via grammY", configPath: "channels.telegram", hasWizard: true },
   { id: "discord", displayName: "Discord", icon: MessageCircle, category: "chat", description: "Servers, channels & DMs", configPath: "channels.discord", hasWizard: true },
   { id: "slack", displayName: "Slack", icon: Hash, category: "chat", description: "Workspace apps via Bolt", configPath: "channels.slack", hasWizard: true },
-  { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Pair via QR code", configPath: "plugins.entries.whatsapp", hasWizard: true },
+  { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Pair via QR code", configPath: "channels.whatsapp", hasWizard: true },
   { id: "signal", displayName: "Signal", icon: Shield, category: "chat", description: "Privacy-focused via signal-cli", configPath: "plugins.entries.signal" },
   { id: "imessage", displayName: "iMessage", icon: Smartphone, category: "chat", description: "iMessage via AppleScript bridge", configPath: "plugins.entries.imessage" },
   { id: "bluebubbles", displayName: "iMessage (BlueBubbles)", icon: Smartphone, category: "chat", description: "iMessage via BlueBubbles server", configPath: "plugins.entries.bluebubbles" },
-  { id: "msteams", displayName: "Microsoft Teams", icon: Building2, category: "chat", description: "Enterprise team chat", configPath: "plugins.entries.msteams" },
-  { id: "matrix", displayName: "Matrix", icon: Globe, category: "chat", description: "Chat on any Matrix server", configPath: "plugins.entries.matrix" },
-  { id: "nostr", displayName: "Nostr", icon: Radio, category: "chat", description: "Decentralized encrypted DMs", configPath: "plugins.entries.nostr" },
+  { id: "msteams", displayName: "Microsoft Teams", icon: Building2, category: "chat", description: "Enterprise team chat", configPath: "channels.msteams", hasWizard: true, setupUrl: "https://portal.azure.com/#create/Microsoft.AzureBot", setupHint: "Create an Azure Bot and note your App ID, Client Secret, and Tenant ID", setupFields: [
+    { key: "appId", label: "App ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", required: true },
+    { key: "appPassword", label: "App Password", placeholder: "Client Secret from Azure Bot", sensitive: true, required: true, helpText: "Client Secret from Azure Bot registration" },
+    { key: "tenantId", label: "Tenant ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", required: true, helpText: "Azure AD tenant ID, or 'common' for multi-tenant" },
+  ] },
+  { id: "matrix", displayName: "Matrix", icon: Globe, category: "chat", description: "Matrix protocol", configPath: "plugins.entries.matrix" },
+  { id: "nostr", displayName: "Nostr", icon: Radio, category: "chat", description: "Decentralized DMs via NIP-04", configPath: "plugins.entries.nostr" },
   { id: "tlon", displayName: "Tlon Messenger", icon: MessagesSquare, category: "chat", description: "P2P ownership-first chat", configPath: "plugins.entries.tlon" },
-  { id: "zalo", displayName: "Zalo", icon: MessageSquare, category: "chat", description: "Zalo Bot API", configPath: "plugins.entries.zalo", hasWizard: true, setupUrl: "https://developers.zalo.me", setupHint: "Get your App ID and Secret from Zalo Developers", setupFields: [
+  { id: "zalo", displayName: "Zalo", icon: MessageSquare, category: "chat", description: "Zalo Bot API", configPath: "channels.zalo", hasWizard: true, setupUrl: "https://developers.zalo.me", setupHint: "Get your App ID and Secret from Zalo Developers", setupFields: [
     { key: "appId", label: "App ID", placeholder: "Your Zalo app ID", required: true },
     { key: "secretKey", label: "Secret Key", placeholder: "Your Zalo secret key", sensitive: true, required: true },
   ] },
-  { id: "zalouser", displayName: "Zalo Personal", icon: MessageSquare, category: "chat", description: "Pair via QR code", configPath: "plugins.entries.zalouser", hasWizard: true },
+  { id: "zalouser", displayName: "Zalo Personal", icon: MessageSquare, category: "chat", description: "Pair via QR code", configPath: "channels.zalouser", hasWizard: true },
   { id: "mattermost", displayName: "Mattermost", icon: MessageSquareMore, category: "chat", description: "Self-hosted team chat", configPath: "plugins.entries.mattermost", hasWizard: true, setupHint: "Create a bot account in your Mattermost server", setupFields: [
     { key: "serverUrl", label: "Server URL", placeholder: "https://mattermost.example.com", required: true },
     { key: "botToken", label: "Bot Token", placeholder: "Your bot access token", sensitive: true, required: true },
@@ -94,7 +98,10 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
     { key: "channelSecret", label: "Channel Secret", placeholder: "Your LINE channel secret", sensitive: true, required: true },
   ] },
   { id: "feishu", displayName: "Feishu (Lark)", icon: Building2, category: "chat", description: "Feishu/Lark bot integration", configPath: "plugins.entries.feishu" },
-  { id: "googlechat", displayName: "Google Chat", icon: MessageSquare, category: "chat", description: "Google Workspace chat", configPath: "plugins.entries.googlechat" },
+  { id: "googlechat", displayName: "Google Chat", icon: MessageSquare, category: "chat", description: "Google Workspace chat", configPath: "channels.googlechat", hasWizard: true, setupUrl: "https://console.cloud.google.com/apis/api/chat.googleapis.com/credentials", setupHint: "Create a Service Account in Google Cloud and download the JSON key", setupFields: [
+    { key: "serviceAccountFile", label: "Service Account JSON Path", placeholder: "/path/to/service-account.json", required: true, helpText: "Path to the downloaded service account JSON key file" },
+    { key: "audience", label: "Gateway URL", placeholder: "https://your-gateway.com/googlechat", required: true, helpText: "Your OpenClaw gateway URL for Google Chat webhooks" },
+  ] },
   { id: "nextcloud-talk", displayName: "Nextcloud Talk", icon: Server, category: "chat", description: "Self-hosted Nextcloud chat", configPath: "plugins.entries.nextcloud-talk" },
   { id: "synology-chat", displayName: "Synology Chat", icon: Server, category: "chat", description: "Synology NAS chat", configPath: "plugins.entries.synology-chat" },
   { id: "irc", displayName: "IRC", icon: Monitor, category: "chat", description: "Internet Relay Chat", configPath: "plugins.entries.irc", hasWizard: true, skipVerification: true, setupHint: "Enter your IRC server details", setupFields: [
