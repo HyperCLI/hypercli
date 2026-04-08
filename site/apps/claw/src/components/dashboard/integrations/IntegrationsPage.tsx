@@ -4,6 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Send, MessageCircle, Hash, Phone, MessageSquare,
   Volume2, Mic, Eye, Image, Video, Box, Loader2,
+  Copy, Check, Terminal,
 } from "lucide-react";
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
@@ -26,6 +27,84 @@ import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategor
 import type { PluginMeta } from "./plugin-registry";
 import { isChannelLive } from "@/hooks/usePluginVerification";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
+
+// ---------------------------------------------------------------------------
+// QR Manage Panel — shared by WhatsApp and Zalo Personal
+// ---------------------------------------------------------------------------
+
+function QrManagePanel({ pluginId, displayName, isVerified, onOpenShell, onDisconnect }: {
+  pluginId: string;
+  displayName: string;
+  isVerified: boolean;
+  onOpenShell: () => void;
+  onDisconnect: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+  const loginCommand = `openclaw channels login --channel ${pluginId}`;
+
+  const handleCopy = async () => {
+    await navigator.clipboard.writeText(loginCommand);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  return (
+    <div className="space-y-4">
+      {/* Status */}
+      <div className="glass-card p-4 space-y-2">
+        <div className="flex items-center gap-2">
+          <span className={`w-2 h-2 rounded-full ${isVerified ? "bg-[var(--primary)]" : "bg-amber-400"}`} />
+          <span className="text-sm font-medium text-foreground">
+            {isVerified ? "Connected" : "Pending — QR scan needed"}
+          </span>
+        </div>
+        {!isVerified && (
+          <p className="text-xs text-text-tertiary">
+            Paste the command below in the Shell tab, then scan the QR code with {displayName} on your phone.
+          </p>
+        )}
+      </div>
+
+      {/* Login command */}
+      <div className="space-y-1.5">
+        <p className="text-xs font-medium text-text-secondary">
+          {isVerified ? "Re-pair command" : "Login command"}
+        </p>
+        <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] p-3">
+          <div className="flex items-center gap-2 flex-1 min-w-0">
+            <Terminal className="w-3.5 h-3.5 text-text-tertiary flex-shrink-0" />
+            <code className="text-xs text-foreground font-mono truncate">{loginCommand}</code>
+          </div>
+          <button
+            onClick={handleCopy}
+            className="flex-shrink-0 p-1.5 rounded-md hover:bg-[var(--border)]/50 transition-colors"
+            title="Copy command"
+          >
+            {copied
+              ? <Check className="w-3.5 h-3.5 text-emerald-400" />
+              : <Copy className="w-3.5 h-3.5 text-text-tertiary" />
+            }
+          </button>
+        </div>
+      </div>
+
+      {/* Actions */}
+      <button
+        onClick={onOpenShell}
+        className="w-full px-4 py-2 rounded-lg text-sm font-medium text-foreground border border-[var(--border)] hover:bg-[var(--surface-low)] transition-colors flex items-center justify-center gap-2"
+      >
+        <Terminal className="w-3.5 h-3.5" />
+        Open Shell
+      </button>
+      <button
+        onClick={onDisconnect}
+        className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+      >
+        Disconnect {displayName}
+      </button>
+    </div>
+  );
+}
 
 /** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
 type PanelType = string | null;
@@ -94,7 +173,8 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const slackEnabled = !!channels?.slack?.enabled;
 
   // Wizard-enabled channels — includes both channels.* and plugins.entries.* paths
-  const wizardPluginIds = ["whatsapp", "zalouser", "zalo", "line", "twitch", "irc", "mattermost", "msteams", "googlechat"] as const;
+  // Order matters: determines card rendering order in the grid
+  const wizardPluginIds = ["msteams", "googlechat", "whatsapp", "zalouser", "zalo", "line", "twitch", "irc", "mattermost"] as const;
   const wizardPlugins = wizardPluginIds.reduce<Record<string, { meta: PluginMeta | undefined; enabled: boolean }>>((acc, id) => {
     const meta = getPlugin(id);
     acc[id] = { meta, enabled: meta ? isPluginEnabled(meta, config) : false };
@@ -294,33 +374,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                       : "slack"
                 )}
               />
-              {/* WhatsApp — QR wizard */}
-              <IntegrationCard
-                icon={Phone}
-                name="WhatsApp"
-                status={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "connected" : wizardPlugins["whatsapp"].enabled ? "pending" : "available"}
-                statusText={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Active" : wizardPlugins["whatsapp"].enabled ? "Pending verification" : undefined}
-                ctaLabel={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Manage" : wizardPlugins["whatsapp"].enabled ? "Complete setup \u2192" : "Set up \u2192"}
-                onClick={() => setActivePanel(
-                  wizardPlugins["whatsapp"].enabled && verified["whatsapp"]
-                    ? "whatsapp-manage"
-                    : "whatsapp"
-                )}
-              />
-              {/* Zalo Personal — QR wizard */}
-              <IntegrationCard
-                icon={MessageSquare}
-                name="Zalo Personal"
-                status={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "connected" : wizardPlugins["zalouser"].enabled ? "pending" : "available"}
-                statusText={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Active" : wizardPlugins["zalouser"].enabled ? "Pending verification" : undefined}
-                ctaLabel={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Manage" : wizardPlugins["zalouser"].enabled ? "Complete setup \u2192" : "Set up \u2192"}
-                onClick={() => setActivePanel(
-                  wizardPlugins["zalouser"].enabled && verified["zalouser"]
-                    ? "zalouser-manage"
-                    : "zalouser"
-                )}
-              />
-              {/* Token-based wizard plugins (Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
+              {/* Token-based wizard plugins (Teams, Google Chat, Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
               {wizardPluginIds
                 .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
                 .map((id) => {
@@ -334,13 +388,39 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                       name={meta.displayName}
                       status={enabled && isVerified ? "connected" : enabled ? "pending" : "available"}
                       statusText={enabled && isVerified ? "Active" : enabled ? "Pending verification" : undefined}
-                      ctaLabel={enabled && isVerified ? "Manage" : enabled ? "Complete setup \u2192" : "Set up \u2192"}
+                      ctaLabel={enabled ? "Manage" : "Set up \u2192"}
                       onClick={() => setActivePanel(
-                        enabled && isVerified ? `${id}-manage` : id
+                        enabled ? `${id}-manage` : id
                       )}
                     />
                   );
                 })}
+              {/* WhatsApp — QR wizard */}
+              <IntegrationCard
+                icon={Phone}
+                name="WhatsApp"
+                status={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "connected" : wizardPlugins["whatsapp"].enabled ? "pending" : "available"}
+                statusText={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Active" : wizardPlugins["whatsapp"].enabled ? "Pending verification" : undefined}
+                ctaLabel={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Manage" : wizardPlugins["whatsapp"].enabled ? "Manage" : "Set up \u2192"}
+                onClick={() => setActivePanel(
+                  wizardPlugins["whatsapp"].enabled
+                    ? "whatsapp-manage"
+                    : "whatsapp"
+                )}
+              />
+              {/* Zalo Personal — QR wizard */}
+              <IntegrationCard
+                icon={MessageSquare}
+                name="Zalo Personal"
+                status={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "connected" : wizardPlugins["zalouser"].enabled ? "pending" : "available"}
+                statusText={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Active" : wizardPlugins["zalouser"].enabled ? "Pending verification" : undefined}
+                ctaLabel={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Manage" : wizardPlugins["zalouser"].enabled ? "Manage" : "Set up \u2192"}
+                onClick={() => setActivePanel(
+                  wizardPlugins["zalouser"].enabled
+                    ? "zalouser-manage"
+                    : "zalouser"
+                )}
+              />
               {/* Remaining chat plugins — dynamic PluginCards */}
               {chatPlugins
                 .filter((p) => !p.hasWizard)
@@ -672,20 +752,13 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         title="WhatsApp"
         description="Your agent's WhatsApp connection"
       >
-        <div className="space-y-4">
-          <div className="glass-card p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-              <span className="text-sm font-medium text-foreground">Connected</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setDisconnectTarget("whatsapp")}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
-          >
-            Disconnect WhatsApp
-          </button>
-        </div>
+        <QrManagePanel
+          pluginId="whatsapp"
+          displayName="WhatsApp"
+          isVerified={!!verified["whatsapp"]}
+          onOpenShell={() => { setActivePanel(null); onOpenShell?.(); }}
+          onDisconnect={() => setDisconnectTarget("whatsapp")}
+        />
       </SlideOver>
 
       {/* Zalo Personal Setup Wizard */}
@@ -713,20 +786,13 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         title="Zalo Personal"
         description="Your agent's Zalo connection"
       >
-        <div className="space-y-4">
-          <div className="glass-card p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-              <span className="text-sm font-medium text-foreground">Connected</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setDisconnectTarget("zalouser")}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
-          >
-            Disconnect Zalo Personal
-          </button>
-        </div>
+        <QrManagePanel
+          pluginId="zalouser"
+          displayName="Zalo Personal"
+          isVerified={!!verified["zalouser"]}
+          onOpenShell={() => { setActivePanel(null); onOpenShell?.(); }}
+          onDisconnect={() => setDisconnectTarget("zalouser")}
+        />
       </SlideOver>
 
       {/* Token-based plugin wizards (Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
@@ -771,6 +837,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
         .map((id) => {
           const meta = wizardPlugins[id].meta!;
+          const isVerified = verified[id];
           return (
             <SlideOver
               key={`${id}-manage`}
@@ -782,10 +849,23 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               <div className="space-y-4">
                 <div className="glass-card p-4 space-y-2">
                   <div className="flex items-center gap-2">
-                    <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-                    <span className="text-sm font-medium text-foreground">Connected</span>
+                    <span className={`w-2 h-2 rounded-full ${isVerified ? "bg-[var(--primary)]" : "bg-amber-400"}`} />
+                    <span className="text-sm font-medium text-foreground">
+                      {isVerified ? "Connected" : "Pending verification"}
+                    </span>
                   </div>
+                  {!isVerified && (
+                    <p className="text-xs text-text-tertiary">
+                      The connection may still be starting up, or the credentials may need to be updated.
+                    </p>
+                  )}
                 </div>
+                <button
+                  onClick={() => { setActivePanel(id); }}
+                  className="w-full px-4 py-2 rounded-lg text-sm font-medium text-foreground border border-[var(--border)] hover:bg-[var(--surface-low)] transition-colors"
+                >
+                  Reconfigure
+                </button>
                 <button
                   onClick={() => setDisconnectTarget(id)}
                   className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
