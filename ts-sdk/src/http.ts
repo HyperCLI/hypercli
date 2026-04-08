@@ -97,11 +97,12 @@ export async function requestWithRetry(options: RequestOptions): Promise<Respons
 async function handleResponse<T = any>(response: Response): Promise<T> {
   if (response.status >= 400) {
     let detail: string;
+    const text = await response.text().catch(() => '');
     try {
-      const json: any = await response.json();
-      detail = json.detail || response.statusText;
+      const json = JSON.parse(text);
+      detail = json.detail || text || response.statusText;
     } catch {
-      detail = response.statusText || await response.text();
+      detail = text || response.statusText;
     }
     throw new APIError(response.status, detail);
   }
