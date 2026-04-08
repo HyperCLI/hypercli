@@ -67,5 +67,3 @@ next-env.d.ts
 # Turbo
 .turbo
 e2e/.env
-
-package-lock.json
