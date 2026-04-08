@@ -3,7 +3,6 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
-import { APIError } from "@hypercli.com/sdk";
 import {
   createOpenClawConfigValue,
   describeOpenClawConfigNode,
@@ -887,9 +886,10 @@ export default function AgentsPage() {
       }
     } catch (err) {
       setAgents([]);
-      const isClusterError = err instanceof APIError
-        && err.statusCode === 503
-        && err.detail.toLowerCase().includes("cluster");
+      const apiErr = err as { statusCode?: number; detail?: string };
+      const isClusterError = apiErr.statusCode === 503
+        && typeof apiErr.detail === "string"
+        && apiErr.detail.toLowerCase().includes("cluster");
       setClusterUnavailable(isClusterError);
       if (!isClusterError) {
         setError(err instanceof Error ? err.message : "Failed to load agents");
