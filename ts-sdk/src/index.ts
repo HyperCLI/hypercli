@@ -112,6 +112,8 @@ export {
   HyperAgent,
   type HyperAgentPlan,
   type HyperAgentCurrentPlan,
+  type HyperAgentSubscription,
+  type HyperAgentSubscriptionSummary,
   type HyperAgentModel,
 } from './agent.js';
 
@@ -121,6 +123,13 @@ export {
   OpenClawAgent,
   buildAgentConfig,
   buildOpenClawRoutes,
+  type OpenClawModelApi,
+  type OpenClawModelProviderAuthMode,
+  type OpenClawSecretInput,
+  type OpenClawModelCompatConfig,
+  type OpenClawModelDefinitionConfig,
+  type OpenClawModelProviderConfig,
+  type OpenClawModelProviderPatch,
   type AgentExecResult,
   type AgentTokenResponse,
   type AgentShellTokenResponse,

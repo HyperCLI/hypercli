@@ -26,6 +26,7 @@ import { API_BASE_URL, agentApiFetch, getStoredToken } from "@/lib/api";
 import { encodePath, extractImagePath } from "@/lib/image-tools";
 import { AuthImage } from "@/components/dashboard/ChatMessage";
 import { createAgentClient } from "@/lib/agent-client";
+import { refreshGatewayToken } from "@/lib/gateway-auth";
 import {
   GatewayClient,
   type GatewayEvent,
@@ -356,6 +357,19 @@ export default function AgentConsolePage() {
         },
         onClose: ({ error: closeError, code, reason }) => {
           setGwConnected(false);
+          if (code !== 1000) {
+            void (async () => {
+              try {
+                const freshAuthToken = await getToken();
+                const freshGatewayToken = await refreshGatewayToken(agent.id, freshAuthToken);
+                if (freshGatewayToken) {
+                  gw.setGatewayToken(freshGatewayToken);
+                }
+              } catch {
+                // Keep reconnecting with the last known token if refresh fails.
+              }
+            })();
+          }
           if (closeError?.message) {
             setGwError(closeError.message);
             return;

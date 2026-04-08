@@ -5,7 +5,14 @@ import pytest
 import os
 from unittest.mock import Mock, patch, MagicMock
 from hypercli import HyperCLI
-from hypercli.agent import HyperAgent, HyperAgentPlan, HyperAgentModel
+from hypercli.agent import (
+    HyperAgent,
+    HyperAgentPlan,
+    HyperAgentCurrentPlan,
+    HyperAgentSubscription,
+    HyperAgentSubscriptionSummary,
+    HyperAgentModel,
+)
 
 
 class TestHyperAgentDataclasses:
@@ -40,6 +47,53 @@ class TestHyperAgentDataclasses:
         assert model.supports_vision is True
         assert model.supports_function_calling is True
 
+    def test_current_plan_from_dict(self):
+        current = HyperAgentCurrentPlan.from_dict(
+            {
+                "id": "large",
+                "name": "Large",
+                "price": 99,
+                "tpm_limit": 1000,
+                "rpm_limit": 10,
+                "expires_at": "2026-04-07T10:00:00Z",
+                "cancel_at_period_end": True,
+                "pooled_tpd": 1000000,
+                "slot_inventory": {"large": {"granted": 1, "used": 0, "available": 1}},
+            }
+        )
+        assert current.id == "large"
+        assert current.cancel_at_period_end is True
+        assert current.expires_at is not None
+        assert current.slot_inventory["large"]["granted"] == 1
+
+    def test_subscription_summary_from_dict(self):
+        summary = HyperAgentSubscriptionSummary.from_dict(
+            {
+                "effective_plan_id": "large",
+                "current_subscription_id": "sub-1",
+                "pooled_tpm_limit": 2000,
+                "pooled_rpm_limit": 20,
+                "pooled_tpd": 2000000,
+                "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
+                "active_subscription_count": 1,
+                "active_subscriptions": [
+                    {
+                        "id": "sub-1",
+                        "user_id": "user-1",
+                        "plan_id": "large",
+                        "plan_name": "Large",
+                        "provider": "STRIPE",
+                        "status": "ACTIVE",
+                    }
+                ],
+                "subscriptions": [],
+                "user": {"id": "user-1", "team_id": "team-1"},
+            }
+        )
+        assert summary.effective_plan_id == "large"
+        assert summary.active_subscription_count == 1
+        assert summary.active_subscriptions[0].plan_id == "large"
+
 
 class TestHyperAgentClient:
     """Tests for HyperAgent client methods."""
@@ -66,6 +120,85 @@ class TestHyperAgentClient:
         assert result["status"] == "ok"
         assert result["hosts_total"] == 1
         mock_http._session.get.assert_called_once()
+
+    def test_current_plan(self, mock_http):
+        mock_http._session.get.return_value.json.return_value = {
+            "id": "large",
+            "name": "Large",
+            "price": 99,
+            "tpm_limit": 1000,
+            "rpm_limit": 10,
+        }
+        mock_http._session.get.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        current = agent.current_plan()
+
+        assert current.id == "large"
+        mock_http._session.get.assert_called_with(
+            "https://api.hypercli.com/agents/plans/current",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
+    def test_subscriptions(self, mock_http):
+        mock_http._session.get.return_value.json.return_value = {
+            "items": [
+                {
+                    "id": "sub-1",
+                    "user_id": "user-1",
+                    "plan_id": "large",
+                    "plan_name": "Large",
+                    "provider": "STRIPE",
+                    "status": "ACTIVE",
+                    "quantity": 2,
+                }
+            ]
+        }
+        mock_http._session.get.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        subscriptions = agent.subscriptions()
+
+        assert len(subscriptions) == 1
+        assert subscriptions[0].quantity == 2
+        mock_http._session.get.assert_called_with(
+            "https://api.hypercli.com/agents/subscriptions",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
+    def test_subscription_summary(self, mock_http):
+        mock_http._session.get.return_value.json.return_value = {
+            "effective_plan_id": "large",
+            "current_subscription_id": "sub-1",
+            "pooled_tpm_limit": 2000,
+            "pooled_rpm_limit": 20,
+            "pooled_tpd": 2000000,
+            "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
+            "active_subscription_count": 1,
+            "active_subscriptions": [
+                {
+                    "id": "sub-1",
+                    "user_id": "user-1",
+                    "plan_id": "large",
+                    "plan_name": "Large",
+                    "provider": "STRIPE",
+                    "status": "ACTIVE",
+                }
+            ],
+            "subscriptions": [],
+            "user": {"id": "user-1", "team_id": "team-1"},
+        }
+        mock_http._session.get.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        summary = agent.subscription_summary()
+
+        assert summary.current_subscription_id == "sub-1"
+        assert summary.slot_inventory["large"]["available"] == 1
+        mock_http._session.get.assert_called_with(
+            "https://api.hypercli.com/agents/subscriptions/summary",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
     
     def test_openai_client_creation(self, mock_http):
         """Test that OpenAI client is created with correct config."""

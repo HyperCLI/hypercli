@@ -35,10 +35,53 @@ function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boo
   return `${raw}/v1`;
 }
 
+function resolveHyperAgentControlBaseUrl(
+  productApiBaseUrl: string | undefined,
+  agentsApiBaseUrl: string | undefined,
+  dev: boolean,
+): string {
+  const rawAgents = (agentsApiBaseUrl || '').replace(/\/+$/, '');
+  if (!rawAgents) {
+    const fallback = getAgentsApiBaseUrl(dev);
+    return resolveHyperAgentControlBaseUrl(undefined, fallback, dev);
+  }
+  const parsed = new URL(rawAgents.includes('://') ? rawAgents : `https://${rawAgents}`);
+  const normalizedPath = parsed.pathname.replace(/\/+$/, '');
+  const host = parsed.host.toLowerCase();
+  if (normalizedPath.endsWith('/agents')) {
+    return `${parsed.origin}${normalizedPath}`;
+  }
+  if (host === 'api.hypercli.com' || host === 'api.hyperclaw.app' || host === 'api.agents.hypercli.com') {
+    return 'https://api.hypercli.com/agents';
+  }
+  if (
+    host === 'api.dev.hypercli.com' ||
+    host === 'api.dev.hyperclaw.app' ||
+    host === 'dev-api.hyperclaw.app' ||
+    host === 'api.agents.dev.hypercli.com'
+  ) {
+    return 'https://api.dev.hypercli.com/agents';
+  }
+  return `${parsed.origin}/agents`;
+}
+
 export interface HyperAgentPlan {
   id: string;
   name: string;
+  price: number;
   priceUsd: number;
+  aiu: number;
+  agents: number;
+  features: string[];
+  models: string[];
+  highlighted?: boolean;
+  expiresAt?: Date | null;
+  limits: {
+    tpd: number;
+    tpm: number;
+    burstTpm: number;
+    rpm: number;
+  };
   tpmLimit: number;
   rpmLimit: number;
 }
@@ -53,6 +96,45 @@ export interface HyperAgentCurrentPlan {
   rpmLimit: number;
   expiresAt: Date | null;
   cancelAtPeriodEnd: boolean;
+  provider?: string;
+  secondsRemaining?: number | null;
+  pooledTpd?: number;
+  slotInventory?: Record<string, { granted: number; used: number; available: number }>;
+}
+
+export interface HyperAgentSubscription {
+  id: string;
+  userId: string;
+  planId: string;
+  planName: string;
+  provider: string;
+  status: string;
+  quantity: number;
+  expiresAt: Date | null;
+  updatedAt: Date | null;
+  stripeSubscriptionId: string | null;
+  cancelAtPeriodEnd: boolean;
+  canCancel: boolean;
+  isCurrent: boolean;
+  meta: Record<string, any> | null;
+  planTpmLimit: number;
+  planRpmLimit: number;
+  planTpd: number;
+  planAgentTier: string | null;
+  slotGrants: Record<string, number> | null;
+}
+
+export interface HyperAgentSubscriptionSummary {
+  effectivePlanId: string;
+  currentSubscriptionId: string | null;
+  pooledTpmLimit: number;
+  pooledRpmLimit: number;
+  pooledTpd: number;
+  slotInventory: Record<string, { granted: number; used: number; available: number }>;
+  activeSubscriptionCount: number;
+  activeSubscriptions: HyperAgentSubscription[];
+  subscriptions: HyperAgentSubscription[];
+  user: Record<string, any>;
 }
 
 export interface HyperAgentModel {
@@ -68,9 +150,22 @@ function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   return {
     id: data.id,
     name: data.name,
-    priceUsd: data.price_usd,
-    tpmLimit: data.tpm_limit,
-    rpmLimit: data.rpm_limit,
+    price: data.price ?? data.price_usd ?? 0,
+    priceUsd: data.price_usd ?? data.price ?? 0,
+    aiu: data.aiu ?? 0,
+    agents: data.agents ?? 0,
+    features: data.features || [],
+    models: data.models || [],
+    highlighted: Boolean(data.highlighted),
+    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    limits: {
+      tpd: data.limits?.tpd || 0,
+      tpm: data.limits?.tpm || 0,
+      burstTpm: data.limits?.burst_tpm || 0,
+      rpm: data.limits?.rpm || 0,
+    },
+    tpmLimit: data.tpm_limit || data.limits?.tpm || 0,
+    rpmLimit: data.rpm_limit || data.limits?.rpm || 0,
   };
 }
 
@@ -85,6 +180,49 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
     rpmLimit: data.rpm_limit || 0,
     expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
     cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
+    provider: data.provider || undefined,
+    secondsRemaining: data.seconds_remaining ?? null,
+    pooledTpd: data.pooled_tpd || 0,
+    slotInventory: data.slot_inventory || undefined,
+  };
+}
+
+function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
+  return {
+    id: data.id || '',
+    userId: data.user_id || '',
+    planId: data.plan_id || '',
+    planName: data.plan_name || data.plan_id || '',
+    provider: data.provider || '',
+    status: data.status || '',
+    quantity: data.quantity || 1,
+    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
+    stripeSubscriptionId: data.stripe_subscription_id || null,
+    cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
+    canCancel: Boolean(data.can_cancel),
+    isCurrent: Boolean(data.is_current),
+    meta: data.meta || null,
+    planTpmLimit: data.plan_tpm_limit || 0,
+    planRpmLimit: data.plan_rpm_limit || 0,
+    planTpd: data.plan_tpd || 0,
+    planAgentTier: data.plan_agent_tier || null,
+    slotGrants: data.slot_grants || null,
+  };
+}
+
+function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptionSummary {
+  return {
+    effectivePlanId: data.effective_plan_id || '',
+    currentSubscriptionId: data.current_subscription_id || null,
+    pooledTpmLimit: data.pooled_tpm_limit || 0,
+    pooledRpmLimit: data.pooled_rpm_limit || 0,
+    pooledTpd: data.pooled_tpd || 0,
+    slotInventory: data.slot_inventory || {},
+    activeSubscriptionCount: data.active_subscription_count || 0,
+    activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
+    subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
+    user: data.user || {},
   };
 }
 
@@ -120,6 +258,7 @@ export class HyperAgent {
 
   public readonly apiKey: string;
   public readonly baseUrl: string;
+  public readonly controlBaseUrl: string;
 
   constructor(
     private http: HTTPClient,
@@ -131,6 +270,7 @@ export class HyperAgent {
     const fallbackBaseUrl = typeof http['baseUrl'] === 'string' ? http['baseUrl'] : (dev ? HyperAgent.DEV_API_BASE : HyperAgent.AGENT_API_BASE);
     const configuredBaseUrl = agentsApiBaseUrl || getAgentsApiBaseUrl(dev) || fallbackBaseUrl;
     this.baseUrl = resolveHyperAgentBaseUrl(configuredBaseUrl, dev);
+    this.controlBaseUrl = resolveHyperAgentControlBaseUrl(http['baseUrl'], configuredBaseUrl, dev);
   }
 
   private get baseUrlWithoutV1(): string {
@@ -138,7 +278,7 @@ export class HyperAgent {
   }
 
   async plans(): Promise<HyperAgentPlan[]> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans`, {
+    const response = await fetch(`${this.controlBaseUrl}/plans`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -153,7 +293,7 @@ export class HyperAgent {
   }
 
   async currentPlan(): Promise<HyperAgentCurrentPlan> {
-    const response = await fetch(`${this.baseUrlWithoutV1}/api/plans/current`, {
+    const response = await fetch(`${this.controlBaseUrl}/plans/current`, {
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
       },
@@ -165,6 +305,36 @@ export class HyperAgent {
 
     const data: any = await response.json();
     return hyperAgentCurrentPlanFromDict(data);
+  }
+
+  async subscriptions(): Promise<HyperAgentSubscription[]> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get subscriptions: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return (data.items || []).map(hyperAgentSubscriptionFromDict);
+  }
+
+  async subscriptionSummary(): Promise<HyperAgentSubscriptionSummary> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/summary`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get subscription summary: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return hyperAgentSubscriptionSummaryFromDict(data);
   }
 
   async models(): Promise<HyperAgentModel[]> {

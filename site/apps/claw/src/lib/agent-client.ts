@@ -1,3 +1,4 @@
+import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { Deployments } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { API_BASE_URL } from "./api";
@@ -18,6 +19,14 @@ const DEFAULT_OPENCLAW_ROUTES = {
   },
 };
 
+interface AgentUiMeta {
+  avatar?: {
+    image?: string | null;
+    icon_index?: number | null;
+  } | null;
+  [key: string]: unknown;
+}
+
 interface OpenClawAgentOptions {
   name?: string;
   start?: boolean;
@@ -25,6 +34,7 @@ interface OpenClawAgentOptions {
   cpu?: number;
   memory?: number;
   config?: Record<string, unknown>;
+  meta?: { ui?: AgentUiMeta | null } | null;
   env?: Record<string, string>;
   image?: string;
   routes?: Record<string, unknown>;
@@ -36,6 +46,16 @@ interface OpenClawAgentOptions {
   registry_auth?: Record<string, unknown>;
 }
 
+function resolveAgentApiBaseUrl(rawBaseUrl: string): string {
+  if (!rawBaseUrl.startsWith("/")) {
+    return rawBaseUrl;
+  }
+  if (typeof window !== "undefined" && window.location?.origin) {
+    return `${window.location.origin}${rawBaseUrl}`;
+  }
+  return rawBaseUrl;
+}
+
 function randomHexToken(bytes: number): string {
   const buffer = new Uint8Array(bytes);
   globalThis.crypto.getRandomValues(buffer);
@@ -44,8 +64,15 @@ function randomHexToken(bytes: number): string {
 
 export function createAgentClient(apiKey: string): Deployments {
   const configuredAgentsWsUrl = process.env.NEXT_PUBLIC_AGENTS_WS_URL || "";
-  const http = new HTTPClient(API_BASE_URL, apiKey);
-  return new Deployments(http, apiKey, API_BASE_URL, configuredAgentsWsUrl || undefined);
+  const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL);
+  const http = new HTTPClient(resolvedApiBaseUrl, apiKey);
+  return new Deployments(http, apiKey, resolvedApiBaseUrl, configuredAgentsWsUrl || undefined);
+}
+
+export function createHyperAgentClient(apiKey: string): HyperAgent {
+  const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL);
+  const http = new HTTPClient(resolvedApiBaseUrl, apiKey);
+  return new HyperAgent(http, apiKey, false, resolvedApiBaseUrl);
 }
 
 function resolveControlUiOrigin(rawUrl: string): string | null {

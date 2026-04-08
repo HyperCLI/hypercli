@@ -258,6 +258,7 @@ def _deep_merge_config(base: dict[str, Any], patch: dict[str, Any]) -> dict[str,
 
 
 def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
+    meta = data.get("meta") if isinstance(data.get("meta"), dict) else {}
     return {
         "id": data.get("id", ""),
         "user_id": data.get("user_id", ""),
@@ -277,6 +278,7 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
         "created_at": _parse_dt(data.get("created_at")),
         "updated_at": _parse_dt(data.get("updated_at")),
         "launch_config": data.get("launch_config"),
+        "meta_ui": copy.deepcopy(meta.get("ui")) if isinstance(meta.get("ui"), dict) else None,
         "routes": data.get("routes") or {},
         "command": data.get("command") or [],
         "entrypoint": data.get("entrypoint") or [],
@@ -306,6 +308,7 @@ class Agent:
     created_at: Optional[datetime] = None
     updated_at: Optional[datetime] = None
     launch_config: Optional[dict] = None
+    meta_ui: Optional[dict] = None
     routes: dict[str, dict] = field(default_factory=dict)
     command: list[str] = field(default_factory=list)
     entrypoint: list[str] = field(default_factory=list)
@@ -382,6 +385,32 @@ class Agent:
         self.__dict__.update(agent.__dict__)
         self._deployments = agent._deployments
         return self
+
+    def update(
+        self,
+        *,
+        name: str | None = None,
+        size: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+        refresh_from_lagoon: bool | None = None,
+        last_error: str | None = None,
+    ) -> "Agent":
+        agent = self._require_deployments().update(
+            self.id,
+            name=name,
+            size=size,
+            cpu=cpu,
+            memory=memory,
+            refresh_from_lagoon=refresh_from_lagoon,
+            last_error=last_error,
+        )
+        self.__dict__.update(agent.__dict__)
+        self._deployments = agent._deployments
+        return self
+
+    def resize(self, *, size: str | None = None, cpu: float | None = None, memory: int | None = None) -> "Agent":
+        return self.update(size=size, cpu=cpu, memory=memory)
 
     def env(self) -> dict[str, str]:
         """Fetch runtime environment from the pod's K8s secret."""
@@ -992,6 +1021,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        meta_ui: dict = None,
         dry_run: bool = False,
         start: bool = True,
     ) -> Agent:
@@ -1035,6 +1065,8 @@ class Deployments:
             body["cpu"] = cpu
         if memory is not None:
             body["memory"] = memory
+        if meta_ui:
+            body["meta"] = {"ui": copy.deepcopy(meta_ui)}
         if tags:
             body["tags"] = list(tags)
         data = self._post(AGENTS_API_PREFIX, json=body)
@@ -1065,6 +1097,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        meta_ui: dict = None,
         dry_run: bool = False,
         start: bool = True,
         openclaw_routes: dict | None = None,
@@ -1092,6 +1125,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            meta_ui=meta_ui,
             dry_run=dry_run,
             start=start,
         )
@@ -1241,6 +1275,43 @@ class Deployments:
             gateway_token=gateway_token,
             dry_run=dry_run,
         )
+
+    def update(
+        self,
+        agent_id: str,
+        *,
+        name: str | None = None,
+        size: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+        refresh_from_lagoon: bool | None = None,
+        last_error: str | None = None,
+    ) -> Agent:
+        body: dict[str, Any] = {}
+        if name is not None:
+            body["name"] = name
+        if size is not None:
+            body["size"] = size
+        if cpu is not None:
+            body["cpu"] = cpu
+        if memory is not None:
+            body["memory"] = memory
+        if refresh_from_lagoon is not None:
+            body["refresh_from_lagoon"] = refresh_from_lagoon
+        if last_error is not None:
+            body["last_error"] = last_error
+        data = self._http.patch(f"{AGENTS_API_PREFIX}/{agent_id}", json=body)
+        return self._hydrate_agent(data)
+
+    def resize(
+        self,
+        agent_id: str,
+        *,
+        size: str | None = None,
+        cpu: float | None = None,
+        memory: int | None = None,
+    ) -> Agent:
+        return self.update(agent_id, size=size, cpu=cpu, memory=memory)
 
     def stop(self, agent_id: str) -> Agent:
         """Stop an agent (tears down pod, keeps DB record).

@@ -77,7 +77,12 @@ Agent health is monitored via **app-level ping/pong** over the Lagoon log ingest
 
 ## Resources
 
-Each HyperClaw plan includes a CPU/memory budget for agents. Check yours with:
+HyperClaw billing now has two additive ledgers:
+
+- **Inference** pools across all active entitlements
+- **Agents** are tracked as exact-tier slots (`small`, `medium`, `large`)
+
+Check your current slot inventory and pooled inference with:
 
 ```bash
 hyper agents budget
@@ -91,10 +96,16 @@ hyper agents budget
 | `medium` | 2           | 4           |
 | `large`  | 4           | 8           |
 
-You can also specify custom CPU/memory values if your plan budget allows it.
+These presets are the runtime shapes used when a slot launches. Billing is enforced by tier count, not by summing CPU and RAM across the account.
+
+Examples:
+
+- `5x small` + `5x large` lets you run 10 agents total: 5 small and 5 large
+- `10x large` lets you run 10 large agents
+- buying another plan bundle adds another entitlement window and more pooled inference
 
 <Tip>
-Use `hyper agents budget` to see your plan's total budget, current usage, and available resources before creating agents.
+Use `hyper agents budget` to see granted, used, and available slots by tier before creating or starting agents.
 </Tip>
 
 ## Next Steps

@@ -40,6 +40,36 @@ def test_agent_from_dict_minimal():
     assert agent.ports == []
 
 
+def test_agent_from_dict_hydrates_only_meta_ui():
+    agent = Agent.from_dict(
+        {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "pending",
+            "meta": {
+                "ui": {
+                    "avatar": {
+                        "image": "data:image/png;base64,abc",
+                        "icon_index": 4,
+                    }
+                },
+                "internal": {
+                    "ignored": True,
+                },
+            },
+        }
+    )
+
+    assert agent.meta_ui == {
+        "avatar": {
+            "image": "data:image/png;base64,abc",
+            "icon_index": 4,
+        }
+    }
+
+
 def test_agent_urls_and_running_state():
     agent = Agent(
         id="agent-123",
@@ -492,6 +522,12 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             size="medium",
             cpu=4,
             memory=16,
+            meta_ui={
+                "avatar": {
+                    "image": "data:image/png;base64,xyz",
+                    "icon_index": 7,
+                }
+            },
             env={"FOO": "bar"},
             ports=[{"port": 18789, "auth": False}],
             command=["nginx", "-g", "daemon off;"],
@@ -507,6 +543,14 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             "FOO": "bar",
             "OPENCLAW_GATEWAY_TOKEN": "gw-token-123",
         }
+        assert posted_json["meta"] == {
+            "ui": {
+                "avatar": {
+                    "image": "data:image/png;base64,xyz",
+                    "icon_index": 7,
+                }
+            }
+        }
         assert posted_json["command"] == ["nginx", "-g", "daemon off;"]
         assert posted_json["entrypoint"] == ["/docker-entrypoint.sh"]
         assert posted_json["image"] == "ghcr.io/hypercli/hypercli-openclaw:test"
@@ -515,6 +559,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token == "gw-token-123"
         assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+        assert agent.meta_ui is None
         assert agent._deployments is agents_client
 
 
@@ -738,6 +783,77 @@ def test_agents_start_stop_delete(agents_client):
         delete_response.json.return_value = {"status": "deleted"}
         mock_client.delete.return_value = delete_response
         assert agents_client.delete("agent-123") == {"status": "deleted"}
+
+
+def test_agents_update_and_resize(agents_client):
+    patch_calls = []
+
+    def fake_patch(path, json=None):
+        patch_calls.append((path, json))
+        return {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": None,
+            "pod_name": None,
+            "state": "stopped",
+            "cpu": 4,
+            "memory": 4,
+        }
+
+    agents_client._http.patch = fake_patch
+
+    updated = agents_client.update("agent-123", size="large", refresh_from_lagoon=True)
+    assert updated.id == "agent-123"
+    assert patch_calls[0] == (
+        "/deployments/agent-123",
+        {"size": "large", "refresh_from_lagoon": True},
+    )
+
+    resized = agents_client.resize("agent-123", size="large")
+    assert resized.id == "agent-123"
+    assert patch_calls[1] == ("/deployments/agent-123", {"size": "large"})
+
+
+def test_bound_agent_resize_delegates_to_deployments(agents_client):
+    patch_calls = []
+
+    def fake_patch(path, json=None):
+        patch_calls.append((path, json))
+        return {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": None,
+            "pod_name": None,
+            "state": "stopped",
+            "cpu": 4,
+            "memory": 4,
+        }
+
+    agents_client._http.patch = fake_patch
+
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        get_response = Mock()
+        get_response.status_code = 200
+        get_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": None,
+            "pod_name": None,
+            "state": "stopped",
+            "cpu": 2,
+            "memory": 2,
+        }
+        mock_client.get.return_value = get_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agent = agents_client.get("agent-123")
+        resized = agent.resize(size="large")
+
+        assert resized.cpu == 4
+        assert patch_calls == [("/deployments/agent-123", {"size": "large"})]
 
 
 def test_agents_start_preserves_generic_launch_fields(agents_client):

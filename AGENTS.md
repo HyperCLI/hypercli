@@ -94,6 +94,10 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - When adding new env vars, update `site/env.sample` and `site/turbo.json`
   (globalEnv list) to keep Turbo aware of changes.
 - Avoid editing generated content directly; use the Python generator.
+- For frontend testing against local SDK work, use the on-disk `ts-sdk/`
+  checkout. Netlify/npm production builds resolve `@hypercli.com/sdk` from
+  npm/package-lock instead, so local checkout changes do not show up there
+  until the packaged dependency path is updated.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.

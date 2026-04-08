@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 
 import { HyperCLI } from "../../src/client.js";
+import { APIError } from "../../src/errors.js";
 
 export const TEST_API_KEY = process.env.TEST_API_KEY?.trim() || "";
 export const TEST_API_BASE =
@@ -21,6 +22,47 @@ export function createIntegrationClient(): HyperCLI {
     apiUrl: TEST_API_BASE,
     agentApiKey: TEST_AGENT_API_KEY || undefined,
   });
+}
+
+function selectAvailableTierFromBudget(budget: Record<string, any>): string {
+  const slots = (budget?.slots ?? {}) as Record<string, { available?: number }>;
+  for (const tier of ["large", "medium", "small"]) {
+    if ((slots[tier]?.available ?? 0) > 0) {
+      return tier;
+    }
+  }
+  throw new Error("No available entitlement slots for integration agent tests");
+}
+
+export async function createAgentWithAvailableTier(
+  client: HyperCLI,
+  options: {
+    name: string;
+    tags?: string[];
+  },
+): Promise<{ id: string; tier: string }> {
+  const budget = await client.deployments.budget();
+  const tier = selectAvailableTierFromBudget(budget);
+  let agentId: string | null = null;
+  try {
+    const agent = await client.deployments.create({
+      name: options.name,
+      size: tier,
+      start: false,
+      tags: options.tags,
+    });
+    agentId = agent.id;
+    await client.deployments.startOpenClaw(agent.id, { dryRun: true });
+    return { id: agent.id, tier };
+  } catch (error) {
+    if (agentId) {
+      await client.deployments.delete(agentId).catch(() => {});
+    }
+    if (error instanceof APIError && error.statusCode === 429) {
+      throw new Error(`Budget reported '${tier}' available but dry-run start was rejected for slot exhaustion`);
+    }
+    throw error;
+  }
 }
 
 export function expectNonEmptyString(value: unknown): void {

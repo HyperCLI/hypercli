@@ -98,12 +98,95 @@ export interface OpenClawRouteOptions {
   desktopPrefix?: string;
 }
 
+export interface AgentUiAvatarMeta {
+  image?: string | null;
+  icon_index?: number | null;
+}
+
+export interface AgentUiMeta {
+  avatar?: AgentUiAvatarMeta | null;
+  [key: string]: any;
+}
+
+export interface AgentMeta {
+  ui?: AgentUiMeta | null;
+}
+
+export type OpenClawModelApi =
+  | 'openai-completions'
+  | 'openai-responses'
+  | 'openai-codex-responses'
+  | 'anthropic-messages'
+  | 'google-generative-ai'
+  | 'github-copilot'
+  | 'bedrock-converse-stream'
+  | 'ollama';
+
+export type OpenClawModelProviderAuthMode = 'api-key' | 'aws-sdk' | 'oauth' | 'token';
+
+export type OpenClawSecretInput =
+  | string
+  | {
+      source?: string;
+      provider?: string;
+      id?: string;
+      [key: string]: any;
+    };
+
+export interface OpenClawModelCompatConfig {
+  thinkingFormat?: string;
+  supportsTools?: boolean;
+  toolSchemaProfile?: string;
+  nativeWebSearchTool?: boolean;
+  toolCallArgumentsEncoding?: string;
+  requiresMistralToolIds?: boolean;
+  requiresOpenAiAnthropicToolPayload?: boolean;
+  [key: string]: any;
+}
+
+export interface OpenClawModelDefinitionConfig {
+  id: string;
+  name?: string;
+  api?: OpenClawModelApi;
+  reasoning?: boolean;
+  input?: Array<'text' | 'image'>;
+  cost?: {
+    input?: number;
+    output?: number;
+    cacheRead?: number;
+    cacheWrite?: number;
+    [key: string]: any;
+  };
+  contextWindow?: number;
+  maxTokens?: number;
+  headers?: Record<string, string>;
+  compat?: OpenClawModelCompatConfig;
+  [key: string]: any;
+}
+
+export interface OpenClawModelProviderConfig {
+  baseUrl: string;
+  apiKey?: OpenClawSecretInput;
+  auth?: OpenClawModelProviderAuthMode;
+  api?: OpenClawModelApi;
+  injectNumCtxForOpenAICompat?: boolean;
+  headers?: Record<string, OpenClawSecretInput>;
+  authHeader?: boolean;
+  models?: OpenClawModelDefinitionConfig[];
+  [key: string]: any;
+}
+
+export type OpenClawModelProviderPatch =
+  & Partial<Omit<OpenClawModelProviderConfig, 'baseUrl'>>
+  & Pick<OpenClawModelProviderConfig, 'baseUrl'>;
+
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
   size?: string;
   cpu?: number;
   memory?: number;
   config?: Record<string, any>;
+  meta?: AgentMeta | null;
   tags?: string[];
   dryRun?: boolean;
   start?: boolean;
@@ -112,6 +195,15 @@ export interface CreateAgentOptions extends BuildAgentConfigOptions {
 export interface StartAgentOptions extends BuildAgentConfigOptions {
   config?: Record<string, any>;
   dryRun?: boolean;
+}
+
+export interface UpdateAgentOptions {
+  name?: string;
+  size?: string;
+  cpu?: number;
+  memory?: number;
+  refreshFromLagoon?: boolean;
+  lastError?: string | null;
 }
 
 export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
@@ -165,6 +257,7 @@ export interface AgentStateFields {
   createdAt?: Date | null;
   updatedAt?: Date | null;
   launchConfig?: Record<string, any> | null;
+  meta?: AgentMeta | null;
   routes: Record<string, AgentRouteConfig>;
   command: string[];
   entrypoint: string[];
@@ -191,6 +284,7 @@ export interface AgentHydrationData {
   created_at?: string | null;
   updated_at?: string | null;
   launch_config?: Record<string, any> | null;
+  meta?: { ui?: AgentUiMeta | null } | null;
   routes?: Record<string, AgentRouteConfig> | null;
   command?: string[] | null;
   entrypoint?: string[] | null;
@@ -360,6 +454,7 @@ function agentStateFromDict(data: AgentHydrationData): AgentStateFields {
     createdAt: parseDate(data.created_at),
     updatedAt: parseDate(data.updated_at),
     launchConfig: data.launch_config ?? null,
+    meta: data.meta?.ui ? { ui: structuredClone(data.meta.ui) } : null,
     routes: data.routes ?? {},
     command: data.command ?? [],
     entrypoint: data.entrypoint ?? [],
@@ -456,6 +551,7 @@ export class Agent {
   public readonly createdAt: Date | null;
   public readonly updatedAt: Date | null;
   public launchConfig: Record<string, any> | null;
+  public readonly meta: AgentMeta | null;
   public routes: Record<string, AgentRouteConfig>;
   public command: string[];
   public entrypoint: string[];
@@ -482,6 +578,7 @@ export class Agent {
     this.createdAt = fields.createdAt ?? null;
     this.updatedAt = fields.updatedAt ?? null;
     this.launchConfig = fields.launchConfig ?? null;
+    this.meta = fields.meta ? structuredClone(fields.meta) : null;
     this.routes = { ...fields.routes };
     this.command = [...fields.command];
     this.entrypoint = [...fields.entrypoint];
@@ -557,6 +654,14 @@ export class Agent {
 
   async waitRunning(timeoutMs = 300_000, pollIntervalMs = 5_000): Promise<Agent> {
     return this.requireDeployments().waitRunning(this.id, timeoutMs, pollIntervalMs);
+  }
+
+  async update(options: UpdateAgentOptions): Promise<Agent> {
+    return this.requireDeployments().update(this.id, options);
+  }
+
+  async resize(options: Pick<UpdateAgentOptions, 'size' | 'cpu' | 'memory'>): Promise<Agent> {
+    return this.requireDeployments().resize(this.id, options);
   }
 
   async env(): Promise<Record<string, string>> {
@@ -946,13 +1051,7 @@ export class OpenClawAgent extends Agent {
 
   async providerUpsert(
     providerId: string,
-    providerConfig: {
-      api: string;
-      baseUrl: string;
-      apiKey?: string;
-      models?: Array<Record<string, any>>;
-      [key: string]: any;
-    },
+    providerConfig: OpenClawModelProviderPatch,
     gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
     const { api, baseUrl, apiKey, models, ...extra } = providerConfig;
@@ -985,14 +1084,7 @@ export class OpenClawAgent extends Agent {
   async modelUpsert(
     providerId: string,
     modelId: string,
-    modelConfig: {
-      name?: string;
-      reasoning?: boolean;
-      contextWindow?: number;
-      maxTokens?: number;
-      input?: string[];
-      [key: string]: any;
-    } = {},
+    modelConfig: Omit<Partial<OpenClawModelDefinitionConfig>, 'id'> = {},
     gatewayOptions: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
   ): Promise<Record<string, any>> {
     const config = await this.mutateConfig((next) => {
@@ -1160,7 +1252,7 @@ export class Deployments {
   private readonly apiKey: string;
   private readonly apiBase: string;
   private readonly agentsWsUrl: string;
-  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'delete'>;
+  private readonly agentHttp: Pick<HTTPClient, 'get' | 'post' | 'patch' | 'delete'>;
 
   constructor(
     private readonly http: HTTPClient,
@@ -1229,6 +1321,7 @@ export class Deployments {
     if (options.size) body.size = options.size;
     if (options.cpu !== undefined) body.cpu = options.cpu;
     if (options.memory !== undefined) body.memory = options.memory;
+    if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
     if (options.tags?.length) body.tags = [...options.tags];
 
     const data = await this.agentHttp.post<AgentHydrationData>(DEPLOYMENTS_API_PREFIX, body);
@@ -1313,6 +1406,25 @@ export class Deployments {
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentId, effectiveOptions);
+  }
+
+  async update(agentId: string, options: UpdateAgentOptions = {}): Promise<Agent> {
+    const body: Record<string, any> = {};
+    if (options.name !== undefined) body.name = options.name;
+    if (options.size !== undefined) body.size = options.size;
+    if (options.cpu !== undefined) body.cpu = options.cpu;
+    if (options.memory !== undefined) body.memory = options.memory;
+    if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
+    if (options.lastError !== undefined) body.last_error = options.lastError;
+    const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
+    return this.hydrateAgent(data);
+  }
+
+  async resize(
+    agentId: string,
+    options: Pick<UpdateAgentOptions, 'size' | 'cpu' | 'memory'>,
+  ): Promise<Agent> {
+    return this.update(agentId, options);
   }
 
   async stop(agentId: string): Promise<Agent> {

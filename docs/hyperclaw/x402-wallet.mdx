@@ -5,11 +5,19 @@ description: Headless x402 checkout for HyperClaw plans using USDC on Base
 
 ## Overview
 
-Use `x402-wallet` when you want to buy HyperClaw plan access without a browser checkout flow.
+Use `x402-wallet` when you want to buy HyperClaw agent entitlements without a browser checkout flow.
 
 - Checkout endpoint: `POST https://api.hypercli.com/agents/x402/{plan_id}`
 - Token: USDC on Base
 - Payment transport: x402 HTTP 402 + signed EIP-3009 payload
+
+Each successful payment creates or extends an entitlement window for that specific plan. Entitlements stack:
+
+- inference is pooled across all active entitlements
+- agent slots are added by exact tier
+- repeated purchases of the same plan add more capacity
+
+The x402 amount is also duration-aware. Paying the full plan price grants the normal plan window, while smaller amounts can buy shorter windows when they satisfy the configured minimum payment floor.
 
 ## Flow
 
@@ -17,16 +25,16 @@ Use `x402-wallet` when you want to buy HyperClaw plan access without a browser c
 2. Receive HTTP 402 payment requirements
 3. Sign payment with your x402 wallet
 4. Retry request with `X-PAYMENT` header
-5. Receive `sk-...` key, expiry, and limits
+5. Receive the activated entitlement details, expiry, and effective limits
 
 ## Example (curl + wallet-managed payment payload)
 
 ```bash
 # Initial request (expect 402)
-curl -i -X POST https://api.hypercli.com/agents/x402/1aiu
+curl -i -X POST https://api.hypercli.com/agents/x402/5aiu
 
 # Retry with signed payment payload
-curl -X POST https://api.hypercli.com/agents/x402/1aiu \
+curl -X POST https://api.hypercli.com/agents/x402/5aiu \
   -H "X-PAYMENT: <signed-payment-payload>"
 ```
 
@@ -36,14 +44,16 @@ curl -X POST https://api.hypercli.com/agents/x402/1aiu \
 {
   "ok": true,
   "key": "sk-...",
-  "plan_id": "1aiu",
+  "plan_id": "5aiu",
   "amount_paid": "35.000000",
   "duration_days": 30.0,
   "expires_at": "2026-03-15T12:00:00+00:00",
-  "tpm_limit": 600000,
-  "rpm_limit": 3000
+  "tpm_limit": 694444,
+  "rpm_limit": 3472
 }
 ```
+
+For additive agent billing, think of that response as one more active entitlement. If you buy the same plan twice, you now have two entitlement windows contributing pooled inference and tier slots.
 
 ## Auth Modes
 

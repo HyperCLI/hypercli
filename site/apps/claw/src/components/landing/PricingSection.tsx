@@ -6,7 +6,7 @@ import { Check } from "lucide-react";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { API_BASE_URL, AUTH_BASE_URL } from "@/lib/api";
-import { Plan, formatTokens, formatCpu, formatMemory } from "@/lib/format";
+import { Plan, formatTokens } from "@/lib/format";
 
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -60,80 +60,78 @@ export function PricingSection() {
 
           {/* Pricing grid */}
           <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-6">
-            {plans.map((plan, index) => (
-              <motion.div
-                key={plan.id}
-                initial={{ opacity: 0, y: 30 }}
-                animate={
-                  isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }
-                }
-                transition={{
-                  duration: 0.6,
-                  delay: 0.2 + index * 0.1,
-                  ease: [0.22, 1, 0.36, 1],
-                }}
-                className={`glass-card p-6 flex flex-col ${
-                  plan.highlighted
-                    ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
-                    : ""
-                }`}
-              >
-                {plan.highlighted && (
-                  <div className="text-xs font-semibold text-primary bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
-                    Most Popular
-                  </div>
-                )}
+            {plans.map((plan, index) => {
+              const includedAgents = plan.agents ?? 0;
+              return (
+                <motion.div
+                  key={plan.id}
+                  initial={{ opacity: 0, y: 30 }}
+                  animate={
+                    isInView ? { opacity: 1, y: 0 } : { opacity: 0, y: 30 }
+                  }
+                  transition={{
+                    duration: 0.6,
+                    delay: 0.2 + index * 0.1,
+                    ease: [0.22, 1, 0.36, 1],
+                  }}
+                  className={`glass-card p-6 flex flex-col ${
+                    plan.highlighted
+                      ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
+                      : ""
+                  }`}
+                >
+                  {plan.highlighted && (
+                    <div className="text-xs font-semibold text-primary bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
+                      Most Popular
+                    </div>
+                  )}
 
-                <h3 className="text-lg font-semibold text-foreground">
-                  {plan.name}
-                </h3>
-                <div className="mt-2 mb-1">
-                  <span className="text-3xl font-bold text-foreground">
-                    ${plan.price}
-                  </span>
-                  <span className="text-text-muted text-sm">/month</span>
-                </div>
-                <p className="text-sm text-text-tertiary mb-1">
-                  {plan.aiu} AIU &middot; {formatTokens(plan.limits.tpd)}{" "}
-                  tokens/day
-                </p>
-                <p className="text-xs text-text-muted mb-6">
-                  Up to {formatTokens(plan.limits.burst_tpm)} TPM burst &middot;{" "}
-                  {formatTokens(plan.limits.rpm)} RPM
-                </p>
-                {plan.agent_resources &&
-                  plan.agent_resources.max_agents > 0 && (
+                  <h3 className="text-lg font-semibold text-foreground">
+                    {plan.name}
+                  </h3>
+                  <div className="mt-2 mb-1">
+                    <span className="text-3xl font-bold text-foreground">
+                      ${plan.price}
+                    </span>
+                    <span className="text-text-muted text-sm">/month</span>
+                  </div>
+                  <p className="text-sm text-text-tertiary mb-1">
+                    {plan.aiu} AIU &middot; {formatTokens(plan.limits.tpd)}{" "}
+                    tokens/day
+                  </p>
+                  <p className="text-xs text-text-muted mb-6">
+                    Up to {formatTokens(plan.limits.burst_tpm)} TPM burst &middot;{" "}
+                    {formatTokens(plan.limits.rpm)} RPM
+                  </p>
+                  {includedAgents > 0 && (
                     <p className="text-xs text-text-muted mb-6">
-                      {plan.agent_resources.max_agents} agent
-                      {plan.agent_resources.max_agents > 1 ? "s" : ""} &middot;{" "}
-                      {formatCpu(Number(plan.agent_resources.total_cpu))}{" "}
-                      &middot;{" "}
-                      {formatMemory(Number(plan.agent_resources.total_memory))}
+                      Includes {includedAgents} agent slot{includedAgents > 1 ? "s" : ""}
                     </p>
                   )}
 
-                <ul className="space-y-3 mb-8 flex-1">
-                  {plan.features.map((feature) => (
-                    <li
-                      key={feature}
-                      className="flex items-start gap-2 text-sm text-text-secondary"
-                    >
-                      <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
-                      <span>{feature}</span>
-                    </li>
-                  ))}
-                </ul>
+                  <ul className="space-y-3 mb-8 flex-1">
+                    {plan.features.map((feature) => (
+                      <li
+                        key={feature}
+                        className="flex items-start gap-2 text-sm text-text-secondary"
+                      >
+                        <Check className="w-4 h-4 text-primary flex-shrink-0 mt-0.5" />
+                        <span>{feature}</span>
+                      </li>
+                    ))}
+                  </ul>
 
-                <button
-                  onClick={handleSelect}
-                  className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all ${
-                    plan.highlighted ? "btn-primary" : "btn-secondary"
-                  }`}
-                >
-                  Get Started
-                </button>
-              </motion.div>
-            ))}
+                  <button
+                    onClick={handleSelect}
+                    className={`w-full py-2.5 rounded-lg text-sm font-medium transition-all ${
+                      plan.highlighted ? "btn-primary" : "btn-secondary"
+                    }`}
+                  >
+                    Get Started
+                  </button>
+                </motion.div>
+              );
+            })}
           </div>
         </div>
       </section>

@@ -13,12 +13,14 @@ describe('HyperAgent API', () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     expect(agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
+    expect(agent.controlBaseUrl).toBe('https://api.hypercli.com/agents');
   });
 
   it('normalizes generic dev API hosts onto the dev agents host', () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.dev.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', true, 'https://api.dev.hypercli.com');
     expect(agent.baseUrl).toBe('https://api.agents.dev.hypercli.com/v1');
+    expect(agent.controlBaseUrl).toBe('https://api.dev.hypercli.com/agents');
   });
 
   it.skip('should list models (requires HyperAgent API key)', async () => {
@@ -55,16 +57,32 @@ describe('HyperAgent API', () => {
 
     globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
       calls.push({ url: String(input), init });
-      return new Response(JSON.stringify({ plans: [] }), {
+      return new Response(JSON.stringify({
+        plans: [{
+          id: '5aiu',
+          name: '5 AIU',
+          price: 100,
+          aiu: 5,
+          agents: 1,
+          features: ['1 large agent'],
+          models: ['kimi-k2.5'],
+          limits: { tpd: 250000000, tpm: 173611, burst_tpm: 694444, rpm: 3472 },
+          tpm_limit: 173611,
+          rpm_limit: 3472,
+        }],
+      }), {
         status: 200,
         headers: { 'Content-Type': 'application/json' },
       });
     }) as typeof fetch;
 
     try {
-      await agent.plans();
-      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/plans');
+      const plans = await agent.plans();
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/plans');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
+      expect(plans[0]?.price).toBe(100);
+      expect(plans[0]?.features).toEqual(['1 large agent']);
+      expect(plans[0]?.limits.burstTpm).toBe(694444);
     } finally {
       globalThis.fetch = fetchMock;
     }
@@ -96,7 +114,85 @@ describe('HyperAgent API', () => {
 
     try {
       await agent.currentPlan();
-      expect(calls[0]?.url).toBe('https://api.agents.hypercli.com/api/plans/current');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/plans/current');
+      expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('uses the API subscriptions endpoint on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'sub-1',
+              user_id: 'user-1',
+              plan_id: 'large',
+              plan_name: 'Large',
+              provider: 'STRIPE',
+              status: 'ACTIVE',
+              quantity: 2,
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const subscriptions = await agent.subscriptions();
+      expect(subscriptions[0]?.quantity).toBe(2);
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions');
+      expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('uses the API subscription-summary endpoint on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          effective_plan_id: 'large',
+          current_subscription_id: 'sub-1',
+          pooled_tpm_limit: 2000,
+          pooled_rpm_limit: 20,
+          pooled_tpd: 2000000,
+          slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
+          active_subscription_count: 1,
+          active_subscriptions: [],
+          subscriptions: [],
+          user: { id: 'user-1', team_id: 'team-1' },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const summary = await agent.subscriptionSummary();
+      expect(summary.currentSubscriptionId).toBe('sub-1');
+      expect(summary.slotInventory.large.available).toBe(1);
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/summary');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
       globalThis.fetch = fetchMock;
