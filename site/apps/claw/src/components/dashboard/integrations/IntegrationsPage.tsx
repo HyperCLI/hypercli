@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import {
-  Send, MessageCircle, Hash, Phone, MessageSquare,
+  Send, MessageCircle, Hash, Phone, MessageSquare, Globe,
   Volume2, Mic, Eye, Image, Video, Box, Loader2,
   Copy, Check, Terminal,
 } from "lucide-react";
@@ -23,6 +23,7 @@ import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel } from "./PluginConfigPanel";
 import { QrLoginWizard } from "./QrLoginWizard";
 import { TokenSetupWizard } from "./TokenSetupWizard";
+import { CliSetupWizard } from "./CliSetupWizard";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
 import type { PluginMeta } from "./plugin-registry";
 import { isChannelLive } from "@/hooks/usePluginVerification";
@@ -563,7 +564,18 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           </AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {toolPlugins.map((plugin) => (
+              {/* Google Workspace — CLI setup wizard */}
+              <IntegrationCard
+                icon={Globe}
+                name="Google Workspace"
+                status="available"
+                statusText={undefined}
+                ctaLabel="Set up →"
+                onClick={() => setActivePanel("gworkspace")}
+              />
+              {toolPlugins
+                .filter((p) => p.id !== "gworkspace")
+                .map((plugin) => (
                 <PluginCard
                   key={plugin.id}
                   plugin={plugin}
@@ -876,6 +888,28 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
             </SlideOver>
           );
         })}
+
+      {/* Google Workspace CLI Setup */}
+      <SlideOver
+        open={activePanel === "gworkspace"}
+        onClose={() => setActivePanel(null)}
+        title="Google Workspace"
+        description="Set up Gmail, Calendar, Drive, Sheets, Docs, Contacts"
+      >
+        <CliSetupWizard
+          displayName="Google Workspace"
+          description="Once authorized, your agent can search emails, manage calendar events, access Drive files, read/write Sheets, and more."
+          steps={[
+            { label: "Install gog CLI", command: "brew install steipete/tap/gogcli", helpText: "One-time installation on the agent pod" },
+            { label: "Download OAuth credentials", command: "# Download client_secret.json from Google Cloud Console", helpText: "Create a project, enable Gmail/Calendar/Drive APIs, create OAuth credentials", helpUrl: "https://console.cloud.google.com/apis/credentials" },
+            { label: "Set credentials", command: "gog auth credentials /path/to/client_secret.json", helpText: "Point gog to your downloaded credentials file" },
+            { label: "Authorize your account", command: "gog auth add you@gmail.com --services gmail,calendar,drive,contacts,docs,sheets", helpText: "Replace with your Google account email" },
+            { label: "Verify setup", command: "gog auth list", helpText: "Should show your authorized account and services" },
+          ]}
+          onOpenShell={() => { setActivePanel(null); onOpenShell?.(); }}
+          onClose={() => setActivePanel(null)}
+        />
+      </SlideOver>
 
       {/* TTS Panel */}
       <SlideOver
