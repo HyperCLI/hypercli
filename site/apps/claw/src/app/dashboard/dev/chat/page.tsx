@@ -380,7 +380,7 @@ export default function DevChatPage() {
 
   // ── Agent View toggles ──
   const [showAgentView, setShowAgentView] = useState(true);
-  const [agentViewTab, setAgentViewTab] = useState<AgentTabId>("connections");
+  const [agentViewTab, setAgentViewTab] = useState<AgentTabId>("overview");
   const [showMarketplace, setShowMarketplace] = useState(true);
   const [showRecommended, setShowRecommended] = useState(true);
   const [showSearch, setShowSearch] = useState(true);
@@ -395,16 +395,16 @@ export default function DevChatPage() {
   const [showSubAgents, setShowSubAgents] = useState(true);
   const [skillsVariant, setSkillsVariant] = useState<FeatureVariant>("off");
   const [activityVariant, setActivityVariant] = useState<FeatureVariant>("off");
-  const [completenessRingVariant, setCompletenessRingVariant] = useState<FeatureVariant>("off");
+  const [completenessRingVariant, setCompletenessRingVariant] = useState<FeatureVariant>("v1");
   const [quickActionsVariant, setQuickActionsVariant] = useState<FeatureVariant>("off");
   const [emptyStatesVariant, setEmptyStatesVariant] = useState<FeatureVariant>("off");
   const [toolDiscoveryVariant, setToolDiscoveryVariant] = useState<FeatureVariant>("off");
   const [connectionRecsVariant, setConnectionRecsVariant] = useState<FeatureVariant>("off");
   const [capabilityDiffVariant, setCapabilityDiffVariant] = useState<FeatureVariant>("off");
-  const [agentCardVariant, setAgentCardVariant] = useState<FeatureVariant>("off");
+  const [agentCardVariant, setAgentCardVariant] = useState<FeatureVariant>("v1");
   const [nudgesVariant, setNudgesVariant] = useState<FeatureVariant>("off");
   const [onboardingVariant, setOnboardingVariant] = useState<FeatureVariant>("off");
-  const [whatCanIDoVariant, setWhatCanIDoVariant] = useState<FeatureVariant>("off");
+  const [whatCanIDoVariant, setWhatCanIDoVariant] = useState<FeatureVariant>("v1");
   const [modelCapsVariant, setModelCapsVariant] = useState<FeatureVariant>("off");
   const [toolUsageVariant, setToolUsageVariant] = useState<FeatureVariant>("off");
   const [interactionPatternsVariant, setInteractionPatternsVariant] = useState<FeatureVariant>("off");
@@ -420,10 +420,10 @@ export default function DevChatPage() {
   const [workspaceFilesVariant, setWorkspaceFilesVariant] = useState<FeatureVariant>("off");
 
   // ── Group conversation modules ──
-  const [membersVariant, setMembersVariant] = useState<FeatureVariant>("off");
-  const [agentRosterVariant, setAgentRosterVariant] = useState<FeatureVariant>("off");
-  const [groupActivityFeedVariant, setGroupActivityFeedVariant] = useState<FeatureVariant>("off");
-  const [threadSummaryVariant, setThreadSummaryVariant] = useState<FeatureVariant>("off");
+  const [membersVariant, setMembersVariant] = useState<FeatureVariant>("v1");
+  const [agentRosterVariant, setAgentRosterVariant] = useState<FeatureVariant>("v1");
+  const [groupActivityFeedVariant, setGroupActivityFeedVariant] = useState<FeatureVariant>("v1");
+  const [threadSummaryVariant, setThreadSummaryVariant] = useState<FeatureVariant>("v1");
   const [mentionsTasksVariant, setMentionsTasksVariant] = useState<FeatureVariant>("off");
   const [sharedFilesVariant, setSharedFilesVariant] = useState<FeatureVariant>("off");
   const [pinnedItemsVariant, setPinnedItemsVariant] = useState<FeatureVariant>("off");
