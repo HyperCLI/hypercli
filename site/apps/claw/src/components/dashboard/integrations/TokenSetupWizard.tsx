@@ -13,6 +13,8 @@ interface TokenSetupWizardProps {
   setupUrl?: string;
   setupHint?: string;
   skipVerification?: boolean;
+  /** Config path from plugin registry — "channels.*" uses legacy shape, otherwise uses plugins.entries shape */
+  configPath?: string;
   onConnect: (config: Record<string, unknown>) => Promise<void>;
   onChannelProbe: () => Promise<ChannelProbeResult>;
   onClose: () => void;
@@ -26,6 +28,7 @@ export function TokenSetupWizard({
   setupUrl,
   setupHint,
   skipVerification = false,
+  configPath,
   onConnect,
   onChannelProbe,
   onClose,
@@ -53,19 +56,19 @@ export function TokenSetupWizard({
     setStep("connecting");
     setConnectError(null);
     try {
-      const config: Record<string, unknown> = {};
+      const fieldValues: Record<string, unknown> = {};
       for (const field of fields) {
         const val = values[field.key]?.trim();
-        if (val) config[field.key] = val;
+        if (val) fieldValues[field.key] = val;
       }
 
-      await onConnect({
-        plugins: {
-          entries: {
-            [pluginId]: { enabled: true, config },
-          },
-        },
-      });
+      // channels.* path: flat config at channels.<id> (same as Telegram/Discord/Slack)
+      // plugins.entries.* path: nested config at plugins.entries.<id>.config
+      const patch = configPath?.startsWith("channels.")
+        ? { channels: { [pluginId]: { enabled: true, ...fieldValues } } }
+        : { plugins: { entries: { [pluginId]: { enabled: true, config: fieldValues } } } };
+
+      await onConnect(patch);
 
       if (skipVerification) {
         setStep("done");
