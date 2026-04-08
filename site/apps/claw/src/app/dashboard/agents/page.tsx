@@ -3,6 +3,7 @@
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
+import { APIError } from "@hypercli.com/sdk";
 import {
   createOpenClawConfigValue,
   describeOpenClawConfigNode,
@@ -787,6 +788,8 @@ export default function AgentsPage() {
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+  const [clusterUnavailable, setClusterUnavailable] = useState(false);
+  const [retrying, setRetrying] = useState(false);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
@@ -874,6 +877,7 @@ export default function AgentsPage() {
       const items = (data.items || []).map(sdkAgentToPageAgent);
       setAgents(items);
       setBudget((data.budget as AgentBudget | undefined) || null);
+      setClusterUnavailable(false);
       const currentId = selectedAgentIdRef.current;
       if (!currentId && items.length > 0) {
         setSelectedAgentId(items[0].id);
@@ -882,22 +886,30 @@ export default function AgentsPage() {
         setSelectedAgentId(items[0]?.id || null);
       }
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to load agents");
       setAgents([]);
+      const isClusterError = err instanceof APIError
+        && err.statusCode === 503
+        && err.detail.toLowerCase().includes("cluster");
+      setClusterUnavailable(isClusterError);
+      if (!isClusterError) {
+        setError(err instanceof Error ? err.message : "Failed to load agents");
+      }
     } finally {
       setLoading(false);
+      setRetrying(false);
     }
   }, [getToken]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
-  // Fast polling during transitions
+  // Fast polling during transitions (paused when cluster is unavailable)
   const hasTransitioning = agents.some(a => ["PENDING", "STARTING", "STOPPING"].includes(a.state));
   useEffect(() => {
+    if (clusterUnavailable) return;
     const ms = hasTransitioning ? AGENT_TRANSITION_REFRESH_MS : AGENT_STATE_REFRESH_INTERVAL_MS;
     const timer = setInterval(() => { void fetchAgents(); }, ms);
     return () => clearInterval(timer);
-  }, [fetchAgents, hasTransitioning]);
+  }, [fetchAgents, hasTransitioning, clusterUnavailable]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -1973,18 +1985,36 @@ export default function AgentsPage() {
 
       {/* Error banner */}
       <AnimatePresence>
-        {error && (
+        {(error || clusterUnavailable) && (
           <motion.div
+            key={clusterUnavailable ? "cluster" : "error"}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
             className="overflow-hidden"
           >
             <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
-              <span>{error}</span>
-              <button onClick={() => setError(null)} className="ml-2 hover:text-foreground">
-                <X className="w-3.5 h-3.5" />
-              </button>
+              <span>
+                {clusterUnavailable
+                  ? "Agent cluster is not assigned to your account. Please contact support."
+                  : error}
+              </span>
+              {clusterUnavailable ? (
+                <button
+                  disabled={retrying}
+                  onClick={() => {
+                    setRetrying(true);
+                    void fetchAgents();
+                  }}
+                  className="ml-2 shrink-0 hover:text-foreground text-xs underline disabled:opacity-50 disabled:pointer-events-none"
+                >
+                  {retrying ? <Loader2 className="w-3 h-3 animate-spin" /> : "Retry"}
+                </button>
+              ) : (
+                <button onClick={() => setError(null)} className="ml-2 hover:text-foreground">
+                  <X className="w-3.5 h-3.5" />
+                </button>
+              )}
             </div>
           </motion.div>
         )}
