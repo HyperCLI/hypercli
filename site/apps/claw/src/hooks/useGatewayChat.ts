@@ -320,9 +320,12 @@ export function useGatewayChat(
       setConnecting(true);
       setError(null);
       try {
-        const authToken = await getTokenRef.current();
-        if (cancelled) return;
-
+        const authToken = await Promise.race([
+          getTokenRef.current(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Authentication timed out")), 15_000)
+          ),
+        ]);
         if (cancelled) return;
         let gatewayToken = agent!.gatewayToken ?? getStoredGatewayToken(agent!.id) ?? undefined;
         if (!gatewayToken) {
@@ -354,27 +357,15 @@ export function useGatewayChat(
           onClose: ({ error: closeError, code, reason }) => {
             if (cancelled) return;
             setConnected(false);
-            setConnecting(true);
-            if (code !== 1000) {
-              void (async () => {
-                try {
-                  const freshAuthToken = await getTokenRef.current();
-                  if (cancelled || !gw || !agent?.id) return;
-                  const freshGatewayToken = await refreshGatewayToken(agent.id, freshAuthToken);
-                  if (freshGatewayToken) {
-                    gw.setGatewayToken(freshGatewayToken);
-                  }
-                } catch {
-                  // Reconnect will fall back to the last known token if refresh fails.
-                }
-              })();
-            }
+            setConnecting(false);
             if (closeError?.message) {
               setError(closeError.message);
               return;
             }
             if (code !== 1000 && reason) {
               setError(`Disconnected: ${reason}`);
+            } else if (code !== 1000) {
+              setError("Connection lost. Reconnecting...");
             }
           },
           onGap: ({ expected, received }) => {
@@ -385,6 +376,7 @@ export function useGatewayChat(
             if (cancelled || !pairing) return;
             if (pairing.status === "failed" && pairing.error) {
               setError(pairing.error);
+              setConnecting(false);
               return;
             }
             setConnecting(true);
@@ -494,7 +486,12 @@ export function useGatewayChat(
           }
         });
 
-        await gw.connect();
+        await Promise.race([
+          gw.connect(),
+          new Promise<never>((_, reject) =>
+            setTimeout(() => reject(new Error("Gateway connection timed out")), 30_000)
+          ),
+        ]);
         if (cancelled) { gw.close(); return; }
 
         setConnected(true);
@@ -550,6 +547,9 @@ export function useGatewayChat(
         }
       } catch (e: unknown) {
         if (!cancelled) {
+          // Close gateway on failure to prevent zombie connections after timeout
+          gw?.close();
+          gwRef.current = null;
           setError(e instanceof Error ? e.message : String(e));
           setConnecting(false);
         }
