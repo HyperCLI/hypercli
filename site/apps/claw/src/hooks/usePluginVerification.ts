@@ -80,7 +80,7 @@ export function usePluginVerification({
 
     if (!cancelRef.current) {
       setVerifying(false);
-      setVerifyError("Verification timed out. Your agent may still be starting up.");
+      setVerifyError("Verification timed out. The channel may still be starting up — check the Shell tab for logs, or try reconfiguring the credentials.");
     }
   }, [pluginId, onChannelProbe, onVerified, skip]);
 
