@@ -36,8 +36,19 @@ export function AddParticipantPanel({
     return list.filter((p) => p.name.toLowerCase().includes(q));
   }, [allParticipants, currentIds, search]);
 
-  const agents = useMemo(() => available.filter((p) => p.type === "agent"), [available]);
-  const users = useMemo(() => isGroup ? available.filter((p) => p.type === "user") : [], [available, isGroup]);
+  const hasAgent = useMemo(
+    () => currentParticipants.some((p) => p.type === "agent"),
+    [currentParticipants],
+  );
+  // No agent yet: show only agents. Once an agent is added: show only users.
+  const agents = useMemo(
+    () => hasAgent ? [] : available.filter((p) => p.type === "agent"),
+    [available, hasAgent],
+  );
+  const users = useMemo(
+    () => hasAgent ? available.filter((p) => p.type === "user") : [],
+    [available, hasAgent],
+  );
 
   const handleAdd = (participant: Participant) => {
     setRecentlyAdded((prev) => new Set(prev).add(participant.id));

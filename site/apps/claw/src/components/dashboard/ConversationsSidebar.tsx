@@ -321,7 +321,12 @@ function ThreadRow({
       transition={{ duration: 0.15 }}
       onClick={onSelect}
     >
-      {!compact && <ParticipantAvatars participants={thread.participants} size={28} />}
+      {!compact && (
+        <ParticipantAvatars
+          participants={thread.kind === "user-agent" ? thread.participants.filter((p) => p.type === "agent") : thread.participants}
+          size={28}
+        />
+      )}
 
       <div className="flex-1 min-w-0">
         <div className="flex items-center justify-between gap-2">
@@ -518,7 +523,7 @@ function FlatThreadList({
             {privateThreads.length > 0 && (
               <>
                 <div className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Private</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
                   <div className="flex-1 h-px bg-border/50" />
                   <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
                 </div>
@@ -538,7 +543,7 @@ function FlatThreadList({
             {groupThreads.length > 0 && (
               <>
                 <div className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Group</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Channels</span>
                   <div className="flex-1 h-px bg-border/50" />
                   <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
                 </div>
@@ -705,7 +710,7 @@ function GroupedByAgent({
           <div className="px-3 py-2 flex items-center gap-2">
             <Users className="w-3.5 h-3.5 text-text-muted" />
             <span className="text-[11px] font-semibold text-text-secondary uppercase tracking-wider">
-              Group Chats
+              Channels
             </span>
             <span className="text-[10px] text-text-muted">({groupThreads.length})</span>
           </div>
@@ -1259,7 +1264,6 @@ export function ConversationGraphModule({
 
 function HandoffSection({
   icon: SectionIcon,
-  label,
   color,
   items,
   presets,
@@ -1267,7 +1271,6 @@ function HandoffSection({
   onRemove,
 }: {
   icon: typeof Play;
-  label: string;
   color: string;
   items: { id: string; task: string; subtitle: string; ts: number }[];
   presets: { task: string; subtitle: string }[];
@@ -1281,23 +1284,10 @@ function HandoffSection({
   );
 
   return (
-    <div className="px-3 pb-1.5">
-      <div className="flex items-center justify-between mb-1.5">
-        <div className="flex items-center gap-1">
-          <SectionIcon className="w-2.5 h-2.5" style={{ color }} />
-          <span className="text-[11px] font-medium text-text-muted">{label}</span>
-          {items.length > 0 && <span className="text-[10px] text-text-muted/60">({items.length})</span>}
-        </div>
-        {!picking && available.length > 0 && (
-          <button onClick={() => setPicking(true)} className="flex items-center gap-0.5 text-[11px] text-[#38D39F] hover:text-[#38D39F]/80 transition-colors">
-            <Plus className="w-2.5 h-2.5" /><span>Add</span>
-          </button>
-        )}
-      </div>
-
+    <>
       <AnimatePresence>
         {picking && (
-          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} className="overflow-hidden">
+          <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: "auto", opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.15 }} className="overflow-hidden px-3">
             <div className="rounded-md border border-border bg-surface-low p-1.5 mb-1.5 space-y-0.5">
               {available.length === 0 ? (
                 <p className="text-[11px] text-text-muted/50 text-center py-1">All items added</p>
@@ -1318,59 +1308,116 @@ function HandoffSection({
       </AnimatePresence>
 
       {items.length === 0 && !picking ? (
-        <div className="py-1.5 text-center">
+        <div className="px-3 py-2 text-center">
           <p className="text-[11px] text-text-muted/50">No items yet</p>
         </div>
       ) : (
-        <AnimatePresence mode="popLayout">
-          {items.map((item) => (
-            <motion.button key={item.id} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
-              exit={{ opacity: 0, x: 8, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0 }}
-              transition={{ duration: 0.15 }}
-              className="group/item w-full text-left p-1.5 my-1 rounded-md flex items-start justify-between cursor-pointer transition-colors"
-              style={{ border: `1px solid ${color}30`, backgroundColor: `${color}08` }}
-              whileHover={{ backgroundColor: `${color}18` }}
-            >
-              <div className="min-w-0 flex-1">
-                <div className="flex items-center justify-between gap-1">
-                  <span className="text-[11px] text-foreground truncate">{item.task}</span>
-                  <span className="text-[9px] text-text-muted/50 flex-shrink-0">{relativeTime(item.ts)}</span>
+        <div className="px-3">
+          <AnimatePresence mode="popLayout">
+            {items.map((item) => (
+              <motion.button key={item.id} layout initial={{ opacity: 0, x: -8 }} animate={{ opacity: 1, x: 0 }}
+                exit={{ opacity: 0, x: 8, height: 0, paddingTop: 0, paddingBottom: 0, marginTop: 0, marginBottom: 0 }}
+                transition={{ duration: 0.15 }}
+                className="group/item w-full text-left p-1.5 my-1 rounded-md flex items-start justify-between cursor-pointer transition-colors"
+                style={{ border: `1px solid ${color}30`, backgroundColor: `${color}08` }}
+                whileHover={{ backgroundColor: `${color}18` }}
+              >
+                <div className="min-w-0 flex-1">
+                  <div className="flex items-center justify-between gap-1">
+                    <span className="text-[11px] text-foreground truncate">{item.task}</span>
+                    <span className="text-[9px] text-text-muted/50 flex-shrink-0">{relativeTime(item.ts)}</span>
+                  </div>
+                  <p className="text-[11px] text-text-muted">{item.subtitle}</p>
                 </div>
-                <p className="text-[11px] text-text-muted">{item.subtitle}</p>
-              </div>
-              <span role="button" onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
-                className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-[#d05f5f] opacity-0 group-hover/item:opacity-100 transition-all mt-0.5">
-                <X className="w-2.5 h-2.5" />
-              </span>
-            </motion.button>
-          ))}
-        </AnimatePresence>
+                <span role="button" onClick={(e) => { e.stopPropagation(); onRemove(item.id); }}
+                  className="flex-shrink-0 w-4 h-4 rounded flex items-center justify-center text-text-muted hover:text-[#d05f5f] opacity-0 group-hover/item:opacity-100 transition-all mt-0.5">
+                  <X className="w-2.5 h-2.5" />
+                </span>
+              </motion.button>
+            ))}
+          </AnimatePresence>
+        </div>
       )}
-    </div>
+    </>
   );
 }
 
 function HandoffWidget() {
+  const [activeSection, setActiveSection] = useState<"in-progress" | "needs-attention" | null>(null);
   const [inProgress, setInProgress] = useState<{ id: string; task: string; subtitle: string; ts: number }[]>([]);
   const [needsAttention, setNeedsAttention] = useState<{ id: string; task: string; subtitle: string; ts: number }[]>([]);
 
   const ipPresets = useMemo(() => IN_PROGRESS_PRESETS.map((p) => ({ task: p.task, subtitle: `${p.owner} · ${p.status}` })), []);
   const naPresets = useMemo(() => NEEDS_ATTENTION_PRESETS.map((p) => ({ task: p.task, subtitle: p.note })), []);
 
+  const ipCount = inProgress.length;
+  const naCount = needsAttention.length;
+
   return (
-    <motion.div className="flex-shrink-0 border-b border-border pt-1" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      <HandoffSection
-        icon={Play} label="In Progress" color="#38D39F"
-        items={inProgress} presets={ipPresets}
-        onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
-        onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))}
-      />
-      <HandoffSection
-        icon={AlertTriangle} label="Needs Attention" color="#f0c56c"
-        items={needsAttention} presets={naPresets}
-        onAdd={(p) => setNeedsAttention((prev) => [...prev, { ...p, id: `na-${Date.now()}`, ts: Date.now() }])}
-        onRemove={(id) => setNeedsAttention((prev) => prev.filter((i) => i.id !== id))}
-      />
+    <motion.div className="flex-shrink-0 border-b border-border" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
+      {/* Toggle buttons */}
+      <div className="flex items-center gap-1.5 px-3 py-2">
+        <button
+          onClick={() => setActiveSection(activeSection === "in-progress" ? null : "in-progress")}
+          className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border transition-colors ${
+            activeSection === "in-progress"
+              ? "bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30"
+              : "text-text-muted hover:text-foreground border-border"
+          }`}
+        >
+          <Play className="w-2.5 h-2.5" />
+          <span>In Progress</span>
+          {ipCount > 0 && <span className="ml-0.5 text-[9px] opacity-70">({ipCount})</span>}
+        </button>
+        <button
+          onClick={() => setActiveSection(activeSection === "needs-attention" ? null : "needs-attention")}
+          className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border transition-colors ${
+            activeSection === "needs-attention"
+              ? "bg-[#f0c56c]/10 text-[#f0c56c] border-[#f0c56c]/30"
+              : "text-text-muted hover:text-foreground border-border"
+          }`}
+        >
+          <AlertTriangle className="w-2.5 h-2.5" />
+          <span>Needs Attention</span>
+          {naCount > 0 && <span className="ml-0.5 text-[9px] opacity-70">({naCount})</span>}
+        </button>
+      </div>
+
+      {/* Expandable sections */}
+      <AnimatePresence>
+        {activeSection === "in-progress" && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <HandoffSection
+              icon={Play} color="#38D39F"
+              items={inProgress} presets={ipPresets}
+              onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
+              onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))}
+            />
+          </motion.div>
+        )}
+        {activeSection === "needs-attention" && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.15 }}
+            className="overflow-hidden"
+          >
+            <HandoffSection
+              icon={AlertTriangle} color="#f0c56c"
+              items={needsAttention} presets={naPresets}
+              onAdd={(p) => setNeedsAttention((prev) => [...prev, { ...p, id: `na-${Date.now()}`, ts: Date.now() }])}
+              onRemove={(id) => setNeedsAttention((prev) => prev.filter((i) => i.id !== id))}
+            />
+          </motion.div>
+        )}
+      </AnimatePresence>
     </motion.div>
   );
 }
@@ -1419,7 +1466,7 @@ function HandoffThreadView({
             {privateThreads.length > 0 && (
               <>
                 <div className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Private</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
                   <div className="flex-1 h-px bg-border/50" />
                   <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
                 </div>
@@ -1438,7 +1485,7 @@ function HandoffThreadView({
             {groupThreads.length > 0 && (
               <>
                 <div className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Group</span>
+                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Channels</span>
                   <div className="flex-1 h-px bg-border/50" />
                   <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
                 </div>
