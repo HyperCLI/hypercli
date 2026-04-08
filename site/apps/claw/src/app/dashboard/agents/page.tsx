@@ -887,11 +887,9 @@ export default function AgentsPage() {
     } catch (err) {
       setAgents([]);
       const apiErr = err as { statusCode?: number; detail?: string };
-      const isClusterError = apiErr.statusCode === 503
-        && typeof apiErr.detail === "string"
-        && apiErr.detail.toLowerCase().includes("cluster");
-      setClusterUnavailable(isClusterError);
-      if (!isClusterError) {
+      const is503 = apiErr.statusCode === 503;
+      setClusterUnavailable(is503);
+      if (!is503) {
         setError(err instanceof Error ? err.message : "Failed to load agents");
       }
     } finally {
