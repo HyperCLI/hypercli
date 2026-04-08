@@ -2933,7 +2933,6 @@ export default function AgentsPage() {
                       onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
                       onChannelProbe={async () => chat.channelsStatus(true)}
                       onOpenShell={() => setMainTab("shell")}
-                      onWebLoginStart={chat.webLoginStart}
                     />
                   </div>
                 ) : mainTab === "settings" && selectedAgent ? (
