@@ -835,6 +835,7 @@ export default function AgentsPage() {
   const shellTerminalRef = useRef<Terminal | null>(null);
   const shellFitAddonRef = useRef<FitAddon | null>(null);
   const shellSessionAgentRef = useRef<string | null>(null);
+  const shellBufferRef = useRef<string[]>([]);
 
   // Files panel
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
@@ -1446,34 +1447,44 @@ export default function AgentsPage() {
 
   // ── Shell terminal setup (Phase 4 fix: requestAnimationFrame + resize events) ──
   useEffect(() => {
-    if (mainTab !== "shell") return;
     if (!shellBoxRef.current) return;
+    if (shellTerminalRef.current) return; // ✅ prevent re-init
+
     const term = new Terminal({
       convertEol: false, cursorBlink: true, cursorStyle: "bar",
       fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
       fontSize: 12, lineHeight: 1.45, scrollback: 3000,
       theme: { background: "#0c1016", foreground: "#d8dde7", cursor: "#d8dde7", selectionBackground: "#2a3445" },
     });
+
     const fitAddon = new FitAddon();
     term.loadAddon(fitAddon);
+
     term.open(shellBoxRef.current);
-    // Phase 4B: Ensure proper fit timing
+
     requestAnimationFrame(() => {
       fitAddon.fit();
       term.focus();
     });
-    const disposable = term.onData((data) => { const ws = shellWsRef.current; if (ws?.readyState === WebSocket.OPEN) ws.send(data); });
-    // Phase 4A: Send resize events over WebSocket
+
+    const disposable = term.onData((data) => {
+      const ws = shellWsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
+    });
+
     const resizeDisposable = term.onResize(({ cols, rows }) => {
       const ws = shellWsRef.current;
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(`\x1b[8;${rows};${cols}t`);
       }
     });
+
     const onResize = () => fitAddon.fit();
     window.addEventListener("resize", onResize);
+
     shellTerminalRef.current = term;
     shellFitAddonRef.current = fitAddon;
+
     return () => {
       window.removeEventListener("resize", onResize);
       resizeDisposable.dispose();
@@ -1483,64 +1494,191 @@ export default function AgentsPage() {
       shellFitAddonRef.current = null;
       shellSessionAgentRef.current = null;
     };
-  }, [mainTab]);
+  }, []);
 
   // ── Shell WebSocket ──
   useEffect(() => {
-    if (mainTab !== "shell") {
+    if (!selectedAgentId || selectedAgentState !== "RUNNING") {
       setShellStatus("disconnected");
-      if (shellWsRef.current) { shellWsRef.current.close(); shellWsRef.current = null; }
       return;
     }
-    if (!selectedAgentId || selectedAgentState !== "RUNNING") { setShellStatus("disconnected"); return; }
+
+    if (shellWsRef.current?.readyState === WebSocket.OPEN) return;
+
     const agentId = selectedAgentId;
     let cancelled = false;
     let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
     let reconnectScheduled = false;
+
     const term = shellTerminalRef.current;
     if (term && shellSessionAgentRef.current !== agentId) {
       term.reset();
       shellSessionAgentRef.current = agentId;
     }
+
     const scheduleReconnect = () => {
       if (cancelled || reconnectScheduled) return;
       reconnectScheduled = true;
       setShellStatus("connecting");
-      reconnectTimer = setTimeout(() => { reconnectScheduled = false; if (!cancelled) void connect(); }, WS_RETRY_INTERVAL_MS);
+      reconnectTimer = setTimeout(() => {
+        reconnectScheduled = false;
+        if (!cancelled) void connect();
+      }, WS_RETRY_INTERVAL_MS);
     };
+
     const connect = async () => {
       try {
         setShellStatus("connecting");
+
         const authToken = await getToken();
         if (cancelled) return;
+
         const ws = await createAgentClient(authToken).shellConnect(agentId);
+
         if (cancelled) {
           ws.close();
           return;
         }
+
         shellWsRef.current = ws;
         reconnectScheduled = false;
         setShellStatus("connected");
+
         shellFitAddonRef.current?.fit();
         shellTerminalRef.current?.focus();
+
         const dims = shellFitAddonRef.current?.proposeDimensions();
         if (dims) {
           ws.send(`\x1b[8;${dims.rows};${dims.cols}t`);
         }
-        ws.onmessage = (event) => { if (!cancelled) { const text = typeof event.data === "string" ? event.data : String(event.data ?? ""); if (text) shellTerminalRef.current?.write(text); } };
-        ws.onclose = () => { if (!cancelled) { setShellStatus("disconnected"); scheduleReconnect(); } };
-        ws.onerror = () => { if (!cancelled) { setShellStatus("disconnected"); scheduleReconnect(); } };
-      } catch { if (!cancelled) scheduleReconnect(); }
+
+        ws.onmessage = (event) => {
+          if (cancelled) return;
+
+          const text = typeof event.data === "string"
+            ? event.data
+            : String(event.data ?? "");
+
+          if (!text) return;
+
+          // ✅ store in buffer
+          shellBufferRef.current.push(text);
+
+          // ✅ write if terminal exists
+          shellTerminalRef.current?.write(text);
+        };
+
+        ws.onclose = () => {
+          if (!cancelled) {
+            setShellStatus("disconnected");
+            scheduleReconnect();
+          }
+        };
+
+        ws.onerror = () => {
+          if (!cancelled) {
+            setShellStatus("disconnected");
+            scheduleReconnect();
+          }
+        };
+
+      } catch {
+        if (!cancelled) scheduleReconnect();
+      }
     };
+
     void connect();
+
     return () => {
       cancelled = true;
       if (reconnectTimer) clearTimeout(reconnectTimer);
-      const ws = shellWsRef.current;
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
-      shellWsRef.current = null;
     };
-  }, [mainTab, selectedAgentId, selectedAgentState, reconnectNonce, getToken]);
+
+  }, [selectedAgentId, selectedAgentState, reconnectNonce, getToken]);
+
+  useEffect(() => {
+    const term = shellTerminalRef.current;
+    const fitAddon = shellFitAddonRef.current;
+    const container = shellBoxRef.current;
+
+    if (!term || !fitAddon || !container) return;
+
+    // ensure DOM is fully mounted
+    const timer = setTimeout(() => {
+      term.open(container); // ✅ container is not null
+      fitAddon.fit();
+      term.focus();
+    }, 0);
+
+    return () => clearTimeout(timer);
+  }, [mainTab]);
+
+  useEffect(() => {
+    if (mainTab !== "shell") return;
+    if (!shellBoxRef.current) return;
+
+    // ❗ ALWAYS recreate terminal UI
+    const term = new Terminal({
+      convertEol: false,
+      cursorBlink: true,
+      cursorStyle: "bar",
+      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
+      fontSize: 12,
+      lineHeight: 1.45,
+      scrollback: 3000,
+      theme: {
+        background: "#0c1016",
+        foreground: "#d8dde7",
+        cursor: "#d8dde7",
+        selectionBackground: "#2a3445",
+      },
+    });
+
+    const fitAddon = new FitAddon();
+    term.loadAddon(fitAddon);
+    term.open(shellBoxRef.current);
+
+    requestAnimationFrame(() => {
+      fitAddon.fit();
+      term.focus();
+    });
+
+    // ✅ restore previous output
+    for (const chunk of shellBufferRef.current) {
+      term.write(chunk);
+    }
+
+    // ✅ hook input to EXISTING websocket
+    const disposable = term.onData((data) => {
+      const ws = shellWsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(data);
+      }
+    });
+
+    const resizeDisposable = term.onResize(({ cols, rows }) => {
+      const ws = shellWsRef.current;
+      if (ws?.readyState === WebSocket.OPEN) {
+        ws.send(`\x1b[8;${rows};${cols}t`);
+      }
+    });
+
+    const onResize = () => fitAddon.fit();
+    window.addEventListener("resize", onResize);
+
+    // replace old terminal
+    shellTerminalRef.current = term;
+    shellFitAddonRef.current = fitAddon;
+
+    return () => {
+      window.removeEventListener("resize", onResize);
+      resizeDisposable.dispose();
+      disposable.dispose();
+
+      // ❗ DO NOT clear buffer
+      term.dispose();
+    };
+  }, [mainTab]);
 
   // ── Actions ──
 
