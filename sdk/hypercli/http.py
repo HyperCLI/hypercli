@@ -166,10 +166,10 @@ class HTTPClient:
         )
         return _handle_response(resp)
 
-    def post_bytes(self, path: str, json: dict = None) -> bytes:
+    def post_bytes(self, path: str, json: dict = None, timeout: float | None = None) -> bytes:
         resp = request_with_retry(
             "post", f"{self.base_url}{path}",
-            headers=self.headers, timeout=self.timeout, json=json
+            headers=self.headers, timeout=timeout if timeout is not None else self.timeout, json=json
         )
         return _handle_bytes_response(resp)
 

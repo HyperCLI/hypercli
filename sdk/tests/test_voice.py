@@ -7,8 +7,8 @@ class DummyVoiceHTTP:
     def __init__(self):
         self.calls = []
 
-    def post_bytes(self, path, json=None):
-        self.calls.append((path, json))
+    def post_bytes(self, path, json=None, timeout=None):
+        self.calls.append((path, json, timeout))
         return b"audio-bytes"
 
 
@@ -28,6 +28,7 @@ def test_voice_tts_posts_to_agents_voice_prefix():
                 "language": "english",
                 "response_format": "wav",
             },
+            120.0,
         )
     ]
 
@@ -42,11 +43,12 @@ def test_voice_clone_base64_encodes_reference(tmp_path: Path):
     audio = voice.clone("clone me", ref_audio=ref, response_format="wav")
 
     assert audio == b"audio-bytes"
-    path, payload = http.calls[0]
+    path, payload, timeout = http.calls[0]
     assert path == "/agents/voice/clone"
     assert payload["text"] == "clone me"
     assert payload["response_format"] == "wav"
     assert payload["ref_audio_base64"] == "cmVmZXJlbmNlLWF1ZGlv"
+    assert timeout == 120.0
 
 
 def test_voice_design_posts_description():
@@ -65,5 +67,6 @@ def test_voice_design_posts_description():
                 "language": "auto",
                 "response_format": "wav",
             },
+            120.0,
         )
     ]

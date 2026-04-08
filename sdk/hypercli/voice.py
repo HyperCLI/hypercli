@@ -30,6 +30,7 @@ class VoiceAPI:
         voice: str = "Chelsie",
         language: str = "auto",
         response_format: str = "mp3",
+        timeout: float = 120.0,
     ) -> bytes:
         return self._http.post_bytes(
             "/agents/voice/tts",
@@ -39,6 +40,7 @@ class VoiceAPI:
                 "language": language,
                 "response_format": response_format,
             },
+            timeout=timeout,
         )
 
     def clone(
@@ -49,6 +51,7 @@ class VoiceAPI:
         language: str = "auto",
         x_vector_only: bool = True,
         response_format: str = "mp3",
+        timeout: float = 120.0,
     ) -> bytes:
         return self._http.post_bytes(
             "/agents/voice/clone",
@@ -59,6 +62,7 @@ class VoiceAPI:
                 "x_vector_only": x_vector_only,
                 "response_format": response_format,
             },
+            timeout=timeout,
         )
 
     def design(
@@ -68,6 +72,7 @@ class VoiceAPI:
         description: str,
         language: str = "auto",
         response_format: str = "mp3",
+        timeout: float = 120.0,
     ) -> bytes:
         return self._http.post_bytes(
             "/agents/voice/design",
@@ -77,4 +82,5 @@ class VoiceAPI:
                 "language": language,
                 "response_format": response_format,
             },
+            timeout=timeout,
         )
