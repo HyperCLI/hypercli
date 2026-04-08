@@ -150,7 +150,8 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "modelstudio", displayName: "Model Studio", icon: Brain, category: "ai-providers", description: "Alibaba Cloud AI models", configPath: "plugins.entries.modelstudio", setupUrl: "https://modelstudio.aliyun.com", setupHint: "Get your API key from Alibaba Model Studio" },
   { id: "qwen-portal-auth", displayName: "Qwen OAuth", icon: Brain, category: "ai-providers", description: "Qwen portal authentication", configPath: "plugins.entries.qwen-portal-auth", setupHint: "Sign in with your Qwen portal account" },
 
-  // ── Tools & Services (26) ──────────────────────────────────────────────
+  // ── Tools & Services (27) ──────────────────────────────────────────────
+  { id: "gworkspace", displayName: "Google Workspace", icon: Globe, category: "tools", description: "Gmail, Calendar, Drive, Sheets, Docs, Contacts", configPath: "tools.gworkspace", hasWizard: true, setupUrl: "https://console.cloud.google.com/apis/credentials", setupHint: "Set up Google Workspace tools via the gog CLI" },
   { id: "brave", displayName: "Brave Search", icon: Search, category: "tools", description: "Web search via Brave", configPath: "plugins.entries.brave" },
   { id: "duckduckgo", displayName: "DuckDuckGo", icon: Search, category: "tools", description: "Private web search", configPath: "plugins.entries.duckduckgo" },
   { id: "exa", displayName: "Exa", icon: Search, category: "tools", description: "Neural web search", configPath: "plugins.entries.exa" },
