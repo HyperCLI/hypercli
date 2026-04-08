@@ -36,6 +36,9 @@
     ".next/dev/types/**/*.ts"
   ],
   "exclude": [
-    "node_modules"
+    "node_modules",
+    "**/*.ct.tsx",
+    "**/*.stories.tsx",
+    "playwright-ct.config.ts"
   ]
 }
