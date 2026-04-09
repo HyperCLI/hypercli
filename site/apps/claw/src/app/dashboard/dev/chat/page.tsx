@@ -17,6 +17,7 @@ import {
   Settings,
   Users,
   Zap,
+  FolderOpen,
 } from "lucide-react";
 import {
   ChatMessageBubble,
@@ -1546,31 +1547,49 @@ export default function DevChatPage() {
             </p>
           </div>
 
-          {/* Add participant button */}
-          {selectedThread && (
-            <div className="relative flex-shrink-0">
-              <button
-                onClick={(e) => { e.stopPropagation(); setAddParticipantOpen((v) => !v); }}
-                className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
-                  addParticipantOpen
-                    ? "bg-[#38D39F] text-[#0a0a0b]"
-                    : "text-text-muted hover:text-foreground hover:bg-surface-low"
-                }`}
-                title="Add participant"
-              >
-                <Plus className="w-3.5 h-3.5" />
-              </button>
-              {addParticipantOpen && (
-                <AddParticipantPanel
-                  currentParticipants={selectedThread.participants}
-                  allParticipants={MOCK_PARTICIPANTS}
-                  onAdd={handleAddParticipant}
-                  onClose={() => setAddParticipantOpen(false)}
-                  isGroup={selectedThread.kind === "group" || selectedThread.participants.length > 2}
-                />
-              )}
-            </div>
-          )}
+          {/* Center — Files button */}
+          <button
+            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            title="Files"
+          >
+            <FolderOpen className="w-3.5 h-3.5" />
+            <span>Files</span>
+          </button>
+
+          {/* Right actions */}
+          <div className="flex items-center gap-1 flex-shrink-0">
+            <button
+              className="w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              title="Settings"
+            >
+              <Settings className="w-3.5 h-3.5" />
+            </button>
+            {/* Add participant button */}
+            {selectedThread && (
+              <div className="relative">
+                <button
+                  onClick={(e) => { e.stopPropagation(); setAddParticipantOpen((v) => !v); }}
+                  className={`w-7 h-7 rounded-full flex items-center justify-center transition-colors ${
+                    addParticipantOpen
+                      ? "bg-[#38D39F] text-[#0a0a0b]"
+                      : "text-text-muted hover:text-foreground hover:bg-surface-low"
+                  }`}
+                  title="Add participant"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                </button>
+                {addParticipantOpen && (
+                  <AddParticipantPanel
+                    currentParticipants={selectedThread.participants}
+                    allParticipants={MOCK_PARTICIPANTS}
+                    onAdd={handleAddParticipant}
+                    onClose={() => setAddParticipantOpen(false)}
+                    isGroup={selectedThread.kind === "group" || selectedThread.participants.length > 2}
+                  />
+                )}
+              </div>
+            )}
+          </div>
         </div>
 
         {/* Messages area */}
