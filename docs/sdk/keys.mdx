@@ -7,6 +7,8 @@ description: Generate API keys from Python apps, including narrowed scoped keys 
 
 Use `client.keys` to manage account API keys from Python apps.
 
+The public `/api/keys` surface is Orchestra-authoritative. HyperClaw proxies and caches key state, but the issued keys themselves live in Orchestra.
+
 ```python
 from hypercli import HyperCLI
 

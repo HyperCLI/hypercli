@@ -24,6 +24,7 @@ Core methods:
 await client.renders.list({ state: "completed" });
 await client.renders.get(render.renderId);
 await client.renders.status(render.renderId);
+await client.renders.wait(render.renderId, { pollIntervalMs: 2_000, timeoutMs: 1_800_000 });
 await client.renders.cancel(render.renderId);
 ```
 
@@ -85,7 +86,20 @@ Available helpers:
 - `audioToText`
 - `textToSpeech`
 
-## Poll For Completion
+## Wait For Completion
+
+Use the built-in waiter when you want the SDK to poll until the render finishes.
+
+```ts
+const finalRender = await client.renders.wait(render.renderId, {
+  pollIntervalMs: 2_000,
+  timeoutMs: 1_800_000,
+});
+
+console.log(finalRender.resultUrl, finalRender.error);
+```
+
+## Manual Polling
 
 ```ts
 let status = await client.renders.status(render.renderId);
