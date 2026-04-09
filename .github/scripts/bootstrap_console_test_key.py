@@ -66,7 +66,7 @@ def _find_user_id(orchestra_api_base: str, admin_key: str, email: str) -> str:
         "GET",
         f"{orchestra_api_base}/admin/users",
         headers=_headers(admin_key),
-        params={"limit": 1000},
+        params={"email": email, "limit": 50, "offset": 0},
         expected=(200,),
     )
     normalized_email = email.strip().lower()
