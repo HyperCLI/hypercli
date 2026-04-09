@@ -23,6 +23,9 @@ for (const envVar of requiredEnvVars) {
 }
 
 const nextConfig: NextConfig = {
+  ...(process.env.NODE_ENV !== "production" && {
+    allowedDevOrigins: ["127.0.0.1", "localhost"],
+  }),
   transpilePackages: ["@hypercli/shared-ui"],
   env: {
     NEXT_PUBLIC_IS_MAIN_SITE: "false",
