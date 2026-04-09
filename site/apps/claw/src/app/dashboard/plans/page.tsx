@@ -13,6 +13,7 @@ import { createHyperAgentClient } from "@/lib/agent-client";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { formatTokens } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
+import { CLAW_PRODUCTS } from "@/lib/subscriptions";
 
 interface AgentTypePlan {
   id: string;
@@ -27,6 +28,36 @@ interface AgentTypeCatalogResponse {
   plans: AgentTypePlan[];
 }
 
+interface DisplayProduct {
+  id: string;
+  name: string;
+  checkoutPlanId: string | null;
+  quantity: number;
+  price: number;
+  aiu: number;
+  features: string[];
+  highlighted: boolean;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+  slotBundle: string | null;
+  subtitle?: string;
+}
+
+interface CheckoutPlan {
+  id: string;
+  name: string;
+  price: number;
+  quantity: number;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+}
+
 function titleizeTier(value: string): string {
   return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
@@ -38,6 +69,46 @@ function formatSlotBundle(planId: string, catalog: AgentTypeCatalogResponse | nu
   return `${mapping.agents} ${tierLabel} slot${mapping.agents === 1 ? "" : "s"}`;
 }
 
+function buildDisplayProducts(plans: HyperAgentPlan[], catalog: AgentTypeCatalogResponse | null): DisplayProduct[] {
+  const planMap = new Map(plans.map((plan) => [plan.id, plan]));
+  const products = CLAW_PRODUCTS.map((product): DisplayProduct | null => {
+    const plan = planMap.get(product.planId);
+    if (!plan && product.planId !== "free") {
+      return null;
+    }
+
+    const burstTpm = (plan?.limits?.burstTpm ?? plan?.tpmLimit ?? 0) * product.quantity;
+    const rpm = (plan?.limits?.rpm ?? plan?.rpmLimit ?? 0) * product.quantity;
+    const tpd = (plan?.limits?.tpd ?? 0) * product.quantity;
+    const aiu = (plan?.aiu ?? 0) * product.quantity;
+    const baseFeatures = plan?.features ?? [];
+    const slotBundle = product.planId === "free"
+      ? "1 Free slot"
+      : formatSlotBundle(product.planId, catalog)
+        ? `${product.quantity > 1 ? `${product.quantity} x ` : ""}${formatSlotBundle(product.planId, catalog)}`
+        : null;
+
+    return {
+      id: product.id,
+      name: product.name,
+      checkoutPlanId: product.planId === "free" ? null : product.planId,
+      quantity: product.quantity,
+      price: (plan?.price ?? 0) * product.quantity,
+      aiu,
+      features: product.features ?? baseFeatures,
+      highlighted: Boolean(product.highlighted),
+      limits: {
+        tpd,
+        burstTpm,
+        rpm,
+      },
+      slotBundle,
+      subtitle: product.subtitle,
+    };
+  });
+  return products.filter((product): product is DisplayProduct => product !== null);
+}
+
 export default function PlansPage() {
   const { getToken } = useAgentAuth();
   const [plans, setPlans] = useState<HyperAgentPlan[]>([]);
@@ -45,7 +116,7 @@ export default function PlansPage() {
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [typeCatalog, setTypeCatalog] = useState<AgentTypeCatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [checkoutPlan, setCheckoutPlan] = useState<HyperAgentPlan | null>(null);
+  const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -105,6 +176,11 @@ export default function PlansPage() {
       a.localeCompare(b),
     );
   }, [currentPlan?.slotInventory, summary?.slotInventory]);
+
+  const displayProducts = useMemo(
+    () => buildDisplayProducts(plans, typeCatalog),
+    [plans, typeCatalog],
+  );
 
   if (loading) {
     return (
@@ -180,40 +256,38 @@ export default function PlansPage() {
       )}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {plans.map((plan) => {
-          const ownedCount = ownedQuantities.get(plan.id) ?? 0;
-          const slotBundle = formatSlotBundle(plan.id, typeCatalog);
-          const burstTpm = plan.limits?.burstTpm ?? plan.tpmLimit ?? 0;
-          const rpm = plan.limits?.rpm ?? plan.rpmLimit ?? 0;
+        {displayProducts.map((product) => {
+          const ownedCount = product.checkoutPlanId ? ownedQuantities.get(product.checkoutPlanId) ?? 0 : 0;
 
           return (
-            <div key={plan.id} className="glass-card p-6 flex flex-col">
+            <div key={product.id} className="glass-card p-6 flex flex-col">
               {ownedCount > 0 ? (
                 <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
                   You own {ownedCount}
                 </div>
-              ) : plan.highlighted ? (
+              ) : product.highlighted ? (
                 <div className="text-xs font-semibold text-foreground bg-white/5 px-3 py-1 rounded-full self-start mb-4">
                   Popular
                 </div>
               ) : null}
 
-              <h3 className="text-lg font-semibold text-foreground">{plan.name}</h3>
+              <h3 className="text-lg font-semibold text-foreground">{product.name}</h3>
               <div className="mt-2 mb-1">
-                <span className="text-3xl font-bold text-foreground">${plan.price}</span>
+                <span className="text-3xl font-bold text-foreground">${product.price}</span>
                 <span className="text-text-muted text-sm">/month</span>
               </div>
               <p className="text-sm text-text-tertiary mb-1">
-                {plan.aiu ? `${plan.aiu} AIU · ` : ""}
-                {formatTokens(plan.limits?.tpd ?? 0)} tokens/day
+                {product.aiu ? `${product.aiu} AIU · ` : ""}
+                {formatTokens(product.limits.tpd ?? 0)} tokens/day
               </p>
               <p className="text-xs text-text-muted mb-2">
-                Up to {formatTokens(burstTpm)} TPM burst &middot; {formatTokens(rpm)} RPM
+                Up to {formatTokens(product.limits.burstTpm)} TPM burst &middot; {formatTokens(product.limits.rpm)} RPM
               </p>
-              {slotBundle && <p className="text-xs text-text-muted mb-6">{slotBundle}</p>}
+              {product.subtitle && <p className="text-xs text-text-muted mb-2">{product.subtitle}</p>}
+              {product.slotBundle && <p className="text-xs text-text-muted mb-6">{product.slotBundle}</p>}
 
               <ul className="space-y-3 mb-8 flex-1">
-                {(plan.features ?? []).map((feature) => (
+                {(product.features ?? []).map((feature) => (
                   <li key={feature} className="flex items-start gap-2 text-sm text-text-secondary">
                     <Check className="w-4 h-4 text-text-secondary flex-shrink-0 mt-0.5" />
                     <span>{feature}</span>
@@ -222,10 +296,25 @@ export default function PlansPage() {
               </ul>
 
               <button
-                onClick={() => setCheckoutPlan(plan)}
-                className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2"
+                onClick={() =>
+                  product.checkoutPlanId
+                    ? setCheckoutPlan({
+                        id: product.checkoutPlanId,
+                        name: product.name,
+                        price: product.price,
+                        limits: {
+                          tpd: product.limits.tpd,
+                          burstTpm: product.limits.burstTpm,
+                          rpm: product.limits.rpm,
+                        },
+                        quantity: product.quantity,
+                      })
+                    : undefined
+                }
+                disabled={!product.checkoutPlanId}
+                className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {ownedCount > 0 ? "Add Another" : "Purchase"}
+                {!product.checkoutPlanId ? "Included" : ownedCount > 0 ? "Add Another" : "Purchase"}
               </button>
             </div>
           );

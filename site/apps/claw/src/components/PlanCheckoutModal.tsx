@@ -12,6 +12,7 @@ interface PlanCheckoutModalProps {
     id: string;
     name: string;
     price: number;
+    quantity?: number;
     limits: {
       tpd: number;
       burst_tpm?: number;
@@ -63,6 +64,7 @@ export function PlanCheckoutModal({
         {
           method: "POST",
           body: JSON.stringify({
+            quantity: Math.max(1, plan.quantity ?? 1),
             success_url: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${window.location.origin}/plans?cancelled=true`,
           }),
@@ -95,7 +97,7 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      await x402Subscribe(plan.id, token, plan.price);
+      await x402Subscribe(plan.id, token, plan.price, Math.max(1, plan.quantity ?? 1));
       setSuccess(true);
       setTimeout(() => {
         onSuccess();
