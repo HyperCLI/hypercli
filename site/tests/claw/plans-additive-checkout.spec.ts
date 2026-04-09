@@ -27,43 +27,6 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
     const url = new URL(route.request().url());
     const pathName = url.pathname;
 
-    if (pathName.endsWith("/agents/plans")) {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          plans: [
-            {
-              id: "5aiu",
-              name: "5 AIU",
-              price: 100,
-              aiu: 5,
-              agents: 1,
-              highlighted: true,
-              features: ["1 large agent", "Priority support"],
-              models: ["kimi-k2.5"],
-              limits: { tpd: 250000000, tpm: 173611, burst_tpm: 694444, rpm: 3472 },
-              tpm_limit: 173611,
-              rpm_limit: 3472,
-            },
-            {
-              id: "10aiu",
-              name: "10 AIU",
-              price: 200,
-              aiu: 10,
-              agents: 2,
-              features: ["Up to 2 large agents", "Dedicated support"],
-              models: ["kimi-k2.5"],
-              limits: { tpd: 500000000, tpm: 347222, burst_tpm: 1388888, rpm: 6944 },
-              tpm_limit: 347222,
-              rpm_limit: 6944,
-            },
-          ],
-        }),
-      });
-      return;
-    }
-
     if (pathName.endsWith("/agents/plans/current")) {
       await route.fulfill({
         status: 200,
@@ -105,29 +68,12 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
               provider: "STRIPE",
               status: "ACTIVE",
               quantity: 1,
+              slot_grants: { small: 0, medium: 0, large: 1 },
+              meta: { bundle: { large: 1 } },
             },
           ],
           subscriptions: [],
           user: { id: "user-1" },
-        }),
-      });
-      return;
-    }
-
-    if (pathName.endsWith("/agents/types")) {
-      await route.fulfill({
-        status: 200,
-        contentType: "application/json",
-        body: JSON.stringify({
-          types: [
-            { id: "small", name: "Small", cpu: 0.5, memory: 4, cpu_limit: 2, memory_limit: 4 },
-            { id: "medium", name: "Medium", cpu: 1, memory: 4, cpu_limit: 2, memory_limit: 6 },
-            { id: "large", name: "Large", cpu: 2, memory: 4, cpu_limit: 4, memory_limit: 8 },
-          ],
-          plans: [
-            { id: "5aiu", name: "5 AIU", price: 100, agents: 1, agent_type: "large", highlighted: true },
-            { id: "10aiu", name: "10 AIU", price: 200, agents: 2, agent_type: "large", highlighted: false },
-          ],
         }),
       });
       return;
@@ -140,10 +86,10 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
 
   await expect(page.getByRole("heading", { name: /^plans$/i })).toBeVisible();
   await expect(page.getByText(/Inference pools across all active entitlements/i)).toBeVisible();
-  await expect(page.getByText(/1 free \/ 1 total/i)).toBeVisible();
+  await expect(page.getByText(/0 \/ 1 used/i)).toBeVisible();
 
-  const ownedCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "5 AIU" }) }).first();
+  const ownedCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
   await expect(ownedCard.getByText(/You own 1/i)).toBeVisible();
-  await expect(ownedCard.getByText(/1 Large slot/i)).toBeVisible();
+  await expect(ownedCard.getByText(/1x Large/i).first()).toBeVisible();
   await expect(ownedCard.getByRole("button", { name: /add another/i })).toBeVisible();
 });

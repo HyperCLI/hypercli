@@ -12,7 +12,7 @@ interface PlanCheckoutModalProps {
     id: string;
     name: string;
     price: number;
-    quantity?: number;
+    bundle: Record<string, number>;
     limits: {
       tpd: number;
       burst_tpm?: number;
@@ -59,12 +59,12 @@ export function PlanCheckoutModal({
     try {
       const token = await getToken();
       const data = await agentApiFetch<{ checkout_url: string }>(
-        `/stripe/${plan.id}`,
+        `/stripe/checkout`,
         token,
         {
           method: "POST",
           body: JSON.stringify({
-            quantity: Math.max(1, plan.quantity ?? 1),
+            bundle: plan.bundle,
             success_url: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
             cancel_url: `${window.location.origin}/plans?cancelled=true`,
           }),
@@ -97,7 +97,7 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      await x402Subscribe(plan.id, token, plan.price, Math.max(1, plan.quantity ?? 1));
+      await x402Subscribe(plan.bundle, token, plan.price, 1);
       setSuccess(true);
       setTimeout(() => {
         onSuccess();
