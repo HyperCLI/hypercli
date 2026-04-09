@@ -93,3 +93,99 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
   await expect(ownedCard.getByText(/1x Large/i).first()).toBeVisible();
   await expect(ownedCard.getByRole("button", { name: /add another/i })).toBeVisible();
 });
+
+test("plans page displays cumulative pooled inference across mixed entitlements", async ({ page }) => {
+  await page.context().addCookies([
+    {
+      name: "auth_token",
+      value: TEST_JWT,
+      domain: "127.0.0.1",
+      path: "/",
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+
+  await page.addInitScript((token) => {
+    window.localStorage.setItem("claw_auth_token", token);
+  }, TEST_JWT);
+
+  await page.route("**/agents/**", async (route) => {
+    const url = new URL(route.request().url());
+    const pathName = url.pathname;
+
+    if (pathName.endsWith("/agents/plans/current")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: "large",
+          name: "Large",
+          pooled_tpd: 300000000,
+          slot_inventory: {
+            large: { granted: 1, used: 1, available: 0 },
+            small: { granted: 1, used: 0, available: 1 },
+          },
+        }),
+      });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/subscriptions/summary")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          effective_plan_id: "large",
+          current_subscription_id: "sub-large",
+          pooled_tpm_limit: 208333,
+          pooled_rpm_limit: 4200,
+          pooled_tpd: 300000000,
+          slot_inventory: {
+            large: { granted: 1, used: 1, available: 0 },
+            small: { granted: 1, used: 0, available: 1 },
+          },
+          active_subscription_count: 2,
+          active_subscriptions: [
+            {
+              id: "sub-large",
+              user_id: "user-1",
+              plan_id: "large",
+              plan_name: "Large",
+              provider: "STRIPE",
+              status: "ACTIVE",
+              quantity: 1,
+              slot_grants: { small: 0, medium: 0, large: 1 },
+              meta: { bundle: { large: 1 } },
+            },
+            {
+              id: "sub-small",
+              user_id: "user-1",
+              plan_id: "small",
+              plan_name: "Small",
+              provider: "X402",
+              status: "ACTIVE",
+              quantity: 1,
+              slot_grants: { small: 1, medium: 0, large: 0 },
+              meta: { bundle: { small: 1 } },
+            },
+          ],
+          subscriptions: [],
+          user: { id: "user-1" },
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+
+  await page.goto("/plans", { waitUntil: "domcontentloaded" });
+
+  await expect(page.getByText(/^300M$/)).toBeVisible();
+  await expect(page.getByText(/tokens\/day across all active entitlements/i)).toBeVisible();
+  await expect(page.getByText(/^2$/)).toBeVisible();
+  await expect(page.getByText(/1 \/ 1 used/i)).toBeVisible();
+  await expect(page.getByText(/0 \/ 1 used/i)).toBeVisible();
+});
