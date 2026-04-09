@@ -18,7 +18,18 @@ import requests
 
 DEFAULT_PRODUCT_BASE = "https://api.dev.hypercli.com"
 DEFAULT_PLAN_ID = "2aiu"
-ROOT_KEY_TAGS = ["jobs:*", "renders:*", "agents:*", "user:self", "api:self", "team=integration"]
+ROOT_KEY_TAGS = [
+    "jobs:*",
+    "renders:*",
+    "agents:*",
+    "files:*",
+    "flows:*",
+    "models:*",
+    "voice:*",
+    "user:self",
+    "api:self",
+    "team=integration",
+]
 
 
 @dataclass
