@@ -2,6 +2,8 @@ from __future__ import annotations
 
 """Renders API"""
 from dataclasses import dataclass
+from datetime import datetime, timezone
+import time
 from typing import TYPE_CHECKING, Any, List
 
 if TYPE_CHECKING:
@@ -56,10 +58,27 @@ class RenderStatus:
 class Renders:
     """Renders API wrapper"""
 
+    DEFAULT_WAIT_TIMEOUT = 3600.0
+    DEFAULT_QUEUE_GRACE = 1800.0
+    DEFAULT_ACTIVE_GRACE = 300.0
+
     def __init__(self, http: "HTTPClient", auth_http: "HTTPClient" | None = None):
         self._http = http
         self._auth_http = auth_http or http
         self._auth_me_cache: dict[str, Any] | None = None
+
+    @staticmethod
+    def _parse_render_timestamp(value: Any) -> float | None:
+        if value is None:
+            return None
+        if isinstance(value, (int, float)):
+            return float(value)
+        if isinstance(value, str):
+            try:
+                return datetime.fromisoformat(value.replace("Z", "+00:00")).astimezone(timezone.utc).timestamp()
+            except ValueError:
+                return None
+        return None
 
     def _auth_me(self) -> dict[str, Any]:
         if self._auth_me_cache is None:
@@ -178,6 +197,50 @@ class Renders:
         """Get render status (lightweight polling endpoint)"""
         data = self._get_render(render_id, status=True)
         return RenderStatus.from_dict(data)
+
+    def wait(
+        self,
+        render_id: str,
+        timeout: float = DEFAULT_WAIT_TIMEOUT,
+        poll_interval: float = 5.0,
+        queue_grace: float = DEFAULT_QUEUE_GRACE,
+        active_grace: float = DEFAULT_ACTIVE_GRACE,
+    ) -> Render:
+        """Wait for a render to reach a terminal state.
+
+        This tolerates long queue times in shared dev environments by granting
+        one bounded queue grace window and one bounded active-runtime grace
+        window when the render only starts near the original deadline.
+        """
+        deadline = time.time() + timeout
+        queue_grace_used = False
+        active_grace_used = False
+        last_render: Render | None = None
+
+        while True:
+            render = self.get(render_id)
+            last_render = render
+            state = (render.state or "").lower()
+            if state in {"completed", "failed", "cancelled"}:
+                return render
+
+            now = time.time()
+            if now >= deadline:
+                started_at = self._parse_render_timestamp(render.started_at)
+                if not queue_grace_used and started_at is None:
+                    queue_grace_used = True
+                    deadline = now + queue_grace
+                elif not active_grace_used and started_at is not None:
+                    active_grace_used = True
+                    deadline = max(deadline, started_at + active_grace)
+                else:
+                    raise TimeoutError(
+                        f"Render {render_id} did not complete within {timeout:.0f}s "
+                        f"(+{queue_grace:.0f}s queue grace, +{active_grace:.0f}s active grace); "
+                        f"last_render={last_render}"
+                    )
+
+            time.sleep(poll_interval)
 
     # =========================================================================
     # Flow endpoints - simplified interfaces

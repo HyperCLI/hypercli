@@ -47,6 +47,10 @@ function renderStatusFromDict(data: any): RenderStatus {
 }
 
 export class Renders {
+  static readonly DEFAULT_WAIT_TIMEOUT = 3600_000;
+  static readonly DEFAULT_QUEUE_GRACE = 1800_000;
+  static readonly DEFAULT_ACTIVE_GRACE = 300_000;
+
   private authMeCache: any | null = null;
 
   constructor(private http: HTTPClient, private authHttp: HTTPClient = http) {}
@@ -192,9 +196,68 @@ export class Renders {
     return renderStatusFromDict(data);
   }
 
+  async wait(
+    renderId: string,
+    options?: {
+      timeoutMs?: number;
+      pollIntervalMs?: number;
+      queueGraceMs?: number;
+      activeGraceMs?: number;
+    },
+  ): Promise<Render> {
+    const timeoutMs = options?.timeoutMs ?? Renders.DEFAULT_WAIT_TIMEOUT;
+    const pollIntervalMs = options?.pollIntervalMs ?? 5000;
+    const queueGraceMs = options?.queueGraceMs ?? Renders.DEFAULT_QUEUE_GRACE;
+    const activeGraceMs = options?.activeGraceMs ?? Renders.DEFAULT_ACTIVE_GRACE;
+
+    let deadline = Date.now() + timeoutMs;
+    let queueGraceUsed = false;
+    let activeGraceUsed = false;
+    let lastRender: Render | null = null;
+
+    while (true) {
+      const render = await this.get(renderId);
+      lastRender = render;
+      const state = (render.state || '').toLowerCase();
+      if (state === 'completed' || state === 'failed' || state === 'cancelled') {
+        return render;
+      }
+
+      const now = Date.now();
+      if (now >= deadline) {
+        const startedAt = this.parseRenderTimestamp(render.startedAt);
+        if (!queueGraceUsed && startedAt == null) {
+          queueGraceUsed = true;
+          deadline = now + queueGraceMs;
+        } else if (!activeGraceUsed && startedAt != null) {
+          activeGraceUsed = true;
+          deadline = Math.max(deadline, startedAt + activeGraceMs);
+        } else {
+          throw new Error(
+            `Render ${renderId} did not complete within ${(timeoutMs / 1000).toFixed(0)}s ` +
+            `(+${(queueGraceMs / 1000).toFixed(0)}s queue grace, +${(activeGraceMs / 1000).toFixed(0)}s active grace); ` +
+            `lastRender=${JSON.stringify(lastRender)}`,
+          );
+        }
+      }
+
+      await new Promise((resolve) => setTimeout(resolve, pollIntervalMs));
+    }
+  }
+
   // =========================================================================
   // Flow endpoints - simplified interfaces
   // =========================================================================
+
+  private parseRenderTimestamp(value: unknown): number | null {
+    if (value == null) return null;
+    if (typeof value === 'number') return value;
+    if (typeof value === 'string') {
+      const parsed = Date.parse(value);
+      return Number.isNaN(parsed) ? null : parsed;
+    }
+    return null;
+  }
 
   async flow(flowType: string, params: Record<string, any>): Promise<Render> {
     // Filter out null/undefined values
