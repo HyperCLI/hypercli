@@ -102,12 +102,12 @@ export class Renders {
     const suffix = status ? '/status' : '';
     const primary = (await this.supportsSubscriptionFamily('flows'))
       ? `/agents/flow/renders/${renderId}${suffix}`
-      : `/api/renders/${renderId}${suffix}`;
+      : `/api/flow/renders/${renderId}${suffix}`;
     try {
       return await this.http.get(primary);
     } catch (error) {
       if (primary.startsWith('/agents/flow/') && error instanceof APIError && (error.statusCode === 403 || error.statusCode === 404)) {
-        return await this.http.get(`/api/renders/${renderId}${suffix}`);
+        return await this.http.get(`/api/flow/renders/${renderId}${suffix}`);
       }
       throw error;
     }
@@ -116,12 +116,12 @@ export class Renders {
   private async deleteRender(renderId: string): Promise<any> {
     const primary = (await this.supportsSubscriptionFamily('flows'))
       ? `/agents/flow/renders/${renderId}`
-      : `/api/renders/${renderId}`;
+      : `/api/flow/renders/${renderId}`;
     try {
       return await this.http.delete(primary);
     } catch (error) {
       if (primary.startsWith('/agents/flow/') && error instanceof APIError && (error.statusCode === 403 || error.statusCode === 404)) {
-        return await this.http.delete(`/api/renders/${renderId}`);
+        return await this.http.delete(`/api/flow/renders/${renderId}`);
       }
       throw error;
     }

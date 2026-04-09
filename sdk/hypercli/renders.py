@@ -112,21 +112,21 @@ class Renders:
 
     def _get_render(self, render_id: str, *, status: bool = False) -> dict[str, Any]:
         suffix = "/status" if status else ""
-        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._supports_subscription_family("flows") else f"/api/renders/{render_id}{suffix}"
+        primary = f"/agents/flow/renders/{render_id}{suffix}" if self._supports_subscription_family("flows") else f"/api/flow/renders/{render_id}{suffix}"
         try:
             return self._http.get(primary)
         except APIError as exc:
             if primary.startswith("/agents/flow/") and exc.status_code in {403, 404}:
-                return self._http.get(f"/api/renders/{render_id}{suffix}")
+                return self._http.get(f"/api/flow/renders/{render_id}{suffix}")
             raise
 
     def _delete_render(self, render_id: str) -> dict:
-        primary = f"/agents/flow/renders/{render_id}" if self._supports_subscription_family("flows") else f"/api/renders/{render_id}"
+        primary = f"/agents/flow/renders/{render_id}" if self._supports_subscription_family("flows") else f"/api/flow/renders/{render_id}"
         try:
             return self._http.delete(primary)
         except APIError as exc:
             if primary.startswith("/agents/flow/") and exc.status_code in {403, 404}:
-                return self._http.delete(f"/api/renders/{render_id}")
+                return self._http.delete(f"/api/flow/renders/{render_id}")
             raise
 
     def list(

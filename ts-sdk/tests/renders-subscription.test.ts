@@ -104,6 +104,36 @@ describe('Renders subscription routing', () => {
     expect(calls).toContainEqual(['delete', '/agents/flow/renders/render-123']);
   });
 
+  it('uses /api/flow/renders for flow-only keys when auth me is denied', async () => {
+    const calls: Array<[string, string, any?]> = [];
+    const http = {
+      get: async (path: string) => {
+        calls.push(['get', path]);
+        if (path === '/api/auth/me') {
+          throw new APIError(403, 'Access denied');
+        }
+        if (path.endsWith('/status')) {
+          return { id: 'render-123', state: 'running', progress: 0.5 };
+        }
+        return { id: 'render-123', state: 'queued' };
+      },
+      post: async (_path: string, _body: any) => ({ id: 'render-123', state: 'queued' }),
+      delete: async (path: string) => {
+        calls.push(['delete', path]);
+        return { status: 'cancelled' };
+      },
+    };
+
+    const renders = new Renders(http as any);
+    await renders.get('render-123');
+    await renders.status('render-123');
+    await renders.cancel('render-123');
+
+    expect(calls).toContainEqual(['get', '/api/flow/renders/render-123']);
+    expect(calls).toContainEqual(['get', '/api/flow/renders/render-123/status']);
+    expect(calls).toContainEqual(['delete', '/api/flow/renders/render-123']);
+  });
+
   it('waits through queue grace before timing out', async () => {
     vi.useFakeTimers();
     vi.setSystemTime(0);

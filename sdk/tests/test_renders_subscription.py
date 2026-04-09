@@ -1,5 +1,6 @@
 from hypercli.http import APIError
 from hypercli.renders import Renders
+from hypercli.http import APIError
 
 
 class DummyHTTP:
@@ -95,6 +96,34 @@ def test_get_status_and_cancel_prefer_subscription_render_routes():
     assert ("get", "/agents/flow/renders/render-123", None) in http.calls
     assert ("get", "/agents/flow/renders/render-123/status", None) in http.calls
     assert ("delete", "/agents/flow/renders/render-123", None) in http.calls
+
+
+def test_flow_only_keys_fallback_to_api_flow_render_routes_when_auth_me_is_denied():
+    calls = []
+
+    class FlowHTTP:
+        def get(self, path, params=None):
+            calls.append(("get", path, params))
+            if path == "/api/auth/me":
+                raise APIError(status_code=403, detail="Access denied", response_text='{"detail":"Access denied"}')
+            return {"id": "render-123", "state": "queued"}
+
+        def delete(self, path):
+            calls.append(("delete", path, None))
+            return {"status": "cancelled"}
+
+    renders = Renders(FlowHTTP())
+
+    render = renders.get("render-123")
+    status = renders.status("render-123")
+    cancelled = renders.cancel("render-123")
+
+    assert render.render_id == "render-123"
+    assert status.render_id == "render-123"
+    assert cancelled["status"] == "cancelled"
+    assert ("get", "/api/flow/renders/render-123", None) in calls
+    assert ("get", "/api/flow/renders/render-123/status", None) in calls
+    assert ("delete", "/api/flow/renders/render-123", None) in calls
 
 
 def test_wait_allows_queue_grace(monkeypatch):
