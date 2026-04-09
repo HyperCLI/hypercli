@@ -49,6 +49,10 @@ jobs:
           npm install
           npm run sdk:use-checkout
 
+      - name: Install Playwright browser
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
       - name: Allocate local E2E ports
         run: |
           source .github/scripts/allocate_e2e_env.sh
