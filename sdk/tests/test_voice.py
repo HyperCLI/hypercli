@@ -28,7 +28,7 @@ def test_voice_tts_posts_to_agents_voice_prefix():
                 "language": "english",
                 "response_format": "wav",
             },
-            120.0,
+            VoiceAPI.DEFAULT_TIMEOUT,
         )
     ]
 
@@ -48,7 +48,7 @@ def test_voice_clone_base64_encodes_reference(tmp_path: Path):
     assert payload["text"] == "clone me"
     assert payload["response_format"] == "wav"
     assert payload["ref_audio_base64"] == "cmVmZXJlbmNlLWF1ZGlv"
-    assert timeout == 120.0
+    assert timeout == VoiceAPI.DEFAULT_TIMEOUT
 
 
 def test_voice_design_posts_description():
@@ -67,6 +67,6 @@ def test_voice_design_posts_description():
                 "language": "auto",
                 "response_format": "wav",
             },
-            120.0,
+            VoiceAPI.DEFAULT_TIMEOUT,
         )
     ]
