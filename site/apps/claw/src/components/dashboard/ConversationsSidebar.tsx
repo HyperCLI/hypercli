@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useMemo, useCallback } from "react";
+import { useState, useMemo, useCallback, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare,
@@ -16,8 +16,12 @@ import {
   Play,
   AlertTriangle,
   PenLine,
+  SlidersHorizontal,
+  Check,
 } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
+import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { AgentCardTooltip } from "./modules/AgentCardModule";
 
 // ── Types ──
 
@@ -250,19 +254,25 @@ function ParticipantAvatars({ participants, size = 28 }: { participants: Partici
         const avatar = agentAvatar(p.name);
         const Icon = avatar.icon;
         return (
-          <div
-            key={p.id}
-            className="rounded-full flex items-center justify-center border-2 border-background"
-            style={{
-              width: size,
-              height: size,
-              marginLeft: i > 0 ? -(size * 0.35) : 0,
-              zIndex: shown.length - i,
-              backgroundColor: avatar.bgColor,
-            }}
-          >
-            <Icon style={{ width: size * 0.5, height: size * 0.5, color: avatar.fgColor }} />
-          </div>
+          <Tooltip key={p.id} delayDuration={300}>
+            <TooltipTrigger asChild>
+              <div
+                className="rounded-full flex items-center justify-center border-2 border-background"
+                style={{
+                  width: size,
+                  height: size,
+                  marginLeft: i > 0 ? -(size * 0.35) : 0,
+                  zIndex: shown.length - i,
+                  backgroundColor: avatar.bgColor,
+                }}
+              >
+                <Icon style={{ width: size * 0.5, height: size * 0.5, color: avatar.fgColor }} />
+              </div>
+            </TooltipTrigger>
+            <TooltipContent side="bottom" align="start" className="bg-transparent border-0 p-0 shadow-none">
+              <AgentCardTooltip agentName={p.name} />
+            </TooltipContent>
+          </Tooltip>
         );
       })}
       {overflow > 0 && (
@@ -397,24 +407,100 @@ function ThreadRow({
   );
 }
 
+interface SidebarToggle {
+  key: string;
+  label: string;
+  enabled: boolean;
+}
+
+function SidebarOptionsMenu({
+  toggles,
+  onToggle,
+}: {
+  toggles: SidebarToggle[];
+  onToggle: (key: string) => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const menuRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div className="relative" ref={menuRef}>
+      <button
+        onClick={() => setOpen((v) => !v)}
+        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
+          open ? "text-foreground bg-surface-low" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+        }`}
+        title="Sidebar options"
+      >
+        <SlidersHorizontal className="w-3.5 h-3.5" />
+      </button>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95, y: -4 }}
+            animate={{ opacity: 1, scale: 1, y: 0 }}
+            exit={{ opacity: 0, scale: 0.95, y: -4 }}
+            transition={{ duration: 0.12 }}
+            className="absolute right-0 top-full mt-1 z-50 w-48 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden"
+          >
+            <div className="px-3 py-2 border-b border-border">
+              <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">Options</span>
+            </div>
+            <div className="py-1">
+              {toggles.map((t) => (
+                <button
+                  key={t.key}
+                  onClick={() => onToggle(t.key)}
+                  className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
+                >
+                  <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${
+                    t.enabled ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
+                  }`}>
+                    {t.enabled && <Check className="w-2.5 h-2.5 text-white" />}
+                  </div>
+                  <span className={`text-[11px] ${t.enabled ? "text-foreground" : "text-text-muted"}`}>{t.label}</span>
+                </button>
+              ))}
+            </div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+    </div>
+  );
+}
+
 function SidebarHeader({
   showSearch,
   searchQuery,
   onToggleSearch,
   onSearchChange,
   onNewThread,
+  toggles,
+  onToggle,
 }: {
   showSearch: boolean;
   searchQuery: string;
   onToggleSearch: () => void;
   onSearchChange: (q: string) => void;
   onNewThread?: () => void;
+  toggles: SidebarToggle[];
+  onToggle: (key: string) => void;
 }) {
   return (
     <div className="flex-shrink-0 border-b border-border">
       <div className="flex items-center justify-between px-3 h-12">
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Conversations</span>
         <div className="flex items-center gap-1">
+          <SidebarOptionsMenu toggles={toggles} onToggle={onToggle} />
           <button
             onClick={onToggleSearch}
             className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
@@ -1343,82 +1429,51 @@ function HandoffSection({
 }
 
 function HandoffWidget() {
-  const [activeSection, setActiveSection] = useState<"in-progress" | "needs-attention" | null>(null);
-  const [inProgress, setInProgress] = useState<{ id: string; task: string; subtitle: string; ts: number }[]>([]);
-  const [needsAttention, setNeedsAttention] = useState<{ id: string; task: string; subtitle: string; ts: number }[]>([]);
+  const [items] = useState<{ id: string; task: string; priority: "high" | "medium" | "low"; note: string; ts: number }[]>([]);
 
-  const ipPresets = useMemo(() => IN_PROGRESS_PRESETS.map((p) => ({ task: p.task, subtitle: `${p.owner} · ${p.status}` })), []);
-  const naPresets = useMemo(() => NEEDS_ATTENTION_PRESETS.map((p) => ({ task: p.task, subtitle: p.note })), []);
+  if (items.length === 0) return null;
 
-  const ipCount = inProgress.length;
-  const naCount = needsAttention.length;
+  const priorityColor: Record<string, string> = {
+    high: "#d05f5f",
+    medium: "#f0c56c",
+    low: "#6b9eff",
+  };
 
   return (
-    <motion.div className="flex-shrink-0 border-b border-border" initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.3 }}>
-      {/* Toggle buttons */}
-      <div className="flex items-center gap-1.5 px-3 py-2">
-        <button
-          onClick={() => setActiveSection(activeSection === "in-progress" ? null : "in-progress")}
-          className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border transition-colors ${
-            activeSection === "in-progress"
-              ? "bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30"
-              : "text-text-muted hover:text-foreground border-border"
-          }`}
-        >
-          <Play className="w-2.5 h-2.5" />
-          <span>In Progress</span>
-          {ipCount > 0 && <span className="ml-0.5 text-[9px] opacity-70">({ipCount})</span>}
-        </button>
-        <button
-          onClick={() => setActiveSection(activeSection === "needs-attention" ? null : "needs-attention")}
-          className={`flex items-center gap-1 px-2 py-1 rounded-full text-[10px] font-medium border transition-colors ${
-            activeSection === "needs-attention"
-              ? "bg-[#f0c56c]/10 text-[#f0c56c] border-[#f0c56c]/30"
-              : "text-text-muted hover:text-foreground border-border"
-          }`}
-        >
-          <AlertTriangle className="w-2.5 h-2.5" />
-          <span>Needs Attention</span>
-          {naCount > 0 && <span className="ml-0.5 text-[9px] opacity-70">({naCount})</span>}
-        </button>
+    <div className="flex-shrink-0 border-b border-border">
+      <div className="px-3 py-2 space-y-1.5">
+        <AnimatePresence initial={false}>
+          {items.map((item, idx) => (
+            <motion.div
+              key={item.id}
+              initial={{ opacity: 0, y: -8, scale: 0.95 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, x: -20, scale: 0.9 }}
+              transition={{ duration: 0.2, delay: idx * 0.04 }}
+              className="flex items-start gap-2 px-2.5 py-2 rounded-lg bg-surface-low/50 border border-border group/card hover:bg-surface-low transition-colors"
+            >
+              <div
+                className="w-1 h-full min-h-[24px] rounded-full flex-shrink-0 mt-0.5"
+                style={{ backgroundColor: priorityColor[item.priority] ?? "#6b9eff" }}
+              />
+              <div className="flex-1 min-w-0">
+                <p className="text-[11px] font-medium text-foreground truncate">{item.task}</p>
+                <p className="text-[10px] text-text-muted truncate">{item.note}</p>
+              </div>
+              <span
+                className="text-[8px] font-bold uppercase tracking-wider px-1.5 py-0.5 rounded-full flex-shrink-0 mt-0.5"
+                style={{
+                  color: priorityColor[item.priority] ?? "#6b9eff",
+                  backgroundColor: `${priorityColor[item.priority] ?? "#6b9eff"}15`,
+                }}
+              >
+                {item.priority}
+              </span>
+            </motion.div>
+          ))}
+        </AnimatePresence>
       </div>
-
-      {/* Expandable sections */}
-      <AnimatePresence>
-        {activeSection === "in-progress" && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden"
-          >
-            <HandoffSection
-              icon={Play} color="#38D39F"
-              items={inProgress} presets={ipPresets}
-              onAdd={(p) => setInProgress((prev) => [...prev, { ...p, id: `ip-${Date.now()}`, ts: Date.now() }])}
-              onRemove={(id) => setInProgress((prev) => prev.filter((i) => i.id !== id))}
-            />
-          </motion.div>
-        )}
-        {activeSection === "needs-attention" && (
-          <motion.div
-            initial={{ height: 0, opacity: 0 }}
-            animate={{ height: "auto", opacity: 1 }}
-            exit={{ height: 0, opacity: 0 }}
-            transition={{ duration: 0.15 }}
-            className="overflow-hidden"
-          >
-            <HandoffSection
-              icon={AlertTriangle} color="#f0c56c"
-              items={needsAttention} presets={naPresets}
-              onAdd={(p) => setNeedsAttention((prev) => [...prev, { ...p, id: `na-${Date.now()}`, ts: Date.now() }])}
-              onRemove={(id) => setNeedsAttention((prev) => prev.filter((i) => i.id !== id))}
-            />
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </motion.div>
+    </div>
   );
 }
 
@@ -1451,9 +1506,6 @@ function HandoffThreadView({
 
   return (
     <>
-      {/* Handoff widget */}
-      <HandoffWidget />
-
       {/* Thread list */}
       <div className="flex-1 overflow-y-auto">
         {sortedThreads.length === 0 ? (
@@ -1508,6 +1560,207 @@ function HandoffThreadView({
   );
 }
 
+// ── Empty State Prompt ──
+
+function ConversationsEmptyPrompt({
+  hasThreads,
+  onNewThread,
+}: {
+  hasThreads: boolean;
+  onNewThread?: () => void;
+}) {
+  return (
+    <motion.div
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      transition={{ duration: 0.4 }}
+      className="flex-1 flex flex-col items-center justify-center px-6 py-8 gap-5 relative overflow-hidden"
+    >
+      {/* Background ambient glow */}
+      <motion.div
+        className="absolute inset-0 pointer-events-none"
+        initial={{ opacity: 0 }}
+        animate={{ opacity: 1 }}
+        transition={{ duration: 1, delay: 0.3 }}
+      >
+        <motion.div
+          className="absolute top-1/4 left-1/2 -translate-x-1/2 w-32 h-32 rounded-full bg-[#38D39F]/[0.03] blur-3xl"
+          animate={{ scale: [1, 1.3, 1], opacity: [0.6, 1, 0.6] }}
+          transition={{ duration: 5, repeat: Infinity, ease: "easeInOut" }}
+        />
+      </motion.div>
+
+      {/* Icon cluster */}
+      <motion.div
+        initial={{ opacity: 0, scale: 0.3, rotate: -30 }}
+        animate={{ opacity: 1, scale: 1, rotate: 0 }}
+        transition={{ type: "spring", stiffness: 200, damping: 15, delay: 0.1 }}
+        className="relative"
+      >
+        {/* Orbiting dots */}
+        {[0, 1, 2].map((i) => (
+          <motion.div
+            key={i}
+            className="absolute w-1.5 h-1.5 rounded-full bg-[#38D39F]/40"
+            style={{ top: "50%", left: "50%", marginTop: -3, marginLeft: -3 }}
+            animate={{
+              x: [0, Math.cos((i * 2 * Math.PI) / 3) * 28, 0],
+              y: [0, Math.sin((i * 2 * Math.PI) / 3) * 28, 0],
+              opacity: [0, 0.7, 0],
+              scale: [0, 1, 0],
+            }}
+            transition={{
+              duration: 3,
+              repeat: Infinity,
+              ease: "easeInOut",
+              delay: i * 1,
+            }}
+          />
+        ))}
+
+        {/* Pulse ring */}
+        <motion.div
+          className="absolute inset-0 rounded-2xl border border-[#38D39F]/20"
+          animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
+          transition={{ duration: 2.5, repeat: Infinity, ease: "easeOut" }}
+        />
+        <motion.div
+          className="absolute inset-0 rounded-2xl border border-[#38D39F]/15"
+          animate={{ scale: [1, 1.9], opacity: [0.3, 0] }}
+          transition={{ duration: 2.5, repeat: Infinity, ease: "easeOut", delay: 0.6 }}
+        />
+
+        <motion.div
+          animate={{ y: [0, -5, 0] }}
+          transition={{ duration: 3.5, repeat: Infinity, ease: "easeInOut" }}
+          className="w-14 h-14 rounded-2xl bg-gradient-to-br from-[#38D39F]/15 to-[#38D39F]/5 flex items-center justify-center backdrop-blur-sm border border-[#38D39F]/10 relative"
+        >
+          <motion.div
+            animate={{ rotate: [0, 5, -5, 0] }}
+            transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+          >
+            <MessageSquare className="w-6 h-6 text-[#38D39F]" />
+          </motion.div>
+        </motion.div>
+      </motion.div>
+
+      {/* Text */}
+      <motion.div
+        initial={{ opacity: 0, y: 12 }}
+        animate={{ opacity: 1, y: 0 }}
+        transition={{ duration: 0.4, delay: 0.25 }}
+        className="text-center space-y-1.5 relative"
+      >
+        {hasThreads ? (
+          <motion.div
+            initial={{ opacity: 0, scale: 0.95 }}
+            animate={{ opacity: 1, scale: 1 }}
+            transition={{ duration: 0.2 }}
+          >
+            <p className="text-xs text-text-muted">No matching conversations</p>
+          </motion.div>
+        ) : (
+          <>
+            <motion.p
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.3 }}
+              className="text-sm font-semibold text-foreground"
+            >
+              No conversations yet
+            </motion.p>
+            <motion.p
+              initial={{ opacity: 0, y: 6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.3, delay: 0.4 }}
+              className="text-[11px] text-text-muted leading-relaxed max-w-[190px] mx-auto"
+            >
+              Create an agent or start a conversation to begin
+            </motion.p>
+          </>
+        )}
+      </motion.div>
+
+      {/* Buttons */}
+      {!hasThreads && (
+        <motion.div
+          initial={{ opacity: 0, y: 14 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ duration: 0.4, delay: 0.5 }}
+          className="flex flex-col gap-2.5 w-full max-w-[200px]"
+        >
+          {/* Create Agent */}
+          <motion.button
+            initial={{ opacity: 0, x: -16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.35, delay: 0.55 }}
+            whileHover={{ scale: 1.04, boxShadow: "0 0 20px rgba(56,211,159,0.15)", y: -1 }}
+            whileTap={{ scale: 0.95 }}
+            className="group relative flex items-center justify-center gap-2.5 w-full px-4 py-3 rounded-xl bg-gradient-to-r from-[#38D39F]/15 to-[#38D39F]/5 border border-[#38D39F]/20 hover:border-[#38D39F]/40 transition-colors text-xs font-medium text-[#38D39F] overflow-hidden"
+          >
+            <motion.div
+              className="absolute inset-0 bg-gradient-to-r from-[#38D39F]/5 to-transparent opacity-0 group-hover:opacity-100 transition-opacity duration-300"
+            />
+            <motion.span
+              animate={{ rotate: [0, 180, 360] }}
+              transition={{ duration: 8, repeat: Infinity, ease: "linear" }}
+              className="relative"
+            >
+              <Bot className="w-4 h-4" />
+            </motion.span>
+            <span className="relative">Create Agent</span>
+            <motion.div
+              className="absolute right-3 opacity-0 group-hover:opacity-100 transition-opacity"
+              animate={{ x: [0, 3, 0] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <ChevronRight className="w-3 h-3" />
+            </motion.div>
+          </motion.button>
+
+          {/* Divider */}
+          <motion.div
+            initial={{ scaleX: 0 }}
+            animate={{ scaleX: 1 }}
+            transition={{ duration: 0.4, delay: 0.65 }}
+            className="flex items-center gap-2"
+          >
+            <div className="flex-1 h-px bg-border" />
+            <span className="text-[9px] text-text-muted/60 uppercase tracking-wider">or</span>
+            <div className="flex-1 h-px bg-border" />
+          </motion.div>
+
+          {/* New Conversation */}
+          <motion.button
+            initial={{ opacity: 0, x: 16 }}
+            animate={{ opacity: 1, x: 0 }}
+            transition={{ duration: 0.35, delay: 0.7 }}
+            whileHover={{ scale: 1.04, backgroundColor: "rgba(255,255,255,0.05)", y: -1 }}
+            whileTap={{ scale: 0.95 }}
+            onClick={onNewThread}
+            className="group relative flex items-center justify-center gap-2.5 w-full px-4 py-3 rounded-xl border border-border hover:border-text-muted/30 transition-colors text-xs font-medium text-foreground overflow-hidden"
+          >
+            <motion.span
+              animate={{ rotate: [0, 90, 0] }}
+              transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
+            >
+              <Plus className="w-4 h-4" />
+            </motion.span>
+            <span>New Conversation</span>
+            <motion.div
+              className="absolute right-3 opacity-0 group-hover:opacity-100 transition-opacity"
+              animate={{ x: [0, 3, 0] }}
+              transition={{ duration: 1.2, repeat: Infinity, ease: "easeInOut", delay: 0.3 }}
+            >
+              <ChevronRight className="w-3 h-3 text-text-muted" />
+            </motion.div>
+          </motion.button>
+        </motion.div>
+      )}
+    </motion.div>
+  );
+}
+
 // ── Main Component ──
 
 export function ConversationsSidebar({
@@ -1521,6 +1774,17 @@ export function ConversationsSidebar({
 }: ConversationsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
+  const [sidebarToggles, setSidebarToggles] = useState<Record<string, boolean>>(() => ({
+    needsAttention: true,
+  }));
+
+  const toggles: SidebarToggle[] = [
+    { key: "needsAttention", label: "Needs Attention", enabled: sidebarToggles.needsAttention ?? true },
+  ];
+
+  const handleToggle = useCallback((key: string) => {
+    setSidebarToggles((prev) => ({ ...prev, [key]: !prev[key] }));
+  }, []);
 
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return threads;
@@ -1535,6 +1799,7 @@ export function ConversationsSidebar({
 
   return (
     <div className="w-[280px] flex-shrink-0 flex flex-col border-r border-border min-h-0 bg-background">
+      {sidebarToggles.needsAttention && <HandoffWidget />}
       <SidebarHeader
         showSearch={showSearch}
         searchQuery={searchQuery}
@@ -1544,40 +1809,51 @@ export function ConversationsSidebar({
         }}
         onSearchChange={setSearchQuery}
         onNewThread={onNewThread}
+        toggles={toggles}
+        onToggle={handleToggle}
       />
 
-      {variant === "v1" && (
-        <FlatThreadList
-          threads={filtered}
-          selectedThreadId={selectedThreadId}
-          onSelectThread={onSelectThread}
-          onDeleteThread={onDeleteThread}
+      {filtered.length === 0 ? (
+        <ConversationsEmptyPrompt
+          hasThreads={threads.length > 0}
+          onNewThread={onNewThread}
         />
-      )}
-      {variant === "v2" && (
-        <GroupedByAgent
-          threads={filtered}
-          selectedThreadId={selectedThreadId}
-          onSelectThread={onSelectThread}
-          onDeleteThread={onDeleteThread}
-        />
-      )}
-      {variant === "v3" && (
-        <HandoffThreadView
-          threads={filtered}
-          selectedThreadId={selectedThreadId}
-          onSelectThread={onSelectThread}
-          onDeleteThread={onDeleteThread}
-        />
-      )}
-      {variant === "v3.1" && (
-        <HandoffThreadView
-          threads={filtered}
-          selectedThreadId={selectedThreadId}
-          onSelectThread={onSelectThread}
-          onDeleteThread={onDeleteThread}
-          onRenameThread={onRenameThread}
-        />
+      ) : (
+        <>
+          {variant === "v1" && (
+            <FlatThreadList
+              threads={filtered}
+              selectedThreadId={selectedThreadId}
+              onSelectThread={onSelectThread}
+              onDeleteThread={onDeleteThread}
+            />
+          )}
+          {variant === "v2" && (
+            <GroupedByAgent
+              threads={filtered}
+              selectedThreadId={selectedThreadId}
+              onSelectThread={onSelectThread}
+              onDeleteThread={onDeleteThread}
+            />
+          )}
+          {variant === "v3" && (
+            <HandoffThreadView
+              threads={filtered}
+              selectedThreadId={selectedThreadId}
+              onSelectThread={onSelectThread}
+              onDeleteThread={onDeleteThread}
+            />
+          )}
+          {variant === "v3.1" && (
+            <HandoffThreadView
+              threads={filtered}
+              selectedThreadId={selectedThreadId}
+              onSelectThread={onSelectThread}
+              onDeleteThread={onDeleteThread}
+              onRenameThread={onRenameThread}
+            />
+          )}
+        </>
       )}
     </div>
   );
