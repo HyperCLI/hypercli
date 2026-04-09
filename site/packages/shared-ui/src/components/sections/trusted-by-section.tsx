@@ -4,21 +4,21 @@ import { motion } from 'framer-motion';
 import { 
   SiGoogle, 
   SiNvidia, 
-  SiAmazon, 
+  //SiAmazon, 
   SiMeta, 
   SiApple, 
   SiAudi, 
   SiSiemens, 
   SiAirbus 
 } from 'react-icons/si';
-import { FaMicrosoft, FaAws } from 'react-icons/fa';
+import { FaMicrosoft, FaAws, FaAmazon } from 'react-icons/fa';
 
 export function TrustedBySection() {
   const companies = [
     { name: 'Google', Icon: SiGoogle },
     { name: 'Nvidia', Icon: SiNvidia },
     { name: 'Microsoft', Icon: FaMicrosoft },
-    { name: 'Amazon', Icon: SiAmazon },
+    { name: 'Amazon', Icon: FaAmazon },
     { name: 'Meta', Icon: SiMeta },
     { name: 'Apple', Icon: SiApple },
     { name: 'AWS', Icon: FaAws },
