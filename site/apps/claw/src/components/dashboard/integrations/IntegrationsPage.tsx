@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import React, { useEffect, useState } from "react";
 import {
   Send, MessageCircle, Hash, Phone, MessageSquare,
   Volume2, Mic, Eye, Image, Video, Box, Loader2,
-  Copy, Check, Terminal, Search, X,
+  Check, Search, X,
 } from "lucide-react";
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
@@ -21,6 +21,7 @@ import { ThreeDPanel } from "./ThreeDPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel, getProviderCredentials } from "./PluginConfigPanel";
+import { ManagePanel } from "./ManagePanel";
 import { QrLoginWizard } from "./QrLoginWizard";
 import { TokenSetupWizard } from "./TokenSetupWizard";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
@@ -45,84 +46,6 @@ function matchesSearch(plugin: PluginMeta, query: string): boolean {
 function nameMatchesSearch(name: string, query: string): boolean {
   if (!query) return true;
   return name.toLowerCase().includes(query.toLowerCase());
-}
-
-// ---------------------------------------------------------------------------
-// QR Manage Panel — shared by WhatsApp and Zalo Personal
-// ---------------------------------------------------------------------------
-
-function QrManagePanel({ pluginId, displayName, isVerified, onOpenShell, onDisconnect }: {
-  pluginId: string;
-  displayName: string;
-  isVerified: boolean;
-  onOpenShell: () => void;
-  onDisconnect: () => void;
-}) {
-  const [copied, setCopied] = useState(false);
-  const loginCommand = `openclaw channels login --channel ${pluginId}`;
-
-  const handleCopy = async () => {
-    await navigator.clipboard.writeText(loginCommand);
-    setCopied(true);
-    setTimeout(() => setCopied(false), 2000);
-  };
-
-  return (
-    <div className="space-y-4">
-      {/* Status */}
-      <div className="glass-card p-4 space-y-2">
-        <div className="flex items-center gap-2">
-          <span className={`w-2 h-2 rounded-full ${isVerified ? "bg-[var(--primary)]" : "bg-amber-400"}`} />
-          <span className="text-sm font-medium text-foreground">
-            {isVerified ? "Connected" : "Pending — QR scan needed"}
-          </span>
-        </div>
-        {!isVerified && (
-          <p className="text-xs text-text-tertiary">
-            Paste the command below in the Shell tab, then scan the QR code with {displayName} on your phone.
-          </p>
-        )}
-      </div>
-
-      {/* Login command */}
-      <div className="space-y-1.5">
-        <p className="text-xs font-medium text-text-secondary">
-          {isVerified ? "Re-pair command" : "Login command"}
-        </p>
-        <div className="flex items-center gap-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] p-3">
-          <div className="flex items-center gap-2 flex-1 min-w-0">
-            <Terminal className="w-3.5 h-3.5 text-text-tertiary flex-shrink-0" />
-            <code className="text-xs text-foreground font-mono truncate">{loginCommand}</code>
-          </div>
-          <button
-            onClick={handleCopy}
-            className="flex-shrink-0 p-1.5 rounded-md hover:bg-[var(--border)]/50 transition-colors"
-            title="Copy command"
-          >
-            {copied
-              ? <Check className="w-3.5 h-3.5 text-emerald-400" />
-              : <Copy className="w-3.5 h-3.5 text-text-tertiary" />
-            }
-          </button>
-        </div>
-      </div>
-
-      {/* Actions */}
-      <button
-        onClick={onOpenShell}
-        className="w-full px-4 py-2 rounded-lg text-sm font-medium text-foreground border border-[var(--border)] hover:bg-[var(--surface-low)] transition-colors flex items-center justify-center gap-2"
-      >
-        <Terminal className="w-3.5 h-3.5" />
-        Open Shell
-      </button>
-      <button
-        onClick={onDisconnect}
-        className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
-      >
-        Disconnect {displayName}
-      </button>
-    </div>
-  );
 }
 
 /** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
@@ -678,31 +601,32 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         />
       </SlideOver>
 
-      {/* Telegram Management */}
-      <SlideOver
-        open={activePanel === "telegram-manage"}
-        onClose={() => setActivePanel(null)}
-        title="Telegram"
-        description="Your agent's Telegram connection"
-      >
-        <div className="space-y-4">
-          <div className="glass-card p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-              <span className="text-sm font-medium text-foreground">Connected</span>
-            </div>
-            <p className="text-sm text-text-secondary">
-              DM Policy: {(channels?.telegram as any)?.dmPolicy || "pairing"}
-            </p>
-          </div>
-          <button
-            onClick={() => setDisconnectTarget("telegram")}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
-          >
-            Disconnect Telegram
-          </button>
-        </div>
-      </SlideOver>
+      {/* Bespoke channel management panels (Telegram, Discord, Slack) */}
+      {([
+        { id: "telegram", displayName: "Telegram", setupPanel: "telegram", configDetails: [
+          { label: "DM Policy", value: (channels?.telegram as any)?.dmPolicy || "pairing" },
+          ...(channels?.telegram?.username ? [{ label: "Username", value: `@${channels.telegram.username}` }] : []),
+        ] },
+        { id: "discord", displayName: "Discord", setupPanel: "discord", configDetails: undefined },
+        { id: "slack", displayName: "Slack", setupPanel: "slack", configDetails: undefined },
+      ] satisfies { id: string; displayName: string; setupPanel: string; configDetails?: { label: string; value: string }[] }[]).map((ch) => (
+        <SlideOver
+          key={`${ch.id}-manage`}
+          open={activePanel === `${ch.id}-manage`}
+          onClose={() => setActivePanel(null)}
+          title={ch.displayName}
+          description={`Your agent's ${ch.displayName} connection`}
+        >
+          <ManagePanel
+            pluginId={ch.id}
+            displayName={ch.displayName}
+            isVerified={!!verified[ch.id]}
+            configDetails={ch.configDetails}
+            onReconfigure={() => setActivePanel(ch.setupPanel)}
+            onDisconnect={() => setDisconnectTarget(ch.id)}
+          />
+        </SlideOver>
+      ))}
 
       {/* Discord Setup Wizard */}
       <SlideOver
@@ -727,29 +651,6 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           }}
           onVerified={() => markVerified("discord")}
         />
-      </SlideOver>
-
-      {/* Discord Management */}
-      <SlideOver
-        open={activePanel === "discord-manage"}
-        onClose={() => setActivePanel(null)}
-        title="Discord"
-        description="Your agent's Discord connection"
-      >
-        <div className="space-y-4">
-          <div className="glass-card p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-              <span className="text-sm font-medium text-foreground">Connected</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setDisconnectTarget("discord")}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
-          >
-            Disconnect Discord
-          </button>
-        </div>
       </SlideOver>
 
       {/* Slack Setup Wizard */}
@@ -777,96 +678,44 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         />
       </SlideOver>
 
-      {/* Slack Management */}
-      <SlideOver
-        open={activePanel === "slack-manage"}
-        onClose={() => setActivePanel(null)}
-        title="Slack"
-        description="Your agent's Slack connection"
-      >
-        <div className="space-y-4">
-          <div className="glass-card p-4 space-y-2">
-            <div className="flex items-center gap-2">
-              <span className="w-2 h-2 rounded-full bg-[var(--primary)]" />
-              <span className="text-sm font-medium text-foreground">Connected</span>
-            </div>
-          </div>
-          <button
-            onClick={() => setDisconnectTarget("slack")}
-            className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
+      {/* QR-based channels — setup + manage (WhatsApp, Zalo Personal) */}
+      {([
+        { id: "whatsapp", displayName: "WhatsApp", description: "Pair your WhatsApp account via QR code" },
+        { id: "zalouser", displayName: "Zalo Personal", description: "Pair your Zalo account via QR code" },
+      ] as const).map((qr) => (
+        <React.Fragment key={qr.id}>
+          <SlideOver
+            open={activePanel === qr.id}
+            onClose={() => setActivePanel(null)}
+            title={`Connect ${qr.displayName}`}
+            description={qr.description}
           >
-            Disconnect Slack
-          </button>
-        </div>
-      </SlideOver>
-
-      {/* WhatsApp Setup Wizard */}
-      <SlideOver
-        open={activePanel === "whatsapp"}
-        onClose={() => setActivePanel(null)}
-        title="Connect WhatsApp"
-        description="Pair your WhatsApp account via QR code"
-      >
-        <QrLoginWizard
-          pluginId="whatsapp"
-          displayName="WhatsApp"
-          onEnable={handleConfigPatch}
-          onOpenShell={onOpenShell}
-          onClose={() => setActivePanel(null)}
-          configPath={getPlugin("whatsapp")?.configPath}
-
-        />
-      </SlideOver>
-
-      {/* WhatsApp Management */}
-      <SlideOver
-        open={activePanel === "whatsapp-manage"}
-        onClose={() => setActivePanel(null)}
-        title="WhatsApp"
-        description="Your agent's WhatsApp connection"
-      >
-        <QrManagePanel
-          pluginId="whatsapp"
-          displayName="WhatsApp"
-          isVerified={!!verified["whatsapp"]}
-          onOpenShell={() => { setActivePanel(null); onOpenShell?.(); }}
-          onDisconnect={() => setDisconnectTarget("whatsapp")}
-        />
-      </SlideOver>
-
-      {/* Zalo Personal Setup Wizard */}
-      <SlideOver
-        open={activePanel === "zalouser"}
-        onClose={() => setActivePanel(null)}
-        title="Connect Zalo Personal"
-        description="Pair your Zalo account via QR code"
-      >
-        <QrLoginWizard
-          pluginId="zalouser"
-          displayName="Zalo Personal"
-          onEnable={handleConfigPatch}
-          onOpenShell={onOpenShell}
-          onClose={() => setActivePanel(null)}
-          configPath={getPlugin("zalouser")?.configPath}
-
-        />
-      </SlideOver>
-
-      {/* Zalo Personal Management */}
-      <SlideOver
-        open={activePanel === "zalouser-manage"}
-        onClose={() => setActivePanel(null)}
-        title="Zalo Personal"
-        description="Your agent's Zalo connection"
-      >
-        <QrManagePanel
-          pluginId="zalouser"
-          displayName="Zalo Personal"
-          isVerified={!!verified["zalouser"]}
-          onOpenShell={() => { setActivePanel(null); onOpenShell?.(); }}
-          onDisconnect={() => setDisconnectTarget("zalouser")}
-        />
-      </SlideOver>
+            <QrLoginWizard
+              pluginId={qr.id}
+              displayName={qr.displayName}
+              onEnable={handleConfigPatch}
+              onOpenShell={onOpenShell}
+              onClose={() => setActivePanel(null)}
+              configPath={getPlugin(qr.id)?.configPath}
+            />
+          </SlideOver>
+          <SlideOver
+            open={activePanel === `${qr.id}-manage`}
+            onClose={() => setActivePanel(null)}
+            title={qr.displayName}
+            description={`Your agent's ${qr.displayName} connection`}
+          >
+            <ManagePanel
+              pluginId={qr.id}
+              displayName={qr.displayName}
+              isVerified={!!verified[qr.id]}
+              showShellCommand
+              onOpenShell={() => { setActivePanel(null); onOpenShell?.(); }}
+              onDisconnect={() => setDisconnectTarget(qr.id)}
+            />
+          </SlideOver>
+        </React.Fragment>
+      ))}
 
       {/* Token-based plugin wizards (Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
       {wizardPluginIds
@@ -910,7 +759,6 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
         .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
         .map((id) => {
           const meta = wizardPlugins[id].meta!;
-          const isVerified = verified[id];
           return (
             <SlideOver
               key={`${id}-manage`}
@@ -919,101 +767,42 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
               title={meta.displayName}
               description={`Your agent's ${meta.displayName} connection`}
             >
-              <div className="space-y-4">
-                <div className="glass-card p-4 space-y-2">
-                  <div className="flex items-center gap-2">
-                    <span className={`w-2 h-2 rounded-full ${isVerified ? "bg-[var(--primary)]" : "bg-amber-400"}`} />
-                    <span className="text-sm font-medium text-foreground">
-                      {isVerified ? "Connected" : "Pending verification"}
-                    </span>
-                  </div>
-                  {!isVerified && (
-                    <p className="text-xs text-text-tertiary">
-                      The connection may still be starting up, or the credentials may need to be updated.
-                    </p>
-                  )}
-                </div>
-                <button
-                  onClick={() => { setActivePanel(id); }}
-                  className="w-full px-4 py-2 rounded-lg text-sm font-medium text-foreground border border-[var(--border)] hover:bg-[var(--surface-low)] transition-colors"
-                >
-                  Reconfigure
-                </button>
-                <button
-                  onClick={() => setDisconnectTarget(id)}
-                  className="w-full px-4 py-2 rounded-lg text-sm font-medium text-[var(--error)] border border-[var(--error)]/20 hover:bg-[var(--error)]/5 transition-colors"
-                >
-                  Disconnect {meta.displayName}
-                </button>
-              </div>
+              <ManagePanel
+                pluginId={id}
+                displayName={meta.displayName}
+                isVerified={!!verified[id]}
+                onReconfigure={() => setActivePanel(id)}
+                onDisconnect={() => setDisconnectTarget(id)}
+              />
             </SlideOver>
           );
         })}
 
-      {/* TTS Panel */}
-      <SlideOver
-        open={activePanel === "tts"}
-        onClose={() => setActivePanel(null)}
-        title="Voice (TTS)"
-        description="Configure your agent's speaking voice"
-      >
-        <TtsPanel
-          currentSpeaker={integrations?.voice?.speaker}
-          currentFormat={integrations?.voice?.format}
-          onSave={handleConfigPatch}
+      {/* Built-in capability panels */}
+      {([
+        { id: "tts", title: "Voice (TTS)", description: "Configure your agent's speaking voice",
+          render: () => <TtsPanel currentSpeaker={integrations?.voice?.speaker} currentFormat={integrations?.voice?.format} onSave={handleConfigPatch} onClose={() => setActivePanel(null)} /> },
+        { id: "stt", title: "Speech Recognition", description: "Audio transcription capabilities",
+          render: () => <SttPanel onClose={() => setActivePanel(null)} /> },
+        { id: "vision", title: "Vision", description: "Image understanding capabilities",
+          render: () => <VisionPanel onClose={() => setActivePanel(null)} /> },
+        { id: "images", title: "Image Generation", description: "Text-to-image and image editing",
+          render: () => <ImagesPanel onClose={() => setActivePanel(null)} /> },
+        { id: "video", title: "Video Generation", description: "Text, image, and audio to video",
+          render: () => <VideoPanel onClose={() => setActivePanel(null)} /> },
+        { id: "3d", title: "3D Generation", description: "Image to 3D model generation",
+          render: () => <ThreeDPanel onClose={() => setActivePanel(null)} /> },
+      ] as const).map((panel) => (
+        <SlideOver
+          key={panel.id}
+          open={activePanel === panel.id}
           onClose={() => setActivePanel(null)}
-        />
-      </SlideOver>
-
-      {/* STT Panel */}
-      <SlideOver
-        open={activePanel === "stt"}
-        onClose={() => setActivePanel(null)}
-        title="Speech Recognition"
-        description="Audio transcription capabilities"
-      >
-        <SttPanel onClose={() => setActivePanel(null)} />
-      </SlideOver>
-
-      {/* Vision Panel */}
-      <SlideOver
-        open={activePanel === "vision"}
-        onClose={() => setActivePanel(null)}
-        title="Vision"
-        description="Image understanding capabilities"
-      >
-        <VisionPanel onClose={() => setActivePanel(null)} />
-      </SlideOver>
-
-      {/* Images Panel */}
-      <SlideOver
-        open={activePanel === "images"}
-        onClose={() => setActivePanel(null)}
-        title="Image Generation"
-        description="Text-to-image and image editing"
-      >
-        <ImagesPanel onClose={() => setActivePanel(null)} />
-      </SlideOver>
-
-      {/* Video Panel */}
-      <SlideOver
-        open={activePanel === "video"}
-        onClose={() => setActivePanel(null)}
-        title="Video Generation"
-        description="Text, image, and audio to video"
-      >
-        <VideoPanel onClose={() => setActivePanel(null)} />
-      </SlideOver>
-
-      {/* 3D Panel */}
-      <SlideOver
-        open={activePanel === "3d"}
-        onClose={() => setActivePanel(null)}
-        title="3D Generation"
-        description="Image to 3D model generation"
-      >
-        <ThreeDPanel onClose={() => setActivePanel(null)} />
-      </SlideOver>
+          title={panel.title}
+          description={panel.description}
+        >
+          {panel.render()}
+        </SlideOver>
+      ))}
 
       {/* Generic Plugin Config Panel */}
       {(() => {
