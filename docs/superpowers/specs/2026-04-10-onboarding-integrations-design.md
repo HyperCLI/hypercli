@@ -15,7 +15,7 @@ The current right sidebar (`AgentView`, 3816 lines) displays mock data with deco
 Two new components that work together:
 
 1. **Readiness Sidebar** — replaces the right-panel AgentView with a live capability status view. Always visible, shows what's configured and what's missing with contextual recommendations.
-2. **Directory Modal** — a full-screen overlay for browsing, understanding, and connecting integrations. Triggered from the sidebar. Inspired by modern modal-and-linear-flow patterns for integration management.
+2. **Directory Modal** — a full-screen overlay (inspired by Claude's Directory) for browsing, understanding, and connecting integrations. Triggered from the sidebar.
 
 The existing Integrations tab is removed. The sidebar is the status view; the modal is the action view.
 
