@@ -131,6 +131,7 @@ export interface HyperAgentEntitlements {
   pooledTpd: number;
   slotInventory: Record<string, { granted: number; used: number; available: number }>;
   activeEntitlementCount: number;
+  billingResetAt: Date | null;
 }
 
 export interface HyperAgentSubscriptionSummary {
@@ -141,6 +142,7 @@ export interface HyperAgentSubscriptionSummary {
   pooledRpmLimit: number;
   pooledTpd: number;
   slotInventory: Record<string, { granted: number; used: number; available: number }>;
+  billingResetAt: Date | null;
   activeSubscriptionCount: number;
   activeEntitlementCount: number;
   entitlements: HyperAgentEntitlements;
@@ -240,6 +242,7 @@ function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
     pooledTpd: payload?.pooled_tpd || data?.pooled_tpd || 0,
     slotInventory: payload?.slot_inventory || data?.slot_inventory || {},
     activeEntitlementCount: payload?.active_entitlement_count || data?.active_entitlement_count || data?.active_subscription_count || 0,
+    billingResetAt: payload?.billing_reset_at ? new Date(String(payload.billing_reset_at).replace('Z', '+00:00')) : null,
   };
 }
 
@@ -252,6 +255,7 @@ function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptio
     pooledRpmLimit: data.pooled_rpm_limit || 0,
     pooledTpd: data.pooled_tpd || 0,
     slotInventory: data.slot_inventory || {},
+    billingResetAt: data.billing_reset_at ? new Date(String(data.billing_reset_at).replace('Z', '+00:00')) : null,
     activeSubscriptionCount: data.active_subscription_count || 0,
     activeEntitlementCount: data.active_entitlement_count || data.active_subscription_count || 0,
     entitlements: hyperAgentEntitlementsFromDict(data),

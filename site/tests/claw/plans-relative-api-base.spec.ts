@@ -7,8 +7,9 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 const TEST_BASE_URL = process.env.TEST_BASE_URL ?? "http://127.0.0.1:48651";
 
-test("plans page uses same-origin agents API when the frontend base is relative", async ({ page }) => {
+test("plans page uses a valid agents API host when the frontend base is relative", async ({ page }) => {
   let wrongHostHits = 0;
+  const allowedOrigins = new Set([TEST_BASE_URL, "https://api.dev.hypercli.com"]);
 
   await page.context().addCookies([
     {
@@ -31,8 +32,12 @@ test("plans page uses same-origin agents API when the frontend base is relative"
     await route.abort();
   });
 
-  await page.route(`${TEST_BASE_URL}/agents/**`, async (route) => {
+  await page.route("**/agents/**", async (route) => {
     const url = new URL(route.request().url());
+    if (!allowedOrigins.has(url.origin)) {
+      await route.abort();
+      return;
+    }
     const pathName = url.pathname;
 
     if (pathName.endsWith("/agents/plans/current")) {

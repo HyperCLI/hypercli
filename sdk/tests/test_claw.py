@@ -77,6 +77,7 @@ class TestHyperAgentDataclasses:
                 "pooled_tpm_limit": 2000,
                 "pooled_rpm_limit": 20,
                 "pooled_tpd": 2000000,
+                "billing_reset_at": "2026-04-15T00:00:00Z",
                 "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                 "active_subscription_count": 1,
                 "active_entitlement_count": 1,
@@ -85,6 +86,7 @@ class TestHyperAgentDataclasses:
                     "pooled_tpm_limit": 2000,
                     "pooled_rpm_limit": 20,
                     "pooled_tpd": 2000000,
+                    "billing_reset_at": "2026-04-15T00:00:00Z",
                     "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                     "active_entitlement_count": 1,
                 },
@@ -107,6 +109,8 @@ class TestHyperAgentDataclasses:
         assert summary.active_subscription_count == 1
         assert isinstance(summary.entitlements, HyperAgentEntitlements)
         assert summary.entitlements.active_entitlement_count == 1
+        assert summary.billing_reset_at is not None
+        assert summary.entitlements.billing_reset_at is not None
         assert summary.active_subscriptions[0].plan_id == "large"
 
 
@@ -223,6 +227,7 @@ class TestHyperAgentClient:
             "pooled_tpm_limit": 2000,
             "pooled_rpm_limit": 20,
             "pooled_tpd": 2000000,
+            "billing_reset_at": "2026-04-15T00:00:00Z",
             "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
             "active_subscription_count": 1,
             "active_entitlement_count": 1,
@@ -231,6 +236,7 @@ class TestHyperAgentClient:
                 "pooled_tpm_limit": 2000,
                 "pooled_rpm_limit": 20,
                 "pooled_tpd": 2000000,
+                "billing_reset_at": "2026-04-15T00:00:00Z",
                 "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                 "active_entitlement_count": 1,
             },
@@ -244,6 +250,7 @@ class TestHyperAgentClient:
         summary = agent.entitlements()
 
         assert isinstance(summary, HyperAgentEntitlementsSummary)
+        assert summary.billing_reset_at is not None
         assert summary.entitlements.slot_inventory["large"]["available"] == 1
         mock_http._session.get.assert_called_with(
             "https://api.hypercli.com/agents/entitlements",

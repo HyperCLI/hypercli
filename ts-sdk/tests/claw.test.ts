@@ -175,6 +175,7 @@ describe('HyperAgent API', () => {
           pooled_tpm_limit: 2000,
           pooled_rpm_limit: 20,
           pooled_tpd: 2000000,
+          billing_reset_at: '2026-04-15T00:00:00Z',
           slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
           active_subscription_count: 1,
           active_subscriptions: [],
@@ -192,6 +193,7 @@ describe('HyperAgent API', () => {
       const summary = await agent.subscriptionSummary();
       expect(summary.currentSubscriptionId).toBe('sub-1');
       expect(summary.currentEntitlementId).toBe('sub-1');
+      expect(summary.billingResetAt?.toISOString()).toBe('2026-04-15T00:00:00.000Z');
       expect(summary.slotInventory.large.available).toBe(1);
       expect(summary.entitlements.activeEntitlementCount).toBe(1);
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/summary');
@@ -217,6 +219,7 @@ describe('HyperAgent API', () => {
           pooled_tpm_limit: 2000,
           pooled_rpm_limit: 20,
           pooled_tpd: 2000000,
+          billing_reset_at: '2026-04-15T00:00:00Z',
           slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
           active_subscription_count: 1,
           active_entitlement_count: 1,
@@ -225,6 +228,7 @@ describe('HyperAgent API', () => {
             pooled_tpm_limit: 2000,
             pooled_rpm_limit: 20,
             pooled_tpd: 2000000,
+            billing_reset_at: '2026-04-15T00:00:00Z',
             slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
             active_entitlement_count: 1,
           },
@@ -242,6 +246,7 @@ describe('HyperAgent API', () => {
     try {
       const summary = await agent.entitlements();
       expect(summary.currentEntitlementId).toBe('sub-1');
+      expect(summary.entitlements.billingResetAt?.toISOString()).toBe('2026-04-15T00:00:00.000Z');
       expect(summary.entitlements.slotInventory.large.granted).toBe(2);
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/entitlements');
     } finally {

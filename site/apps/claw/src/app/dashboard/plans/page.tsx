@@ -156,6 +156,15 @@ export default function PlansPage() {
     summary?.activeEntitlementCount ??
     summary?.activeSubscriptionCount ??
     0;
+  const billingResetAt = useMemo(() => {
+    const explicit = summary?.entitlements?.billingResetAt ?? summary?.billingResetAt ?? null;
+    if (explicit) return explicit;
+    const recurring = [...billingSubscriptions, ...(summary?.activeSubscriptions ?? [])]
+      .filter((subscription) => subscription.provider.toLowerCase() === "stripe" && subscription.expiresAt)
+      .map((subscription) => subscription.expiresAt as Date)
+      .sort((a, b) => a.getTime() - b.getTime());
+    return recurring[0] ?? null;
+  }, [billingSubscriptions, summary?.activeSubscriptions, summary?.billingResetAt, summary?.entitlements?.billingResetAt]);
 
   const handleCancelSubscription = async (subscription: HyperAgentSubscription) => {
     if (!subscription.canCancel || subscription.cancelAtPeriodEnd) return;
@@ -233,7 +242,7 @@ export default function PlansPage() {
       </div>
 
       {(summary || currentPlan) && (
-        <div className="grid gap-4 md:grid-cols-3 mb-8">
+        <div className="grid gap-4 md:grid-cols-4 mb-8">
           <div className="glass-card p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Pooled Inference</p>
             <p className="text-2xl font-semibold text-foreground">{formatTokens(pooledTpd)}</p>
@@ -244,6 +253,15 @@ export default function PlansPage() {
             <p className="text-2xl font-semibold text-foreground">{activeEntitlementCount}</p>
             <p className="text-sm text-text-secondary mt-1">
               {currentPlan?.name ? `Current anchor: ${currentPlan.name}` : "No paid entitlements yet"}
+            </p>
+          </div>
+          <div className="glass-card p-5">
+            <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Billing Reset</p>
+            <p className="text-2xl font-semibold text-foreground">
+              {billingResetAt ? billingResetAt.toLocaleDateString() : "N/A"}
+            </p>
+            <p className="text-sm text-text-secondary mt-1">
+              {billingResetAt ? "Anchored to the earliest active recurring subscription." : "No recurring subscription anchor yet"}
             </p>
           </div>
           <div className="glass-card p-5">

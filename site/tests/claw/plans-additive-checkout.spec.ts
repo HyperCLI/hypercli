@@ -56,6 +56,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
           pooled_tpm_limit: 173611,
           pooled_rpm_limit: 3472,
           pooled_tpd: 250000000,
+          billing_reset_at: "2026-04-15T00:00:00Z",
           slot_inventory: {
             large: { granted: 1, used: 0, available: 1 },
           },
@@ -66,6 +67,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
             pooled_tpm_limit: 173611,
             pooled_rpm_limit: 3472,
             pooled_tpd: 250000000,
+            billing_reset_at: "2026-04-15T00:00:00Z",
             slot_inventory: {
               large: { granted: 1, used: 0, available: 1 },
             },
@@ -80,6 +82,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
               provider: "STRIPE",
               status: "ACTIVE",
               quantity: 1,
+              expires_at: "2026-04-15T00:00:00Z",
               slot_grants: { small: 0, medium: 0, large: 1 },
               meta: { bundle: { large: 1 } },
             },
@@ -98,6 +101,9 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
 
   await expect(page.getByRole("heading", { name: /^plans$/i })).toBeVisible();
   await expect(page.getByText(/Inference pools across all active entitlements/i)).toBeVisible();
+  const billingResetCard = page.locator(".glass-card").filter({ has: page.getByText("Billing Reset") }).first();
+  await expect(billingResetCard).toContainText("2026");
+  await expect(billingResetCard).not.toContainText("N/A");
   await expect(page.getByText(/0 \/ 1 used/i)).toBeVisible();
 
   const ownedCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
@@ -155,6 +161,7 @@ test("plans page displays cumulative pooled inference across mixed entitlements"
           pooled_tpm_limit: 208333,
           pooled_rpm_limit: 4200,
           pooled_tpd: 300000000,
+          billing_reset_at: "2026-04-12T00:00:00Z",
           slot_inventory: {
             large: { granted: 1, used: 1, available: 0 },
             small: { granted: 1, used: 0, available: 1 },
@@ -166,6 +173,7 @@ test("plans page displays cumulative pooled inference across mixed entitlements"
             pooled_tpm_limit: 208333,
             pooled_rpm_limit: 4200,
             pooled_tpd: 300000000,
+            billing_reset_at: "2026-04-12T00:00:00Z",
             slot_inventory: {
               large: { granted: 1, used: 1, available: 0 },
               small: { granted: 1, used: 0, available: 1 },

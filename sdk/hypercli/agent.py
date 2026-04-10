@@ -144,6 +144,7 @@ class HyperAgentEntitlements:
     pooled_tpd: int
     slot_inventory: dict[str, Any]
     active_entitlement_count: int
+    billing_reset_at: datetime | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
@@ -161,6 +162,9 @@ class HyperAgentEntitlements:
                 )
                 or 0
             ),
+            billing_reset_at=datetime.fromisoformat(str(payload.get("billing_reset_at")).replace("Z", "+00:00"))
+            if payload.get("billing_reset_at")
+            else None,
         )
 
 
@@ -175,6 +179,7 @@ class HyperAgentSubscriptionSummary:
     pooled_rpm_limit: int
     pooled_tpd: int
     slot_inventory: dict[str, Any]
+    billing_reset_at: datetime | None
     active_subscription_count: int
     active_entitlement_count: int
     entitlements: HyperAgentEntitlements
@@ -192,6 +197,9 @@ class HyperAgentSubscriptionSummary:
             pooled_rpm_limit=int(data.get("pooled_rpm_limit", 0) or 0),
             pooled_tpd=int(data.get("pooled_tpd", 0) or 0),
             slot_inventory=data.get("slot_inventory") or {},
+            billing_reset_at=datetime.fromisoformat(str(data.get("billing_reset_at")).replace("Z", "+00:00"))
+            if data.get("billing_reset_at")
+            else None,
             active_subscription_count=int(data.get("active_subscription_count", 0) or 0),
             active_entitlement_count=int(data.get("active_entitlement_count", data.get("active_subscription_count", 0)) or 0),
             entitlements=HyperAgentEntitlements.from_dict(data),
