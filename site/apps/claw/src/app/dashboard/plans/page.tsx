@@ -9,6 +9,7 @@ import type {
 import { Check, X } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
+import { clawFetch } from "@/lib/api";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { formatTokens } from "@/lib/format";
@@ -136,8 +137,7 @@ export default function PlansPage() {
     setCancelError(null);
     try {
       const token = await getToken();
-      const agentClient = createHyperAgentClient(token);
-      await agentClient.cancelSubscription(cancelTarget.id);
+      await clawFetch(`/subscriptions/${cancelTarget.id}/cancel`, token, { method: "POST" });
       setCancelTarget(null);
       await refreshPlan();
     } catch (err) {
