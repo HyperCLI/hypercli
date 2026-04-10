@@ -7,9 +7,13 @@ import { MOCK_PROVIDERS } from "../agentViewMockData";
 
 interface ProvidersModuleProps {
   variant: StyleVariant;
+  providers?: typeof MOCK_PROVIDERS | null;
 }
 
-export function ProvidersModule({ variant }: ProvidersModuleProps) {
+export function ProvidersModule({ variant, providers: providersProp }: ProvidersModuleProps) {
+  const providers = providersProp ?? MOCK_PROVIDERS;
+  const isMock = !providersProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -17,15 +21,15 @@ export function ProvidersModule({ variant }: ProvidersModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.28 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
         Model Providers
       </div>
       {variant === "v1" ? (
         <div className="space-y-2">
-          {MOCK_PROVIDERS.map((prov, idx) => (
+          {providers.map((prov, idx) => (
             <motion.div
               key={prov.id}
               initial={{ opacity: 0, x: -12 }}
@@ -58,7 +62,7 @@ export function ProvidersModule({ variant }: ProvidersModuleProps) {
         </div>
       ) : variant === "v2" ? (
         <div className="space-y-1">
-          {MOCK_PROVIDERS.flatMap((prov) =>
+          {providers.flatMap((prov) =>
             prov.models.map((m) => ({
               model: m,
               provider: prov.name,
@@ -97,7 +101,7 @@ export function ProvidersModule({ variant }: ProvidersModuleProps) {
         </div>
       ) : (
         <div className="flex flex-wrap gap-1">
-          {MOCK_PROVIDERS.flatMap((p) => p.models).map((m, idx) => (
+          {providers.flatMap((p) => p.models).map((m, idx) => (
             <motion.span
               key={m}
               initial={{ scale: 0.85, opacity: 0 }}

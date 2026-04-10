@@ -1,20 +1,33 @@
 "use client";
 
 import { motion } from "framer-motion";
-import { Check } from "lucide-react";
+import { Check, type LucideIcon } from "lucide-react";
 import type { StyleVariant } from "../agentViewTypes";
 import { CAPABILITY_SEGMENTS } from "../agentViewMockData";
 
-export function CompletenessRingModule({ variant }: { variant: StyleVariant }) {
-  const complete = CAPABILITY_SEGMENTS.filter((s) => s.complete).length;
-  const total = CAPABILITY_SEGMENTS.length;
+export interface CapabilitySegment {
+  label: string;
+  complete: boolean;
+  icon: LucideIcon;
+}
+
+interface CompletenessRingModuleProps {
+  variant: StyleVariant;
+  segments?: CapabilitySegment[] | null;
+}
+
+export function CompletenessRingModule({ variant, segments: segmentsProp }: CompletenessRingModuleProps) {
+  const segments = segmentsProp ?? CAPABILITY_SEGMENTS;
+  const isMock = !segmentsProp;
+  const complete = segments.filter((s) => s.complete).length;
+  const total = segments.length;
   const pct = (complete / total) * 100;
 
   if (variant === "v1") {
     // v1: Circular ring with segments
     return (
       <motion.div initial={{ opacity: 0, scale: 0.9 }} animate={{ opacity: 1, scale: 1 }} className="relative rounded-lg border border-border p-3">
-        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+        {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
         <div className="flex items-center gap-3">
           <div className="relative w-14 h-14 shrink-0">
             <svg viewBox="0 0 36 36" className="w-14 h-14 -rotate-90">
@@ -30,7 +43,7 @@ export function CompletenessRingModule({ variant }: { variant: StyleVariant }) {
           <div className="flex-1 min-w-0">
             <div className="text-xs font-medium text-foreground mb-1">Agent Readiness</div>
             <div className="flex flex-wrap gap-1">
-              {CAPABILITY_SEGMENTS.map((seg, idx) => {
+              {segments.map((seg, idx) => {
                 const SegIcon = seg.icon;
                 return (
                   <motion.div key={idx} whileHover={{ scale: 1.15 }} title={seg.label}
@@ -50,7 +63,7 @@ export function CompletenessRingModule({ variant }: { variant: StyleVariant }) {
     // v2: Horizontal progress bar with labels
     return (
       <motion.div initial={{ opacity: 0, y: 8 }} animate={{ opacity: 1, y: 0 }} className="relative rounded-lg border border-border p-3 space-y-2">
-        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+        {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
         <div className="flex items-center justify-between">
           <span className="text-xs font-medium text-foreground">Readiness</span>
           <span className="text-[10px] font-mono text-[#38D39F]">{complete}/{total}</span>
@@ -60,7 +73,7 @@ export function CompletenessRingModule({ variant }: { variant: StyleVariant }) {
             transition={{ duration: 0.8, ease: "easeOut" }} />
         </div>
         <div className="grid grid-cols-4 gap-1">
-          {CAPABILITY_SEGMENTS.map((seg, idx) => {
+          {segments.map((seg, idx) => {
             const SegIcon = seg.icon;
             return (
               <motion.div key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }}

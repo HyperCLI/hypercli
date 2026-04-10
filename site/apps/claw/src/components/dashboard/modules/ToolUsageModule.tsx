@@ -4,18 +4,25 @@ import { motion } from "framer-motion";
 import type { StyleVariant } from "../agentViewTypes";
 import { TOOL_USAGE_STATS } from "../agentViewMockData";
 
-export function ToolUsageModule({ variant }: { variant: StyleVariant }) {
-  const maxCalls = Math.max(...TOOL_USAGE_STATS.map((t) => t.calls));
+interface ToolUsageModuleProps {
+  variant: StyleVariant;
+  stats?: typeof TOOL_USAGE_STATS | null;
+}
+
+export function ToolUsageModule({ variant, stats: statsProp }: ToolUsageModuleProps) {
+  const stats = statsProp ?? TOOL_USAGE_STATS;
+  const isMock = !statsProp;
+  const maxCalls = Math.max(...stats.map((t) => t.calls));
 
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.14 }}
       className="relative rounded-lg border border-border p-3 space-y-2">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Tool Usage</div>
       {variant === "v1" ? (
         // v1: Horizontal bars
         <div className="space-y-2">
-          {TOOL_USAGE_STATS.map((tool, idx) => {
+          {stats.map((tool, idx) => {
             const ToolIcon = tool.icon;
             return (
               <motion.div key={tool.name} initial={{ opacity: 0, x: -16 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + idx * 0.06 }}>
@@ -40,7 +47,7 @@ export function ToolUsageModule({ variant }: { variant: StyleVariant }) {
       ) : variant === "v2" ? (
         // v2: Mini vertical bar chart
         <div className="flex items-end gap-2 h-16 px-1">
-          {TOOL_USAGE_STATS.map((tool, idx) => {
+          {stats.map((tool, idx) => {
             const ToolIcon = tool.icon;
             const h = (tool.calls / maxCalls) * 100;
             return (
@@ -56,7 +63,7 @@ export function ToolUsageModule({ variant }: { variant: StyleVariant }) {
       ) : (
         // v3: Inline counts
         <div className="flex flex-wrap gap-1.5">
-          {TOOL_USAGE_STATS.map((tool, idx) => {
+          {stats.map((tool, idx) => {
             const ToolIcon = tool.icon;
             return (
               <motion.div key={tool.name} initial={{ scale: 0.85, opacity: 0 }} animate={{ scale: 1, opacity: 1 }}

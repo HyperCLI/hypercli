@@ -3,10 +3,17 @@
 import { useState, useCallback } from "react";
 import { motion } from "framer-motion";
 import { Brain } from "lucide-react";
+import type { AgentConfig } from "../agentViewTypes";
 import { MOCK_CONFIG } from "../agentViewMockData";
 
-export function ConfigModule() {
-  const [configTools, setConfigTools] = useState(MOCK_CONFIG.tools);
+interface ConfigModuleProps {
+  config?: AgentConfig | null;
+}
+
+export function ConfigModule({ config: configProp }: ConfigModuleProps) {
+  const source = configProp ?? MOCK_CONFIG;
+  const isMock = !configProp;
+  const [configTools, setConfigTools] = useState(source.tools);
 
   const toggleTool = useCallback((name: string) => {
     setConfigTools((prev) => prev.map((t) => t.name === name ? { ...t, enabled: !t.enabled } : t));
@@ -19,7 +26,7 @@ export function ConfigModule() {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.08 }}
       className="relative rounded-lg border border-border p-3 space-y-2.5"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Config</div>
 
       <motion.div
@@ -31,13 +38,13 @@ export function ConfigModule() {
         <motion.div animate={{ scale: [1, 1.12, 1] }} transition={{ repeat: Infinity, duration: 3, ease: "easeInOut" }}>
           <Brain className="w-3.5 h-3.5 text-[#38D39F]" />
         </motion.div>
-        <span className="text-xs font-mono text-foreground">{MOCK_CONFIG.model}</span>
+        <span className="text-xs font-mono text-foreground">{source.model}</span>
       </motion.div>
 
       <motion.div initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: 0.2 }}>
         <div className="text-[10px] text-text-muted mb-1">System prompt</div>
         <p className="text-[11px] text-text-secondary leading-relaxed line-clamp-3">
-          {MOCK_CONFIG.systemPrompt}
+          {source.systemPrompt}
         </p>
       </motion.div>
 

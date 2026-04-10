@@ -155,6 +155,9 @@ export interface AgentViewProps {
   conversationThreads?: ConversationThread[];
   selectedConversationThreadId?: string | null;
   agentStatus?: AgentStatus | null;
+  agentConfig?: AgentConfig | null;
+  agentSessions?: AgentSession[] | null;
+  agentConnections?: Connection[] | null;
 }
 
 export interface ConnectionDetailProps {

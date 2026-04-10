@@ -5,11 +5,19 @@ import { Sparkles } from "lucide-react";
 import type { StyleVariant } from "../agentViewTypes";
 import { MODEL_CAPABILITIES } from "../agentViewMockData";
 
-export function ModelCapsModule({ variant }: { variant: StyleVariant }) {
+interface ModelCapsModuleProps {
+  variant: StyleVariant;
+  capabilities?: typeof MODEL_CAPABILITIES | null;
+}
+
+export function ModelCapsModule({ variant, capabilities: capabilitiesProp }: ModelCapsModuleProps) {
+  const caps = capabilitiesProp ?? MODEL_CAPABILITIES;
+  const isMock = !capabilitiesProp;
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.12 }}
       className="relative rounded-lg border border-border p-3 space-y-2">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="flex items-center gap-1.5">
         <motion.div animate={{ rotate: [0, 5, -5, 0] }} transition={{ repeat: Infinity, duration: 4 }}>
           <Sparkles className="w-3.5 h-3.5 text-[#38D39F]" />
@@ -19,7 +27,7 @@ export function ModelCapsModule({ variant }: { variant: StyleVariant }) {
       {variant === "v1" ? (
         // v1: Grid of capability badges
         <div className="grid grid-cols-2 gap-1.5">
-          {MODEL_CAPABILITIES.map((cap, idx) => {
+          {caps.map((cap, idx) => {
             const CapIcon = cap.icon;
             return (
               <motion.div key={idx} initial={{ opacity: 0, scale: 0.88 }} animate={{ opacity: 1, scale: 1 }}
@@ -40,7 +48,7 @@ export function ModelCapsModule({ variant }: { variant: StyleVariant }) {
       ) : variant === "v2" ? (
         // v2: Horizontal chip row
         <div className="flex flex-wrap gap-1">
-          {MODEL_CAPABILITIES.map((cap, idx) => {
+          {caps.map((cap, idx) => {
             const CapIcon = cap.icon;
             return (
               <motion.div key={idx} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }}
@@ -57,7 +65,7 @@ export function ModelCapsModule({ variant }: { variant: StyleVariant }) {
       ) : (
         // v3: Compact list
         <div className="space-y-0.5">
-          {MODEL_CAPABILITIES.map((cap, idx) => {
+          {caps.map((cap, idx) => {
             const CapIcon = cap.icon;
             return (
               <motion.div key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.03 }}

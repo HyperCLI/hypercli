@@ -5,16 +5,23 @@ import { motion } from "framer-motion";
 import type { StyleVariant } from "../agentViewTypes";
 import { MOCK_NUDGES } from "../agentViewMockData";
 
-export function NudgesModule({ variant }: { variant: StyleVariant }) {
+interface NudgesModuleProps {
+  variant: StyleVariant;
+  nudges?: typeof MOCK_NUDGES | null;
+}
+
+export function NudgesModule({ variant, nudges: nudgesProp }: NudgesModuleProps) {
+  const nudges = nudgesProp ?? MOCK_NUDGES;
+  const isMock = !nudgesProp;
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
 
-  const visibleNudges = MOCK_NUDGES.filter((n) => !dismissedNudges.has(n.id));
+  const visibleNudges = nudges.filter((n) => !dismissedNudges.has(n.id));
 
   if (visibleNudges.length === 0) return null;
 
   return (
     <div className="relative space-y-1.5 rounded-lg border border-border p-3">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       {visibleNudges.map((nudge, idx) => {
         const NudgeIcon = nudge.icon;
         if (variant === "v1") {

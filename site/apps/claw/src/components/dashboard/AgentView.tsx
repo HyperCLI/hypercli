@@ -66,6 +66,7 @@ import type { ConversationThread } from "./ConversationsSidebar";
 import {
   CATEGORY_ICONS, ACTIVITY_TYPE_COLORS,
   MOCK_CONNECTIONS, MOCK_SKILLS, MOCK_ACTIVITY, MOCK_STATUS,
+  MOCK_CONFIG, MOCK_SESSIONS,
   MOCK_CRONS, MOCK_TOOL_CALLS,
   ONBOARDING_STEPS,
   OVERVIEW_MODULE_KEYS,
@@ -141,8 +142,15 @@ export function AgentView({
   showRecentToolCalls = true,
   showSubAgents = true,
   agentStatus: agentStatusProp,
+  agentConfig: agentConfigProp,
+  agentSessions: agentSessionsProp,
+  agentConnections: agentConnectionsProp,
 }: AgentViewProps) {
   const status = agentStatusProp ?? MOCK_STATUS;
+  const config = agentConfigProp ?? MOCK_CONFIG;
+  const sessions = agentSessionsProp ?? MOCK_SESSIONS;
+  const connections = agentConnectionsProp ?? MOCK_CONNECTIONS;
+  const isMockData = !agentConfigProp;
   const [internalTab, setInternalTab] = useState<TabId>(controlledTab ?? "overview");
   const activeTab = controlledTab ?? internalTab;
 
@@ -824,7 +832,7 @@ export function AgentView({
               >
                 <p className="text-sm font-medium text-foreground">No agent selected</p>
                 <p className="text-[11px] text-text-muted leading-relaxed max-w-[200px]">
-                  Select a conversation with an agent or create a new one to get started
+                  Select an agent or create a new one to get started
                 </p>
               </motion.div>
 

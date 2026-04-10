@@ -7,9 +7,13 @@ import { PERMISSION_MAP } from "../agentViewMockData";
 
 interface PermissionsModuleProps {
   variant: StyleVariant;
+  permissions?: typeof PERMISSION_MAP | null;
 }
 
-export function PermissionsModule({ variant }: PermissionsModuleProps) {
+export function PermissionsModule({ variant, permissions: permissionsProp }: PermissionsModuleProps) {
+  const permissions = permissionsProp ?? PERMISSION_MAP;
+  const isMock = !permissionsProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -17,9 +21,9 @@ export function PermissionsModule({ variant }: PermissionsModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.24 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="flex items-center gap-1.5">
         <motion.div
           animate={{ scale: [1, 1.08, 1] }}
@@ -39,7 +43,7 @@ export function PermissionsModule({ variant }: PermissionsModuleProps) {
             <span>Access</span>
             <span>Level</span>
           </div>
-          {PERMISSION_MAP.map((perm, idx) => {
+          {permissions.map((perm, idx) => {
             const PermIcon = perm.icon;
             return (
               <motion.div
@@ -66,7 +70,7 @@ export function PermissionsModule({ variant }: PermissionsModuleProps) {
       ) : variant === "v2" ? (
         // v2: Icon badges with level colors
         <div className="flex flex-wrap gap-1.5">
-          {PERMISSION_MAP.map((perm, idx) => {
+          {permissions.map((perm, idx) => {
             const PermIcon = perm.icon;
             const levelColor =
               perm.level === "full"
@@ -105,7 +109,7 @@ export function PermissionsModule({ variant }: PermissionsModuleProps) {
       ) : (
         // v3: Compact rows with color dots
         <div className="space-y-0.5">
-          {PERMISSION_MAP.map((perm, idx) => {
+          {permissions.map((perm, idx) => {
             const PermIcon = perm.icon;
             return (
               <motion.div

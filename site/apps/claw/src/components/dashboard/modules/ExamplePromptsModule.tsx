@@ -5,11 +5,19 @@ import { ChevronRight, Lightbulb } from "lucide-react";
 import type { StyleVariant } from "../agentViewTypes";
 import { EXAMPLE_PROMPTS_BY_CAPABILITY } from "../agentViewMockData";
 
-export function ExamplePromptsModule({ variant }: { variant: StyleVariant }) {
+interface ExamplePromptsModuleProps {
+  variant: StyleVariant;
+  prompts?: typeof EXAMPLE_PROMPTS_BY_CAPABILITY | null;
+}
+
+export function ExamplePromptsModule({ variant, prompts: promptsProp }: ExamplePromptsModuleProps) {
+  const prompts = promptsProp ?? EXAMPLE_PROMPTS_BY_CAPABILITY;
+  const isMock = !promptsProp;
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.18 }}
       className="relative rounded-lg border border-border p-3 space-y-2">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="flex items-center gap-1.5">
         <motion.div animate={{ y: [0, -2, 0] }} transition={{ repeat: Infinity, duration: 2 }}>
           <Lightbulb className="w-3.5 h-3.5 text-[#f0c56c]" />
@@ -19,7 +27,7 @@ export function ExamplePromptsModule({ variant }: { variant: StyleVariant }) {
       {variant === "v1" ? (
         // v1: Grouped by capability
         <div className="space-y-2.5">
-          {EXAMPLE_PROMPTS_BY_CAPABILITY.slice(0, 3).map((group, gIdx) => {
+          {prompts.slice(0, 3).map((group, gIdx) => {
             const GIcon = group.icon;
             return (
               <motion.div key={gIdx} initial={{ opacity: 0, x: -12 }} animate={{ opacity: 1, x: 0 }} transition={{ delay: 0.15 + gIdx * 0.08 }}>
@@ -40,7 +48,7 @@ export function ExamplePromptsModule({ variant }: { variant: StyleVariant }) {
       ) : variant === "v2" ? (
         // v2: Flat card list, one prompt each
         <div className="space-y-1">
-          {EXAMPLE_PROMPTS_BY_CAPABILITY.map((group, idx) => {
+          {prompts.map((group, idx) => {
             const GIcon = group.icon;
             return (
               <motion.button key={idx} initial={{ opacity: 0, scale: 0.95 }} animate={{ opacity: 1, scale: 1 }} transition={{ delay: 0.12 + idx * 0.05 }}
@@ -61,7 +69,7 @@ export function ExamplePromptsModule({ variant }: { variant: StyleVariant }) {
       ) : (
         // v3: Random prompt carousel (just show 3 random prompts)
         <div className="space-y-1">
-          {EXAMPLE_PROMPTS_BY_CAPABILITY.slice(0, 3).map((group, idx) => (
+          {prompts.slice(0, 3).map((group, idx) => (
             <motion.div key={idx} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.05 }}
               className="flex items-center gap-2 px-1.5 py-1 rounded hover:bg-surface-low transition-colors">
               <motion.span className="inline-block w-1.5 h-1.5 rounded-full bg-[#f0c56c]"

@@ -8,9 +8,13 @@ import { formatBytes } from "../agentViewUtils";
 
 interface WorkspaceFilesModuleProps {
   variant: StyleVariant;
+  files?: typeof MOCK_WORKSPACE_FILES | null;
 }
 
-export function WorkspaceFilesModule({ variant }: WorkspaceFilesModuleProps) {
+export function WorkspaceFilesModule({ variant, files: filesProp }: WorkspaceFilesModuleProps) {
+  const files = filesProp ?? MOCK_WORKSPACE_FILES;
+  const isMock = !filesProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -18,15 +22,15 @@ export function WorkspaceFilesModule({ variant }: WorkspaceFilesModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.36 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
         Workspace
       </div>
       {variant === "v1" ? (
         <div className="space-y-0.5">
-          {MOCK_WORKSPACE_FILES.map((f, idx) => (
+          {files.map((f, idx) => (
             <motion.div
               key={f.name}
               initial={{ opacity: 0, x: -8 }}
@@ -53,7 +57,7 @@ export function WorkspaceFilesModule({ variant }: WorkspaceFilesModuleProps) {
         </div>
       ) : variant === "v2" ? (
         <div className="flex flex-wrap gap-1">
-          {MOCK_WORKSPACE_FILES.map((f, idx) => (
+          {files.map((f, idx) => (
             <motion.span
               key={f.name}
               initial={{ scale: 0.85, opacity: 0 }}
@@ -77,9 +81,9 @@ export function WorkspaceFilesModule({ variant }: WorkspaceFilesModuleProps) {
           animate={{ opacity: 1 }}
           className="text-[10px] font-mono text-text-muted"
         >
-          {MOCK_WORKSPACE_FILES.filter((f) => f.type === "file").length} files
+          {files.filter((f) => f.type === "file").length} files
           ·{" "}
-          {MOCK_WORKSPACE_FILES.filter((f) => f.type === "directory").length}{" "}
+          {files.filter((f) => f.type === "directory").length}{" "}
           dirs
         </motion.div>
       )}
