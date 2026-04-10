@@ -874,9 +874,10 @@ export default function AgentsPage() {
     try {
       const token = await getToken();
       const data = await createAgentClient(token).list();
-      const items = (data.items || []).map(sdkAgentToPageAgent);
+      const rawItems = Array.isArray(data) ? data : ((data as any).items || []);
+      const items = rawItems.map(sdkAgentToPageAgent);
       setAgents(items);
-      setBudget((data.budget as AgentBudget | undefined) || null);
+      setBudget(((data as any).budget as AgentBudget | undefined) || null);
       setClusterUnavailable(false);
       const currentId = selectedAgentIdRef.current;
       if (!currentId && items.length > 0) {
