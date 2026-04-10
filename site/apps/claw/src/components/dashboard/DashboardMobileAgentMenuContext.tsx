@@ -2,7 +2,7 @@
 
 import { createContext, useContext, useMemo, useState, type ReactNode } from "react";
 
-export type AgentMainTab = "chat" | "logs" | "shell" | "files" | "workspace" | "openclaw" | "integrations" | "settings";
+export type AgentMainTab = "chat" | "logs" | "shell" | "files" | "workspace" | "openclaw" | "settings";
 
 export interface DashboardMobileAgentMenuConfig {
   selectedAgentId: string;

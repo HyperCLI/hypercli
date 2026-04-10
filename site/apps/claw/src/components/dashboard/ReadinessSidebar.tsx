@@ -26,13 +26,13 @@ import {
 interface AgentInfo {
   id: string;
   name: string;
-  pod_name?: string;
+  pod_name?: string | null;
   state: string;
   cpu_millicores?: number;
   memory_mib?: number;
-  hostname?: string;
-  started_at?: string;
-  created_at?: string;
+  hostname?: string | null;
+  started_at?: string | null;
+  created_at?: string | null;
 }
 
 export interface ReadinessSidebarProps {

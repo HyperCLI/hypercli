@@ -39,7 +39,6 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
-  Plug,
   Upload,
   Paperclip,
   Mic,
@@ -61,8 +60,9 @@ import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import { IntegrationsPage } from "@/components/dashboard/integrations";
-import { AgentView, ConnectionDetail, type TabId as AgentViewTabId } from "@/components/dashboard/AgentView";
+import { ReadinessSidebar } from "@/components/dashboard/ReadinessSidebar";
+import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
+import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 
 // ── Types ──
@@ -813,9 +813,22 @@ export default function AgentsPage() {
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
 
-  // Right sidebar (AgentView)
-  const [agentViewTab, setAgentViewTab] = useState<AgentViewTabId>("overview");
-  const [selectedConnection, setSelectedConnection] = useState<any>(null);
+  // Right sidebar (Directory)
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
+
+  const handleOpenDirectory = useCallback((category?: DirectoryCategory) => {
+    setDirectoryCategory(category);
+    setDirectoryOpen(true);
+  }, []);
+
+  const mockSaveConfig = useCallback(async (_patch: Record<string, unknown>) => {
+    await new Promise((r) => setTimeout(r, 500));
+  }, []);
+
+  const mockChannelProbe = useCallback(async () => {
+    return { channels: {} } as Record<string, unknown>;
+  }, []);
 
   // Logs
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -943,7 +956,6 @@ export default function AgentsPage() {
     shell: "Shell",
     workspace: "Workspace",
     openclaw: "OpenClaw",
-    integrations: "Integrations",
     settings: "Settings",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
@@ -953,7 +965,6 @@ export default function AgentsPage() {
     { key: "files", label: "Files", icon: HardDrive },
     { key: "workspace", label: "Workspace", icon: FolderOpen },
     { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
-    { key: "integrations", label: "Integrations", icon: Plug },
     { key: "settings", label: "Settings", icon: Settings },
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
@@ -987,7 +998,7 @@ export default function AgentsPage() {
     if (!isSelectedRunning) return null;
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -3090,18 +3101,6 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
-                ) : mainTab === "integrations" && selectedAgent ? (
-                  /* ── Integrations Tab ── */
-                  <div className="h-full overflow-y-auto">
-                    <IntegrationsPage
-                      config={chat.config as Record<string, unknown> | null}
-                      configSchema={chat.configSchema}
-                      connected={chat.connected}
-                      onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
-                      onChannelProbe={async () => chat.channelsStatus(true)}
-                      onOpenShell={() => setMainTab("shell")}
-                    />
-                  </div>
                 ) : mainTab === "settings" && selectedAgent ? (
                   /* ── Settings Tab ── */
                   <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-8">
@@ -3202,54 +3201,32 @@ export default function AgentsPage() {
           )}
         </div>
 
-        {/* ── Right Sidebar — AgentView ── */}
+        {/* ── Right Sidebar — Readiness ── */}
         {selectedAgent && isDesktopViewport && (
           <div className="w-80 flex-shrink-0 border-l border-border flex flex-col min-h-0">
-            {selectedConnection ? (
-              <ConnectionDetail
-                connection={selectedConnection}
-                onClose={() => setSelectedConnection(null)}
-              />
-            ) : (
-              <AgentView
-                agentName={selectedAgent.name || selectedAgent.pod_name || "Agent"}
-                onConnectionSelect={(conn) => setSelectedConnection(conn)}
-                activeTab={agentViewTab}
-                onTabChange={setAgentViewTab}
-                agentStatus={{
-                  state: (["RUNNING", "STOPPED", "STARTING", "STOPPING"].includes(selectedAgent.state) ? selectedAgent.state : "STOPPED") as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
-                  uptime: selectedAgent.started_at ? Math.floor((Date.now() - new Date(selectedAgent.started_at).getTime()) / 1000) : 0,
-                  cpu: selectedAgent.cpu_millicores ? Math.round(selectedAgent.cpu_millicores / 10) : 0,
-                  memory: { used: (selectedAgent.memory_mib || 0) * 1048576, total: 2147483648 },
-                }}
-                completenessRingVariant="v1"
-                quickActionsVariant="v1"
-                modelCapsVariant="v1"
-                toolUsageVariant="v1"
-                interactionPatternsVariant="v1"
-                examplePromptsVariant="v1"
-                limitsVariant="v1"
-                achievementsVariant="v1"
-                permissionsVariant="v1"
-                channelsVariant="v1"
-                providersVariant="v1"
-                execQueueVariant="v1"
-                agentUrlsVariant="v1"
-                gatewayStatusVariant="v1"
-                workspaceFilesVariant="v1"
-                whatCanIDoVariant="v1"
-                toolDiscoveryVariant="v1"
-                connectionRecsVariant="v1"
-                capabilityDiffVariant="v1"
-                nudgesVariant="v1"
-                onboardingVariant="v1"
-                skillsVariant="v1"
-                activityVariant="v1"
-              />
-            )}
+            <ReadinessSidebar
+              agent={selectedAgent}
+              config={chat.config as Record<string, unknown> | null}
+              channelsStatus={null}
+              connected={chat.connected}
+              onOpenDirectory={handleOpenDirectory}
+            />
           </div>
         )}
       </div>
+
+      {/* ── Directory Modal ── */}
+      <DirectoryModal
+        open={directoryOpen}
+        onClose={() => setDirectoryOpen(false)}
+        initialCategory={directoryCategory}
+        config={chat.config as Record<string, unknown> | null}
+        channelsStatus={null}
+        connected={chat.connected}
+        onSaveConfig={chat.connected ? async (patch) => { await chat.saveConfig(patch); } : mockSaveConfig}
+        onChannelProbe={chat.connected ? async () => chat.channelsStatus(true) as unknown as Record<string, unknown> : mockChannelProbe}
+        onOpenShell={() => { setDirectoryOpen(false); setMainTab("shell"); }}
+      />
     </div>
   );
 }
