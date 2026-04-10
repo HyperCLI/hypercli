@@ -3,6 +3,19 @@ title: Billing
 description: Check balances and inspect transaction history from the Python SDK.
 ---
 
+`client.billing` covers wallet balances and ledger-style transaction history.
+
+Recurring HyperClaw agent subscriptions are exposed separately under `client.agent`:
+
+- `client.agent.subscriptions()`
+  recurring billing objects, including `cancel_at_period_end` and `can_cancel`
+- `client.agent.subscription_summary()`
+  combined account view with active subscriptions plus effective entitlements
+- `client.agent.entitlements()`
+  effective current account state, including slot inventory, pooled inference, and `billing_reset_at`
+- `client.agent.cancel_subscription(subscription_id)`
+  schedule a recurring billing subscription to end at period end
+
 ## Balance
 
 ```python

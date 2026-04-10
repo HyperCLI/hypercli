@@ -39,9 +39,32 @@ AGENTS_WS_URL=wss://api.agents.hypercli.com/ws
 Use this namespace for:
 
 - `plans()`
+- `subscriptions()`
+- `subscriptionSummary()`
+- `entitlements()`
+- `cancelSubscription(subscriptionId)`
 - `models()`
 - `discoveryHealth()`
 - `discoveryConfig()`
+
+The key split is:
+
+- `entitlements()`
+  effective current account state, including pooled inference, slot inventory, active entitlement count, and `billingResetAt`
+- `subscriptions()`
+  recurring card-backed billing objects such as Stripe subscriptions, including `cancelAtPeriodEnd` and `canCancel`
+- `subscriptionSummary()`
+  combined account view that includes both the effective `entitlements` object and the active subscription list
+
+Example:
+
+```ts
+const summary = await client.agent.subscriptionSummary();
+const entitlements = await client.agent.entitlements();
+const subscriptions = await client.agent.subscriptions();
+
+await client.agent.cancelSubscription("sub_123");
+```
 
 ## `client.deployments`
 
@@ -62,6 +85,8 @@ Use this namespace for:
   additive inference across active entitlements
 - `size_presets`
   runtime CPU / memory shapes for each tier
+
+For account-facing billing and capacity screens, prefer `client.agent.entitlements()` or `client.agent.subscriptionSummary()` over `budget()`. `budget()` is runtime deployment capacity data, not recurring billing state.
 
 ## Create
 

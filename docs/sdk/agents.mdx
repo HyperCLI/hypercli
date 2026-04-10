@@ -29,13 +29,31 @@ client = HyperCLI(
 
 ## `client.agent`
 
-Use `client.agent` for account-level metadata and configuration snippets:
+Use `client.agent` for account-level metadata, billing-backed subscriptions, effective entitlements, and configuration snippets:
 
 ```python
 plans = client.agent.plans()
+summary = client.agent.subscription_summary()
+entitlements = client.agent.entitlements()
+subscriptions = client.agent.subscriptions()
 models = client.agent.models()
 health = client.agent.discovery_health()
 config = client.agent.discovery_config()
+```
+
+The key split is:
+
+- `entitlements()`
+  effective current account state, including pooled inference, slot inventory, active entitlement count, and `billing_reset_at`
+- `subscriptions()`
+  recurring card-backed billing objects such as Stripe subscriptions, including `cancel_at_period_end` and `can_cancel`
+- `subscription_summary()`
+  combined account view that includes both the effective `entitlements` object and the active subscription list
+
+Cancel a recurring billing subscription at period end:
+
+```python
+client.agent.cancel_subscription("sub_123")
 ```
 
 This namespace also exposes convenience helpers such as:
@@ -174,6 +192,8 @@ metrics = client.deployments.metrics(agent.id)
   inference pooled across all active entitlements
 - `size_presets`
   runtime shapes for `small`, `medium`, and `large`
+
+For account-facing billing and capacity screens, prefer `client.agent.entitlements()` or `client.agent.subscription_summary()` over `budget()`. `budget()` is runtime deployment capacity data, not recurring billing state.
 
 Wait for a running pod:
 

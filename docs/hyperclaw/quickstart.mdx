@@ -9,12 +9,17 @@ description: Subscribe to HyperClaw and start making requests in minutes
 
 Sign up at [agents.hypercli.com](https://agents.hypercli.com) with email or wallet.
 
-### 2. Subscribe to a Plan
+### 2. Buy Capacity Or Start a Subscription
 
-From the [plans page](https://agents.hypercli.com/plans), choose a plan and pay with:
+From the [plans page](https://agents.hypercli.com/plans), choose capacity and pay with:
 
 - **Credit card** — via Stripe, takes 30 seconds
 - **USDC on Base** — via browser wallet (MetaMask, Coinbase Wallet, etc.)
+
+The plans page summarizes both:
+
+- effective current entitlements
+- active recurring billing subscriptions
 
 ### 3. Create an API Key
 
@@ -128,9 +133,9 @@ curl https://api.hypercli.com/v1/models \
   -H "Authorization: Bearer $HYPERCLAW_API_KEY"
 ```
 
-### Check Your Plan
+### Check Your Entitlements
 
-From the dashboard at [agents.hypercli.com/dashboard](https://agents.hypercli.com/dashboard), or via API:
+From the dashboard or plans page, you can see your effective entitlements, active subscriptions, and billing reset timing.
 
 ```bash
 curl https://api.hypercli.com/api/plans/current \

@@ -67,6 +67,29 @@ Major methods:
 - `clone({ text, refAudio, language?, xVectorOnly?, responseFormat? })`
 - `design({ text, description, language?, responseFormat? })`
 
+## `agent`
+
+Major methods:
+
+- `plans()`
+- `currentPlan()`
+- `subscriptions()`
+- `subscriptionSummary()`
+- `entitlements()`
+- `cancelSubscription(subscriptionId)`
+- `models()`
+- `discoveryHealth()`
+- `discoveryConfig()`
+
+Important account types:
+
+- `HyperAgentSubscription`
+  recurring billing object with `cancelAtPeriodEnd`, `canCancel`, `planAgentTier`, and `slotGrants`
+- `HyperAgentEntitlements`
+  effective account state with `slotInventory`, `pooledTpd`, `activeEntitlementCount`, and `billingResetAt`
+- `HyperAgentSubscriptionSummary`
+  combined view with `entitlements`, `subscriptions`, `activeSubscriptions`, and `billingResetAt`
+
 ## Agent Types
 
 ### `Agent`

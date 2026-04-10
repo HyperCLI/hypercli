@@ -46,6 +46,30 @@ Major methods:
 - `clone(text, ref_audio=..., language="auto", x_vector_only=True, response_format="mp3")`
 - `design(text, description=..., language="auto", response_format="mp3")`
 
+## `client.agent`
+
+Major methods:
+
+- `plans()`
+- `current_plan()`
+- `subscriptions()`
+- `subscription_summary()`
+- `entitlements()`
+- `cancel_subscription(subscription_id)`
+- `models()`
+- `discovery_health()`
+- `discovery_config()`
+- convenience inference helpers such as `chat()` and `openai()`
+
+Important account types:
+
+- `HyperAgentSubscription`
+  recurring billing object with `cancel_at_period_end`, `can_cancel`, `plan_agent_tier`, and `slot_grants`
+- `HyperAgentEntitlements`
+  effective account state with `slot_inventory`, `pooled_tpd`, `active_entitlement_count`, and `billing_reset_at`
+- `HyperAgentSubscriptionSummary`
+  combined view with `entitlements`, `subscriptions`, `active_subscriptions`, and `billing_reset_at`
+
 ## `client.keys`
 
 Major methods:
