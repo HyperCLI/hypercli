@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Sparkles, Wrench } from "lucide-react";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import Markdown from "react-markdown";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 import { API_BASE_URL, getStoredToken } from "@/lib/api";
@@ -53,6 +54,14 @@ interface ChatMessageProps {
 }
 
 const THINKING_PREVIEW_LINES = 2;
+
+function formatRelativeTime(ts: number): string {
+  const diff = Math.floor((Date.now() - ts) / 1000);
+  if (diff < 60) return "just now";
+  if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+  return `${Math.floor(diff / 86400)}d ago`;
+}
 
 function formatTime(ts?: number): string {
   if (!ts) return "";
@@ -745,7 +754,7 @@ export function ChatMessageBubble({
   );
 }
 
-export function ChatThinkingIndicator() {
+export function ChatThinkingIndicator(_props?: { variant?: string }) {
   return (
     <div className="flex justify-start">
       <div className="bg-surface-low rounded-lg px-4 py-3 flex items-center gap-3 border-l-2 border-[#38D39F]/50">

@@ -874,8 +874,8 @@ export default function AgentsPage() {
     try {
       const token = await getToken();
       const data = await createAgentClient(token).list();
-      const rawItems = Array.isArray(data) ? data : ((data as any).items || []);
-      const items = rawItems.map(sdkAgentToPageAgent);
+      const rawItems: any[] = Array.isArray(data) ? data : ((data as any).items || []);
+      const items: Agent[] = rawItems.map(sdkAgentToPageAgent);
       setAgents(items);
       setBudget(((data as any).budget as AgentBudget | undefined) || null);
       setClusterUnavailable(false);
@@ -2168,7 +2168,7 @@ export default function AgentsPage() {
           setShowCreateDialog(false);
           fetchAgents();
         }}
-        budget={budget}
+        budget={budget as any}
       />
       <ConfirmDialog
         open={Boolean(pendingAgentDelete)}
