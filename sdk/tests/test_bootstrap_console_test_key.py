@@ -2,10 +2,30 @@ from __future__ import annotations
 
 import importlib.util
 import sys
+import types
 from pathlib import Path
 
 import pytest
-import requests
+
+try:
+    import requests as _requests
+except ModuleNotFoundError:
+    _requests = types.ModuleType("requests")
+
+    class _ReadTimeout(Exception):
+        pass
+
+    class _ConnectionError(Exception):
+        pass
+
+    _requests.exceptions = types.SimpleNamespace(
+        ReadTimeout=_ReadTimeout,
+        Timeout=_ReadTimeout,
+        ConnectionError=_ConnectionError,
+    )
+    _requests.request = lambda *_args, **_kwargs: None  # pragma: no cover
+
+sys.modules.setdefault("requests", _requests)
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "bootstrap_console_test_key.py"
@@ -32,7 +52,7 @@ def test_request_retries_transient_timeout(monkeypatch: pytest.MonkeyPatch) -> N
     def fake_request(*_args, **_kwargs):
         calls.append(1)
         if len(calls) == 1:
-            raise requests.exceptions.ReadTimeout("timed out")
+            raise _requests.exceptions.ReadTimeout("timed out")
         return _FakeResponse(200, {"ok": True})
 
     monkeypatch.setattr(MODULE.requests, "request", fake_request)
