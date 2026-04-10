@@ -31,6 +31,9 @@ import {
   type StreamingVariant,
 } from "@/components/dashboard/ChatMessage";
 import { AgentView, ConnectionDetail, type TabId as AgentTabId } from "@/components/dashboard/AgentView";
+import { ReadinessSidebar } from "@/components/dashboard/ReadinessSidebar";
+import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
+import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { ConversationsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type ConversationsSidebarVariant, type Participant } from "@/components/dashboard/ConversationsSidebar";
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
 import type { ChatMessage } from "@/hooks/useGatewayChat";
@@ -380,7 +383,22 @@ export default function DevChatPage() {
 
   // ── Agent View toggles ──
   const [showAgentView, setShowAgentView] = useState(true);
+  const [sidebarMode, setSidebarMode] = useState<"readiness" | "legacy">("readiness");
   const [agentViewTab, setAgentViewTab] = useState<AgentTabId>("connections");
+
+  // ── Directory Modal ──
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
+  const handleOpenDirectory = useCallback((category?: DirectoryCategory) => {
+    setDirectoryCategory(category);
+    setDirectoryOpen(true);
+  }, []);
+  const mockSaveConfig = useCallback(async (_patch: Record<string, unknown>) => {
+    await new Promise((r) => setTimeout(r, 500));
+  }, []);
+  const mockChannelProbe = useCallback(async () => {
+    return { channels: {} } as Record<string, unknown>;
+  }, []);
   const [showMarketplace, setShowMarketplace] = useState(true);
   const [showRecommended, setShowRecommended] = useState(true);
   const [showSearch, setShowSearch] = useState(true);
@@ -1055,8 +1073,25 @@ export default function DevChatPage() {
                 onChange={(e) => setShowAgentView(e.target.checked)}
                 className="accent-[#38D39F]"
               />
-              Show Agent View panel
+              Show right panel
             </label>
+          </div>
+
+          {/* Sidebar Mode */}
+          <div className="space-y-2">
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider">Sidebar Mode</h3>
+            {(["readiness", "legacy"] as const).map((mode) => (
+              <label key={mode} className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:text-foreground/80">
+                <input
+                  type="radio"
+                  name="sidebarMode"
+                  checked={sidebarMode === mode}
+                  onChange={() => setSidebarMode(mode)}
+                  className="accent-[#38D39F]"
+                />
+                {mode === "readiness" ? "Readiness Sidebar (new)" : "Legacy AgentView"}
+              </label>
+            ))}
           </div>
 
           {/* Default tab */}
@@ -1745,10 +1780,26 @@ export default function DevChatPage() {
         </div>
       </div>
 
-      {/* ── Agent View Panel (right) ── */}
+      {/* ── Right Panel ── */}
       {showAgentView && (
-      <div className="w-80 flex-shrink-0 flex flex-col min-h-0">
-        {selectedConnection ? (
+      <div className="w-80 flex-shrink-0 flex flex-col min-h-0 border-l border-border">
+        {sidebarMode === "readiness" ? (
+          <ReadinessSidebar
+            agent={{
+              id: "mock-dev-agent-001",
+              name: "mock-agent-dev",
+              state: "RUNNING",
+              cpu_millicores: 2000,
+              memory_mib: 4096,
+              hostname: "mock-agent-dev.hyperclaw.app",
+              created_at: "2026-04-01T00:00:00Z",
+            }}
+            config={null}
+            channelsStatus={null}
+            connected={false}
+            onOpenDirectory={handleOpenDirectory}
+          />
+        ) : selectedConnection ? (
           <ConnectionDetail
             connection={selectedConnection}
             onClose={() => setSelectedConnection(null)}
@@ -1815,6 +1866,19 @@ export default function DevChatPage() {
         )}
       </div>
       )}
+
+      {/* ── Directory Modal ── */}
+      <DirectoryModal
+        open={directoryOpen}
+        onClose={() => setDirectoryOpen(false)}
+        initialCategory={directoryCategory}
+        config={null}
+        channelsStatus={null}
+        connected={false}
+        onSaveConfig={mockSaveConfig}
+        onChannelProbe={mockChannelProbe}
+        onOpenShell={() => setDirectoryOpen(false)}
+      />
 
       {/* ── Delete Confirmation Dialog ── */}
       {pendingDeleteId && (() => {
