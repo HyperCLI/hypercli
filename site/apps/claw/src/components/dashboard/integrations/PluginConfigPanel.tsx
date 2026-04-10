@@ -17,7 +17,7 @@ interface PluginConfigPanelProps {
 }
 
 /** Read the current provider credentials from config.models.providers.<id> */
-function getProviderCredentials(
+export function getProviderCredentials(
   pluginId: string,
   config: Record<string, unknown> | null,
 ): { apiKey: string; baseUrl: string; hasExistingKey: boolean } {
@@ -409,7 +409,8 @@ function AiProviderPanel({
   const [error, setError] = useState<string | null>(null);
 
   const Icon = plugin.icon;
-  const hasInput = apiKey.trim() || baseUrl.trim();
+  const isSelfHosted = plugin.providerType === "self-hosted" || plugin.noApiKey;
+  const hasInput = isSelfHosted ? baseUrl.trim() : (apiKey.trim() || baseUrl.trim());
 
   const handleConnect = async () => {
     if (!hasInput) return;
@@ -526,45 +527,49 @@ function AiProviderPanel({
       )}
 
       {/* Status indicator for already-configured providers */}
-      {creds.hasExistingKey && (
+      {!isSelfHosted && creds.hasExistingKey && (
         <div className="flex items-center gap-2 text-xs text-emerald-400">
           <span className="w-2 h-2 rounded-full bg-emerald-400" />
           API key configured
         </div>
       )}
 
-      {/* API Key field */}
-      <div className="space-y-1.5">
-        <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
-          <Key className="w-3.5 h-3.5 text-text-tertiary" />
-          API Key
-        </label>
-        <input
-          type="password"
-          value={apiKey}
-          onChange={(e) => setApiKey(e.target.value)}
-          placeholder={creds.hasExistingKey ? "Enter new key to update" : "sk-..."}
-          className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
-        />
-      </div>
+      {/* API Key field — hidden for self-hosted providers */}
+      {!isSelfHosted && (
+        <div className="space-y-1.5">
+          <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
+            <Key className="w-3.5 h-3.5 text-text-tertiary" />
+            API Key
+          </label>
+          <input
+            type="password"
+            value={apiKey}
+            onChange={(e) => setApiKey(e.target.value)}
+            placeholder={creds.hasExistingKey ? "Enter new key to update" : "sk-..."}
+            className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
+          />
+        </div>
+      )}
 
-      {/* Base URL field (optional) */}
+      {/* Base URL field — required for self-hosted, optional for others */}
       <div className="space-y-1.5">
         <label className="text-sm font-medium text-foreground flex items-center gap-1.5">
           <Globe className="w-3.5 h-3.5 text-text-tertiary" />
-          Base URL
-          <span className="text-xs text-text-tertiary font-normal">(optional)</span>
+          {isSelfHosted ? "Server URL" : "Base URL"}
+          {!isSelfHosted && <span className="text-xs text-text-tertiary font-normal">(optional)</span>}
         </label>
         <input
           type="text"
           value={baseUrl}
           onChange={(e) => setBaseUrl(e.target.value)}
-          placeholder="https://api.provider.com/v1"
+          placeholder={isSelfHosted ? "http://localhost:11434" : "https://api.provider.com/v1"}
           className="w-full px-3 py-2 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground font-mono focus:outline-none focus:border-[var(--primary)]"
         />
-        <p className="text-xs text-text-tertiary">
-          Only needed for custom endpoints or self-hosted instances.
-        </p>
+        {!isSelfHosted && (
+          <p className="text-xs text-text-tertiary">
+            Only needed for custom endpoints or self-hosted instances.
+          </p>
+        )}
       </div>
 
       {/* Extra schema-discovered fields */}

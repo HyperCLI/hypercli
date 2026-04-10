@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import {
   Send, MessageCircle, Hash, Phone, MessageSquare,
   Volume2, Mic, Eye, Image, Video, Box, Loader2,
-  Copy, Check, Terminal,
+  Copy, Check, Terminal, Search, X,
 } from "lucide-react";
 import { IntegrationCard, type CardStatus } from "./IntegrationCard";
 import { Accordion, AccordionItem, AccordionTrigger, AccordionContent } from "@hypercli/shared-ui";
@@ -20,13 +20,32 @@ import { VideoPanel } from "./VideoPanel";
 import { ThreeDPanel } from "./ThreeDPanel";
 import { ConfirmDialog } from "../ConfirmDialog";
 import { PluginCard } from "./PluginCard";
-import { PluginConfigPanel } from "./PluginConfigPanel";
+import { PluginConfigPanel, getProviderCredentials } from "./PluginConfigPanel";
 import { QrLoginWizard } from "./QrLoginWizard";
 import { TokenSetupWizard } from "./TokenSetupWizard";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
 import type { PluginMeta } from "./plugin-registry";
 import { isChannelLive } from "@/hooks/usePluginVerification";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
+
+// ---------------------------------------------------------------------------
+// Search helpers
+// ---------------------------------------------------------------------------
+
+function matchesSearch(plugin: PluginMeta, query: string): boolean {
+  if (!query) return true;
+  const q = query.toLowerCase();
+  return (
+    plugin.displayName.toLowerCase().includes(q) ||
+    plugin.description.toLowerCase().includes(q) ||
+    plugin.id.toLowerCase().includes(q)
+  );
+}
+
+function nameMatchesSearch(name: string, query: string): boolean {
+  if (!query) return true;
+  return name.toLowerCase().includes(query.toLowerCase());
+}
 
 // ---------------------------------------------------------------------------
 // QR Manage Panel — shared by WhatsApp and Zalo Personal
@@ -151,6 +170,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const [activePanel, setActivePanel] = useState<PanelType>(null);
   const [disconnectTarget, setDisconnectTarget] = useState<string | null>(null);
   const [applyingChanges, setApplyingChanges] = useState(false);
+  const [search, setSearch] = useState("");
   // Consolidated verified state for all channels/plugins
   const [verified, setVerified] = useState<Record<string, boolean>>({});
   const markVerified = (id: string) => setVerified((prev) => ({ ...prev, [id]: true }));
@@ -276,11 +296,23 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const handlePluginToggle = async (pluginId: string, enabled: boolean) => {
     const plugin = getPlugin(pluginId);
 
-    // AI providers: always open the config panel (for both enable and disable).
-    // The panel handles the action behind the SlideOver so the user never sees
-    // the page flicker during gateway reconnection.
     if (plugin?.category === "ai-providers") {
-      setActivePanel(`plugin:${pluginId}`);
+      if (enabled) {
+        // Turning ON: if key already exists, directly enable. Otherwise open config panel.
+        const creds = getProviderCredentials(pluginId, config);
+        if (creds.hasExistingKey) {
+          await handleConfigPatch({
+            plugins: { entries: { [pluginId]: { enabled: true } } },
+          });
+          return;
+        }
+        setActivePanel(`plugin:${pluginId}`);
+      } else {
+        // Turning OFF: directly disable without opening panel
+        await handleConfigPatch({
+          plugins: { entries: { [pluginId]: { enabled: false } } },
+        });
+      }
       return;
     }
 
@@ -309,6 +341,25 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           </div>
         </div>
       )}
+      {/* Search bar */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-tertiary pointer-events-none" />
+        <input
+          type="text"
+          value={search}
+          onChange={(e) => setSearch(e.target.value)}
+          placeholder="Search integrations..."
+          className="w-full pl-9 pr-9 py-2.5 rounded-lg bg-[var(--surface-low)] border border-[var(--border)] text-sm text-foreground placeholder:text-text-tertiary focus:outline-none focus:border-[var(--primary)] transition-colors"
+        />
+        {search && (
+          <button
+            onClick={() => setSearch("")}
+            className="absolute right-3 top-1/2 -translate-y-1/2 p-0.5 rounded hover:bg-[var(--border)]/50 transition-colors"
+          >
+            <X className="w-3.5 h-3.5 text-text-tertiary" />
+          </button>
+        )}
+      </div>
       <Accordion type="multiple" defaultValue={["channels", "built-in", ...(aiActiveCount > 0 ? ["ai-providers"] : []), ...(toolActiveCount > 0 ? ["tools"] : [])]} className="pb-8">
         {/* Chat & Messaging */}
         <AccordionItem value="channels" className="border-b border-[var(--border)] last:border-b-0">
@@ -330,53 +381,59 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           <AccordionContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
               {/* Telegram — existing wizard */}
-              <IntegrationCard
-                icon={Send}
-                name="Telegram"
-                status={telegramInfo.status}
-                statusText={telegramInfo.statusText}
-                ctaLabel={telegramInfo.cta}
-                onClick={() => setActivePanel(
-                  telegramEnabled && verified["telegram"]
-                    ? "telegram-manage"
-                    : telegramEnabled
-                      ? "telegram-verify"
-                      : "telegram"
-                )}
-              />
+              {nameMatchesSearch("Telegram Bot API grammY", search) && (
+                <IntegrationCard
+                  icon={Send}
+                  name="Telegram"
+                  status={telegramInfo.status}
+                  statusText={telegramInfo.statusText}
+                  ctaLabel={telegramInfo.cta}
+                  onClick={() => setActivePanel(
+                    telegramEnabled && verified["telegram"]
+                      ? "telegram-manage"
+                      : telegramEnabled
+                        ? "telegram-verify"
+                        : "telegram"
+                  )}
+                />
+              )}
               {/* Discord — existing wizard */}
-              <IntegrationCard
-                icon={MessageCircle}
-                name="Discord"
-                status={discordEnabled && verified["discord"] ? "connected" : discordEnabled ? "pending" : "available"}
-                statusText={discordEnabled && verified["discord"] ? "Active" : discordEnabled ? "Pending verification" : undefined}
-                ctaLabel={discordEnabled && verified["discord"] ? "Manage" : discordEnabled ? "Complete setup \u2192" : "Set up \u2192"}
-                onClick={() => setActivePanel(
-                  discordEnabled && verified["discord"]
-                    ? "discord-manage"
-                    : discordEnabled
-                      ? "discord-verify"
-                      : "discord"
-                )}
-              />
+              {nameMatchesSearch("Discord servers channels DMs", search) && (
+                <IntegrationCard
+                  icon={MessageCircle}
+                  name="Discord"
+                  status={discordEnabled && verified["discord"] ? "connected" : discordEnabled ? "pending" : "available"}
+                  statusText={discordEnabled && verified["discord"] ? "Active" : discordEnabled ? "Pending verification" : undefined}
+                  ctaLabel={discordEnabled && verified["discord"] ? "Manage" : discordEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                  onClick={() => setActivePanel(
+                    discordEnabled && verified["discord"]
+                      ? "discord-manage"
+                      : discordEnabled
+                        ? "discord-verify"
+                        : "discord"
+                  )}
+                />
+              )}
               {/* Slack — existing wizard */}
-              <IntegrationCard
-                icon={Hash}
-                name="Slack"
-                status={slackEnabled && verified["slack"] ? "connected" : slackEnabled ? "pending" : "available"}
-                statusText={slackEnabled && verified["slack"] ? "Active" : slackEnabled ? "Pending verification" : undefined}
-                ctaLabel={slackEnabled && verified["slack"] ? "Manage" : slackEnabled ? "Complete setup \u2192" : "Set up \u2192"}
-                onClick={() => setActivePanel(
-                  slackEnabled && verified["slack"]
-                    ? "slack-manage"
-                    : slackEnabled
-                      ? "slack-verify"
-                      : "slack"
-                )}
-              />
+              {nameMatchesSearch("Slack workspace apps Bolt", search) && (
+                <IntegrationCard
+                  icon={Hash}
+                  name="Slack"
+                  status={slackEnabled && verified["slack"] ? "connected" : slackEnabled ? "pending" : "available"}
+                  statusText={slackEnabled && verified["slack"] ? "Active" : slackEnabled ? "Pending verification" : undefined}
+                  ctaLabel={slackEnabled && verified["slack"] ? "Manage" : slackEnabled ? "Complete setup \u2192" : "Set up \u2192"}
+                  onClick={() => setActivePanel(
+                    slackEnabled && verified["slack"]
+                      ? "slack-manage"
+                      : slackEnabled
+                        ? "slack-verify"
+                        : "slack"
+                  )}
+                />
+              )}
               {/* Token-based wizard plugins (Teams, Google Chat, Zalo Bot, LINE, Twitch, IRC, Mattermost) */}
               {wizardPluginIds
-                .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser")
+                .filter((id) => wizardPlugins[id].meta?.setupFields && id !== "whatsapp" && id !== "zalouser" && (wizardPlugins[id].meta ? matchesSearch(wizardPlugins[id].meta!, search) : true))
                 .map((id) => {
                   const { meta, enabled } = wizardPlugins[id];
                   if (!meta) return null;
@@ -396,22 +453,25 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                   );
                 })}
               {/* WhatsApp — QR wizard */}
-              <IntegrationCard
-                icon={Phone}
-                name="WhatsApp"
-                status={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "connected" : wizardPlugins["whatsapp"].enabled ? "pending" : "available"}
-                statusText={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Active" : wizardPlugins["whatsapp"].enabled ? "Pending verification" : undefined}
-                ctaLabel={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Manage" : wizardPlugins["whatsapp"].enabled ? "Manage" : "Set up \u2192"}
-                onClick={() => setActivePanel(
-                  wizardPlugins["whatsapp"].enabled
-                    ? "whatsapp-manage"
-                    : "whatsapp"
-                )}
-              />
+              {nameMatchesSearch("WhatsApp QR code", search) && (
+                <IntegrationCard
+                  icon={Phone}
+                  name="WhatsApp"
+                  status={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "connected" : wizardPlugins["whatsapp"].enabled ? "pending" : "available"}
+                  statusText={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Active" : wizardPlugins["whatsapp"].enabled ? "Pending verification" : undefined}
+                  ctaLabel={wizardPlugins["whatsapp"].enabled && verified["whatsapp"] ? "Manage" : wizardPlugins["whatsapp"].enabled ? "Manage" : "Set up \u2192"}
+                  onClick={() => setActivePanel(
+                    wizardPlugins["whatsapp"].enabled
+                      ? "whatsapp-manage"
+                      : "whatsapp"
+                  )}
+                />
+              )}
               {/* Zalo Personal — QR wizard */}
-              <IntegrationCard
-                icon={MessageSquare}
-                name="Zalo Personal"
+              {nameMatchesSearch("Zalo Personal QR code", search) && (
+                <IntegrationCard
+                  icon={MessageSquare}
+                  name="Zalo Personal"
                 status={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "connected" : wizardPlugins["zalouser"].enabled ? "pending" : "available"}
                 statusText={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Active" : wizardPlugins["zalouser"].enabled ? "Pending verification" : undefined}
                 ctaLabel={wizardPlugins["zalouser"].enabled && verified["zalouser"] ? "Manage" : wizardPlugins["zalouser"].enabled ? "Manage" : "Set up \u2192"}
@@ -421,9 +481,10 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
                     : "zalouser"
                 )}
               />
+              )}
               {/* Remaining chat plugins — dynamic PluginCards */}
               {chatPlugins
-                .filter((p) => !p.hasWizard)
+                .filter((p) => !p.hasWizard && matchesSearch(p, search))
                 .map((plugin) => (
                   <PluginCard
                     key={plugin.id}
@@ -454,60 +515,72 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           </AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              <IntegrationCard
-                icon={Volume2}
-                name="Voice"
-                status="built-in"
-                description="Speak aloud with 9 voices or clone any voice"
-                statusText={integrations?.voice?.speaker ? `Speaker: ${integrations.voice.speaker}` : "Qwen3-TTS"}
-                ctaLabel="Customize \u2192"
-                onClick={() => setActivePanel("tts")}
-              />
-              <IntegrationCard
-                icon={Mic}
-                name="Speech"
-                status="built-in"
-                description="Transcribes any audio file"
-                statusText="faster-whisper turbo"
-                ctaLabel="Details →"
-                onClick={() => setActivePanel("stt")}
-              />
-              <IntegrationCard
-                icon={Eye}
-                name="Vision"
-                status="built-in"
-                description="Understands images in chat"
-                statusText="Kimi K2.5 + vision models"
-                ctaLabel="Details →"
-                onClick={() => setActivePanel("vision")}
-              />
-              <IntegrationCard
-                icon={Image}
-                name="Images"
-                status="built-in"
-                description="Text-to-image & image editing"
-                statusText="Qwen-Image + HiDream"
-                ctaLabel="Details →"
-                onClick={() => setActivePanel("images")}
-              />
-              <IntegrationCard
-                icon={Video}
-                name="Video"
-                status="built-in"
-                description="Text & image to video"
-                statusText="Wan 2.2 + HuMo"
-                ctaLabel="Details →"
-                onClick={() => setActivePanel("video")}
-              />
-              <IntegrationCard
-                icon={Box}
-                name="3D"
-                status="built-in"
-                description="Image to 3D model"
-                statusText="Hunyuan3D 2.1"
-                ctaLabel="Details →"
-                onClick={() => setActivePanel("3d")}
-              />
+              {nameMatchesSearch("Voice TTS speak aloud", search) && (
+                <IntegrationCard
+                  icon={Volume2}
+                  name="Voice"
+                  status="built-in"
+                  description="Speak aloud with 9 voices or clone any voice"
+                  statusText={integrations?.voice?.speaker ? `Speaker: ${integrations.voice.speaker}` : "Qwen3-TTS"}
+                  ctaLabel="Customize \u2192"
+                  onClick={() => setActivePanel("tts")}
+                />
+              )}
+              {nameMatchesSearch("Speech STT transcribe audio whisper", search) && (
+                <IntegrationCard
+                  icon={Mic}
+                  name="Speech"
+                  status="built-in"
+                  description="Transcribes any audio file"
+                  statusText="faster-whisper turbo"
+                  ctaLabel="Details →"
+                  onClick={() => setActivePanel("stt")}
+                />
+              )}
+              {nameMatchesSearch("Vision image understanding", search) && (
+                <IntegrationCard
+                  icon={Eye}
+                  name="Vision"
+                  status="built-in"
+                  description="Understands images in chat"
+                  statusText="Kimi K2.5 + vision models"
+                  ctaLabel="Details →"
+                  onClick={() => setActivePanel("vision")}
+                />
+              )}
+              {nameMatchesSearch("Images generation text-to-image", search) && (
+                <IntegrationCard
+                  icon={Image}
+                  name="Images"
+                  status="built-in"
+                  description="Text-to-image & image editing"
+                  statusText="Qwen-Image + HiDream"
+                  ctaLabel="Details →"
+                  onClick={() => setActivePanel("images")}
+                />
+              )}
+              {nameMatchesSearch("Video generation", search) && (
+                <IntegrationCard
+                  icon={Video}
+                  name="Video"
+                  status="built-in"
+                  description="Text & image to video"
+                  statusText="Wan 2.2 + HuMo"
+                  ctaLabel="Details →"
+                  onClick={() => setActivePanel("video")}
+                />
+              )}
+              {nameMatchesSearch("3D model generation", search) && (
+                <IntegrationCard
+                  icon={Box}
+                  name="3D"
+                  status="built-in"
+                  description="Image to 3D model"
+                  statusText="Hunyuan3D 2.1"
+                  ctaLabel="Details →"
+                  onClick={() => setActivePanel("3d")}
+                />
+              )}
             </div>
           </AccordionContent>
         </AccordionItem>
@@ -531,7 +604,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           </AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {aiPlugins.map((plugin) => (
+              {aiPlugins.filter((p) => matchesSearch(p, search)).map((plugin) => (
                 <PluginCard
                   key={plugin.id}
                   plugin={plugin}
@@ -563,7 +636,7 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
           </AccordionTrigger>
           <AccordionContent>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-              {toolPlugins.map((plugin) => (
+              {toolPlugins.filter((p) => matchesSearch(p, search)).map((plugin) => (
                 <PluginCard
                   key={plugin.id}
                   plugin={plugin}

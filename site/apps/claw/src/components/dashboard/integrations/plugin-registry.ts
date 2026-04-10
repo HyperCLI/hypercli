@@ -44,6 +44,10 @@ export interface PluginMeta {
   setupFields?: TokenField[];
   /** Skip verification polling (e.g., IRC has no HTTP probe) */
   skipVerification?: boolean;
+  /** AI provider: base URL only, no API key needed (Ollama, vLLM, SGLang) */
+  noApiKey?: boolean;
+  /** AI provider type — determines which fields the setup form shows */
+  providerType?: "standard" | "self-hosted" | "aws" | "copilot" | "oauth";
 }
 
 export interface CategoryDefinition {
@@ -73,9 +77,9 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "discord", displayName: "Discord", icon: MessageCircle, category: "chat", description: "Servers, channels & DMs", configPath: "channels.discord", hasWizard: true },
   { id: "slack", displayName: "Slack", icon: Hash, category: "chat", description: "Workspace apps via Bolt", configPath: "channels.slack", hasWizard: true },
   { id: "whatsapp", displayName: "WhatsApp", icon: Phone, category: "chat", description: "Pair via QR code", configPath: "channels.whatsapp", hasWizard: true },
-  { id: "signal", displayName: "Signal", icon: Shield, category: "chat", description: "Privacy-focused via signal-cli", configPath: "plugins.entries.signal" },
-  { id: "imessage", displayName: "iMessage", icon: Smartphone, category: "chat", description: "iMessage via AppleScript bridge", configPath: "plugins.entries.imessage" },
-  { id: "bluebubbles", displayName: "iMessage (BlueBubbles)", icon: Smartphone, category: "chat", description: "iMessage via BlueBubbles server", configPath: "plugins.entries.bluebubbles" },
+  { id: "signal", displayName: "Signal", icon: Shield, category: "chat", description: "Privacy-focused via signal-cli", configPath: "plugins.entries.signal", setupHint: "Enable, then open the Shell tab to complete signal-cli registration" },
+  { id: "imessage", displayName: "iMessage", icon: Smartphone, category: "chat", description: "iMessage via AppleScript bridge", configPath: "plugins.entries.imessage", setupHint: "Only works on macOS agents with iMessage configured" },
+  { id: "bluebubbles", displayName: "iMessage (BlueBubbles)", icon: Smartphone, category: "chat", description: "iMessage via BlueBubbles server", configPath: "plugins.entries.bluebubbles", setupUrl: "https://bluebubbles.app", setupHint: "Set up BlueBubbles on a Mac and enter the server URL" },
   { id: "msteams", displayName: "Microsoft Teams", icon: Building2, category: "chat", description: "Enterprise team chat", configPath: "channels.msteams", hasWizard: true, setupUrl: "https://portal.azure.com/#create/Microsoft.AzureBot", setupHint: "Create an Azure Bot and note your App ID, Client Secret, and Tenant ID", setupFields: [
     { key: "appId", label: "App ID", placeholder: "xxxxxxxx-xxxx-xxxx-xxxx-xxxxxxxxxxxx", required: true },
     { key: "appPassword", label: "App Password", placeholder: "Client Secret from Azure Bot", sensitive: true, required: true, helpText: "Client Secret from Azure Bot registration" },
@@ -123,7 +127,7 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "deepseek", displayName: "DeepSeek", icon: Zap, category: "ai-providers", description: "DeepSeek V3 & R1 reasoning", configPath: "plugins.entries.deepseek", setupUrl: "https://platform.deepseek.com/api_keys", setupHint: "Get your API key from the DeepSeek Platform" },
   { id: "groq", displayName: "Groq", icon: Cpu, category: "ai-providers", description: "Ultra-fast LPU inference", configPath: "plugins.entries.groq", setupUrl: "https://console.groq.com/keys", setupHint: "Get your API key from the Groq Console" },
   { id: "mistral", displayName: "Mistral", icon: Brain, category: "ai-providers", description: "Mistral Large & Codestral", configPath: "plugins.entries.mistral", setupUrl: "https://console.mistral.ai/api-keys", setupHint: "Get your API key from the Mistral Console" },
-  { id: "ollama", displayName: "Ollama", icon: Terminal, category: "ai-providers", description: "Run open-source models locally", configPath: "plugins.entries.ollama", setupUrl: "https://ollama.com/download", setupHint: "Runs locally \u2014 make sure Ollama is running on your machine" },
+  { id: "ollama", displayName: "Ollama", icon: Terminal, category: "ai-providers", description: "Run open-source models locally", configPath: "plugins.entries.ollama", setupUrl: "https://ollama.com/download", setupHint: "Runs locally \u2014 make sure Ollama is running on your machine", noApiKey: true, providerType: "self-hosted" },
   { id: "openrouter", displayName: "OpenRouter", icon: Globe, category: "ai-providers", description: "Access hundreds of models via one API", configPath: "plugins.entries.openrouter", setupUrl: "https://openrouter.ai/keys", setupHint: "Get your API key from OpenRouter" },
   { id: "perplexity", displayName: "Perplexity", icon: Search, category: "ai-providers", description: "Search-augmented AI responses", configPath: "plugins.entries.perplexity", setupUrl: "https://www.perplexity.ai/settings/api", setupHint: "Get your API key from Perplexity Settings" },
   { id: "together", displayName: "Together", icon: Cloud, category: "ai-providers", description: "Run open-source models in the cloud", configPath: "plugins.entries.together", setupUrl: "https://api.together.xyz/settings/api-keys", setupHint: "Get your API key from Together AI" },
@@ -133,16 +137,16 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "minimax", displayName: "MiniMax", icon: Zap, category: "ai-providers", description: "MiniMax M2.5 multimodal models", configPath: "plugins.entries.minimax", setupUrl: "https://www.minimaxi.com/platform", setupHint: "Get your API key from the MiniMax Platform" },
   { id: "moonshot", displayName: "Moonshot", icon: Brain, category: "ai-providers", description: "Moonshot AI models", configPath: "plugins.entries.moonshot", setupUrl: "https://platform.moonshot.cn/console/api-keys", setupHint: "Get your API key from the Moonshot Platform" },
   { id: "nvidia", displayName: "NVIDIA", icon: Cpu, category: "ai-providers", description: "NVIDIA NIM optimized inference", configPath: "plugins.entries.nvidia", setupUrl: "https://build.nvidia.com", setupHint: "Get your API key from NVIDIA Build" },
-  { id: "vllm", displayName: "vLLM", icon: Server, category: "ai-providers", description: "Self-hosted vLLM inference server", configPath: "plugins.entries.vllm", setupHint: "Enter your self-hosted vLLM server URL" },
-  { id: "sglang", displayName: "SGLang", icon: Server, category: "ai-providers", description: "Self-hosted SGLang serving engine", configPath: "plugins.entries.sglang", setupHint: "Enter your self-hosted SGLang server URL" },
-  { id: "amazon-bedrock", displayName: "Amazon Bedrock", icon: Cloud, category: "ai-providers", description: "AWS managed AI model service", configPath: "plugins.entries.amazon-bedrock", setupUrl: "https://console.aws.amazon.com/bedrock", setupHint: "Configure AWS credentials with Bedrock access" },
+  { id: "vllm", displayName: "vLLM", icon: Server, category: "ai-providers", description: "Self-hosted vLLM inference server", configPath: "plugins.entries.vllm", setupHint: "Enter your self-hosted vLLM server URL", noApiKey: true, providerType: "self-hosted" },
+  { id: "sglang", displayName: "SGLang", icon: Server, category: "ai-providers", description: "Self-hosted SGLang serving engine", configPath: "plugins.entries.sglang", setupHint: "Enter your self-hosted SGLang server URL", noApiKey: true, providerType: "self-hosted" },
+  { id: "amazon-bedrock", displayName: "Amazon Bedrock", icon: Cloud, category: "ai-providers", description: "AWS managed AI model service", configPath: "plugins.entries.amazon-bedrock", setupUrl: "https://console.aws.amazon.com/bedrock", setupHint: "Configure AWS credentials with Bedrock access", providerType: "aws" },
   { id: "microsoft", displayName: "Microsoft Speech", icon: Volume2, category: "ai-providers", description: "Azure AI speech services", configPath: "plugins.entries.microsoft", setupUrl: "https://portal.azure.com/#view/Microsoft_Azure_ProjectOxford/CognitiveServicesHub", setupHint: "Get your key from Azure AI Services" },
   { id: "venice", displayName: "Venice", icon: Brain, category: "ai-providers", description: "Privacy-focused AI inference", configPath: "plugins.entries.venice", setupUrl: "https://venice.ai/settings/api", setupHint: "Get your API key from Venice Settings" },
   { id: "byteplus", displayName: "BytePlus", icon: Cloud, category: "ai-providers", description: "BytePlus AI model services", configPath: "plugins.entries.byteplus", setupUrl: "https://console.byteplus.com", setupHint: "Get your API key from the BytePlus Console" },
   { id: "chutes", displayName: "Chutes", icon: Cloud, category: "ai-providers", description: "Chutes AI model inference", configPath: "plugins.entries.chutes", setupUrl: "https://chutes.ai", setupHint: "Get your API key from Chutes" },
   { id: "cloudflare-ai-gateway", displayName: "Cloudflare AI Gateway", icon: Cloud, category: "ai-providers", description: "Route AI traffic through Cloudflare", configPath: "plugins.entries.cloudflare-ai-gateway", setupUrl: "https://dash.cloudflare.com", setupHint: "Set up an AI Gateway in your Cloudflare dashboard" },
-  { id: "copilot-proxy", displayName: "Copilot Proxy", icon: Code, category: "ai-providers", description: "Route through GitHub Copilot", configPath: "plugins.entries.copilot-proxy", setupHint: "Requires an active GitHub Copilot subscription" },
-  { id: "github-copilot", displayName: "GitHub Copilot", icon: Code, category: "ai-providers", description: "GitHub Copilot model access", configPath: "plugins.entries.github-copilot", setupUrl: "https://github.com/settings/copilot", setupHint: "Requires an active GitHub Copilot subscription" },
+  { id: "copilot-proxy", displayName: "Copilot Proxy", icon: Code, category: "ai-providers", description: "Route through GitHub Copilot", configPath: "plugins.entries.copilot-proxy", setupHint: "Requires an active GitHub Copilot subscription", providerType: "copilot" },
+  { id: "github-copilot", displayName: "GitHub Copilot", icon: Code, category: "ai-providers", description: "GitHub Copilot model access", configPath: "plugins.entries.github-copilot", setupUrl: "https://github.com/settings/copilot", setupHint: "Requires an active GitHub Copilot subscription", providerType: "copilot" },
   { id: "lobster", displayName: "Lobster", icon: Brain, category: "ai-providers", description: "Lobster AI model inference", configPath: "plugins.entries.lobster", setupHint: "Get your API key from Lobster" },
   { id: "vercel-ai-gateway", displayName: "Vercel AI Gateway", icon: Globe, category: "ai-providers", description: "Hundreds of models, one API key", configPath: "plugins.entries.vercel-ai-gateway", setupUrl: "https://vercel.com/dashboard", setupHint: "Get your API key from the Vercel Dashboard" },
   { id: "qianfan", displayName: "Qianfan", icon: Brain, category: "ai-providers", description: "Baidu Qianfan AI platform", configPath: "plugins.entries.qianfan", setupUrl: "https://console.bce.baidu.com/qianfan", setupHint: "Get your API key from the Baidu Qianfan Console" },
@@ -151,18 +155,32 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "qwen-portal-auth", displayName: "Qwen OAuth", icon: Brain, category: "ai-providers", description: "Qwen portal authentication", configPath: "plugins.entries.qwen-portal-auth", setupHint: "Sign in with your Qwen portal account" },
 
   // ── Tools & Services (26) ──────────────────────────────────────────────
-  { id: "brave", displayName: "Brave Search", icon: Search, category: "tools", description: "Web search via Brave", configPath: "plugins.entries.brave" },
-  { id: "duckduckgo", displayName: "DuckDuckGo", icon: Search, category: "tools", description: "Private web search", configPath: "plugins.entries.duckduckgo" },
-  { id: "exa", displayName: "Exa", icon: Search, category: "tools", description: "Neural web search", configPath: "plugins.entries.exa" },
-  { id: "tavily", displayName: "Tavily", icon: Search, category: "tools", description: "AI-optimized search", configPath: "plugins.entries.tavily" },
-  { id: "firecrawl", displayName: "Firecrawl", icon: Globe, category: "tools", description: "Web scraping & crawling", configPath: "plugins.entries.firecrawl" },
-  { id: "elevenlabs", displayName: "ElevenLabs", icon: Volume2, category: "tools", description: "Premium voice synthesis", configPath: "plugins.entries.elevenlabs" },
-  { id: "deepgram", displayName: "Deepgram", icon: Mic2, category: "tools", description: "Speech recognition API", configPath: "plugins.entries.deepgram" },
-  { id: "fal", displayName: "fal.ai", icon: Image, category: "tools", description: "Generative media API", configPath: "plugins.entries.fal" },
+  { id: "brave", displayName: "Brave Search", icon: Search, category: "tools", description: "Web search via Brave", configPath: "plugins.entries.brave", setupUrl: "https://brave.com/search/api/", setupHint: "Get your API key from the Brave Search API dashboard", setupFields: [
+    { key: "apiKey", label: "API Key", placeholder: "BSA...", sensitive: true, required: true },
+  ] },
+  { id: "duckduckgo", displayName: "DuckDuckGo", icon: Search, category: "tools", description: "Private web search", configPath: "plugins.entries.duckduckgo", setupHint: "Free search — no API key needed. Just enable and go" },
+  { id: "exa", displayName: "Exa", icon: Search, category: "tools", description: "Neural web search", configPath: "plugins.entries.exa", setupUrl: "https://dashboard.exa.ai/api-keys", setupHint: "Get your API key from the Exa dashboard", setupFields: [
+    { key: "apiKey", label: "API Key", placeholder: "exa-...", sensitive: true, required: true },
+  ] },
+  { id: "tavily", displayName: "Tavily", icon: Search, category: "tools", description: "AI-optimized search", configPath: "plugins.entries.tavily", setupUrl: "https://app.tavily.com/home", setupHint: "Get your API key from the Tavily dashboard", setupFields: [
+    { key: "apiKey", label: "API Key", placeholder: "tvly-...", sensitive: true, required: true },
+  ] },
+  { id: "firecrawl", displayName: "Firecrawl", icon: Globe, category: "tools", description: "Web scraping & crawling", configPath: "plugins.entries.firecrawl", setupUrl: "https://firecrawl.dev", setupHint: "Get your API key from the Firecrawl dashboard", setupFields: [
+    { key: "apiKey", label: "API Key", placeholder: "fc-...", sensitive: true, required: true },
+  ] },
+  { id: "elevenlabs", displayName: "ElevenLabs", icon: Volume2, category: "tools", description: "Premium voice synthesis", configPath: "plugins.entries.elevenlabs", setupUrl: "https://elevenlabs.io/app/settings/api-keys", setupHint: "Get your API key from ElevenLabs Settings", setupFields: [
+    { key: "apiKey", label: "API Key", placeholder: "sk_...", sensitive: true, required: true },
+  ] },
+  { id: "deepgram", displayName: "Deepgram", icon: Mic2, category: "tools", description: "Speech recognition API", configPath: "plugins.entries.deepgram", setupUrl: "https://console.deepgram.com", setupHint: "Get your API key from the Deepgram Console", setupFields: [
+    { key: "apiKey", label: "API Key", sensitive: true, required: true },
+  ] },
+  { id: "fal", displayName: "fal.ai", icon: Image, category: "tools", description: "Generative media API", configPath: "plugins.entries.fal", setupUrl: "https://fal.ai/dashboard/keys", setupHint: "Get your API key from the fal.ai dashboard", setupFields: [
+    { key: "apiKey", label: "API Key", sensitive: true, required: true },
+  ] },
   { id: "voice-call", displayName: "Voice Call", icon: PhoneCall, category: "tools", description: "Inbound & outbound phone calls", configPath: "plugins.entries.voice-call" },
   { id: "talk-voice", displayName: "Talk Voice", icon: Mic2, category: "tools", description: "Voice wake & talk mode", configPath: "plugins.entries.talk-voice" },
   { id: "phone-control", displayName: "Phone Control", icon: Smartphone, category: "tools", description: "Mobile device control", configPath: "plugins.entries.phone-control" },
-  { id: "memory-core", displayName: "Memory (Core)", icon: Database, category: "tools", description: "Built-in memory backend", configPath: "plugins.entries.memory-core" },
+  { id: "memory-core", displayName: "Memory (Core)", icon: Database, category: "tools", description: "Built-in memory backend", configPath: "plugins.entries.memory-core", setupHint: "Built-in memory — just enable, no configuration needed" },
   { id: "memory-lancedb", displayName: "Memory (LanceDB)", icon: Database, category: "tools", description: "Vector memory with LanceDB", configPath: "plugins.entries.memory-lancedb" },
   { id: "openshell", displayName: "OpenShell", icon: Terminal, category: "tools", description: "Remote shell sandbox", configPath: "plugins.entries.openshell" },
   { id: "device-pair", displayName: "Device Pair", icon: Smartphone, category: "tools", description: "Device pairing service", configPath: "plugins.entries.device-pair" },
