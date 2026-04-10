@@ -158,10 +158,6 @@ export default function PlansPage() {
     return summary?.subscriptions ?? [];
   }, [summary?.subscriptions]);
 
-  const entitlementItems = useMemo(() => {
-    return summary?.entitlementItems ?? [];
-  }, [summary?.entitlementItems]);
-
   const displayProducts = useMemo(() => buildDisplayProducts(), []);
   const paidProducts = useMemo(() => displayProducts.filter((product) => product.id !== "free"), [displayProducts]);
 
@@ -238,6 +234,7 @@ export default function PlansPage() {
     const label = subscription.cancelAtPeriodEnd ? "Ends" : "Renews";
     return `${label} ${subscription.expiresAt.toLocaleDateString()}`;
   };
+
 
   if (loading) {
     return (
@@ -319,62 +316,6 @@ export default function PlansPage() {
         </div>
       )}
 
-      {entitlementItems.length > 0 && (
-        <div className="mb-8">
-          <div className="mb-4">
-            <h2 className="text-xl font-semibold text-foreground">Entitlement Instances</h2>
-            <p className="text-sm text-text-secondary">
-              Concrete 1:1 grants backing your account. Recurring subscriptions can mint several entitlements over time,
-              and direct x402 purchases land here without a recurring billing contract.
-            </p>
-          </div>
-          <div className="grid gap-4 md:grid-cols-2">
-            {entitlementItems.map((entitlement) => (
-              <div key={entitlement.id} className="glass-card p-5">
-                <div className="flex items-start justify-between gap-4">
-                  <div>
-                    <p className="text-lg font-semibold text-foreground">{entitlement.planName}</p>
-                    <p className="text-sm text-text-secondary mt-1">
-                      {entitlement.agentTier ? `${titleizeTier(entitlement.agentTier)} agent tier` : "Capability grant"}
-                    </p>
-                  </div>
-                  <div className="text-right">
-                    <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{entitlement.provider}</p>
-                    <p className="text-sm text-foreground mt-1">{entitlement.status.toLowerCase()}</p>
-                  </div>
-                </div>
-                <div className="mt-4 space-y-2 text-sm text-text-secondary">
-                  <p>{formatEntitlementDate(entitlement)}</p>
-                  <p>
-                    {entitlement.subscriptionId ? "Backed by a recurring subscription." : "Direct entitlement with no recurring billing contract."}
-                  </p>
-                  <p>
-                    {entitlement.activeAgentCount > 0
-                      ? `${entitlement.activeAgentCount} active agent${entitlement.activeAgentCount === 1 ? "" : "s"} bound`
-                      : "No active agent bound"}
-                  </p>
-                </div>
-                <div className="mt-4 flex flex-wrap gap-2">
-                  {(entitlement.tags ?? []).length > 0 ? (
-                    entitlement.tags.map((tag) => (
-                      <span
-                        key={tag}
-                        className="rounded-full border border-border bg-white/5 px-2.5 py-1 text-xs text-text-secondary"
-                      >
-                        {tag}
-                      </span>
-                    ))
-                  ) : (
-                    <span className="text-xs text-text-muted">No tags</span>
-                  )}
-                </div>
-                <div className="mt-4 text-xs text-text-muted break-all">{entitlement.id}</div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
-
       {billingSubscriptions.length > 0 && (
         <div className="mb-8">
           <div className="mb-4">
@@ -389,19 +330,10 @@ export default function PlansPage() {
               <p className="text-sm text-red-200">{subscriptionError}</p>
             </div>
           )}
-          {subscriptionNotice && (
-            <div className="glass-card p-4 mb-4 border border-emerald-500/30">
-              <p className="text-sm text-emerald-200">{subscriptionNotice}</p>
-            </div>
-          )}
           <div className="grid gap-4 md:grid-cols-2">
             {billingSubscriptions.map((subscription) => {
               const bundleLabel = formatBundle(bundleFromSubscription(subscription)) || "Custom";
               const canManage = subscription.canCancel && subscription.provider.toLowerCase() === "stripe";
-              const currentBundleKey = bundleKey(bundleFromSubscription(subscription));
-              const selectedBundleKey = subscriptionTargets[subscription.id] ?? currentBundleKey;
-              const selectedProduct = paidProducts.find((product) => bundleKey(product.bundle) === selectedBundleKey) ?? null;
-              const canApplyChange = Boolean(selectedProduct) && (selectedBundleKey !== currentBundleKey || subscription.cancelAtPeriodEnd);
               return (
                 <div key={subscription.id} className="glass-card p-5">
                   <div className="flex items-start justify-between gap-4">
@@ -421,42 +353,9 @@ export default function PlansPage() {
                         ? "Cancellation scheduled at period end."
                         : canManage
                           ? "Self-serve cancellation is available from the web."
-                        : "This entitlement is read-only here."}
+                          : "This entitlement is read-only here."}
                     </p>
                   </div>
-                  {canManage && (
-                    <div className="mt-4">
-                      <label className="block text-xs uppercase tracking-[0.18em] text-text-muted mb-2">
-                        Update Bundle
-                      </label>
-                      <div className="flex flex-col gap-3 md:flex-row">
-                        <select
-                          value={selectedBundleKey}
-                          onChange={(event) =>
-                            setSubscriptionTargets((current) => ({
-                              ...current,
-                              [subscription.id]: event.target.value,
-                            }))
-                          }
-                          className="flex-1 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm text-foreground"
-                        >
-                          {paidProducts.map((product) => (
-                            <option key={product.id} value={bundleKey(product.bundle)}>
-                              {product.name} · {formatBundle(product.bundle)} · ${product.price}/month
-                            </option>
-                          ))}
-                        </select>
-                        <button
-                          type="button"
-                          onClick={() => void handleUpdateSubscription(subscription)}
-                          disabled={!canApplyChange || mutatingSubscriptionId === subscription.id}
-                          className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-                        >
-                          {mutatingSubscriptionId === subscription.id ? "Applying..." : "Apply Change"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <span className="text-xs text-text-muted">{subscription.id}</span>
                     {canManage && !subscription.cancelAtPeriodEnd ? (
@@ -466,7 +365,7 @@ export default function PlansPage() {
                         disabled={mutatingSubscriptionId === subscription.id}
                         className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
                       >
-                        {mutatingSubscriptionId === subscription.id ? "Updating..." : "Cancel at Period End"}
+                        {mutatingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at Period End"}
                       </button>
                     ) : (
                       <span className="text-xs text-text-muted">

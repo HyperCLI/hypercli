@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
+import { motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
 import { API_BASE_URL, getStoredToken } from "@/lib/api";
 import { agentAvatar } from "@/lib/avatar";
@@ -120,7 +121,6 @@ export function AuthImage({ src, alt, className }: { src: string; alt: string; c
   );
 }
 
-export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = null }: ChatMessageProps) {
 // Returns framer-motion props for the bubble entrance animation.
 // Returns {} for "off" — motion.div with no animation props is a plain div.
 function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotionProps<"div"> {
@@ -244,6 +244,11 @@ export function ChatMessageBubble({
   }
 
   const thinkingPreview = message.thinking ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES) : null;
+
+  // Compute name display logic
+  const showV1Name = nameVariant === "v1";
+  const showV2Name = nameVariant === "v2";
+  const effectiveName = isUser ? (senderName ?? "You") : (agentName ?? "Agent");
 
   return (
     <motion.div
@@ -477,11 +482,11 @@ export function ChatMessageBubble({
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
-export function ChatThinkingIndicator() {
+export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVariant } = {}) {
   return (
     <div className="flex justify-start">
       <div className="bg-surface-low rounded-lg px-4 py-3 flex items-center gap-3 border-l-2 border-[#38D39F]/50">
