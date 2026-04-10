@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Bootstrap a fresh Orchestra API key for the existing console E2E user."""
+"""Bootstrap a fresh Orchestra API key for the console E2E user."""
 
 from __future__ import annotations
 
@@ -66,14 +66,40 @@ def _find_user_id(orchestra_api_base: str, admin_key: str, email: str) -> str:
         "GET",
         f"{orchestra_api_base}/admin/users",
         headers=_headers(admin_key),
-        params={"limit": 1000},
+        params={"email": email, "limit": 50, "offset": 0},
         expected=(200,),
     )
     normalized_email = email.strip().lower()
     for user in response.json():
         if (user.get("email") or "").strip().lower() == normalized_email:
             return str(user["user_id"])
-    raise RuntimeError(f"Unable to find existing Orchestra user for {email}")
+    return ""
+
+
+def _create_user(orchestra_api_base: str, admin_key: str, email: str) -> str:
+    user_id = f"console-e2e-{uuid.uuid4().hex[:10]}"
+    response = _request(
+        "POST",
+        f"{orchestra_api_base}/admin/users",
+        headers=_headers(admin_key),
+        json={"user_id": user_id, "email": email, "user_type": "PAID"},
+        expected=(200,),
+    )
+    payload = response.json()
+    return str(payload.get("user_id") or payload.get("id") or user_id)
+
+
+def _ensure_user_id(orchestra_api_base: str, admin_key: str, email: str) -> str:
+    user_id = _find_user_id(orchestra_api_base, admin_key, email)
+    if user_id:
+        return user_id
+    try:
+        return _create_user(orchestra_api_base, admin_key, email)
+    except RuntimeError:
+        user_id = _find_user_id(orchestra_api_base, admin_key, email)
+        if user_id:
+            return user_id
+        raise
 
 
 def _admin_login(orchestra_api_base: str, admin_key: str, user_id: str) -> str:
@@ -97,7 +123,7 @@ def bootstrap() -> BootstrapState:
     if not email:
         raise RuntimeError("TEST_EMAIL is required")
 
-    orchestra_user_id = _find_user_id(orchestra_api_base, orchestra_admin_key, email)
+    orchestra_user_id = _ensure_user_id(orchestra_api_base, orchestra_admin_key, email)
     orchestra_jwt = _admin_login(orchestra_api_base, orchestra_admin_key, orchestra_user_id)
     suffix = uuid.uuid4().hex[:10]
     key_response = _request(

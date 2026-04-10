@@ -3,69 +3,106 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   HyperAgentCurrentPlan,
-  HyperAgentPlan,
+  HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
 import { Check } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL } from "@/lib/api";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { formatTokens } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
+import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 
-interface AgentTypePlan {
+interface DisplayProduct {
   id: string;
   name: string;
+  bundle: SlotBundle;
   price: number;
-  agents: number;
-  agent_type: string;
+  features: string[];
   highlighted: boolean;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+  slotBundle: string | null;
+  subtitle?: string;
 }
 
-interface AgentTypeCatalogResponse {
-  plans: AgentTypePlan[];
+interface CheckoutPlan {
+  id: string;
+  name: string;
+  bundle: Record<string, number>;
+  price: number;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
 }
 
 function titleizeTier(value: string): string {
   return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
 
-function formatSlotBundle(planId: string, catalog: AgentTypeCatalogResponse | null): string | null {
-  const mapping = catalog?.plans?.find((plan) => plan.id === planId);
-  if (!mapping || mapping.agents <= 0) return null;
-  const tierLabel = titleizeTier(mapping.agent_type);
-  return `${mapping.agents} ${tierLabel} slot${mapping.agents === 1 ? "" : "s"}`;
+function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundle {
+  const metaBundle = compactBundle(
+    (subscription.meta?.bundle as Record<string, number> | undefined) ??
+      (subscription.meta?.checkout_bundle as Record<string, number> | undefined),
+  );
+  if (Object.keys(metaBundle).length > 0) {
+    return metaBundle;
+  }
+
+  const derived: Record<string, number> = {};
+  for (const [tier, granted] of Object.entries(subscription.slotGrants ?? {})) {
+    const total = Math.max(Number(granted || 0), 0) * Math.max(subscription.quantity || 1, 1);
+    if (total > 0) {
+      derived[tier] = total;
+    }
+  }
+  if (Object.keys(derived).length > 0) {
+    return compactBundle(derived);
+  }
+  if (subscription.planId === "free") {
+    return { free: Math.max(subscription.quantity || 1, 1) };
+  }
+  return {};
+}
+
+function buildDisplayProducts(): DisplayProduct[] {
+  return CLAW_PRODUCTS.filter((product) => !product.hidden).map((product) => ({
+    id: product.id,
+    name: product.name,
+    bundle: compactBundle(product.bundle),
+    price: product.price,
+    features: product.features ?? [],
+    highlighted: Boolean(product.highlighted),
+    limits: product.limits,
+    slotBundle: formatBundle(product.bundle),
+    subtitle: product.subtitle,
+  }));
 }
 
 export default function PlansPage() {
   const { getToken } = useAgentAuth();
-  const [plans, setPlans] = useState<HyperAgentPlan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<HyperAgentCurrentPlan | null>(null);
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
-  const [typeCatalog, setTypeCatalog] = useState<AgentTypeCatalogResponse | null>(null);
   const [loading, setLoading] = useState(true);
-  const [checkoutPlan, setCheckoutPlan] = useState<HyperAgentPlan | null>(null);
+  const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
       try {
         const token = await getToken();
         const agentClient = createHyperAgentClient(token);
-        const [plansData, current, subscriptions, catalogResponse] = await Promise.allSettled([
-          agentClient.plans(),
+        const [current, subscriptions] = await Promise.allSettled([
           agentClient.currentPlan(),
           agentClient.subscriptionSummary(),
-          fetch(`${API_BASE_URL}/types`),
         ]);
-        setPlans(plansData.status === "fulfilled" ? (plansData.value ?? []) : []);
         setCurrentPlan(current.status === "fulfilled" ? current.value : null);
         setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
-        if (catalogResponse.status === "fulfilled" && catalogResponse.value.ok) {
-          setTypeCatalog((await catalogResponse.value.json()) as AgentTypeCatalogResponse);
-        } else {
-          setTypeCatalog(null);
-        }
       } catch {
         // graceful fallback
       } finally {
@@ -89,13 +126,12 @@ export default function PlansPage() {
     } catch {}
   };
 
-  const ownedQuantities = useMemo(() => {
+  const ownedBundles = useMemo(() => {
     const entries = new Map<string, number>();
     for (const subscription of summary?.activeSubscriptions ?? []) {
-      entries.set(
-        subscription.planId,
-        (entries.get(subscription.planId) ?? 0) + Math.max(1, subscription.quantity || 1),
-      );
+      const key = bundleKey(bundleFromSubscription(subscription));
+      if (key === "{}") continue;
+      entries.set(key, (entries.get(key) ?? 0) + 1);
     }
     return entries;
   }, [summary]);
@@ -105,6 +141,8 @@ export default function PlansPage() {
       a.localeCompare(b),
     );
   }, [currentPlan?.slotInventory, summary?.slotInventory]);
+
+  const displayProducts = useMemo(() => buildDisplayProducts(), []);
 
   if (loading) {
     return (
@@ -167,7 +205,7 @@ export default function PlansPage() {
                   <div key={tier} className="flex items-center justify-between text-sm">
                     <span className="text-text-secondary">{titleizeTier(tier)}</span>
                     <span className="text-foreground">
-                      {entry.available} free / {entry.granted} total
+                      {entry.used} / {entry.granted} used
                     </span>
                   </div>
                 ))}
@@ -180,40 +218,35 @@ export default function PlansPage() {
       )}
 
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {plans.map((plan) => {
-          const ownedCount = ownedQuantities.get(plan.id) ?? 0;
-          const slotBundle = formatSlotBundle(plan.id, typeCatalog);
-          const burstTpm = plan.limits?.burstTpm ?? plan.tpmLimit ?? 0;
-          const rpm = plan.limits?.rpm ?? plan.rpmLimit ?? 0;
+        {displayProducts.map((product) => {
+          const ownedCount = ownedBundles.get(bundleKey(product.bundle)) ?? 0;
 
           return (
-            <div key={plan.id} className="glass-card p-6 flex flex-col">
+            <div key={product.id} className="glass-card p-6 flex flex-col">
               {ownedCount > 0 ? (
                 <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
                   You own {ownedCount}
                 </div>
-              ) : plan.highlighted ? (
+              ) : product.highlighted ? (
                 <div className="text-xs font-semibold text-foreground bg-white/5 px-3 py-1 rounded-full self-start mb-4">
                   Popular
                 </div>
               ) : null}
 
-              <h3 className="text-lg font-semibold text-foreground">{plan.name}</h3>
+              <h3 className="text-lg font-semibold text-foreground">{product.name}</h3>
               <div className="mt-2 mb-1">
-                <span className="text-3xl font-bold text-foreground">${plan.price}</span>
+                <span className="text-3xl font-bold text-foreground">${product.price}</span>
                 <span className="text-text-muted text-sm">/month</span>
               </div>
-              <p className="text-sm text-text-tertiary mb-1">
-                {plan.aiu ? `${plan.aiu} AIU · ` : ""}
-                {formatTokens(plan.limits?.tpd ?? 0)} tokens/day
-              </p>
+              <p className="text-sm text-text-tertiary mb-1">{formatTokens(product.limits.tpd ?? 0)} tokens/day</p>
               <p className="text-xs text-text-muted mb-2">
-                Up to {formatTokens(burstTpm)} TPM burst &middot; {formatTokens(rpm)} RPM
+                Up to {formatTokens(product.limits.burstTpm)} TPM burst &middot; {formatTokens(product.limits.rpm)} RPM
               </p>
-              {slotBundle && <p className="text-xs text-text-muted mb-6">{slotBundle}</p>}
+              {product.subtitle && <p className="text-xs text-text-muted mb-2">{product.subtitle}</p>}
+              {product.slotBundle && <p className="text-xs text-text-muted mb-6">{product.slotBundle}</p>}
 
               <ul className="space-y-3 mb-8 flex-1">
-                {(plan.features ?? []).map((feature) => (
+                {(product.features ?? []).map((feature) => (
                   <li key={feature} className="flex items-start gap-2 text-sm text-text-secondary">
                     <Check className="w-4 h-4 text-text-secondary flex-shrink-0 mt-0.5" />
                     <span>{feature}</span>
@@ -222,10 +255,21 @@ export default function PlansPage() {
               </ul>
 
               <button
-                onClick={() => setCheckoutPlan(plan)}
-                className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2"
+                onClick={() =>
+                  product.id !== "free"
+                    ? setCheckoutPlan({
+                        id: product.id,
+                        name: product.name,
+                        bundle: compactBundle(product.bundle) as Record<string, number>,
+                        price: product.price,
+                        limits: product.limits,
+                      })
+                    : undefined
+                }
+                disabled={product.id === "free"}
+                className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
               >
-                {ownedCount > 0 ? "Add Another" : "Purchase"}
+                {product.id === "free" ? "Included" : ownedCount > 0 ? "Add Another" : "Purchase"}
               </button>
             </div>
           );
@@ -235,7 +279,7 @@ export default function PlansPage() {
       {checkoutPlan && (
         <PlanCheckoutModal
           plan={checkoutPlan}
-          ownedCount={ownedQuantities.get(checkoutPlan.id) ?? 0}
+          ownedCount={ownedBundles.get(bundleKey(checkoutPlan.bundle)) ?? 0}
           isOpen={!!checkoutPlan}
           onClose={() => setCheckoutPlan(null)}
           onSuccess={refreshPlan}

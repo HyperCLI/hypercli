@@ -43,6 +43,21 @@ integrationDescribe("TS SDK integration: keys", () => {
     expect(disabled.status).toBe("deactivated");
   });
 
+  integrationIt("authenticates a created key against the models API", async () => {
+    const client = createIntegrationClient();
+    const name = `ts-sdk-models-${Math.random().toString(16).slice(2, 10)}`;
+    const created = await client.keys.create(name, ["models:*"]);
+
+    try {
+      const scoped = new HyperCLI({ apiKey: created.apiKey!, apiUrl: process.env.TEST_API_BASE });
+      const models = await scoped.models.list();
+      expect(models.length).toBeGreaterThan(0);
+      expect(models.every((model) => model.id.length > 0)).toBe(true);
+    } finally {
+      await client.keys.disable(created.keyId);
+    }
+  });
+
   integrationIt("enforces api:self vs user:self on scoped keys", async () => {
     const client = createIntegrationClient();
 

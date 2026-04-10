@@ -1,5 +1,3 @@
-from __future__ import annotations
-
 import uuid
 
 import pytest
@@ -38,6 +36,19 @@ def test_create_and_disable_tagged_key(client):
 
     disabled = client.keys.disable(created.key_id)
     assert disabled["status"] == "deactivated"
+
+
+def test_created_key_authenticates_against_models_api(client, test_api_base: str):
+    name = f"sdk-models-scope-{uuid.uuid4().hex[:8]}"
+    created = client.keys.create(name=name, tags=["models:*"])
+
+    try:
+        scoped = HyperCLI(api_key=created.api_key, api_url=test_api_base)
+        models = scoped.models.list()
+        assert models
+        assert all(model.id for model in models)
+    finally:
+        client.keys.disable(created.key_id)
 
 
 def test_api_scoped_key_allows_key_admin_but_denies_profile(client, test_api_base: str):

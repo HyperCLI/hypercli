@@ -1,6 +1,6 @@
 {
   "name": "@hypercli.com/sdk",
-  "version": "2026.4.7-2",
+  "version": "2026.4.9",
   "description": "TypeScript SDK for HyperCLI API",
   "type": "module",
   "main": "./dist/index.js",
@@ -44,7 +44,7 @@
     "clean": "rm -rf dist",
     "lint": "eslint .",
     "lint:fix": "eslint . --fix",
-    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/jobs.test.ts tests/keys.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts",
+    "test": "vitest run tests/config.test.ts tests/client.test.ts tests/jobs.test.ts tests/keys.test.ts tests/models.test.ts tests/exec-shell-dryrun.test.ts tests/gateway.test.ts",
     "test:integration": "vitest run tests/integration",
     "test:watch": "vitest"
   },

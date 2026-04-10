@@ -59,7 +59,16 @@ Available helpers:
 - `audio_to_text`
 - `text_to_speech`
 
-## Poll For Completion
+## Wait For Completion
+
+Use the built-in waiter when you want the SDK to poll for you.
+
+```python
+final_render = client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
+print(final_render.result_url, final_render.error)
+```
+
+## Manual Polling
 
 ```python
 import time
@@ -94,5 +103,6 @@ render = client.renders.create(
 client.renders.list(state="completed")
 client.renders.get(render.render_id)
 client.renders.status(render.render_id)
+client.renders.wait(render.render_id, poll_interval=2, timeout=1800)
 client.renders.cancel(render.render_id)
 ```

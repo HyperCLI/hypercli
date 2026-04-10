@@ -1,3 +1,4 @@
+//import { HyperAgent } from "@hypercli.com/sdk";
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import { Deployments } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";

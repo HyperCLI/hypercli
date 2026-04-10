@@ -19,6 +19,7 @@ from .voice import VoiceAPI
 from .agents import Deployments
 from .agent import HyperAgent
 from .keys import KeysAPI
+from .models import ModelsAPI
 
 
 def _derive_agents_api_base(api_url: str, agent_dev: bool) -> str:
@@ -100,6 +101,7 @@ class HyperCLI:
         self.files = Files(self._http)
         self.voice = VoiceAPI(self._http)
         self.keys = KeysAPI(self._http)
+        self.models = ModelsAPI(self._http)
         self.agent = HyperAgent(
             self._http,
             agent_api_key=resolved_agent_api_key,
