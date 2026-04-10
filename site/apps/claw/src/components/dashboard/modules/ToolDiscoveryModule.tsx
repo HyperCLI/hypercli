@@ -8,14 +8,17 @@ import { MOCK_TOOL_DISCOVERIES } from "../agentViewMockData";
 
 interface ToolDiscoveryModuleProps {
   variant: StyleVariant;
+  discoveries?: typeof MOCK_TOOL_DISCOVERIES | null;
 }
 
-export function ToolDiscoveryModule({ variant }: ToolDiscoveryModuleProps) {
+export function ToolDiscoveryModule({ variant, discoveries: discoveriesProp }: ToolDiscoveryModuleProps) {
+  const discoveries = discoveriesProp ?? MOCK_TOOL_DISCOVERIES;
+  const isMock = !discoveriesProp;
   const [dismissedDiscoveries, setDismissedDiscoveries] = useState<Set<string>>(
     new Set(),
   );
 
-  const visibleDiscoveries = MOCK_TOOL_DISCOVERIES.filter(
+  const visibleDiscoveries = discoveries.filter(
     (d) => !dismissedDiscoveries.has(d.id),
   );
 
@@ -23,9 +26,9 @@ export function ToolDiscoveryModule({ variant }: ToolDiscoveryModuleProps) {
 
   return (
     <div className="relative space-y-1.5 rounded-lg border border-border p-3">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       {visibleDiscoveries.map((disc, idx) => {
         if (variant === "v1") {
           return (

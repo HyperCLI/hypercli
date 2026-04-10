@@ -2,10 +2,17 @@
 
 import { motion } from "framer-motion";
 import { Monitor } from "lucide-react";
+import type { AgentSession } from "../agentViewTypes";
 import { MOCK_SESSIONS, SESSION_ICONS } from "../agentViewMockData";
 import { relativeTime } from "../agentViewUtils";
 
-export function SessionsModule() {
+interface SessionsModuleProps {
+  sessions?: AgentSession[] | null;
+}
+
+export function SessionsModule({ sessions: sessionsProp }: SessionsModuleProps) {
+  const sessions = sessionsProp ?? MOCK_SESSIONS;
+  const isMock = !sessionsProp;
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -13,7 +20,7 @@ export function SessionsModule() {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.16 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="flex items-center justify-between">
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Sessions</span>
         <motion.span
@@ -27,11 +34,11 @@ export function SessionsModule() {
             animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
             transition={{ repeat: Infinity, duration: 1, ease: "easeInOut" }}
           />
-          {MOCK_SESSIONS.length} active
+          {sessions.length} active
         </motion.span>
       </div>
       <div className="space-y-1">
-        {MOCK_SESSIONS.map((sess, idx) => {
+        {sessions.map((sess, idx) => {
           const SessIcon = SESSION_ICONS[sess.clientMode] || Monitor;
           return (
             <motion.div

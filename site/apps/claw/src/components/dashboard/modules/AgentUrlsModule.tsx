@@ -6,9 +6,13 @@ import { MOCK_AGENT_URLS } from "../agentViewMockData";
 
 interface AgentUrlsModuleProps {
   variant: StyleVariant;
+  urls?: typeof MOCK_AGENT_URLS | null;
 }
 
-export function AgentUrlsModule({ variant }: AgentUrlsModuleProps) {
+export function AgentUrlsModule({ variant, urls: urlsProp }: AgentUrlsModuleProps) {
+  const urls = urlsProp ?? MOCK_AGENT_URLS;
+  const isMock = !urlsProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -16,15 +20,15 @@ export function AgentUrlsModule({ variant }: AgentUrlsModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.32 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
         Endpoints
       </div>
       {variant === "v1" ? (
         <div className="space-y-1">
-          {MOCK_AGENT_URLS.map((u, idx) => {
+          {urls.map((u, idx) => {
             const UIcon = u.icon;
             return (
               <motion.a
@@ -49,7 +53,7 @@ export function AgentUrlsModule({ variant }: AgentUrlsModuleProps) {
         </div>
       ) : variant === "v2" ? (
         <div className="flex flex-wrap gap-1">
-          {MOCK_AGENT_URLS.map((u, idx) => {
+          {urls.map((u, idx) => {
             const UIcon = u.icon;
             return (
               <motion.a
@@ -69,7 +73,7 @@ export function AgentUrlsModule({ variant }: AgentUrlsModuleProps) {
         </div>
       ) : (
         <div className="space-y-0.5">
-          {MOCK_AGENT_URLS.map((u, idx) => (
+          {urls.map((u, idx) => (
             <motion.div
               key={idx}
               initial={{ opacity: 0 }}

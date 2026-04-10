@@ -8,9 +8,13 @@ import { formatUptime } from "../agentViewUtils";
 
 interface GatewayStatusModuleProps {
   variant: StyleVariant;
+  gatewayStatus?: typeof MOCK_GATEWAY_STATUS | null;
 }
 
-export function GatewayStatusModule({ variant }: GatewayStatusModuleProps) {
+export function GatewayStatusModule({ variant, gatewayStatus: gatewayStatusProp }: GatewayStatusModuleProps) {
+  const gw = gatewayStatusProp ?? MOCK_GATEWAY_STATUS;
+  const isMock = !gatewayStatusProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -18,9 +22,9 @@ export function GatewayStatusModule({ variant }: GatewayStatusModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.34 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="flex items-center gap-1.5">
         <motion.div
           animate={{ scale: [1, 1.1, 1] }}
@@ -40,15 +44,15 @@ export function GatewayStatusModule({ variant }: GatewayStatusModuleProps) {
       {variant === "v1" ? (
         <div className="grid grid-cols-2 gap-1.5">
           {[
-            { label: "Protocol", value: `v${MOCK_GATEWAY_STATUS.protocol}` },
-            { label: "Version", value: MOCK_GATEWAY_STATUS.version },
+            { label: "Protocol", value: `v${gw.protocol}` },
+            { label: "Version", value: gw.version },
             {
               label: "Uptime",
-              value: formatUptime(MOCK_GATEWAY_STATUS.uptime),
+              value: formatUptime(gw.uptime),
             },
             {
               label: "Streams",
-              value: String(MOCK_GATEWAY_STATUS.activeStreams),
+              value: String(gw.activeStreams),
             },
           ].map((item, idx) => (
             <motion.div
@@ -70,25 +74,25 @@ export function GatewayStatusModule({ variant }: GatewayStatusModuleProps) {
           <span className="text-text-muted">
             Protocol{" "}
             <span className="text-foreground font-mono">
-              v{MOCK_GATEWAY_STATUS.protocol}
+              v{gw.protocol}
             </span>
           </span>
           <span className="text-text-muted">
             Version{" "}
             <span className="text-foreground font-mono">
-              {MOCK_GATEWAY_STATUS.version}
+              {gw.version}
             </span>
           </span>
           <span className="text-text-muted">
             Uptime{" "}
             <span className="text-foreground font-mono">
-              {formatUptime(MOCK_GATEWAY_STATUS.uptime)}
+              {formatUptime(gw.uptime)}
             </span>
           </span>
           <span className="text-text-muted">
             Streams{" "}
             <span className="text-foreground font-mono">
-              {MOCK_GATEWAY_STATUS.activeStreams}
+              {gw.activeStreams}
             </span>
           </span>
         </div>
@@ -98,11 +102,11 @@ export function GatewayStatusModule({ variant }: GatewayStatusModuleProps) {
           animate={{ opacity: 1 }}
           className="text-[10px] font-mono text-text-muted"
         >
-          gw v{MOCK_GATEWAY_STATUS.protocol} ·{" "}
-          {MOCK_GATEWAY_STATUS.version} ·{" "}
-          {formatUptime(MOCK_GATEWAY_STATUS.uptime)} ·{" "}
-          {MOCK_GATEWAY_STATUS.activeStreams} stream
-          {MOCK_GATEWAY_STATUS.activeStreams !== 1 ? "s" : ""}
+          gw v{gw.protocol} ·{" "}
+          {gw.version} ·{" "}
+          {formatUptime(gw.uptime)} ·{" "}
+          {gw.activeStreams} stream
+          {gw.activeStreams !== 1 ? "s" : ""}
         </motion.div>
       )}
     </motion.div>

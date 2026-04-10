@@ -7,21 +7,25 @@ import { QUICK_ACTIONS } from "../agentViewMockData";
 
 interface QuickActionsModuleProps {
   variant: StyleVariant;
+  actions?: typeof QUICK_ACTIONS | null;
 }
 
-export function QuickActionsModule({ variant }: QuickActionsModuleProps) {
+export function QuickActionsModule({ variant, actions: actionsProp }: QuickActionsModuleProps) {
+  const actions = actionsProp ?? QUICK_ACTIONS;
+  const isMock = !actionsProp;
+
   if (variant === "v1") {
     // v1: Horizontal scroll chips
     return (
       <div className="relative rounded-lg border border-border p-3 space-y-2">
-        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+        {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
           mock
-        </span>
+        </span>}
         <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           Quick Actions
         </div>
         <div className="flex gap-1.5 overflow-x-auto pb-1">
-          {QUICK_ACTIONS.map((qa, idx) => {
+          {actions.map((qa, idx) => {
             const QaIcon = qa.icon;
             return (
               <motion.button
@@ -46,14 +50,14 @@ export function QuickActionsModule({ variant }: QuickActionsModuleProps) {
     // v2: Grid of icon cards
     return (
       <div className="relative rounded-lg border border-border p-3 space-y-2">
-        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+        {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
           mock
-        </span>
+        </span>}
         <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
           Try asking
         </div>
         <div className="grid grid-cols-3 gap-1.5">
-          {QUICK_ACTIONS.slice(0, 6).map((qa, idx) => {
+          {actions.slice(0, 6).map((qa, idx) => {
             const QaIcon = qa.icon;
             return (
               <motion.button
@@ -89,10 +93,10 @@ export function QuickActionsModule({ variant }: QuickActionsModuleProps) {
   // v3: Stacked suggestion cards
   return (
     <div className="relative space-y-1 rounded-lg border border-border p-3">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
-      {QUICK_ACTIONS.slice(0, 3).map((qa, idx) => {
+      </span>}
+      {actions.slice(0, 3).map((qa, idx) => {
         const QaIcon = qa.icon;
         return (
           <motion.button

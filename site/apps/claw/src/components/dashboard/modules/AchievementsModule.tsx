@@ -7,9 +7,13 @@ import { RECENT_ACHIEVEMENTS } from "../agentViewMockData";
 
 interface AchievementsModuleProps {
   variant: StyleVariant;
+  achievements?: typeof RECENT_ACHIEVEMENTS | null;
 }
 
-export function AchievementsModule({ variant }: AchievementsModuleProps) {
+export function AchievementsModule({ variant, achievements: achievementsProp }: AchievementsModuleProps) {
+  const achievements = achievementsProp ?? RECENT_ACHIEVEMENTS;
+  const isMock = !achievementsProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -17,9 +21,9 @@ export function AchievementsModule({ variant }: AchievementsModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.22 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="flex items-center gap-1.5">
         <motion.div
           animate={{ rotate: [0, 10, -10, 0] }}
@@ -34,7 +38,7 @@ export function AchievementsModule({ variant }: AchievementsModuleProps) {
       {variant === "v1" ? (
         // v1: Stats grid with animated counters
         <div className="grid grid-cols-3 gap-1.5">
-          {RECENT_ACHIEVEMENTS.slice(0, 6).map((ach, idx) => {
+          {achievements.slice(0, 6).map((ach, idx) => {
             const AchIcon = ach.icon;
             return (
               <motion.div
@@ -77,7 +81,7 @@ export function AchievementsModule({ variant }: AchievementsModuleProps) {
       ) : variant === "v2" ? (
         // v2: Horizontal scroll numbers
         <div className="flex gap-3 overflow-x-auto pb-1">
-          {RECENT_ACHIEVEMENTS.map((ach, idx) => {
+          {achievements.map((ach, idx) => {
             const AchIcon = ach.icon;
             return (
               <motion.div
@@ -103,11 +107,11 @@ export function AchievementsModule({ variant }: AchievementsModuleProps) {
           animate={{ opacity: 1 }}
           className="flex flex-wrap gap-x-2 gap-y-0.5 text-[10px]"
         >
-          {RECENT_ACHIEVEMENTS.map((ach, idx) => (
+          {achievements.map((ach, idx) => (
             <span key={idx} className="text-text-muted">
               <span className="text-foreground font-bold">{ach.value}</span>{" "}
               {ach.label}
-              {idx < RECENT_ACHIEVEMENTS.length - 1 && (
+              {idx < achievements.length - 1 && (
                 <span className="ml-2">&middot;</span>
               )}
             </span>

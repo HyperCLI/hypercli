@@ -189,24 +189,32 @@ interface AgentCardModuleProps {
   variant: StyleVariant;
   agentName?: string;
   agentStatus?: AgentStatus | null;
+  config?: { model: string; tools: { name: string; enabled: boolean }[] } | null;
+  connections?: { id: string; connected: boolean }[] | null;
+  sessions?: { key: string }[] | null;
 }
 
 export function AgentCardModule({
   variant,
   agentName = "My Agent",
   agentStatus,
+  config: configProp,
+  connections: connectionsProp,
+  sessions: sessionsProp,
 }: AgentCardModuleProps) {
   const status = agentStatus ?? MOCK_STATUS;
-  const configTools = MOCK_CONFIG.tools;
+  const isMock = !configProp;
+  const configTools = (configProp ?? MOCK_CONFIG).tools;
   const enabledTools = configTools.filter((t) => t.enabled).map((t) => t.name);
-  const connectedCount = MOCK_CONNECTIONS.filter((c) => c.connected).length;
+  const sessionsCount = (sessionsProp ?? MOCK_SESSIONS).length;
+  const connectedCount = (connectionsProp ?? MOCK_CONNECTIONS).filter((c) => c.connected).length;
 
   if (variant === "v1") {
     return (
       <div className="relative">
-        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+        {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
           mock
-        </span>
+        </span>}
         <div className="rounded-xl bg-surface-low p-4 space-y-3">
           <div className="flex items-center gap-3">
             <motion.div
@@ -240,7 +248,7 @@ export function AgentCardModule({
           </div>
           <div className="flex gap-4 text-[10px] text-text-muted">
             <span>{connectedCount} connections</span>
-            <span>{MOCK_SESSIONS.length} sessions</span>
+            <span>{sessionsCount} sessions</span>
             <span>{formatUptime(status.uptime)} uptime</span>
           </div>
         </div>
@@ -251,9 +259,9 @@ export function AgentCardModule({
   if (variant === "v2") {
     return (
       <div className="relative">
-        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+        {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
           mock
-        </span>
+        </span>}
         <div className="rounded-lg bg-gradient-to-br from-[#38D39F]/5 to-transparent p-3 space-y-2">
           <div className="text-xs font-medium text-foreground">
             {agentName}
@@ -262,7 +270,7 @@ export function AgentCardModule({
             {[
               { label: "Tools", value: enabledTools.length },
               { label: "Links", value: connectedCount },
-              { label: "Sessions", value: MOCK_SESSIONS.length },
+              { label: "Sessions", value: sessionsCount },
             ].map((stat, idx) => (
               <motion.div
                 key={idx}

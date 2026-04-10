@@ -6,11 +6,19 @@ import type { StyleVariant } from "../agentViewTypes";
 import { MOCK_EXEC_QUEUE } from "../agentViewMockData";
 import { relativeTime } from "../agentViewUtils";
 
-export function ExecQueueModule({ variant }: { variant: StyleVariant }) {
+interface ExecQueueModuleProps {
+  variant: StyleVariant;
+  queue?: typeof MOCK_EXEC_QUEUE | null;
+}
+
+export function ExecQueueModule({ variant, queue: queueProp }: ExecQueueModuleProps) {
+  const queue = queueProp ?? MOCK_EXEC_QUEUE;
+  const isMock = !queueProp;
+
   return (
     <motion.div initial={{ opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.3 }}
       className="relative rounded-lg border border-[#f0c56c]/25 bg-[#f0c56c]/5 p-3 space-y-2">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">mock</span>}
       <div className="flex items-center gap-1.5">
         <motion.div animate={{ scale: [1, 1.15, 1] }} transition={{ repeat: Infinity, duration: 1.5 }}>
           <Shield className="w-3.5 h-3.5 text-[#f0c56c]" />
@@ -18,12 +26,12 @@ export function ExecQueueModule({ variant }: { variant: StyleVariant }) {
         <span className="text-xs font-semibold text-[#f0c56c] uppercase tracking-wider">Pending Approval</span>
         <motion.span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#f0c56c]/20 text-[#f0c56c] font-bold"
           animate={{ scale: [1, 1.1, 1] }} transition={{ repeat: Infinity, duration: 2 }}>
-          {MOCK_EXEC_QUEUE.length}
+          {queue.length}
         </motion.span>
       </div>
       {variant === "v1" ? (
         <div className="space-y-1.5">
-          {MOCK_EXEC_QUEUE.map((exec, idx) => (
+          {queue.map((exec, idx) => (
             <motion.div key={exec.id} initial={{ x: -16, opacity: 0 }} animate={{ x: 0, opacity: 1 }} transition={{ delay: 0.15 + idx * 0.08 }}
               className="rounded-md border border-[#f0c56c]/20 bg-background/50 px-2.5 py-2 space-y-1.5">
               <code className="text-[10px] font-mono text-foreground block truncate">{exec.command}</code>
@@ -37,7 +45,7 @@ export function ExecQueueModule({ variant }: { variant: StyleVariant }) {
         </div>
       ) : variant === "v2" ? (
         <div className="space-y-1">
-          {MOCK_EXEC_QUEUE.map((exec, idx) => (
+          {queue.map((exec, idx) => (
             <motion.div key={exec.id} initial={{ opacity: 0 }} animate={{ opacity: 1 }} transition={{ delay: idx * 0.06 }}
               className="flex items-center gap-2 px-2 py-1 rounded hover:bg-background/50 transition-colors">
               <Terminal className="w-3 h-3 text-[#f0c56c] shrink-0" />
@@ -51,7 +59,7 @@ export function ExecQueueModule({ variant }: { variant: StyleVariant }) {
         <div className="flex items-center gap-2 text-[10px]">
           <motion.span className="w-1.5 h-1.5 rounded-full bg-[#f0c56c]"
             animate={{ scale: [0.75, 1.35, 0.75] }} transition={{ repeat: Infinity, duration: 1 }} />
-          <span className="text-text-muted">{MOCK_EXEC_QUEUE.length} commands awaiting approval</span>
+          <span className="text-text-muted">{queue.length} commands awaiting approval</span>
           <motion.button whileTap={{ scale: 0.9 }} className="text-[#f0c56c] font-medium ml-auto hover:underline">Review</motion.button>
         </div>
       )}

@@ -462,6 +462,14 @@ export default function DevChatPage() {
     [threads, selectedThreadId],
   );
 
+  const activeAgentName = useMemo(() => {
+    if (!selectedThread) return null;
+    const agents = selectedThread.participants.filter((p) => p.type === "agent");
+    if (agents.length === 0) return null;
+    if (agents.length === 1) return agents[0].name;
+    return agents.map((a) => a.name).join(", ");
+  }, [selectedThread]);
+
   const handleAddParticipant = useCallback((participant: Participant) => {
     if (!selectedThreadId) return;
     setThreads((prev) =>
@@ -500,6 +508,24 @@ export default function DevChatPage() {
     setThreads((prev) => [newThread, ...prev]);
     setSelectedThreadId(id);
     setAddParticipantOpen(true);
+  }, []);
+
+  const handleStartAgentChat = useCallback((agent: Participant) => {
+    const id = `t-new-${Date.now()}`;
+    const newThread: typeof threads[number] = {
+      id,
+      sessionKey: `session-${id}`,
+      participants: [{ id: "user-1", name: "You", type: "user" }, agent],
+      kind: "user-agent",
+      lastMessage: "",
+      lastMessageBy: "user-1",
+      lastMessageAt: Date.now(),
+      messageCount: 0,
+      unreadCount: 0,
+      isActive: true,
+    };
+    setThreads((prev) => [newThread, ...prev]);
+    setSelectedThreadId(id);
   }, []);
 
   const handleRenameThread = useCallback((threadId: string, title: string) => {
@@ -1447,6 +1473,7 @@ export default function DevChatPage() {
           selectedThreadId={selectedThreadId}
           onSelectThread={setSelectedThreadId}
           onNewThread={handleNewThread}
+          onStartAgentChat={handleStartAgentChat}
           onDeleteThread={handleDeleteThread}
           onRenameThread={handleRenameThread}
         />
@@ -1535,13 +1562,13 @@ export default function DevChatPage() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground truncate">
               {selectedThread
-                ? (selectedThread.title
-                  ?? selectedThread.participants.filter((p) => p.type === "agent").map((p) => p.name).join(", ")
-                  ?? "mock-agent-dev")
-                : "mock-agent-dev"}
+                ? (selectedThread.title ?? activeAgentName ?? "New conversation")
+                : "Select or create an agent"}
             </p>
             <p className="text-xs text-text-muted">
-              {selectedThread && groupThreadIds.has(selectedThread.id)
+              {!selectedThread
+                ? "Pick an agent from the sidebar or create a new one"
+                : selectedThread && groupThreadIds.has(selectedThread.id)
                 ? `Group · ${selectedThread.participants.length} participants`
                 : connected ? "Connected" : connecting ? "Connecting to gateway..." : "Disconnected"}
             </p>
@@ -1612,24 +1639,41 @@ export default function DevChatPage() {
             </div>
           )}
 
-          {/* Empty state: no thread selected, no messages */}
-          {messages.length === 0 && (!selectedThread || (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id))) && (
-            <div className="flex flex-col items-center justify-center h-full text-text-muted">
+          {/* Empty state: no thread selected */}
+          {!selectedThread && (
+            <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
+              <MessageSquare className="w-8 h-8 opacity-30" />
+              <p className="text-sm font-medium text-foreground">No Agent or Channel selected</p>
+              <p className="text-xs text-text-muted text-center max-w-[220px]">
+                Select an agent or channel to get started
+              </p>
+            </div>
+          )}
+
+          {/* Empty state: thread selected but no messages */}
+          {selectedThread && messages.length === 0 && (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id)) && (
+            <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
               {connecting ? (
                 <>
-                  <Loader2 className="w-8 h-8 mb-2 animate-spin" />
+                  <Loader2 className="w-8 h-8 animate-spin" />
                   <p className="text-sm">Connecting to gateway...</p>
-                  <p className="text-xs mt-1 text-text-muted/60">Retrying every 5s</p>
+                  <p className="text-xs text-text-muted/60">Retrying every 5s</p>
                 </>
               ) : connected ? (
                 <>
-                  <MessageSquare className="w-8 h-8 mb-2" />
-                  <p className="text-sm">Send a message to start chatting with your agent</p>
+                  <MessageSquare className="w-8 h-8 opacity-30" />
+                  <p className="text-sm font-medium text-foreground">Start a conversation</p>
+                  <p className="text-xs text-text-muted text-center max-w-[220px]">
+                    Send a message to start chatting with {activeAgentName ?? "your agent"}
+                  </p>
                 </>
               ) : (
                 <>
-                  <MessageSquare className="w-8 h-8 mb-2" />
-                  <p className="text-sm">Start the agent to begin chatting</p>
+                  <Bot className="w-8 h-8 opacity-30" />
+                  <p className="text-sm font-medium text-foreground">Agent offline</p>
+                  <p className="text-xs text-text-muted text-center max-w-[220px]">
+                    Start {activeAgentName ?? "the agent"} to begin chatting
+                  </p>
                 </>
               )}
             </div>
@@ -1652,7 +1696,7 @@ export default function DevChatPage() {
                 themeVariant={themeVariant}
                 streamingVariant={streamingVariant}
                 isStreaming={!isGroupThread && sending && i === displayMessages.length - 1 && msg.role === "assistant"}
-                agentName={isGroupThread ? undefined : "mock-agent-dev"}
+                agentName={isGroupThread ? undefined : (activeAgentName ?? "Agent")}
                 senderName={(msg as GroupMessage).senderName}
                 isGroupChat={isGroupThread}
               />
@@ -1680,7 +1724,7 @@ export default function DevChatPage() {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 rows={1}
-                placeholder={connected ? "Message mock-agent-dev..." : "Waiting for gateway..."}
+                placeholder={connected ? `Message ${activeAgentName ?? "agent"}...` : "Waiting for gateway..."}
                 disabled={!connected || sending}
                 className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-12 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
               />
@@ -1704,7 +1748,7 @@ export default function DevChatPage() {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 rows={1}
-                placeholder={connected ? "Ask mock-agent-dev anything..." : "Waiting for gateway..."}
+                placeholder={connected ? `Ask ${activeAgentName ?? "agent"} anything...` : "Waiting for gateway..."}
                 disabled={!connected || sending}
                 className="flex-1 min-w-0 resize-none bg-transparent border-0 border-b border-border rounded-none px-1 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-[#38D39F] disabled:opacity-50 overflow-hidden transition-colors"
               />
@@ -1774,7 +1818,7 @@ export default function DevChatPage() {
           />
         ) : (
           <AgentView
-            agentName="mock-agent-dev"
+            agentName={activeAgentName ?? "Agent"}
             onConnectionSelect={(conn) => setSelectedConnection(conn)}
             activeTab={agentViewTab}
             onTabChange={setAgentViewTab}

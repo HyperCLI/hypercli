@@ -6,9 +6,13 @@ import { AGENT_LIMITS } from "../agentViewMockData";
 
 interface LimitsModuleProps {
   variant: StyleVariant;
+  limits?: typeof AGENT_LIMITS | null;
 }
 
-export function LimitsModule({ variant }: LimitsModuleProps) {
+export function LimitsModule({ variant, limits: limitsProp }: LimitsModuleProps) {
+  const limits = limitsProp ?? AGENT_LIMITS;
+  const isMock = !limitsProp;
+
   return (
     <motion.div
       initial={{ opacity: 0, y: 12 }}
@@ -16,16 +20,16 @@ export function LimitsModule({ variant }: LimitsModuleProps) {
       transition={{ type: "spring", stiffness: 380, damping: 28, delay: 0.2 }}
       className="relative rounded-lg border border-border p-3 space-y-2"
     >
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+      {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
         mock
-      </span>
+      </span>}
       <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider">
         Limits
       </div>
       {variant === "v1" ? (
         // v1: 2-col grid with icons
         <div className="grid grid-cols-2 gap-1.5">
-          {AGENT_LIMITS.map((lim, idx) => {
+          {limits.map((lim, idx) => {
             const LimIcon = lim.icon;
             return (
               <motion.div
@@ -49,7 +53,7 @@ export function LimitsModule({ variant }: LimitsModuleProps) {
       ) : variant === "v2" ? (
         // v2: Single row chips
         <div className="flex flex-wrap gap-1">
-          {AGENT_LIMITS.map((lim, idx) => (
+          {limits.map((lim, idx) => (
             <motion.span
               key={idx}
               initial={{ opacity: 0, x: -8 }}
@@ -64,7 +68,7 @@ export function LimitsModule({ variant }: LimitsModuleProps) {
       ) : (
         // v3: Compact vertical list
         <div className="space-y-0.5">
-          {AGENT_LIMITS.map((lim, idx) => {
+          {limits.map((lim, idx) => {
             const LimIcon = lim.icon;
             return (
               <motion.div
