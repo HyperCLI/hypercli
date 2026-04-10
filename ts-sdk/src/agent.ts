@@ -337,6 +337,22 @@ export class HyperAgent {
     return hyperAgentSubscriptionSummaryFromDict(data);
   }
 
+  async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscription> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/cancel`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to cancel subscription: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return hyperAgentSubscriptionFromDict(data);
+  }
+
   async models(): Promise<HyperAgentModel[]> {
     const response = await fetch(`${this.baseUrl}/models`, {
       headers: {
