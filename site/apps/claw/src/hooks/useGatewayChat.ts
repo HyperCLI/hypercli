@@ -71,6 +71,8 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
 /** Detect internal heartbeat poll prompts that should never be shown to users. */
 function isHeartbeatMessage(content: string): boolean {
   return content.includes("HEARTBEAT.md");
+}
+
 /**
  * Detect and extract clean text from content that was accidentally JSON-stringified.
  * Only extracts from objects that look like chat message shapes (have a `role` field)

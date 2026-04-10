@@ -215,7 +215,6 @@ export function AuthImage({ src, alt, className }: { src: string; alt: string; c
   );
 }
 
-export function ChatMessageBubble({ message, inlineAudioUrl = null, agentId = null }: ChatMessageProps) {
 // Returns framer-motion props for the bubble entrance animation.
 // Returns {} for "off" — motion.div with no animation props is a plain div.
 function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotionProps<"div"> {
@@ -520,50 +519,6 @@ export function ChatMessageBubble({
 
         {/* ── Bubble ── */}
         <div className={`${bubbleClass}${isStreaming && streamingVariant === "v3" ? " relative overflow-hidden" : ""}`}>
-          {/* Thinking block — only visible during active streaming, hidden for history */}
-          {message.thinking && isStreaming && (
-            <div className={getThinkingBlockClass(themeVariant)}>
-              <button
-                onClick={() =>
-                  setToolsOpen((prev) => ({ ...prev, [j]: !prev[j] }))
-                }
-                className="flex items-center gap-1.5 w-full px-2.5 py-1.5 hover:bg-surface-low transition-colors text-left"
-              >
-                {hasResult ? (
-                  <Check className="w-3 h-3 text-[#38D39F] shrink-0" />
-                ) : (
-                  <Loader2 className="w-3 h-3 text-[#f0c56c] animate-spin shrink-0" />
-                )}
-                <Wrench className="w-3 h-3 text-[#f0c56c] shrink-0" />
-                <span className="text-[#f0c56c] font-medium">{tc.name}</span>
-                {!toolsOpen[j] && summary && (
-                  <span className="text-text-muted truncate ml-1 flex-1 min-w-0">{summary}</span>
-                )}
-                {toolsOpen[j] ? (
-                  <ChevronDown className="w-3 h-3 text-text-muted ml-auto shrink-0" />
-                ) : (
-                  <ChevronRight className="w-3 h-3 text-text-muted ml-auto shrink-0" />
-                )}
-              </button>
-              {toolsOpen[j] && (
-                <pre className="px-2.5 py-1.5 text-text-muted whitespace-pre-wrap border-t border-border font-mono">
-                  {tc.args}
-                  {tc.result && (
-                    <>
-                      {"\n"}
-                      <span className="text-text-secondary">{tc.result}</span>
-                    </>
-                  )}
-                </pre>
-              )}
-              {thinkingOpen && (
-                <pre className="text-xs text-text-muted whitespace-pre-wrap mt-1 italic leading-relaxed">
-                  {message.thinking}
-                </pre>
-              )}
-            </div>
-          )}
-
           {/* Tool calls */}
           {message.toolCalls?.map((tc, j) => {
             const hasResult = Boolean(tc.result);
@@ -644,41 +599,11 @@ export function ChatMessageBubble({
                   <Paperclip className="h-3.5 w-3.5 shrink-0" />
                   <span className="truncate">{file.name}</span>
                 </div>
-              )}
+              ))}
             </div>
-          );
-        })}
+          )}
 
-        {/* User-sent image attachments */}
-        {message.attachments && message.attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {message.attachments.map((att, i) => (
-              <img
-                key={i}
-                src={`data:${att.mimeType};base64,${att.content}`}
-                alt={att.fileName || "attachment"}
-                className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
-                onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
-              />
-            ))}
-          </div>
-        )}
-
-        {message.files && message.files.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {message.files.map((file, i) => (
-              <div
-                key={`${file.name}-${i}`}
-                className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
-              >
-                <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
-              </div>
-            ))}
-          </div>
-        )}
-
-        {/* Agent-sent media (URLs) */}
+          {/* Agent-sent media (URLs) */}
         {message.mediaUrls && message.mediaUrls.length > 0 && (
           <div className="flex flex-wrap gap-2 mb-2">
             {message.mediaUrls.map((url, i) => {
@@ -796,18 +721,7 @@ export function ChatMessageBubble({
             </>
           )}
 
-          {/* Inline audio */}
-          {inlineAudioUrl && (
-            <button
-              type="button"
-              onClick={toggleInlineAudio}
-              className="mt-2 inline-flex items-center justify-center rounded-md border border-border bg-background/50 p-1.5 text-text-muted hover:text-foreground"
-              title={inlineAudioPlaying ? "Pause voice message" : "Play voice message"}
-            >
-              {message.content}
-            </Markdown>
-          </div>
-        )}
+        </div>
 
         {inlineAudioUrl && (
           <button
@@ -827,7 +741,7 @@ export function ChatMessageBubble({
           </div>
         )}
       </div>
-    </div>
+    </motion.div>
   );
 }
 
