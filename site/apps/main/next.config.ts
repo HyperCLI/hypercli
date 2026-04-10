@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+import dotenv from "dotenv";
+
+dotenv.config();
+
 // Build-time validation of required environment variables
 const requiredEnvVars = [
   'NEXT_PUBLIC_MAIN_SITE_URL',

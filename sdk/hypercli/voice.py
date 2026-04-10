@@ -20,6 +20,8 @@ def _encode_reference_audio(ref_audio: bytes | str | Path) -> str:
 class VoiceAPI:
     """Voice capability API wrapper."""
 
+    DEFAULT_TIMEOUT = 300.0
+
     def __init__(self, http: "HTTPClient"):
         self._http = http
 
@@ -30,7 +32,7 @@ class VoiceAPI:
         voice: str = "Chelsie",
         language: str = "auto",
         response_format: str = "mp3",
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> bytes:
         return self._http.post_bytes(
             "/agents/voice/tts",
@@ -51,7 +53,7 @@ class VoiceAPI:
         language: str = "auto",
         x_vector_only: bool = True,
         response_format: str = "mp3",
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> bytes:
         return self._http.post_bytes(
             "/agents/voice/clone",
@@ -72,7 +74,7 @@ class VoiceAPI:
         description: str,
         language: str = "auto",
         response_format: str = "mp3",
-        timeout: float = 120.0,
+        timeout: float = DEFAULT_TIMEOUT,
     ) -> bytes:
         return self._http.post_bytes(
             "/agents/voice/design",

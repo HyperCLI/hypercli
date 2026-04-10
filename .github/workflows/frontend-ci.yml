@@ -6,6 +6,7 @@ on:
     branches: [main, dev]
     paths:
       - ".github/workflows/**"
+      - ".github/scripts/**"
       - "site/**"
       - "ts-sdk/**"
       - "sdk/**"

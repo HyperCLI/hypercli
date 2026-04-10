@@ -1,6 +1,10 @@
 import type { NextConfig } from "next";
 import path from "path";
 
+import dotenv from "dotenv";
+
+dotenv.config();
+
 // Build-time validation of required environment variables
 const requiredEnvVars = [
   'NEXT_PUBLIC_MAIN_SITE_URL',
@@ -19,6 +23,9 @@ for (const envVar of requiredEnvVars) {
 }
 
 const nextConfig: NextConfig = {
+  ...(process.env.NODE_ENV !== "production" && {
+    allowedDevOrigins: ["127.0.0.1", "localhost"],
+  }),
   transpilePackages: ["@hypercli/shared-ui"],
   env: {
     NEXT_PUBLIC_IS_MAIN_SITE: "false",

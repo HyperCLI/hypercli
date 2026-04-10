@@ -1,0 +1,42 @@
+[
+  {
+    "id": "free",
+    "name": "Free",
+    "price": 0,
+    "bundle": { "free": 1 },
+    "subtitle": "1 free agent per Privy user when no paid entitlement is active.",
+    "features": ["1 free agent", "Community support"],
+    "limits": { "tpd": 1000000, "burstTpm": 1000, "rpm": 10 },
+    "highlighted": false
+  },
+  {
+    "id": "starter",
+    "name": "Starter",
+    "price": 20,
+    "bundle": { "small": 1 },
+    "subtitle": "1x Small",
+    "features": ["1 small slot", "50M tokens/day", "Email support"],
+    "limits": { "tpd": 50000000, "burstTpm": 34722, "rpm": 173 },
+    "highlighted": false
+  },
+  {
+    "id": "pro",
+    "name": "Pro",
+    "price": 100,
+    "bundle": { "large": 1 },
+    "subtitle": "1x Large",
+    "features": ["1 large slot", "250M tokens/day", "Voice + render"],
+    "limits": { "tpd": 250000000, "burstTpm": 173611, "rpm": 868 },
+    "highlighted": true
+  },
+  {
+    "id": "team",
+    "name": "Team",
+    "price": 200,
+    "bundle": { "large": 2 },
+    "subtitle": "2x Large",
+    "features": ["2 large slots", "500M tokens/day", "Shared team capacity"],
+    "limits": { "tpd": 500000000, "burstTpm": 347222, "rpm": 1736 },
+    "highlighted": false
+  }
+]

@@ -49,6 +49,10 @@ jobs:
           npm install
           npm run sdk:use-checkout
 
+      - name: Install Playwright browser
+        working-directory: site
+        run: npx playwright install --with-deps chromium
+
       - name: Install bootstrap dependencies
         run: apt-get update && apt-get install -y python3 python3-pip python3-venv
 

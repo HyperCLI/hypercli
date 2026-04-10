@@ -100,6 +100,11 @@ export {
   API_KEY_BASELINE_FAMILIES,
 } from './keys.js';
 
+export {
+  ModelsAPI,
+  type Model,
+} from './models.js';
+
 // Logs
 export {
   LogStream,
