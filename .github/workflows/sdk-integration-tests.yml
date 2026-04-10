@@ -53,6 +53,8 @@ jobs:
         run: |
           source .venv/bin/activate
           pytest --import-mode=importlib -q \
+            sdk/tests/test_bootstrap_dev_test_keys.py \
+            sdk/tests/test_bootstrap_console_test_key.py \
             sdk/tests/test_jobs.py \
             sdk/tests/test_agents.py \
             sdk/tests/test_keys.py \

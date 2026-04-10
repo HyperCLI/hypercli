@@ -8,6 +8,7 @@ import json
 import os
 import sys
 import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -18,6 +19,10 @@ import requests
 
 DEFAULT_PRODUCT_BASE = "https://api.dev.hypercli.com"
 DEFAULT_PLAN_ID = "2aiu"
+DEFAULT_REQUEST_TIMEOUT = 60.0
+DEFAULT_REQUEST_RETRIES = 4
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
+TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 ROOT_KEY_TAGS = [
     "jobs:*",
     "renders:*",
@@ -90,11 +95,118 @@ def _headers(admin_key: str) -> dict[str, str]:
     }
 
 
+def _request_timeout_seconds() -> float:
+    raw = (os.getenv("BOOTSTRAP_REQUEST_TIMEOUT") or "").strip()
+    if not raw:
+        return DEFAULT_REQUEST_TIMEOUT
+    return max(1.0, float(raw))
+
+
+def _request_retries() -> int:
+    raw = (os.getenv("BOOTSTRAP_REQUEST_RETRIES") or "").strip()
+    if not raw:
+        return DEFAULT_REQUEST_RETRIES
+    return max(1, int(raw))
+
+
+def _retry_backoff_seconds() -> float:
+    raw = (os.getenv("BOOTSTRAP_REQUEST_BACKOFF_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_RETRY_BACKOFF_SECONDS
+    return max(0.0, float(raw))
+
+
+def _sleep_before_retry(attempt: int) -> None:
+    time.sleep(_retry_backoff_seconds() * attempt)
+
+
 def _request(method: str, url: str, *, expected: tuple[int, ...] = (200,), **kwargs):
-    response = requests.request(method, url, timeout=30, **kwargs)
-    if response.status_code not in expected:
+    timeout = kwargs.pop("timeout", _request_timeout_seconds())
+    attempts = _request_retries()
+    last_exception: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.request(method, url, timeout=timeout, **kwargs)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_exception = exc
+            if attempt >= attempts:
+                raise
+            _sleep_before_retry(attempt)
+            continue
+
+        if response.status_code in expected:
+            return response
+        if response.status_code in TRANSIENT_STATUSES and attempt < attempts:
+            _sleep_before_retry(attempt)
+            continue
         raise RuntimeError(f"{method} {url} failed: {response.status_code} {response.text}")
-    return response
+
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError(f"{method} {url} failed after {attempts} attempts")
+
+
+def _ensure_orchestra_user(
+    *,
+    orchestra_api_base: str,
+    orchestra_admin_key: str,
+    orchestra_user_id: str,
+    email: str,
+) -> None:
+    _request(
+        "POST",
+        f"{orchestra_api_base}/admin/users",
+        headers=_headers(orchestra_admin_key),
+        json={"user_id": orchestra_user_id, "email": email, "user_type": "PAID"},
+        expected=(200, 409),
+    )
+
+
+def _lookup_hyperclaw_user(
+    *,
+    agents_api_base: str,
+    agents_admin_key: str,
+    orchestra_user_id: str,
+) -> dict[str, object]:
+    response = _request(
+        "GET",
+        f"{agents_api_base}/admin/users",
+        headers=_headers(agents_admin_key),
+        params={"orchestra_user_id": orchestra_user_id, "limit": 2, "offset": 0},
+        expected=(200,),
+    )
+    items = response.json().get("items", [])
+    if len(items) != 1:
+        raise RuntimeError(f"Expected exactly one HyperClaw user for {orchestra_user_id}, got {len(items)}")
+    return dict(items[0])
+
+
+def _create_or_get_hyperclaw_user(
+    *,
+    agents_api_base: str,
+    agents_admin_key: str,
+    orchestra_user_id: str,
+    email: str,
+) -> dict[str, object]:
+    response = _request(
+        "POST",
+        f"{agents_api_base}/admin/users",
+        headers=_headers(agents_admin_key),
+        json={
+            "user_id": orchestra_user_id,
+            "external_id": orchestra_user_id,
+            "orchestra_user_id": orchestra_user_id,
+            "email": email,
+        },
+        expected=(200, 409),
+    )
+    if response.status_code == 200:
+        return dict(response.json())
+    return _lookup_hyperclaw_user(
+        agents_api_base=agents_api_base,
+        agents_admin_key=agents_admin_key,
+        orchestra_user_id=orchestra_user_id,
+    )
 
 
 def bootstrap() -> BootstrapState:
@@ -116,12 +228,11 @@ def bootstrap() -> BootstrapState:
     orchestra_user_id = f"sdk-int-{suffix}"
     email = f"sdk-int-{suffix}@example.com"
 
-    _request(
-        "POST",
-        f"{orchestra_api_base}/admin/users",
-        headers=_headers(orchestra_admin_key),
-        json={"user_id": orchestra_user_id, "email": email, "user_type": "PAID"},
-        expected=(200,),
+    _ensure_orchestra_user(
+        orchestra_api_base=orchestra_api_base,
+        orchestra_admin_key=orchestra_admin_key,
+        orchestra_user_id=orchestra_user_id,
+        email=email,
     )
     _request(
         "POST",
@@ -153,19 +264,13 @@ def bootstrap() -> BootstrapState:
     )
     test_api_key = str(orchestra_key_response.json()["api_key"])
 
-    hyperclaw_user_response = _request(
-        "POST",
-        f"{agents_api_base}/admin/users",
-        headers=_headers(agents_admin_key),
-        json={
-            "user_id": orchestra_user_id,
-            "external_id": orchestra_user_id,
-            "orchestra_user_id": orchestra_user_id,
-            "email": email,
-        },
-        expected=(200,),
+    hyperclaw_user_response = _create_or_get_hyperclaw_user(
+        agents_api_base=agents_api_base,
+        agents_admin_key=agents_admin_key,
+        orchestra_user_id=orchestra_user_id,
+        email=email,
     )
-    hyperclaw_user_id = str(hyperclaw_user_response.json()["id"])
+    hyperclaw_user_id = str(hyperclaw_user_response["id"])
     _request(
         "POST",
         f"{agents_api_base}/admin/subscriptions/grant",

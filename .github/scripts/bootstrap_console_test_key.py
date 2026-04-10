@@ -7,6 +7,7 @@ import argparse
 import json
 import os
 import tempfile
+import time
 import uuid
 from dataclasses import asdict, dataclass
 from pathlib import Path
@@ -16,6 +17,10 @@ import requests
 
 
 DEFAULT_PRODUCT_BASE = "https://api.dev.hypercli.com"
+DEFAULT_REQUEST_TIMEOUT = 60.0
+DEFAULT_REQUEST_RETRIES = 4
+DEFAULT_RETRY_BACKOFF_SECONDS = 2.0
+TRANSIENT_STATUSES = {429, 500, 502, 503, 504}
 ROOT_KEY_TAGS = ["jobs:*", "renders:*", "agents:*", "user:self", "api:self"]
 
 
@@ -54,11 +59,55 @@ def _headers(admin_key: str) -> dict[str, str]:
     }
 
 
+def _request_timeout_seconds() -> float:
+    raw = (os.getenv("BOOTSTRAP_REQUEST_TIMEOUT") or "").strip()
+    if not raw:
+        return DEFAULT_REQUEST_TIMEOUT
+    return max(1.0, float(raw))
+
+
+def _request_retries() -> int:
+    raw = (os.getenv("BOOTSTRAP_REQUEST_RETRIES") or "").strip()
+    if not raw:
+        return DEFAULT_REQUEST_RETRIES
+    return max(1, int(raw))
+
+
+def _retry_backoff_seconds() -> float:
+    raw = (os.getenv("BOOTSTRAP_REQUEST_BACKOFF_SECONDS") or "").strip()
+    if not raw:
+        return DEFAULT_RETRY_BACKOFF_SECONDS
+    return max(0.0, float(raw))
+
+
+def _sleep_before_retry(attempt: int) -> None:
+    time.sleep(_retry_backoff_seconds() * attempt)
+
+
 def _request(method: str, url: str, *, expected: tuple[int, ...] = (200,), **kwargs):
-    response = requests.request(method, url, timeout=30, **kwargs)
-    if response.status_code not in expected:
+    timeout = kwargs.pop("timeout", _request_timeout_seconds())
+    attempts = _request_retries()
+    last_exception: Exception | None = None
+    for attempt in range(1, attempts + 1):
+        try:
+            response = requests.request(method, url, timeout=timeout, **kwargs)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as exc:
+            last_exception = exc
+            if attempt >= attempts:
+                raise
+            _sleep_before_retry(attempt)
+            continue
+
+        if response.status_code in expected:
+            return response
+        if response.status_code in TRANSIENT_STATUSES and attempt < attempts:
+            _sleep_before_retry(attempt)
+            continue
         raise RuntimeError(f"{method} {url} failed: {response.status_code} {response.text}")
-    return response
+
+    if last_exception is not None:
+        raise last_exception
+    raise RuntimeError(f"{method} {url} failed after {attempts} attempts")
 
 
 def _find_user_id(orchestra_api_base: str, admin_key: str, email: str) -> str:
@@ -83,8 +132,13 @@ def _create_user(orchestra_api_base: str, admin_key: str, email: str) -> str:
         f"{orchestra_api_base}/admin/users",
         headers=_headers(admin_key),
         json={"user_id": user_id, "email": email, "user_type": "PAID"},
-        expected=(200,),
+        expected=(200, 409),
     )
+    if response.status_code == 409:
+        existing = _find_user_id(orchestra_api_base, admin_key, email)
+        if existing:
+            return existing
+        raise RuntimeError(f"User for {email} already exists but could not be resolved")
     payload = response.json()
     return str(payload.get("user_id") or payload.get("id") or user_id)
 
