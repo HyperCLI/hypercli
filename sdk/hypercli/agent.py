@@ -135,16 +135,49 @@ class HyperAgentSubscription:
 
 
 @dataclass
+class HyperAgentEntitlements:
+    """Effective account entitlements computed by the backend."""
+
+    effective_plan_id: str
+    pooled_tpm_limit: int
+    pooled_rpm_limit: int
+    pooled_tpd: int
+    slot_inventory: dict[str, Any]
+    active_entitlement_count: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
+        payload = data.get("entitlements") if isinstance(data.get("entitlements"), dict) else data
+        return cls(
+            effective_plan_id=payload.get("effective_plan_id", data.get("effective_plan_id", "")),
+            pooled_tpm_limit=int(payload.get("pooled_tpm_limit", data.get("pooled_tpm_limit", 0)) or 0),
+            pooled_rpm_limit=int(payload.get("pooled_rpm_limit", data.get("pooled_rpm_limit", 0)) or 0),
+            pooled_tpd=int(payload.get("pooled_tpd", data.get("pooled_tpd", 0)) or 0),
+            slot_inventory=payload.get("slot_inventory") or data.get("slot_inventory") or {},
+            active_entitlement_count=int(
+                payload.get(
+                    "active_entitlement_count",
+                    data.get("active_entitlement_count", data.get("active_subscription_count", 0)),
+                )
+                or 0
+            ),
+        )
+
+
+@dataclass
 class HyperAgentSubscriptionSummary:
     """Effective entitlement summary for an authenticated HyperClaw user."""
 
     effective_plan_id: str
     current_subscription_id: str | None
+    current_entitlement_id: str | None
     pooled_tpm_limit: int
     pooled_rpm_limit: int
     pooled_tpd: int
     slot_inventory: dict[str, Any]
     active_subscription_count: int
+    active_entitlement_count: int
+    entitlements: HyperAgentEntitlements
     active_subscriptions: list[HyperAgentSubscription]
     subscriptions: list[HyperAgentSubscription]
     user: dict[str, Any]
@@ -154,15 +187,21 @@ class HyperAgentSubscriptionSummary:
         return cls(
             effective_plan_id=data.get("effective_plan_id", ""),
             current_subscription_id=data.get("current_subscription_id"),
+            current_entitlement_id=data.get("current_entitlement_id", data.get("current_subscription_id")),
             pooled_tpm_limit=int(data.get("pooled_tpm_limit", 0) or 0),
             pooled_rpm_limit=int(data.get("pooled_rpm_limit", 0) or 0),
             pooled_tpd=int(data.get("pooled_tpd", 0) or 0),
             slot_inventory=data.get("slot_inventory") or {},
             active_subscription_count=int(data.get("active_subscription_count", 0) or 0),
+            active_entitlement_count=int(data.get("active_entitlement_count", data.get("active_subscription_count", 0)) or 0),
+            entitlements=HyperAgentEntitlements.from_dict(data),
             active_subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("active_subscriptions", [])],
             subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("subscriptions", [])],
             user=data.get("user") or {},
         )
+
+
+HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary
 
 
 @dataclass
@@ -367,6 +406,22 @@ class HyperAgent:
         )
         response.raise_for_status()
         return HyperAgentSubscriptionSummary.from_dict(response.json())
+
+    def entitlements(self) -> HyperAgentEntitlementsSummary:
+        response = self._http._session.get(
+            f"{self._control_base_url}/entitlements",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return HyperAgentEntitlementsSummary.from_dict(response.json())
+
+    def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
+        response = self._http._session.post(
+            f"{self._control_base_url}/subscriptions/{subscription_id}/cancel",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        return response.json()
 
     def discovery_health(self) -> Dict[str, Any]:
         response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")

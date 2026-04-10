@@ -7,6 +7,8 @@ from unittest.mock import Mock, patch, MagicMock
 from hypercli import HyperCLI
 from hypercli.agent import (
     HyperAgent,
+    HyperAgentEntitlements,
+    HyperAgentEntitlementsSummary,
     HyperAgentPlan,
     HyperAgentCurrentPlan,
     HyperAgentSubscription,
@@ -71,11 +73,21 @@ class TestHyperAgentDataclasses:
             {
                 "effective_plan_id": "large",
                 "current_subscription_id": "sub-1",
+                "current_entitlement_id": "sub-1",
                 "pooled_tpm_limit": 2000,
                 "pooled_rpm_limit": 20,
                 "pooled_tpd": 2000000,
                 "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                 "active_subscription_count": 1,
+                "active_entitlement_count": 1,
+                "entitlements": {
+                    "effective_plan_id": "large",
+                    "pooled_tpm_limit": 2000,
+                    "pooled_rpm_limit": 20,
+                    "pooled_tpd": 2000000,
+                    "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
+                    "active_entitlement_count": 1,
+                },
                 "active_subscriptions": [
                     {
                         "id": "sub-1",
@@ -91,7 +103,10 @@ class TestHyperAgentDataclasses:
             }
         )
         assert summary.effective_plan_id == "large"
+        assert summary.current_entitlement_id == "sub-1"
         assert summary.active_subscription_count == 1
+        assert isinstance(summary.entitlements, HyperAgentEntitlements)
+        assert summary.entitlements.active_entitlement_count == 1
         assert summary.active_subscriptions[0].plan_id == "large"
 
 
@@ -197,6 +212,57 @@ class TestHyperAgentClient:
         assert summary.slot_inventory["large"]["available"] == 1
         mock_http._session.get.assert_called_with(
             "https://api.hypercli.com/agents/subscriptions/summary",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
+    def test_entitlements(self, mock_http):
+        mock_http._session.get.return_value.json.return_value = {
+            "effective_plan_id": "large",
+            "current_subscription_id": "sub-1",
+            "current_entitlement_id": "sub-1",
+            "pooled_tpm_limit": 2000,
+            "pooled_rpm_limit": 20,
+            "pooled_tpd": 2000000,
+            "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
+            "active_subscription_count": 1,
+            "active_entitlement_count": 1,
+            "entitlements": {
+                "effective_plan_id": "large",
+                "pooled_tpm_limit": 2000,
+                "pooled_rpm_limit": 20,
+                "pooled_tpd": 2000000,
+                "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
+                "active_entitlement_count": 1,
+            },
+            "active_subscriptions": [],
+            "subscriptions": [],
+            "user": {"id": "user-1", "team_id": "team-1"},
+        }
+        mock_http._session.get.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        summary = agent.entitlements()
+
+        assert isinstance(summary, HyperAgentEntitlementsSummary)
+        assert summary.entitlements.slot_inventory["large"]["available"] == 1
+        mock_http._session.get.assert_called_with(
+            "https://api.hypercli.com/agents/entitlements",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
+    def test_cancel_subscription(self, mock_http):
+        mock_http._session.post.return_value.json.return_value = {
+            "ok": True,
+            "message": "Subscription will be cancelled at the end of the current billing period",
+        }
+        mock_http._session.post.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        result = agent.cancel_subscription("sub-1")
+
+        assert result["ok"] is True
+        mock_http._session.post.assert_called_with(
+            "https://api.hypercli.com/agents/subscriptions/sub-1/cancel",
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
     

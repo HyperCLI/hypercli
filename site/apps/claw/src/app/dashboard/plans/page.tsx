@@ -91,6 +91,8 @@ export default function PlansPage() {
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
+  const [cancellingSubscriptionId, setCancellingSubscriptionId] = useState<string | null>(null);
+  const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -137,12 +139,61 @@ export default function PlansPage() {
   }, [summary]);
 
   const slotInventoryEntries = useMemo(() => {
-    return Object.entries(summary?.slotInventory ?? currentPlan?.slotInventory ?? {}).sort(([a], [b]) =>
-      a.localeCompare(b),
+    return Object.entries(summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {}).sort(
+      ([a], [b]) => a.localeCompare(b),
     );
-  }, [currentPlan?.slotInventory, summary?.slotInventory]);
+  }, [currentPlan?.slotInventory, summary?.entitlements?.slotInventory, summary?.slotInventory]);
+
+  const billingSubscriptions = useMemo(() => {
+    return summary?.subscriptions ?? [];
+  }, [summary?.subscriptions]);
 
   const displayProducts = useMemo(() => buildDisplayProducts(), []);
+
+  const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
+  const activeEntitlementCount =
+    summary?.entitlements?.activeEntitlementCount ??
+    summary?.activeEntitlementCount ??
+    summary?.activeSubscriptionCount ??
+    0;
+
+  const handleCancelSubscription = async (subscription: HyperAgentSubscription) => {
+    if (!subscription.canCancel || subscription.cancelAtPeriodEnd) return;
+    if (!window.confirm(`Cancel ${subscription.planName} at the end of the current billing period?`)) return;
+
+    setSubscriptionError(null);
+    setCancellingSubscriptionId(subscription.id);
+    try {
+      const token = await getToken();
+      const agentClient = createHyperAgentClient(token);
+      const response = await fetch(`${agentClient.controlBaseUrl}/subscriptions/${subscription.id}/cancel`, {
+        method: "POST",
+        headers: {
+          Authorization: `Bearer ${token}`,
+        },
+      });
+      if (!response.ok) {
+        throw new Error(`Failed to cancel subscription: ${response.statusText}`);
+      }
+      const result = (await response.json()) as { ok?: boolean; message?: string };
+      if (!result.ok) {
+        throw new Error(result.message || "Failed to cancel subscription");
+      }
+      await refreshPlan();
+    } catch (error) {
+      setSubscriptionError(error instanceof Error ? error.message : "Failed to cancel subscription");
+    } finally {
+      setCancellingSubscriptionId(null);
+    }
+  };
+
+  const formatSubscriptionDate = (subscription: HyperAgentSubscription): string => {
+    if (!subscription.expiresAt) {
+      return subscription.cancelAtPeriodEnd ? "Ends at period end" : "Renewal date unavailable";
+    }
+    const label = subscription.cancelAtPeriodEnd ? "Ends" : "Renews";
+    return `${label} ${subscription.expiresAt.toLocaleDateString()}`;
+  };
 
   if (loading) {
     return (
@@ -185,14 +236,12 @@ export default function PlansPage() {
         <div className="grid gap-4 md:grid-cols-3 mb-8">
           <div className="glass-card p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Pooled Inference</p>
-            <p className="text-2xl font-semibold text-foreground">
-              {formatTokens(summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0)}
-            </p>
+            <p className="text-2xl font-semibold text-foreground">{formatTokens(pooledTpd)}</p>
             <p className="text-sm text-text-secondary mt-1">tokens/day across all active entitlements</p>
           </div>
           <div className="glass-card p-5">
             <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Active Entitlements</p>
-            <p className="text-2xl font-semibold text-foreground">{summary?.activeSubscriptionCount ?? 0}</p>
+            <p className="text-2xl font-semibold text-foreground">{activeEntitlementCount}</p>
             <p className="text-sm text-text-secondary mt-1">
               {currentPlan?.name ? `Current anchor: ${currentPlan.name}` : "No paid entitlements yet"}
             </p>
@@ -213,6 +262,70 @@ export default function PlansPage() {
             ) : (
               <p className="text-sm text-text-secondary">Buy your first agent bundle to unlock slots.</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {billingSubscriptions.length > 0 && (
+        <div className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold text-foreground">Billing Subscriptions</h2>
+            <p className="text-sm text-text-secondary">
+              Recurring card subscriptions are managed here. Effective entitlements above already include every active
+              subscription and external grant.
+            </p>
+          </div>
+          {subscriptionError && (
+            <div className="glass-card p-4 mb-4 border border-red-500/30">
+              <p className="text-sm text-red-200">{subscriptionError}</p>
+            </div>
+          )}
+          <div className="grid gap-4 md:grid-cols-2">
+            {billingSubscriptions.map((subscription) => {
+              const bundleLabel = formatBundle(bundleFromSubscription(subscription)) || "Custom";
+              const canManage = subscription.canCancel && subscription.provider.toLowerCase() === "stripe";
+              return (
+                <div key={subscription.id} className="glass-card p-5">
+                  <div className="flex items-start justify-between gap-4">
+                    <div>
+                      <p className="text-lg font-semibold text-foreground">{subscription.planName}</p>
+                      <p className="text-sm text-text-secondary mt-1">{bundleLabel}</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{subscription.provider}</p>
+                      <p className="text-sm text-foreground mt-1">{subscription.status.toLowerCase()}</p>
+                    </div>
+                  </div>
+                  <div className="mt-4 space-y-2 text-sm text-text-secondary">
+                    <p>{formatSubscriptionDate(subscription)}</p>
+                    <p>
+                      {subscription.cancelAtPeriodEnd
+                        ? "Cancellation scheduled at period end."
+                        : canManage
+                          ? "Self-serve cancellation is available from the web."
+                          : "This entitlement is read-only here."}
+                    </p>
+                  </div>
+                  <div className="mt-4 flex items-center justify-between gap-3">
+                    <span className="text-xs text-text-muted">{subscription.id}</span>
+                    {canManage && !subscription.cancelAtPeriodEnd ? (
+                      <button
+                        type="button"
+                        onClick={() => void handleCancelSubscription(subscription)}
+                        disabled={cancellingSubscriptionId === subscription.id}
+                        className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                      >
+                        {cancellingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at Period End"}
+                      </button>
+                    ) : (
+                      <span className="text-xs text-text-muted">
+                        {subscription.cancelAtPeriodEnd ? "Pending cancellation" : "No self-serve changes"}
+                      </span>
+                    )}
+                  </div>
+                </div>
+              );
+            })}
           </div>
         </div>
       )}

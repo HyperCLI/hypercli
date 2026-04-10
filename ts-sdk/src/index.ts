@@ -117,7 +117,10 @@ export {
   HyperAgent,
   type HyperAgentPlan,
   type HyperAgentCurrentPlan,
+  type HyperAgentEntitlements,
+  type HyperAgentEntitlementsSummary,
   type HyperAgentSubscription,
+  type HyperAgentSubscriptionMutationResult,
   type HyperAgentSubscriptionSummary,
   type HyperAgentModel,
 } from './agent.js';

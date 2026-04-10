@@ -124,17 +124,37 @@ export interface HyperAgentSubscription {
   slotGrants: Record<string, number> | null;
 }
 
+export interface HyperAgentEntitlements {
+  effectivePlanId: string;
+  pooledTpmLimit: number;
+  pooledRpmLimit: number;
+  pooledTpd: number;
+  slotInventory: Record<string, { granted: number; used: number; available: number }>;
+  activeEntitlementCount: number;
+}
+
 export interface HyperAgentSubscriptionSummary {
   effectivePlanId: string;
   currentSubscriptionId: string | null;
+  currentEntitlementId: string | null;
   pooledTpmLimit: number;
   pooledRpmLimit: number;
   pooledTpd: number;
   slotInventory: Record<string, { granted: number; used: number; available: number }>;
   activeSubscriptionCount: number;
+  activeEntitlementCount: number;
+  entitlements: HyperAgentEntitlements;
   activeSubscriptions: HyperAgentSubscription[];
   subscriptions: HyperAgentSubscription[];
   user: Record<string, any>;
+}
+
+export type HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary;
+
+export interface HyperAgentSubscriptionMutationResult {
+  ok: boolean;
+  message: string;
+  subscription?: HyperAgentSubscription;
 }
 
 export interface HyperAgentModel {
@@ -211,15 +231,30 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
   };
 }
 
+function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
+  const payload = data?.entitlements && typeof data.entitlements === 'object' ? data.entitlements : data;
+  return {
+    effectivePlanId: payload?.effective_plan_id || data?.effective_plan_id || '',
+    pooledTpmLimit: payload?.pooled_tpm_limit || data?.pooled_tpm_limit || 0,
+    pooledRpmLimit: payload?.pooled_rpm_limit || data?.pooled_rpm_limit || 0,
+    pooledTpd: payload?.pooled_tpd || data?.pooled_tpd || 0,
+    slotInventory: payload?.slot_inventory || data?.slot_inventory || {},
+    activeEntitlementCount: payload?.active_entitlement_count || data?.active_entitlement_count || data?.active_subscription_count || 0,
+  };
+}
+
 function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptionSummary {
   return {
     effectivePlanId: data.effective_plan_id || '',
     currentSubscriptionId: data.current_subscription_id || null,
+    currentEntitlementId: data.current_entitlement_id || data.current_subscription_id || null,
     pooledTpmLimit: data.pooled_tpm_limit || 0,
     pooledRpmLimit: data.pooled_rpm_limit || 0,
     pooledTpd: data.pooled_tpd || 0,
     slotInventory: data.slot_inventory || {},
     activeSubscriptionCount: data.active_subscription_count || 0,
+    activeEntitlementCount: data.active_entitlement_count || data.active_subscription_count || 0,
+    entitlements: hyperAgentEntitlementsFromDict(data),
     activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
     subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
     user: data.user || {},
@@ -335,6 +370,41 @@ export class HyperAgent {
 
     const data: any = await response.json();
     return hyperAgentSubscriptionSummaryFromDict(data);
+  }
+
+  async entitlements(): Promise<HyperAgentEntitlementsSummary> {
+    const response = await fetch(`${this.controlBaseUrl}/entitlements`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get entitlements: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return hyperAgentSubscriptionSummaryFromDict(data);
+  }
+
+  async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscriptionMutationResult> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/cancel`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to cancel subscription: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return {
+      ok: Boolean(data.ok),
+      message: data.message || '',
+      subscription: data.subscription ? hyperAgentSubscriptionFromDict(data.subscription) : undefined,
+    };
   }
 
   async models(): Promise<HyperAgentModel[]> {
