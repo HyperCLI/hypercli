@@ -6,10 +6,12 @@ import type {
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
-import { Check } from "lucide-react";
+import { Check, X } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
+import { clawFetch } from "@/lib/api";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
+import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { formatTokens } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
@@ -91,6 +93,9 @@ export default function PlansPage() {
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
+  const [cancelTarget, setCancelTarget] = useState<HyperAgentSubscription | null>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelError, setCancelError] = useState<string | null>(null);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -124,6 +129,23 @@ export default function PlansPage() {
       setCurrentPlan(current.status === "fulfilled" ? current.value : null);
       setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
     } catch {}
+  };
+
+  const handleCancelSubscription = async () => {
+    if (!cancelTarget) return;
+    setCancelling(true);
+    setCancelError(null);
+    try {
+      const token = await getToken();
+      await clawFetch(`/subscriptions/${cancelTarget.id}/cancel`, token, { method: "POST" });
+      setCancelTarget(null);
+      await refreshPlan();
+    } catch (err) {
+      setCancelTarget(null);
+      setCancelError(err instanceof Error ? err.message : "Failed to cancel entitlement");
+    } finally {
+      setCancelling(false);
+    }
   };
 
   const ownedBundles = useMemo(() => {
@@ -217,6 +239,72 @@ export default function PlansPage() {
         </div>
       )}
 
+      {(summary?.activeSubscriptions?.length ?? 0) > 0 && (
+        <div className="mb-8">
+          <h2 className="text-lg font-semibold text-foreground mb-4">Active Entitlements</h2>
+
+          {cancelError && (
+            <div className="flex items-center gap-2 mb-4 p-3 rounded-lg bg-[#d05f5f]/10 text-sm text-[#d05f5f]">
+              <span className="flex-1">{cancelError}</span>
+              <button onClick={() => setCancelError(null)} className="text-[#d05f5f] hover:text-[#c04e4e]">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          )}
+
+          <div className="space-y-3">
+            {summary!.activeSubscriptions.map((sub) => {
+              const bundle = formatBundle(bundleFromSubscription(sub));
+              const isCancelling = sub.cancelAtPeriodEnd;
+              const expiryDate = sub.expiresAt ? new Date(sub.expiresAt).toLocaleDateString() : null;
+
+              return (
+                <div key={sub.id} className="glass-card p-4 flex items-center gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className="text-sm font-semibold text-foreground">{sub.planName}</span>
+                      {isCancelling ? (
+                        <span className="text-[10px] font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">
+                          Cancels {expiryDate ?? "at period end"}
+                        </span>
+                      ) : (
+                        <span className="text-[10px] font-medium text-[#38D39F] bg-[#38D39F]/10 px-2 py-0.5 rounded-full">
+                          Active
+                        </span>
+                      )}
+                      <span className="text-[10px] font-medium text-text-muted bg-white/5 px-2 py-0.5 rounded-full uppercase">
+                        {sub.provider}
+                      </span>
+                    </div>
+                    <div className="flex items-center gap-3 text-xs text-text-secondary">
+                      {bundle && <span>{bundle}</span>}
+                      <span>{formatTokens(sub.planTpd)} tokens/day</span>
+                      {expiryDate && !isCancelling && <span>Renews {expiryDate}</span>}
+                    </div>
+                  </div>
+                  {sub.canCancel && !isCancelling && (
+                    <button
+                      onClick={() => setCancelTarget(sub)}
+                      className="text-xs text-text-muted hover:text-[#d05f5f] transition-colors px-3 py-1.5 rounded-lg hover:bg-[#d05f5f]/10"
+                    >
+                      Cancel
+                    </button>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+
+          <p className="text-xs text-text-muted mt-3">
+            Need to change plans? Cancel your current entitlement and purchase a different one, or{" "}
+            <a href="mailto:support@hypercli.com" className="text-primary hover:underline">
+              contact support
+            </a>{" "}
+            for help with downgrades and pausing.
+          </p>
+        </div>
+      )}
+
       <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
         {displayProducts.map((product) => {
           const ownedCount = ownedBundles.get(bundleKey(product.bundle)) ?? 0;
@@ -286,6 +374,17 @@ export default function PlansPage() {
           getToken={getToken}
         />
       )}
+
+      <ConfirmDialog
+        open={Boolean(cancelTarget)}
+        title="Cancel Entitlement"
+        message={`Your ${cancelTarget?.planName ?? ""} entitlement will remain active until ${cancelTarget?.expiresAt ? new Date(cancelTarget.expiresAt).toLocaleDateString() : "the end of your current billing period"}. After that, the associated slots and inference pool will be removed.`}
+        confirmLabel="Cancel Entitlement"
+        danger
+        loading={cancelling}
+        onConfirm={handleCancelSubscription}
+        onCancel={() => setCancelTarget(null)}
+      />
     </div>
   );
 }
