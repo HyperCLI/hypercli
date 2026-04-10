@@ -12,6 +12,7 @@
   "dependencies": {
     "@hypercli.com/sdk": "2026.4.13-4",
     "@hypercli/shared-ui": "*",
+    "@tanstack/react-query": "^5.90.10",
     "@privy-io/react-auth": "^3.13.1",
     "@x402/axios": "^2.0.0",
     "@x402/evm": "^2.0.0",
