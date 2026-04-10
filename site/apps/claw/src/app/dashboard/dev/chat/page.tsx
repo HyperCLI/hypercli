@@ -34,6 +34,8 @@ import {
 import { AgentView, ConnectionDetail, type TabId as AgentTabId } from "@/components/dashboard/AgentView";
 import { ConversationsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type ConversationsSidebarVariant, type Participant } from "@/components/dashboard/ConversationsSidebar";
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
+import { FilesDrawer } from "@/components/dashboard/files";
+import { FilesPanel } from "@/components/dashboard/files-panel";
 import type { ChatMessage } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -376,7 +378,7 @@ export default function DevChatPage() {
   const [connected, setConnected] = useState(true);
   const [streamingActive, setStreamingActive] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState<any>(null);
-  const [devTab, setDevTab] = useState<"chat" | "agent-view">("chat");
+  const [devTab, setDevTab] = useState<"chat" | "agent-view" | "files">("chat");
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
 
   // ── Agent View toggles ──
@@ -451,6 +453,10 @@ export default function DevChatPage() {
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<typeof MOCK_CONVERSATION_THREADS>([]);
   const [addParticipantOpen, setAddParticipantOpen] = useState(false);
+  const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
+  const [mockFiles, setMockFiles] = useState<{ name: string; path: string; type: "file" | "directory"; size?: number }[]>([]);
+  const [mockFileContents, setMockFileContents] = useState<Record<string, string>>({});
+  const [filesVariant, setFilesVariant] = useState<"drawer" | "panel">("drawer");
 
   const groupThreadIds = useMemo(
     () => new Set(threads.filter((t) => t.kind === "group" || t.kind === "agent-agent").map((t) => t.id)),
@@ -787,6 +793,16 @@ export default function DevChatPage() {
             }`}
           >
             Agent View
+          </button>
+          <button
+            onClick={() => setDevTab("files")}
+            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+              devTab === "files"
+                ? "text-foreground border-b-2 border-[#38D39F]"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            Files
           </button>
         </div>
 
@@ -1460,6 +1476,163 @@ export default function DevChatPage() {
           </div>
         </>)}
 
+        {devTab === "files" && (<>
+          <div className="space-y-3">
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider">Component</h3>
+            <div className="flex gap-1.5">
+              {(["drawer", "panel"] as const).map((v) => (
+                <button
+                  key={v}
+                  onClick={() => setFilesVariant(v)}
+                  className={`flex-1 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors capitalize ${
+                    filesVariant === v
+                      ? "bg-[#38D39F]/10 border-[#38D39F]/30 text-[#38D39F]"
+                      : "border-border text-text-muted hover:text-foreground"
+                  }`}
+                >
+                  {v}
+                </button>
+              ))}
+            </div>
+            <p className="text-[9px] text-text-muted">
+              {filesVariant === "drawer" ? "Right-side overlay drawer" : "Bottom split panel within chat area"}
+            </p>
+
+            <a
+              href="/dashboard/dev/chat/files"
+              target="_blank"
+              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg border border-border hover:bg-surface-low transition-colors text-[11px] font-medium text-foreground"
+            >
+              <FolderOpen className="w-3.5 h-3.5" />
+              Open full-page file browser
+            </a>
+
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider pt-2">Mock Files</h3>
+            <p className="text-[10px] text-text-muted">Add mock files to test the Files {filesVariant}. Click the Files button in the chat header to open it.</p>
+
+            {/* Quick-add presets */}
+            <div className="space-y-1.5">
+              <p className="text-[10px] font-medium text-text-secondary">Quick add</p>
+              {[
+                { name: "src/index.ts", size: 1240, content: 'import { main } from "./app";\n\nmain();' },
+                { name: "src/app.ts", size: 3420, content: 'export function main() {\n  console.log("Hello from agent");\n}' },
+                { name: "src/utils/helpers.ts", size: 890, content: 'export function formatDate(d: Date) {\n  return d.toISOString();\n}' },
+                { name: "package.json", size: 520, content: '{\n  "name": "agent-workspace",\n  "version": "1.0.0",\n  "main": "src/index.ts"\n}' },
+                { name: "README.md", size: 280, content: '# Agent Workspace\n\nThis is the agent workspace.' },
+                { name: ".env", size: 64, content: 'API_KEY=sk-test-123\nDEBUG=true' },
+                { name: "config/settings.yaml", size: 340, content: 'model: claude-opus-4-6\nmax_tokens: 4096\ntemperature: 0.7' },
+                { name: "data/output.json", size: 15200, content: '{"results": [{"id": 1, "status": "ok"}]}' },
+                { name: "logs/agent.log", size: 8900, content: '[2026-04-10 08:00:00] INFO  Agent started\n[2026-04-10 08:00:01] INFO  Connected to gateway' },
+              ].map((preset) => {
+                const exists = mockFiles.some((f) => f.path === preset.name);
+                return (
+                  <button
+                    key={preset.name}
+                    disabled={exists}
+                    onClick={() => {
+                      const segments = preset.name.split("/");
+                      // Add parent directories
+                      const newDirs: typeof mockFiles = [];
+                      for (let i = 1; i < segments.length; i++) {
+                        const dirPath = segments.slice(0, i).join("/");
+                        if (!mockFiles.some((f) => f.path === dirPath) && !newDirs.some((d) => d.path === dirPath)) {
+                          newDirs.push({ name: segments[i - 1], path: dirPath, type: "directory" });
+                        }
+                      }
+                      setMockFiles((prev) => [
+                        ...prev,
+                        ...newDirs,
+                        { name: segments[segments.length - 1], path: preset.name, type: "file", size: preset.size },
+                      ]);
+                      setMockFileContents((prev) => ({ ...prev, [preset.name]: preset.content }));
+                    }}
+                    className={`flex items-center justify-between w-full px-2 py-1.5 rounded-md text-left text-[11px] transition-colors ${
+                      exists
+                        ? "text-text-muted/40 cursor-not-allowed"
+                        : "text-foreground hover:bg-surface-low"
+                    }`}
+                  >
+                    <span className="truncate">{preset.name}</span>
+                    <span className="text-[9px] text-text-muted flex-shrink-0 ml-2">
+                      {exists ? "added" : `${(preset.size / 1024).toFixed(1)} KB`}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            {/* Add all button */}
+            <button
+              onClick={() => {
+                const presets = [
+                  { name: "src", path: "src", type: "directory" as const },
+                  { name: "config", path: "config", type: "directory" as const },
+                  { name: "data", path: "data", type: "directory" as const },
+                  { name: "logs", path: "logs", type: "directory" as const },
+                  { name: "utils", path: "src/utils", type: "directory" as const },
+                  { name: "index.ts", path: "src/index.ts", type: "file" as const, size: 1240 },
+                  { name: "app.ts", path: "src/app.ts", type: "file" as const, size: 3420 },
+                  { name: "helpers.ts", path: "src/utils/helpers.ts", type: "file" as const, size: 890 },
+                  { name: "package.json", path: "package.json", type: "file" as const, size: 520 },
+                  { name: "README.md", path: "README.md", type: "file" as const, size: 280 },
+                  { name: ".env", path: ".env", type: "file" as const, size: 64 },
+                  { name: "settings.yaml", path: "config/settings.yaml", type: "file" as const, size: 340 },
+                  { name: "output.json", path: "data/output.json", type: "file" as const, size: 15200 },
+                  { name: "agent.log", path: "logs/agent.log", type: "file" as const, size: 8900 },
+                ];
+                setMockFiles(presets);
+                setMockFileContents({
+                  "src/index.ts": 'import { main } from "./app";\n\nmain();',
+                  "src/app.ts": 'export function main() {\n  console.log("Hello from agent");\n}',
+                  "src/utils/helpers.ts": 'export function formatDate(d: Date) {\n  return d.toISOString();\n}',
+                  "package.json": '{\n  "name": "agent-workspace",\n  "version": "1.0.0",\n  "main": "src/index.ts"\n}',
+                  "README.md": '# Agent Workspace\n\nThis is the agent workspace.',
+                  ".env": 'API_KEY=sk-test-123\nDEBUG=true',
+                  "config/settings.yaml": 'model: claude-opus-4-6\nmax_tokens: 4096\ntemperature: 0.7',
+                  "data/output.json": '{"results": [{"id": 1, "status": "ok"}]}',
+                  "logs/agent.log": '[2026-04-10 08:00:00] INFO  Agent started\n[2026-04-10 08:00:01] INFO  Connected to gateway',
+                });
+              }}
+              className="w-full px-3 py-2 rounded-lg bg-[#38D39F]/10 border border-[#38D39F]/20 hover:border-[#38D39F]/40 text-[11px] font-medium text-[#38D39F] transition-colors"
+            >
+              Add all presets
+            </button>
+
+            {/* Clear button */}
+            {mockFiles.length > 0 && (
+              <button
+                onClick={() => { setMockFiles([]); setMockFileContents({}); }}
+                className="w-full px-3 py-2 rounded-lg border border-border hover:bg-surface-low text-[11px] font-medium text-text-muted hover:text-foreground transition-colors"
+              >
+                Clear all ({mockFiles.length} items)
+              </button>
+            )}
+
+            {/* Current files list */}
+            {mockFiles.length > 0 && (
+              <div className="space-y-1">
+                <p className="text-[10px] font-medium text-text-secondary">Current files ({mockFiles.filter((f) => f.type === "file").length} files, {mockFiles.filter((f) => f.type === "directory").length} dirs)</p>
+                <div className="max-h-40 overflow-y-auto space-y-0.5">
+                  {mockFiles.filter((f) => f.type === "file").map((f) => (
+                    <div key={f.path} className="flex items-center justify-between px-2 py-1 rounded text-[10px]">
+                      <span className="text-foreground truncate">{f.path}</span>
+                      <button
+                        onClick={() => {
+                          setMockFiles((prev) => prev.filter((p) => p.path !== f.path));
+                          setMockFileContents((prev) => { const next = { ...prev }; delete next[f.path]; return next; });
+                        }}
+                        className="text-text-muted hover:text-[#d05f5f] transition-colors flex-shrink-0 ml-2"
+                      >
+                        &times;
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+          </div>
+        </>)}
+
         </div>
           </div>
         </>
@@ -1576,11 +1749,25 @@ export default function DevChatPage() {
 
           {/* Center — Files button */}
           <button
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            onClick={() => setFilesDrawerOpen((v) => !v)}
+            className={`flex items-center gap-2 px-4 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+              filesDrawerOpen
+                ? "bg-[#38D39F]/15 border-[#38D39F]/30 text-[#38D39F]"
+                : "border-border text-text-muted hover:text-foreground hover:border-text-muted/30 hover:bg-surface-low"
+            }`}
             title="Files"
           >
-            <FolderOpen className="w-3.5 h-3.5" />
+            <FolderOpen className="w-4 h-4" />
             <span>Files</span>
+            {mockFiles.filter((f) => f.type === "file").length > 0 && (
+              <span className={`text-[9px] tabular-nums px-1.5 py-0.5 rounded-full ${
+                filesDrawerOpen
+                  ? "bg-[#38D39F]/20 text-[#38D39F]"
+                  : "bg-surface-low text-text-muted"
+              }`}>
+                {mockFiles.filter((f) => f.type === "file").length}
+              </span>
+            )}
           </button>
 
           {/* Right actions */}
@@ -1709,6 +1896,36 @@ export default function DevChatPage() {
 
           <div ref={chatEndRef} />
         </div>
+
+        {/* Files Panel (bottom split) */}
+        {filesVariant === "panel" && (
+          <FilesPanel
+            open={filesDrawerOpen}
+            onClose={() => setFilesDrawerOpen(false)}
+            connected={connected}
+            files={mockFiles.length > 0 ? mockFiles : undefined}
+            callbacks={mockFiles.length > 0 ? {
+              onListFiles: async () => ({
+                prefix: "",
+                directories: mockFiles.filter((f) => f.type === "directory"),
+                files: mockFiles.filter((f) => f.type === "file"),
+              }),
+              onGetFile: async (path: string) => mockFileContents[path] ?? "",
+              onSetFile: async (path: string, content: string) => {
+                setMockFileContents((prev) => ({ ...prev, [path]: content }));
+              },
+              onDeleteFile: async (path: string) => {
+                setMockFiles((prev) => prev.filter((f) => f.path !== path));
+                setMockFileContents((prev) => { const next = { ...prev }; delete next[path]; return next; });
+              },
+              onUploadFile: async (path: string, content: string) => {
+                const name = path.split("/").pop() ?? path;
+                setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
+                setMockFileContents((prev) => ({ ...prev, [path]: content }));
+              },
+            } : undefined}
+          />
+        )}
 
         {/* Input area */}
         <div className="flex-shrink-0 border-t border-border p-3 z-10">
@@ -1877,6 +2094,36 @@ export default function DevChatPage() {
           />
         )}
       </div>
+      )}
+
+      {/* ── Files Drawer (right-side overlay) ── */}
+      {filesVariant === "drawer" && (
+        <FilesDrawer
+          open={filesDrawerOpen}
+          onClose={() => setFilesDrawerOpen(false)}
+          connected={connected}
+          files={mockFiles.length > 0 ? mockFiles : undefined}
+          callbacks={mockFiles.length > 0 ? {
+            onListFiles: async () => ({
+              prefix: "",
+              directories: mockFiles.filter((f) => f.type === "directory"),
+              files: mockFiles.filter((f) => f.type === "file"),
+            }),
+            onGetFile: async (path: string) => mockFileContents[path] ?? "",
+            onSetFile: async (path: string, content: string) => {
+              setMockFileContents((prev) => ({ ...prev, [path]: content }));
+            },
+            onDeleteFile: async (path: string) => {
+              setMockFiles((prev) => prev.filter((f) => f.path !== path));
+              setMockFileContents((prev) => { const next = { ...prev }; delete next[path]; return next; });
+            },
+            onUploadFile: async (path: string, content: string) => {
+              const name = path.split("/").pop() ?? path;
+              setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
+              setMockFileContents((prev) => ({ ...prev, [path]: content }));
+            },
+          } : undefined}
+        />
       )}
 
       {/* ── Delete Confirmation Dialog ── */}
