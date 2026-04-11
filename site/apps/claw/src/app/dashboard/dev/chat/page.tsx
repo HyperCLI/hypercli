@@ -534,6 +534,30 @@ export default function DevChatPage() {
     setSelectedThreadId(id);
   }, []);
 
+  const handleCreateChannel = useCallback((name: string, agents: Participant[], users: Participant[]) => {
+    const id = `t-ch-${Date.now()}`;
+    const allParticipants: Participant[] = [
+      { id: "user-1", name: "You", type: "user" },
+      ...agents,
+      ...users.filter((u) => u.id !== "user-1"),
+    ];
+    const newThread: typeof threads[number] = {
+      id,
+      sessionKey: `session-${id}`,
+      participants: allParticipants,
+      kind: "group",
+      title: name,
+      lastMessage: "",
+      lastMessageBy: "user-1",
+      lastMessageAt: Date.now(),
+      messageCount: 0,
+      unreadCount: 0,
+      isActive: true,
+    };
+    setThreads((prev) => [newThread, ...prev]);
+    setSelectedThreadId(id);
+  }, []);
+
   const handleRenameThread = useCallback((threadId: string, title: string) => {
     setThreads((prev) => prev.map((t) => t.id === threadId ? { ...t, title } : t));
   }, []);
@@ -1647,6 +1671,7 @@ export default function DevChatPage() {
           onSelectThread={setSelectedThreadId}
           onNewThread={handleNewThread}
           onStartAgentChat={handleStartAgentChat}
+          onCreateChannel={handleCreateChannel}
           onDeleteThread={handleDeleteThread}
           onRenameThread={handleRenameThread}
         />
