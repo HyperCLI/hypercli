@@ -73,6 +73,23 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
             },
             active_entitlement_count: 1,
           },
+          entitlement_items: [
+            {
+              id: "ent-1",
+              user_id: "user-1",
+              subscription_id: "sub-1",
+              plan_id: "5aiu",
+              plan_name: "5 AIU",
+              provider: "STRIPE",
+              status: "ACTIVE",
+              expires_at: "2026-04-15T00:00:00Z",
+              agent_tier: "large",
+              features: { voice: true },
+              tags: ["customer=acme"],
+              active_agent_count: 1,
+              active_agent_ids: ["agent-1"],
+            },
+          ],
           active_subscriptions: [
             {
               id: "sub-1",
@@ -82,7 +99,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
               provider: "STRIPE",
               status: "ACTIVE",
               quantity: 1,
-              expires_at: "2026-04-15T00:00:00Z",
+              current_period_end: "2026-04-15T00:00:00Z",
               slot_grants: { small: 0, medium: 0, large: 1 },
               meta: { bundle: { large: 1 } },
             },
@@ -105,6 +122,9 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
   await expect(billingResetCard).toContainText("2026");
   await expect(billingResetCard).not.toContainText("N/A");
   await expect(page.getByText(/0 \/ 1 used/i)).toBeVisible();
+  await expect(page.getByRole("heading", { name: /entitlement instances/i })).toBeVisible();
+  await expect(page.getByText(/customer=acme/i)).toBeVisible();
+  await expect(page.getByText(/1 active agent bound/i)).toBeVisible();
 
   const ownedCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
   await expect(ownedCard.getByText(/You own 1/i)).toBeVisible();
@@ -180,6 +200,38 @@ test("plans page displays cumulative pooled inference across mixed entitlements"
             },
             active_entitlement_count: 2,
           },
+          entitlement_items: [
+            {
+              id: "ent-large",
+              user_id: "user-1",
+              subscription_id: "sub-large",
+              plan_id: "large",
+              plan_name: "Large",
+              provider: "STRIPE",
+              status: "ACTIVE",
+              expires_at: "2026-04-12T00:00:00Z",
+              agent_tier: "large",
+              features: { voice: true },
+              tags: [],
+              active_agent_count: 1,
+              active_agent_ids: ["agent-large"],
+            },
+            {
+              id: "ent-small",
+              user_id: "user-1",
+              subscription_id: null,
+              plan_id: "small",
+              plan_name: "Small",
+              provider: "X402",
+              status: "ACTIVE",
+              expires_at: "2026-04-12T00:00:00Z",
+              agent_tier: "small",
+              features: {},
+              tags: ["project=demo"],
+              active_agent_count: 0,
+              active_agent_ids: [],
+            },
+          ],
           active_subscriptions: [
             {
               id: "sub-large",
@@ -189,6 +241,7 @@ test("plans page displays cumulative pooled inference across mixed entitlements"
               provider: "STRIPE",
               status: "ACTIVE",
               quantity: 1,
+              current_period_end: "2026-04-12T00:00:00Z",
               slot_grants: { small: 0, medium: 0, large: 1 },
               meta: { bundle: { large: 1 } },
             },
@@ -200,6 +253,7 @@ test("plans page displays cumulative pooled inference across mixed entitlements"
               provider: "X402",
               status: "ACTIVE",
               quantity: 1,
+              current_period_end: "2026-04-12T00:00:00Z",
               slot_grants: { small: 1, medium: 0, large: 0 },
               meta: { bundle: { small: 1 } },
             },
@@ -288,6 +342,23 @@ test("plans page shows billing subscriptions and supports cancel at period end",
             },
             active_entitlement_count: 1,
           },
+          entitlement_items: [
+            {
+              id: "ent-1",
+              user_id: "user-1",
+              subscription_id: "sub-1",
+              plan_id: "large",
+              plan_name: "Large",
+              provider: "STRIPE",
+              status: "ACTIVE",
+              expires_at: "2026-05-10T00:00:00Z",
+              agent_tier: "large",
+              features: { voice: true },
+              tags: [],
+              active_agent_count: 0,
+              active_agent_ids: [],
+            },
+          ],
           active_subscriptions: [],
           subscriptions: [
             {
@@ -298,7 +369,7 @@ test("plans page shows billing subscriptions and supports cancel at period end",
               provider: "STRIPE",
               status: "ACTIVE",
               quantity: 1,
-              expires_at: "2026-05-10T00:00:00Z",
+              current_period_end: "2026-05-10T00:00:00Z",
               can_cancel: true,
               cancel_at_period_end: false,
               slot_grants: { small: 0, medium: 0, large: 1 },
@@ -327,7 +398,7 @@ test("plans page shows billing subscriptions and supports cancel at period end",
             provider: "STRIPE",
             status: "ACTIVE",
             quantity: 1,
-            expires_at: "2026-05-10T00:00:00Z",
+            current_period_end: "2026-05-10T00:00:00Z",
             can_cancel: true,
             cancel_at_period_end: true,
             slot_grants: { small: 0, medium: 0, large: 1 },

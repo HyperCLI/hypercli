@@ -140,6 +140,7 @@ describe('HyperAgent API', () => {
               provider: 'STRIPE',
               status: 'ACTIVE',
               quantity: 2,
+              current_period_end: '2026-04-15T00:00:00Z',
             },
           ],
         }),
@@ -178,6 +179,24 @@ describe('HyperAgent API', () => {
           billing_reset_at: '2026-04-15T00:00:00Z',
           slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
           active_subscription_count: 1,
+          active_entitlement_count: 1,
+          entitlement_items: [
+            {
+              id: 'ent-1',
+              user_id: 'user-1',
+              subscription_id: 'sub-1',
+              plan_id: 'large',
+              plan_name: 'Large',
+              provider: 'STRIPE',
+              status: 'ACTIVE',
+              expires_at: '2026-04-15T00:00:00Z',
+              agent_tier: 'large',
+              features: { voice: true },
+              tags: ['customer=acme'],
+              active_agent_count: 1,
+              active_agent_ids: ['agent-1'],
+            },
+          ],
           active_subscriptions: [],
           subscriptions: [],
           user: { id: 'user-1', team_id: 'team-1' },
@@ -196,6 +215,7 @@ describe('HyperAgent API', () => {
       expect(summary.billingResetAt?.toISOString()).toBe('2026-04-15T00:00:00.000Z');
       expect(summary.slotInventory.large.available).toBe(1);
       expect(summary.entitlements.activeEntitlementCount).toBe(1);
+      expect(summary.entitlementItems[0]?.planId).toBe('large');
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/summary');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {
@@ -232,6 +252,22 @@ describe('HyperAgent API', () => {
             slot_inventory: { large: { granted: 2, used: 1, available: 1 } },
             active_entitlement_count: 1,
           },
+          entitlement_items: [
+            {
+              id: 'ent-1',
+              user_id: 'user-1',
+              plan_id: 'large',
+              plan_name: 'Large',
+              provider: 'X402',
+              status: 'ACTIVE',
+              expires_at: '2026-04-20T00:00:00Z',
+              agent_tier: 'large',
+              features: { voice: true },
+              tags: ['customer=acme'],
+              active_agent_count: 0,
+              active_agent_ids: [],
+            },
+          ],
           active_subscriptions: [],
           subscriptions: [],
           user: { id: 'user-1', team_id: 'team-1' },
@@ -248,7 +284,53 @@ describe('HyperAgent API', () => {
       expect(summary.currentEntitlementId).toBe('sub-1');
       expect(summary.entitlements.billingResetAt?.toISOString()).toBe('2026-04-15T00:00:00.000Z');
       expect(summary.entitlements.slotInventory.large.granted).toBe(2);
+      expect(summary.entitlementItems[0]?.provider).toBe('X402');
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/entitlements');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('lists entitlement instances on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          items: [
+            {
+              id: 'ent-1',
+              user_id: 'user-1',
+              subscription_id: null,
+              plan_id: 'large',
+              plan_name: 'Large',
+              provider: 'X402',
+              status: 'ACTIVE',
+              expires_at: '2026-04-20T00:00:00Z',
+              agent_tier: 'large',
+              features: { voice: true },
+              tags: ['customer=acme'],
+              active_agent_count: 0,
+              active_agent_ids: [],
+            },
+          ],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const entitlements = await agent.entitlementInstances();
+      expect(entitlements[0]?.planId).toBe('large');
+      expect(entitlements[0]?.tags).toEqual(['customer=acme']);
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/entitlements/instances');
     } finally {
       globalThis.fetch = fetchMock;
     }

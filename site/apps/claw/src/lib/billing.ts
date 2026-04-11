@@ -22,14 +22,27 @@ export interface AgentBillingSubscription {
   plan_id: string;
   provider: string;
   status: string;
-  expires_at: string | null;
+  current_period_end?: string | null;
+  expires_at?: string | null;
   stripe_subscription_id: string | null;
+}
+
+export interface AgentBillingEntitlement {
+  id: string;
+  plan_id: string;
+  provider: string;
+  status: string;
+  expires_at: string | null;
+  agent_tier: string | null;
+  features: Record<string, boolean>;
+  tags: string[];
 }
 
 export interface AgentPayment {
   id: string;
   user_id: string;
   subscription_id: string | null;
+  entitlement_id: string | null;
   provider: string;
   status: string;
   amount: string;
@@ -39,6 +52,7 @@ export interface AgentPayment {
   updated_at: string | null;
   user: AgentBillingUser | null;
   subscription: AgentBillingSubscription | null;
+  entitlement: AgentBillingEntitlement | null;
 }
 
 export interface AgentPaymentsResponse {
@@ -86,4 +100,8 @@ export async function updateAgentBillingProfile(
     method: "PUT",
     body: JSON.stringify(profile),
   });
+}
+
+export function resolveAgentPaymentPlanId(payment: AgentPayment): string | null {
+  return payment.subscription?.plan_id ?? payment.entitlement?.plan_id ?? payment.user?.plan_id ?? null;
 }

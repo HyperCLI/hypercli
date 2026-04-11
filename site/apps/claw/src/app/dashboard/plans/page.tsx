@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import type {
   HyperAgentCurrentPlan,
+  HyperAgentEntitlement,
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
@@ -85,6 +86,13 @@ function buildDisplayProducts(): DisplayProduct[] {
   }));
 }
 
+function formatEntitlementDate(entitlement: HyperAgentEntitlement): string {
+  if (!entitlement.expiresAt) {
+    return "Expiry unavailable";
+  }
+  return `Expires ${entitlement.expiresAt.toLocaleDateString()}`;
+}
+
 export default function PlansPage() {
   const { getToken } = useAgentAuth();
   const [currentPlan, setCurrentPlan] = useState<HyperAgentCurrentPlan | null>(null);
@@ -148,6 +156,10 @@ export default function PlansPage() {
     return summary?.subscriptions ?? [];
   }, [summary?.subscriptions]);
 
+  const entitlementItems = useMemo(() => {
+    return summary?.entitlementItems ?? [];
+  }, [summary?.entitlementItems]);
+
   const displayProducts = useMemo(() => buildDisplayProducts(), []);
 
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
@@ -173,18 +185,8 @@ export default function PlansPage() {
     setSubscriptionError(null);
     setCancellingSubscriptionId(subscription.id);
     try {
-      const token = await getToken();
-      const agentClient = createHyperAgentClient(token);
-      const response = await fetch(`${agentClient.controlBaseUrl}/subscriptions/${subscription.id}/cancel`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-        },
-      });
-      if (!response.ok) {
-        throw new Error(`Failed to cancel subscription: ${response.statusText}`);
-      }
-      const result = (await response.json()) as { ok?: boolean; message?: string };
+      const agentClient = createHyperAgentClient(await getToken());
+      const result = await agentClient.cancelSubscription(subscription.id);
       if (!result.ok) {
         throw new Error(result.message || "Failed to cancel subscription");
       }
@@ -280,6 +282,62 @@ export default function PlansPage() {
             ) : (
               <p className="text-sm text-text-secondary">Buy your first agent bundle to unlock slots.</p>
             )}
+          </div>
+        </div>
+      )}
+
+      {entitlementItems.length > 0 && (
+        <div className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold text-foreground">Entitlement Instances</h2>
+            <p className="text-sm text-text-secondary">
+              Concrete 1:1 grants backing your account. Recurring subscriptions can mint several entitlements over time,
+              and direct x402 purchases land here without a recurring billing contract.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {entitlementItems.map((entitlement) => (
+              <div key={entitlement.id} className="glass-card p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-lg font-semibold text-foreground">{entitlement.planName}</p>
+                    <p className="text-sm text-text-secondary mt-1">
+                      {entitlement.agentTier ? `${titleizeTier(entitlement.agentTier)} agent tier` : "Capability grant"}
+                    </p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{entitlement.provider}</p>
+                    <p className="text-sm text-foreground mt-1">{entitlement.status.toLowerCase()}</p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-2 text-sm text-text-secondary">
+                  <p>{formatEntitlementDate(entitlement)}</p>
+                  <p>
+                    {entitlement.subscriptionId ? "Backed by a recurring subscription." : "Direct entitlement with no recurring billing contract."}
+                  </p>
+                  <p>
+                    {entitlement.activeAgentCount > 0
+                      ? `${entitlement.activeAgentCount} active agent${entitlement.activeAgentCount === 1 ? "" : "s"} bound`
+                      : "No active agent bound"}
+                  </p>
+                </div>
+                <div className="mt-4 flex flex-wrap gap-2">
+                  {(entitlement.tags ?? []).length > 0 ? (
+                    entitlement.tags.map((tag) => (
+                      <span
+                        key={tag}
+                        className="rounded-full border border-border bg-white/5 px-2.5 py-1 text-xs text-text-secondary"
+                      >
+                        {tag}
+                      </span>
+                    ))
+                  ) : (
+                    <span className="text-xs text-text-muted">No tags</span>
+                  )}
+                </div>
+                <div className="mt-4 text-xs text-text-muted break-all">{entitlement.id}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}

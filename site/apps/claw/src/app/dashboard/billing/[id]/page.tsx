@@ -12,6 +12,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import {
   getAgentBillingProfile,
   getAgentPayment,
+  resolveAgentPaymentPlanId,
   type AgentBillingProfileFields,
   type AgentPayment,
 } from "@/lib/billing";
@@ -55,7 +56,7 @@ function mapPayment(payment: AgentPayment): ReceiptRecord {
           ? payment.external_payment_id
           : null,
       wallet: payment.user?.wallet_address ?? null,
-      plan_id: payment.subscription?.plan_id ?? payment.user?.plan_id ?? null,
+      plan_id: resolveAgentPaymentPlanId(payment),
       provider: payment.provider,
     },
   };
@@ -157,7 +158,7 @@ export default function BillingDetailPage() {
           paidByLines={paidByLines.length > 0 ? paidByLines : ["Authenticated Agents account", receipt.userId || "—"]}
           paidByMonospaceLastLine={false}
           noteTitle="Accounting note"
-          noteText="This receipt reflects Agents subscription billing activity. Save it as a PDF if you need a durable accounting record."
+          noteText="This receipt reflects recurring subscription or direct entitlement billing activity. Save it as a PDF if you need a durable accounting record."
         />
       ) : (
         <div className="rounded-lg border border-border bg-surface-low px-6 py-10 text-center text-muted-foreground">

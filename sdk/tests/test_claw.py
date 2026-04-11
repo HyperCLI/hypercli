@@ -7,6 +7,7 @@ from unittest.mock import Mock, patch, MagicMock
 from hypercli import HyperCLI
 from hypercli.agent import (
     HyperAgent,
+    HyperAgentEntitlement,
     HyperAgentEntitlements,
     HyperAgentEntitlementsSummary,
     HyperAgentPlan,
@@ -90,6 +91,23 @@ class TestHyperAgentDataclasses:
                     "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                     "active_entitlement_count": 1,
                 },
+                "entitlement_items": [
+                    {
+                        "id": "ent-1",
+                        "user_id": "user-1",
+                        "subscription_id": "sub-1",
+                        "plan_id": "large",
+                        "plan_name": "Large",
+                        "provider": "STRIPE",
+                        "status": "ACTIVE",
+                        "expires_at": "2026-04-15T00:00:00Z",
+                        "agent_tier": "large",
+                        "features": {"voice": True},
+                        "tags": ["customer=acme"],
+                        "active_agent_count": 1,
+                        "active_agent_ids": ["agent-1"],
+                    }
+                ],
                 "active_subscriptions": [
                     {
                         "id": "sub-1",
@@ -112,6 +130,8 @@ class TestHyperAgentDataclasses:
         assert summary.billing_reset_at is not None
         assert summary.entitlements.billing_reset_at is not None
         assert summary.active_subscriptions[0].plan_id == "large"
+        assert isinstance(summary.entitlement_items[0], HyperAgentEntitlement)
+        assert summary.entitlement_items[0].tags == ["customer=acme"]
 
 
 class TestHyperAgentClient:
@@ -170,6 +190,7 @@ class TestHyperAgentClient:
                     "provider": "STRIPE",
                     "status": "ACTIVE",
                     "quantity": 2,
+                    "current_period_end": "2026-04-15T00:00:00Z",
                 }
             ]
         }
@@ -180,6 +201,7 @@ class TestHyperAgentClient:
 
         assert len(subscriptions) == 1
         assert subscriptions[0].quantity == 2
+        assert subscriptions[0].expires_at is not None
         mock_http._session.get.assert_called_with(
             "https://api.hypercli.com/agents/subscriptions",
             headers={"Authorization": "Bearer sk-hyper-test"},
@@ -194,6 +216,24 @@ class TestHyperAgentClient:
             "pooled_tpd": 2000000,
             "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
             "active_subscription_count": 1,
+            "active_entitlement_count": 1,
+            "entitlement_items": [
+                {
+                    "id": "ent-1",
+                    "user_id": "user-1",
+                    "subscription_id": "sub-1",
+                    "plan_id": "large",
+                    "plan_name": "Large",
+                    "provider": "STRIPE",
+                    "status": "ACTIVE",
+                    "expires_at": "2026-04-15T00:00:00Z",
+                    "agent_tier": "large",
+                    "features": {"voice": True},
+                    "tags": ["customer=acme"],
+                    "active_agent_count": 1,
+                    "active_agent_ids": ["agent-1"],
+                }
+            ],
             "active_subscriptions": [
                 {
                     "id": "sub-1",
@@ -214,6 +254,7 @@ class TestHyperAgentClient:
 
         assert summary.current_subscription_id == "sub-1"
         assert summary.slot_inventory["large"]["available"] == 1
+        assert summary.entitlement_items[0].plan_id == "large"
         mock_http._session.get.assert_called_with(
             "https://api.hypercli.com/agents/subscriptions/summary",
             headers={"Authorization": "Bearer sk-hyper-test"},
@@ -240,6 +281,22 @@ class TestHyperAgentClient:
                 "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                 "active_entitlement_count": 1,
             },
+            "entitlement_items": [
+                {
+                    "id": "ent-1",
+                    "user_id": "user-1",
+                    "plan_id": "large",
+                    "plan_name": "Large",
+                    "provider": "X402",
+                    "status": "ACTIVE",
+                    "expires_at": "2026-04-20T00:00:00Z",
+                    "agent_tier": "large",
+                    "features": {"voice": True},
+                    "tags": ["customer=acme"],
+                    "active_agent_count": 0,
+                    "active_agent_ids": [],
+                }
+            ],
             "active_subscriptions": [],
             "subscriptions": [],
             "user": {"id": "user-1", "team_id": "team-1"},
@@ -252,8 +309,42 @@ class TestHyperAgentClient:
         assert isinstance(summary, HyperAgentEntitlementsSummary)
         assert summary.billing_reset_at is not None
         assert summary.entitlements.slot_inventory["large"]["available"] == 1
+        assert summary.entitlement_items[0].provider == "X402"
         mock_http._session.get.assert_called_with(
             "https://api.hypercli.com/agents/entitlements",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+        )
+
+    def test_entitlement_instances(self, mock_http):
+        mock_http._session.get.return_value.json.return_value = {
+            "items": [
+                {
+                    "id": "ent-1",
+                    "user_id": "user-1",
+                    "subscription_id": None,
+                    "plan_id": "large",
+                    "plan_name": "Large",
+                    "provider": "X402",
+                    "status": "ACTIVE",
+                    "expires_at": "2026-04-20T00:00:00Z",
+                    "agent_tier": "large",
+                    "features": {"voice": True},
+                    "tags": ["customer=acme"],
+                    "active_agent_count": 0,
+                    "active_agent_ids": [],
+                }
+            ]
+        }
+        mock_http._session.get.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        entitlements = agent.entitlement_instances()
+
+        assert len(entitlements) == 1
+        assert entitlements[0].plan_id == "large"
+        assert entitlements[0].tags == ["customer=acme"]
+        mock_http._session.get.assert_called_with(
+            "https://api.hypercli.com/agents/entitlements/instances",
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
 

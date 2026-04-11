@@ -12,6 +12,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import {
   getAgentBillingProfile,
   getAgentPayments,
+  resolveAgentPaymentPlanId,
   updateAgentBillingProfile,
   type AgentBillingProfileFields,
   type AgentPayment,
@@ -56,7 +57,7 @@ function mapPayment(payment: AgentPayment): ReceiptRecord {
           ? payment.external_payment_id
           : null,
       wallet: payment.user?.wallet_address ?? null,
-      plan_id: payment.subscription?.plan_id ?? payment.user?.plan_id ?? null,
+      plan_id: resolveAgentPaymentPlanId(payment),
       provider: payment.provider,
     },
   };
@@ -180,7 +181,7 @@ export default function BillingPage() {
       <div className="flex flex-col gap-2">
         <h1 className="text-3xl font-bold text-foreground">Billing</h1>
         <p className="text-text-secondary">
-          Receipts for Agents subscription charges and onchain payments.
+          Receipts for recurring subscriptions, direct entitlements, and onchain payments.
         </p>
       </div>
 
@@ -199,12 +200,12 @@ export default function BillingPage() {
         <InvoiceSummaryCard
           label="Credit card"
           value={String(stripeCount)}
-          description="Stripe subscription payments and renewals."
+          description="Stripe recurring subscription charges and renewals."
         />
         <InvoiceSummaryCard
           label="x402"
           value={String(x402Count)}
-          description="Onchain USDC subscription payments on Base."
+          description="Onchain USDC payments that mint direct entitlements on Base."
         />
       </div>
 
@@ -291,7 +292,7 @@ export default function BillingPage() {
           title="Receipts"
           description="Use the receipt UUID directly in the URL for Agents billing detail views."
           emptyTitle="No receipts yet"
-          emptyDescription="Completed subscription payments will appear here."
+          emptyDescription="Completed recurring and direct entitlement payments will appear here."
           formatAmount={formatAgentsAmount}
           renderActions={(receipt) => (
             <Link
@@ -305,7 +306,7 @@ export default function BillingPage() {
             const paymentMethod = String(receipt.meta?.payment_method || "").toLowerCase();
             return (
               <p className="text-muted-foreground">
-                {paymentMethod === "x402" ? "Onchain USDC subscription receipt" : "Subscription billing receipt"}
+                {paymentMethod === "x402" ? "Onchain USDC entitlement receipt" : "Recurring subscription receipt"}
               </p>
             );
           }}

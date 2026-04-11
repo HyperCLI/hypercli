@@ -122,6 +122,29 @@ export interface HyperAgentSubscription {
   planTpd: number;
   planAgentTier: string | null;
   slotGrants: Record<string, number> | null;
+  entitlements?: HyperAgentEntitlement[];
+}
+
+export interface HyperAgentEntitlement {
+  id: string;
+  userId: string;
+  subscriptionId: string | null;
+  planId: string;
+  planName: string;
+  provider: string;
+  status: string;
+  expiresAt: Date | null;
+  updatedAt: Date | null;
+  tpmLimit: number;
+  rpmLimit: number;
+  tpdLimit: number;
+  agentTier: string | null;
+  features: Record<string, boolean>;
+  tags: string[];
+  meta: Record<string, any> | null;
+  slotGrants: Record<string, number> | null;
+  activeAgentCount: number;
+  activeAgentIds: string[];
 }
 
 export interface HyperAgentEntitlements {
@@ -146,6 +169,7 @@ export interface HyperAgentSubscriptionSummary {
   activeSubscriptionCount: number;
   activeEntitlementCount: number;
   entitlements: HyperAgentEntitlements;
+  entitlementItems: HyperAgentEntitlement[];
   activeSubscriptions: HyperAgentSubscription[];
   subscriptions: HyperAgentSubscription[];
   user: Record<string, any>;
@@ -210,6 +234,7 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
 }
 
 function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
+  const periodEnd = data.current_period_end || data.expires_at || null;
   return {
     id: data.id || '',
     userId: data.user_id || '',
@@ -218,7 +243,7 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
     provider: data.provider || '',
     status: data.status || '',
     quantity: data.quantity || 1,
-    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    expiresAt: periodEnd ? new Date(String(periodEnd).replace('Z', '+00:00')) : null,
     updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
     stripeSubscriptionId: data.stripe_subscription_id || null,
     cancelAtPeriodEnd: Boolean(data.cancel_at_period_end),
@@ -230,6 +255,31 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
     planTpd: data.plan_tpd || 0,
     planAgentTier: data.plan_agent_tier || null,
     slotGrants: data.slot_grants || null,
+    entitlements: (data.entitlements || []).map(hyperAgentEntitlementFromDict),
+  };
+}
+
+function hyperAgentEntitlementFromDict(data: any): HyperAgentEntitlement {
+  return {
+    id: data.id || '',
+    userId: data.user_id || '',
+    subscriptionId: data.subscription_id || null,
+    planId: data.plan_id || '',
+    planName: data.plan_name || data.plan_id || '',
+    provider: data.provider || '',
+    status: data.status || '',
+    expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
+    updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
+    tpmLimit: data.tpm_limit || 0,
+    rpmLimit: data.rpm_limit || 0,
+    tpdLimit: data.tpd_limit || 0,
+    agentTier: data.agent_tier || null,
+    features: data.features || {},
+    tags: data.tags || [],
+    meta: data.meta || null,
+    slotGrants: data.slot_grants || null,
+    activeAgentCount: data.active_agent_count || 0,
+    activeAgentIds: data.active_agent_ids || [],
   };
 }
 
@@ -259,6 +309,7 @@ function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptio
     activeSubscriptionCount: data.active_subscription_count || 0,
     activeEntitlementCount: data.active_entitlement_count || data.active_subscription_count || 0,
     entitlements: hyperAgentEntitlementsFromDict(data),
+    entitlementItems: (data.entitlement_items || []).map(hyperAgentEntitlementFromDict),
     activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
     subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
     user: data.user || {},
@@ -389,6 +440,21 @@ export class HyperAgent {
 
     const data: any = await response.json();
     return hyperAgentSubscriptionSummaryFromDict(data);
+  }
+
+  async entitlementInstances(): Promise<HyperAgentEntitlement[]> {
+    const response = await fetch(`${this.controlBaseUrl}/entitlements/instances`, {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to get entitlement instances: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return (data.items || []).map(hyperAgentEntitlementFromDict);
   }
 
   async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscriptionMutationResult> {

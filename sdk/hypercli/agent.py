@@ -85,7 +85,7 @@ class HyperAgentCurrentPlan:
 
 @dataclass
 class HyperAgentSubscription:
-    """A purchased HyperClaw entitlement/subscription instance."""
+    """A recurring HyperClaw billing subscription."""
 
     id: str
     user_id: str
@@ -106,10 +106,11 @@ class HyperAgentSubscription:
     plan_tpd: int = 0
     plan_agent_tier: str | None = None
     slot_grants: dict[str, int] | None = None
+    entitlements: list["HyperAgentEntitlement"] | None = None
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentSubscription":
-        expires_at = data.get("expires_at")
+        expires_at = data.get("current_period_end", data.get("expires_at"))
         updated_at = data.get("updated_at")
         return cls(
             id=data["id"],
@@ -131,6 +132,58 @@ class HyperAgentSubscription:
             plan_tpd=int(data.get("plan_tpd", 0) or 0),
             plan_agent_tier=data.get("plan_agent_tier"),
             slot_grants=data.get("slot_grants") or None,
+            entitlements=[HyperAgentEntitlement.from_dict(item) for item in data.get("entitlements", [])] or None,
+        )
+
+
+@dataclass
+class HyperAgentEntitlement:
+    """A concrete 1:1 entitlement grant."""
+
+    id: str
+    user_id: str
+    subscription_id: str | None
+    plan_id: str
+    plan_name: str
+    provider: str
+    status: str
+    expires_at: datetime | None = None
+    updated_at: datetime | None = None
+    tpm_limit: int = 0
+    rpm_limit: int = 0
+    tpd_limit: int = 0
+    agent_tier: str | None = None
+    features: dict[str, bool] | None = None
+    tags: list[str] | None = None
+    meta: dict[str, Any] | None = None
+    slot_grants: dict[str, int] | None = None
+    active_agent_count: int = 0
+    active_agent_ids: list[str] | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentEntitlement":
+        expires_at = data.get("expires_at")
+        updated_at = data.get("updated_at")
+        return cls(
+            id=data["id"],
+            user_id=data.get("user_id", ""),
+            subscription_id=data.get("subscription_id"),
+            plan_id=data.get("plan_id", ""),
+            plan_name=data.get("plan_name", data.get("plan_id", "")),
+            provider=data.get("provider", ""),
+            status=data.get("status", ""),
+            expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None,
+            updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00")) if updated_at else None,
+            tpm_limit=int(data.get("tpm_limit", 0) or 0),
+            rpm_limit=int(data.get("rpm_limit", 0) or 0),
+            tpd_limit=int(data.get("tpd_limit", 0) or 0),
+            agent_tier=data.get("agent_tier"),
+            features=data.get("features") or {},
+            tags=data.get("tags") or [],
+            meta=data.get("meta") or None,
+            slot_grants=data.get("slot_grants") or None,
+            active_agent_count=int(data.get("active_agent_count", 0) or 0),
+            active_agent_ids=data.get("active_agent_ids") or [],
         )
 
 
@@ -183,6 +236,7 @@ class HyperAgentSubscriptionSummary:
     active_subscription_count: int
     active_entitlement_count: int
     entitlements: HyperAgentEntitlements
+    entitlement_items: list[HyperAgentEntitlement]
     active_subscriptions: list[HyperAgentSubscription]
     subscriptions: list[HyperAgentSubscription]
     user: dict[str, Any]
@@ -203,6 +257,7 @@ class HyperAgentSubscriptionSummary:
             active_subscription_count=int(data.get("active_subscription_count", 0) or 0),
             active_entitlement_count=int(data.get("active_entitlement_count", data.get("active_subscription_count", 0)) or 0),
             entitlements=HyperAgentEntitlements.from_dict(data),
+            entitlement_items=[HyperAgentEntitlement.from_dict(item) for item in data.get("entitlement_items", [])],
             active_subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("active_subscriptions", [])],
             subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("subscriptions", [])],
             user=data.get("user") or {},
@@ -422,6 +477,15 @@ class HyperAgent:
         )
         response.raise_for_status()
         return HyperAgentEntitlementsSummary.from_dict(response.json())
+
+    def entitlement_instances(self) -> list[HyperAgentEntitlement]:
+        response = self._http._session.get(
+            f"{self._control_base_url}/entitlements/instances",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+        )
+        response.raise_for_status()
+        data = response.json()
+        return [HyperAgentEntitlement.from_dict(item) for item in data.get("items", [])]
 
     def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
         response = self._http._session.post(
