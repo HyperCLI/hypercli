@@ -1,12 +1,13 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
 import { DashboardMobileAgentMenuProvider } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { Skeleton } from "@/components/dashboard/Skeleton";
+import { useViewportTier, tierFlags } from "@/hooks/useViewportTier";
 
 function FullPageSkeleton() {
   return (
@@ -49,19 +50,8 @@ export function DashboardShell({
     pathname === "/agents" ||
     pathname.startsWith("/agents/") ||
     pathname.startsWith("/dashboard/agents");
-  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 768px)").matches;
-  });
-
-  useLayoutEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 768px)");
-    const apply = () => setIsDesktopViewport(mediaQuery.matches);
-    apply();
-    mediaQuery.addEventListener("change", apply);
-    return () => mediaQuery.removeEventListener("change", apply);
-  }, []);
+  const viewportTier = useViewportTier();
+  const { isTabletOrAbove: isDesktopViewport } = tierFlags(viewportTier);
 
   const showDashboardNav = !isAgentsRoute || isDesktopViewport;
   const hasTopNavOffset = showDashboardNav;

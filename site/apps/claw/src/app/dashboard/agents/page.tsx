@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 import {
@@ -39,6 +39,7 @@ import {
   SlidersHorizontal,
   PanelLeftClose,
   PanelLeft,
+  PanelRight,
   Plug,
   Upload,
   Paperclip,
@@ -64,6 +65,7 @@ import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsPage } from "@/components/dashboard/integrations";
 import { AgentView, ConnectionDetail, type TabId as AgentViewTabId } from "@/components/dashboard/AgentView";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
+import { useViewportTier, tierFlags } from "@/hooks/useViewportTier";
 
 // ── Types ──
 
@@ -777,10 +779,8 @@ export default function AgentsPage() {
   const { getToken } = useAgentAuth();
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
-  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 768px)").matches;
-  });
+  const viewportTier = useViewportTier();
+  const { isMobile, isTabletOrAbove: isDesktopViewport, isCompactOrAbove, isDesktopOrAbove } = tierFlags(viewportTier);
 
   // Agent data
   const [agents, setAgents] = useState<Agent[]>([]);
@@ -816,6 +816,8 @@ export default function AgentsPage() {
   // Right sidebar (AgentView)
   const [agentViewTab, setAgentViewTab] = useState<AgentViewTabId>("overview");
   const [selectedConnection, setSelectedConnection] = useState<any>(null);
+  const [rightPanelOpen, setRightPanelOpen] = useState(false);
+  const sidebarCollapseReasonRef = useRef<"user" | "auto">("user");
 
   // Logs
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -840,15 +842,6 @@ export default function AgentsPage() {
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
   const [burstAgentId, setBurstAgentId] = useState<string | null>(null);
-
-  useLayoutEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 768px)");
-    const apply = () => setIsDesktopViewport(mediaQuery.matches);
-    apply();
-    mediaQuery.addEventListener("change", apply);
-    return () => mediaQuery.removeEventListener("change", apply);
-  }, []);
 
   // Settings tab state
   const [settingsName, setSettingsName] = useState("");
@@ -973,6 +966,28 @@ export default function AgentsPage() {
     }
   }, [selectedAgentId]);
 
+  // Auto-collapse sidebar and manage right panel per viewport tier
+  const prevTierRef = useRef(viewportTier);
+  useEffect(() => {
+    if (prevTierRef.current === viewportTier) return;
+    prevTierRef.current = viewportTier;
+
+    if (viewportTier === "tablet") {
+      sidebarCollapseReasonRef.current = "auto";
+      setSidebarCollapsed(true);
+      setRightPanelOpen(false);
+    } else if (viewportTier === "compact") {
+      sidebarCollapseReasonRef.current = "auto";
+      setSidebarCollapsed(true);
+      setRightPanelOpen(true);
+    } else if (viewportTier === "desktop") {
+      if (sidebarCollapseReasonRef.current === "auto") {
+        setSidebarCollapsed(false);
+      }
+      setRightPanelOpen(true);
+    }
+  }, [viewportTier]);
+
   useEffect(() => {
     setMobileAgentMenuOpen(false);
   }, [mainTab, selectedAgentId, isDesktopViewport]);
@@ -1032,8 +1047,8 @@ export default function AgentsPage() {
   }, [activeOpenclawSection, mainTab]);
 
   const effectiveOpenclawSection = useMemo(
-    () => (isDesktopViewport ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
-    [activeOpenclawSection, isDesktopViewport, openclawSections]
+    () => (isCompactOrAbove ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
+    [activeOpenclawSection, isCompactOrAbove, openclawSections]
   );
 
   const visibleOpenclawSections = useMemo(() => {
@@ -1059,10 +1074,10 @@ export default function AgentsPage() {
   }, [activeOpenclawSectionEntry, openclawSchemaBundle]);
 
   useEffect(() => {
-    if (!isDesktopViewport && mainTab === "openclaw") {
+    if (!isCompactOrAbove && mainTab === "openclaw") {
       setMobileOpenclawMenuOpen(true);
     }
-  }, [isDesktopViewport, mainTab, selectedAgentId]);
+  }, [isCompactOrAbove, mainTab, selectedAgentId]);
 
   const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
     setOpenclawDraft((prev) => {
@@ -2001,6 +2016,51 @@ export default function AgentsPage() {
 
   // ── Render ──
 
+  const agentViewContent = selectedAgent ? (
+    selectedConnection ? (
+      <ConnectionDetail
+        connection={selectedConnection}
+        onClose={() => setSelectedConnection(null)}
+      />
+    ) : (
+      <AgentView
+        agentName={selectedAgent.name || selectedAgent.pod_name || "Agent"}
+        onConnectionSelect={(conn) => setSelectedConnection(conn)}
+        activeTab={agentViewTab}
+        onTabChange={setAgentViewTab}
+        agentStatus={{
+          state: (["RUNNING", "STOPPED", "STARTING", "STOPPING"].includes(selectedAgent.state) ? selectedAgent.state : "STOPPED") as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
+          uptime: selectedAgent.started_at ? Math.floor((Date.now() - new Date(selectedAgent.started_at).getTime()) / 1000) : 0,
+          cpu: selectedAgent.cpu_millicores ? Math.round(selectedAgent.cpu_millicores / 10) : 0,
+          memory: { used: (selectedAgent.memory_mib || 0) * 1048576, total: 2147483648 },
+        }}
+        completenessRingVariant="v1"
+        quickActionsVariant="v1"
+        modelCapsVariant="v1"
+        toolUsageVariant="v1"
+        interactionPatternsVariant="v1"
+        examplePromptsVariant="v1"
+        limitsVariant="v1"
+        achievementsVariant="v1"
+        permissionsVariant="v1"
+        channelsVariant="v1"
+        providersVariant="v1"
+        execQueueVariant="v1"
+        agentUrlsVariant="v1"
+        gatewayStatusVariant="v1"
+        workspaceFilesVariant="v1"
+        whatCanIDoVariant="v1"
+        toolDiscoveryVariant="v1"
+        connectionRecsVariant="v1"
+        capabilityDiffVariant="v1"
+        nudgesVariant="v1"
+        onboardingVariant="v1"
+        skillsVariant="v1"
+        activityVariant="v1"
+      />
+    )
+  ) : null;
+
   return (
     <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header + menu (hidden on desktop) */}
@@ -2200,8 +2260,12 @@ export default function AgentsPage() {
           <div className="px-3 h-14 border-b border-border flex items-center justify-between">
             <div className="flex items-center gap-2">
               <button
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="text-text-muted transition-colors hover:text-foreground"
+                onClick={() => {
+                  if (viewportTier === "tablet") return;
+                  sidebarCollapseReasonRef.current = "user";
+                  setSidebarCollapsed(!sidebarCollapsed);
+                }}
+                className={`text-text-muted transition-colors hover:text-foreground ${viewportTier === "tablet" ? "opacity-40 cursor-not-allowed" : ""}`}
                 aria-label={sidebarCollapsed ? "Expand agents sidebar" : "Collapse agents sidebar"}
               >
                 {sidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
@@ -2473,6 +2537,18 @@ export default function AgentsPage() {
 
                     </div>
                   </div>
+
+                  {/* Tablet-tier: toggle right panel overlay */}
+                  {viewportTier === "tablet" && (
+                    <button
+                      onClick={() => setRightPanelOpen((o) => !o)}
+                      className="p-1.5 rounded text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                      aria-label={rightPanelOpen ? "Hide agent details" : "Show agent details"}
+                      title="Agent details"
+                    >
+                      <PanelRight className="w-4 h-4" />
+                    </button>
+                  )}
                 </div>
               </div>
 
@@ -2855,8 +2931,8 @@ export default function AgentsPage() {
                   />
                 ) : mainTab === "openclaw" ? (
                   /* ── OpenClaw Tab ── */
-                  <div className={`h-full min-h-0 flex ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
-                    {isDesktopViewport ? (
+                  <div className={`h-full min-h-0 flex ${isCompactOrAbove ? "flex-row" : "flex-col"}`}>
+                    {isCompactOrAbove ? (
                       <>
                         <aside className="w-[200px] shrink-0 border-r border-border bg-surface-low/20" style={{ minWidth: 160, maxWidth: 260 }}>
                           <div className="h-full overflow-y-auto p-3">
@@ -3202,52 +3278,24 @@ export default function AgentsPage() {
           )}
         </div>
 
-        {/* ── Right Sidebar — AgentView ── */}
-        {selectedAgent && isDesktopViewport && (
+        {/* ── Right Sidebar — AgentView (inline for compact+desktop) ── */}
+        {selectedAgent && isCompactOrAbove && rightPanelOpen && (
           <div className="w-80 flex-shrink-0 border-l border-border flex flex-col min-h-0">
-            {selectedConnection ? (
-              <ConnectionDetail
-                connection={selectedConnection}
-                onClose={() => setSelectedConnection(null)}
-              />
-            ) : (
-              <AgentView
-                agentName={selectedAgent.name || selectedAgent.pod_name || "Agent"}
-                onConnectionSelect={(conn) => setSelectedConnection(conn)}
-                activeTab={agentViewTab}
-                onTabChange={setAgentViewTab}
-                agentStatus={{
-                  state: (["RUNNING", "STOPPED", "STARTING", "STOPPING"].includes(selectedAgent.state) ? selectedAgent.state : "STOPPED") as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
-                  uptime: selectedAgent.started_at ? Math.floor((Date.now() - new Date(selectedAgent.started_at).getTime()) / 1000) : 0,
-                  cpu: selectedAgent.cpu_millicores ? Math.round(selectedAgent.cpu_millicores / 10) : 0,
-                  memory: { used: (selectedAgent.memory_mib || 0) * 1048576, total: 2147483648 },
-                }}
-                completenessRingVariant="v1"
-                quickActionsVariant="v1"
-                modelCapsVariant="v1"
-                toolUsageVariant="v1"
-                interactionPatternsVariant="v1"
-                examplePromptsVariant="v1"
-                limitsVariant="v1"
-                achievementsVariant="v1"
-                permissionsVariant="v1"
-                channelsVariant="v1"
-                providersVariant="v1"
-                execQueueVariant="v1"
-                agentUrlsVariant="v1"
-                gatewayStatusVariant="v1"
-                workspaceFilesVariant="v1"
-                whatCanIDoVariant="v1"
-                toolDiscoveryVariant="v1"
-                connectionRecsVariant="v1"
-                capabilityDiffVariant="v1"
-                nudgesVariant="v1"
-                onboardingVariant="v1"
-                skillsVariant="v1"
-                activityVariant="v1"
-              />
-            )}
+            {agentViewContent}
           </div>
+        )}
+
+        {/* ── Right Panel Overlay (tablet tier) ── */}
+        {selectedAgent && viewportTier === "tablet" && rightPanelOpen && (
+          <>
+            <div
+              className="fixed inset-0 z-40 bg-black/30"
+              onClick={() => setRightPanelOpen(false)}
+            />
+            <div className="fixed right-0 top-14 bottom-0 z-50 w-80 border-l border-border bg-background flex flex-col min-h-0 shadow-2xl">
+              {agentViewContent}
+            </div>
+          </>
         )}
       </div>
     </div>
