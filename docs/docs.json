@@ -96,7 +96,8 @@
             "group": "Agent Pods",
             "pages": [
               "agents/index",
-              "agents/quickstart"
+              "agents/quickstart",
+              "agents/tags"
             ]
           }
         ]

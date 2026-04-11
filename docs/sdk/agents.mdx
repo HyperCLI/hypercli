@@ -35,6 +35,7 @@ Use `client.agent` for account-level metadata, billing-backed subscriptions, eff
 plans = client.agent.plans()
 summary = client.agent.subscription_summary()
 entitlements = client.agent.entitlements()
+entitlement_items = client.agent.entitlement_instances()
 subscriptions = client.agent.subscriptions()
 models = client.agent.models()
 health = client.agent.discovery_health()
@@ -46,14 +47,24 @@ The key split is:
 - `entitlements()`
   effective current account state, including pooled inference, slot inventory, active entitlement count, and `billing_reset_at`
 - `subscriptions()`
-  recurring card-backed billing objects such as Stripe subscriptions, including `cancel_at_period_end` and `can_cancel`
+  recurring card-backed billing objects such as Stripe subscriptions, including `cancel_at_period_end`
+- `entitlement_instances()`
+  concrete 1:1 entitlement grants with expiry, tags, features, and related agent bindings
 - `subscription_summary()`
   combined account view that includes both the effective `entitlements` object and the active subscription list
+- `update_subscription()`
+  unified recurring billing mutation surface for upgrade, downgrade, and cancel-at-period-end
 
-Cancel a recurring billing subscription at period end:
+Update a recurring billing subscription:
 
 ```python
-client.agent.cancel_subscription("sub_123")
+client.agent.update_subscription("sub_123", {"large": 1})
+```
+
+Use an empty bundle to cancel at period end:
+
+```python
+client.agent.update_subscription("sub_123", {})
 ```
 
 This namespace also exposes convenience helpers such as:

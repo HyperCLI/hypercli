@@ -352,16 +352,58 @@ class TestHyperAgentClient:
         mock_http._session.post.return_value.json.return_value = {
             "ok": True,
             "message": "Subscription will be cancelled at the end of the current billing period",
+            "subscription": {
+                "id": "sub-1",
+                "user_id": "user-1",
+                "plan_id": "large",
+                "plan_name": "Large",
+                "provider": "STRIPE",
+                "status": "ACTIVE",
+                "cancel_at_period_end": True,
+                "can_cancel": True,
+            },
         }
         mock_http._session.post.return_value.raise_for_status = Mock()
 
         agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
         result = agent.cancel_subscription("sub-1")
 
-        assert result["ok"] is True
+        assert result.ok is True
+        assert result.subscription is not None
+        assert result.subscription.cancel_at_period_end is True
         mock_http._session.post.assert_called_with(
-            "https://api.hypercli.com/agents/subscriptions/sub-1/cancel",
+            "https://api.hypercli.com/agents/subscriptions/sub-1/update",
             headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"bundle": {}},
+        )
+
+    def test_update_subscription(self, mock_http):
+        mock_http._session.post.return_value.json.return_value = {
+            "ok": True,
+            "message": "Subscription upgraded immediately",
+            "subscription": {
+                "id": "sub-1",
+                "user_id": "user-1",
+                "plan_id": "large",
+                "plan_name": "Large",
+                "provider": "STRIPE",
+                "status": "ACTIVE",
+                "cancel_at_period_end": False,
+                "can_cancel": True,
+            },
+        }
+        mock_http._session.post.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        result = agent.update_subscription("sub-1", {"large": 1})
+
+        assert result.ok is True
+        assert result.subscription is not None
+        assert result.subscription.plan_id == "large"
+        mock_http._session.post.assert_called_with(
+            "https://api.hypercli.com/agents/subscriptions/sub-1/update",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"bundle": {"large": 1}},
         )
     
     def test_openai_client_creation(self, mock_http):

@@ -42,6 +42,8 @@ Use this namespace for:
 - `subscriptions()`
 - `subscriptionSummary()`
 - `entitlements()`
+- `entitlementInstances()`
+- `updateSubscription(subscriptionId, { bundle })`
 - `cancelSubscription(subscriptionId)`
 - `models()`
 - `discoveryHealth()`
@@ -52,18 +54,29 @@ The key split is:
 - `entitlements()`
   effective current account state, including pooled inference, slot inventory, active entitlement count, and `billingResetAt`
 - `subscriptions()`
-  recurring card-backed billing objects such as Stripe subscriptions, including `cancelAtPeriodEnd` and `canCancel`
+  recurring card-backed billing objects such as Stripe subscriptions, including `cancelAtPeriodEnd`
+- `entitlementInstances()`
+  concrete 1:1 entitlement grants with expiry, tags, features, and related agent bindings
 - `subscriptionSummary()`
   combined account view that includes both the effective `entitlements` object and the active subscription list
+- `updateSubscription()`
+  unified recurring billing mutation surface for upgrade, downgrade, and cancel-at-period-end
 
 Example:
 
 ```ts
 const summary = await client.agent.subscriptionSummary();
 const entitlements = await client.agent.entitlements();
+const entitlementItems = await client.agent.entitlementInstances();
 const subscriptions = await client.agent.subscriptions();
 
-await client.agent.cancelSubscription("sub_123");
+await client.agent.updateSubscription("sub_123", { bundle: { large: 1 } });
+```
+
+Use an empty bundle to cancel at period end:
+
+```ts
+await client.agent.updateSubscription("sub_123", { bundle: {} });
 ```
 
 ## `client.deployments`

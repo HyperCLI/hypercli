@@ -336,7 +336,49 @@ describe('HyperAgent API', () => {
     }
   });
 
-  it('cancels a subscription on the primary API host', async () => {
+  it('updates a subscription on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          message: 'Subscription upgraded immediately',
+          subscription: {
+            id: 'sub-1',
+            user_id: 'user-1',
+            plan_id: 'large',
+            plan_name: 'Large',
+            provider: 'STRIPE',
+            status: 'ACTIVE',
+            cancel_at_period_end: false,
+            can_cancel: true,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.updateSubscription('sub-1', { bundle: { large: 1 } });
+      expect(result.ok).toBe(true);
+      expect(result.subscription?.planId).toBe('large');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/sub-1/update');
+      expect(calls[0]?.init?.method).toBe('POST');
+      expect(calls[0]?.init?.body).toBe(JSON.stringify({ bundle: { large: 1 } }));
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('cancels a subscription through the update endpoint', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
     const fetchMock = globalThis.fetch;
@@ -370,8 +412,9 @@ describe('HyperAgent API', () => {
       const result = await agent.cancelSubscription('sub-1');
       expect(result.ok).toBe(true);
       expect(result.subscription?.cancelAtPeriodEnd).toBe(true);
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/sub-1/cancel');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/sub-1/update');
       expect(calls[0]?.init?.method).toBe('POST');
+      expect(calls[0]?.init?.body).toBe(JSON.stringify({ bundle: {} }));
     } finally {
       globalThis.fetch = fetchMock;
     }

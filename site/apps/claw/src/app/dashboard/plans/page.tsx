@@ -99,7 +99,9 @@ export default function PlansPage() {
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [loading, setLoading] = useState(true);
   const [checkoutPlan, setCheckoutPlan] = useState<CheckoutPlan | null>(null);
-  const [cancellingSubscriptionId, setCancellingSubscriptionId] = useState<string | null>(null);
+  const [mutatingSubscriptionId, setMutatingSubscriptionId] = useState<string | null>(null);
+  const [subscriptionTargets, setSubscriptionTargets] = useState<Record<string, string>>({});
+  const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
 
   useEffect(() => {
@@ -161,6 +163,7 @@ export default function PlansPage() {
   }, [summary?.entitlementItems]);
 
   const displayProducts = useMemo(() => buildDisplayProducts(), []);
+  const paidProducts = useMemo(() => displayProducts.filter((product) => product.id !== "free"), [displayProducts]);
 
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
   const activeEntitlementCount =
@@ -182,19 +185,49 @@ export default function PlansPage() {
     if (!subscription.canCancel || subscription.cancelAtPeriodEnd) return;
     if (!window.confirm(`Cancel ${subscription.planName} at the end of the current billing period?`)) return;
 
+    setSubscriptionNotice(null);
     setSubscriptionError(null);
-    setCancellingSubscriptionId(subscription.id);
+    setMutatingSubscriptionId(subscription.id);
     try {
       const agentClient = createHyperAgentClient(await getToken());
-      const result = await agentClient.cancelSubscription(subscription.id);
+      const result = await agentClient.updateSubscription(subscription.id, { bundle: {} });
       if (!result.ok) {
         throw new Error(result.message || "Failed to cancel subscription");
       }
+      setSubscriptionNotice(result.message || "Subscription updated");
       await refreshPlan();
     } catch (error) {
       setSubscriptionError(error instanceof Error ? error.message : "Failed to cancel subscription");
     } finally {
-      setCancellingSubscriptionId(null);
+      setMutatingSubscriptionId(null);
+    }
+  };
+
+  const handleUpdateSubscription = async (subscription: HyperAgentSubscription) => {
+    const targetKey = subscriptionTargets[subscription.id] ?? bundleKey(bundleFromSubscription(subscription));
+    const targetProduct = paidProducts.find((product) => bundleKey(product.bundle) === targetKey);
+    if (!targetProduct) {
+      setSubscriptionError("Select a target bundle first");
+      return;
+    }
+
+    setSubscriptionNotice(null);
+    setSubscriptionError(null);
+    setMutatingSubscriptionId(subscription.id);
+    try {
+      const agentClient = createHyperAgentClient(await getToken());
+      const result = await agentClient.updateSubscription(subscription.id, {
+        bundle: compactBundle(targetProduct.bundle) as Record<string, number>,
+      });
+      if (!result.ok) {
+        throw new Error(result.message || "Failed to update subscription");
+      }
+      setSubscriptionNotice(result.message || "Subscription updated");
+      await refreshPlan();
+    } catch (error) {
+      setSubscriptionError(error instanceof Error ? error.message : "Failed to update subscription");
+    } finally {
+      setMutatingSubscriptionId(null);
     }
   };
 
@@ -356,10 +389,19 @@ export default function PlansPage() {
               <p className="text-sm text-red-200">{subscriptionError}</p>
             </div>
           )}
+          {subscriptionNotice && (
+            <div className="glass-card p-4 mb-4 border border-emerald-500/30">
+              <p className="text-sm text-emerald-200">{subscriptionNotice}</p>
+            </div>
+          )}
           <div className="grid gap-4 md:grid-cols-2">
             {billingSubscriptions.map((subscription) => {
               const bundleLabel = formatBundle(bundleFromSubscription(subscription)) || "Custom";
               const canManage = subscription.canCancel && subscription.provider.toLowerCase() === "stripe";
+              const currentBundleKey = bundleKey(bundleFromSubscription(subscription));
+              const selectedBundleKey = subscriptionTargets[subscription.id] ?? currentBundleKey;
+              const selectedProduct = paidProducts.find((product) => bundleKey(product.bundle) === selectedBundleKey) ?? null;
+              const canApplyChange = Boolean(selectedProduct) && (selectedBundleKey !== currentBundleKey || subscription.cancelAtPeriodEnd);
               return (
                 <div key={subscription.id} className="glass-card p-5">
                   <div className="flex items-start justify-between gap-4">
@@ -379,19 +421,52 @@ export default function PlansPage() {
                         ? "Cancellation scheduled at period end."
                         : canManage
                           ? "Self-serve cancellation is available from the web."
-                          : "This entitlement is read-only here."}
+                        : "This entitlement is read-only here."}
                     </p>
                   </div>
+                  {canManage && (
+                    <div className="mt-4">
+                      <label className="block text-xs uppercase tracking-[0.18em] text-text-muted mb-2">
+                        Update Bundle
+                      </label>
+                      <div className="flex flex-col gap-3 md:flex-row">
+                        <select
+                          value={selectedBundleKey}
+                          onChange={(event) =>
+                            setSubscriptionTargets((current) => ({
+                              ...current,
+                              [subscription.id]: event.target.value,
+                            }))
+                          }
+                          className="flex-1 rounded-lg border border-border bg-black/20 px-3 py-2 text-sm text-foreground"
+                        >
+                          {paidProducts.map((product) => (
+                            <option key={product.id} value={bundleKey(product.bundle)}>
+                              {product.name} · {formatBundle(product.bundle)} · ${product.price}/month
+                            </option>
+                          ))}
+                        </select>
+                        <button
+                          type="button"
+                          onClick={() => void handleUpdateSubscription(subscription)}
+                          disabled={!canApplyChange || mutatingSubscriptionId === subscription.id}
+                          className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                        >
+                          {mutatingSubscriptionId === subscription.id ? "Applying..." : "Apply Change"}
+                        </button>
+                      </div>
+                    </div>
+                  )}
                   <div className="mt-4 flex items-center justify-between gap-3">
                     <span className="text-xs text-text-muted">{subscription.id}</span>
                     {canManage && !subscription.cancelAtPeriodEnd ? (
                       <button
                         type="button"
                         onClick={() => void handleCancelSubscription(subscription)}
-                        disabled={cancellingSubscriptionId === subscription.id}
+                        disabled={mutatingSubscriptionId === subscription.id}
                         className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
                       >
-                        {cancellingSubscriptionId === subscription.id ? "Cancelling..." : "Cancel at Period End"}
+                        {mutatingSubscriptionId === subscription.id ? "Updating..." : "Cancel at Period End"}
                       </button>
                     ) : (
                       <span className="text-xs text-text-muted">

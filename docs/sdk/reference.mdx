@@ -55,7 +55,9 @@ Major methods:
 - `subscriptions()`
 - `subscription_summary()`
 - `entitlements()`
-- `cancel_subscription(subscription_id)`
+- `entitlement_instances()`
+- `update_subscription(subscription_id, bundle)`
+- `cancel_subscription(subscription_id)` as a convenience alias for update-to-empty
 - `models()`
 - `discovery_health()`
 - `discovery_config()`
@@ -64,11 +66,15 @@ Major methods:
 Important account types:
 
 - `HyperAgentSubscription`
-  recurring billing object with `cancel_at_period_end`, `can_cancel`, `plan_agent_tier`, and `slot_grants`
+  recurring billing object with `cancel_at_period_end`, `current_period_end`, `plan_agent_tier`, and `slot_grants`
 - `HyperAgentEntitlements`
   effective account state with `slot_inventory`, `pooled_tpd`, `active_entitlement_count`, and `billing_reset_at`
+- `HyperAgentEntitlement`
+  concrete 1:1 entitlement instance, including expiry, tags, features, and related agent bindings
 - `HyperAgentSubscriptionSummary`
   combined view with `entitlements`, `subscriptions`, `active_subscriptions`, and `billing_reset_at`
+- `HyperAgentSubscriptionMutationResult`
+  message wrapper returned by recurring subscription updates
 
 ## `client.keys`
 

@@ -1,0 +1,108 @@
+---
+title: Tags
+description: Use `key=value` resource tags and `family:value` API key scopes consistently across HyperCLI and HyperClaw.
+---
+
+## Overview
+
+HyperCLI uses two tag forms on purpose:
+
+- resource tags: `key=value`
+- scoped key tags: `family:value`
+
+They are not interchangeable.
+
+Use resource tags for metadata on the things you run and allocate:
+
+- agents
+- entitlements
+- jobs
+- renders
+- files
+
+Use scoped key tags for API key authorization:
+
+- `agents:self`
+- `models:*`
+- `models:kimi-k2.5`
+- `voice:*`
+
+## Resource Tags
+
+Resource tags are exact `key=value` strings:
+
+```text
+customer=acme
+project=alpha
+seat=enterprise-42
+env=prod
+```
+
+This is the standard form for:
+
+- agent tags
+- entitlement tags
+- customer or reseller mapping
+- filtering and routing metadata
+
+## API Key Scope Tags
+
+API keys use family-scoped tags such as:
+
+```text
+*:*
+agents:self
+models:*
+models:kimi-k2.5
+voice:Chelsie
+```
+
+These are authorization scopes, not resource metadata.
+
+Do not use `customer:acme` or `project:alpha` for resource labeling. Those should be `customer=acme` and `project=alpha`.
+
+## Entitlements
+
+Entitlements are concrete 1:1 access grants.
+
+Each entitlement has its own:
+
+- plan
+- expiry
+- features
+- limits
+- tags
+
+That makes tags the right place to express platform ownership and routing intent:
+
+- `customer=acme`
+- `seat=enterprise-42`
+- `region=us`
+
+This is especially important for reseller and platform users who need to track which customer a grant is backing.
+
+## Agents
+
+Agents also carry resource tags.
+
+Use the same `key=value` format there so the mapping stays coherent:
+
+```text
+customer=acme
+env=prod
+agent_role=support
+```
+
+The clean model is:
+
+- subscriptions define recurring billing contracts
+- entitlements define concrete grants
+- agents bind to entitlements
+- tags make those grants and agents easy to route and audit
+
+## Rules
+
+- Use `key=value` for resource metadata.
+- Use `family:value` only for scoped API key authorization.
+- Keep tag values stable and machine-readable.
+- Prefer tags on entitlements for billing-backed allocation metadata.

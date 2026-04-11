@@ -268,6 +268,21 @@ HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary
 
 
 @dataclass
+class HyperAgentSubscriptionMutationResult:
+    ok: bool
+    message: str
+    subscription: HyperAgentSubscription | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionMutationResult":
+        return cls(
+            ok=bool(data.get("ok", False)),
+            message=str(data.get("message") or ""),
+            subscription=HyperAgentSubscription.from_dict(data["subscription"]) if data.get("subscription") else None,
+        )
+
+
+@dataclass
 class HyperAgentModel:
     """Available model on HyperAgent."""
 
@@ -487,13 +502,17 @@ class HyperAgent:
         data = response.json()
         return [HyperAgentEntitlement.from_dict(item) for item in data.get("items", [])]
 
-    def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
+    def update_subscription(self, subscription_id: str, bundle: dict[str, int] | None) -> HyperAgentSubscriptionMutationResult:
         response = self._http._session.post(
-            f"{self._control_base_url}/subscriptions/{subscription_id}/cancel",
+            f"{self._control_base_url}/subscriptions/{subscription_id}/update",
             headers={"Authorization": f"Bearer {self._api_key}"},
+            json={"bundle": dict(bundle or {})},
         )
         response.raise_for_status()
-        return response.json()
+        return HyperAgentSubscriptionMutationResult.from_dict(response.json())
+
+    def cancel_subscription(self, subscription_id: str) -> HyperAgentSubscriptionMutationResult:
+        return self.update_subscription(subscription_id, {})
 
     def discovery_health(self) -> Dict[str, Any]:
         response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")

@@ -183,6 +183,10 @@ export interface HyperAgentSubscriptionMutationResult {
   subscription?: HyperAgentSubscription;
 }
 
+export interface HyperAgentSubscriptionUpdateRequest {
+  bundle?: Record<string, number>;
+}
+
 export interface HyperAgentModel {
   id: string;
   name: string;
@@ -457,16 +461,21 @@ export class HyperAgent {
     return (data.items || []).map(hyperAgentEntitlementFromDict);
   }
 
-  async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscriptionMutationResult> {
-    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/cancel`, {
+  async updateSubscription(
+    subscriptionId: string,
+    request: HyperAgentSubscriptionUpdateRequest,
+  ): Promise<HyperAgentSubscriptionMutationResult> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/update`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
       },
+      body: JSON.stringify({ bundle: request.bundle || {} }),
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to cancel subscription: ${response.statusText}`);
+      throw new Error(`Failed to update subscription: ${response.statusText}`);
     }
 
     const data: any = await response.json();
@@ -475,6 +484,10 @@ export class HyperAgent {
       message: data.message || '',
       subscription: data.subscription ? hyperAgentSubscriptionFromDict(data.subscription) : undefined,
     };
+  }
+
+  async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscriptionMutationResult> {
+    return this.updateSubscription(subscriptionId, { bundle: {} });
   }
 
   async models(): Promise<HyperAgentModel[]> {

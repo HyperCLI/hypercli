@@ -277,8 +277,8 @@ test("plans page displays cumulative pooled inference across mixed entitlements"
   await expect(page.getByText(/0 \/ 1 used/i)).toBeVisible();
 });
 
-test("plans page shows billing subscriptions and supports cancel at period end", async ({ page }) => {
-  let cancelHits = 0;
+test("plans page shows billing subscriptions and routes cancel through subscription update", async ({ page }) => {
+  let updateHits = 0;
 
   await page.context().addCookies([
     {
@@ -382,8 +382,9 @@ test("plans page shows billing subscriptions and supports cancel at period end",
       return;
     }
 
-    if (pathName.endsWith("/agents/subscriptions/sub-1/cancel") && route.request().method() === "POST") {
-      cancelHits += 1;
+    if (pathName.endsWith("/agents/subscriptions/sub-1/update") && route.request().method() === "POST") {
+      updateHits += 1;
+      expect(route.request().postDataJSON()).toEqual({ bundle: {} });
       await route.fulfill({
         status: 200,
         contentType: "application/json",
@@ -421,5 +422,151 @@ test("plans page shows billing subscriptions and supports cancel at period end",
   await expect(page.getByRole("heading", { name: /billing subscriptions/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /cancel at period end/i })).toBeVisible();
   await page.getByRole("button", { name: /cancel at period end/i }).click();
-  await expect.poll(() => cancelHits).toBe(1);
+  await expect.poll(() => updateHits).toBe(1);
+});
+
+test("plans page applies a recurring subscription change through the update endpoint", async ({ page }) => {
+  let summaryState = {
+    effective_plan_id: "large",
+    current_subscription_id: "sub-1",
+    current_entitlement_id: "sub-1",
+    pooled_tpm_limit: 173611,
+    pooled_rpm_limit: 3472,
+    pooled_tpd: 250000000,
+    slot_inventory: {
+      large: { granted: 1, used: 0, available: 1 },
+    },
+    active_subscription_count: 1,
+    active_entitlement_count: 1,
+    entitlements: {
+      effective_plan_id: "large",
+      pooled_tpm_limit: 173611,
+      pooled_rpm_limit: 3472,
+      pooled_tpd: 250000000,
+      slot_inventory: {
+        large: { granted: 1, used: 0, available: 1 },
+      },
+      active_entitlement_count: 1,
+    },
+    entitlement_items: [
+      {
+        id: "ent-1",
+        user_id: "user-1",
+        subscription_id: "sub-1",
+        plan_id: "large",
+        plan_name: "Large",
+        provider: "STRIPE",
+        status: "ACTIVE",
+        expires_at: "2026-05-10T00:00:00Z",
+        agent_tier: "large",
+        features: { voice: true, render: true },
+        tags: [],
+        active_agent_count: 0,
+        active_agent_ids: [],
+      },
+    ],
+    active_subscriptions: [],
+    subscriptions: [
+      {
+        id: "sub-1",
+        user_id: "user-1",
+        plan_id: "large",
+        plan_name: "Large",
+        provider: "STRIPE",
+        status: "ACTIVE",
+        quantity: 1,
+        current_period_end: "2026-05-10T00:00:00Z",
+        can_cancel: true,
+        cancel_at_period_end: false,
+        slot_grants: { small: 0, medium: 0, large: 1 },
+        meta: { bundle: { large: 1 } },
+      },
+    ],
+    user: { id: "user-1" },
+  };
+  let updateHits = 0;
+
+  await page.context().addCookies([
+    {
+      name: "auth_token",
+      value: TEST_JWT,
+      domain: "127.0.0.1",
+      path: "/",
+      httpOnly: false,
+      secure: false,
+      sameSite: "Lax",
+    },
+  ]);
+
+  await page.addInitScript((token) => {
+    window.localStorage.setItem("claw_auth_token", token);
+  }, TEST_JWT);
+
+  await page.route("**/agents/**", async (route) => {
+    const url = new URL(route.request().url());
+    const pathName = url.pathname;
+
+    if (pathName.endsWith("/agents/plans/current")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          id: summaryState.effective_plan_id,
+          name: summaryState.effective_plan_id === "large" ? "Large" : "Small",
+          pooled_tpd: summaryState.pooled_tpd,
+          slot_inventory: summaryState.slot_inventory,
+        }),
+      });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/subscriptions/summary")) {
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify(summaryState),
+      });
+      return;
+    }
+
+    if (pathName.endsWith("/agents/subscriptions/sub-1/update") && route.request().method() === "POST") {
+      updateHits += 1;
+      expect(route.request().postDataJSON()).toEqual({ bundle: { small: 1 } });
+      summaryState = {
+        ...summaryState,
+        effective_plan_id: "small",
+        current_subscription_id: "sub-1",
+        current_entitlement_id: "ent-1",
+        subscriptions: [
+          {
+            ...summaryState.subscriptions[0],
+            plan_id: "small",
+            plan_name: "Small",
+            slot_grants: { small: 1, medium: 0, large: 0 },
+            meta: { bundle: { small: 1 } },
+          },
+        ],
+      };
+      await route.fulfill({
+        status: 200,
+        contentType: "application/json",
+        body: JSON.stringify({
+          ok: true,
+          message: "Subscription downgrade scheduled for the next billing cycle",
+          subscription: summaryState.subscriptions[0],
+        }),
+      });
+      return;
+    }
+
+    await route.fulfill({ status: 200, contentType: "application/json", body: "{}" });
+  });
+
+  await page.goto("/plans", { waitUntil: "domcontentloaded" });
+
+  await page.locator("select").first().selectOption('{"small":1}');
+  await page.getByRole("button", { name: /apply change/i }).click();
+
+  await expect.poll(() => updateHits).toBe(1);
+  await expect(page.getByText(/downgrade scheduled for the next billing cycle/i)).toBeVisible();
 });

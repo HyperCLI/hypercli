@@ -8,13 +8,24 @@ description: Check balances and inspect transaction history from the Python SDK.
 Recurring HyperClaw agent subscriptions are exposed separately under `client.agent`:
 
 - `client.agent.subscriptions()`
-  recurring billing objects, including `cancel_at_period_end` and `can_cancel`
+  recurring billing objects, including `cancel_at_period_end`
 - `client.agent.subscription_summary()`
   combined account view with active subscriptions plus effective entitlements
 - `client.agent.entitlements()`
   effective current account state, including slot inventory, pooled inference, and `billing_reset_at`
-- `client.agent.cancel_subscription(subscription_id)`
-  schedule a recurring billing subscription to end at period end
+- `client.agent.entitlement_instances()`
+  concrete 1:1 entitlement grants with expiry, tags, and related agent bindings
+- `client.agent.update_subscription(subscription_id, bundle)`
+  update a recurring billing subscription to a new bundle
+
+`update_subscription(...)` is the primary write path:
+
+- upgrade
+  apply a larger bundle
+- downgrade
+  schedule a smaller bundle for the next billing boundary
+- cancel
+  pass an empty bundle, which resolves to period-end cancellation
 
 ## Balance
 
