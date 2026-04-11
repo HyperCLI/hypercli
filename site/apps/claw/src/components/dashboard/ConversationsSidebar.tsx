@@ -23,6 +23,7 @@ import { agentAvatar } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
 import { AgentCardTooltip } from "./modules/AgentCardModule";
 import { QuickAgentCreator } from "./QuickAgentCreator";
+import { QuickChannelCreator } from "./QuickChannelCreator";
 
 // ── Types ──
 
@@ -55,6 +56,7 @@ export interface ConversationsSidebarProps {
   onSelectThread: (threadId: string) => void;
   onNewThread?: () => void;
   onStartAgentChat?: (agent: Participant) => void;
+  onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onDeleteThread?: (threadId: string) => void;
   onRenameThread?: (threadId: string, title: string) => void;
 }
@@ -1479,19 +1481,30 @@ function HandoffWidget() {
   );
 }
 
+const AVAILABLE_AGENTS_LIST = MOCK_PARTICIPANTS.filter((p) => p.type === "agent");
+const AVAILABLE_USERS_LIST = MOCK_PARTICIPANTS.filter((p) => p.type === "user");
+
 function HandoffThreadView({
   threads,
   selectedThreadId,
   onSelectThread,
   onDeleteThread,
   onRenameThread,
+  onStartAgentChat,
+  onCreateChannel,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
   onSelectThread: (id: string) => void;
   onDeleteThread?: (id: string) => void;
   onRenameThread?: (threadId: string, title: string) => void;
+  onStartAgentChat?: (agent: Participant) => void;
+  onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
 }) {
+  const [showAgentCreator, setShowAgentCreator] = useState(false);
+  const [showChannelCreator, setShowChannelCreator] = useState(false);
+  const [agentsExpanded, setAgentsExpanded] = useState(false);
+
   const sortedThreads = useMemo(
     () => [...threads].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
     [threads],
@@ -1507,58 +1520,142 @@ function HandoffThreadView({
   );
 
   return (
-    <>
-      {/* Thread list */}
-      <div className="flex-1 overflow-y-auto">
-        {sortedThreads.length === 0 ? (
-          <div className="flex flex-col items-center justify-center py-12 text-text-muted">
-            <MessageSquare className="w-6 h-6 mb-2" />
-            <p className="text-xs">No threads</p>
-          </div>
-        ) : (
-          <>
-            {privateThreads.length > 0 && (
-              <>
-                <div className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
-                  <div className="flex-1 h-px bg-border/50" />
-                  <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
-                </div>
-                {privateThreads.map((thread) => (
-                  <ThreadRow
-                    key={thread.id}
-                    thread={thread}
-                    selected={selectedThreadId === thread.id}
-                    onSelect={() => onSelectThread(thread.id)}
-                    onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
-                    onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
-                  />
-                ))}
-              </>
-            )}
-            {groupThreads.length > 0 && (
-              <>
-                <div className="px-3 py-1.5 flex items-center gap-2">
-                  <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Channels</span>
-                  <div className="flex-1 h-px bg-border/50" />
-                  <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
-                </div>
-                {groupThreads.map((thread) => (
-                  <ThreadRow
-                    key={thread.id}
-                    thread={thread}
-                    selected={selectedThreadId === thread.id}
-                    onSelect={() => onSelectThread(thread.id)}
-                    onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
-                    onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
-                  />
-                ))}
-              </>
-            )}
-          </>
+    <div className="flex-1 overflow-y-auto">
+      {/* ── My Agents section header ── */}
+      <div className="px-3 py-1.5 flex items-center gap-2">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
+        <div className="flex-1 h-px bg-border/50" />
+        {privateThreads.length > 0 && (
+          <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
         )}
+        <motion.button
+          whileHover={{ scale: 1.05, boxShadow: "0 0 12px rgba(56,211,159,0.12)" }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => { setShowAgentCreator((v) => !v); setShowChannelCreator(false); }}
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+            showAgentCreator
+              ? "text-[#38D39F] bg-[#38D39F]/15 border border-[#38D39F]/30"
+              : "text-[#38D39F]/80 bg-[#38D39F]/8 border border-[#38D39F]/15 hover:border-[#38D39F]/30 hover:text-[#38D39F]"
+          }`}
+        >
+          <Plus className="w-3 h-3" />
+          <span>New</span>
+        </motion.button>
       </div>
-    </>
+
+      {/* Inline agent creator */}
+      <QuickAgentCreator
+        open={showAgentCreator}
+        onClose={() => setShowAgentCreator(false)}
+        onCreated={(name, _iconIndex, _size) => {
+          setShowAgentCreator(false);
+          const newAgent: Participant = { id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`, name, type: "agent" };
+          onStartAgentChat?.(newAgent);
+        }}
+      />
+
+      {/* Active agent threads */}
+      {privateThreads.map((thread) => (
+        <ThreadRow
+          key={thread.id}
+          thread={thread}
+          selected={selectedThreadId === thread.id}
+          onSelect={() => onSelectThread(thread.id)}
+          onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
+          onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+        />
+      ))}
+
+      {/* Available agents (always visible, collapsible) */}
+      <div className="px-3 py-2">
+        <button
+          onClick={() => setAgentsExpanded((v) => !v)}
+          className="flex items-center gap-1 px-1 mb-1.5 group/hdr"
+        >
+          <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${agentsExpanded ? "" : "-rotate-90"}`} />
+          <span className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
+            Available Agents
+          </span>
+          {!agentsExpanded && AVAILABLE_AGENTS_LIST.length > 3 && (
+            <span className="text-[9px] text-text-muted ml-1">+{AVAILABLE_AGENTS_LIST.length - 3} more</span>
+          )}
+        </button>
+        <div className="space-y-0.5">
+          {(agentsExpanded ? AVAILABLE_AGENTS_LIST : AVAILABLE_AGENTS_LIST.slice(0, 3)).map((agent) => {
+            const av = agentAvatar(agent.name);
+            const AvIcon = av.icon;
+            return (
+              <button
+                key={agent.id}
+                onClick={() => onStartAgentChat?.(agent)}
+                className="flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md hover:bg-surface-low/60 transition-colors text-left group/agent"
+              >
+                <div className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0" style={{ backgroundColor: av.bgColor }}>
+                  <AvIcon className="w-3.5 h-3.5" style={{ color: av.fgColor }} />
+                </div>
+                <div className="flex-1 min-w-0">
+                  <span className="text-[11px] text-text-muted group-hover/agent:text-foreground truncate transition-colors block">{agent.name}</span>
+                </div>
+                <ChevronRight className="w-3 h-3 text-text-muted/0 group-hover/agent:text-text-muted transition-colors flex-shrink-0" />
+              </button>
+            );
+          })}
+        </div>
+      </div>
+
+      {/* ── Channels section ── */}
+      <div className="px-3 py-1.5 flex items-center gap-2 mt-1">
+        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Channels</span>
+        <div className="flex-1 h-px bg-border/50" />
+        {groupThreads.length > 0 && (
+          <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
+        )}
+        <motion.button
+          whileHover={{ scale: 1.05, boxShadow: "0 0 12px rgba(107,158,255,0.12)" }}
+          whileTap={{ scale: 0.95 }}
+          onClick={() => { setShowChannelCreator((v) => !v); setShowAgentCreator(false); }}
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+            showChannelCreator
+              ? "text-[#6b9eff] bg-[#6b9eff]/15 border border-[#6b9eff]/30"
+              : "text-[#6b9eff]/80 bg-[#6b9eff]/8 border border-[#6b9eff]/15 hover:border-[#6b9eff]/30 hover:text-[#6b9eff]"
+          }`}
+        >
+          <Plus className="w-3 h-3" />
+          <span>New</span>
+        </motion.button>
+      </div>
+
+      {/* Inline channel creator */}
+      <QuickChannelCreator
+        open={showChannelCreator}
+        onClose={() => setShowChannelCreator(false)}
+        onCreated={(name, agents, users) => {
+          setShowChannelCreator(false);
+          onCreateChannel?.(name, agents, users);
+        }}
+        availableAgents={AVAILABLE_AGENTS_LIST}
+        availableUsers={AVAILABLE_USERS_LIST}
+      />
+
+      {/* Channel threads */}
+      {groupThreads.map((thread) => (
+        <ThreadRow
+          key={thread.id}
+          thread={thread}
+          selected={selectedThreadId === thread.id}
+          onSelect={() => onSelectThread(thread.id)}
+          onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
+          onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+        />
+      ))}
+
+      {/* Empty channel hint */}
+      {groupThreads.length === 0 && !showChannelCreator && (
+        <div className="px-3 py-2">
+          <p className="text-[9px] text-text-muted">Create a channel to collaborate with agents and users</p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -1683,6 +1780,7 @@ export function ConversationsSidebar({
   onSelectThread,
   onNewThread,
   onStartAgentChat,
+  onCreateChannel,
   onDeleteThread,
   onRenameThread,
 }: ConversationsSidebarProps) {
@@ -1727,48 +1825,42 @@ export function ConversationsSidebar({
         onToggle={handleToggle}
       />
 
-      {filtered.length === 0 ? (
-        <ConversationsEmptyPrompt
-          hasThreads={threads.length > 0}
-          onNewThread={onNewThread}
-          onStartAgentChat={onStartAgentChat}
+      {variant === "v1" && (
+        <FlatThreadList
+          threads={filtered}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={onSelectThread}
+          onDeleteThread={onDeleteThread}
         />
-      ) : (
-        <>
-          {variant === "v1" && (
-            <FlatThreadList
-              threads={filtered}
-              selectedThreadId={selectedThreadId}
-              onSelectThread={onSelectThread}
-              onDeleteThread={onDeleteThread}
-            />
-          )}
-          {variant === "v2" && (
-            <GroupedByAgent
-              threads={filtered}
-              selectedThreadId={selectedThreadId}
-              onSelectThread={onSelectThread}
-              onDeleteThread={onDeleteThread}
-            />
-          )}
-          {variant === "v3" && (
-            <HandoffThreadView
-              threads={filtered}
-              selectedThreadId={selectedThreadId}
-              onSelectThread={onSelectThread}
-              onDeleteThread={onDeleteThread}
-            />
-          )}
-          {variant === "v3.1" && (
-            <HandoffThreadView
-              threads={filtered}
-              selectedThreadId={selectedThreadId}
-              onSelectThread={onSelectThread}
-              onDeleteThread={onDeleteThread}
-              onRenameThread={onRenameThread}
-            />
-          )}
-        </>
+      )}
+      {variant === "v2" && (
+        <GroupedByAgent
+          threads={filtered}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={onSelectThread}
+          onDeleteThread={onDeleteThread}
+        />
+      )}
+      {variant === "v3" && (
+        <HandoffThreadView
+          threads={filtered}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={onSelectThread}
+          onDeleteThread={onDeleteThread}
+          onStartAgentChat={onStartAgentChat}
+          onCreateChannel={onCreateChannel}
+        />
+      )}
+      {variant === "v3.1" && (
+        <HandoffThreadView
+          threads={filtered}
+          selectedThreadId={selectedThreadId}
+          onSelectThread={onSelectThread}
+          onDeleteThread={onDeleteThread}
+          onRenameThread={onRenameThread}
+          onStartAgentChat={onStartAgentChat}
+          onCreateChannel={onCreateChannel}
+        />
       )}
     </div>
   );
