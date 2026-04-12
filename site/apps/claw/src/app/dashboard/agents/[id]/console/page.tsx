@@ -1077,7 +1077,7 @@ function S3FilesPanel({
         <button
           onClick={() => goToPrefix("")}
           className="flex items-center gap-1 whitespace-nowrap hover:text-white"
-          title="/app"
+          title="/home/node"
         >
           <House className="h-3.5 w-3.5" />
         </button>

@@ -103,7 +103,7 @@ response = client.chat.completions.create(
 
 ## OpenClaw Agents
 
-OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, `sync_root`, and `sync_enabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `HOME=/app`.
+OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, `sync_root`, and `sync_enabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `sync_root=/home/node`.
 
 ```python
 agent = client.deployments.create_openclaw(

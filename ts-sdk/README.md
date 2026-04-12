@@ -118,7 +118,7 @@ agentWs.close();
 
 ### OpenClaw Agents
 
-OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `HOME=/app`.
+OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `syncRoot=/home/node`.
 
 ```typescript
 const agent = await client.deployments.createOpenClaw({

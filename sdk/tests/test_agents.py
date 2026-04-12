@@ -584,9 +584,9 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         agents_client.create_openclaw(name="test-agent")
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["sync_root"] == "/app"
+        assert posted_json["sync_root"] == "/home/node"
         assert posted_json["sync_enabled"] is True
-        assert posted_json["env"]["HOME"] == "/app"
+        assert "HOME" not in posted_json["env"]
 
 
 def test_start_openclaw_defaults_sync_root(agents_client):
@@ -610,9 +610,9 @@ def test_start_openclaw_defaults_sync_root(agents_client):
         agents_client.start_openclaw("agent-123")
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["sync_root"] == "/app"
+        assert posted_json["sync_root"] == "/home/node"
         assert posted_json["sync_enabled"] is True
-        assert posted_json["env"]["HOME"] == "/app"
+        assert "HOME" not in posted_json["env"]
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):

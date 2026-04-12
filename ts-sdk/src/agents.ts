@@ -21,8 +21,7 @@ const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
 const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'registry_url', 'registry_auth']);
-const DEFAULT_OPENCLAW_HOME = '/app';
-const DEFAULT_OPENCLAW_SYNC_ROOT = DEFAULT_OPENCLAW_HOME;
+const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 
 export interface AgentExecResult {
   exitCode: number;
@@ -1348,7 +1347,6 @@ export class Deployments {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
-    if (effectiveOptions.env.HOME === undefined) effectiveOptions.env.HOME = DEFAULT_OPENCLAW_HOME;
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.create(effectiveOptions);
@@ -1412,7 +1410,6 @@ export class Deployments {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
-    if (effectiveOptions.env.HOME === undefined) effectiveOptions.env.HOME = DEFAULT_OPENCLAW_HOME;
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentId, effectiveOptions);
