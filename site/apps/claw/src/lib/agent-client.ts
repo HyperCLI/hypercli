@@ -1,5 +1,6 @@
 //import { HyperAgent } from "@hypercli.com/sdk";
 import { HyperAgent } from "@hypercli.com/sdk/agent";
+import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments } from "@hypercli.com/sdk/agents";
 import { HTTPClient } from "@hypercli.com/sdk/http";
 import { API_BASE_URL } from "./api";
@@ -29,24 +30,13 @@ interface AgentUiMeta {
   [key: string]: unknown;
 }
 
-interface OpenClawAgentOptions {
-  name?: string;
-  start?: boolean;
-  size?: string;
-  cpu?: number;
-  memory?: number;
-  config?: Record<string, unknown>;
-  meta?: { ui?: AgentUiMeta | null } | null;
-  env?: Record<string, string>;
-  image?: string;
-  routes?: Record<string, unknown>;
-  command?: string[];
-  entrypoint?: string[];
-  sync_root?: string;
-  sync_enabled?: boolean;
-  registry_url?: string;
-  registry_auth?: Record<string, unknown>;
-}
+type OpenClawAgentUiMeta = { ui?: AgentUiMeta | null } | null;
+type FrontendOpenClawCreateOptions = Omit<OpenClawCreateAgentOptions, "meta"> & {
+  meta?: OpenClawAgentUiMeta;
+};
+type FrontendOpenClawStartOptions = Omit<OpenClawStartAgentOptions, "meta"> & {
+  meta?: OpenClawAgentUiMeta;
+};
 
 function resolveAgentApiBaseUrl(rawBaseUrl: string): string {
   if (!rawBaseUrl.startsWith("/")) {
@@ -87,7 +77,7 @@ function resolveControlUiOrigin(rawUrl: string): string | null {
   }
 }
 
-function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string, unknown> {
+function withOpenClawDefaults<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(options: T): T {
   const env = {
     ...(options.env ?? {}),
   };
@@ -107,15 +97,15 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
     env,
     image: options.image ?? DEFAULT_OPENCLAW_IMAGE,
     routes: options.routes ?? DEFAULT_OPENCLAW_ROUTES,
-    sync_root: options.sync_root ?? DEFAULT_OPENCLAW_HOME,
-    sync_enabled: options.sync_enabled ?? true,
-  };
+    syncRoot: options.syncRoot ?? DEFAULT_OPENCLAW_HOME,
+    syncEnabled: options.syncEnabled ?? true,
+  } as T;
 }
 
-export async function createOpenClawAgent(apiKey: string, options: OpenClawAgentOptions = {}) {
-  return createAgentClient(apiKey).create(withOpenClawDefaults(options) as any);
+export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
+  return createAgentClient(apiKey).createOpenClaw(withOpenClawDefaults(options));
 }
 
-export async function startOpenClawAgent(apiKey: string, agentId: string, options: OpenClawAgentOptions = {}) {
-  return createAgentClient(apiKey).start(agentId, withOpenClawDefaults(options) as any);
+export async function startOpenClawAgent(apiKey: string, agentId: string, options: FrontendOpenClawStartOptions = {}) {
+  return createAgentClient(apiKey).startOpenClaw(agentId, withOpenClawDefaults(options));
 }

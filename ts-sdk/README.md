@@ -116,6 +116,19 @@ const agentWs = await client.agents.shellConnect(agentId);
 agentWs.close();
 ```
 
+### OpenClaw Agents
+
+OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `HOME=/app`.
+
+```typescript
+const agent = await client.deployments.createOpenClaw({
+  name: 'docs-demo',
+  start: true,
+  registryUrl: 'git.nedos.co',
+  registryAuth: { username: 'ci', password: 'token' },
+});
+```
+
 ### OpenClaw Gateway Chat Attachments
 
 ```typescript

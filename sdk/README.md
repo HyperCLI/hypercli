@@ -101,6 +101,19 @@ response = client.chat.completions.create(
 )
 ```
 
+## OpenClaw Agents
+
+OpenClaw uses the generic deployment launch surface. `registry_url`, `registry_auth`, `sync_root`, and `sync_enabled` are generic deployment options; the OpenClaw helpers only add defaults such as routes, image, and `HOME=/app`.
+
+```python
+agent = client.deployments.create_openclaw(
+    name="docs-demo",
+    start=True,
+    registry_url="git.nedos.co",
+    registry_auth={"username": "ci", "password": "token"},
+)
+```
+
 ## Error Handling
 
 ```python

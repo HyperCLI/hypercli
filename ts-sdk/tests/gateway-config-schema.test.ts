@@ -6,7 +6,7 @@ import {
   normalizeOpenClawConfigSchema,
   normalizeOpenClawConfigSchemaNode,
   resolveOpenClawConfigUiHint,
-} from "../src/gateway.js";
+} from "../src/openclaw/gateway.js";
 
 describe("OpenClaw config schema helpers", () => {
   it("preserves the schema envelope when uiHints are present", () => {

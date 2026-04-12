@@ -133,6 +133,8 @@ Create/start options:
 - `gatewayToken`
 - `dryRun`
 
+`registryUrl`, `registryAuth`, `syncRoot`, and `syncEnabled` are generic launch options. They belong to the base deployment contract, not to OpenClaw specifically.
+
 ## OpenClaw Presets
 
 Use the OpenClaw-specific helpers when you want the SDK to provide the standard gateway and desktop routes:
@@ -164,6 +166,29 @@ Route semantics are explicit:
   - SDK uses exactly what you passed
 
 The same contract applies to `startOpenClaw(...)`.
+
+OpenClaw helpers only add defaults on top of that generic launch surface:
+
+- `image`
+  defaults to the published OpenClaw image when omitted
+- `routes`
+  defaults to the standard `openclaw` and `desktop` routes when omitted
+- `env.HOME`
+  defaults to `/app`
+- `syncRoot`
+  defaults to `/app`
+- `syncEnabled`
+  defaults to `true`
+
+Registry settings are still inherited from the generic deployment API:
+
+```ts
+const agent = await client.deployments.createOpenClaw({
+  name: "private-image-demo",
+  registryUrl: "git.nedos.co",
+  registryAuth: { username: "ci", password: "token" },
+});
+```
 
 ## Routes
 

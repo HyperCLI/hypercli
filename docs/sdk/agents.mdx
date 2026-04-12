@@ -132,6 +132,8 @@ Accepted create/start options:
 - `dry_run`
 - `start`
 
+`registry_url`, `registry_auth`, `sync_root`, and `sync_enabled` are generic launch options. They belong to the base deployment contract, not to OpenClaw specifically.
+
 ### OpenClaw Presets
 
 Use the OpenClaw helpers when you want the SDK to supply the standard OpenClaw routes:
@@ -163,6 +165,29 @@ Route semantics are explicit:
   - SDK uses exactly what you passed
 
 The same contract applies to `start_openclaw(...)`.
+
+OpenClaw helpers only add defaults on top of that generic launch surface:
+
+- `image`
+  defaults to the published OpenClaw image when omitted
+- `routes`
+  defaults to the standard `openclaw` and `desktop` routes when omitted
+- `env["HOME"]`
+  defaults to `/app`
+- `sync_root`
+  defaults to `/app`
+- `sync_enabled`
+  defaults to `True`
+
+Registry fields are still inherited from the generic deployment API:
+
+```python
+agent = client.deployments.create_openclaw(
+    name="private-image-demo",
+    registry_url="git.nedos.co",
+    registry_auth={"username": "ci", "password": "token"},
+)
+```
 
 ### Route Configuration
 
