@@ -848,8 +848,18 @@ describe("GatewayClient", () => {
           Authorization: "Bearer app-token",
           "Content-Type": "application/json",
         }),
+        body: expect.any(String),
       }),
     );
+    const fetchBody = JSON.parse((fetchMock.mock.calls[0] ?? [])[1]?.body as string);
+    expect(fetchBody.timeout).toBe(30);
+    expect(fetchBody.command).toContain("node --input-type=module -e");
+    expect(fetchBody.command).toContain("/opt/openclaw/dist/extensions/device-pair/api.js");
+    expect(fetchBody.command).toContain("approveDevicePairing");
+    expect(fetchBody.command).toContain("operator.admin");
+    expect(fetchBody.command).toContain("operator.approvals");
+    expect(fetchBody.command).toContain("operator.pairing");
+    expect(fetchBody.command).toContain("pairing-req-1");
 
     // Auto-approve runs silently — no intermediate pendingPairings stored.
     const storedAfterPairingError = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");

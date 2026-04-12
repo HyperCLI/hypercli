@@ -1500,6 +1500,14 @@ export class GatewayClient {
     if (!this.canAutoApprovePairing()) {
       throw new Error("autoApprovePairing requires deploymentId, apiKey, apiBase, and fetch()");
     }
+    const nodeScript = [
+      'import { approveDevicePairing } from "/opt/openclaw/dist/extensions/device-pair/api.js";',
+      'const approved = await approveDevicePairing(process.argv[1], { callerScopes: ["operator.admin","operator.approvals","operator.pairing"] });',
+      "if (!approved) { throw new Error('unknown requestId'); }",
+      `if (approved.status === "forbidden") { throw new Error(JSON.stringify(approved)); }`,
+      "console.log(JSON.stringify(approved));",
+    ].join(" ");
+    const command = `node --input-type=module -e ${JSON.stringify(nodeScript)} ${JSON.stringify(requestId)}`;
     const response = await fetch(
       `${this.apiBase}/deployments/${encodeURIComponent(this.deploymentId as string)}/exec`,
       {
@@ -1509,7 +1517,7 @@ export class GatewayClient {
           "Content-Type": "application/json",
         },
         body: JSON.stringify({
-          command: `openclaw devices approve ${requestId}`,
+          command,
           timeout: 30,
         }),
       },

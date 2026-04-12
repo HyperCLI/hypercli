@@ -4,6 +4,7 @@ import asyncio
 import json
 
 import pytest
+import httpx
 
 from hypercli.gateway import GatewayClient, normalize_gateway_chat_message
 
@@ -117,6 +118,57 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
     assert approvals == [("deployment-123", "pairing-req-1")]
     assert client.is_connected is True
     assert client.pending_pairing is None
+
+
+@pytest.mark.asyncio
+async def test_approve_pairing_request_uses_direct_local_pairing_api(monkeypatch: pytest.MonkeyPatch) -> None:
+    captured: dict = {}
+
+    class FakeResponse:
+        status_code = 200
+
+        def json(self) -> dict:
+            return {"exit_code": 0, "stdout": "approved", "stderr": ""}
+
+    class FakeAsyncClient:
+        def __init__(self, *args, **kwargs) -> None:
+            pass
+
+        async def __aenter__(self):
+            return self
+
+        async def __aexit__(self, exc_type, exc, tb) -> None:
+            return None
+
+        async def post(self, url: str, *, headers: dict, json: dict):
+            captured["url"] = url
+            captured["headers"] = headers
+            captured["json"] = json
+            return FakeResponse()
+
+    monkeypatch.setattr(httpx, "AsyncClient", FakeAsyncClient)
+
+    client = GatewayClient(
+        url="wss://openclaw-agent.example",
+        gateway_token="gw-token",
+        deployment_id="deployment-123",
+        api_key="agent-key",
+        api_base="https://api.dev.hypercli.com/agents",
+        auto_approve_pairing=True,
+    )
+
+    await client._approve_pairing_request("pairing-req-1")
+
+    assert captured["url"] == "https://api.dev.hypercli.com/agents/deployments/deployment-123/exec"
+    assert captured["json"]["timeout"] == 30
+    command = captured["json"]["command"]
+    assert "node --input-type=module -e" in command
+    assert "/opt/openclaw/dist/extensions/device-pair/api.js" in command
+    assert "approveDevicePairing" in command
+    assert "operator.admin" in command
+    assert "operator.approvals" in command
+    assert "operator.pairing" in command
+    assert "pairing-req-1" in command
 
 
 def test_set_gateway_token_normalizes_blank_values() -> None:
