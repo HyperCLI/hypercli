@@ -12,7 +12,19 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Build site image
         id: build_site
@@ -25,3 +37,12 @@ jobs:
           set -euo pipefail
           SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
             .github/scripts/run_site_image.sh
+
+      - name: Restore runner workspace ownership
+        if: always()
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"

@@ -16,7 +16,19 @@ jobs:
         shell: bash
         working-directory: ts-sdk
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -35,12 +47,10 @@ jobs:
         if: always()
         run: |
           set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
 
   python-sdk-unit:
     runs-on: self-hosted
@@ -49,7 +59,19 @@ jobs:
       run:
         shell: bash
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -80,12 +102,10 @@ jobs:
         if: always()
         run: |
           set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
 
   ts-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit]
@@ -99,7 +119,19 @@ jobs:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE: https://api.dev.hypercli.com
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Set up Node.js
         uses: actions/setup-node@v4
@@ -148,12 +180,10 @@ jobs:
         if: always()
         run: |
           set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
 
   python-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit]
@@ -167,7 +197,19 @@ jobs:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE: https://api.dev.hypercli.com
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Set up Python
         uses: actions/setup-python@v5
@@ -215,12 +257,10 @@ jobs:
         if: always()
         run: |
           set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
 
   notify-sdk-integration:
     needs:
@@ -231,7 +271,19 @@ jobs:
     if: always()
     runs-on: self-hosted
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - name: Notify SDK integration result
         continue-on-error: true

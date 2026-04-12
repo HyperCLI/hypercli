@@ -27,7 +27,19 @@ jobs:
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
     steps:
+      - name: Prepare runner workspace ownership
+        run: |
+          set -eu
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          if [ -d "${GITHUB_WORKSPACE}" ]; then
+            chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
+          fi
+
       - uses: actions/checkout@v4
+        with:
+          clean: false
 
       - uses: actions/setup-node@v4
         with:
@@ -114,12 +126,10 @@ jobs:
         if: always()
         run: |
           set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
+          TARGET_DIR="$(dirname "${GITHUB_WORKSPACE}")"
+          TARGET_UID="$(stat -c '%u' "${TARGET_DIR}")"
+          TARGET_GID="$(stat -c '%g' "${TARGET_DIR}")"
+          chown -R "${TARGET_UID}:${TARGET_GID}" "${GITHUB_WORKSPACE}"
 
       - name: Notify e2e result
         if: steps.e2e.outcome == 'success'
