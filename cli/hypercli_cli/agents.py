@@ -278,8 +278,6 @@ def budget():
 def create(
     name: str = typer.Option(None, "--name", "-n", help="Agent name (auto-generated if omitted, becomes {name}.hypercli.com)"),
     size: str = typer.Option(None, "--size", "-s", help="Size preset: small, medium, large"),
-    cpu: int = typer.Option(None, "--cpu", help="Custom CPU in cores"),
-    memory: int = typer.Option(None, "--memory", help="Custom memory in GB"),
     env: list[str] = typer.Option(None, "--env", "-e", help="Environment variable (KEY=VALUE). Repeatable."),
     port: list[str] = typer.Option(None, "--port", help="Expose port as PORT or PORT:noauth. Repeatable."),
     command: str = typer.Option(None, "--command", help="Container args as a shell-style string"),
@@ -307,8 +305,6 @@ def create(
         pod = agents.create(
             name=name,
             size=size,
-            cpu=cpu,
-            memory=memory,
             env=env_dict,
             ports=ports_list,
             command=command_argv,

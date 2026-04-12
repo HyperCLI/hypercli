@@ -184,8 +184,6 @@ export type OpenClawModelProviderPatch =
 export interface CreateAgentOptions extends BuildAgentConfigOptions {
   name?: string;
   size?: string;
-  cpu?: number;
-  memory?: number;
   config?: Record<string, any>;
   meta?: AgentMeta | null;
   tags?: string[];
@@ -201,8 +199,6 @@ export interface StartAgentOptions extends BuildAgentConfigOptions {
 export interface UpdateAgentOptions {
   name?: string;
   size?: string;
-  cpu?: number;
-  memory?: number;
   refreshFromLagoon?: boolean;
   lastError?: string | null;
 }
@@ -665,7 +661,7 @@ export class Agent {
     return this.requireDeployments().update(this.id, options);
   }
 
-  async resize(options: Pick<UpdateAgentOptions, 'size' | 'cpu' | 'memory'>): Promise<Agent> {
+  async resize(options: Pick<UpdateAgentOptions, 'size'>): Promise<Agent> {
     return this.requireDeployments().resize(this.id, options);
   }
 
@@ -1324,8 +1320,6 @@ export class Deployments {
     if (options.dryRun) body.dry_run = true;
     if (options.name) body.name = options.name;
     if (options.size) body.size = options.size;
-    if (options.cpu !== undefined) body.cpu = options.cpu;
-    if (options.memory !== undefined) body.memory = options.memory;
     if (options.meta?.ui) body.meta = { ui: structuredClone(options.meta.ui) };
     if (options.tags?.length) body.tags = [...options.tags];
 
@@ -1419,8 +1413,6 @@ export class Deployments {
     const body: Record<string, any> = {};
     if (options.name !== undefined) body.name = options.name;
     if (options.size !== undefined) body.size = options.size;
-    if (options.cpu !== undefined) body.cpu = options.cpu;
-    if (options.memory !== undefined) body.memory = options.memory;
     if (options.refreshFromLagoon !== undefined) body.refresh_from_lagoon = options.refreshFromLagoon;
     if (options.lastError !== undefined) body.last_error = options.lastError;
     const data = await this.agentHttp.patch<AgentHydrationData>(`${DEPLOYMENTS_API_PREFIX}/${agentId}`, body);
@@ -1429,7 +1421,7 @@ export class Deployments {
 
   async resize(
     agentId: string,
-    options: Pick<UpdateAgentOptions, 'size' | 'cpu' | 'memory'>,
+    options: Pick<UpdateAgentOptions, 'size'>,
   ): Promise<Agent> {
     return this.update(agentId, options);
   }

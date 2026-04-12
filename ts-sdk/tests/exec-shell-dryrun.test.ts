@@ -688,8 +688,7 @@ describe('HyperClaw agents SDK', () => {
 
     const agent = await agents.create({
       name: 'smoke',
-      cpu: 4,
-      memory: 16,
+      size: 'large',
       dryRun: true,
       command: ['nginx', '-g', 'daemon off;'],
       entrypoint: ['/docker-entrypoint.sh'],
@@ -700,8 +699,7 @@ describe('HyperClaw agents SDK', () => {
       '/deployments',
       expect.objectContaining({
         name: 'smoke',
-        cpu: 4,
-        memory: 16,
+        size: 'large',
         dry_run: true,
         start: true,
         env: expect.objectContaining({

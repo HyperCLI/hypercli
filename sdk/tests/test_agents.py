@@ -520,8 +520,6 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         agent = agents_client.create(
             name="test-agent",
             size="medium",
-            cpu=4,
-            memory=16,
             meta_ui={
                 "avatar": {
                     "image": "data:image/png;base64,xyz",

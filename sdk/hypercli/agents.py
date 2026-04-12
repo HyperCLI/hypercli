@@ -391,8 +391,6 @@ class Agent:
         *,
         name: str | None = None,
         size: str | None = None,
-        cpu: float | None = None,
-        memory: int | None = None,
         refresh_from_lagoon: bool | None = None,
         last_error: str | None = None,
     ) -> "Agent":
@@ -400,8 +398,6 @@ class Agent:
             self.id,
             name=name,
             size=size,
-            cpu=cpu,
-            memory=memory,
             refresh_from_lagoon=refresh_from_lagoon,
             last_error=last_error,
         )
@@ -409,8 +405,8 @@ class Agent:
         self._deployments = agent._deployments
         return self
 
-    def resize(self, *, size: str | None = None, cpu: float | None = None, memory: int | None = None) -> "Agent":
-        return self.update(size=size, cpu=cpu, memory=memory)
+    def resize(self, *, size: str | None = None) -> "Agent":
+        return self.update(size=size)
 
     def env(self) -> dict[str, str]:
         """Fetch runtime environment from the pod's K8s secret."""
@@ -1006,8 +1002,6 @@ class Deployments:
         self,
         name: str = None,
         size: str = None,
-        cpu: int = None,
-        memory: int = None,
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
@@ -1030,8 +1024,6 @@ class Deployments:
         Args:
             name: Agent name.
             size: Size preset (small/medium/large). Default: medium.
-            cpu: Custom CPU in cores (overrides size).
-            memory: Custom memory in GB (overrides size).
             config: Optional config overrides.
             env: Optional environment variables to pass through to the pod.
             ports: Optional exposed ports config.
@@ -1061,10 +1053,6 @@ class Deployments:
             body["name"] = name
         if size:
             body["size"] = size
-        if cpu is not None:
-            body["cpu"] = cpu
-        if memory is not None:
-            body["memory"] = memory
         if meta_ui:
             body["meta"] = {"ui": copy.deepcopy(meta_ui)}
         if tags:
@@ -1082,8 +1070,6 @@ class Deployments:
         self,
         name: str = None,
         size: str = None,
-        cpu: int = None,
-        memory: int = None,
         config: dict = None,
         tags: list[str] = None,
         env: dict = None,
@@ -1107,8 +1093,6 @@ class Deployments:
         return self.create(
             name=name,
             size=size,
-            cpu=cpu,
-            memory=memory,
             config=config,
             tags=tags,
             env=effective_env,
@@ -1284,8 +1268,6 @@ class Deployments:
         *,
         name: str | None = None,
         size: str | None = None,
-        cpu: float | None = None,
-        memory: int | None = None,
         refresh_from_lagoon: bool | None = None,
         last_error: str | None = None,
     ) -> Agent:
@@ -1294,10 +1276,6 @@ class Deployments:
             body["name"] = name
         if size is not None:
             body["size"] = size
-        if cpu is not None:
-            body["cpu"] = cpu
-        if memory is not None:
-            body["memory"] = memory
         if refresh_from_lagoon is not None:
             body["refresh_from_lagoon"] = refresh_from_lagoon
         if last_error is not None:
@@ -1310,10 +1288,8 @@ class Deployments:
         agent_id: str,
         *,
         size: str | None = None,
-        cpu: float | None = None,
-        memory: int | None = None,
     ) -> Agent:
-        return self.update(agent_id, size=size, cpu=cpu, memory=memory)
+        return self.update(agent_id, size=size)
 
     def stop(self, agent_id: str) -> Agent:
         """Stop an agent (tears down pod, keeps DB record).
