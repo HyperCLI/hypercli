@@ -10,8 +10,6 @@ env:
 jobs:
   ts-sdk-unit:
     runs-on: self-hosted
-    container:
-      image: node:22-bookworm
     timeout-minutes: 20
     defaults:
       run:
@@ -19,6 +17,13 @@ jobs:
         working-directory: ts-sdk
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ts-sdk/package-lock.json
 
       - name: Install TS SDK dependencies
         run: npm ci
@@ -33,14 +38,17 @@ jobs:
 
   python-sdk-unit:
     runs-on: self-hosted
-    container:
-      image: python:3.12-bookworm
     timeout-minutes: 20
     defaults:
       run:
         shell: bash
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Install Python SDK and CLI
         run: |
@@ -70,8 +78,6 @@ jobs:
   ts-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit]
     runs-on: self-hosted
-    container:
-      image: node:22-bookworm
     timeout-minutes: 20
     defaults:
       run:
@@ -83,8 +89,17 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Install bootstrap dependencies
-        run: apt-get update && apt-get install -y python3 python3-pip python3-venv
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: "22"
+          cache: npm
+          cache-dependency-path: ts-sdk/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Bootstrap live integration credentials
         working-directory: ${{ github.workspace }}
@@ -125,8 +140,6 @@ jobs:
   python-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit]
     runs-on: self-hosted
-    container:
-      image: python:3.12-bookworm
     timeout-minutes: 20
     defaults:
       run:
@@ -137,6 +150,11 @@ jobs:
       TEST_API_BASE: https://api.dev.hypercli.com
     steps:
       - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
 
       - name: Bootstrap live integration credentials
         working-directory: ${{ github.workspace }}
