@@ -76,15 +76,16 @@
         ]
       },
       {
-        "tab": "LLM",
+        "tab": "Inference",
         "groups": [
           {
-            "group": "Inference (HyperClaw)",
+            "group": "Inference",
             "pages": [
-              "llm/index",
-              "llm/models",
-              "llm/pricing",
-              "llm/tiers"
+              "inference/index",
+              "inference/quickstart",
+              "inference/models",
+              "inference/pricing",
+              "inference/tiers"
             ]
           }
         ]
@@ -97,7 +98,11 @@
             "pages": [
               "agents/index",
               "agents/quickstart",
-              "agents/tags"
+              "agents/tags",
+              "agents/provider",
+              "agents/integrations",
+              "agents/api",
+              "agents/x402-wallet"
             ]
           }
         ]
@@ -199,22 +204,6 @@
         ]
       },
       {
-        "tab": "HyperClaw",
-        "groups": [
-          {
-            "group": "HyperClaw",
-            "pages": [
-              "hyperclaw/index",
-              "hyperclaw/provider",
-              "hyperclaw/quickstart",
-              "hyperclaw/integrations",
-              "hyperclaw/api",
-              "hyperclaw/x402-wallet"
-            ]
-          }
-        ]
-      },
-      {
         "tab": "API Reference",
         "groups": [
           {
@@ -270,7 +259,7 @@
             ]
           },
           {
-            "group": "HyperClaw Auth & Plans",
+            "group": "Agents Auth & Plans",
             "openapi": "hyperclaw-openapi.json",
             "pages": [
               "GET /api/.well-known/x402",
@@ -283,7 +272,7 @@
             ]
           },
           {
-            "group": "HyperClaw Keys & Usage",
+            "group": "Agents Keys & Usage",
             "openapi": "hyperclaw-openapi.json",
             "pages": [
               "GET /api/keys",
@@ -297,7 +286,7 @@
             ]
           },
           {
-            "group": "HyperClaw Deployments",
+            "group": "Agents Deployments",
             "openapi": "hyperclaw-openapi.json",
             "pages": [
               "GET /api/deployments",
