@@ -2,7 +2,7 @@ import { webcrypto } from "node:crypto";
 
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
-import { GatewayClient, normalizeGatewayChatMessage } from "../src/gateway.js";
+import { GatewayClient, normalizeGatewayChatMessage } from "../src/openclaw/gateway.js";
 
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const URL_SCOPE_KEY = "wss://openclaw-agent.example|operator";

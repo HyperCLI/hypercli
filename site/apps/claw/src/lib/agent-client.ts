@@ -6,6 +6,7 @@ import { API_BASE_URL } from "./api";
 
 const DEFAULT_OPENCLAW_IMAGE =
   process.env.NEXT_PUBLIC_OPENCLAW_IMAGE?.trim() || "ghcr.io/hypercli/hypercli-openclaw:prod";
+const DEFAULT_OPENCLAW_HOME = "/app";
 
 const DEFAULT_OPENCLAW_ROUTES = {
   openclaw: {
@@ -97,12 +98,16 @@ function withOpenClawDefaults(options: OpenClawAgentOptions = {}): Record<string
   if (!env.OPENCLAW_GATEWAY_TOKEN?.trim()) {
     env.OPENCLAW_GATEWAY_TOKEN = randomHexToken(32);
   }
+  if (!env.HOME?.trim()) {
+    env.HOME = DEFAULT_OPENCLAW_HOME;
+  }
 
   return {
     ...options,
     env,
     image: options.image ?? DEFAULT_OPENCLAW_IMAGE,
     routes: options.routes ?? DEFAULT_OPENCLAW_ROUTES,
+    sync_root: options.sync_root ?? DEFAULT_OPENCLAW_HOME,
     sync_enabled: options.sync_enabled ?? true,
   };
 }

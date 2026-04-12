@@ -32,7 +32,8 @@ DEV_AGENTS_API_BASE = "https://api.dev.hypercli.com/agents"
 DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "registry_url", "registry_auth"})
-DEFAULT_OPENCLAW_SYNC_ROOT = "/home/ubuntu"
+DEFAULT_OPENCLAW_HOME = "/app"
+DEFAULT_OPENCLAW_SYNC_ROOT = DEFAULT_OPENCLAW_HOME
 
 
 def _is_directory_listing_payload(value: object) -> bool:
@@ -1103,6 +1104,8 @@ class Deployments:
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
     ) -> Agent:
+        effective_env = dict(env or {})
+        effective_env.setdefault("HOME", DEFAULT_OPENCLAW_HOME)
         return self.create(
             name=name,
             size=size,
@@ -1110,7 +1113,7 @@ class Deployments:
             memory=memory,
             config=config,
             tags=tags,
-            env=env,
+            env=effective_env,
             ports=ports,
             routes=_resolve_openclaw_routes(
                 routes,
@@ -1255,10 +1258,12 @@ class Deployments:
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
     ) -> Agent:
+        effective_env = dict(env or {})
+        effective_env.setdefault("HOME", DEFAULT_OPENCLAW_HOME)
         return self.start(
             agent_id,
             config=config,
-            env=env,
+            env=effective_env,
             ports=ports,
             routes=_resolve_openclaw_routes(
                 routes,

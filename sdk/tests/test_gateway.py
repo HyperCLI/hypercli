@@ -6,7 +6,7 @@ import json
 import pytest
 import httpx
 
-from hypercli.gateway import GatewayClient, normalize_gateway_chat_message
+from hypercli.openclaw.gateway import GatewayClient, normalize_gateway_chat_message
 
 
 class MockConnection:
@@ -50,7 +50,7 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
     async def fake_approve(self: GatewayClient, request_id: str) -> None:
         approvals.append((self.deployment_id or "", request_id))
 
-    monkeypatch.setattr("hypercli.gateway.websockets.connect", fake_connect)
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
     monkeypatch.setattr(GatewayClient, "_approve_pairing_request", fake_approve)
 
     client = GatewayClient(
@@ -118,6 +118,8 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
     assert approvals == [("deployment-123", "pairing-req-1")]
     assert client.is_connected is True
     assert client.pending_pairing is None
+
+    await client.close()
 
 
 @pytest.mark.asyncio

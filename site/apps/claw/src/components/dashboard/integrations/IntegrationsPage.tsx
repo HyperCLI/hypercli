@@ -21,7 +21,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel } from "./PluginConfigPanel";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
-import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
+import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 /** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
 type PanelType = string | null;

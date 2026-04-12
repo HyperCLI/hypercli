@@ -2,7 +2,7 @@
 
 import { useState } from "react";
 import type { PluginMeta } from "./plugin-registry";
-import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/gateway";
+import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 interface PluginConfigPanelProps {
   plugin: PluginMeta;

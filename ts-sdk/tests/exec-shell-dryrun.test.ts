@@ -101,8 +101,9 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
-      sync_root: '/home/ubuntu',
+      sync_root: '/app',
       sync_enabled: true,
+      env: expect.objectContaining({ HOME: '/app' }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },
@@ -128,8 +129,9 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
-      sync_root: '/home/ubuntu',
+      sync_root: '/app',
       sync_enabled: true,
+      env: expect.objectContaining({ HOME: '/app' }),
       routes: {},
     }));
   });
@@ -153,8 +155,9 @@ describe('HyperClaw agents SDK', () => {
 
     expect(post).toHaveBeenCalledWith('/deployments/agent-123/start', expect.objectContaining({
       image: DEFAULT_OPENCLAW_IMAGE,
-      sync_root: '/home/ubuntu',
+      sync_root: '/app',
       sync_enabled: true,
+      env: expect.objectContaining({ HOME: '/app' }),
       routes: {
         openclaw: { port: 18789, auth: false, prefix: '' },
         desktop: { port: 3000, auth: true, prefix: 'desktop' },

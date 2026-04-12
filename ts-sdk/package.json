@@ -26,6 +26,10 @@
       "import": "./dist/gateway.js",
       "types": "./dist/gateway.d.ts"
     },
+    "./openclaw/gateway": {
+      "import": "./dist/openclaw/gateway.js",
+      "types": "./dist/openclaw/gateway.d.ts"
+    },
     "./keys": {
       "import": "./dist/keys.js",
       "types": "./dist/keys.d.ts"

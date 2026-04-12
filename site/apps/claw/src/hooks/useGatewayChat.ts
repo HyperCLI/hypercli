@@ -8,7 +8,7 @@ import {
   type GatewayChatToolCall,
   type OpenClawConfigSchemaResponse,
   normalizeGatewayChatMessage,
-} from "@hypercli.com/sdk/gateway";
+} from "@hypercli.com/sdk/openclaw/gateway";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState } from "@/lib/agent-store";
 import { refreshGatewayToken } from "@/lib/gateway-auth";

@@ -584,8 +584,9 @@ def test_create_openclaw_defaults_sync_root(agents_client):
         agents_client.create_openclaw(name="test-agent")
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["sync_root"] == "/home/ubuntu"
+        assert posted_json["sync_root"] == "/app"
         assert posted_json["sync_enabled"] is True
+        assert posted_json["env"]["HOME"] == "/app"
 
 
 def test_start_openclaw_defaults_sync_root(agents_client):
@@ -609,8 +610,9 @@ def test_start_openclaw_defaults_sync_root(agents_client):
         agents_client.start_openclaw("agent-123")
 
         posted_json = mock_client.post.call_args[1]["json"]
-        assert posted_json["sync_root"] == "/home/ubuntu"
+        assert posted_json["sync_root"] == "/app"
         assert posted_json["sync_enabled"] is True
+        assert posted_json["env"]["HOME"] == "/app"
 
 
 def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client):
@@ -879,6 +881,7 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             image="python:3.12-alpine",
             command=["sh", "-c", "python -m http.server 80"],
             routes={"web": {"port": 80, "auth": False, "prefix": ""}},
+            sync_root="/workspace",
             sync_enabled=True,
         )
 
@@ -887,6 +890,7 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["image"] == "python:3.12-alpine"
         assert posted_json["command"] == ["sh", "-c", "python -m http.server 80"]
         assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
+        assert posted_json["sync_root"] == "/workspace"
         assert posted_json["sync_enabled"] is True
 
 

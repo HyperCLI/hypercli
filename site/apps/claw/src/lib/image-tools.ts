@@ -8,9 +8,9 @@ const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 const FILE_READ_TOOLS = /^(Read|read_file|ReadFile|read|file_read|View)$/i;
 const FILE_WRITE_TOOLS = /^(Write|write_file|WriteFile|save_file|SaveFile|create_file|CreateFile)$/i;
 
-/** Strip /home/ubuntu/ prefix so the path is workspace-relative for the file API. */
+/** Strip the persisted agent root so the path is workspace-relative for the file API. */
 function toApiPath(path: string): string {
-  return path.replace(/^\/home\/ubuntu\//, "");
+  return path.replace(/^\/app\//, "");
 }
 
 export function encodePath(path: string): string {

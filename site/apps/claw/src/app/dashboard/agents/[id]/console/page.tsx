@@ -33,7 +33,7 @@ import {
   type GatewayChatToolCall,
   type OpenClawConfigSchemaResponse,
   normalizeGatewayChatMessage,
-} from "@hypercli.com/sdk/gateway";
+} from "@hypercli.com/sdk/openclaw/gateway";
 import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState } from "@/lib/agent-store";
 
 // -----------------------------------------------------------------------
@@ -1077,7 +1077,7 @@ function S3FilesPanel({
         <button
           onClick={() => goToPrefix("")}
           className="flex items-center gap-1 whitespace-nowrap hover:text-white"
-          title="/home/ubuntu"
+          title="/app"
         >
           <House className="h-3.5 w-3.5" />
         </button>

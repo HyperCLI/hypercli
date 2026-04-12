@@ -9,7 +9,7 @@ import {
   resolveOpenClawConfigUiHint,
   type OpenClawConfigSchemaResponse,
   type OpenClawConfigUiHint,
-} from "@hypercli.com/sdk/gateway";
+} from "@hypercli.com/sdk/openclaw/gateway";
 import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
@@ -342,11 +342,11 @@ function describeAgentsPageError(error: unknown): { message: string; clusterUnav
 }
 
 function extractVoicePathFromMessage(content: string): string | null {
-  const absoluteMatch = content.match(/\/home\/ubuntu\/workspace\/voice-[\w.-]+\.webm\b/i);
+  const absoluteMatch = content.match(/\/app\/workspace\/voice-[\w.-]+\.webm\b/i);
   if (absoluteMatch?.[0]) return absoluteMatch[0];
   const fileMatch = content.match(/\bvoice-[\w.-]+\.webm\b/i);
   if (!fileMatch?.[0]) return null;
-  return `/home/ubuntu/workspace/${fileMatch[0]}`;
+  return `/app/workspace/${fileMatch[0]}`;
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
@@ -816,7 +816,7 @@ function S3FilesPanel({
           <button
             onClick={() => goToPrefix("")}
             className="flex items-center gap-1 whitespace-nowrap text-foreground hover:text-foreground/80"
-            title="/home/ubuntu"
+            title="/app"
           >
             <House className="h-3.5 w-3.5" />
           </button>
@@ -2208,7 +2208,7 @@ export default function AgentsPage() {
       const timestamp = Date.now();
       const filename = `voice-${timestamp}.webm`;
       const uploadPath = `workspace/${filename}`;
-      const agentPath = `/home/ubuntu/${uploadPath}`;
+      const agentPath = `/app/${uploadPath}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
       // Keep input state in sync and send in one action.
@@ -2239,7 +2239,7 @@ export default function AgentsPage() {
         await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, await file.arrayBuffer());
         uploaded.push({
           name: file.name,
-          path: `/home/ubuntu/${uploadPath}`,
+          path: `/app/${uploadPath}`,
           type: file.type,
         });
       }

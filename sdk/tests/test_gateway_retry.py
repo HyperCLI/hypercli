@@ -6,7 +6,7 @@ import json
 import pytest
 from websockets.exceptions import InvalidStatus
 
-from hypercli.gateway import GatewayClient
+from hypercli.openclaw.gateway import GatewayClient
 
 
 class _FakeResponse:
@@ -55,7 +55,7 @@ async def test_connect_retries_transient_503(monkeypatch: pytest.MonkeyPatch) ->
             raise InvalidStatus(_FakeResponse(503))
         return connection
 
-    monkeypatch.setattr("hypercli.gateway.websockets.connect", fake_connect)
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
 
     client = GatewayClient(
         url="wss://openclaw-agent.example",
@@ -93,3 +93,5 @@ async def test_connect_retries_transient_503(monkeypatch: pytest.MonkeyPatch) ->
 
     assert attempts == 2
     assert client.is_connected is True
+
+    await client.close()

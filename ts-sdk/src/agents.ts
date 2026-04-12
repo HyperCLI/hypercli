@@ -1,6 +1,7 @@
 /**
  * HyperClaw agents API - typed agent lifecycle, files, exec, and OpenClaw access.
  */
+import { randomFillSync } from 'node:crypto';
 import { getAgentsApiBaseUrl, getConfigValue } from './config.js';
 import { APIError } from './errors.js';
 import { HTTPClient } from './http.js';
@@ -11,7 +12,7 @@ import {
   type GatewayOptions,
   type GatewayWaitReadyOptions,
   type OpenClawConfigSchemaResponse,
-} from './gateway.js';
+} from './openclaw/gateway.js';
 
 const AGENTS_API_BASE = 'https://api.hypercli.com/agents';
 const DEV_AGENTS_API_BASE = 'https://api.dev.hypercli.com/agents';
@@ -19,8 +20,9 @@ const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
-const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'registry_url', 'registry_auth']);
-const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/ubuntu';
+const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'registry_url', 'registry_auth']);
+const DEFAULT_OPENCLAW_HOME = '/app';
+const DEFAULT_OPENCLAW_SYNC_ROOT = DEFAULT_OPENCLAW_HOME;
 
 export interface AgentExecResult {
   exitCode: number;
@@ -402,9 +404,7 @@ function randomHexToken(bytes: number): string {
   if (globalThis.crypto?.getRandomValues) {
     globalThis.crypto.getRandomValues(buffer);
   } else {
-    for (let index = 0; index < buffer.length; index += 1) {
-      buffer[index] = Math.floor(Math.random() * 256);
-    }
+    randomFillSync(buffer);
   }
   return Array.from(buffer, (value) => value.toString(16).padStart(2, '0')).join('');
 }
@@ -1343,10 +1343,12 @@ export class Deployments {
 
   async createOpenClaw(options: OpenClawCreateAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: CreateAgentOptions = { ...options };
+    effectiveOptions.env = { ...(options.env ?? {}) };
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
+    if (effectiveOptions.env.HOME === undefined) effectiveOptions.env.HOME = DEFAULT_OPENCLAW_HOME;
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.create(effectiveOptions);
@@ -1405,10 +1407,12 @@ export class Deployments {
 
   async startOpenClaw(agentId: string, options: OpenClawStartAgentOptions = {}): Promise<Agent> {
     const effectiveOptions: StartAgentOptions = { ...options };
+    effectiveOptions.env = { ...(options.env ?? {}) };
     if (options.routes === undefined) {
       effectiveOptions.routes = buildOpenClawRoutes(options.openClawRoutes ?? {});
     }
     effectiveOptions.image = defaultOpenClawImage(options.image);
+    if (effectiveOptions.env.HOME === undefined) effectiveOptions.env.HOME = DEFAULT_OPENCLAW_HOME;
     if (effectiveOptions.syncRoot === undefined) effectiveOptions.syncRoot = DEFAULT_OPENCLAW_SYNC_ROOT;
     if (effectiveOptions.syncEnabled === undefined) effectiveOptions.syncEnabled = true;
     return this.start(agentId, effectiveOptions);

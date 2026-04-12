@@ -200,4 +200,4 @@ export {
   extractGatewayChatMediaUrls,
   extractGatewayChatToolCalls,
   normalizeGatewayChatMessage,
-} from './gateway.js';
+} from './openclaw/gateway.js';

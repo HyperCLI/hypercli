@@ -15,7 +15,7 @@ export {
   extractGatewayChatMediaUrls,
   extractGatewayChatToolCalls,
   normalizeGatewayChatMessage,
-} from './gateway.js';
+} from './openclaw/gateway.js';
 import { HTTPClient } from './http.js';
 import { Instances } from './instances.js';
 import {
