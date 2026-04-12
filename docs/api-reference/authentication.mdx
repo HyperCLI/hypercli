@@ -45,6 +45,14 @@ curl -X DELETE https://api.hypercli.com/api/keys/{key_id} \
   -H "Authorization: Bearer YOUR_API_KEY"
 ```
 
+## Inspect Current Auth Context
+
+Use `GET /api/auth/me` to inspect the current auth principal.
+
+For scoped API keys, this is the supported way to verify the key's own
+capabilities and key identity metadata without requiring broader `user:*`
+access.
+
 ## LLM API Authentication
 
 The LLM API (`/v1/*` endpoints) uses the same API key but is OpenAI-compatible:

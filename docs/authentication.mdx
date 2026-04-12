@@ -228,7 +228,8 @@ The current user-facing families are:
 Typical meaning:
 
 - `api:*` lets a key manage API keys for the same account
-- `user:self` lets a key read or update the current account profile
+- `api:self` lets a key list, create, rename, or disable keys through `/api/keys`
+- `user:self` lets a key read or update the current account profile and call `GET /api/auth/me`
 - `jobs:*` grants broad job access
 - `renders:*` grants broad raw render access
 - `flows:*` grants broad curated flow access
@@ -294,6 +295,12 @@ Use `voice:*` for broad access. The current user-facing contract does not requir
 `*:*` is the global full-access baseline.
 
 It exists mainly for legacy migration and trusted internal keys. For new app keys, prefer family tags that match the surface you are exposing, such as `flows:*` for curated subscription flows or `renders:*` for raw render access, plus selector tags like `team=dev`.
+
+One important distinction:
+
+- `flows:*` is enough for the public `/api/flow/*` surface
+- `flows:*` does not imply profile access
+- `client.user.auth_me()` and product `GET /api/auth/me` are part of the `user` family, so scoped keys generally need `user:self` if you expect that call to succeed
 
 ### Getting Your API Key
 

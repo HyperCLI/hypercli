@@ -7,6 +7,11 @@ description: Create managed render jobs or use the higher-level flow helpers for
 
 The flow helpers are the easiest way to generate images, video, speech, and transcription results.
 
+When the current auth context can resolve `/api/auth/me` with an active
+subscription and `flows:*`, the SDK prefers the subscription-backed
+`/agents/flow/*` routes. Otherwise it falls back to the public account-billed
+`/api/flow/*` routes automatically.
+
 ### Text to Image
 
 ```python

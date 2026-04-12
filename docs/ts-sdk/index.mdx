@@ -77,6 +77,10 @@ console.log(auth.keyId);
 
 This resolves against the main product auth route at `/api/auth/me`.
 
+On Orchestra-backed product surfaces, scoped keys generally need `user:self`
+for this call. A flow-only key can still use `client.renders.*` helpers,
+because the SDK falls back to `/api/flow/*` when auth introspection is denied.
+
 ### Use `client.voice` for subscription voice routes
 
 ```ts

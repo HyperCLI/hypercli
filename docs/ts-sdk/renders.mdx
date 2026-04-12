@@ -5,6 +5,11 @@ description: Use the TypeScript SDK for managed render jobs and high-level media
 
 The SDK exposes both low-level render creation and higher-level flow helpers.
 
+When the current auth context can resolve `/api/auth/me` with an active
+subscription and `flows:*`, the SDK prefers the subscription-backed
+`/agents/flow/*` routes. Otherwise it falls back to the public account-billed
+`/api/flow/*` routes automatically.
+
 ## Low-Level Render API
 
 ```ts
