@@ -816,19 +816,9 @@ class GatewayClient:
             raise RuntimeError(
                 "auto_approve_pairing requires deployment_id, api_key, and api_base"
             )
-        node_script = (
-            "import { approveDevicePairing } from "
-            '"/opt/openclaw/dist/extensions/device-pair/api.js"; '
-            "const approved = await approveDevicePairing(process.argv[1], { "
-            'callerScopes: ["operator.admin","operator.approvals","operator.pairing"] '
-            "}); "
-            "if (!approved) { throw new Error('unknown requestId'); } "
-            "if (approved.status === 'forbidden') { throw new Error(JSON.stringify(approved)); } "
-            "console.log(JSON.stringify(approved));"
-        )
         command = (
-            "node --input-type=module -e "
-            f"{shlex.quote(node_script)} {shlex.quote(request_id)}"
+            "openclaw devices approve "
+            f"{shlex.quote(request_id)} --json"
         )
         async with httpx.AsyncClient(timeout=30) as client:
             response = await client.post(

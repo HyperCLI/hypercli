@@ -164,12 +164,8 @@ async def test_approve_pairing_request_uses_direct_local_pairing_api(monkeypatch
     assert captured["url"] == "https://api.dev.hypercli.com/agents/deployments/deployment-123/exec"
     assert captured["json"]["timeout"] == 30
     command = captured["json"]["command"]
-    assert "node --input-type=module -e" in command
-    assert "/opt/openclaw/dist/extensions/device-pair/api.js" in command
-    assert "approveDevicePairing" in command
-    assert "operator.admin" in command
-    assert "operator.approvals" in command
-    assert "operator.pairing" in command
+    assert command.startswith("openclaw devices approve ")
+    assert " --json" in command
     assert "pairing-req-1" in command
 
 
