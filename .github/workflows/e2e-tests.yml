@@ -113,7 +113,13 @@ jobs:
       - name: Restore runner workspace ownership
         if: always()
         run: |
-          chown -R 1000:1000 /__w/hypercli/hypercli /__w/hypercli
+          set -eu
+          REPO_DIR="${GITHUB_WORKSPACE}"
+          PARENT_DIR="$(dirname "${REPO_DIR}")"
+          if [ -d "${REPO_DIR}" ]; then
+            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
+              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
+          fi
 
       - name: Notify e2e result
         if: steps.e2e.outcome == 'success'
