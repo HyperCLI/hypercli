@@ -399,7 +399,13 @@ function defaultAgentsWsUrl(apiBase: string): string {
 
 function randomHexToken(bytes: number): string {
   const buffer = new Uint8Array(bytes);
-  globalThis.crypto.getRandomValues(buffer);
+  if (globalThis.crypto?.getRandomValues) {
+    globalThis.crypto.getRandomValues(buffer);
+  } else {
+    for (let index = 0; index < buffer.length; index += 1) {
+      buffer[index] = Math.floor(Math.random() * 256);
+    }
+  }
   return Array.from(buffer, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
