@@ -34,7 +34,7 @@ import {
   type OpenClawConfigSchemaResponse,
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/openclaw/gateway";
-import { getGatewayToken as getStoredGatewayToken, setGatewayToken as storeGatewayToken, removeAgentState } from "@/lib/agent-store";
+import { getGatewayToken as getStoredGatewayToken, removeAgentState } from "@/lib/agent-store";
 
 // -----------------------------------------------------------------------
 // Types
@@ -333,12 +333,7 @@ export default function AgentConsolePage() {
       let gatewayToken = agent.gatewayToken ?? getStoredGatewayToken(agent.id) ?? undefined;
       if (!gatewayToken) {
         try {
-          const envResp = await agentApiFetch<{ env: Record<string, string> }>(
-            `/deployments/${agent.id}/env`,
-            authToken
-          );
-          gatewayToken = envResp.env?.OPENCLAW_GATEWAY_TOKEN ?? undefined;
-          if (gatewayToken) storeGatewayToken(agent.id, gatewayToken);
+          gatewayToken = await refreshGatewayToken(agent.id, authToken) ?? undefined;
         } catch {
           // Keep the real SDK error if the gateway token is still unavailable.
         }

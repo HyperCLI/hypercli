@@ -21,6 +21,7 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { agentApiFetch } from "@/lib/api";
 import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
 import { removeAgentState } from "@/lib/agent-store";
+import { refreshGatewayToken } from "@/lib/gateway-auth";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -146,6 +147,7 @@ export default function DashboardPage() {
   const [loading, setLoading] = useState(true);
   const [startingId, setStartingId] = useState<string | null>(null);
   const [stoppingId, setStoppingId] = useState<string | null>(null);
+  const [openingGatewayId, setOpeningGatewayId] = useState<string | null>(null);
 
   const fetchData = useCallback(async () => {
     try {
@@ -199,6 +201,30 @@ export default function DashboardPage() {
       setStoppingId(null);
     }
   };
+
+  const handleOpenGateway = useCallback(async (agentId: string, hostname: string) => {
+    const popup = window.open("about:blank", "_blank");
+    if (popup) popup.opener = null;
+    setOpeningGatewayId(agentId);
+    try {
+      const token = await getToken();
+      const gatewayToken = await refreshGatewayToken(agentId, token);
+      if (!gatewayToken) {
+        throw new Error("Missing OPENCLAW_GATEWAY_TOKEN");
+      }
+      const gatewayUrl = `https://${hostname}/#token=${encodeURIComponent(gatewayToken)}`;
+      if (popup) {
+        popup.location.href = gatewayUrl;
+      } else {
+        const fallback = window.open(gatewayUrl, "_blank");
+        if (fallback) fallback.opener = null;
+      }
+    } catch {
+      if (popup) popup.close();
+    } finally {
+      setOpeningGatewayId(null);
+    }
+  }, [getToken]);
 
   const showOnboarding = !loading && usage && usage.total_tokens === 0 && usage.active_keys === 0 && agents.length === 0;
 
@@ -351,15 +377,14 @@ export default function DashboardPage() {
                       </Link>
                     )}
                     {isRunning && agent.hostname && (
-                      <a
-                        href={`https://${agent.hostname}`}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                        className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low flex items-center gap-1"
+                      <button
+                        onClick={() => void handleOpenGateway(agent.id, agent.hostname!)}
+                        disabled={openingGatewayId === agent.id}
+                        className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                       >
-                        <ExternalLink className="w-3 h-3" />
+                        {openingGatewayId === agent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
                         Desktop
-                      </a>
+                      </button>
                     )}
                   </div>
                 </motion.div>

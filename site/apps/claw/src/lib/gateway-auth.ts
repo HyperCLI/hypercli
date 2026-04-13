@@ -1,11 +1,8 @@
-import { agentApiFetch } from "@/lib/api";
+import { createAgentClient } from "@/lib/agent-client";
 import { setGatewayToken as storeGatewayToken } from "@/lib/agent-store";
 
 export async function refreshGatewayToken(agentId: string, authToken: string): Promise<string | null> {
-  const envResp = await agentApiFetch<{ env: Record<string, string> }>(
-    `/deployments/${agentId}/env`,
-    authToken,
-  );
+  const envResp = await createAgentClient(authToken).env(agentId);
   const gatewayToken = envResp.env?.OPENCLAW_GATEWAY_TOKEN?.trim() || "";
   if (!gatewayToken) {
     return null;
