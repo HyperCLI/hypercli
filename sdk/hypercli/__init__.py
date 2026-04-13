@@ -60,7 +60,7 @@ from .gateway import (
     extract_gateway_chat_tool_calls,
     normalize_gateway_chat_message,
 )
-__version__ = "2026.4.7"
+__version__ = "2026.4.13"
 __all__ = [
     "HyperCLI",
     "configure",
