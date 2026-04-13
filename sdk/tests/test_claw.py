@@ -15,6 +15,16 @@ from hypercli.agent import (
     HyperAgentSubscription,
     HyperAgentSubscriptionSummary,
     HyperAgentModel,
+    HyperAgentUsageSummary,
+    HyperAgentUsageHistory,
+    HyperAgentKeyUsage,
+    HyperAgentTypeCatalog,
+    HyperAgentBillingInfo,
+    HyperAgentBillingProfileFields,
+    HyperAgentBillingProfileResponse,
+    HyperAgentPaymentsResponse,
+    HyperAgentStripeCheckoutResponse,
+    HyperAgentX402CheckoutResponse,
 )
 
 
@@ -142,6 +152,7 @@ class TestHyperAgentClient:
         http = Mock()
         http._api_key = "test-key"
         http._session = Mock()
+        http._session.put = Mock()
         return http
     
     def test_discovery_health(self, mock_http):
@@ -405,6 +416,144 @@ class TestHyperAgentClient:
             headers={"Authorization": "Bearer sk-hyper-test"},
             json={"bundle": {"large": 1}},
         )
+
+    def test_usage_endpoints(self, mock_http):
+        mock_http._session.get.side_effect = [
+            Mock(json=Mock(return_value={
+                "total_tokens": 100,
+                "prompt_tokens": 60,
+                "completion_tokens": 40,
+                "request_count": 5,
+                "active_keys": 2,
+                "current_tpm": 1000,
+                "current_rpm": 10,
+                "period": "30d",
+            }), raise_for_status=Mock()),
+            Mock(json=Mock(return_value={
+                "history": [{"date": "2026-04-13", "total_tokens": 100, "prompt_tokens": 60, "completion_tokens": 40, "requests": 5}],
+                "days": 7,
+            }), raise_for_status=Mock()),
+            Mock(json=Mock(return_value={
+                "keys": [{"key_hash": "key-1", "name": "Primary", "total_tokens": 100, "prompt_tokens": 60, "completion_tokens": 40, "requests": 5}],
+                "days": 7,
+            }), raise_for_status=Mock()),
+        ]
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        summary = agent.usage_summary()
+        history = agent.usage_history()
+        keys = agent.key_usage()
+
+        assert isinstance(summary, HyperAgentUsageSummary)
+        assert summary.total_tokens == 100
+        assert isinstance(history, HyperAgentUsageHistory)
+        assert history.history[0].date == "2026-04-13"
+        assert isinstance(keys, HyperAgentKeyUsage)
+        assert keys.keys[0].key_hash == "key-1"
+
+    def test_types_and_billing_endpoints(self, mock_http):
+        mock_http._session.get.side_effect = [
+            Mock(json=Mock(return_value={
+                "types": [{"id": "medium", "name": "Medium", "cpu": 1, "memory": 2, "cpu_limit": 1, "memory_limit": 2}],
+                "plans": [{"id": "2aiu", "name": "2 AIU", "price": 20, "agents": 1, "agent_type": "medium", "highlighted": True}],
+            }), raise_for_status=Mock()),
+            Mock(json=Mock(return_value={
+                "company_billing": {"address": ["HyperCLI"], "email": "support@hypercli.com"},
+                "profile": None,
+            }), raise_for_status=Mock()),
+            Mock(json=Mock(return_value={
+                "company_billing": {"address": ["HyperCLI"], "email": "support@hypercli.com"},
+                "profile": {"billing_name": "Test User"},
+            }), raise_for_status=Mock()),
+        ]
+        mock_http._session.put.return_value.json.return_value = {
+            "company_billing": {"address": ["HyperCLI"], "email": "support@hypercli.com"},
+            "profile": {"billing_name": "Test User"},
+            "synced_stripe_customer_ids": ["cus_123"],
+        }
+        mock_http._session.put.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        catalog = agent.agent_types()
+        info = agent.billing_info()
+        profile = agent.billing_profile()
+        updated = agent.update_billing_profile(HyperAgentBillingProfileFields(billing_name="Test User"))
+
+        assert isinstance(catalog, HyperAgentTypeCatalog)
+        assert catalog.types[0].id == "medium"
+        assert isinstance(info, HyperAgentBillingInfo)
+        assert info.email == "support@hypercli.com"
+        assert isinstance(profile, HyperAgentBillingProfileResponse)
+        assert profile.profile is not None
+        assert profile.profile.billing_name == "Test User"
+        assert updated.synced_stripe_customer_ids == ["cus_123"]
+
+    def test_payments_and_checkout_endpoints(self, mock_http):
+        mock_http._session.get.side_effect = [
+            Mock(json=Mock(return_value={
+                "items": [{
+                    "id": "pay_123",
+                    "user_id": "user-1",
+                    "subscription_id": None,
+                    "entitlement_id": None,
+                    "provider": "STRIPE",
+                    "status": "SUCCEEDED",
+                    "amount": "2000",
+                    "currency": "usd",
+                    "external_payment_id": "pi_123",
+                    "created_at": "2026-04-13T00:00:00Z",
+                    "updated_at": "2026-04-13T00:00:00Z",
+                    "user": {"id": "user-1", "email": "user@example.com", "wallet_address": None, "team_id": "team-1", "plan_id": "2aiu"},
+                    "subscription": None,
+                    "entitlement": None,
+                }]
+            }), raise_for_status=Mock()),
+            Mock(json=Mock(return_value={
+                "id": "pay_123",
+                "user_id": "user-1",
+                "subscription_id": None,
+                "entitlement_id": None,
+                "provider": "STRIPE",
+                "status": "SUCCEEDED",
+                "amount": "2000",
+                "currency": "usd",
+                "external_payment_id": "pi_123",
+                "created_at": "2026-04-13T00:00:00Z",
+                "updated_at": "2026-04-13T00:00:00Z",
+                "user": {"id": "user-1", "email": "user@example.com", "wallet_address": None, "team_id": "team-1", "plan_id": "2aiu"},
+                "subscription": None,
+                "entitlement": None,
+            }), raise_for_status=Mock()),
+        ]
+        mock_http._session.post.side_effect = [
+            Mock(json=Mock(return_value={"checkout_url": "https://checkout.stripe.test/session"}), raise_for_status=Mock()),
+            Mock(json=Mock(return_value={
+                "ok": True,
+                "key": "sk-x402",
+                "plan_id": "2aiu",
+                "quantity": 1,
+                "bundle": {"medium": 1},
+                "amount_paid": "20.000000",
+                "duration_days": 30,
+                "expires_at": "2026-05-13T00:00:00Z",
+                "tpm_limit": 1000,
+                "rpm_limit": 10,
+            }), raise_for_status=Mock()),
+        ]
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        payments = agent.payments(limit=10, provider="stripe", status="succeeded")
+        payment = agent.payment("pay_123")
+        stripe = agent.create_stripe_checkout(bundle={"medium": 1})
+        x402 = agent.create_x402_checkout(bundle={"medium": 1})
+
+        assert isinstance(payments, HyperAgentPaymentsResponse)
+        assert payments.items[0].id == "pay_123"
+        assert payment.external_payment_id == "pi_123"
+        assert isinstance(stripe, HyperAgentStripeCheckoutResponse)
+        assert stripe.checkout_url == "https://checkout.stripe.test/session"
+        assert isinstance(x402, HyperAgentX402CheckoutResponse)
+        assert x402.plan_id == "2aiu"
     
     def test_openai_client_creation(self, mock_http):
         """Test that OpenAI client is created with correct config."""

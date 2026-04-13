@@ -196,6 +196,183 @@ export interface HyperAgentModel {
   supportsToolChoice: boolean;
 }
 
+export interface HyperAgentUsageSummary {
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requestCount: number;
+  activeKeys: number;
+  currentTpm: number;
+  currentRpm: number;
+  period: string;
+}
+
+export interface HyperAgentUsageHistoryEntry {
+  date: string;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+}
+
+export interface HyperAgentUsageHistory {
+  history: HyperAgentUsageHistoryEntry[];
+  days: number;
+}
+
+export interface HyperAgentKeyUsageEntry {
+  keyHash: string;
+  name: string;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requests: number;
+}
+
+export interface HyperAgentKeyUsage {
+  keys: HyperAgentKeyUsageEntry[];
+  days: number;
+}
+
+export interface HyperAgentTypePreset {
+  id: string;
+  name: string;
+  cpu: number;
+  memory: number;
+  cpuLimit: number;
+  memoryLimit: number;
+}
+
+export interface HyperAgentTypePlan {
+  id: string;
+  name: string;
+  price: number;
+  agents: number;
+  agentType: string;
+  highlighted: boolean;
+}
+
+export interface HyperAgentTypeCatalog {
+  types: HyperAgentTypePreset[];
+  plans: HyperAgentTypePlan[];
+}
+
+export interface HyperAgentBillingProfileFields {
+  billingName: string | null;
+  billingCompany: string | null;
+  billingTaxId: string | null;
+  billingLine1: string | null;
+  billingLine2: string | null;
+  billingCity: string | null;
+  billingState: string | null;
+  billingPostalCode: string | null;
+  billingCountry: string | null;
+}
+
+export interface HyperAgentBillingInfo {
+  address: string[];
+  email: string;
+}
+
+export interface HyperAgentBillingProfileResponse {
+  companyBilling: HyperAgentBillingInfo;
+  profile: HyperAgentBillingProfileFields | null;
+  syncedStripeCustomerIds?: string[];
+}
+
+export interface HyperAgentBillingUser {
+  id: string;
+  email: string | null;
+  walletAddress: string | null;
+  teamId: string | null;
+  planId: string | null;
+  billingName?: string | null;
+  billingCompany?: string | null;
+  billingTaxId?: string | null;
+  billingLine1?: string | null;
+  billingLine2?: string | null;
+  billingCity?: string | null;
+  billingState?: string | null;
+  billingPostalCode?: string | null;
+  billingCountry?: string | null;
+}
+
+export interface HyperAgentPaymentSubscription {
+  id: string;
+  planId: string;
+  provider: string;
+  status: string;
+  currentPeriodEnd: Date | null;
+  stripeSubscriptionId: string | null;
+}
+
+export interface HyperAgentPaymentEntitlement {
+  id: string;
+  planId: string;
+  provider: string;
+  status: string;
+  expiresAt: Date | null;
+  agentTier: string | null;
+  features: Record<string, boolean>;
+  tags: string[];
+}
+
+export interface HyperAgentPayment {
+  id: string;
+  userId: string;
+  subscriptionId: string | null;
+  entitlementId: string | null;
+  provider: string;
+  status: string;
+  amount: string;
+  currency: string;
+  externalPaymentId: string | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+  user: HyperAgentBillingUser | null;
+  subscription: HyperAgentPaymentSubscription | null;
+  entitlement: HyperAgentPaymentEntitlement | null;
+}
+
+export interface HyperAgentPaymentsResponse {
+  items: HyperAgentPayment[];
+}
+
+export interface HyperAgentPaymentsOptions {
+  limit?: number;
+  provider?: string;
+  status?: string;
+}
+
+export interface HyperAgentStripeCheckoutRequest {
+  successUrl?: string;
+  cancelUrl?: string;
+  quantity?: number;
+  bundle?: Record<string, number>;
+}
+
+export interface HyperAgentStripeCheckoutResponse {
+  checkoutUrl: string;
+}
+
+export interface HyperAgentX402CheckoutRequest {
+  quantity?: number;
+  bundle?: Record<string, number>;
+}
+
+export interface HyperAgentX402CheckoutResponse {
+  ok: boolean;
+  key: string;
+  planId: string;
+  quantity: number;
+  bundle: Record<string, number>;
+  amountPaid: string;
+  durationDays: number;
+  expiresAt: Date | null;
+  tpmLimit: number;
+  rpmLimit: number;
+}
+
 function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   return {
     id: data.id,
@@ -332,6 +509,199 @@ function hyperAgentModelFromDict(data: any): HyperAgentModel {
   };
 }
 
+function dateFromDict(value: unknown): Date | null {
+  return value ? new Date(String(value).replace('Z', '+00:00')) : null;
+}
+
+function hyperAgentUsageSummaryFromDict(data: any): HyperAgentUsageSummary {
+  return {
+    totalTokens: Number(data?.total_tokens || 0),
+    promptTokens: Number(data?.prompt_tokens || 0),
+    completionTokens: Number(data?.completion_tokens || 0),
+    requestCount: Number(data?.request_count || 0),
+    activeKeys: Number(data?.active_keys || 0),
+    currentTpm: Number(data?.current_tpm || 0),
+    currentRpm: Number(data?.current_rpm || 0),
+    period: String(data?.period || ''),
+  };
+}
+
+function hyperAgentUsageHistoryEntryFromDict(data: any): HyperAgentUsageHistoryEntry {
+  return {
+    date: String(data?.date || ''),
+    totalTokens: Number(data?.total_tokens || 0),
+    promptTokens: Number(data?.prompt_tokens || 0),
+    completionTokens: Number(data?.completion_tokens || 0),
+    requests: Number(data?.requests || 0),
+  };
+}
+
+function hyperAgentUsageHistoryFromDict(data: any): HyperAgentUsageHistory {
+  return {
+    history: (data?.history || []).map(hyperAgentUsageHistoryEntryFromDict),
+    days: Number(data?.days || 0),
+  };
+}
+
+function hyperAgentKeyUsageEntryFromDict(data: any): HyperAgentKeyUsageEntry {
+  return {
+    keyHash: String(data?.key_hash || ''),
+    name: String(data?.name || ''),
+    totalTokens: Number(data?.total_tokens || 0),
+    promptTokens: Number(data?.prompt_tokens || 0),
+    completionTokens: Number(data?.completion_tokens || 0),
+    requests: Number(data?.requests || 0),
+  };
+}
+
+function hyperAgentKeyUsageFromDict(data: any): HyperAgentKeyUsage {
+  return {
+    keys: (data?.keys || []).map(hyperAgentKeyUsageEntryFromDict),
+    days: Number(data?.days || 0),
+  };
+}
+
+function hyperAgentTypeCatalogFromDict(data: any): HyperAgentTypeCatalog {
+  return {
+    types: (data?.types || []).map((item: any) => ({
+      id: String(item?.id || ''),
+      name: String(item?.name || ''),
+      cpu: Number(item?.cpu || 0),
+      memory: Number(item?.memory || 0),
+      cpuLimit: Number(item?.cpu_limit || 0),
+      memoryLimit: Number(item?.memory_limit || 0),
+    })),
+    plans: (data?.plans || []).map((item: any) => ({
+      id: String(item?.id || ''),
+      name: String(item?.name || ''),
+      price: Number(item?.price || 0),
+      agents: Number(item?.agents || 0),
+      agentType: String(item?.agent_type || ''),
+      highlighted: Boolean(item?.highlighted),
+    })),
+  };
+}
+
+function hyperAgentBillingProfileFieldsFromDict(data: any): HyperAgentBillingProfileFields {
+  return {
+    billingName: data?.billing_name ?? null,
+    billingCompany: data?.billing_company ?? null,
+    billingTaxId: data?.billing_tax_id ?? null,
+    billingLine1: data?.billing_line1 ?? null,
+    billingLine2: data?.billing_line2 ?? null,
+    billingCity: data?.billing_city ?? null,
+    billingState: data?.billing_state ?? null,
+    billingPostalCode: data?.billing_postal_code ?? null,
+    billingCountry: data?.billing_country ?? null,
+  };
+}
+
+function hyperAgentBillingProfileFieldsToDict(data: HyperAgentBillingProfileFields): Record<string, string | null> {
+  return {
+    billing_name: data.billingName,
+    billing_company: data.billingCompany,
+    billing_tax_id: data.billingTaxId,
+    billing_line1: data.billingLine1,
+    billing_line2: data.billingLine2,
+    billing_city: data.billingCity,
+    billing_state: data.billingState,
+    billing_postal_code: data.billingPostalCode,
+    billing_country: data.billingCountry,
+  };
+}
+
+function hyperAgentBillingInfoFromDict(data: any): HyperAgentBillingInfo {
+  return {
+    address: Array.isArray(data?.address) ? data.address.map(String) : [],
+    email: String(data?.email || ''),
+  };
+}
+
+function hyperAgentBillingProfileResponseFromDict(data: any): HyperAgentBillingProfileResponse {
+  return {
+    companyBilling: hyperAgentBillingInfoFromDict(data?.company_billing || {}),
+    profile: data?.profile ? hyperAgentBillingProfileFieldsFromDict(data.profile) : null,
+    syncedStripeCustomerIds: Array.isArray(data?.synced_stripe_customer_ids) ? data.synced_stripe_customer_ids.map(String) : undefined,
+  };
+}
+
+function hyperAgentPaymentFromDict(data: any): HyperAgentPayment {
+  return {
+    id: String(data?.id || ''),
+    userId: String(data?.user_id || ''),
+    subscriptionId: data?.subscription_id ?? null,
+    entitlementId: data?.entitlement_id ?? null,
+    provider: String(data?.provider || ''),
+    status: String(data?.status || ''),
+    amount: String(data?.amount || ''),
+    currency: String(data?.currency || ''),
+    externalPaymentId: data?.external_payment_id ?? null,
+    createdAt: dateFromDict(data?.created_at),
+    updatedAt: dateFromDict(data?.updated_at),
+    user: data?.user ? {
+      id: String(data.user.id || ''),
+      email: data.user.email ?? null,
+      walletAddress: data.user.wallet_address ?? null,
+      teamId: data.user.team_id ?? null,
+      planId: data.user.plan_id ?? null,
+      billingName: data.user.billing_name ?? null,
+      billingCompany: data.user.billing_company ?? null,
+      billingTaxId: data.user.billing_tax_id ?? null,
+      billingLine1: data.user.billing_line1 ?? null,
+      billingLine2: data.user.billing_line2 ?? null,
+      billingCity: data.user.billing_city ?? null,
+      billingState: data.user.billing_state ?? null,
+      billingPostalCode: data.user.billing_postal_code ?? null,
+      billingCountry: data.user.billing_country ?? null,
+    } : null,
+    subscription: data?.subscription ? {
+      id: String(data.subscription.id || ''),
+      planId: String(data.subscription.plan_id || ''),
+      provider: String(data.subscription.provider || ''),
+      status: String(data.subscription.status || ''),
+      currentPeriodEnd: dateFromDict(data.subscription.current_period_end),
+      stripeSubscriptionId: data.subscription.stripe_subscription_id ?? null,
+    } : null,
+    entitlement: data?.entitlement ? {
+      id: String(data.entitlement.id || ''),
+      planId: String(data.entitlement.plan_id || ''),
+      provider: String(data.entitlement.provider || ''),
+      status: String(data.entitlement.status || ''),
+      expiresAt: dateFromDict(data.entitlement.expires_at),
+      agentTier: data.entitlement.agent_tier ?? null,
+      features: data.entitlement.features || {},
+      tags: Array.isArray(data.entitlement.tags) ? data.entitlement.tags.map(String) : [],
+    } : null,
+  };
+}
+
+function hyperAgentPaymentsResponseFromDict(data: any): HyperAgentPaymentsResponse {
+  return {
+    items: (data?.items || []).map(hyperAgentPaymentFromDict),
+  };
+}
+
+function hyperAgentStripeCheckoutResponseFromDict(data: any): HyperAgentStripeCheckoutResponse {
+  return {
+    checkoutUrl: String(data?.checkout_url || ''),
+  };
+}
+
+function hyperAgentX402CheckoutResponseFromDict(data: any): HyperAgentX402CheckoutResponse {
+  return {
+    ok: Boolean(data?.ok),
+    key: String(data?.key || ''),
+    planId: String(data?.plan_id || ''),
+    quantity: Number(data?.quantity || 0),
+    bundle: data?.bundle || {},
+    amountPaid: String(data?.amount_paid || ''),
+    durationDays: Number(data?.duration_days || 0),
+    expiresAt: dateFromDict(data?.expires_at),
+    tpmLimit: Number(data?.tpm_limit || 0),
+    rpmLimit: Number(data?.rpm_limit || 0),
+  };
+}
+
 /**
  * HyperAgent API Client
  *
@@ -369,6 +739,62 @@ export class HyperAgent {
 
   private get baseUrlWithoutV1(): string {
     return this.baseUrl.replace(/\/v1$/, '');
+  }
+
+  private async controlGet<T = any>(path: string, params?: Record<string, string | number>): Promise<T> {
+    const url = new URL(`${this.controlBaseUrl}${path}`);
+    if (params) {
+      for (const [key, value] of Object.entries(params)) {
+        if (value !== undefined && value !== null) {
+          url.searchParams.set(key, String(value));
+        }
+      }
+    }
+    const response = await fetch(url.toString(), {
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+      },
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to GET ${path}: ${response.statusText}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  private async controlPost<T = any>(path: string, body?: any): Promise<T> {
+    const response = await fetch(`${this.controlBaseUrl}${path}`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to POST ${path}: ${response.statusText}`);
+    }
+
+    return response.json() as Promise<T>;
+  }
+
+  private async controlPut<T = any>(path: string, body?: any): Promise<T> {
+    const response = await fetch(`${this.controlBaseUrl}${path}`, {
+      method: 'PUT',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify(body ?? {}),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to PUT ${path}: ${response.statusText}`);
+    }
+
+    return response.json() as Promise<T>;
   }
 
   async plans(): Promise<HyperAgentPlan[]> {
@@ -541,5 +967,70 @@ export class HyperAgent {
     }
 
     return await response.json();
+  }
+
+  async usageSummary(): Promise<HyperAgentUsageSummary> {
+    return hyperAgentUsageSummaryFromDict(await this.controlGet('/usage'));
+  }
+
+  async usageHistory(days: number = 7): Promise<HyperAgentUsageHistory> {
+    return hyperAgentUsageHistoryFromDict(await this.controlGet('/usage/history', { days }));
+  }
+
+  async keyUsage(days: number = 7): Promise<HyperAgentKeyUsage> {
+    return hyperAgentKeyUsageFromDict(await this.controlGet('/usage/keys', { days }));
+  }
+
+  async agentTypes(): Promise<HyperAgentTypeCatalog> {
+    return hyperAgentTypeCatalogFromDict(await this.controlGet('/types'));
+  }
+
+  async billingInfo(): Promise<HyperAgentBillingInfo> {
+    const data = await this.controlGet('/billing/info');
+    return hyperAgentBillingInfoFromDict(data?.company_billing || {});
+  }
+
+  async billingProfile(): Promise<HyperAgentBillingProfileResponse> {
+    return hyperAgentBillingProfileResponseFromDict(await this.controlGet('/billing/profile'));
+  }
+
+  async updateBillingProfile(profile: HyperAgentBillingProfileFields): Promise<HyperAgentBillingProfileResponse> {
+    return hyperAgentBillingProfileResponseFromDict(
+      await this.controlPut('/billing/profile', hyperAgentBillingProfileFieldsToDict(profile)),
+    );
+  }
+
+  async payments(options: HyperAgentPaymentsOptions = {}): Promise<HyperAgentPaymentsResponse> {
+    const params: Record<string, string | number> = {};
+    if (options.limit !== undefined) params.limit = options.limit;
+    if (options.provider) params.provider = options.provider;
+    if (options.status) params.status = options.status;
+    return hyperAgentPaymentsResponseFromDict(await this.controlGet('/billing/payments', params));
+  }
+
+  async payment(paymentId: string): Promise<HyperAgentPayment> {
+    return hyperAgentPaymentFromDict(await this.controlGet(`/billing/payments/${encodeURIComponent(paymentId)}`));
+  }
+
+  async createStripeCheckout(
+    request: HyperAgentStripeCheckoutRequest = {},
+    planId?: string,
+  ): Promise<HyperAgentStripeCheckoutResponse> {
+    const payload = {
+      ...(request.successUrl ? { success_url: request.successUrl } : {}),
+      ...(request.cancelUrl ? { cancel_url: request.cancelUrl } : {}),
+      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
+      ...(request.bundle ? { bundle: request.bundle } : {}),
+    };
+    const path = planId ? `/stripe/${encodeURIComponent(planId)}` : '/stripe/checkout';
+    return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
+  }
+
+  async createX402Checkout(request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
+    const payload = {
+      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
+      ...(request.bundle ? { bundle: request.bundle } : {}),
+    };
+    return hyperAgentX402CheckoutResponseFromDict(await this.controlPost('/x402/checkout', payload));
   }
 }

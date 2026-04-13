@@ -419,4 +419,197 @@ describe('HyperAgent API', () => {
       globalThis.fetch = fetchMock;
     }
   });
+
+  it('uses the user usage endpoints on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      const url = String(input);
+      if (url.endsWith('/usage')) {
+        return new Response(JSON.stringify({
+          total_tokens: 100,
+          prompt_tokens: 60,
+          completion_tokens: 40,
+          request_count: 5,
+          active_keys: 2,
+          current_tpm: 1000,
+          current_rpm: 10,
+          period: '30d',
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/usage/history')) {
+        return new Response(JSON.stringify({
+          history: [{ date: '2026-04-13', total_tokens: 100, prompt_tokens: 60, completion_tokens: 40, requests: 5 }],
+          days: 7,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        keys: [{ key_hash: 'key-1', name: 'Primary', total_tokens: 100, prompt_tokens: 60, completion_tokens: 40, requests: 5 }],
+        days: 7,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    try {
+      const summary = await agent.usageSummary();
+      const history = await agent.usageHistory();
+      const keys = await agent.keyUsage();
+      expect(summary.totalTokens).toBe(100);
+      expect(history.history[0]?.date).toBe('2026-04-13');
+      expect(keys.keys[0]?.keyHash).toBe('key-1');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/usage');
+      expect(calls[1]?.url).toBe('https://api.hypercli.com/agents/usage/history?days=7');
+      expect(calls[2]?.url).toBe('https://api.hypercli.com/agents/usage/keys?days=7');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('uses the user types and billing endpoints on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      const url = String(input);
+      if (url.endsWith('/types')) {
+        return new Response(JSON.stringify({
+          types: [{ id: 'medium', name: 'Medium', cpu: 1, memory: 2, cpu_limit: 1, memory_limit: 2 }],
+          plans: [{ id: '2aiu', name: '2 AIU', price: 20, agents: 1, agent_type: 'medium', highlighted: true }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/billing/info')) {
+        return new Response(JSON.stringify({
+          company_billing: { address: ['HyperCLI'], email: 'support@hypercli.com' },
+          profile: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.endsWith('/billing/profile') && init?.method === 'PUT') {
+        return new Response(JSON.stringify({
+          company_billing: { address: ['HyperCLI'], email: 'support@hypercli.com' },
+          profile: { billing_name: 'Test User' },
+          synced_stripe_customer_ids: ['cus_123'],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        company_billing: { address: ['HyperCLI'], email: 'support@hypercli.com' },
+        profile: { billing_name: 'Test User' },
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    try {
+      const types = await agent.agentTypes();
+      const info = await agent.billingInfo();
+      const profile = await agent.billingProfile();
+      const updated = await agent.updateBillingProfile({
+        billingName: 'Test User',
+        billingCompany: null,
+        billingTaxId: null,
+        billingLine1: null,
+        billingLine2: null,
+        billingCity: null,
+        billingState: null,
+        billingPostalCode: null,
+        billingCountry: null,
+      });
+      expect(types.types[0]?.id).toBe('medium');
+      expect(info.email).toBe('support@hypercli.com');
+      expect(profile.profile?.billingName).toBe('Test User');
+      expect(updated.syncedStripeCustomerIds).toEqual(['cus_123']);
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/types');
+      expect(calls[1]?.url).toBe('https://api.hypercli.com/agents/billing/info');
+      expect(calls[2]?.url).toBe('https://api.hypercli.com/agents/billing/profile');
+      expect(calls[3]?.url).toBe('https://api.hypercli.com/agents/billing/profile');
+      expect(calls[3]?.init?.method).toBe('PUT');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('uses the user payment and checkout endpoints on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      const url = String(input);
+      if (url.includes('/billing/payments/pay_123')) {
+        return new Response(JSON.stringify({
+          id: 'pay_123',
+          user_id: 'user-1',
+          subscription_id: null,
+          entitlement_id: null,
+          provider: 'STRIPE',
+          status: 'SUCCEEDED',
+          amount: '2000',
+          currency: 'usd',
+          external_payment_id: 'pi_123',
+          created_at: '2026-04-13T00:00:00Z',
+          updated_at: '2026-04-13T00:00:00Z',
+          user: { id: 'user-1', email: 'user@example.com', wallet_address: null, team_id: 'team-1', plan_id: '2aiu' },
+          subscription: null,
+          entitlement: null,
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/billing/payments')) {
+        return new Response(JSON.stringify({
+          items: [{
+            id: 'pay_123',
+            user_id: 'user-1',
+            subscription_id: null,
+            entitlement_id: null,
+            provider: 'STRIPE',
+            status: 'SUCCEEDED',
+            amount: '2000',
+            currency: 'usd',
+            external_payment_id: 'pi_123',
+            created_at: '2026-04-13T00:00:00Z',
+            updated_at: '2026-04-13T00:00:00Z',
+            user: { id: 'user-1', email: 'user@example.com', wallet_address: null, team_id: 'team-1', plan_id: '2aiu' },
+            subscription: null,
+            entitlement: null,
+          }],
+        }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      if (url.includes('/stripe/checkout')) {
+        return new Response(JSON.stringify({ checkout_url: 'https://checkout.stripe.test/session' }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+      }
+      return new Response(JSON.stringify({
+        ok: true,
+        key: 'sk-x402',
+        plan_id: '2aiu',
+        quantity: 1,
+        bundle: { medium: 1 },
+        amount_paid: '20.000000',
+        duration_days: 30,
+        expires_at: '2026-05-13T00:00:00Z',
+        tpm_limit: 1000,
+        rpm_limit: 10,
+      }), { status: 200, headers: { 'Content-Type': 'application/json' } });
+    }) as typeof fetch;
+
+    try {
+      const payments = await agent.payments({ limit: 10, provider: 'stripe', status: 'succeeded' });
+      const payment = await agent.payment('pay_123');
+      const stripe = await agent.createStripeCheckout({ bundle: { medium: 1 } });
+      const x402 = await agent.createX402Checkout({ bundle: { medium: 1 } });
+      expect(payments.items[0]?.id).toBe('pay_123');
+      expect(payment.externalPaymentId).toBe('pi_123');
+      expect(stripe.checkoutUrl).toBe('https://checkout.stripe.test/session');
+      expect(x402.planId).toBe('2aiu');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/payments?limit=10&provider=stripe&status=succeeded');
+      expect(calls[1]?.url).toBe('https://api.hypercli.com/agents/billing/payments/pay_123');
+      expect(calls[2]?.url).toBe('https://api.hypercli.com/agents/stripe/checkout');
+      expect(calls[3]?.url).toBe('https://api.hypercli.com/agents/x402/checkout');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
 });
