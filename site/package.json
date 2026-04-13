@@ -1,6 +1,6 @@
 {
     "name": "hypercli-monorepo",
-    "version": "2026.4.13-1",
+    "version": "2026.4.13-2",
     "private": true,
     "packageManager": "npm@10.0.0",
     "workspaces": [
@@ -18,7 +18,7 @@
     "dev:apps": "turbo run dev",
     "sdk:use-checkout": "rm -rf node_modules/@hypercli.com/sdk apps/claw/node_modules/@hypercli.com/sdk apps/console/node_modules/@hypercli.com/sdk packages/shared-ui/node_modules/@hypercli.com/sdk && npm link ../ts-sdk --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui",
     "sdk:use-local": "npm run sdk:use-checkout",
-    "sdk:use-published": "rm -rf node_modules/@hypercli.com/sdk apps/claw/node_modules/@hypercli.com/sdk apps/console/node_modules/@hypercli.com/sdk packages/shared-ui/node_modules/@hypercli.com/sdk && npm install --save-exact @hypercli.com/sdk@2026.4.13-1 --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui"
+    "sdk:use-published": "rm -rf node_modules/@hypercli.com/sdk apps/claw/node_modules/@hypercli.com/sdk apps/console/node_modules/@hypercli.com/sdk packages/shared-ui/node_modules/@hypercli.com/sdk && npm install --save-exact @hypercli.com/sdk@2026.4.13-2 --workspace @hypercli/claw --workspace @hypercli/console --workspace @hypercli/shared-ui"
   },
     "dependencies": {
         "@tailwindcss/postcss": "^4",
