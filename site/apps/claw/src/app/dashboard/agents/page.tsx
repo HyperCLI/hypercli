@@ -173,6 +173,9 @@ const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
+const OPENCLAW_SYNC_ROOT = "/home/node";
+const OPENCLAW_WORKSPACE_PREFIX = ".openclaw/workspace";
+const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_SYNC_ROOT}/${OPENCLAW_WORKSPACE_PREFIX}`;
 type MainTab = AgentMainTab;
 
 // ── Utility functions ──
@@ -342,11 +345,11 @@ function describeAgentsPageError(error: unknown): { message: string; clusterUnav
 }
 
 function extractVoicePathFromMessage(content: string): string | null {
-  const absoluteMatch = content.match(/\/app\/workspace\/voice-[\w.-]+\.webm\b/i);
+  const absoluteMatch = content.match(/\/home\/node\/\.openclaw\/workspace\/voice-[\w.-]+\.webm\b/i);
   if (absoluteMatch?.[0]) return absoluteMatch[0];
   const fileMatch = content.match(/\bvoice-[\w.-]+\.webm\b/i);
   if (!fileMatch?.[0]) return null;
-  return `/app/workspace/${fileMatch[0]}`;
+  return `${OPENCLAW_WORKSPACE_DIR}/${fileMatch[0]}`;
 }
 
 // Shell now routes through backend WebSocket via lagoon → K8s exec
@@ -2207,8 +2210,8 @@ export default function AgentsPage() {
       const token = await getToken();
       const timestamp = Date.now();
       const filename = `voice-${timestamp}.webm`;
-      const uploadPath = `workspace/${filename}`;
-      const agentPath = `/app/${uploadPath}`;
+      const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${filename}`;
+      const agentPath = `${OPENCLAW_WORKSPACE_DIR}/${filename}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
       // Keep input state in sync and send in one action.
@@ -2235,11 +2238,11 @@ export default function AgentsPage() {
       const uploaded: Array<{ name: string; path: string; type: string }> = [];
 
       for (const file of files) {
-        const uploadPath = `workspace/${file.name}`;
+        const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${file.name}`;
         await agentClient.fileWriteBytes(selectedAgent.id, uploadPath, await file.arrayBuffer());
         uploaded.push({
           name: file.name,
-          path: `/app/${uploadPath}`,
+          path: `${OPENCLAW_SYNC_ROOT}/${uploadPath}`,
           type: file.type,
         });
       }
