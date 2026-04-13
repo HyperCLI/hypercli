@@ -44,6 +44,7 @@
   ],
   "scripts": {
     "build": "tsc",
+    "prepack": "npm run clean && npm run build",
     "watch": "tsc --watch",
     "clean": "rm -rf dist",
     "lint": "eslint .",

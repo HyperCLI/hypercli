@@ -1,0 +1,153 @@
+name: Publish SDKs
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: "Release version (for example 2026.4.13 or 2026.4.13-4)"
+        required: true
+        type: string
+
+concurrency:
+  group: publish-sdks
+  cancel-in-progress: false
+
+jobs:
+  publish:
+    runs-on: self-hosted
+    permissions:
+      contents: read
+    env:
+      RELEASE_VERSION: ${{ inputs.version }}
+      NPM_CONFIG_PROVENANCE: "false"
+      NPM_TOKEN: ${{ secrets.NPM_TOKEN }}
+      PYPI_API_TOKEN: ${{ secrets.PYPI_API_TOKEN }}
+    steps:
+      - name: Run actions/checkout@v4
+        uses: actions/checkout@v4
+
+      - name: Set up Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: 22
+          registry-url: https://registry.npmjs.org
+          cache: npm
+          cache-dependency-path: ts-sdk/package-lock.json
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Derive release versions
+        shell: bash
+        run: |
+          set -euo pipefail
+          if [[ ! "${RELEASE_VERSION}" =~ ^[0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2}(-[0-9]+)?$ ]]; then
+            echo "Invalid release version: ${RELEASE_VERSION}" >&2
+            exit 1
+          fi
+
+          PYTHON_VERSION="${RELEASE_VERSION}"
+          if [[ "${RELEASE_VERSION}" =~ ^([0-9]{4}\.[0-9]{1,2}\.[0-9]{1,2})-([0-9]+)$ ]]; then
+            PYTHON_VERSION="${BASH_REMATCH[1]}.post${BASH_REMATCH[2]}"
+          fi
+
+          {
+            echo "TS_SDK_VERSION=${RELEASE_VERSION}"
+            echo "PYTHON_VERSION=${PYTHON_VERSION}"
+          } >> "$GITHUB_ENV"
+
+      - name: Patch SDK versions for release
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 <<'PY'
+          import json
+          import pathlib
+          import os
+          import re
+
+          root = pathlib.Path(".")
+          ts_version = os.environ["TS_SDK_VERSION"]
+          py_version = os.environ["PYTHON_VERSION"]
+
+          def update_json_version(path_str: str, version: str) -> None:
+            path = root / path_str
+            data = json.loads(path.read_text())
+            data["version"] = version
+            path.write_text(json.dumps(data, indent=2) + "\n")
+
+          update_json_version("ts-sdk/package.json", ts_version)
+          update_json_version("ts-sdk/package-lock.json", ts_version)
+
+          sdk_pyproject = root / "sdk/pyproject.toml"
+          text = sdk_pyproject.read_text()
+          text = re.sub(r'(?m)^version = ".*"$', f'version = "{py_version}"', text, count=1)
+          sdk_pyproject.write_text(text)
+
+          sdk_init = root / "sdk/hypercli/__init__.py"
+          text = sdk_init.read_text()
+          text = re.sub(r'(?m)^__version__ = ".*"$', f'__version__ = "{py_version}"', text, count=1)
+          sdk_init.write_text(text)
+
+          cli_pyproject = root / "cli/pyproject.toml"
+          text = cli_pyproject.read_text()
+          text = re.sub(r'(?m)^version = ".*"$', f'version = "{py_version}"', text, count=1)
+          text = re.sub(r'hypercli-sdk(\[[^]]+\])?>[=][0-9A-Za-z.-]+', lambda m: f'hypercli-sdk{m.group(1) or ""}>={py_version}', text)
+          cli_pyproject.write_text(text)
+
+          cli_init = root / "cli/hypercli_cli/__init__.py"
+          text = cli_init.read_text()
+          text = re.sub(r'(?m)^__version__ = ".*"$', f'__version__ = "{py_version}"', text, count=1)
+          cli_init.write_text(text)
+          PY
+
+      - name: Install TS SDK dependencies
+        working-directory: ts-sdk
+        run: npm ci
+
+      - name: Test and pack TS SDK
+        working-directory: ts-sdk
+        shell: bash
+        run: |
+          set -euo pipefail
+          npm test
+          npm pack --dry-run
+
+      - name: Publish TS SDK to npm
+        working-directory: ts-sdk
+        env:
+          NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}
+        run: npm publish --access public
+
+      - name: Install Python build tools
+        run: python -m pip install --upgrade build twine
+
+      - name: Build Python SDK and CLI
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf sdk/dist cli/dist
+          python -m build sdk
+          python -m build cli
+
+      - name: Publish Python SDK and CLI to PyPI
+        env:
+          TWINE_USERNAME: __token__
+          TWINE_PASSWORD: ${{ secrets.PYPI_API_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m twine upload sdk/dist/*
+          python -m twine upload cli/dist/*
+
+      - name: Release summary
+        shell: bash
+        run: |
+          {
+            echo "Published:"
+            echo "- npm: @hypercli.com/sdk@${TS_SDK_VERSION}"
+            echo "- PyPI: hypercli-sdk==${PYTHON_VERSION}"
+            echo "- PyPI: hypercli-cli==${PYTHON_VERSION}"
+          } >> "$GITHUB_STEP_SUMMARY"
