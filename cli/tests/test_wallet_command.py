@@ -1,4 +1,5 @@
 import json
+import sys
 from types import SimpleNamespace
 
 from typer.testing import CliRunner
@@ -142,3 +143,201 @@ def test_decrypt_encrypted_wallet(monkeypatch, tmp_path):
     assert decrypted_data["type"] == "plaintext_private_key"
     assert decrypted_data["private_key"] == f"0x{FakeAccountAPI.CREATED_PRIVATE_KEY}"
     assert decrypted_data["address"] == f"0x{FakeAccountAPI.CREATED_PRIVATE_KEY[-40:]}"
+
+
+def test_load_wallet_uses_explicit_passphrase(monkeypatch, tmp_path):
+    known_private_key = "55" * 32
+    wallet_path = _set_temp_wallet_paths(monkeypatch, tmp_path)
+    wallet_path.parent.mkdir(parents=True, exist_ok=True)
+    wallet_path.write_text(json.dumps(FakeLocalAccount(known_private_key).encrypt("secret")))
+
+    account = wallet_mod.load_wallet(passphrase="secret")
+
+    assert account.address == f"0x{known_private_key[-40:]}"
+
+
+def test_wallet_balance_passes_explicit_passphrase(monkeypatch, tmp_path):
+    _set_temp_wallet_paths(monkeypatch, tmp_path)
+    seen: list[str | None] = []
+
+    class _FakeCall:
+        def call(self):
+            return 1234567
+
+    class _FakeContractFunctions:
+        def balanceOf(self, _address):
+            return _FakeCall()
+
+    class _FakeContract:
+        functions = _FakeContractFunctions()
+
+    class _FakeEth:
+        def contract(self, address=None, abi=None):
+            return _FakeContract()
+
+    class _FakeWeb3:
+        HTTPProvider = staticmethod(lambda url: url)
+
+        def __init__(self, _provider):
+            self.eth = _FakeEth()
+
+    def _fake_load_wallet(*, passphrase=None):
+        seen.append(passphrase)
+        return SimpleNamespace(address="0xabc")
+
+    monkeypatch.setattr(wallet_mod, "load_wallet", _fake_load_wallet)
+    monkeypatch.setattr(wallet_mod, "Web3", _FakeWeb3)
+
+    result = runner.invoke(app, ["wallet", "balance", "--passphrase", "secret"])
+
+    assert result.exit_code == 0
+    assert seen == ["secret"]
+    assert "1.234567" in result.stdout
+
+
+def test_wallet_login_passes_explicit_passphrase(monkeypatch, tmp_path):
+    _set_temp_wallet_paths(monkeypatch, tmp_path)
+    load_calls: list[str | None] = []
+    auth_calls: list[str | None] = []
+
+    def _fake_load_wallet(*, passphrase=None):
+        load_calls.append(passphrase)
+        return SimpleNamespace(address="0xabc")
+
+    def _fake_get_wallet_auth_token(api_url=None, *, passphrase=None):
+        auth_calls.append(passphrase)
+        return "jwt-token"
+
+    class _FakeHttpxClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def post(self, url, json=None, headers=None):
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {"api_key": "hyper_api_test", "name": json["name"]},
+                text="ok",
+            )
+
+    monkeypatch.setattr(wallet_mod, "load_wallet", _fake_load_wallet)
+    monkeypatch.setattr(wallet_mod, "get_wallet_auth_token", _fake_get_wallet_auth_token)
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=_FakeHttpxClient))
+    monkeypatch.setattr(
+        sys.modules["hypercli.config"],
+        "configure",
+        lambda api_key, api_url: None,
+    )
+    monkeypatch.setattr(
+        sys.modules["hypercli.config"],
+        "get_api_url",
+        lambda: "https://api.example.com",
+    )
+
+    result = runner.invoke(app, ["wallet", "login", "--passphrase", "secret"])
+
+    assert result.exit_code == 0
+    assert load_calls == ["secret"]
+    assert auth_calls == ["secret"]
+
+
+def test_wallet_topup_passes_explicit_passphrase(monkeypatch, tmp_path):
+    _set_temp_wallet_paths(monkeypatch, tmp_path)
+    load_calls: list[str | None] = []
+
+    class _FakeCall:
+        def call(self):
+            return 2_000_000
+
+    class _FakeContractFunctions:
+        def balanceOf(self, _address):
+            return _FakeCall()
+
+    class _FakeContract:
+        functions = _FakeContractFunctions()
+
+    class _FakeEth:
+        def contract(self, address=None, abi=None):
+            return _FakeContract()
+
+    class _FakeWeb3:
+        HTTPProvider = staticmethod(lambda url: url)
+
+        def __init__(self, _provider):
+            self.eth = _FakeEth()
+
+    class _FakeX402ClientSync:
+        def register(self, *_args, **_kwargs):
+            return None
+
+    class _FakeX402HTTPClientSync:
+        def __init__(self, _client):
+            pass
+
+        def handle_402_response(self, headers, content):
+            return ({"X-Payment": "sig"}, None)
+
+        def get_payment_settle_response(self, getter):
+            return SimpleNamespace(transaction=None, network=None, error_reason=None)
+
+    class _FakeEthAccountSigner:
+        def __init__(self, account):
+            self.account = account
+
+    class _FakeHttpxClient:
+        def __init__(self, timeout=None):
+            self.timeout = timeout
+            self.posts = 0
+
+        def __enter__(self):
+            return self
+
+        def __exit__(self, exc_type, exc, tb):
+            return False
+
+        def get(self, url, headers=None):
+            return SimpleNamespace(status_code=200, json=lambda: {"user_id": "user-1"}, text="ok")
+
+        def post(self, url, headers=None, json=None):
+            self.posts += 1
+            if self.posts == 1:
+                return SimpleNamespace(status_code=402, headers={}, content=b"", text="payment required")
+            return SimpleNamespace(
+                status_code=200,
+                json=lambda: {
+                    "user_id": "user-1",
+                    "amount": 1.0,
+                    "wallet": "0xabc",
+                    "transaction_id": "tx-1",
+                    "message": "Top-up successful",
+                },
+                headers={},
+                text="ok",
+            )
+
+    def _fake_load_wallet(*, passphrase=None):
+        load_calls.append(passphrase)
+        return SimpleNamespace(address="0xabc")
+
+    monkeypatch.setattr(wallet_mod, "load_wallet", _fake_load_wallet)
+    monkeypatch.setattr(wallet_mod, "Web3", _FakeWeb3)
+    monkeypatch.setitem(sys.modules, "httpx", SimpleNamespace(Client=_FakeHttpxClient))
+    monkeypatch.setattr(sys.modules["hypercli.config"], "get_api_key", lambda: "hyper_api_test")
+    monkeypatch.setattr(sys.modules["hypercli.config"], "get_api_url", lambda: "https://api.example.com")
+
+    sys.modules["x402"] = SimpleNamespace(x402ClientSync=_FakeX402ClientSync)
+    sys.modules["x402.http"] = SimpleNamespace(x402HTTPClientSync=_FakeX402HTTPClientSync)
+    sys.modules["x402.mechanisms.evm"] = SimpleNamespace(EthAccountSigner=_FakeEthAccountSigner)
+    sys.modules["x402.mechanisms.evm.exact.register"] = SimpleNamespace(
+        register_exact_evm_client=lambda *_args, **_kwargs: None
+    )
+
+    result = runner.invoke(app, ["wallet", "topup", "1.0", "--passphrase", "secret"])
+
+    assert result.exit_code == 0
+    assert load_calls == ["secret"]

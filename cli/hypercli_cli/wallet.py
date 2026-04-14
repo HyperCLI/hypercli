@@ -132,13 +132,13 @@ def _account_from_wallet_data(data: dict, passphrase: str | None = None):
     raise typer.Exit(1)
 
 
-def get_wallet_auth_token(api_url: str | None = None) -> str:
+def get_wallet_auth_token(api_url: str | None = None, *, passphrase: str | None = None) -> str:
     """Authenticate the local wallet and return a short-lived JWT bearer token."""
     from eth_account.messages import encode_defunct
     import httpx
     from hypercli.config import get_api_url
 
-    account = load_wallet()
+    account = load_wallet(passphrase=passphrase)
     base_url = (api_url or get_api_url()).rstrip("/")
 
     with httpx.Client(timeout=15) as client:
@@ -375,11 +375,17 @@ def qr(
 
 
 @app.command("balance")
-def balance():
+def balance(
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Current keystore passphrase. Skips interactive prompt.",
+    ),
+):
     """Check USDC balance on Base"""
     require_wallet_deps()
 
-    account = load_wallet()
+    account = load_wallet(passphrase=passphrase)
 
     console.print(f"\n[bold]Checking USDC balance on Base...[/bold]\n")
     
@@ -416,6 +422,11 @@ def balance():
 def topup(
     amount: str = typer.Argument(help="Amount in USDC to top up (max 6 decimals)"),
     api_url: str = typer.Option(None, help="API URL override"),
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Current keystore passphrase. Skips interactive prompt.",
+    ),
 ):
     """Top up account balance via Orchestra x402 endpoint.
 
@@ -460,7 +471,7 @@ def topup(
     amount_atomic = int(amount_dec * Decimal("1000000"))
 
     # Step 1: Load wallet
-    account = load_wallet()
+    account = load_wallet(passphrase=passphrase)
     console.print(f"[green]✓[/green] Wallet: {account.address}")
 
     # Step 2: Check USDC balance
@@ -585,6 +596,11 @@ def topup(
 def wallet_login(
     name: str = typer.Option("cli", help="Name for the generated API key"),
     api_url: str = typer.Option(None, help="API URL override"),
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Current keystore passphrase. Skips interactive prompt.",
+    ),
 ):
     """Login with wallet signature, create an API key, and save it.
     
@@ -592,16 +608,17 @@ def wallet_login(
     1. hyper wallet create
     2. hyper wallet login
     """
+    import httpx
     require_wallet_deps()
     from hypercli.config import get_api_url, configure
 
     base_url = (api_url or get_api_url()).rstrip("/")
 
     # Step 1: Load wallet
-    account = load_wallet()
+    account = load_wallet(passphrase=passphrase)
     console.print(f"[green]✓[/green] Wallet: {account.address}\n")
     console.print("[bold]Requesting login challenge...[/bold]")
-    jwt_token = get_wallet_auth_token(api_url=base_url)
+    jwt_token = get_wallet_auth_token(api_url=base_url, passphrase=passphrase)
     console.print("[green]✓[/green] Authenticated\n")
 
     # Step 5: Create API key using JWT
@@ -629,9 +646,9 @@ def wallet_login(
     console.print(f"\n[green]You're all set! Try:[/green] hyper keys list\n")
 
 
-def load_wallet():
+def load_wallet(*, passphrase: str | None = None):
     """Load and decrypt wallet (helper function for other commands)"""
     require_wallet_deps()
 
     wallet_data = _read_wallet_data()
-    return _account_from_wallet_data(wallet_data)
+    return _account_from_wallet_data(wallet_data, passphrase=passphrase)
