@@ -16,16 +16,6 @@ jobs:
         shell: bash
         working-directory: ts-sdk
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -43,17 +33,6 @@ jobs:
       - name: Run TS SDK unit tests
         run: npm test
 
-      - name: Restore runner workspace ownership
-        if: always()
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
   python-sdk-unit:
     runs-on: self-hosted
     timeout-minutes: 20
@@ -61,16 +40,6 @@ jobs:
       run:
         shell: bash
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -100,17 +69,6 @@ jobs:
             cli/tests/test_jobs_list_tags.py \
             cli/tests/test_exec_shell_dryrun.py
 
-      - name: Restore runner workspace ownership
-        if: always()
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
   ts-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit]
     runs-on: self-hosted
@@ -123,16 +81,6 @@ jobs:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE: https://api.dev.hypercli.com
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -180,17 +128,6 @@ jobs:
             python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
           fi
 
-      - name: Restore runner workspace ownership
-        if: always()
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
   python-sdk-integration:
     needs: [ts-sdk-unit, python-sdk-unit]
     runs-on: self-hosted
@@ -203,16 +140,6 @@ jobs:
       BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
       TEST_API_BASE: https://api.dev.hypercli.com
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -259,17 +186,6 @@ jobs:
             python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
           fi
 
-      - name: Restore runner workspace ownership
-        if: always()
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
   notify-sdk-integration:
     needs:
       - ts-sdk-unit
@@ -279,16 +195,6 @@ jobs:
     if: always()
     runs-on: self-hosted
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false

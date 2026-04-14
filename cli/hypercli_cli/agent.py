@@ -79,7 +79,11 @@ def _get_agent_query_client(dev: bool) -> HyperCLI:
 def subscribe(
     plan_id: str = typer.Argument("1aiu", help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu (default: 1aiu)"),
     amount: str = typer.Argument(None, help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally."),
-    dev: bool = typer.Option(False, "--dev", help="Use dev API (api.dev.hypercli.com)")
+    passphrase: str = typer.Option(
+        None,
+        "--passphrase",
+        help="Current keystore passphrase. Skips interactive prompt.",
+    ),
 ):
     """Subscribe to a HyperClaw plan via x402 payment.
     
@@ -97,8 +101,9 @@ def subscribe(
     
     # Import wallet helper
     from .wallet import load_wallet
+    from hypercli.config import get_api_url
     
-    api_base = DEV_API_BASE if dev else PROD_API_BASE
+    api_base = get_api_url().rstrip("/")
     
     console.print(f"\n[bold]Subscribing to HyperClaw plan: {plan_id}[/bold]\n")
     console.print(f"API: {api_base}")
@@ -106,7 +111,7 @@ def subscribe(
         console.print(f"Custom amount: [bold]${amount} USDC[/bold]")
     
     # Load wallet
-    account = load_wallet()
+    account = load_wallet(passphrase=passphrase)
     console.print(f"[green]✓[/green] Loaded wallet: {account.address}\n")
     
     # Run async subscribe

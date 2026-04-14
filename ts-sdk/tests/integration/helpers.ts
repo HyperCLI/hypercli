@@ -24,16 +24,6 @@ export function createIntegrationClient(): HyperCLI {
   });
 }
 
-function selectAvailableTierFromBudget(budget: Record<string, any>): string {
-  const slots = (budget?.slots ?? {}) as Record<string, { available?: number }>;
-  for (const tier of ["large", "medium", "small"]) {
-    if ((slots[tier]?.available ?? 0) > 0) {
-      return tier;
-    }
-  }
-  throw new Error("No available entitlement slots for integration agent tests");
-}
-
 export async function createAgentWithAvailableTier(
   client: HyperCLI,
   options: {
@@ -42,27 +32,46 @@ export async function createAgentWithAvailableTier(
   },
 ): Promise<{ id: string; tier: string }> {
   const budget = await client.deployments.budget();
-  const tier = selectAvailableTierFromBudget(budget);
-  let agentId: string | null = null;
-  try {
-    const agent = await client.deployments.create({
-      name: options.name,
-      size: tier,
-      start: false,
-      tags: options.tags,
-    });
-    agentId = agent.id;
-    await client.deployments.startOpenClaw(agent.id, { dryRun: true });
-    return { id: agent.id, tier };
-  } catch (error) {
-    if (agentId) {
-      await client.deployments.delete(agentId).catch(() => {});
-    }
-    if (error instanceof APIError && error.statusCode === 429) {
-      throw new Error(`Budget reported '${tier}' available but dry-run start was rejected for slot exhaustion`);
-    }
-    throw error;
+  const slots = (budget?.slots ?? {}) as Record<string, { available?: number }>;
+  const candidates = ["large", "medium", "small"].filter((tier) => (slots[tier]?.available ?? 0) > 0);
+
+  if (!candidates.length) {
+    throw new Error("No available entitlement slots for integration agent tests");
   }
+
+  let lastError: unknown = null;
+
+  for (const tier of candidates) {
+    let agentId: string | null = null;
+    try {
+      const agent = await client.deployments.create({
+        name: options.name,
+        size: tier,
+        start: false,
+        tags: options.tags,
+      });
+      agentId = agent.id;
+      await client.deployments.startOpenClaw(agent.id, { dryRun: true });
+      return { id: agent.id, tier };
+    } catch (error) {
+      if (agentId) {
+        await client.deployments.delete(agentId).catch(() => {});
+      }
+      if (error instanceof APIError) {
+        if (error.statusCode === 429) {
+          lastError = new Error(`Budget reported '${tier}' available but dry-run start was rejected for slot exhaustion`);
+          continue;
+        }
+        if (error.statusCode === 503 && String(error.detail).includes("No connected clusters available for tags")) {
+          lastError = new Error(`Tier '${tier}' has entitlement capacity but no connected clusters are advertising that tag`);
+          continue;
+        }
+      }
+      throw error;
+    }
+  }
+
+  throw lastError instanceof Error ? lastError : new Error("Failed to create an integration agent with any available tier");
 }
 
 export function expectNonEmptyString(value: unknown): void {
