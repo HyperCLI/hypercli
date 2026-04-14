@@ -26,9 +26,68 @@ npm run build                              # Build all apps
 npm run lint                               # Lint all apps
 npm run clean                              # Remove .next + node_modules
 npm run clear-cache                        # Clear Turborepo cache
+npm run mock-server:all                    # Start all mock servers (agents + chat)
+npm run dev:with-mock                      # Start all apps + mock servers together
 ```
 
 Environment: copy `env.sample` to each app's `.env.local`. Required vars are validated at build time in each app's `next.config.ts`.
+
+## Mock Servers for Local Development
+
+Mock API servers are available for local development without hitting real endpoints.
+
+### Quick Start
+
+**Start mock servers (Agents API + Chat):**
+```bash
+npm run mock-server:all
+# Agents API: http://localhost:8000
+# Chat: http://localhost:4002
+```
+
+**Start all apps + mock servers together:**
+```bash
+npm run dev:with-mock
+```
+
+### Using Mock Servers with Claw
+
+**Start claw with mock servers:**
+```bash
+cd apps/claw
+npm run dev:mock
+```
+
+**Switch to real API (dev environment):**
+```bash
+npm run dev:real
+```
+
+**Just switch endpoints (without restarting dev):**
+```bash
+npm run switch:mock    # Switch to mock servers
+npm run switch:real    # Switch to real API
+npm run switch:mock status  # Check current configuration
+```
+
+### Mock Server Features
+
+| Feature | Details |
+|---------|---------|
+| **Agents API** | 60+ endpoints — agents, billing, files, models, usage |
+| **Chat Service** | Conversations, messages, WebSocket real-time support |
+| **Realistic Data** | @faker-js/faker for all responses |
+| **State Transitions** | Agents transition STARTING → RUNNING with delays |
+| **Persistence** | Data stored in-memory across requests |
+
+### Environment Files
+
+| File | Endpoints |
+|------|-----------|
+| `apps/claw/.env.mock` | `http://localhost:8000` (agents), `http://localhost:4002` (chat) |
+| `apps/claw/.env.real` | `https://api.dev.hypercli.com` (agents), `https://chat.dev.hypercli.com` (chat) |
+
+See [mock-server/README.md](./mock-server/README.md) and [apps/claw/API-SWITCHING.md](./apps/claw/API-SWITCHING.md) for complete documentation.
 
 ## HyperClaw App (apps/claw/) — Primary Focus
 
@@ -53,6 +112,18 @@ Environment: copy `env.sample` to each app's `.env.local`. Required vars are val
 | `src/hooks/useGatewayChat.ts` | React hook managing gateway connection + chat state (~450 lines) |
 | `src/lib/api.ts` | `clawFetch()`, JWT token management, Privy exchange (~120 lines) |
 | `src/components/ClawAuthProvider.tsx` | Auth context — Privy login → HyperClaw JWT exchange |
+
+### Local Development with Mock APIs
+
+For testing without hitting real endpoints:
+
+- **`.env.mock`** — Pre-configured for mock servers (localhost:8000, localhost:4002)
+- **`.env.real`** — Pre-configured for real API (api.dev.hypercli.com)
+- **`switch-api.sh`** / **`switch-api.bat`** — Quick scripts to switch between environments
+- **`npm run dev:mock`** — Start claw with mock servers
+- **`npm run dev:real`** — Start claw with real API
+
+See [API-SWITCHING.md](./API-SWITCHING.md) for detailed usage and troubleshooting.
 
 ### Auth Flow
 
