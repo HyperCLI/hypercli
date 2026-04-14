@@ -6,11 +6,13 @@ import shutil
 import subprocess
 from pathlib import Path
 from datetime import datetime, timedelta
+from urllib.parse import urlsplit
 import typer
 from rich.console import Console
 from rich.table import Table
 
 from hypercli import HyperCLI
+from hypercli.config import get_agents_api_base_url_from_product_base
 
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
@@ -185,11 +187,11 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
     register_exact_evm_client(client, EthAccountSigner(account))
     http_client = x402HTTPClient(client)
     
-    url = f"{api_base}/api/x402/{plan_id}"
-    console.print(f"\n[bold]→ Requesting:[/bold] POST {url}\n")
-    
     async with httpx.AsyncClient() as http:
         try:
+            url = await _resolve_plan_purchase_url(http, api_base, plan_id)
+            console.print(f"\n[bold]→ Requesting:[/bold] POST {url}\n")
+
             # Step 1: Make initial request to get 402 response with payment requirements
             response = await http.post(url)
             
@@ -259,7 +261,7 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
                 console.print(f"\n[red]❌ Payment failed: {retry_response.status_code}[/red]")
                 console.print(retry_response.text)
                 raise typer.Exit(1)
-                
+
         except typer.Exit:
             raise
         except Exception as e:
@@ -267,6 +269,48 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
             import traceback
             traceback.print_exc()
             raise typer.Exit(1)
+
+
+def _extract_plan_purchase_url_from_discovery(discovery: object, plan_id: str) -> str | None:
+    if not isinstance(discovery, dict):
+        return None
+    resources = discovery.get("resources")
+    if not isinstance(resources, list):
+        return None
+    suffix = f"/x402/{plan_id}"
+    for resource in resources:
+        if not isinstance(resource, str):
+            continue
+        parsed = urlsplit(resource)
+        if parsed.path.endswith(suffix):
+            return resource
+    return None
+
+
+async def _resolve_plan_purchase_url(http: "httpx.AsyncClient", api_base: str, plan_id: str) -> str:
+    normalized_api_base = api_base.rstrip("/")
+    agents_base = get_agents_api_base_url_from_product_base(normalized_api_base).rstrip("/")
+    discovery_candidates = [
+        f"{agents_base}/.well-known/x402",
+        f"{normalized_api_base}/api/.well-known/x402",
+    ]
+
+    for discovery_url in discovery_candidates:
+        try:
+            response = await http.get(discovery_url)
+        except Exception:
+            continue
+        if response.status_code >= 400:
+            continue
+        try:
+            payload = response.json()
+        except Exception:
+            continue
+        resource_url = _extract_plan_purchase_url_from_discovery(payload, plan_id)
+        if resource_url:
+            return resource_url
+
+    return f"{agents_base}/x402/{plan_id}"
 
 
 @app.command("status")

@@ -83,3 +83,28 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
     result = runner.invoke(app, ["agent", "subscribe", "1aiu", "0.01"])
 
     assert result.exit_code == 0
+
+
+def test_extract_plan_purchase_url_from_agent_discovery():
+    discovery = {
+        "resources": [
+            "https://api.dev.hypercli.com/agents/x402/1aiu",
+            "https://api.dev.hypercli.com/agents/x402/2aiu",
+        ]
+    }
+
+    assert (
+        agent_mod._extract_plan_purchase_url_from_discovery(discovery, "1aiu")
+        == "https://api.dev.hypercli.com/agents/x402/1aiu"
+    )
+
+
+def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources():
+    discovery = {
+        "resources": [
+            "https://api.dev.hypercli.com/api/x402/top_up",
+            "https://api.dev.hypercli.com/api/x402/job",
+        ]
+    }
+
+    assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "1aiu") is None
