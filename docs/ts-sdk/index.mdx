@@ -120,6 +120,7 @@ const client = new HyperCLI({
 const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
   start: true,
+  heartbeat: { every: "0m" },
 });
 
 const running = await client.deployments.waitRunning(agent.id);

@@ -141,6 +141,7 @@ Use the OpenClaw-specific helpers when you want the SDK to provide the standard 
 const agent = await client.deployments.createOpenClaw({
   name: "docs-demo",
   start: true,
+  heartbeat: { every: "0m" }, // disable upstream OpenClaw heartbeat runs
   tags: ["team=dev"],
 });
 ```
@@ -175,6 +176,10 @@ OpenClaw helpers only add defaults on top of that generic launch surface:
   defaults to `/home/node`
 - `syncEnabled`
   defaults to `true`
+- `heartbeat`
+  maps to upstream OpenClaw config at `config.agents.defaults.heartbeat`
+
+Omit `heartbeat` to keep upstream defaults. Pass values like `heartbeat: { every: "0m" }` to disable heartbeat runs, or `heartbeat: { every: "1h", target: "last" }` to tune them.
 
 Registry settings are still inherited from the generic deployment API:
 

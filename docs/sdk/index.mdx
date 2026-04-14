@@ -95,6 +95,7 @@ client = HyperCLI(api_key="hyper_...")
 agent = client.deployments.create_openclaw(
     name="docs-demo",
     start=True,
+    heartbeat={"every": "0m"},
     env={"APP_ENV": "prod"},
 )
 

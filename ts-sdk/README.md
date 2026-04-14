@@ -124,10 +124,13 @@ OpenClaw uses the generic deployment launch surface. `registryUrl`, `registryAut
 const agent = await client.deployments.createOpenClaw({
   name: 'docs-demo',
   start: true,
+  heartbeat: { every: '0m' }, // disable upstream OpenClaw heartbeat runs
   registryUrl: 'git.nedos.co',
   registryAuth: { username: 'ci', password: 'token' },
 });
 ```
+
+`heartbeat` maps directly to upstream OpenClaw config at `config.agents.defaults.heartbeat`. Omit it to keep upstream defaults, or pass values such as `heartbeat: { every: '1h', target: 'last' }`.
 
 ### OpenClaw Gateway Chat Attachments
 
