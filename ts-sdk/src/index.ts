@@ -165,6 +165,7 @@ export {
   type AgentRouteConfig,
   type RegistryAuth,
   type BuildAgentConfigOptions,
+  type OpenClawHeartbeatConfig,
   type OpenClawRouteOptions,
   type CreateAgentOptions,
   type OpenClawCreateAgentOptions,

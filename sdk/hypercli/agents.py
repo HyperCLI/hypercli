@@ -191,14 +191,23 @@ def _build_agent_launch(
     registry_url: str | None = None,
     registry_auth: dict | None = None,
     gateway_token: str | None = None,
+    heartbeat: dict | None = None,
 ) -> tuple[dict, str]:
-    prepared_config = dict(config or {})
+    prepared_config = copy.deepcopy(config or {})
     nested_launch_keys = sorted(LAUNCH_CONFIG_KEYS.intersection(prepared_config.keys()))
     if nested_launch_keys:
         raise ValueError(
             "Launch settings must be top-level fields, not nested under config: "
             + ", ".join(nested_launch_keys)
         )
+    if heartbeat:
+        agents_cfg = dict(prepared_config.get("agents") or {})
+        defaults_cfg = dict(agents_cfg.get("defaults") or {})
+        heartbeat_cfg = dict(defaults_cfg.get("heartbeat") or {})
+        heartbeat_cfg.update(dict(heartbeat))
+        defaults_cfg["heartbeat"] = heartbeat_cfg
+        agents_cfg["defaults"] = defaults_cfg
+        prepared_config["agents"] = agents_cfg
     env_map = dict(env or {})
     if env:
         env_map.update(env)
@@ -1015,6 +1024,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
         start: bool = True,
@@ -1045,6 +1055,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            heartbeat=heartbeat,
         )
         body: dict = {**launch_payload, "start": start}
         if dry_run:
@@ -1083,6 +1094,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        heartbeat: dict = None,
         meta_ui: dict = None,
         dry_run: bool = False,
         start: bool = True,
@@ -1110,6 +1122,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            heartbeat=heartbeat,
             meta_ui=meta_ui,
             dry_run=dry_run,
             start=start,
@@ -1185,6 +1198,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        heartbeat: dict = None,
         dry_run: bool = False,
     ) -> Agent:
         """Start a previously stopped agent.
@@ -1208,6 +1222,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            heartbeat=heartbeat,
         )
         body: dict[str, Any] = dict(launch_payload)
         if dry_run:
@@ -1236,6 +1251,7 @@ class Deployments:
         registry_url: str = None,
         registry_auth: dict = None,
         gateway_token: str = None,
+        heartbeat: dict = None,
         dry_run: bool = False,
         openclaw_routes: dict | None = None,
         openclaw_route_options: dict | None = None,
@@ -1259,6 +1275,7 @@ class Deployments:
             registry_url=registry_url,
             registry_auth=registry_auth,
             gateway_token=gateway_token,
+            heartbeat=heartbeat,
             dry_run=dry_run,
         )
 

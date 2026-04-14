@@ -416,6 +416,27 @@ def test_build_agent_launch_includes_command_and_entrypoint():
     assert launch["routes"] == {"web": {"port": 80, "prefix": ""}}
 
 
+def test_build_agent_launch_merges_heartbeat_defaults():
+    launch, _gateway_token = _build_agent_launch(
+        {"agents": {"defaults": {"model": "openai/gpt-5.4", "heartbeat": {"target": "last"}}}},
+        heartbeat={"every": "0m", "includeSystemPromptSection": False},
+        gateway_token="gw-token",
+    )
+
+    assert launch["config"] == {
+        "agents": {
+            "defaults": {
+                "model": "openai/gpt-5.4",
+                "heartbeat": {
+                    "target": "last",
+                    "every": "0m",
+                    "includeSystemPromptSection": False,
+                },
+            }
+        }
+    }
+
+
 def test_build_openclaw_routes_defaults():
     assert build_openclaw_routes() == {
         "openclaw": {"port": 18789, "auth": False, "prefix": ""},
@@ -484,6 +505,35 @@ def test_create_openclaw_respects_explicit_empty_routes(agents_client):
         posted_json = mock_client.post.call_args[1]["json"]
         assert posted_json["image"] == DEFAULT_OPENCLAW_IMAGE
         assert posted_json["routes"] == {}
+
+
+def test_create_openclaw_includes_heartbeat_when_requested(agents_client):
+    with patch("httpx.Client") as mock_client_class, patch("hypercli.agents.secrets.token_hex", return_value="gw-token-123"):
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "starting",
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        agents_client.create_openclaw(
+            name="test-agent",
+            heartbeat={"every": "0m", "includeSystemPromptSection": False},
+        )
+
+        posted_json = mock_client.post.call_args[1]["json"]
+        assert posted_json["config"]["agents"]["defaults"]["heartbeat"] == {
+            "every": "0m",
+            "includeSystemPromptSection": False,
+        }
 
 @pytest.fixture
 def mock_http():

@@ -64,6 +64,40 @@ describe('HyperClaw agents SDK', () => {
     )).toThrow(/Launch settings must be top-level fields/);
   });
 
+  it('buildAgentConfig merges heartbeat config into OpenClaw config defaults', () => {
+    const { config } = buildAgentConfig(
+      {
+        agents: {
+          defaults: {
+            model: 'openai/gpt-5.4',
+            heartbeat: {
+              target: 'last',
+            },
+          },
+        },
+      },
+      {
+        heartbeat: {
+          every: '0m',
+          includeSystemPromptSection: false,
+        },
+      },
+    );
+
+    expect(config.config).toEqual({
+      agents: {
+        defaults: {
+          model: 'openai/gpt-5.4',
+          heartbeat: {
+            target: 'last',
+            every: '0m',
+            includeSystemPromptSection: false,
+          },
+        },
+      },
+    });
+  });
+
   it('buildOpenClawRoutes returns the default gateway and desktop routes', () => {
     expect(buildOpenClawRoutes()).toEqual({
       openclaw: { port: 18789, auth: false, prefix: '' },

@@ -86,6 +86,7 @@ export interface BuildAgentConfigOptions {
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
   gatewayToken?: string | null;
+  heartbeat?: OpenClawHeartbeatConfig | null;
 }
 
 export interface OpenClawRouteOptions {
@@ -97,6 +98,26 @@ export interface OpenClawRouteOptions {
   desktopAuth?: boolean;
   gatewayPrefix?: string;
   desktopPrefix?: string;
+}
+
+export interface OpenClawHeartbeatConfig {
+  every?: string;
+  model?: string;
+  session?: string;
+  target?: string;
+  directPolicy?: 'allow' | 'block';
+  to?: string;
+  accountId?: string;
+  prompt?: string;
+  includeSystemPromptSection?: boolean;
+  ackMaxChars?: number;
+  suppressToolErrorWarnings?: boolean;
+  timeoutSeconds?: number;
+  lightContext?: boolean;
+  isolatedSession?: boolean;
+  includeReasoning?: boolean;
+  activeHours?: Record<string, any>;
+  [key: string]: any;
 }
 
 export interface AgentUiAvatarMeta {
@@ -205,10 +226,12 @@ export interface UpdateAgentOptions {
 
 export interface OpenClawCreateAgentOptions extends CreateAgentOptions {
   openClawRoutes?: OpenClawRouteOptions | null;
+  heartbeat?: OpenClawHeartbeatConfig | null;
 }
 
 export interface OpenClawStartAgentOptions extends StartAgentOptions {
   openClawRoutes?: OpenClawRouteOptions | null;
+  heartbeat?: OpenClawHeartbeatConfig | null;
 }
 
 export interface AgentExecOptions {
@@ -468,10 +491,24 @@ export function buildAgentConfig(
   config: Record<string, any> = {},
   options: BuildAgentConfigOptions = {},
 ): { config: Record<string, any>; gatewayToken: string } {
-  const preparedConfig = { ...config };
+  const preparedConfig = structuredClone(config);
   const nestedLaunchKeys = Object.keys(preparedConfig).filter((key) => LAUNCH_CONFIG_KEYS.has(key));
   if (nestedLaunchKeys.length) {
     throw new Error(`Launch settings must be top-level fields, not nested under config: ${nestedLaunchKeys.join(', ')}`);
+  }
+  if (options.heartbeat) {
+    const agentsConfig = typeof preparedConfig.agents === 'object' && preparedConfig.agents !== null
+      ? { ...preparedConfig.agents }
+      : {};
+    const defaultsConfig = typeof agentsConfig.defaults === 'object' && agentsConfig.defaults !== null
+      ? { ...agentsConfig.defaults }
+      : {};
+    const heartbeatConfig = typeof defaultsConfig.heartbeat === 'object' && defaultsConfig.heartbeat !== null
+      ? { ...defaultsConfig.heartbeat }
+      : {};
+    defaultsConfig.heartbeat = { ...heartbeatConfig, ...options.heartbeat };
+    agentsConfig.defaults = defaultsConfig;
+    preparedConfig.agents = agentsConfig;
   }
   const env = { ...(options.env ?? {}) } as Record<string, string>;
 
