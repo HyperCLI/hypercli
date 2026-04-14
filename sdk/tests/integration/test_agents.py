@@ -12,32 +12,48 @@ def _create_agent_with_available_tier(client: HyperCLI, name: str, tags: list[st
     budget = client.deployments.budget()
     slots = (budget or {}).get("slots") or {}
 
-    tier = next((candidate for candidate in ("large", "medium", "small") if int((slots.get(candidate) or {}).get("available") or 0) > 0), None)
-    if not tier:
+    tiers = [
+        candidate
+        for candidate in ("large", "medium", "small")
+        if int((slots.get(candidate) or {}).get("available") or 0) > 0
+    ]
+    if not tiers:
         raise AssertionError("No available entitlement slots for integration agent tests")
 
-    agent_id: str | None = None
-    try:
-        agent = client.deployments.create(
-            name=name,
-            size=tier,
-            start=False,
-            tags=tags,
-        )
-        agent_id = agent.id
-        client.deployments.start_openclaw(agent.id, dry_run=True)
-        return agent.id, tier
-    except APIError as exc:
-        if agent_id:
-            try:
-                client.deployments.delete(agent_id)
-            except APIError:
-                pass
-        if exc.status_code == 429:
-            raise AssertionError(
-                f"Budget reported '{tier}' available but dry-run start was rejected for slot exhaustion"
-            ) from exc
-        raise
+    last_error: Exception | None = None
+    for tier in tiers:
+        agent_id: str | None = None
+        try:
+            agent = client.deployments.create(
+                name=name,
+                size=tier,
+                start=False,
+                tags=tags,
+            )
+            agent_id = agent.id
+            client.deployments.start_openclaw(agent.id, dry_run=True)
+            return agent.id, tier
+        except APIError as exc:
+            if agent_id:
+                try:
+                    client.deployments.delete(agent_id)
+                except APIError:
+                    pass
+            if exc.status_code == 429:
+                last_error = AssertionError(
+                    f"Budget reported '{tier}' available but dry-run start was rejected for slot exhaustion"
+                )
+                continue
+            if exc.status_code == 503 and "No connected clusters available for tags" in str(exc.detail):
+                last_error = AssertionError(
+                    f"Tier '{tier}' has entitlement capacity but no connected clusters are advertising that tag"
+                )
+                continue
+            raise
+
+    if last_error:
+        raise last_error
+    raise AssertionError("Failed to create an integration agent with any available tier")
 
 
 def test_list_agents_requires_agent_key(client, test_agent_api_key: str):
