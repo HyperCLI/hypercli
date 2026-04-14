@@ -27,16 +27,6 @@ jobs:
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -221,17 +211,6 @@ jobs:
         run: |
           if [ -f /tmp/hypercli-claw-e2e.pid ]; then
             kill "$(cat /tmp/hypercli-claw-e2e.pid)" || true
-          fi
-
-      - name: Restore runner workspace ownership
-        if: always()
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
           fi
 
       - name: Notify e2e result

@@ -27,16 +27,6 @@ jobs:
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
     steps:
-      - name: Prepare runner workspace ownership
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
-          fi
-
       - uses: actions/checkout@v4
         with:
           clean: false
@@ -120,17 +110,6 @@ jobs:
           fi
           if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
             python .github/scripts/bootstrap_console_test_key.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
-          fi
-
-      - name: Restore runner workspace ownership
-        if: always()
-        run: |
-          set -eu
-          REPO_DIR="${GITHUB_WORKSPACE}"
-          PARENT_DIR="$(dirname "${REPO_DIR}")"
-          if [ -d "${REPO_DIR}" ]; then
-            docker run --rm -v "${PARENT_DIR}:${PARENT_DIR}" alpine:3.22 \
-              sh -lc "chown -R $(id -u):$(id -g) '${REPO_DIR}'"
           fi
 
       - name: Notify e2e result
