@@ -30,7 +30,8 @@ export function useAgents() {
     queryKey: agentsKeys.all,
     queryFn: async (): Promise<AgentListResponse> => {
       if (!deployments) throw new Error("SDK not ready");
-      return deployments.list();
+      const items = await deployments.list();
+      return { items };
     },
     enabled: ready && !!deployments,
     refetchInterval: (query) => {

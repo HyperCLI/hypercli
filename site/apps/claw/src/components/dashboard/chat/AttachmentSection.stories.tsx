@@ -19,9 +19,9 @@ type Story = StoryObj<typeof AttachmentSection>;
 export const FileAttachments: Story = {
   args: {
     files: [
-      { name: "openclaw.json", size: 1024, missing: false },
-      { name: "deployment-notes.md", size: 2048, missing: false },
-      { name: "agent-config.yaml", size: 512, missing: false },
+      { name: "openclaw.json", path: "/workspace/openclaw.json", type: "application/json" },
+      { name: "deployment-notes.md", path: "/workspace/deployment-notes.md", type: "text/markdown" },
+      { name: "agent-config.yaml", path: "/workspace/agent-config.yaml", type: "application/yaml" },
     ],
   },
 };
@@ -47,7 +47,7 @@ export const NonImageLinks: Story = {
 export const Mixed: Story = {
   args: {
     files: [
-      { name: "config.json", size: 512, missing: false },
+      { name: "config.json", path: "/workspace/config.json", type: "application/json" },
     ],
     mediaUrls: [
       "https://via.placeholder.com/200x150/141416/38D39F?text=Preview",
