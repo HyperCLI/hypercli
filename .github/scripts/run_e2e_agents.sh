@@ -51,24 +51,19 @@ wait_for_url() {
   local log_file="$3"
   local pid="$4"
 
-  for _ in {1..120}; do
+  for _ in {1..90}; do
     if ! kill -0 "${pid}" >/dev/null 2>&1; then
       echo "${label} dev server exited before becoming ready" >&2
       [[ -f "${log_file}" ]] && tail -n 200 "${log_file}" >&2 || true
       return 1
     fi
 
-    if [[ -f "${log_file}" ]] && grep -Eq "Ready in|✓ Ready" "${log_file}"; then
-      if curl -sS -o /dev/null "${url}"; then
-        return 0
-      fi
-    fi
-
-    if curl -sS -o /dev/null "${url}"; then
+    if curl -fsS "${url}" >/dev/null; then
       return 0
     fi
     sleep 2
   done
+
   echo "${label} dev server did not become ready at ${url}" >&2
   [[ -f "${log_file}" ]] && tail -n 200 "${log_file}" >&2 || true
   return 1
@@ -97,7 +92,7 @@ test_name = screenshot.parent.name if screenshot.parent.name != "test-results" e
 payload = {
     "category": "frontend",
     "severity": "error",
-    "message": f"Frontend E2E console failed\nTest: {test_name}\nWorkflow: E2E Console\nRun: {run_url or 'local docker run'}",
+    "message": f"Frontend E2E agents failed\nTest: {test_name}\nWorkflow: E2E Agents\nRun: {run_url or 'local docker run'}",
     "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
     "image_filename": screenshot.name,
     "channel": "frontend",
@@ -137,24 +132,9 @@ wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
-  --workers=1 \
-  tests/claw/console-login.spec.ts
-login_status=$?
-
-topup_status=0
-if [[ ${login_status} -eq 0 ]]; then
-  npx playwright test \
-    --config tests/claw/playwright.config.ts \
-    --workers=1 \
-    tests/claw/console-topup.spec.ts
-  topup_status=$?
-fi
+  tests/claw/agents-subscription.spec.ts
+status=$?
 set -e
-
-status=0
-if [[ ${login_status} -ne 0 || ${topup_status} -ne 0 ]]; then
-  status=1
-fi
 
 if [[ ${status} -ne 0 ]]; then
   notify_failure_screenshot || true

@@ -10,9 +10,6 @@ env:
 jobs:
   playwright-e2e:
     runs-on: self-hosted
-    container:
-      image: mcr.microsoft.com/playwright:v1.58.2-noble
-      options: --ipc=host
     timeout-minutes: 45
     defaults:
       run:
@@ -31,32 +28,12 @@ jobs:
         with:
           clean: false
 
-      - uses: actions/setup-node@v4
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - uses: actions/setup-python@v5
         with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            site/package-lock.json
-
-      - name: Build TS SDK
-        working-directory: ts-sdk
-        run: |
-          npm ci
-          npm run build
-
-      - name: Install site dependencies
-        working-directory: site
-        run: |
-          npm install
-          npm run sdk:use-checkout
-
-      - name: Install Playwright browser
-        working-directory: site
-        run: npx playwright install --with-deps chromium
-
-      - name: Install bootstrap dependencies
-        run: apt-get update && apt-get install -y python3 python3-pip python3-venv
+          python-version: "3.12"
 
       - name: Bootstrap console E2E API key
         run: |
@@ -66,40 +43,45 @@ jobs:
           python -m pip install requests
           python .github/scripts/bootstrap_console_test_key.py bootstrap --format github-env >> "$GITHUB_ENV"
 
-      - name: Allocate local E2E ports
+      - name: Build E2E image
+        id: build-e2e
         run: |
-          source .github/scripts/allocate_e2e_env.sh
-          {
-            echo "TEST_MAIN_BASE_URL=${TEST_MAIN_BASE_URL}"
-            echo "TEST_BASE_URL=${TEST_BASE_URL}"
-            echo "TEST_CONSOLE_BASE_URL=${TEST_CONSOLE_BASE_URL}"
-            echo "TEST_TOPUP_CONSOLE_BASE_URL=${TEST_TOPUP_CONSOLE_BASE_URL}"
-            echo "TEST_HOSTNAME=${TEST_HOSTNAME}"
-            echo "LOCAL_MAIN_SITE_URL=${LOCAL_MAIN_SITE_URL}"
-            echo "LOCAL_CONSOLE_URL=${LOCAL_CONSOLE_URL}"
-            echo "LOCAL_AGENTS_URL=${LOCAL_AGENTS_URL}"
-            echo "LOCAL_COOKIE_DOMAIN=${LOCAL_COOKIE_DOMAIN}"
-            echo "LOCAL_HYPERCLAW_COOKIE_DOMAIN=${LOCAL_HYPERCLAW_COOKIE_DOMAIN}"
-            echo "LOCAL_DOMAIN=${LOCAL_DOMAIN}"
-            echo "CONSOLE_PORT=${CONSOLE_PORT}"
-            echo "CLAW_PORT=${CLAW_PORT}"
-          } >> "$GITHUB_ENV"
+          IMAGE_TAG="e2e-console-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
-      - name: Run Playwright tests
+      - name: Run dockerized Playwright tests
         id: e2e
         continue-on-error: true
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
-        run: .github/scripts/run_e2e_console.sh
+        run: |
+          ARTIFACTS_DIR="${RUNNER_TEMP}/playwright-console-artifacts"
+          rm -rf "${ARTIFACTS_DIR}"
+          mkdir -p "${ARTIFACTS_DIR}"
+          docker run --rm --init \
+            -e TEST_HOSTNAME \
+            -e TEST_API_BASE_URL \
+            -e BACKEND_API_KEY \
+            -e TEST_EMAIL \
+            -e TEST_IMAP_HOST \
+            -e TEST_IMAP_USER \
+            -e TEST_IMAP_PASS \
+            -e NOTIFY_URL \
+            -e NOTIFY_API_KEY \
+            -e GITHUB_RUN_URL \
+            -e TEST_API_KEY \
+            -e EXPECTED_TEST_EMAIL \
+            -e E2E_ARTIFACTS_DIR=/artifacts \
+            -v "${ARTIFACTS_DIR}:/artifacts" \
+            "${{ steps.build-e2e.outputs.e2e_image }}" \
+            bash -lc 'cd /workspace && ./.github/scripts/run_e2e_console.sh'
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-artifacts
-          path: |
-            site/playwright-report
-            site/test-results
+          path: ${{ runner.temp }}/playwright-console-artifacts
           if-no-files-found: ignore
 
       - name: Cleanup bootstrapped credentials

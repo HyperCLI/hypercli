@@ -10,9 +10,6 @@ env:
 jobs:
   playwright-agents:
     runs-on: self-hosted
-    container:
-      image: mcr.microsoft.com/playwright:v1.58.2-noble
-      options: --ipc=host
     timeout-minutes: 45
     defaults:
       run:
@@ -31,187 +28,47 @@ jobs:
         with:
           clean: false
 
-      - uses: actions/setup-node@v4
-        with:
-          node-version: "22"
-          cache: "npm"
-          cache-dependency-path: |
-            ts-sdk/package-lock.json
-            site/package-lock.json
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
 
-      - name: Build TS SDK
-        working-directory: ts-sdk
+      - name: Build E2E image
+        id: build-e2e
         run: |
-          npm ci
-          npm run build
+          IMAGE_TAG="e2e-agents-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
+          .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
-      - name: Install site dependencies
-        working-directory: site
-        run: |
-          npm install
-          npm run sdk:use-checkout
-
-      - name: Install Playwright browser
-        working-directory: site
-        run: npx playwright install --with-deps chromium
-
-      - name: Allocate local E2E ports
-        run: |
-          source .github/scripts/allocate_e2e_env.sh
-          {
-            echo "TEST_MAIN_BASE_URL=${TEST_MAIN_BASE_URL}"
-            echo "TEST_BASE_URL=${TEST_BASE_URL}"
-            echo "TEST_CONSOLE_BASE_URL=${TEST_CONSOLE_BASE_URL}"
-            echo "TEST_TOPUP_CONSOLE_BASE_URL=${TEST_TOPUP_CONSOLE_BASE_URL}"
-            echo "TEST_HOSTNAME=${TEST_HOSTNAME}"
-            echo "LOCAL_MAIN_SITE_URL=${LOCAL_MAIN_SITE_URL}"
-            echo "LOCAL_CONSOLE_URL=${LOCAL_CONSOLE_URL}"
-            echo "LOCAL_AGENTS_URL=${LOCAL_AGENTS_URL}"
-            echo "LOCAL_COOKIE_DOMAIN=${LOCAL_COOKIE_DOMAIN}"
-            echo "LOCAL_HYPERCLAW_COOKIE_DOMAIN=${LOCAL_HYPERCLAW_COOKIE_DOMAIN}"
-            echo "LOCAL_DOMAIN=${LOCAL_DOMAIN}"
-            echo "CONSOLE_PORT=${CONSOLE_PORT}"
-            echo "CLAW_PORT=${CLAW_PORT}"
-          } >> "$GITHUB_ENV"
-
-      - name: Prepare local app env
-        working-directory: site
-        run: ./scripts/setup-local-env.sh
-
-      - name: Clean Next build state
-        working-directory: site
-        run: rm -rf apps/console/.next apps/claw/.next
-
-      - name: Start Console dev server
-        working-directory: site
-        run: |
-          set -euo pipefail
-          cd apps/console
-          PORT="${CONSOLE_PORT}" npm run dev > /tmp/hypercli-console-e2e.log 2>&1 &
-          echo $! > /tmp/hypercli-console-e2e.pid
-
-      - name: Start Claw dev server
-        working-directory: site
-        run: |
-          set -euo pipefail
-          cd apps/claw
-          PORT="${CLAW_PORT}" npm run dev > /tmp/hypercli-claw-e2e.log 2>&1 &
-          echo $! > /tmp/hypercli-claw-e2e.pid
-
-      - name: Wait for local dev servers
-        working-directory: site
-        run: |
-          set -euo pipefail
-          wait_for_url() {
-            local url="$1"
-            local label="$2"
-            for _ in {1..90}; do
-              if curl -fsS "$url" >/dev/null; then
-                return 0
-              fi
-              sleep 2
-            done
-            echo "$label dev server did not become ready at $url" >&2
-            return 1
-          }
-
-          wait_for_url "${TEST_CONSOLE_BASE_URL}" "Console"
-          wait_for_url "${TEST_BASE_URL}" "Claw"
-
-      - name: Run Playwright tests
+      - name: Run dockerized Playwright tests
         id: e2e
-        continue-on-error: true
-        working-directory: site
-        run: >
-          npx playwright test
-          --config tests/claw/playwright.config.ts
-          tests/claw/agents-subscription.spec.ts
-
-      - name: Upload failure screenshot to notify
-        if: steps.e2e.outcome == 'failure'
         continue-on-error: true
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          python3 - <<'PY'
-          import base64
-          import json
-          import os
-          import urllib.request
-          from pathlib import Path
-
-          notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
-          if not notify_api_key:
-              raise SystemExit(0)
-
-          endpoint = os.getenv("NOTIFY_URL", "").strip()
-          if not endpoint:
-              raise SystemExit(0)
-          run_url = os.getenv("GITHUB_RUN_URL", "")
-          screenshots = sorted(Path("site/test-results").rglob("*.png"))
-          if not screenshots:
-              raise SystemExit(0)
-
-          screenshot = screenshots[0]
-          test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
-          payload = {
-              "category": "frontend",
-              "severity": "error",
-              "message": f"Frontend E2E agents failed\nTest: {test_name}\nWorkflow: E2E Agents\nRun: {run_url}",
-              "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
-              "image_filename": screenshot.name,
-              "channel": "frontend",
-          }
-          request = urllib.request.Request(
-              endpoint,
-              data=json.dumps(payload).encode("utf-8"),
-              headers={
-                  "Content-Type": "application/json",
-                  "X-BACKEND-API-KEY": notify_api_key,
-              },
-              method="POST",
-          )
-          with urllib.request.urlopen(request, timeout=20) as response:
-              response.read()
-          PY
+          ARTIFACTS_DIR="${RUNNER_TEMP}/playwright-agents-artifacts"
+          rm -rf "${ARTIFACTS_DIR}"
+          mkdir -p "${ARTIFACTS_DIR}"
+          docker run --rm --init \
+            -e TEST_HOSTNAME \
+            -e TEST_EMAIL \
+            -e TEST_IMAP_HOST \
+            -e TEST_IMAP_USER \
+            -e TEST_IMAP_PASS \
+            -e TEST_AGENTS_API_BASE_URL \
+            -e TEST_STRIPE_AGENTS_SECRET_KEY \
+            -e NOTIFY_URL \
+            -e NOTIFY_API_KEY \
+            -e GITHUB_RUN_URL \
+            -e E2E_ARTIFACTS_DIR=/artifacts \
+            -v "${ARTIFACTS_DIR}:/artifacts" \
+            "${{ steps.build-e2e.outputs.e2e_image }}" \
+            bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
 
       - name: Upload Playwright artifacts
         if: always()
         uses: actions/upload-artifact@v4
         with:
           name: playwright-agents-artifacts
-          path: |
-            site/playwright-report
-            site/test-results
+          path: ${{ runner.temp }}/playwright-agents-artifacts
           if-no-files-found: ignore
-
-      - name: Show Console dev server log
-        if: always()
-        run: |
-          if [ -f /tmp/hypercli-console-e2e.log ]; then
-            tail -n 200 /tmp/hypercli-console-e2e.log
-          fi
-
-      - name: Show Claw dev server log
-        if: always()
-        run: |
-          if [ -f /tmp/hypercli-claw-e2e.log ]; then
-            tail -n 200 /tmp/hypercli-claw-e2e.log
-          fi
-
-      - name: Stop Console dev server
-        if: always()
-        run: |
-          if [ -f /tmp/hypercli-console-e2e.pid ]; then
-            kill "$(cat /tmp/hypercli-console-e2e.pid)" || true
-          fi
-
-      - name: Stop Claw dev server
-        if: always()
-        run: |
-          if [ -f /tmp/hypercli-claw-e2e.pid ]; then
-            kill "$(cat /tmp/hypercli-claw-e2e.pid)" || true
-          fi
 
       - name: Notify e2e result
         if: steps.e2e.outcome == 'success'
