@@ -46,8 +46,8 @@ jobs:
       - name: Build E2E image
         id: build-e2e
         run: |
-          IMAGE_TAG="e2e-console-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
-          .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
+          IMAGE_TAG="e2e-console-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}" \
+            .github/scripts/build_e2e_image.sh >> "$GITHUB_OUTPUT"
 
       - name: Run dockerized Playwright tests
         id: e2e
