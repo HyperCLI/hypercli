@@ -329,7 +329,17 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   await expect
     .poll(async () => {
       try {
-        return await page.evaluate(() => localStorage.getItem("claw_auth_token"));
+        return await page.evaluate(() => {
+          const localToken =
+            localStorage.getItem("claw_auth_token") ||
+            localStorage.getItem("app_auth_token");
+          if (localToken) return localToken;
+
+          const authCookie = document.cookie
+            .split("; ")
+            .find((row) => row.startsWith("auth_token="));
+          return authCookie || null;
+        });
       } catch {
         return null;
       }
