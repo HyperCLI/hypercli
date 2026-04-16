@@ -6,6 +6,11 @@ on:
 
 env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  BOOTSTRAP_REQUEST_TIMEOUT: "60"
+  BOOTSTRAP_REQUEST_RETRIES: "10"
+  BOOTSTRAP_REQUEST_BACKOFF_SECONDS: "5"
+  SDK_INTEGRATION_RETRIES: "2"
+  SDK_INTEGRATION_RETRY_DELAY_SECONDS: "20"
 
 jobs:
   ts-sdk-unit:
@@ -118,7 +123,16 @@ jobs:
           source .bootstrap-venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install requests
-          python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"
+          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
+            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
+              break
+            fi
+            if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
+              exit 1
+            fi
+            echo "Transient bootstrap failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
+            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
+          done
 
       - name: Install TS SDK dependencies
         run: npm ci
@@ -126,15 +140,33 @@ jobs:
       - name: Run TS SDK integration tests
         run: |
           set -o pipefail
-          LOG_FILE="$(mktemp)"
-          if npm run test:integration 2>&1 | tee "${LOG_FILE}"; then
-            exit 0
-          fi
-          if grep -Eq "No connected clusters available for tags|has entitlement capacity but no connected clusters are advertising that tag" "${LOG_FILE}"; then
-            echo "Skipping TS SDK integration failure due to dev cluster tag capacity"
-            exit 0
-          fi
-          exit 1
+          run_integration() {
+            local log_file
+            log_file="$(mktemp)"
+            if npm run test:integration 2>&1 | tee "${log_file}"; then
+              return 0
+            fi
+            if grep -Eq "No connected clusters available for tags|has entitlement capacity but no connected clusters are advertising that tag" "${log_file}"; then
+              echo "Skipping TS SDK integration failure due to dev cluster tag capacity"
+              return 0
+            fi
+            if grep -Eq "503 Service Unavailable|API Error 503|failed: 503 Service Unavailable|Service Unavailable" "${log_file}"; then
+              return 85
+            fi
+            return 1
+          }
+
+          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
+            if run_integration; then
+              exit 0
+            fi
+            status=$?
+            if [ "${status}" -ne 85 ] || [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
+              exit "${status}"
+            fi
+            echo "Transient TS integration 503 failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
+            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
+          done
 
       - name: Cleanup bootstrapped credentials
         if: always()
@@ -183,7 +215,16 @@ jobs:
           source .bootstrap-venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install requests
-          python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"
+          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
+            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
+              break
+            fi
+            if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
+              exit 1
+            fi
+            echo "Transient bootstrap failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
+            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
+          done
 
       - name: Install Python SDK
         run: |
@@ -195,15 +236,33 @@ jobs:
       - name: Run Python SDK integration tests
         run: |
           source .venv/bin/activate
-          LOG_FILE="$(mktemp)"
-          if pytest -q tests/integration 2>&1 | tee "${LOG_FILE}"; then
-            exit 0
-          fi
-          if grep -Eq "No connected clusters available for tags|has entitlement capacity but no connected clusters are advertising that tag" "${LOG_FILE}"; then
-            echo "Skipping Python SDK integration failure due to dev cluster tag capacity"
-            exit 0
-          fi
-          exit 1
+          run_integration() {
+            local log_file
+            log_file="$(mktemp)"
+            if pytest -q tests/integration 2>&1 | tee "${log_file}"; then
+              return 0
+            fi
+            if grep -Eq "No connected clusters available for tags|has entitlement capacity but no connected clusters are advertising that tag" "${log_file}"; then
+              echo "Skipping Python SDK integration failure due to dev cluster tag capacity"
+              return 0
+            fi
+            if grep -Eq "503 Service Unavailable|API Error 503|failed: 503 Service Unavailable|Service Unavailable" "${log_file}"; then
+              return 85
+            fi
+            return 1
+          }
+
+          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
+            if run_integration; then
+              exit 0
+            fi
+            status=$?
+            if [ "${status}" -ne 85 ] || [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
+              exit "${status}"
+            fi
+            echo "Transient Python integration 503 failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
+            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
+          done
 
       - name: Cleanup bootstrapped credentials
         if: always()
