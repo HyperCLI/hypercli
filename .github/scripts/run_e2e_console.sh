@@ -121,12 +121,13 @@ trap 'cleanup; sync_artifacts' EXIT
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
 rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
+npm run build --workspace @hypercli/console --workspace @hypercli/claw
 
 cd "${SITE_ROOT}/apps/console"
-PORT="${CONSOLE_PORT}" npm run dev >"${CONSOLE_LOG}" 2>&1 &
+PORT="${CONSOLE_PORT}" npm run start >"${CONSOLE_LOG}" 2>&1 &
 CONSOLE_PID=$!
 cd "${SITE_ROOT}/apps/claw"
-PORT="${CLAW_PORT}" npm run dev >"${CLAW_LOG}" 2>&1 &
+PORT="${CLAW_PORT}" npm run start >"${CLAW_LOG}" 2>&1 &
 CLAW_PID=$!
 
 cd "${SITE_ROOT}"
