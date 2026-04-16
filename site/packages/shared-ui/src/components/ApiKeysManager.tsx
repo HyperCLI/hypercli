@@ -15,7 +15,7 @@ const API_KEY_BASELINE_FAMILIES = [
   { key: "agents", label: "Agents", allowed: ["none", "self", "*"] },
   { key: "models", label: "Models", allowed: ["none", "*"] },
   { key: "voice", label: "Voice", allowed: ["none", "*"] },
-  { key: "flow", label: "Flows", allowed: ["none", "*"] },
+  { key: "flows", label: "Flows", allowed: ["none", "self", "*"] },
 ] as const;
 
 type FamilyKey = (typeof API_KEY_BASELINE_FAMILIES)[number]["key"];
@@ -31,6 +31,7 @@ const BASELINE_LABELS: Record<BaselineValue, string> = {
 const FULL_ACCESS_TAG = "*:*";
 
 const SELECTOR_TAG_RE = /^[A-Za-z0-9_+-]+=[A-Za-z0-9_+-]+$/;
+const RESERVED_RESOURCE_SCOPE_RE = /^(resource|job|render|flow|file|agent):[A-Za-z0-9_.+/-]+$/;
 
 const DEFAULT_BASELINES = Object.fromEntries(
   API_KEY_BASELINE_FAMILIES.map(({ key }) => [key, "none"])
@@ -66,14 +67,27 @@ function validateSelectorTags(tags: string[]): string[] {
   const normalized: string[] = [];
 
   for (const tag of tags) {
+    if (RESERVED_RESOURCE_SCOPE_RE.test(tag)) {
+      const key = tag.split(":")[0]!;
+      if (seenKeys.has(key)) {
+        throw new Error(`Duplicate tag key '${key}'.`);
+      }
+      seenKeys.add(key);
+      normalized.push(tag);
+      continue;
+    }
+
     if (!SELECTOR_TAG_RE.test(tag)) {
       throw new Error(
-        `Invalid tag '${tag}'. Use key=value with letters, digits, '-', '_', or '+'.`
+        `Invalid tag '${tag}'. Use key=value for your own tags or reserved exact scopes like agent:<uuid>.`
       );
     }
     const key = tag.split("=")[0]!;
     if (API_KEY_BASELINE_FAMILIES.some((family) => family.key === key)) {
       throw new Error(`Reserved family key '${key}' must use family:value baselines.`);
+    }
+    if (["resource", "job", "render", "flow", "file", "agent"].includes(key)) {
+      throw new Error(`Reserved resource key '${key}' must use the reserved key:value scope format.`);
     }
     if (seenKeys.has(key)) {
       throw new Error(`Duplicate tag key '${key}'.`);
@@ -118,7 +132,7 @@ export function ApiKeysManager({
   apiBaseUrl,
   getToken,
   title = "API Keys",
-  description = "Create full-access API keys by default, or narrow them with baseline and selector tags.",
+  description = "New keys start deny-by-default. Add only the baseline and selector tags you want to allow.",
   emptyTitle = "No API keys yet",
   emptyDescription = "Create your first key to start using the API.",
   className,
@@ -131,7 +145,7 @@ export function ApiKeysManager({
   const [showCreate, setShowCreate] = useState(false);
   const [creating, setCreating] = useState(false);
   const [newKeyName, setNewKeyName] = useState("");
-  const [accessPreset, setAccessPreset] = useState<AccessPreset>("full");
+  const [accessPreset, setAccessPreset] = useState<AccessPreset>("scoped");
   const [selectorInput, setSelectorInput] = useState("");
   const [baselines, setBaselines] = useState<Record<FamilyKey, BaselineValue>>(DEFAULT_BASELINES);
   const [createdKey, setCreatedKey] = useState<ManagedApiKey | null>(null);
@@ -181,7 +195,7 @@ export function ApiKeysManager({
 
   const resetCreateState = () => {
     setNewKeyName("");
-    setAccessPreset("full");
+    setAccessPreset("scoped");
     setSelectorInput("");
     setBaselines(DEFAULT_BASELINES);
   };
@@ -564,7 +578,7 @@ export function ApiKeysManager({
                   )}
                 </div>
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Family baselines use `family:value`, for example `agents:self` or `jobs:*`.
+                  Reserved scopes use `:`, for example `agents:self`, `jobs:*`, or `agent:&lt;uuid&gt;`.
                 </p>
               </div>
 
@@ -578,7 +592,7 @@ export function ApiKeysManager({
                   disabled={creating}
                 />
                 <p className="mt-2 text-xs text-muted-foreground">
-                  Use `key=value` tags only. Colons are reserved for family baselines.
+                  Use `key=value` for your own metadata tags. `:` is reserved for built-in scopes such as `agent:&lt;uuid&gt;`.
                 </p>
               </div>
             </>

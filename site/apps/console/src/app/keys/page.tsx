@@ -45,7 +45,7 @@ export default function ApiKeysPage() {
           <ApiKeysManager
             apiBaseUrl={getAuthBackendUrl()}
             getToken={getConsoleToken}
-            description="Create full-access API keys by default with `*:*`, or switch to scoped tags for narrower app access."
+            description="New keys start deny-by-default. Add only the scoped tags you want to allow."
           />
         </div>
       </main>

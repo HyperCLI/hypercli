@@ -49,9 +49,9 @@ Common baseline tags:
 Common selector tags:
 
 - `team=dev`
+- `customer=acme`
 - `project=alpha`
-- `agent=<agent-uuid>`
-- `model=kimi-k2-5`
+- `agent:<agent-uuid>`
 - `runtime=agent`
 
 Example:
@@ -69,11 +69,11 @@ That key can be embedded in your own app and used directly against the product A
 
 New keys are deny-by-default unless tags are supplied. Use `*:*` only for trusted full-access keys or legacy migration.
 
-For HyperClaw inference:
+For HyperClaw inference and voice:
 
 - `models:*` is enough for `GET /v1/models`
-- actual inference routes can be narrowed with exact selectors such as `model=kimi-k2-5`
-- subscription voice routes use the `voice:*` family and the current `/agents/voice/*` surface
+- `voice:*` is the public voice family contract for `/agents/voice/*`
+- new keys are still deny-by-default overall, so only the tags you attach are allowed
 
 ## Child Keys For One Exact Agent
 
@@ -86,7 +86,7 @@ child = client.deployments.create_scoped_key(agent.id, name="agent-client")
 print(child["api_key"])
 ```
 
-The underlying exact-agent selector is `agent=<agent-uuid>`. Do not use `agents:<uuid>` or `agent=<name>`.
+The reserved exact-agent selector is `agent:<agent-uuid>`. `:` stays reserved for built-in scopes; use `=` only for your own metadata tags. Do not use `agents:<uuid>` or `agent=<name>`.
 
 That child key is intended for:
 

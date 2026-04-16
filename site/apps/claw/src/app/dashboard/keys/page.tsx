@@ -11,7 +11,7 @@ export default function KeysPage() {
     <ApiKeysManager
       apiBaseUrl={AUTH_BASE_URL}
       getToken={getToken}
-      description="Create full-access API keys by default with `*:*`, or switch to scoped tags when you need narrower access."
+      description="New keys start deny-by-default. Add only the scoped tags you want to allow."
       cardClassName="glass-card overflow-auto max-h-[calc(100vh-16rem)]"
       createButtonClassName="btn-primary px-4 py-2 rounded-lg text-sm font-medium cursor-pointer"
     />

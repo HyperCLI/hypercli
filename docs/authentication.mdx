@@ -186,7 +186,7 @@ New keys are deny-by-default unless you attach tags explicitly.
 There are two kinds of tags:
 
 - family baseline tags such as `jobs:*` or `files:self`
-- selector tags such as `team=dev`, `agent=<agent-uuid>`, `model=kimi-k2-5`, or `runtime=agent`
+- selector tags such as `team=dev`, `customer=acme`, or `runtime=agent`
 
 Examples:
 
@@ -205,11 +205,22 @@ Examples:
 - `user:self`
 - `api:self`
 - `team=dev`
-- `agent=<agent-uuid>`
-- `model=kimi-k2-5`
+- `agent:<agent-uuid>`
 - `runtime=agent`
 
-Resources also carry tags. Access is granted when the key's effective tags are a subset of the resource tags, or when the key has a family-wide baseline such as `jobs:*`.
+Resources also carry tags. The contract is allowlist-oriented:
+
+- new keys have no access unless you attach tags
+- a selector tag only grants access when the resource carries the same tag
+- a family-wide baseline such as `jobs:*` grants broad access for that family
+- `family:none` means there is no baseline grant for that family; it does not erase matching selector tags
+
+For example:
+
+- key tags: `jobs:none`, `team=dev`
+- resource tags: `owner=<user>`, `job=<id>`, `resource=<id>`, `team=dev`
+
+That key can still access the resource because the selector tag `team=dev` matches exactly.
 
 ### Resource Families
 
@@ -244,12 +255,13 @@ Broad agent access uses the `agents:* | agents:self | agents:none` family tags.
 
 Exact agent binding is separate and uses the selector tag:
 
-- `agent=<agent-uuid>`
+- `agent:<agent-uuid>`
 
 So:
 
 - `agents:<uuid>` is not an exact-agent tag
 - `agent=<name>` is not supported
+- `:` is reserved for built-in scopes like `agent:<uuid>`; use `=` only for arbitrary metadata such as `customer=acme`
 - the stable exact selector is the agent UUID
 
 In practice, prefer minting exact-agent child keys through the agent API instead of hand-writing tags:
@@ -263,7 +275,7 @@ curl -X POST https://api.hypercli.com/api/deployments/<agent-uuid>/keys \
 
 That endpoint issues the correctly scoped key for that one agent.
 
-### Inference And Voice Selectors
+### Inference And Voice Access
 
 For LLM access:
 
@@ -274,13 +286,15 @@ For LLM access:
 - `POST /v1/embeddings`
 - `POST /v1/responses`
 
-The inference routes above can also be narrowed with selector tags such as:
+The current public contract keeps voice simple:
 
-- `model=kimi-k2-5`
-- `model=glm-5`
-- `model=qwen3-embedding-4b`
+- use `voice:*` for subscription voice routes
+- do not rely on per-voice key tags in product code or docs
 
-Provider-specific aliases still resolve back to the canonical model. For example, `kimi-k2.5-anthropic` maps to the same underlying model as `kimi-k2-5`.
+Model access may be narrowed by the backend using model-scoped checks, but the stable public contract here is still:
+
+- `models:*` for model discovery and inference
+- exact selector tags for your own resource scoping, such as `customer=acme` or `team=dev`
 
 Subscription voice routes are:
 

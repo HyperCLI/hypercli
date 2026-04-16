@@ -1,14 +1,14 @@
 ---
 title: Tags
-description: Use `key=value` resource tags and `family:value` API key scopes consistently across HyperCLI and HyperClaw.
+description: Use reserved `:` resource scopes and arbitrary `=` metadata tags consistently across HyperCLI and HyperClaw.
 ---
 
 ## Overview
 
 HyperCLI uses two tag forms on purpose:
 
-- resource tags: `key=value`
-- scoped key tags: `family:value`
+- resource metadata tags: `key=value`
+- reserved key scopes: `family:value` or exact resource selectors like `agent:<uuid>`
 
 They are not interchangeable.
 
@@ -20,11 +20,10 @@ Use resource tags for metadata on the things you run and allocate:
 - renders
 - files
 
-Use scoped key tags for API key authorization:
+Use family baseline tags for broad API key authorization:
 
 - `agents:self`
 - `models:*`
-- `models:kimi-k2.5`
 - `voice:*`
 
 ## Resource Tags
@@ -47,15 +46,28 @@ This is the standard form for:
 
 ## API Key Scope Tags
 
-API keys use family-scoped tags such as:
+API keys use:
+
+- family baselines such as `jobs:self`, `renders:*`, `voice:*`
+- selector tags such as `customer=acme`, `project=alpha`
+
+Examples:
 
 ```text
 *:*
 agents:self
 models:*
-models:kimi-k2.5
-voice:Chelsie
+voice:*
+customer=acme
+project=alpha
 ```
+
+The allowlist rule is simple:
+
+- no tags means no access
+- a selector tag on the key only grants access when the resource has the same selector tag
+- a family `*` baseline grants broad access for that family
+- `family:none` means no baseline grant; it does not cancel matching selectors
 
 These are authorization scopes, not resource metadata.
 
@@ -102,7 +114,7 @@ The clean model is:
 
 ## Rules
 
-- Use `key=value` for resource metadata.
-- Use `family:value` only for scoped API key authorization.
+- Use `key=value` for arbitrary user-defined metadata.
+- Use `:` only for reserved built-in scopes such as `jobs:*`, `agents:self`, or `agent:<uuid>`.
 - Keep tag values stable and machine-readable.
 - Prefer tags on entitlements for billing-backed allocation metadata.

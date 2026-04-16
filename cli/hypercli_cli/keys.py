@@ -26,10 +26,14 @@ def _get_client():
 def create_key(
     name: str = typer.Option("default", help="Key name"),
     tag: list[str] = typer.Option(None, "--tag", help="Repeat as --tag team=dev"),
+    all_access: bool = typer.Option(False, "--all", help="Grant full access with *:*"),
 ):
     """Create a new API key"""
+    if all_access and tag:
+        raise typer.BadParameter("Use either --all or --tag, not both")
+
     client = _get_client()
-    key = client.keys.create(name=name, tags=tag or None)
+    key = client.keys.create(name=name, tags=(["*:*"] if all_access else (tag or None)))
     console.print(f"\n[bold green]API key created![/bold green]\n")
     console.print(f"  Key ID:  {key.key_id}")
     console.print(f"  Name:    {key.name}")

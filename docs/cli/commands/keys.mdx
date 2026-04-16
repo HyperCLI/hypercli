@@ -10,6 +10,7 @@ Create a new API key.
 ```bash
 hyper keys create
 hyper keys create --name ci-bot
+hyper keys create --name admin --all
 hyper keys create --name team-dev --tag jobs:self --tag team=dev
 ```
 
@@ -19,7 +20,9 @@ Tags are the entire authorization model for API keys.
 
 New keys default to no access unless you attach tags.
 
-Scoped API-key tags use `family:value`. Resource metadata tags use `key=value`. For the full contract across agents, entitlements, jobs, and keys, see [Tags](/agents/tags).
+Use `--all` if you explicitly want a full-access key. It expands to `*:*`.
+
+Reserved system scopes use `:`. User-defined metadata selectors use `=`. For the full contract across agents, entitlements, jobs, and keys, see [Tags](/agents/tags).
 
 Common baseline tags:
 
@@ -43,20 +46,20 @@ Common baseline tags:
 Common selector tags:
 
 - `team=dev`
+- `customer=acme`
 - `project=alpha`
-- `agent=<agent-uuid>`
-- `model=kimi-k2-5`
+- `agent:<agent-uuid>`
 - `runtime=agent`
 
 Use `*:*` only for trusted full-access keys. For app keys, prefer narrow combinations such as `flows:*` and `files:*`, or `renders:*` only when you need raw render access.
 
-For one exact agent, mint a child key through the API or SDK. The underlying exact-agent selector is `agent=<agent-uuid>`. Do not use `agents:<uuid>` or `agent=<name>`.
+For one exact agent, mint a child key through the API or SDK. The reserved exact-agent selector is `agent:<agent-uuid>`. `:` is reserved for built-in resource scopes; use `=` for your own tags such as `customer=acme`. Do not use `agents:<uuid>` or `agent=<name>`.
 
 For HyperClaw routes:
 
 - `models:*` covers `GET /v1/models`
-- inference requests can be narrowed with `--tag model=kimi-k2-5`
 - subscription voice requests use the `/agents/voice/*` surface and the `voice:*` family
+- exact selector tags stay allowlist-based, so a key only matches resources carrying the same selector tag
 
 ## list
 
