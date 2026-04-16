@@ -112,6 +112,7 @@ def tts(
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
+    timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
@@ -133,6 +134,7 @@ def tts(
         voice=voice,
         language=language,
         response_format=format,
+        timeout=timeout,
     )
 
 
@@ -144,6 +146,7 @@ def clone(
     x_vector_only: bool = typer.Option(True, "--x-vector-only/--full-clone", help="Use x_vector_only mode (recommended)"),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
+    timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
@@ -172,6 +175,7 @@ def clone(
         language=language,
         x_vector_only=x_vector_only,
         response_format=format,
+        timeout=timeout,
     )
 
 
@@ -182,6 +186,7 @@ def design(
     language: str = typer.Option("auto", "--language", "-l", help="Language: auto, english, chinese, etc."),
     format: str = typer.Option("mp3", "--format", "-f", help="Output format: wav, mp3, opus, ogg, flac"),
     output: Path = typer.Option(None, "--output", "-o", help="Output audio file (default: output.<format>)"),
+    timeout: float | None = typer.Option(None, "--timeout", help="Voice request timeout in seconds"),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...)"),
     base_url: str = typer.Option(None, "--base-url", "-b", help="API base URL (default: api.hypercli.com)"),
 ):
@@ -203,4 +208,5 @@ def design(
         description=description,
         language=language,
         response_format=format,
+        timeout=timeout,
     )

@@ -70,3 +70,39 @@ def test_agent_transcribe_command_is_removed():
 
     assert result.exit_code != 0
     assert "No such command 'transcribe'" in result.stdout
+
+
+def test_voice_tts_forwards_timeout(monkeypatch, tmp_path):
+    import hypercli_cli.voice as voice
+
+    monkeypatch.setenv("HYPER_API_KEY", "hyper_api_test")
+    captured = {}
+
+    def _fake_post_voice(endpoint, api_key, output, base_url=None, **kwargs):
+        captured["endpoint"] = endpoint
+        captured["api_key"] = api_key
+        captured["output"] = output
+        captured["base_url"] = base_url
+        captured["kwargs"] = kwargs
+
+    monkeypatch.setattr(voice, "_post_voice", _fake_post_voice)
+
+    output = tmp_path / "tts.wav"
+    result = runner.invoke(
+        app,
+        [
+            "voice",
+            "tts",
+            "hello",
+            "--format",
+            "wav",
+            "--output",
+            str(output),
+            "--timeout",
+            "720",
+        ],
+    )
+
+    assert result.exit_code == 0, result.stdout
+    assert captured["endpoint"] == "tts"
+    assert captured["kwargs"]["timeout"] == 720.0

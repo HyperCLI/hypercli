@@ -70,3 +70,14 @@ def test_voice_design_posts_description():
             VoiceAPI.DEFAULT_TIMEOUT,
         )
     ]
+
+
+def test_voice_timeout_uses_env_default(monkeypatch):
+    monkeypatch.setenv("HYPER_VOICE_TIMEOUT_SECONDS", "720")
+
+    http = DummyVoiceHTTP()
+    voice = VoiceAPI(http)
+
+    voice.tts("hello")
+
+    assert http.calls[0][2] == 720.0
