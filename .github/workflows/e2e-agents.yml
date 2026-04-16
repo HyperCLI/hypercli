@@ -23,7 +23,7 @@ jobs:
       TEST_AGENTS_API_BASE_URL: https://api.dev.hypercli.com/agents
       TEST_STRIPE_AGENTS_SECRET_KEY: ${{ secrets.TEST_STRIPE_AGENTS_SECRET_KEY }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
-      PLAYWRIGHT_ARTIFACTS_DIR: ${{ runner.temp }}/playwright-agents-artifacts-${{ github.run_id }}-${{ github.run_attempt }}
+      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-agents-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
