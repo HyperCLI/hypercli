@@ -77,7 +77,7 @@ describe('Agents SDK', () => {
       post: vi.fn().mockResolvedValue({
         key_id: 'key-123',
         api_key: 'hyper_api_scoped',
-        tags: ['agent=agent-123'],
+        tags: ['agent:agent-123'],
       }),
     } as unknown as HTTPClient;
 

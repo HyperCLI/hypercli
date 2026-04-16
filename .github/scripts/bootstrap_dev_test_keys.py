@@ -273,7 +273,7 @@ def bootstrap() -> BootstrapState:
     hyperclaw_user_id = str(hyperclaw_user_response["id"])
     _request(
         "POST",
-        f"{agents_api_base}/admin/subscriptions/grant",
+        f"{product_base}/admin/subscriptions/grant",
         headers=_headers(agents_admin_key),
         json={
             "user_id": hyperclaw_user_id,

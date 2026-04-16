@@ -1020,7 +1020,7 @@ def test_agents_create_scoped_key(agents_client):
             "key_id": "key-123",
             "name": "agent-client",
             "api_key": "hyper_api_scoped",
-            "tags": ["agent=agent-123"],
+            "tags": ["agent:agent-123"],
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
