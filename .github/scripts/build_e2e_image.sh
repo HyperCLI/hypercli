@@ -54,6 +54,6 @@ docker build \
 
 if [[ -n "${GITHUB_OUTPUT:-}" ]]; then
   echo "e2e_image=${E2E_IMAGE}" >> "${GITHUB_OUTPUT}"
+else
+  echo "${E2E_IMAGE}"
 fi
-
-echo "${E2E_IMAGE}"
