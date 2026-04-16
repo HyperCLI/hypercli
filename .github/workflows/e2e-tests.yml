@@ -23,6 +23,7 @@ jobs:
       TEST_IMAP_USER: ${{ vars.TEST_IMAP_USER }}
       TEST_IMAP_PASS: ${{ secrets.TEST_IMAP_PASS }}
       NOTIFY_URL: ${{ vars.NOTIFY_URL }}
+      PLAYWRIGHT_ARTIFACTS_DIR: ${{ github.workspace }}/.e2e-artifacts/playwright-console-${{ github.run_id }}-${{ github.run_attempt }}
     steps:
       - uses: actions/checkout@v4
         with:
@@ -55,7 +56,7 @@ jobs:
         env:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          ARTIFACTS_DIR="${RUNNER_TEMP}/playwright-console-artifacts"
+          ARTIFACTS_DIR="${PLAYWRIGHT_ARTIFACTS_DIR}"
           rm -rf "${ARTIFACTS_DIR}"
           mkdir -p "${ARTIFACTS_DIR}"
           docker run --rm --init \
@@ -81,7 +82,7 @@ jobs:
         uses: actions/upload-artifact@v4
         with:
           name: playwright-artifacts
-          path: ${{ runner.temp }}/playwright-console-artifacts
+          path: ${{ env.PLAYWRIGHT_ARTIFACTS_DIR }}
           if-no-files-found: ignore
 
       - name: Cleanup bootstrapped credentials
