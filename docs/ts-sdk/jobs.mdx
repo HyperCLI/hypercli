@@ -66,7 +66,7 @@ const tagged = await client.jobs.list({ tags: ["team=ml", "env=prod"] });
 const details = await client.jobs.get(job.jobId);
 ```
 
-Job responses include `tags` as a string array. Orchestra also adds system tags such as `owner=<id>`, `resource=<id>`, and `job=<id>`.
+Job responses include `tags` as a string array. Orchestra also adds system tags such as `owner=<id>` and `job=<id>`.
 
 Runtime-related fields are also available on each job:
 
