@@ -103,3 +103,13 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - Node version mismatches: use Node 22 (recommended) or Node 20+.
 - Port conflicts: edit `site/apps/*/package.json` dev/start scripts.
 - Build cache issues: run `npm run clean` from `site/`.
+
+## SDK Releases
+- Use the `Publish SDKs` GitHub Actions workflow for npm/PyPI releases.
+- Calver rule:
+  - first release on a new date: `YYYY.M.D`
+  - only use `YYYY.M.D-N` for additional same-day rereleases
+- Python packages map npm-style suffixes to PEP 440 automatically:
+  - `2026.4.17` -> `2026.4.17`
+  - `2026.4.17-2` -> `2026.4.17.post2`
+- Do not start a new day with `-1`; that should be a plain date release.

@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
     inputs:
       version:
-        description: "Release version (for example 2026.4.13 or 2026.4.13-4)"
+        description: "Release version. Use YYYY.M.D for the first release of a day; only use YYYY.M.D-N for additional same-day rereleases."
         required: true
         type: string
 
