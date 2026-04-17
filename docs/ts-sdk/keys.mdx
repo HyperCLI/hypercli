@@ -77,6 +77,73 @@ For HyperClaw inference and voice:
 - `voice:*` is the public voice family contract for `/agents/voice/*`
 - new keys are still deny-by-default overall, so only the tags you attach are allowed
 
+## Integration Pattern: Tag-Scoped Key + Tagged Agent
+
+This is the primary downstream integration pattern:
+
+1. create an API key with a selector tag
+2. create an agent carrying the same tag
+3. start and stop that agent with the generated key
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const root = new HyperCLI({
+  apiKey: process.env.HYPER_API_KEY!,
+  apiUrl: "https://api.hypercli.com",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
+});
+
+// 1. Mint a narrowed key with one selector tag plus the agents self-family baseline.
+const scoped = await root.keys.create("customer-user123", [
+  "agents:self",
+  "customer=user123",
+]);
+
+// 2. Create an agent carrying the same selector tag.
+const agent = await root.deployments.create({
+  name: "customer-user123-agent",
+  size: "small",
+  start: false,
+  tags: ["customer=user123"],
+});
+
+console.log("created agent", agent.id);
+console.log("scoped key", scoped.apiKey);
+
+if (!scoped.apiKey) {
+  throw new Error("Expected full API key on create");
+}
+
+// 3. Use the generated key directly against the deployments API.
+const scopedClient = new HyperCLI({
+  apiKey: scoped.apiKey,
+  apiUrl: "https://api.hypercli.com",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
+});
+
+await scopedClient.deployments.start(agent.id);
+console.log("started", agent.id);
+
+await scopedClient.deployments.stop(agent.id);
+console.log("stopped", agent.id);
+```
+
+Why this is the integration pattern:
+
+- the key carries `customer=user123`
+- the agent carries `customer=user123`
+- `agents:self` gives the key the agents-family baseline
+- the backend then allows the key to act only on resources carrying the same selector tag
+
+Use this when your platform needs to issue one narrowed key per downstream scope, such as:
+
+- `customer=user123`
+- `project=alpha`
+- `tenant=acme`
+
+Use `=` for your own selectors. `:` is reserved for built-in system scopes.
+
 ## Child Keys For One Exact Agent
 
 For embedded agent clients, mint an exact-agent child key:
@@ -96,6 +163,41 @@ That child key is intended for:
 - start/stop
 - matched logs/state
 - inference access through the dedicated inference token endpoint
+
+Exact-agent flow example:
+
+```ts
+import { HyperCLI } from "@hypercli.com/sdk";
+
+const root = new HyperCLI({
+  apiKey: process.env.HYPER_API_KEY!,
+  apiUrl: "https://api.hypercli.com",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
+});
+
+const agent = await root.deployments.create({
+  name: "single-agent-client",
+  size: "small",
+  start: false,
+});
+
+const child = await root.deployments.createScopedKey(agent.id, "single-agent-client");
+
+if (!child.api_key) {
+  throw new Error("Expected full child key on create");
+}
+
+const exactClient = new HyperCLI({
+  apiKey: child.api_key,
+  apiUrl: "https://api.hypercli.com",
+  agentsApiBaseUrl: "https://api.hypercli.com/agents",
+});
+
+await exactClient.deployments.start(agent.id);
+await exactClient.deployments.stop(agent.id);
+```
+
+Use this exact-agent form only when one key should control one exact agent. For normal downstream integrations, prefer the selector-tag flow above.
 
 ## List, Inspect, Rename, Disable
 
