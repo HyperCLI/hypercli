@@ -26,6 +26,10 @@ const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
 const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
 const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
+const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
+  process.env.TEST_PRIVY_AUTH_SETTLE_TIMEOUT_MS || "45000",
+  10
+);
 
 interface BillingBalanceSnapshot {
   availableBalance: number;
@@ -284,6 +288,63 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
   await textbox.fill(otp);
 }
 
+interface PrivyAuthDebugState {
+  url: string;
+  localStorageKeys: string[];
+  hasClawAuthToken: boolean;
+  hasAppAuthToken: boolean;
+  hasAuthCookie: boolean;
+  cookieNames: string[];
+  privyModalVisible: boolean;
+  otpInputCount: number;
+  buttonLabels: string[];
+}
+
+async function getPrivyAuthDebugState(page: Page): Promise<PrivyAuthDebugState> {
+  const privyModal = page.locator("#privy-modal-content").first();
+  const otpInputs = page.locator(
+    'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
+  );
+  const visibleButtons = page.locator("button:visible");
+
+  const buttonLabels = await visibleButtons.evaluateAll((elements) =>
+    elements
+      .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
+      .filter(Boolean)
+      .slice(0, 10)
+  );
+
+  return page.evaluate(
+    ({ modalVisible, otpInputCount, buttonLabels }) => {
+      const cookieNames = document.cookie
+        .split("; ")
+        .map((entry) => entry.split("=")[0])
+        .filter(Boolean);
+      return {
+        url: window.location.href,
+        localStorageKeys: Object.keys(localStorage).sort(),
+        hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
+        hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
+        hasAuthCookie: cookieNames.includes("auth_token"),
+        cookieNames,
+        privyModalVisible: modalVisible,
+        otpInputCount,
+        buttonLabels,
+      };
+    },
+    {
+      modalVisible: await privyModal.isVisible().catch(() => false),
+      otpInputCount: await otpInputs.count(),
+      buttonLabels,
+    }
+  );
+}
+
+async function logPrivyAuthState(page: Page, label: string): Promise<void> {
+  const state = await getPrivyAuthDebugState(page);
+  console.log(`[privy-auth:${label}] ${JSON.stringify(state)}`);
+}
+
 export async function loginWithPrivy(page: Page): Promise<void> {
   const email = getEnv("TEST_EMAIL");
   const privyModal = page.locator("#privy-modal-content").first();
@@ -325,29 +386,53 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   const otp = await pollForPrivyOtp(otpSubmittedAt);
   await fillOtp(page, otp);
   await captureStep(page, "05-otp-entered");
+  await logPrivyAuthState(page, "otp-entered");
 
   await expect
     .poll(async () => {
       try {
-        return await page.evaluate(() => {
+        const authState = await page.evaluate(() => {
           const localToken =
             localStorage.getItem("claw_auth_token") ||
             localStorage.getItem("app_auth_token");
-          if (localToken) return localToken;
+          if (localToken) {
+            return {
+              tokenSource: "localStorage",
+              value: localToken,
+            };
+          }
 
           const authCookie = document.cookie
             .split("; ")
             .find((row) => row.startsWith("auth_token="));
-          return authCookie || null;
+          if (authCookie) {
+            return {
+              tokenSource: "cookie",
+              value: authCookie,
+            };
+          }
+          return null;
         });
+        if (!authState) {
+          await logPrivyAuthState(page, "waiting-for-auth-token");
+          return null;
+        }
+        console.log(`[privy-auth:token-ready] source=${authState.tokenSource}`);
+        return authState.value;
       } catch {
         return null;
       }
-    }, { timeout: 45_000 })
+    }, { timeout: PRIVY_AUTH_SETTLE_TIMEOUT_MS })
     .not.toBeNull();
 
   await expect
-    .poll(() => page.url(), { timeout: 45_000 })
+    .poll(async () => {
+      const currentUrl = page.url();
+      if (!currentUrl.includes("/dashboard")) {
+        await logPrivyAuthState(page, "waiting-for-dashboard");
+      }
+      return currentUrl;
+    }, { timeout: PRIVY_AUTH_SETTLE_TIMEOUT_MS })
     .toContain("/dashboard");
 
   if (await privyModal.isVisible().catch(() => false)) {
