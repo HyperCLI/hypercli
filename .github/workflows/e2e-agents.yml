@@ -1,4 +1,4 @@
-name: E2E Agents
+name: playwright-agents
 
 on:
   workflow_call:
@@ -78,14 +78,14 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Frontend agents e2e passed"
+          MESSAGE="Frontend playwright-agents passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
-            --workflow "E2E Agents" \
+            --workflow "playwright-agents" \
             --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 

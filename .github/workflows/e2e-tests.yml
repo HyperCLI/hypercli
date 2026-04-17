@@ -1,4 +1,4 @@
-name: E2E Console
+name: playwright-console
 
 on:
   workflow_call:
@@ -102,14 +102,14 @@ jobs:
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
           E2E_STATUS: ${{ steps.e2e.outcome }}
         run: |
-          MESSAGE="Frontend console e2e passed"
+          MESSAGE="Frontend playwright-console passed"
           python3 .github/scripts/ci_notify.py \
             --category frontend \
             --phase test \
             --status "${E2E_STATUS}" \
             --event "${{ github.event_name }}" \
             --message "${MESSAGE}" \
-            --workflow "E2E Console" \
+            --workflow "playwright-console" \
             --channel frontend \
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
