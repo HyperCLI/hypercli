@@ -1,7 +1,7 @@
 "use client";
 
 import { useState } from "react";
-import { Bot, ChevronDown, Wrench, FolderOpen, Link2, Activity, Cpu, MemoryStick } from "lucide-react";
+import { Bot, ChevronDown, Wrench, FolderOpen, Link2, Activity, Cpu, MemoryStick, Play, Square, Loader2 } from "lucide-react";
 import { motion, AnimatePresence } from "framer-motion";
 import { agentAvatar } from "@/lib/avatar";
 import type { StyleVariant, AgentStatus } from "../agentViewTypes";
@@ -189,9 +189,21 @@ interface AgentCardModuleProps {
   variant: StyleVariant;
   agentName?: string;
   agentStatus?: AgentStatus | null;
-  config?: { model: string; tools: { name: string; enabled: boolean }[] } | null;
+  config?: { model: string; systemPrompt?: string; tools: { name: string; enabled: boolean }[] } | null;
   connections?: { id: string; connected: boolean }[] | null;
   sessions?: { key: string }[] | null;
+  /** Start the agent (only shown when state is STOPPED/FAILED). */
+  onStart?: () => void;
+  /** Stop the agent (only shown when state is RUNNING). */
+  onStop?: () => void;
+  /** Loading flag for the start action. */
+  starting?: boolean;
+  /** Loading flag for the stop action. */
+  stopping?: boolean;
+  /** When true, the start button is disabled (e.g. tier capacity exhausted). */
+  startBlocked?: boolean;
+  /** Tooltip text for the disabled-start state. */
+  startBlockedReason?: string;
 }
 
 export function AgentCardModule({
@@ -201,13 +213,65 @@ export function AgentCardModule({
   config: configProp,
   connections: connectionsProp,
   sessions: sessionsProp,
+  onStart,
+  onStop,
+  starting = false,
+  stopping = false,
+  startBlocked = false,
+  startBlockedReason,
 }: AgentCardModuleProps) {
   const status = agentStatus ?? MOCK_STATUS;
   const isMock = !configProp;
-  const configTools = (configProp ?? MOCK_CONFIG).tools;
+  const config = configProp ?? MOCK_CONFIG;
+  const configTools = config.tools;
   const enabledTools = configTools.filter((t) => t.enabled).map((t) => t.name);
   const sessionsCount = (sessionsProp ?? MOCK_SESSIONS).length;
   const connectedCount = (connectionsProp ?? MOCK_CONNECTIONS).filter((c) => c.connected).length;
+
+  // State-driven action button
+  const isRunning = status.state === "RUNNING";
+  const isStopped = status.state === "STOPPED" || (status.state as string) === "FAILED";
+  const isTransitioning = !isRunning && !isStopped; // PENDING, STARTING, STOPPING
+  const avatar = agentAvatar(agentName);
+  const AvatarIcon = avatar.icon;
+
+  const renderActionButton = () => {
+    if (isStopped && onStart) {
+      return (
+        <button
+          onClick={onStart}
+          disabled={starting || startBlocked}
+          title={startBlocked ? startBlockedReason : "Start agent"}
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+        >
+          {starting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
+          <span>Start</span>
+        </button>
+      );
+    }
+    if (isRunning && onStop) {
+      return (
+        <button
+          onClick={onStop}
+          disabled={stopping}
+          title="Stop agent"
+          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-border text-text-secondary hover:bg-surface-low hover:text-foreground transition-colors disabled:opacity-50"
+        >
+          {stopping ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
+          <span>Stop</span>
+        </button>
+      );
+    }
+    if (isTransitioning) {
+      return (
+        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[#f0c56c]/30 text-[#f0c56c]">
+          <Loader2 className="w-3 h-3 animate-spin" />
+          <span>{status.state.charAt(0) + status.state.slice(1).toLowerCase()}…</span>
+        </span>
+      );
+    }
+    return null;
+  };
 
   if (variant === "v1") {
     return (
@@ -218,38 +282,48 @@ export function AgentCardModule({
         <div className="rounded-xl bg-surface-low p-4 space-y-3">
           <div className="flex items-center gap-3">
             <motion.div
-              animate={{ scale: [1, 1.05, 1] }}
+              animate={isRunning ? { scale: [1, 1.05, 1] } : {}}
               transition={{ repeat: Infinity, duration: 3 }}
-              className="w-10 h-10 rounded-xl bg-[#38D39F]/15 flex items-center justify-center"
+              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
+              style={{ backgroundColor: avatar.bgColor }}
             >
-              <Bot className="w-5 h-5 text-[#38D39F]" />
+              {avatar.imageUrl ? (
+                <img src={avatar.imageUrl} alt={`${agentName} avatar`} className="w-full h-full object-cover" />
+              ) : (
+                <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
+              )}
             </motion.div>
-            <div>
-              <div className="text-sm font-semibold text-foreground">
+            <div className="flex-1 min-w-0">
+              <div className="text-sm font-semibold text-foreground truncate">
                 {agentName}
               </div>
-              <div className="text-[10px] text-text-muted">
-                {MOCK_CONFIG.model} · v{status.version}
+              <div className="text-[10px] text-text-muted truncate">
+                {config.model}{status.version ? ` · v${status.version}` : ""}
               </div>
             </div>
+            {renderActionButton()}
           </div>
-          <p className="text-[10px] text-text-muted line-clamp-2">
-            {MOCK_CONFIG.systemPrompt}
-          </p>
-          <div className="flex flex-wrap gap-1">
-            {enabledTools.map((t) => (
-              <span
-                key={t}
-                className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F]"
-              >
-                {t}
-              </span>
-            ))}
-          </div>
+          {config.systemPrompt && (
+            <p className="text-[10px] text-text-muted line-clamp-2">
+              {config.systemPrompt}
+            </p>
+          )}
+          {enabledTools.length > 0 && (
+            <div className="flex flex-wrap gap-1">
+              {enabledTools.map((t) => (
+                <span
+                  key={t}
+                  className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F]"
+                >
+                  {t}
+                </span>
+              ))}
+            </div>
+          )}
           <div className="flex gap-4 text-[10px] text-text-muted">
             <span>{connectedCount} connections</span>
             <span>{sessionsCount} sessions</span>
-            <span>{formatUptime(status.uptime)} uptime</span>
+            {isRunning && <span>{formatUptime(status.uptime)} uptime</span>}
           </div>
         </div>
       </div>

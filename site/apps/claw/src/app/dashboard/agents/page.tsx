@@ -6,24 +6,16 @@ import {
   createOpenClawConfigValue,
   describeOpenClawConfigNode,
   normalizeOpenClawConfigSchemaNode,
-  resolveOpenClawConfigUiHint,
-  type OpenClawConfigSchemaResponse,
-  type OpenClawConfigUiHint,
 } from "@hypercli.com/sdk/openclaw/gateway";
 import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
-  ArrowLeft,
   Bot,
   Key,
   CreditCard,
-  Download,
   ExternalLink,
-  House,
-  FolderOpen,
-  HardDrive,
   Loader2,
   MessageSquare,
   Plus,
@@ -32,140 +24,77 @@ import {
   RefreshCw,
   TerminalSquare,
   Trash2,
-  FileText,
   Send,
   Settings,
   SlidersHorizontal,
-  PanelLeftClose,
   PanelLeft,
+  PanelLeftOpen,
   Plug,
-  Upload,
   Paperclip,
   Mic,
-  MicOff,
   X,
   Menu,
   Pause,
-  ImageIcon,
+  Gauge,
+  Link2,
+  Zap,
+  Timer,
+  FolderOpen,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
 import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory, formatTokens, type SlotInventory } from "@/lib/format";
+import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
-import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsPage } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
-
-// ── Types ──
-
-type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
-type JsonObject = Record<string, unknown>;
-
-interface Agent {
-  id: string;
-  name: string;
-  user_id: string;
-  pod_id: string | null;
-  pod_name: string | null;
-  state: AgentState;
-  cpu_millicores: number;
-  memory_mib: number;
-  hostname: string | null;
-  started_at: string | null;
-  stopped_at: string | null;
-  last_error: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-  openclaw_url?: string | null;
-  gatewayToken?: string | null;
-  meta?: AgentMeta | null;
-}
-
-interface AgentBudget {
-  slots: SlotInventory;
-  pooled_tpd: number;
-  size_presets?: Record<string, { cpu: number; memory: number }>;
-}
-
-interface AgentDesktopTokenResponse {
-  agent_id: string;
-  pod_id: string;
-  token: string;
-  expires_at: string | null;
-}
-
-interface LogEvent {
-  event?: string;
-  log?: string;
-  detail?: string;
-  status?: number;
-}
-
-interface AgentListItem {
-  id: string;
-  name: string;
-  user_id: string;
-  pod_id: string | null;
-  pod_name: string | null;
-  state: AgentState;
-  cpu: number;
-  memory: number;
-  hostname: string | null;
-  started_at: string | null;
-  stopped_at: string | null;
-  last_error: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-  openclaw_url?: string | null;
-  gatewayToken?: string | null;
-  meta?: AgentMeta | null;
-}
-
-interface AgentListResponse {
-  items?: AgentListItem[];
-}
-
-interface S3FileEntry {
-  name: string;
-  path: string;
-  size?: number;
-}
-
-interface S3FilesResponse {
-  prefix: string;
-  directories: S3FileEntry[];
-  files: S3FileEntry[];
-  truncated: boolean;
-}
-
-// ── Error Boundary ──
-
-class OpenClawErrorBoundary extends React.Component<
-  { children: React.ReactNode },
-  { error: Error | null }
-> {
-  state = { error: null as Error | null };
-  static getDerivedStateFromError(error: Error) { return { error }; }
-  render() {
-    if (this.state.error) {
-      return (
-        <div className="p-6 text-sm text-[#d05f5f]">
-          <p className="font-semibold">OpenClaw config render error</p>
-          <pre className="mt-2 text-xs whitespace-pre-wrap">{this.state.error.message}</pre>
-          <button onClick={() => this.setState({ error: null })} className="mt-2 text-xs underline">Retry</button>
-        </div>
-      );
-    }
-    return this.props.children;
-  }
-}
+import { AgentView } from "@/components/dashboard/AgentView";
+import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
+import { Sheet, SheetContent, Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { AgentCardTooltip } from "@/components/dashboard/modules/AgentCardModule";
+import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
+import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
+import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
+import { encodePath } from "@/lib/image-tools";
+import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentListItem, AgentListResponse, AgentState, JsonObject, LogEvent } from "./types";
+import {
+  describeAgentTierStartGuidance,
+  describeAgentsPageError,
+  getAgentSizePresets,
+  inferAgentTier,
+  parseEntitlementSlotTier,
+  titleizeTier,
+  type AgentTierSelectionState,
+} from "@/lib/agent-tier";
+import {
+  OPENCLAW_SYNC_ROOT,
+  OPENCLAW_WORKSPACE_DIR,
+  OPENCLAW_WORKSPACE_PREFIX,
+  asObject,
+  deepCloneJsonObject,
+  extractVoicePathFromMessage,
+  getOpenClawUiHint,
+  getPathValue,
+  humanizeKey,
+  setPathValue,
+  sortOpenClawEntries,
+} from "@/lib/openclaw-config";
+import {
+  AgentLaunchPrompt,
+  ConnectionStatusIndicator,
+  GearDropdown,
+  OpenClawErrorBoundary,
+  TabLoadingState,
+  type CenterPanel,
+} from "@/components/dashboard/agents/page-helpers";
 
 // ── Constants ──
 
@@ -173,771 +102,8 @@ const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
-const OPENCLAW_SYNC_ROOT = "/home/node";
-const OPENCLAW_WORKSPACE_PREFIX = ".openclaw/workspace";
-const OPENCLAW_WORKSPACE_DIR = `${OPENCLAW_SYNC_ROOT}/${OPENCLAW_WORKSPACE_PREFIX}`;
 type MainTab = AgentMainTab;
-
-// ── Utility functions ──
-
-function trimTrailingSlash(value: string): string {
-  return value.replace(/\/+$/, "");
-}
-
-function encodePath(path: string): string {
-  return path
-    .split("/")
-    .filter(Boolean)
-    .map((part) => encodeURIComponent(part))
-    .join("/");
-}
-
-function downloadBrowserFile(content: BlobPart | Uint8Array, filename: string, mimeType = "application/octet-stream") {
-  const blobContent =
-    content instanceof Uint8Array
-      ? new Uint8Array(content)
-      : content;
-  const url = URL.createObjectURL(new Blob([blobContent], { type: mimeType }));
-  const link = document.createElement("a");
-  link.href = url;
-  link.download = filename;
-  document.body.appendChild(link);
-  link.click();
-  link.remove();
-  URL.revokeObjectURL(url);
-}
-
-function formatFileSize(size?: number): string {
-  if (size === undefined || Number.isNaN(size)) return "-";
-  if (size < 1024) return `${size} B`;
-  if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-  if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-  return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
-}
-
-function titleizeTier(value: string): string {
-  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-const FALLBACK_AGENT_SIZE_PRESETS: Record<string, { cpu: number; memory: number }> = {
-  small: { cpu: 1, memory: 1 },
-  medium: { cpu: 2, memory: 2 },
-  large: { cpu: 4, memory: 4 },
-};
-
-interface AgentTierStartGuidance {
-  tier: string;
-  title: string;
-  message: string;
-  suggestedTier: string | null;
-  availableTiers: Array<{ tier: string; available: number }>;
-}
-
-interface AgentTierSelectionState {
-  agentId: string;
-  guidance: AgentTierStartGuidance;
-}
-
-function getAgentSizePresets(
-  budget: AgentBudget | null,
-): Record<string, { cpu_millicores: number; memory_mib: number }> {
-  const source = budget?.size_presets ?? FALLBACK_AGENT_SIZE_PRESETS;
-  return Object.fromEntries(
-    Object.entries(source).map(([tier, preset]) => [
-      tier,
-      {
-        cpu_millicores: Math.round((preset.cpu || 0) * 1000),
-        memory_mib: Math.round((preset.memory || 0) * 1024),
-      },
-    ]),
-  );
-}
-
-function inferAgentTier(agent: Pick<Agent, "cpu_millicores" | "memory_mib">, budget: AgentBudget | null): string | null {
-  const presets = getAgentSizePresets(budget);
-  for (const [tier, preset] of Object.entries(presets)) {
-    if (preset.cpu_millicores === agent.cpu_millicores && preset.memory_mib === agent.memory_mib) {
-      return tier;
-    }
-  }
-  return null;
-}
-
-function describeAgentTierStartGuidance(
-  agent: Pick<Agent, "cpu_millicores" | "memory_mib"> | null,
-  budget: AgentBudget | null,
-): AgentTierStartGuidance | null {
-  if (!agent || !budget) return null;
-  const tier = inferAgentTier(agent, budget);
-  if (!tier) return null;
-  const requested = budget.slots?.[tier] ?? { granted: 0, used: 0, available: 0 };
-  if (requested.available > 0) return null;
-
-  const requestedLabel = titleizeTier(tier);
-  const otherAvailable = Object.entries(budget.slots ?? {})
-    .filter(([entryTier, entry]) => entryTier !== tier && (entry?.available ?? 0) > 0)
-    .sort(([, left], [, right]) => (right?.available ?? 0) - (left?.available ?? 0));
-
-  if (otherAvailable.length > 0) {
-    const [suggestedTier, suggestedEntry] = otherAvailable[0];
-    const suggestedLabel = titleizeTier(suggestedTier);
-    return {
-      tier,
-      title: `${requestedLabel} slot required`,
-      suggestedTier,
-      availableTiers: otherAvailable.map(([entryTier, entry]) => ({
-        tier: entryTier,
-        available: entry?.available ?? 0,
-      })),
-      message:
-        `This agent was created as a ${requestedLabel} agent. ` +
-        `Your account has no free ${requestedLabel} slots, but ${suggestedEntry.available} free ${suggestedLabel} ` +
-        `slot${suggestedEntry.available === 1 ? "" : "s"} available. Resize this agent to ${suggestedLabel} to use the capacity you already bought.`,
-    };
-  }
-
-  if (requested.granted > 0) {
-    return {
-      tier,
-      title: `${requestedLabel} slots are fully used`,
-      suggestedTier: null,
-      availableTiers: [],
-      message:
-        `This agent was created as a ${requestedLabel} agent. ` +
-        `All ${requestedLabel} slots on this account are currently in use. Stop another ${requestedLabel} agent or buy another ${requestedLabel} bundle to launch it.`,
-    };
-  }
-
-  return {
-    tier,
-    title: `${requestedLabel} slot required`,
-    suggestedTier: null,
-    availableTiers: [],
-    message:
-      `This agent was created as a ${requestedLabel} agent. ` +
-      `Your account does not currently include any ${requestedLabel} slots. Buy a ${requestedLabel} bundle to launch it.`,
-  };
-}
-
-function parseEntitlementSlotTier(error: unknown): string | null {
-  const message = error instanceof Error ? error.message : String(error ?? "");
-  const quotedMatch = message.match(/No available '([^']+)' entitlement slots/i);
-  if (quotedMatch?.[1]) return quotedMatch[1].toLowerCase();
-  const plainMatch = message.match(/No available ([a-z-]+) entitlement slots/i);
-  if (plainMatch?.[1]) return plainMatch[1].toLowerCase();
-  return null;
-}
-
-function describeAgentsPageError(error: unknown): { message: string; clusterUnavailable: boolean } {
-  const fallback = "Failed to load agents";
-  const raw = error instanceof Error ? error.message : String(error ?? fallback);
-  const normalized = raw.trim();
-  if (normalized.includes("Agent cluster is not assigned")) {
-    return {
-      clusterUnavailable: true,
-      message: "Agent cluster assignment is still pending for this account. Try again in a minute.",
-    };
-  }
-  return {
-    clusterUnavailable: false,
-    message: normalized || fallback,
-  };
-}
-
-function extractVoicePathFromMessage(content: string): string | null {
-  const absoluteMatch = content.match(/\/home\/node\/\.openclaw\/workspace\/voice-[\w.-]+\.webm\b/i);
-  if (absoluteMatch?.[0]) return absoluteMatch[0];
-  const fileMatch = content.match(/\bvoice-[\w.-]+\.webm\b/i);
-  if (!fileMatch?.[0]) return null;
-  return `${OPENCLAW_WORKSPACE_DIR}/${fileMatch[0]}`;
-}
-
 // Shell now routes through backend WebSocket via lagoon → K8s exec
-
-function stateClass(state: AgentState): string {
-  switch (state) {
-    case "RUNNING": return "bg-[#38D39F]/10 text-[#38D39F]";
-    case "FAILED": return "bg-[#d05f5f]/10 text-[#d05f5f]";
-    case "STOPPED": return "bg-surface-low text-text-muted";
-    default: return "bg-[#f0c56c]/15 text-[#f0c56c]";
-  }
-}
-
-function AgentStateBadge({
-  state,
-  pulsing = false,
-}: {
-  state: AgentState;
-  pulsing?: boolean;
-}) {
-  const badgeClass =
-    state === "RUNNING"
-      ? "border-[#38D39F] text-[#38D39F] bg-background/90"
-      : state === "FAILED"
-        ? "border-[#d05f5f] text-[#d05f5f] bg-background/90"
-        : state === "STOPPED"
-          ? "border-[#f0c56c] text-[#f0c56c] bg-background/90"
-          : "border-[#f0c56c] text-[#f0c56c] bg-background/90";
-
-  const Icon =
-    state === "RUNNING"
-      ? Play
-      : state === "FAILED"
-        ? X
-        : state === "STOPPED"
-          ? Square
-          : Loader2;
-
-  return (
-    <div
-      className={`absolute -bottom-1 -right-1 flex h-4 w-4 items-center justify-center rounded-full border border-background/40 ${badgeClass} ${
-        pulsing ? "animate-pulse" : ""
-      }`}
-    >
-      <Icon className={`h-2.5 w-2.5 ${state === "PENDING" || state === "STARTING" || state === "STOPPING" ? "animate-spin" : ""}`} />
-    </div>
-  );
-}
-
-function BudgetBar({ label, used, total, format }: { label: string; used: number; total: number; format?: (n: number) => string }) {
-  const pct = total > 0 ? Math.min((used / total) * 100, 100) : 0;
-  const fmt = format || String;
-  return (
-    <div className="flex-1 min-w-[120px]">
-      <div className="flex justify-between text-xs mb-1">
-        <span className="text-text-secondary">{label}</span>
-        <span className="text-text-muted">{fmt(used)} / {fmt(total)}</span>
-      </div>
-      <div className="h-1.5 rounded-full bg-surface-low overflow-hidden">
-        <div
-          className={`h-full rounded-full transition-all ${pct > 90 ? 'bg-[#d05f5f]' : pct > 70 ? 'bg-[#f0c56c]' : 'bg-foreground'}`}
-          style={{ width: `${pct}%` }}
-        />
-      </div>
-    </div>
-  );
-}
-
-function AgentLaunchPrompt({
-  label,
-  launching,
-  onLaunch,
-  blockedTitle,
-  blockedMessage,
-  suggestedTierActions,
-}: {
-  label: string;
-  launching: boolean;
-  onLaunch: () => void;
-  blockedTitle?: string | null;
-  blockedMessage?: string | null;
-  suggestedTierActions?: Array<{ label: string; onSelect: () => void }> | null;
-}) {
-  const blocked = Boolean(blockedMessage);
-  return (
-    <div className="h-full flex items-center justify-center p-6">
-      <div className="max-w-md text-center">
-        <button
-          onClick={onLaunch}
-          disabled={launching || blocked}
-          className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
-          aria-label={`Launch agent to use ${label}`}
-          title={blockedTitle || "Launch Agent"}
-        >
-          {launching ? <Loader2 className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
-        </button>
-        <p className="text-base text-foreground">Launch Agent to Use {label}</p>
-        <button
-          onClick={onLaunch}
-          disabled={launching || blocked}
-          className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
-        >
-          {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          <span>Launch Agent</span>
-        </button>
-        {blockedMessage && (
-          <div className="mt-4 rounded-xl border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-4 py-3 text-left">
-            <p className="text-sm font-medium text-[#f0c56c]">{blockedTitle || "Launch blocked"}</p>
-            <p className="mt-1 text-sm text-text-secondary">{blockedMessage}</p>
-            {suggestedTierActions && suggestedTierActions.length > 0 && (
-              <div className="mt-3 flex flex-wrap gap-2">
-                {suggestedTierActions.map((action) => (
-                  <button
-                    key={action.label}
-                    onClick={action.onSelect}
-                    className="inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
-                  >
-                    <Plus className="h-4 w-4" />
-                    <span>{action.label}</span>
-                  </button>
-                ))}
-              </div>
-            )}
-          </div>
-        )}
-        <p className="mt-2 text-sm text-text-muted">Files remain available while stopped.</p>
-      </div>
-    </div>
-  );
-}
-
-function ConnectionStatusIndicator({
-  status,
-}: {
-  status: "connected" | "connecting" | "disconnected";
-}) {
-  const connected = status === "connected";
-  const connecting = status === "connecting";
-  return (
-    <span
-      className={`inline-flex items-center gap-1.5 text-xs font-medium min-w-[5.25rem] ${
-        connected
-          ? "text-[#38D39F]"
-          : connecting
-            ? "text-[#f0c56c]"
-            : "text-text-muted"
-      }`}
-      title={connected ? "Connected" : connecting ? "Connecting" : "Disconnected"}
-    >
-      {connecting ? (
-        <Loader2 className="w-2 h-2 animate-spin" />
-      ) : (
-        <span
-          className={`inline-block h-2 w-2 rounded-full ${
-            connected ? "bg-[#38D39F]" : "bg-text-muted"
-          }`}
-        />
-      )}
-      <span>
-        {connected ? "Connected" : connecting ? "Connecting" : "Disconnected"}
-      </span>
-    </span>
-  );
-}
-
-function TabLoadingState({
-  label,
-}: {
-  label: string;
-}) {
-  return (
-    <div className="flex h-full items-center justify-center bg-[#0c1016] text-[#8b95a6]">
-      <div className="flex flex-col items-center gap-3 text-center">
-        <Loader2 className="h-6 w-6 animate-spin" />
-        <div className="space-y-1">
-          <p className="text-sm text-[#d8dde7]">{label}</p>
-          <p className="text-xs text-[#8b95a6]">Establishing connection...</p>
-        </div>
-      </div>
-    </div>
-  );
-}
-
-function asObject(value: unknown): JsonObject | null {
-  return value && typeof value === "object" && !Array.isArray(value) ? (value as JsonObject) : null;
-}
-
-function deepCloneJsonObject(value: JsonObject): JsonObject {
-  return JSON.parse(JSON.stringify(value)) as JsonObject;
-}
-
-function humanizeKey(key: string): string {
-  return key
-    .replace(/[_-]+/g, " ")
-    .replace(/([a-z0-9])([A-Z])/g, "$1 $2")
-    .replace(/\s+/g, " ")
-    .trim()
-    .replace(/^./, (ch) => ch.toUpperCase());
-}
-
-function getPathValue(root: JsonObject, path: string[]): unknown {
-  let cursor: unknown = root;
-  for (const key of path) {
-    const obj = asObject(cursor);
-    if (!obj) return undefined;
-    cursor = obj[key];
-  }
-  return cursor;
-}
-
-function setPathValue(root: JsonObject, path: string[], value: unknown): JsonObject {
-  if (path.length === 0) return root;
-  const next = deepCloneJsonObject(root);
-  let cursor: JsonObject = next;
-  for (let i = 0; i < path.length - 1; i += 1) {
-    const key = path[i];
-    const child = asObject(cursor[key]);
-    if (!child) cursor[key] = {};
-    cursor = asObject(cursor[key]) as JsonObject;
-  }
-  cursor[path[path.length - 1]] = value;
-  return next;
-}
-
-function getOpenClawUiHint(
-  schemaBundle: OpenClawConfigSchemaResponse | null,
-  path: string[],
-): OpenClawConfigUiHint | null {
-  return resolveOpenClawConfigUiHint(schemaBundle, path.join("."))?.hint ?? null;
-}
-
-function sortOpenClawEntries(
-  entries: Array<[string, unknown]>,
-  schemaBundle: OpenClawConfigSchemaResponse | null,
-  basePath: string[] = [],
-): Array<[string, unknown]> {
-  return [...entries].sort(([leftKey], [rightKey]) => {
-    const leftHint = getOpenClawUiHint(schemaBundle, [...basePath, leftKey]);
-    const rightHint = getOpenClawUiHint(schemaBundle, [...basePath, rightKey]);
-    const leftOrder = typeof leftHint?.order === "number" ? leftHint.order : Number.MAX_SAFE_INTEGER;
-    const rightOrder = typeof rightHint?.order === "number" ? rightHint.order : Number.MAX_SAFE_INTEGER;
-    if (leftOrder !== rightOrder) return leftOrder - rightOrder;
-    const leftLabel = leftHint?.label?.trim() || humanizeKey(leftKey);
-    const rightLabel = rightHint?.label?.trim() || humanizeKey(rightKey);
-    return leftLabel.localeCompare(rightLabel);
-  });
-}
-
-function isHiddenEntry(name: string): boolean {
-  return name.startsWith(".");
-}
-
-function describeFileBrowserError(error: unknown, fallback: string): string {
-  const message = error instanceof Error ? error.message : fallback;
-  if (message.startsWith("Path is a directory:")) {
-    return "Cannot download a directory. Open it in the file browser instead.";
-  }
-  return message;
-}
-
-function S3FilesPanel({
-  agentId,
-  getToken,
-}: {
-  agentId: string;
-  getToken: () => Promise<string>;
-}) {
-  const [prefix, setPrefix] = useState("");
-  const [directories, setDirectories] = useState<S3FileEntry[]>([]);
-  const [files, setFiles] = useState<S3FileEntry[]>([]);
-  const [truncated, setTruncated] = useState(false);
-  const [history, setHistory] = useState<string[]>([""]);
-  const [historyIndex, setHistoryIndex] = useState(0);
-  const [loading, setLoading] = useState(false);
-  const [uploading, setUploading] = useState(false);
-  const [dragActive, setDragActive] = useState(false);
-  const [error, setError] = useState<string | null>(null);
-  const [pendingDelete, setPendingDelete] = useState<{ path: string; name: string } | null>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
-  const dragDepthRef = useRef(0);
-
-  const loadFiles = useCallback(async (targetPrefix: string) => {
-    setLoading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      const entries = await createAgentClient(token).filesList(agentId, targetPrefix);
-      setPrefix(targetPrefix);
-      setDirectories(entries.filter((entry) => entry?.type === "directory"));
-      setFiles(entries.filter((entry) => entry?.type !== "directory"));
-      setTruncated(false);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Failed to load files");
-      setDirectories([]);
-      setFiles([]);
-      setTruncated(false);
-    } finally {
-      setLoading(false);
-    }
-  }, [agentId, getToken]);
-
-  useEffect(() => {
-    void loadFiles(prefix);
-  }, [loadFiles, prefix]);
-
-  const goToPrefix = useCallback((nextPrefix: string, options?: { push?: boolean }) => {
-    setPrefix(nextPrefix);
-    if (options?.push === false) return;
-    setHistory((current) => {
-      const head = current.slice(0, historyIndex + 1);
-      if (head[head.length - 1] === nextPrefix) return head;
-      return [...head, nextPrefix];
-    });
-    setHistoryIndex((current) => {
-      if (history[historyIndex] === nextPrefix) return current;
-      return current + 1;
-    });
-  }, []);
-
-  const goBack = useCallback(() => {
-    if (historyIndex === 0) return;
-    const nextIndex = historyIndex - 1;
-    setHistoryIndex(nextIndex);
-    setPrefix(history[nextIndex] || "");
-  }, [history, historyIndex]);
-
-  const goForward = useCallback(() => {
-    if (historyIndex >= history.length - 1) return;
-    const nextIndex = historyIndex + 1;
-    setHistoryIndex(nextIndex);
-    setPrefix(history[nextIndex] || "");
-  }, [history, historyIndex]);
-
-  const uploadFiles = useCallback(async (uploadList: FileList) => {
-    setUploading(true);
-    setError(null);
-    try {
-      const token = await getToken();
-      const agentClient = createAgentClient(token);
-      for (const file of Array.from(uploadList)) {
-        const uploadPath = `${prefix}${file.name}`;
-        await agentClient.fileWriteBytes(agentId, uploadPath, await file.arrayBuffer());
-      }
-      await loadFiles(prefix);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Upload failed");
-    } finally {
-      setUploading(false);
-    }
-  }, [agentId, getToken, loadFiles, prefix]);
-
-  const downloadFile = useCallback(async (path: string) => {
-    setError(null);
-    try {
-      const token = await getToken();
-      const content = await createAgentClient(token).fileReadBytes(agentId, path);
-      downloadBrowserFile(content, path.split("/").filter(Boolean).pop() || "download");
-    } catch (e: unknown) {
-      setError(describeFileBrowserError(e, "Download failed"));
-    }
-  }, [agentId, getToken]);
-
-  const deleteFile = useCallback(async (path: string) => {
-    setError(null);
-    try {
-      const token = await getToken();
-      await createAgentClient(token).fileDelete(agentId, path);
-      await loadFiles(prefix);
-    } catch (e: unknown) {
-      setError(e instanceof Error ? e.message : "Delete failed");
-    } finally {
-      setPendingDelete(null);
-    }
-  }, [agentId, getToken, loadFiles, prefix]);
-
-  const pathParts = prefix.split("/").filter(Boolean);
-  const hiddenDirectoryCount = directories.filter((dir) => isHiddenEntry(dir.name)).length;
-  const hiddenFileCount = files.filter((file) => isHiddenEntry(file.name)).length;
-  const hiddenEntryCount = hiddenDirectoryCount + hiddenFileCount;
-
-  return (
-    <div
-      className={`relative h-full flex flex-col ${dragActive ? "bg-surface-low/10" : ""}`}
-      onDragEnter={(event) => {
-        event.preventDefault();
-        dragDepthRef.current += 1;
-        setDragActive(true);
-      }}
-      onDragOver={(event) => {
-        event.preventDefault();
-      }}
-      onDragLeave={(event) => {
-        event.preventDefault();
-        dragDepthRef.current = Math.max(0, dragDepthRef.current - 1);
-        if (dragDepthRef.current === 0) {
-          setDragActive(false);
-        }
-      }}
-      onDrop={(event) => {
-        event.preventDefault();
-        dragDepthRef.current = 0;
-        setDragActive(false);
-        if (event.dataTransfer.files?.length) {
-          void uploadFiles(event.dataTransfer.files);
-        }
-      }}
-    >
-      <ConfirmDialog
-        open={Boolean(pendingDelete)}
-        title="Delete File"
-        message={pendingDelete ? `Delete "${pendingDelete.name}"? This cannot be undone.` : ""}
-        confirmLabel="Delete"
-        danger
-        onCancel={() => setPendingDelete(null)}
-        onConfirm={() => {
-          if (pendingDelete) void deleteFile(pendingDelete.path);
-        }}
-      />
-      {dragActive && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-[#38D39F]/50 bg-[#38D39F]/8">
-          <div className="rounded-xl border border-border bg-background/95 px-4 py-3 text-center shadow-lg backdrop-blur">
-            <p className="text-sm font-medium text-foreground">Drop files to upload</p>
-            <p className="mt-1 text-xs text-text-muted">Files will be uploaded into the current folder.</p>
-          </div>
-        </div>
-      )}
-      <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
-        <input
-          ref={fileInputRef}
-          type="file"
-          multiple
-          className="hidden"
-          onChange={(e) => {
-            if (e.target.files?.length) {
-              void uploadFiles(e.target.files);
-              e.target.value = "";
-            }
-          }}
-        />
-        {hiddenEntryCount > 0 && (
-          <span className="rounded-full border border-border bg-surface-low px-2 py-1 text-[11px] text-text-muted">
-            {hiddenEntryCount} hidden
-          </span>
-        )}
-        <div className="flex-1" />
-        <p className="text-xs text-text-muted">Uploaded files sync to workspace on agent restart.</p>
-      </div>
-
-      <div className="flex items-center gap-3 border-b border-border bg-surface-low px-4 py-2">
-        <div className="flex min-w-0 flex-1 items-center gap-2 overflow-x-auto font-mono text-sm text-text-secondary">
-          <button
-            onClick={goBack}
-            disabled={historyIndex === 0}
-            className="rounded border border-border px-2 py-0.5 text-xs hover:text-foreground disabled:opacity-40 disabled:hover:text-text-muted"
-            title="Back"
-          >
-            {"<"}
-          </button>
-          <button
-            onClick={goForward}
-            disabled={historyIndex >= history.length - 1}
-            className="rounded border border-border px-2 py-0.5 text-xs hover:text-foreground disabled:opacity-40 disabled:hover:text-text-muted"
-            title="Forward"
-          >
-            {">"}
-          </button>
-          <button
-            onClick={() => goToPrefix("")}
-            className="flex items-center gap-1 whitespace-nowrap text-foreground hover:text-foreground/80"
-            title="/home/node"
-          >
-            <House className="h-3.5 w-3.5" />
-          </button>
-          {pathParts.map((part, idx) => {
-            const partPrefix = `${pathParts.slice(0, idx + 1).join("/")}/`;
-            return (
-              <span key={partPrefix} className="flex items-center gap-1 whitespace-nowrap">
-                <span className="text-text-muted">/</span>
-                <button onClick={() => goToPrefix(partPrefix)} className="text-foreground hover:text-foreground/80">{part}</button>
-              </span>
-            );
-          })}
-        </div>
-        <div className="flex shrink-0 items-center gap-2">
-          <button
-            onClick={() => void loadFiles(prefix)}
-            disabled={loading}
-            className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-background disabled:opacity-50 flex items-center gap-1"
-          >
-            <RefreshCw className={`w-3.5 h-3.5 ${loading ? "animate-spin" : ""}`} />
-            Refresh
-          </button>
-          <button
-            onClick={() => fileInputRef.current?.click()}
-            disabled={uploading}
-            className="px-3 py-1 rounded text-xs border border-border text-foreground hover:bg-background disabled:opacity-50 flex items-center gap-1"
-          >
-            {uploading ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Upload className="w-3.5 h-3.5" />}
-            Upload
-          </button>
-        </div>
-      </div>
-
-      {error && <div className="px-4 py-2 text-xs text-[#d05f5f] border-b border-border">{error}</div>}
-
-      <div className="flex-1 overflow-auto">
-        {loading ? (
-          <div className="h-full flex items-center justify-center">
-            <Loader2 className="w-5 h-5 animate-spin text-text-muted" />
-          </div>
-        ) : (
-          <div className="p-2">
-            {directories.map((dir) => {
-              const nextPrefix = dir.path || `${prefix}${dir.name.replace(/\/?$/, "/")}`;
-              return (
-                <button
-                  key={`dir-${dir.path || dir.name}`}
-                  onClick={() => goToPrefix(nextPrefix)}
-                  className={`w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low text-left ${
-                    isHiddenEntry(dir.name) ? "opacity-80" : ""
-                  }`}
-                >
-                  <FolderOpen className="w-4 h-4 text-text-muted" />
-                  <span className="text-sm text-foreground font-mono flex-1">{dir.name}</span>
-                  {isHiddenEntry(dir.name) && (
-                    <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-                      hidden
-                    </span>
-                  )}
-                </button>
-              );
-            })}
-
-            {files.map((file) => (
-              <div
-                key={`file-${file.path}`}
-                className={`w-full flex items-center gap-2 px-2 py-2 rounded hover:bg-surface-low ${
-                  isHiddenEntry(file.name) ? "opacity-80" : ""
-                }`}
-              >
-                <FileText className="w-4 h-4 text-text-muted" />
-                <span className="text-sm text-foreground font-mono flex-1">{file.name}</span>
-                {isHiddenEntry(file.name) && (
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-                    hidden
-                  </span>
-                )}
-                <span className="text-xs text-text-muted w-24 text-right">{formatFileSize(file.size)}</span>
-                <button
-                  onClick={() => void downloadFile(file.path)}
-                  className="text-text-muted hover:text-foreground p-1"
-                  title="Download"
-                >
-                  <Download className="w-4 h-4" />
-                </button>
-                <button
-                  onClick={() => setPendingDelete({ path: file.path, name: file.name })}
-                  className="text-text-muted hover:text-[#d05f5f] p-1"
-                  title="Delete"
-                >
-                  <Trash2 className="w-4 h-4" />
-                </button>
-              </div>
-            ))}
-
-            {directories.length === 0 && files.length === 0 && (
-              <div className="p-8 text-center text-sm text-text-muted">
-                No files in this directory.
-              </div>
-            )}
-
-            {hiddenEntryCount > 0 && directories.length + files.length === hiddenEntryCount && (
-              <div className="px-2 py-3 text-center text-xs text-text-muted">
-                This directory currently only contains hidden entries.
-              </div>
-            )}
-
-            {truncated && (
-              <div className="px-2 py-2 text-xs text-[#f0c56c]">
-                Listing is truncated. Narrow your prefix to see more files.
-              </div>
-            )}
-          </div>
-        )}
-      </div>
-    </div>
-  );
-}
 
 // ── Main component ──
 
@@ -953,7 +119,7 @@ export default function AgentsPage() {
   // Agent data
   const [agents, setAgents] = useState<Agent[]>([]);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
-  const [loading, setLoading] = useState(true);
+  const [, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -978,9 +144,16 @@ export default function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("chat");
   const [reconnectNonce, setReconnectNonce] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
+    if (typeof window === "undefined") return false;
+    return window.localStorage.getItem("agents.sidebarCollapsed") === "1";
+  });
+  useEffect(() => {
+    if (typeof window === "undefined") return;
+    window.localStorage.setItem("agents.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
+  }, [sidebarCollapsed]);
 
   // Logs
   const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
@@ -997,10 +170,18 @@ export default function AgentsPage() {
   const shellBufferRef = useRef<string[]>([]);
 
   // Files panel
-  const [selectedFile, setSelectedFile] = useState<string | null>(null);
-  const [fileContent, setFileContent] = useState("");
-  const [fileDirty, setFileDirty] = useState(false);
-  const [savingFile, setSavingFile] = useState(false);
+
+  // Right sidebar (AgentView)
+  const [agentViewTab, setAgentViewTab] = useState<AgentViewTabId>("overview");
+  const [channelsData, setChannelsData] = useState<Record<string, unknown> | null>(null);
+  const [agentViewSheetOpen, setAgentViewSheetOpen] = useState(false);
+
+  // Modal overlays for gear dropdown items
+  const [showOpenclawModal, setShowOpenclawModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showChannelWizard, setShowChannelWizard] = useState(false);
+  const [directoryOpen, setDirectoryOpen] = useState(false);
+  const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -1015,17 +196,15 @@ export default function AgentsPage() {
     return () => mediaQuery.removeEventListener("change", apply);
   }, []);
 
-  // Settings tab state
+  // Settings modal state
   const [settingsName, setSettingsName] = useState("");
-  const [settingsDesc, setSettingsDesc] = useState("");
-  const [agentClusterUnavailable, setAgentClusterUnavailable] = useState(false);
+  const [, setAgentClusterUnavailable] = useState(false);
   const [savingName, setSavingName] = useState(false);
   const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
   const [openclawSaving, setOpenclawSaving] = useState(false);
   const [openclawError, setOpenclawError] = useState<string | null>(null);
   const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
   const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
-  const [mobileOpenclawMenuOpen, setMobileOpenclawMenuOpen] = useState(true);
   const [openclawMapDraftKeys, setOpenclawMapDraftKeys] = useState<Record<string, string>>({});
   const [chatDragActive, setChatDragActive] = useState(false);
   const openclawPaneRef = useRef<HTMLDivElement | null>(null);
@@ -1118,7 +297,6 @@ export default function AgentsPage() {
     }
     return agent;
   }, [agents, selectedAgentId]);
-  const selectedAgentHostname = selectedAgent?.hostname || null;
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
@@ -1133,24 +311,15 @@ export default function AgentsPage() {
         : null,
     [selectedAgent, budget],
   );
-  const stoppedTabLabel: Record<Exclude<MainTab, "files">, string> = {
+  const stoppedTabLabel: Record<"chat" | "logs" | "shell", string> = {
     chat: "Chat",
     logs: "Logs",
     shell: "Shell",
-    workspace: "Workspace",
-    openclaw: "OpenClaw",
-    integrations: "Integrations",
-    settings: "Settings",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
     { key: "chat", label: "Chat", icon: MessageSquare },
     { key: "logs", label: "Logs", icon: TerminalSquare },
     { key: "shell", label: "Shell", icon: TerminalSquare },
-    { key: "files", label: "Files", icon: HardDrive },
-    { key: "workspace", label: "Workspace", icon: FolderOpen },
-    { key: "openclaw", label: "OpenClaw", icon: SlidersHorizontal },
-    { key: "integrations", label: "Integrations", icon: Plug },
-    { key: "settings", label: "Settings", icon: Settings },
   ];
   const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
     { label: "Overview", href: "/dashboard", icon: Bot },
@@ -1165,7 +334,6 @@ export default function AgentsPage() {
   useEffect(() => {
     if (selectedAgent) {
       setSettingsName(selectedAgent.name || "");
-      setSettingsDesc(""); // No description field in Agent type yet
     }
   }, [selectedAgentId]);
 
@@ -1227,6 +395,173 @@ export default function AgentsPage() {
     openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [activeOpenclawSection, mainTab]);
 
+  // ── AgentView right-sidebar data wiring ──
+
+  // Probe channel status when gateway connects, and refresh after config save
+  useEffect(() => {
+    if (!chat.connected) {
+      setChannelsData(null);
+      return;
+    }
+    let cancelled = false;
+    chat.channelsStatus(false).then((data) => {
+      if (!cancelled) setChannelsData(data as Record<string, unknown>);
+    }).catch(() => {});
+    return () => { cancelled = true; };
+  }, [chat.connected, chat.channelsStatus]);
+
+  // Derive AgentConfig from raw chat.config (model, system prompt, tools)
+  const agentConfigForView = useMemo(() => {
+    const cfg = asObject(chat.config);
+    if (!cfg) return null;
+    const llm = asObject(cfg.llm) ?? {};
+    const toolsObj = asObject(cfg.tools) ?? {};
+    const tools = Object.entries(toolsObj).map(([name, val]) => {
+      const entry = asObject(val);
+      return { name, enabled: entry?.enabled === true };
+    });
+    return {
+      model: typeof llm.model === "string" ? llm.model : "unknown",
+      systemPrompt: typeof llm.system === "string" ? llm.system : (typeof llm.systemPrompt === "string" ? llm.systemPrompt : ""),
+      tools,
+    };
+  }, [chat.config]);
+
+  // Module variants per design doc Section 2 — only enable what's in scope.
+  // Out-of-scope modules (Section 11) stay "off" by default.
+  // Overview: Agent Card, Active Sessions, Workspace Files, What Can I Do?, Example Prompts
+  // Activity: filterable event log
+  // Connections: flat list + CTA
+  // Cron: scheduled jobs manager
+  const agentViewVariants = useMemo(() => ({
+    // Overview — in scope
+    agentCardVariant: "v1" as const,
+    workspaceFilesVariant: "v1" as const,
+    whatCanIDoVariant: "v1" as const,
+    examplePromptsVariant: "v1" as const,
+    // Activity tab
+    activityVariant: "v1" as const,
+    // Connections tab
+    connectionRowStyle: "v1" as const,
+  }), []);
+
+  // One thread per agent, used by both the left ConversationsSidebar and the
+  // right AgentView (which needs `hasAgent` true to render content).
+  const syntheticThreads = useMemo<ConversationThread[]>(() => {
+    return agents.map((agent) => ({
+      id: agent.id,
+      sessionKey: "main",
+      participants: [
+        { id: "user", name: "You", type: "user" as const },
+        { id: agent.id, name: agent.name || agent.id, type: "agent" as const },
+      ],
+      kind: "user-agent" as const,
+      title: agent.name || agent.pod_name || agent.id,
+      lastMessage: agent.state === "RUNNING" ? "Connected" : agent.state.toLowerCase(),
+      lastMessageBy: agent.id,
+      lastMessageAt: agent.updated_at ? new Date(agent.updated_at).getTime() : Date.now(),
+      messageCount: agent.id === selectedAgentId ? chat.messages.length : 0,
+      unreadCount: 0,
+      isActive: agent.state === "RUNNING",
+    }));
+  }, [agents, selectedAgentId, chat.messages.length]);
+
+  // Derive RecentToolCall[] by flattening toolCalls across assistant messages.
+  // Newest last (matches the Activity tab order).
+  const recentToolCallsForView = useMemo(() => {
+    if (!chat.messages || chat.messages.length === 0) return null;
+    const out: Array<{ id: string; name: string; args: string; result?: string; timestamp: number }> = [];
+    chat.messages.forEach((msg) => {
+      if (msg.role !== "assistant" || !msg.toolCalls) return;
+      const ts = msg.timestamp ?? Date.now();
+      msg.toolCalls.forEach((tc, idx) => {
+        out.push({
+          id: tc.id ?? `${ts}-${idx}`,
+          name: tc.name,
+          args: tc.args,
+          result: tc.result,
+          timestamp: ts,
+        });
+      });
+    });
+    return out.length > 0 ? out.slice(-20) : null;
+  }, [chat.messages]);
+
+  // Derive ActivityEntry[] from chat.activityFeed (icons added per type)
+  const activityEntriesForView = useMemo(() => {
+    if (!chat.activityFeed || chat.activityFeed.length === 0) return null;
+    return chat.activityFeed.map((entry) => {
+      let icon = MessageSquare;
+      if (entry.type === "tool") icon = SlidersHorizontal;
+      else if (entry.type === "error") icon = X;
+      else if (entry.type === "system") icon = Settings;
+      else if (entry.type === "connection") icon = Link2;
+      else if (entry.type === "skill") icon = Zap;
+      else if (entry.type === "cron") icon = Timer;
+      return { ...entry, icon };
+    });
+  }, [chat.activityFeed]);
+
+  // Derive workspace files from chat.files (gateway only returns files, not directories)
+  const agentWorkspaceFilesForView = useMemo(() => {
+    if (!chat.files || chat.files.length === 0) return null;
+    return chat.files.map((f) => ({
+      name: f.name,
+      type: "file" as const,
+      size: f.size,
+    }));
+  }, [chat.files]);
+
+  // Derive CronJob[] from chat.cronJobs
+  const agentCronJobsForView = useMemo(() => {
+    if (!chat.cronJobs || chat.cronJobs.length === 0) return null;
+    return chat.cronJobs.map((j) => {
+      const entry = j as Record<string, unknown>;
+      return {
+        id: typeof entry.id === "string" ? entry.id : String(entry.id ?? ""),
+        schedule: typeof entry.schedule === "string" ? entry.schedule : "",
+        prompt: typeof entry.prompt === "string" ? entry.prompt : "",
+        description: typeof entry.description === "string" ? entry.description : "",
+        enabled: entry.enabled !== false,
+        lastRun: typeof entry.lastRun === "number" ? entry.lastRun : undefined,
+        nextRun: typeof entry.nextRun === "number" ? entry.nextRun : undefined,
+      };
+    });
+  }, [chat.cronJobs]);
+
+  // Derive AgentSession[] from chat.sessions
+  const agentSessionsForView = useMemo(() => {
+    if (!chat.sessions || chat.sessions.length === 0) return null;
+    return chat.sessions.map((s) => {
+      const entry = s as Record<string, unknown>;
+      const key = typeof entry.key === "string" ? entry.key : String(entry.id ?? "");
+      const clientMode = typeof entry.clientMode === "string" ? entry.clientMode : (typeof entry.client === "string" ? entry.client : "unknown");
+      const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
+      const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : Date.now();
+      const lastMessageAt = typeof entry.lastMessageAt === "number" ? entry.lastMessageAt : createdAt;
+      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt };
+    });
+  }, [chat.sessions]);
+
+  // Derive Connection[] from channelsStatus response
+  const agentConnectionsForView = useMemo(() => {
+    const channels = asObject(channelsData?.channels);
+    if (!channels) return null;
+    return Object.entries(channels).map(([key, val]) => {
+      const entry = asObject(val) ?? {};
+      const configured = entry.configured === true;
+      const running = entry.running === true;
+      return {
+        id: key,
+        name: humanizeKey(key),
+        icon: Plug,
+        category: "Communication",
+        connected: configured && running,
+        description: configured ? (running ? "Active" : "Configured · idle") : "Not configured",
+      };
+    });
+  }, [channelsData]);
+
   const effectiveOpenclawSection = useMemo(
     () => (isDesktopViewport ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
     [activeOpenclawSection, isDesktopViewport, openclawSections]
@@ -1253,12 +588,6 @@ export default function AgentsPage() {
         : humanizeKey(sectionKey))
     );
   }, [activeOpenclawSectionEntry, openclawSchemaBundle]);
-
-  useEffect(() => {
-    if (!isDesktopViewport && mainTab === "openclaw") {
-      setMobileOpenclawMenuOpen(true);
-    }
-  }, [isDesktopViewport, mainTab, selectedAgentId]);
 
   const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
     setOpenclawDraft((prev) => {
@@ -1559,6 +888,19 @@ export default function AgentsPage() {
       });
     }
   }, [chat.messages]);
+
+  // When a reply finishes streaming, snap to the last line regardless of
+  // scroll position so the end of the message is always visible.
+  const prevSendingRef = useRef(chat.sending);
+  useEffect(() => {
+    if (prevSendingRef.current && !chat.sending) {
+      isNearBottomRef.current = true;
+      requestAnimationFrame(() => {
+        chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
+      });
+    }
+    prevSendingRef.current = chat.sending;
+  }, [chat.sending]);
 
   // Scroll to bottom when user switches back to chat tab.
   // useLayoutEffect runs synchronously after DOM commit (refs are set)
@@ -2006,7 +1348,6 @@ export default function AgentsPage() {
     setDeletingId(agentId);
     setError(null);
     try {
-      const agent = agents.find((entry) => entry.id === agentId);
       const token = await getToken();
       await createAgentClient(token).delete(agentId);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
@@ -2052,32 +1393,6 @@ export default function AgentsPage() {
       setError(err instanceof Error ? err.message : "Failed to open desktop");
     } finally {
       setOpeningDesktopId(null);
-    }
-  };
-
-  // File handlers using gateway
-  const handleOpenFile = async (name: string) => {
-    try {
-      const content = await chat.openFile(name);
-      setSelectedFile(name);
-      setFileContent(content);
-      setFileDirty(false);
-    } catch (e: unknown) {
-      setSelectedFile(name);
-      setFileContent(`Error: ${e instanceof Error ? e.message : String(e)}`);
-    }
-  };
-
-  const handleSaveFile = async () => {
-    if (!selectedFile) return;
-    setSavingFile(true);
-    try {
-      await chat.saveFile(selectedFile, fileContent);
-      setFileDirty(false);
-    } catch (e: unknown) {
-      setError(`Save failed: ${e instanceof Error ? e.message : String(e)}`);
-    } finally {
-      setSavingFile(false);
     }
   };
 
@@ -2443,6 +1758,27 @@ export default function AgentsPage() {
         }}
         budget={budget}
       />
+      <ChannelCreationWizard
+        open={showChannelWizard}
+        onClose={() => setShowChannelWizard(false)}
+        availableAgents={agents.map((a) => ({ id: a.id, name: a.name || a.id, type: "agent" as const }))}
+        availableUsers={MOCK_PARTICIPANTS.filter((p) => p.type === "user")}
+        onCreate={async (channel) => {
+          // TODO: backend endpoint for channel creation. For now, log and close.
+          console.log("Create channel:", channel);
+        }}
+      />
+      <DirectoryModal
+        open={directoryOpen}
+        onClose={() => setDirectoryOpen(false)}
+        initialCategory={directoryCategory}
+        config={chat.config as Record<string, unknown> | null}
+        channelsStatus={channelsData}
+        connected={chat.connected}
+        onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
+        onChannelProbe={async () => chat.channelsStatus(true)}
+        onOpenShell={() => { setMainTab("shell"); setDirectoryOpen(false); }}
+      />
       <ConfirmDialog
         open={Boolean(pendingAgentDelete)}
         title="Delete Agent"
@@ -2508,193 +1844,95 @@ export default function AgentsPage() {
 
       {/* Main layout: Sidebar + Panel */}
       <div className="flex flex-1 min-h-0">
-        {/* ── Agent Sidebar ── */}
-        <div className={`border-r border-border bg-background flex-shrink-0 transition-all duration-200 ${
-          sidebarCollapsed
-            ? (isDesktopViewport ? "w-16 overflow-hidden" : "w-0 overflow-hidden")
-            : (isDesktopViewport ? "w-[280px]" : "w-full")
-        } ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}>
-
-          {/* Sidebar header */}
-          <div className="px-3 h-14 border-b border-border flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-                className="text-text-muted transition-colors hover:text-foreground"
-                aria-label={sidebarCollapsed ? "Expand agents sidebar" : "Collapse agents sidebar"}
+        {/* ── Agents / Channels Sidebar (left) ── */}
+        <motion.div
+          className={`flex-shrink-0 h-full overflow-hidden ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+          animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
+          transition={{ type: "spring", stiffness: 360, damping: 32 }}
+        >
+          <AnimatePresence initial={false} mode="wait">
+            {sidebarCollapsed && isDesktopViewport ? (
+              <motion.div
+                key="rail"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="w-12 h-full flex flex-col items-center gap-2 border-r border-border bg-background py-3 overflow-y-auto"
               >
-                {sidebarCollapsed ? <PanelLeft className="w-4 h-4" /> : <PanelLeftClose className="w-4 h-4" />}
-              </button>
-              {!sidebarCollapsed && <span className="text-xs text-text-muted font-medium uppercase tracking-wider">Agents</span>}
-            </div>
-            {!sidebarCollapsed && (
-              <button onClick={fetchAgents} className="text-text-muted hover:text-foreground transition-colors p-1">
-                <RefreshCw className="w-3.5 h-3.5" />
-              </button>
-            )}
-          </div>
-
-          {/* Agent list */}
-          <div className="flex-1 overflow-y-auto">
-            {loading ? (
-              <div className="p-6 text-center text-text-muted text-sm">Loading...</div>
-            ) : agents.length === 0 ? (
-              <div className="p-6 text-center">
-                <div className="w-16 h-16 rounded-full bg-surface-low flex items-center justify-center mx-auto mb-4">
-                  <Bot className="w-8 h-8 text-text-muted" />
-                </div>
-                {agentClusterUnavailable ? (
-                  <>
-                    <p className="text-text-secondary text-sm mb-1">Agent cluster assignment pending</p>
-                    <p className="text-xs text-text-muted mb-4">
-                      Your account is not attached to an agent cluster yet, so agent creation is temporarily unavailable.
-                    </p>
-                    <button
-                      onClick={() => void fetchAgents()}
-                      className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
-                    >
-                      Retry
-                    </button>
-                  </>
-                ) : (
-                  <>
-                    <p className="text-text-secondary text-sm mb-1">No agents yet</p>
-                    <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
-                    <button
-                      onClick={() => openCreateDialog()}
-                      className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
-                    >
-                      Create Your First Agent
-                    </button>
-                  </>
-                )}
-              </div>
-            ) : (
-              <div>
-                {agents.map((agent) => {
-                  const isSelected = selectedAgentId === agent.id;
-                  const isRunning = agent.state === "RUNNING";
-                  const isTransitioning = ["PENDING", "STARTING", "STOPPING"].includes(agent.state);
-                  const avatar = agentAvatar(agent.name || agent.id, agent.meta);
-                  const AvatarIcon = avatar.icon;
-
-                  if (sidebarCollapsed) {
-                    // Collapsed: just avatar + dot
-                    return (
-                      <button
-                        key={agent.id}
-                        onClick={() => { setSelectedAgentId(agent.id); setMobileShowChat(true); }}
-                        className={`w-full p-3 flex flex-col items-center gap-1 transition-colors ${
-                          isSelected ? "bg-surface-low" : "hover:bg-surface-low/50"
-                        }`}
-                        title={agent.name}
-                      >
-                        <div className="relative">
-                          <div
-                            className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
-                            style={{ backgroundColor: avatar.bgColor }}
-                          >
-                            {avatar.imageUrl ? (
-                              <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
-                            ) : (
-                              <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
-                            )}
-                          </div>
-                          <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
-                        </div>
-                      </button>
-                    );
-                  }
-
+                <button
+                  onClick={() => setSidebarCollapsed(false)}
+                  title="Expand sidebar"
+                  className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                >
+                  <PanelLeftOpen className="w-3.5 h-3.5" />
+                </button>
+                <div className="w-6 h-px bg-border my-1" />
+                {agents.map((a) => {
+                  const av = agentAvatar(a.name || a.id);
+                  const Icon = av.icon;
+                  const selected = selectedAgentId === a.id;
                   return (
-                    <button
-                      key={agent.id}
-                      onClick={() => { setSelectedAgentId(agent.id); setMobileShowChat(true); }}
-                      className={`w-full p-3 flex items-start gap-3 text-left transition-colors ${
-                        isSelected ? "bg-surface-low" : "hover:bg-surface-low/50"
-                      }`}
-                    >
-                      {/* Avatar */}
-                      <div className="relative flex-shrink-0">
-                        <div
-                          className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden"
-                          style={{ backgroundColor: avatar.bgColor }}
+                    <Tooltip key={a.id} delayDuration={300}>
+                      <TooltipTrigger asChild>
+                        <button
+                          onClick={() => {
+                            setSelectedAgentId(a.id);
+                            setMobileShowChat(true);
+                          }}
+                          className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-background" : ""}`}
+                          style={{ backgroundColor: av.bgColor }}
                         >
-                          {avatar.imageUrl ? (
-                            <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
-                          ) : (
-                            <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
-                          )}
-                        </div>
-                        <AgentStateBadge state={agent.state} pulsing={isTransitioning} />
-                      </div>
-
-                      {/* Info */}
-                      <div className="min-w-0 flex-1">
-                        <div className="flex items-center justify-between gap-2">
-                          <p className="text-sm font-medium text-foreground truncate">{agent.name || agent.pod_name || agent.id}</p>
-                          <motion.span
-                            className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${stateClass(agent.state)}`}
-                            animate={isTransitioning ? { opacity: [0.6, 1, 0.6] } : { opacity: 1 }}
-                            transition={isTransitioning ? { duration: 1.5, repeat: Infinity, ease: "easeInOut" } : {}}
-                          >
-                            {agent.state}
-                          </motion.span>
-                        </div>
-                        <p className="text-xs text-text-muted mt-0.5">
-                          {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
-                        </p>
-                        {agent.last_error && agent.state === "FAILED" && (
-                          <p className="text-xs text-[#d05f5f] mt-0.5 truncate">{agent.last_error}</p>
-                        )}
-                      </div>
-                    </button>
+                          <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                        </button>
+                      </TooltipTrigger>
+                      <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
+                        <AgentCardTooltip agentName={a.name || a.id} />
+                      </TooltipContent>
+                    </Tooltip>
                   );
                 })}
-
-                {/* New Agent row */}
-                {sidebarCollapsed ? (
-                  <button
-                    onClick={() => openCreateDialog()}
-                    disabled={agentClusterUnavailable}
-                    className="w-full p-3 flex flex-col items-center gap-1 transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                    title={agentClusterUnavailable ? "Agent cluster assignment pending" : "New Agent"}
-                  >
-                    <div className="w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
-                      <Plus className="w-4 h-4 text-text-muted" />
-                    </div>
-                  </button>
-                ) : (
-                  <button
-                    onClick={() => openCreateDialog()}
-                    disabled={agentClusterUnavailable}
-                    className="w-full p-3 flex items-center gap-3 text-left transition-colors hover:bg-surface-low/50 disabled:opacity-40 disabled:cursor-not-allowed"
-                  >
-                    <div className="flex-shrink-0 w-9 h-9 rounded-full border border-dashed border-text-muted flex items-center justify-center">
-                      <Plus className="w-4 h-4 text-text-muted" />
-                    </div>
-                    <span className="text-sm text-text-bright">New Agent</span>
-                  </button>
-                )}
-              </div>
+              </motion.div>
+            ) : (
+              <motion.div
+                key="full"
+                initial={{ opacity: 0 }}
+                animate={{ opacity: 1 }}
+                exit={{ opacity: 0 }}
+                transition={{ duration: 0.15 }}
+                className="h-full"
+              >
+                <AgentsChannelsSidebar
+                  variant="v3"
+                  threads={syntheticThreads}
+                  selectedThreadId={selectedAgentId}
+                  showChannels={false}
+                  onSelectThread={(threadId) => {
+                    setSelectedAgentId(threadId);
+                    setMobileShowChat(true);
+                  }}
+                  onNewThread={() => openCreateDialog()}
+                  onDeleteThread={(threadId) => {
+                    const a = agents.find((x) => x.id === threadId);
+                    if (a) setPendingAgentDelete({ id: a.id, name: a.name || a.id });
+                  }}
+                  onRenameThread={async (threadId, title) => {
+                    const a = agents.find((x) => x.id === threadId);
+                    if (!a) return;
+                    try {
+                      const token = await getToken();
+                      await createAgentClient(token).update(a.id, { name: title });
+                      await fetchAgents();
+                    } catch (e) {
+                      setError(e instanceof Error ? e.message : String(e));
+                    }
+                  }}
+                  onCollapse={isDesktopViewport ? () => setSidebarCollapsed(true) : undefined}
+                />
+              </motion.div>
             )}
-          </div>
-
-          {/* Budget bars in sidebar footer (when expanded) */}
-          {budget && !sidebarCollapsed && (
-            <div className="px-3 py-3 border-t border-border flex flex-col gap-2">
-              <div className="flex items-center justify-between text-xs">
-                <span className="text-text-secondary">Pooled inference</span>
-                <span className="text-text-muted">{formatTokens(budget.pooled_tpd)} / day</span>
-              </div>
-              {Object.entries(budget.slots || {})
-                .sort(([a], [b]) => a.localeCompare(b))
-                .map(([tier, entry]) => (
-                  <BudgetBar key={tier} label={titleizeTier(tier)} used={entry.used} total={entry.granted} />
-                ))}
-            </div>
-          )}
-        </div>
+          </AnimatePresence>
+        </motion.div>
 
         {/* ── Main Panel ── */}
         <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
@@ -2733,34 +1971,40 @@ export default function AgentsPage() {
                       </div>
                     );
                   })()}
-                  <span className="hidden xl:inline text-sm font-semibold text-foreground truncate">
-                    {selectedAgent.name || selectedAgent.pod_name}
-                  </span>
                   {activeConnectionStatus && <ConnectionStatusIndicator status={activeConnectionStatus} />}
                 </div>
 
-                {/* Tabs – absolutely centered so left/right content changes don't shift them */}
-                <div className={`${isDesktopViewport ? "flex" : "hidden"} absolute inset-0 items-center justify-center overflow-x-auto pointer-events-none`}>
-                  <div className="inline-flex min-w-max rounded-lg border border-border overflow-hidden pointer-events-auto">
-                    {agentTabItems.map(({ key, label, icon: Icon }, index) => (
-                      <button
-                        key={key}
-                        onClick={() => setMainTab(key)}
-                        className={`px-3 py-1.5 text-xs flex items-center gap-1.5 transition-colors ${
-                          mainTab === key
-                            ? "bg-surface-low text-foreground"
-                            : "bg-transparent text-text-muted hover:text-foreground"
-                        } ${index > 0 ? "border-l border-border" : ""}`}
-                      >
-                        <Icon className="w-3.5 h-3.5" />
-                        <span>{label}</span>
-                      </button>
-                    ))}
-                  </div>
+                {/* Center — agent/conversation name + status (status hidden when connected) */}
+                <div className="flex-1 min-w-0 text-center">
+                  <p className="text-sm font-medium text-foreground truncate">
+                    {selectedAgent.name || selectedAgent.pod_name || "Agent"}
+                  </p>
+                  {!chat.connected && (
+                    <p className="text-xs text-text-muted">
+                      {chat.connecting ? "Connecting to gateway..." : selectedAgent.state === "RUNNING" ? "Disconnected" : selectedAgent.state}
+                    </p>
+                  )}
                 </div>
 
-                {/* Spacer to push right actions to the edge */}
-                <div className="flex-1 min-w-0" />
+                {/* Files button — routes to the workspace files page */}
+                {(() => {
+                  const fileCount = chat.files?.length ?? 0;
+                  return (
+                    <button
+                      onClick={() => router.push(`/dashboard/agents/${selectedAgent.id}/files`)}
+                      className="relative z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-muted hover:text-foreground hover:border-text-muted/30 hover:bg-surface-low transition-all flex-shrink-0"
+                      title="Open workspace files"
+                    >
+                      <FolderOpen className="w-4 h-4" />
+                      <span className="hidden sm:inline">Files</span>
+                      {fileCount > 0 && (
+                        <span className="text-[9px] tabular-nums px-1.5 py-0.5 rounded-full bg-surface-low text-text-muted">
+                          {fileCount}
+                        </span>
+                      )}
+                    </button>
+                  );
+                })()}
 
                 {/* Right actions */}
                 <div className="relative z-10 flex items-center gap-2 flex-shrink-0">
@@ -2785,19 +2029,6 @@ export default function AgentsPage() {
                         {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                         <span className="hidden xl:inline">Start</span>
                       </button>
-                    ) : isSelectedRunning || isSelectedTransitioning ? (
-                      selectedAgent.state !== "STOPPING" && (
-                        <button
-                          onClick={() => handleStop(selectedAgent.id)}
-                          disabled={stoppingId === selectedAgent.id}
-                          className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                          aria-label="Stop agent"
-                          title="Stop"
-                        >
-                          {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                          <span className="hidden xl:inline">Stop</span>
-                        </button>
-                      )
                     ) : null}
                   </div>
 
@@ -2823,31 +2054,7 @@ export default function AgentsPage() {
                           {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
                           <span className="hidden xl:inline">Start</span>
                         </button>
-                      ) : isSelectedRunning || isSelectedTransitioning ? (
-                        selectedAgent.state !== "STOPPING" && (
-                          <button
-                            onClick={() => handleStop(selectedAgent.id)}
-                            disabled={stoppingId === selectedAgent.id}
-                            className="px-2 py-1 rounded text-xs border border-border text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                            aria-label="Stop agent"
-                            title="Stop"
-                          >
-                            {stoppingId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                            <span className="hidden xl:inline">Stop</span>
-                          </button>
-                        )
                       ) : null}
-
-                      {isSelectedRunning && selectedAgent.hostname && (
-                        <button
-                          onClick={() => handleOpenDesktop(selectedAgent)}
-                          disabled={openingDesktopId === selectedAgent.id}
-                          className="px-2 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                        >
-                          {openingDesktopId === selectedAgent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
-                          Desktop
-                        </button>
-                      )}
 
                       {(mainTab === "logs" || mainTab === "shell") && (
                         <button
@@ -2861,6 +2068,27 @@ export default function AgentsPage() {
 
                     </div>
                   </div>
+
+                  {/* Mobile — open AgentView bottom sheet */}
+                  {!isDesktopViewport && (
+                    <button
+                      onClick={() => setAgentViewSheetOpen(true)}
+                      className="w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                      title="Agent details"
+                    >
+                      <Gauge className="w-3.5 h-3.5" />
+                    </button>
+                  )}
+
+                  {/* Gear dropdown */}
+                  <GearDropdown
+                    currentPanel={(mainTab === "logs" || mainTab === "shell" ? mainTab : "chat") as CenterPanel}
+                    onSelectPanel={(panel) => setMainTab(panel)}
+                    onOpenConfig={() => setShowOpenclawModal(true)}
+                    onOpenSettings={() => setShowSettingsModal(true)}
+                  />
+
+                  {/* Add participant button — hidden for now */}
                 </div>
               </div>
 
@@ -2874,9 +2102,9 @@ export default function AgentsPage() {
                       onBurstComplete={() => setBurstAgentId(null)}
                     />
                   </div>
-                ) : !isSelectedRunning && mainTab !== "files" ? (
+                ) : !isSelectedRunning ? (
                   <AgentLaunchPrompt
-                    label={stoppedTabLabel[mainTab as Exclude<MainTab, "files">]}
+                    label={stoppedTabLabel[(mainTab === "logs" || mainTab === "shell" ? mainTab : "chat") as "chat" | "logs" | "shell"]}
                     launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
                     onLaunch={() => { void handleStart(selectedAgent.id); }}
                     blockedTitle={selectedAgentStartGuidance?.title}
@@ -2954,19 +2182,42 @@ export default function AgentsPage() {
                         const inlineAudioUrl = voicePath && selectedAgent
                           ? `${API_BASE_URL}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
                           : null;
-                        return <ChatMessageBubble key={i} message={msg} inlineAudioUrl={inlineAudioUrl} agentId={selectedAgent?.id} />;
+                        return (
+                          <ChatMessageBubble
+                            key={i}
+                            message={msg}
+                            inlineAudioUrl={inlineAudioUrl}
+                            agentId={selectedAgent?.id}
+                            timestampVariant="v2"
+                            bubblesVariant="v2"
+                            nameVariant="v2"
+                            animationVariant="v2"
+                            themeVariant="v2"
+                            streamingVariant="v2"
+                            isStreaming={chat.sending && i === chat.messages.length - 1 && msg.role === "assistant"}
+                            agentName={selectedAgent?.name ?? "Agent"}
+                          />
+                        );
                       })}
 
-                      {chat.sending && chat.messages[chat.messages.length - 1]?.role !== "assistant" && (
-                        <ChatThinkingIndicator />
-                      )}
+                      {(() => {
+                        if (!chat.sending) return null;
+                        const last = chat.messages[chat.messages.length - 1];
+                        // Show indicator until the assistant has actually started writing user-visible content
+                        // (thinking-only or tool-call-only messages don't count as a response yet)
+                        const hasContent = last?.role === "assistant" && (
+                          (last.content && last.content.trim().length > 0) ||
+                          (last.toolCalls && last.toolCalls.length > 0)
+                        );
+                        return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
+                      })()}
 
                       <div ref={chatEndRef} />
                     </div>
 
                     {/* Chat input */}
                     <div
-                      className="flex-shrink-0 border-t border-border px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3"
+                      className="flex-shrink-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3"
                     >
                       {/* Pending image attachments preview */}
                       {chat.pendingAttachments.length > 0 && (
@@ -3074,12 +2325,15 @@ export default function AgentsPage() {
                             </button>
                           </>
                         ) : (
-                          /* Normal text mode */
-                          <>
-                            <input
-                              type="text"
+                          /* Normal text mode — Alt 2: pill textarea with all controls inside */
+                          <div className="relative flex-1 min-w-0">
+                            <textarea
                               value={chat.input}
-                              onChange={(e) => chat.setInput(e.target.value)}
+                              onChange={(e) => {
+                                chat.setInput(e.target.value);
+                                e.target.style.height = "auto";
+                                e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                              }}
                               onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSendChat(); } }}
                               onPaste={(e) => {
                                 const items = e.clipboardData?.items;
@@ -3098,40 +2352,50 @@ export default function AgentsPage() {
                                   chat.addAttachments(dt.files);
                                 }
                               }}
-                              placeholder={chat.connected ? "Type a message..." : "Waiting for gateway..."}
+                              rows={1}
+                              placeholder={chat.connected ? "Message agent..." : "Waiting for gateway..."}
                               disabled={!chat.connected || chat.sending}
-                              className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                              className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
                             />
-                            <label className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors">
-                              <Paperclip className="w-4 h-4" />
-                              <input
-                                type="file"
-                                multiple
-                                className="hidden"
-                                onChange={(e) => {
-                                  if (e.target.files?.length) {
-                                    void handleChatFileDrop(e.target.files);
-                                    e.target.value = "";
-                                  }
-                                }}
-                              />
-                            </label>
-                            <button
-                              onClick={startRecording}
-                              disabled={!chat.connected}
-                              className="flex-shrink-0 px-2 py-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low flex items-center justify-center transition-colors"
-                              title="Record audio"
-                            >
-                              <Mic className="w-4 h-4" />
-                            </button>
-                            <button
-                              onClick={handleSendChat}
-                              disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)}
-                              className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
-                            >
-                              <Send className="w-4 h-4" />
-                            </button>
-                          </>
+                            {/* Right-pinned actions — single flex row so all three share one baseline.
+                                The -3px offset compensates for the textarea's text baseline sitting
+                                slightly above geometric center (font ascender/descender asymmetry). */}
+                            <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
+                              <label
+                                className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors"
+                                title="Attach file"
+                              >
+                                <Paperclip className="w-4 h-4" />
+                                <input
+                                  type="file"
+                                  multiple
+                                  className="hidden"
+                                  onChange={(e) => {
+                                    if (e.target.files?.length) {
+                                      void handleChatFileDrop(e.target.files);
+                                      e.target.value = "";
+                                    }
+                                  }}
+                                />
+                              </label>
+                              <button
+                                onClick={startRecording}
+                                disabled={!chat.connected || chat.input.trim().length > 0}
+                                className="w-8 h-8 rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 hover:text-[#38D39F] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#38D39F]/15"
+                                title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}
+                              >
+                                <Mic className="w-4 h-4" />
+                              </button>
+                              <button
+                                onClick={handleSendChat}
+                                disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)}
+                                className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center"
+                                title="Send message"
+                              >
+                                <Send className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
                         )}
                       </div>
                     </div>
@@ -3160,304 +2424,292 @@ export default function AgentsPage() {
                       </div>
                     )}
                   </div>
-                ) : mainTab === "workspace" ? (
-                  /* ── Workspace Tab ── */
-                  <div className="h-full flex flex-col">
-                    {selectedFile ? (
-                      <>
-                        <div className="flex items-center gap-2 px-4 py-2 border-b border-border">
-                          <button onClick={() => setSelectedFile(null)} className="text-text-muted hover:text-foreground">
-                            <PanelLeft className="w-4 h-4" />
-                          </button>
-                          <FileText className="w-4 h-4 text-text-muted" />
-                          <span className="text-sm font-mono text-foreground">{selectedFile}</span>
-                          {fileDirty && <span className="text-xs text-[#f0c56c]">unsaved</span>}
-                          <div className="flex-1" />
-                          <button
-                            onClick={handleSaveFile}
-                            disabled={!fileDirty || savingFile}
-                            className="btn-primary px-3 py-1 rounded text-xs flex items-center gap-1 disabled:opacity-50"
-                          >
-                            {savingFile ? <Loader2 className="w-3 h-3 animate-spin" /> : <Settings className="w-3 h-3" />}
-                            Save
-                          </button>
-                        </div>
-                        <textarea
-                          value={fileContent}
-                          onChange={(e) => { setFileContent(e.target.value); setFileDirty(true); }}
-                          className="flex-1 bg-[#0c1016] text-[#d8dde7] font-mono text-sm p-4 resize-none focus:outline-none"
-                          spellCheck={false}
-                        />
-                      </>
-                    ) : (
-                      <div className="p-4 space-y-1">
-                        <h3 className="text-xs font-semibold text-text-muted uppercase tracking-wider mb-3">Workspace Files</h3>
-                        {!chat.connected ? (
-                          <p className="text-sm text-text-muted">Connect to gateway to view files.</p>
-                        ) : chat.files.length === 0 ? (
-                          <p className="text-sm text-text-muted">No files</p>
-                        ) : (
-                          chat.files.map((f) => (
+                ) : null}
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* ── Right Sidebar — AgentView (desktop) ── */}
+        {selectedAgent && isDesktopViewport && (
+          <div className="w-80 flex-shrink-0 border-l border-border flex flex-col min-h-0">
+            <AgentView
+              {...agentViewVariants}
+              agentName={selectedAgent.name || selectedAgent.id}
+              activeTab={agentViewTab}
+              onTabChange={setAgentViewTab}
+              showActiveSessions
+              showCronManager
+              showRecentToolCalls
+              tabBarStyle="v1"
+              agentStatus={isSelectedRunning ? {
+                state: selectedAgent.state as "RUNNING",
+                uptime: selectedAgent.started_at ? Date.now() - new Date(selectedAgent.started_at).getTime() : 0,
+                cpu: selectedAgent.cpu_millicores / 10,
+                memory: { used: selectedAgent.memory_mib, total: selectedAgent.memory_mib },
+              } : selectedAgent.state === "STOPPED" ? {
+                state: "STOPPED",
+                uptime: 0,
+                cpu: 0,
+                memory: { used: 0, total: selectedAgent.memory_mib },
+              } : null}
+              agentConfig={agentConfigForView}
+              agentConnections={agentConnectionsForView}
+              agentSessions={agentSessionsForView}
+              activityEntries={activityEntriesForView}
+              recentToolCalls={recentToolCallsForView}
+              agentCronJobs={agentCronJobsForView}
+              agentWorkspaceFiles={agentWorkspaceFilesForView}
+              onPromptClick={(prompt) => chat.setInput(prompt)}
+              onCronRemove={(jobId) => { void chat.removeCron(jobId); }}
+              onMarketplaceClick={() => { setDirectoryCategory(undefined); setDirectoryOpen(true); }}
+              onAgentStart={() => { void handleStart(selectedAgent.id); }}
+              onAgentStop={() => { void handleStop(selectedAgent.id); }}
+              agentStarting={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
+              agentStopping={stoppingId === selectedAgent.id}
+              agentStartBlocked={selectedAgentLaunchBlocked}
+              agentStartBlockedReason={selectedAgentStartGuidance?.title}
+              onOpenFiles={() => router.push(`/dashboard/agents/${selectedAgent.id}/files`)}
+              conversationThreads={syntheticThreads}
+              selectedConversationThreadId={selectedAgent.id}
+            />
+          </div>
+        )}
+      </div>
+
+      {/* ── Mobile Bottom Sheet — AgentView ── */}
+      {selectedAgent && !isDesktopViewport && (
+        <Sheet open={agentViewSheetOpen} onOpenChange={setAgentViewSheetOpen}>
+          <SheetContent
+            side="bottom"
+            className="h-[80dvh] p-0 border-t border-border bg-background"
+          >
+            <div className="h-full flex flex-col min-h-0">
+              <AgentView
+                {...agentViewVariants}
+                agentName={selectedAgent.name || selectedAgent.id}
+                activeTab={agentViewTab}
+                onTabChange={setAgentViewTab}
+                showActiveSessions
+                showCronManager
+                showRecentToolCalls
+                tabBarStyle="v1"
+                agentStatus={isSelectedRunning ? {
+                  state: selectedAgent.state as "RUNNING",
+                  uptime: selectedAgent.started_at ? Date.now() - new Date(selectedAgent.started_at).getTime() : 0,
+                  cpu: selectedAgent.cpu_millicores / 10,
+                  memory: { used: selectedAgent.memory_mib, total: selectedAgent.memory_mib },
+                } : selectedAgent.state === "STOPPED" ? {
+                  state: "STOPPED",
+                  uptime: 0,
+                  cpu: 0,
+                  memory: { used: 0, total: selectedAgent.memory_mib },
+                } : null}
+                agentConfig={agentConfigForView}
+                agentConnections={agentConnectionsForView}
+                agentSessions={agentSessionsForView}
+                activityEntries={activityEntriesForView}
+                recentToolCalls={recentToolCallsForView}
+                agentCronJobs={agentCronJobsForView}
+                agentWorkspaceFiles={agentWorkspaceFilesForView}
+                onPromptClick={(prompt) => chat.setInput(prompt)}
+                onCronRemove={(jobId) => { void chat.removeCron(jobId); }}
+                onMarketplaceClick={() => { setDirectoryCategory(undefined); setDirectoryOpen(true); }}
+                onAgentStart={() => { void handleStart(selectedAgent.id); }}
+                onAgentStop={() => { void handleStop(selectedAgent.id); }}
+                agentStarting={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
+                agentStopping={stoppingId === selectedAgent.id}
+                agentStartBlocked={selectedAgentLaunchBlocked}
+                agentStartBlockedReason={selectedAgentStartGuidance?.title}
+                onOpenFiles={() => router.push(`/dashboard/agents/${selectedAgent.id}/files`)}
+                conversationThreads={syntheticThreads}
+                selectedConversationThreadId={selectedAgent.id}
+              />
+            </div>
+          </SheetContent>
+        </Sheet>
+      )}
+
+      {/* ── OpenClaw Config Modal ── */}
+      <AnimatePresence>
+        {showOpenclawModal && selectedAgent && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowOpenclawModal(false)}
+          >
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+              className="w-full max-w-2xl bg-background border-l border-border flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <h2 className="text-sm font-semibold text-foreground">OpenClaw Config</h2>
+                <button
+                  onClick={() => setShowOpenclawModal(false)}
+                  className="text-text-muted hover:text-foreground transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto">
+                <div className="h-full min-h-0 flex flex-row">
+                  <aside className="w-[200px] shrink-0 border-r border-border bg-surface-low/20" style={{ minWidth: 160, maxWidth: 260 }}>
+                    <div className="h-full overflow-y-auto p-3">
+                      <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">Sections</p>
+                      <div className="space-y-0.5">
+                        {openclawSections.map(([sectionKey, sectionSchema]) => {
+                          const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
+                          const sectionLabel =
+                            sectionHint?.label?.trim() ||
+                            (typeof asObject(sectionSchema)?.title === "string"
+                              ? String(asObject(sectionSchema)?.title)
+                              : humanizeKey(sectionKey));
+                          return (
                             <button
-                              key={f.name}
-                              onClick={() => handleOpenFile(f.name)}
-                              className="flex items-center gap-2 w-full px-3 py-2 rounded hover:bg-surface-low transition-colors text-left"
+                              key={`modal-nav-${sectionKey}`}
+                              onClick={() => setActiveOpenclawSection(sectionKey)}
+                              className={`block w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors truncate ${
+                                effectiveOpenclawSection === sectionKey
+                                  ? "bg-primary/15 text-foreground font-medium border-l-2 border-primary"
+                                  : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
+                              }`}
                             >
-                              <FileText className={`w-4 h-4 ${f.missing ? "text-[#d05f5f]" : "text-text-muted"}`} />
-                              <span className="text-sm text-foreground font-mono flex-1">{f.name}</span>
-                              <span className="text-xs text-text-muted">{(f.size / 1024).toFixed(1)}KB</span>
+                              {sectionLabel}
                             </button>
-                          ))
-                        )}
+                          );
+                        })}
                       </div>
-                    )}
-                  </div>
-                ) : mainTab === "files" ? (
-                  /* ── Files Tab ── */
-                  <S3FilesPanel
-                    agentId={selectedAgent.id}
-                    getToken={getToken}
-                  />
-                ) : mainTab === "openclaw" ? (
-                  /* ── OpenClaw Tab ── */
-                  <div className={`h-full min-h-0 flex ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
-                    {isDesktopViewport ? (
-                      <>
-                        <aside className="w-[200px] shrink-0 border-r border-border bg-surface-low/20" style={{ minWidth: 160, maxWidth: 260 }}>
-                          <div className="h-full overflow-y-auto p-3">
-                            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">
-                              Sections
-                            </p>
-                            <div className="space-y-0.5">
-                              {openclawSections.map(([sectionKey, sectionSchema]) => {
-                                const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                                const sectionLabel =
-                                  sectionHint?.label?.trim() ||
-                                  (typeof asObject(sectionSchema)?.title === "string"
-                                    ? String(asObject(sectionSchema)?.title)
-                                    : humanizeKey(sectionKey));
-                                const sectionDescription =
-                                  sectionHint?.help?.trim() ||
-                                  (typeof asObject(sectionSchema)?.description === "string"
-                                    ? String(asObject(sectionSchema)?.description)
-                                    : sectionKey);
-                                return (
-                                  <button
-                                    key={`nav-${sectionKey}`}
-                                    onClick={() => setActiveOpenclawSection(sectionKey)}
-                                    className={`block w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors truncate ${
-                                      effectiveOpenclawSection === sectionKey
-                                        ? "bg-primary/15 text-foreground font-medium border-l-2 border-primary"
-                                        : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
-                                    }`}
-                                    title={sectionDescription}
-                                  >
-                                    {sectionLabel}
-                                  </button>
-                                );
-                              })}
-                            </div>
+                    </div>
+                  </aside>
+                  <div ref={openclawPaneRef} className="flex-1 min-w-0 overflow-y-auto p-6">
+                    <OpenClawErrorBoundary>
+                      <div className="mx-auto max-w-5xl space-y-4">
+                        <div className="flex flex-wrap items-center justify-between gap-3">
+                          <div>
+                            <h3 className="text-lg font-semibold text-foreground">
+                              {activeOpenclawSectionLabel ?? "OpenClaw Config"}
+                            </h3>
                           </div>
-                        </aside>
-
-                        <div ref={openclawPaneRef} className="flex-1 min-w-0 overflow-y-auto p-6">
-                          <OpenClawErrorBoundary>
-                          <div className="mx-auto max-w-5xl space-y-4">
-                            <div className="flex flex-wrap items-center justify-between gap-3">
-                              <div>
-                                <h3 className="text-lg font-semibold text-foreground">
-                                  {activeOpenclawSectionLabel ?? "OpenClaw Config"}
-                                </h3>
-                                {openclawSchemaBundle?.version && (
-                                  <p className="mt-1 text-xs text-text-muted">
-                                    Schema version <span className="font-mono">{openclawSchemaBundle.version}</span>
-                                  </p>
-                                )}
-                              </div>
-                              <button
-                                onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
-                                disabled={openclawSaving || !chat.connected || !openclawDraft}
-                                className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
-                              >
-                                {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
-                                {effectiveOpenclawSection ? "Save Section" : "Save All"}
-                              </button>
-                            </div>
-
-                            {openclawError && (
-                              <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
-                                {openclawError}
-                              </div>
-                            )}
-                            {openclawSuccess && !openclawError && (
-                              <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
-                                {openclawSuccess}
-                              </div>
-                            )}
-                            {!chat.connected && !chat.connecting && (
-                              <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-                                Connect the agent gateway to edit OpenClaw settings.
-                              </div>
-                            )}
-                            {chat.connecting && !chat.connected && (
-                              <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted inline-flex items-center gap-2">
-                                <Loader2 className="w-4 h-4 animate-spin" />
-                                Connecting to gateway…
-                              </div>
-                            )}
-                            {chat.connected && !openclawSchemaProperties && (
-                              <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-                                No config schema available from gateway.
-                              </div>
-                            )}
-
-                            {openclawSchemaProperties && openclawDraft && (
-                              <div className="space-y-4">
-                                {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
-                                  const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                                  const sectionDescription =
-                                    sectionHint?.help?.trim() ||
-                                    (typeof asObject(sectionSchema)?.description === "string"
-                                      ? String(asObject(sectionSchema)?.description)
-                                      : "");
-                                  return (
-                                    <div key={`section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
-                                      {sectionDescription && (
-                                        <p className="text-xs text-text-muted">{sectionDescription}</p>
-                                      )}
-                                      {renderOpenclawField(sectionSchema, [sectionKey])}
-                                    </div>
-                                  );
-                                })}
-                              </div>
-                            )}
-                          </div>
-                          </OpenClawErrorBoundary>
+                          <button
+                            onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
+                            disabled={openclawSaving || !chat.connected || !openclawDraft}
+                            className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
+                          >
+                            {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
+                            {effectiveOpenclawSection ? "Save Section" : "Save All"}
+                          </button>
                         </div>
-                      </>
-                    ) : mobileOpenclawMenuOpen ? (
-                      <div className="flex-1 overflow-y-auto p-4">
-                        <div className="mx-auto max-w-xl rounded-xl border border-border bg-surface-low/20 p-4">
-                          <div className="mb-4">
-                            <h3 className="text-lg font-semibold text-foreground">OpenClaw Sections</h3>
-                            <p className="mt-1 text-sm text-text-muted">
-                              Choose a section to edit.
-                            </p>
+                        {openclawError && (
+                          <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">{openclawError}</div>
+                        )}
+                        {openclawSuccess && !openclawError && (
+                          <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">{openclawSuccess}</div>
+                        )}
+                        {!chat.connected && !chat.connecting && (
+                          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">Connect the agent gateway to edit OpenClaw settings.</div>
+                        )}
+                        {chat.connecting && !chat.connected && (
+                          <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted inline-flex items-center gap-2">
+                            <Loader2 className="w-4 h-4 animate-spin" /> Connecting to gateway…
                           </div>
-                          <div className="space-y-1">
-                            {openclawSections.map(([sectionKey, sectionSchema]) => {
+                        )}
+                        {openclawSchemaProperties && openclawDraft && (
+                          <div className="space-y-4">
+                            {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
                               const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                              const sectionLabel =
-                                sectionHint?.label?.trim() ||
-                                (typeof asObject(sectionSchema)?.title === "string"
-                                  ? String(asObject(sectionSchema)?.title)
-                                  : humanizeKey(sectionKey));
                               const sectionDescription =
                                 sectionHint?.help?.trim() ||
                                 (typeof asObject(sectionSchema)?.description === "string"
                                   ? String(asObject(sectionSchema)?.description)
                                   : "");
                               return (
-                                <button
-                                  key={`mobile-openclaw-${sectionKey}`}
-                                  onClick={() => {
-                                    setActiveOpenclawSection(sectionKey);
-                                    setMobileOpenclawMenuOpen(false);
-                                  }}
-                                  className="block w-full rounded-lg px-3 py-3 text-left transition-colors hover:bg-surface-low/60"
-                                >
-                                  <div className="text-sm font-medium text-foreground">{sectionLabel}</div>
-                                  {sectionDescription && (
-                                    <div className="mt-1 text-xs text-text-muted">{sectionDescription}</div>
-                                  )}
-                                </button>
+                                <div key={`modal-section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
+                                  {sectionDescription && <p className="text-xs text-text-muted">{sectionDescription}</p>}
+                                  {renderOpenclawField(sectionSchema, [sectionKey])}
+                                </div>
                               );
                             })}
                           </div>
-                        </div>
+                        )}
                       </div>
-                    ) : (
-                      <div className="flex-1 min-w-0 overflow-y-auto p-4">
-                        <OpenClawErrorBoundary>
-                        <div className="mx-auto max-w-xl space-y-4">
-                          <div className="flex flex-wrap items-center justify-between gap-3">
-                            <div>
-                              <button
-                                onClick={() => setMobileOpenclawMenuOpen(true)}
-                                className="mb-3 inline-flex items-center gap-2 text-sm text-text-muted transition-colors hover:text-foreground"
-                              >
-                                <ArrowLeft className="h-4 w-4" />
-                                Back
-                              </button>
-                              <h3 className="text-lg font-semibold text-foreground">
-                                {activeOpenclawSectionLabel ?? "OpenClaw Config"}
-                              </h3>
-                            </div>
-                            <button
-                              onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
-                              disabled={openclawSaving || !chat.connected || !openclawDraft}
-                              className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
-                            >
-                              {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
-                              {effectiveOpenclawSection ? "Save Section" : "Save All"}
-                            </button>
-                          </div>
-
-                          {openclawError && (
-                            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
-                              {openclawError}
-                            </div>
-                          )}
-                          {openclawSuccess && !openclawError && (
-                            <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
-                              {openclawSuccess}
-                            </div>
-                          )}
-                          {!chat.connected && !chat.connecting && (
-                            <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-                              Connect the agent gateway to edit OpenClaw settings.
-                            </div>
-                          )}
-                          {chat.connecting && !chat.connected && (
-                            <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted inline-flex items-center gap-2">
-                              <Loader2 className="w-4 h-4 animate-spin" />
-                              Connecting to gateway…
-                            </div>
-                          )}
-                          {chat.connected && !openclawSchemaProperties && (
-                            <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-                              No config schema available from gateway.
-                            </div>
-                          )}
-
-                          {openclawSchemaProperties && openclawDraft && (
-                            <div className="space-y-4">
-                              {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
-                                const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                                const sectionDescription =
-                                  sectionHint?.help?.trim() ||
-                                  (typeof asObject(sectionSchema)?.description === "string"
-                                    ? String(asObject(sectionSchema)?.description)
-                                    : "");
-                                return (
-                                  <div key={`section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
-                                    {sectionDescription && (
-                                      <p className="text-xs text-text-muted">{sectionDescription}</p>
-                                    )}
-                                    {renderOpenclawField(sectionSchema, [sectionKey])}
-                                  </div>
-                                );
-                              })}
-                            </div>
-                          )}
-                        </div>
-                        </OpenClawErrorBoundary>
-                      </div>
-                    )}
+                    </OpenClawErrorBoundary>
                   </div>
-                ) : mainTab === "integrations" && selectedAgent ? (
-                  /* ── Integrations Tab ── */
-                  <div className="h-full overflow-y-auto">
+                </div>
+              </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      {/* ── Settings Modal ── */}
+      <AnimatePresence>
+        {showSettingsModal && selectedAgent && (
+          <motion.div
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60 backdrop-blur-sm"
+            onClick={() => setShowSettingsModal(false)}
+          >
+            <motion.div
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 400, damping: 35 }}
+              className="w-full max-w-lg bg-background border-l border-border flex flex-col overflow-hidden"
+              onClick={(e) => e.stopPropagation()}
+            >
+              <div className="flex items-center justify-between px-4 py-3 border-b border-border">
+                <h2 className="text-sm font-semibold text-foreground">Settings</h2>
+                <button
+                  onClick={() => setShowSettingsModal(false)}
+                  className="text-text-muted hover:text-foreground transition-colors"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
+              <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-8">
+                <div className="max-w-2xl w-full mx-auto space-y-8">
+                  {/* Agent Identity */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground mb-4">Agent Identity</h3>
+                    <div className="space-y-4">
+                      <div>
+                        <label className="block text-sm text-text-secondary mb-1">Name</label>
+                        <div className="flex items-center gap-2">
+                          <input
+                            value={settingsName}
+                            onChange={(e) => setSettingsName(e.target.value)}
+                            disabled={selectedAgent.state !== "STOPPED"}
+                            className={`flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong ${selectedAgent.state !== "STOPPED" ? "opacity-50 cursor-not-allowed" : ""}`}
+                            placeholder="Agent name"
+                          />
+                          {selectedAgent.state === "STOPPED" && settingsName.trim() && settingsName.trim() !== (selectedAgent.name || "") && (
+                            <button
+                              onClick={handleSaveName}
+                              disabled={savingName}
+                              className="flex-shrink-0 px-3 py-2 rounded-lg text-sm bg-[#38D39F] text-[#0a0a0b] font-medium hover:bg-[#38D39F]/90 disabled:opacity-60"
+                            >
+                              {savingName ? "Saving..." : "Save"}
+                            </button>
+                          )}
+                        </div>
+                        {selectedAgent.state !== "STOPPED" && (
+                          <p className="text-xs text-text-muted mt-1">Stop the agent to change its name</p>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Integrations */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground mb-4">Integrations</h3>
                     <IntegrationsPage
                       config={chat.config as Record<string, unknown> | null}
                       configSchema={chat.configSchema}
@@ -3466,140 +2718,76 @@ export default function AgentsPage() {
                       onChannelProbe={async () => chat.channelsStatus(true)}
                     />
                   </div>
-                ) : mainTab === "settings" && selectedAgent ? (
-                  /* ── Settings Tab ── */
-                  <div className="h-full overflow-y-auto p-4 sm:p-6 pb-8">
-                    <div className="max-w-2xl w-full mx-auto space-y-8">
-                      {/* Agent Identity Section */}
-                      <div>
-                        <h3 className="text-lg font-semibold text-foreground mb-4">Agent Identity</h3>
-                        <div className="space-y-4">
-                          <div>
-                            <label className="block text-sm text-text-secondary mb-1">Name</label>
-                            <div className="flex items-center gap-2">
-                              <input
-                                value={settingsName}
-                                onChange={(e) => setSettingsName(e.target.value)}
-                                disabled={selectedAgent.state !== "STOPPED"}
-                                className={`flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong ${selectedAgent.state !== "STOPPED" ? "opacity-50 cursor-not-allowed" : ""}`}
-                                placeholder="Agent name"
-                              />
-                              {selectedAgent.state === "STOPPED" && settingsName.trim() && settingsName.trim() !== (selectedAgent.name || "") && (
-                                <button
-                                  onClick={handleSaveName}
-                                  disabled={savingName}
-                                  className="flex-shrink-0 px-3 py-2 rounded-lg text-sm bg-[#38D39F] text-[#0a0a0b] font-medium hover:bg-[#38D39F]/90 disabled:opacity-60"
-                                >
-                                  {savingName ? "Saving..." : "Save"}
-                                </button>
-                              )}
-                            </div>
-                            {selectedAgent.state !== "STOPPED" && (
-                              <p className="text-xs text-text-muted mt-1">Stop the agent to change its name</p>
-                            )}
-                          </div>
-                          <div>
-                            <label className="block text-sm text-text-secondary mb-1">Description</label>
-                            <textarea
-                              value={settingsDesc}
-                              onChange={(e) => setSettingsDesc(e.target.value)}
-                              rows={3}
-                              className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong resize-none"
-                              placeholder="What does this agent do? (optional)"
-                            />
-                          </div>
-                        </div>
-                      </div>
 
-                      {/* Info Section */}
-                      <div>
-                        <h3 className="text-lg font-semibold text-foreground mb-4">Information</h3>
-                        <div className="glass-card p-4 space-y-3">
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-text-secondary">Agent ID</span>
-                            <span className="text-sm text-text-tertiary font-mono truncate min-w-0">{selectedAgent.id.slice(0, 12)}...</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-text-secondary">Status</span>
-                            <span className={`text-sm font-medium ${
-                              selectedAgent.state === "RUNNING" ? "text-[#38D39F]" :
-                              selectedAgent.state === "FAILED" ? "text-[#d05f5f]" :
-                              selectedAgent.state === "STOPPED" ? "text-text-muted" :
-                              "text-[#f0c56c]"
-                            }`}>{selectedAgent.state}</span>
-                          </div>
-                          <div className="flex items-center justify-between">
-                            <span className="text-sm text-text-secondary">Resources</span>
-                            <span className="text-sm text-text-tertiary truncate min-w-0">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
-                          </div>
-                          {selectedAgentTier && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-text-secondary">Tier</span>
-                              <span className="text-sm text-text-tertiary truncate min-w-0">{titleizeTier(selectedAgentTier)}</span>
-                            </div>
-                          )}
-                          {selectedAgent.hostname && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-text-secondary">Hostname</span>
-                              <span className="text-sm text-text-tertiary font-mono truncate min-w-0">{selectedAgent.hostname}</span>
-                            </div>
-                          )}
-                          {selectedAgent.created_at && (
-                            <div className="flex items-center justify-between">
-                              <span className="text-sm text-text-secondary">Created</span>
-                              <span className="text-sm text-text-tertiary">{new Date(selectedAgent.created_at).toLocaleDateString()}</span>
-                            </div>
-                          )}
-                          {selectedAgentStartGuidance && (
-                            <div className="rounded-lg border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-3 py-2 text-sm">
-                              <p className="font-medium text-[#f0c56c]">{selectedAgentStartGuidance.title}</p>
-                              <p className="mt-1 text-text-secondary">{selectedAgentStartGuidance.message}</p>
-                            </div>
-                          )}
-                        </div>
+                  {/* Info Section */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-foreground mb-4">Information</h3>
+                    <div className="glass-card p-4 space-y-3">
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-text-secondary">Agent ID</span>
+                        <span className="text-sm text-text-tertiary font-mono truncate min-w-0">{selectedAgent.id.slice(0, 12)}...</span>
                       </div>
-
-                      {/* Danger Zone */}
-                      <div>
-                        <h3 className="text-lg font-semibold text-[#d05f5f] mb-4">Danger Zone</h3>
-                        <div className="border border-[#d05f5f]/20 rounded-lg p-4 space-y-3">
-                          {selectedAgent.state === "RUNNING" && (
-                            <div className="flex items-center justify-between gap-3">
-                              <div className="min-w-0">
-                                <p className="text-sm font-medium text-foreground">Stop Agent</p>
-                                <p className="text-xs text-text-muted">Stop the running agent container</p>
-                              </div>
-                              <button
-                                onClick={() => handleStop(selectedAgent.id)}
-                                disabled={stoppingId === selectedAgent.id}
-                                className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm border border-border text-foreground hover:bg-surface-low disabled:opacity-60"
-                              >
-                                {stoppingId === selectedAgent.id ? "Stopping..." : "Stop"}
-                              </button>
-                            </div>
-                          )}
-                          <div className="flex items-center justify-between gap-3">
-                            <div className="min-w-0">
-                              <p className="text-sm font-medium text-foreground">Delete Agent</p>
-                              <p className="text-xs text-text-muted">Permanently delete this agent and all its data</p>
-                            </div>
-                            <button
-                              onClick={() => setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id })}
-                              className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm border border-[#d05f5f]/30 text-[#d05f5f] hover:bg-[#d05f5f]/10"
-                            >
-                              Delete
-                            </button>
-                          </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-text-secondary">Status</span>
+                        <span className={`text-sm font-medium ${
+                          selectedAgent.state === "RUNNING" ? "text-[#38D39F]" :
+                          selectedAgent.state === "FAILED" ? "text-[#d05f5f]" :
+                          selectedAgent.state === "STOPPED" ? "text-text-muted" :
+                          "text-[#f0c56c]"
+                        }`}>{selectedAgent.state}</span>
+                      </div>
+                      <div className="flex items-center justify-between">
+                        <span className="text-sm text-text-secondary">Resources</span>
+                        <span className="text-sm text-text-tertiary truncate min-w-0">{formatCpu(selectedAgent.cpu_millicores)} · {formatMemory(selectedAgent.memory_mib)}</span>
+                      </div>
+                      {selectedAgentTier && (
+                        <div className="flex items-center justify-between">
+                          <span className="text-sm text-text-secondary">Tier</span>
+                          <span className="text-sm text-text-tertiary truncate min-w-0">{titleizeTier(selectedAgentTier)}</span>
                         </div>
+                      )}
+                    </div>
+                  </div>
+
+                  {/* Danger Zone */}
+                  <div>
+                    <h3 className="text-lg font-semibold text-[#d05f5f] mb-4">Danger Zone</h3>
+                    <div className="border border-[#d05f5f]/20 rounded-lg p-4 space-y-3">
+                      {selectedAgent.state === "RUNNING" && (
+                        <div className="flex items-center justify-between gap-3">
+                          <div className="min-w-0">
+                            <p className="text-sm font-medium text-foreground">Stop Agent</p>
+                            <p className="text-xs text-text-muted">Stop the running agent container</p>
+                          </div>
+                          <button
+                            onClick={() => { handleStop(selectedAgent.id); setShowSettingsModal(false); }}
+                            disabled={stoppingId === selectedAgent.id}
+                            className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm border border-border text-foreground hover:bg-surface-low disabled:opacity-60"
+                          >
+                            {stoppingId === selectedAgent.id ? "Stopping..." : "Stop"}
+                          </button>
+                        </div>
+                      )}
+                      <div className="flex items-center justify-between gap-3">
+                        <div className="min-w-0">
+                          <p className="text-sm font-medium text-foreground">Delete Agent</p>
+                          <p className="text-xs text-text-muted">Permanently delete this agent and all its data</p>
+                        </div>
+                        <button
+                          onClick={() => { setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id }); setShowSettingsModal(false); }}
+                          className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm border border-[#d05f5f]/30 text-[#d05f5f] hover:bg-[#d05f5f]/10"
+                        >
+                          Delete
+                        </button>
                       </div>
                     </div>
                   </div>
-                ) : null}
+                </div>
               </div>
-            </>
-          )}
-        </div>
-      </div>
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

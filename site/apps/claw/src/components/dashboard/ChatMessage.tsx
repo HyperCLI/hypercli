@@ -55,6 +55,90 @@ interface ChatMessageProps {
 
 const THINKING_PREVIEW_LINES = 2;
 
+/**
+ * Markdown component config — lifted to module scope so the reference is stable
+ * across renders. Inline objects re-mount react-markdown's internals on every
+ * streamed chunk, which causes flicker. Keeping this stable lets the renderer
+ * skip work where possible.
+ */
+const MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
+  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
+  em: ({ children }) => <em className="italic">{children}</em>,
+  code: ({ children, className }) => {
+    const isBlock = className?.includes("language-");
+    return isBlock ? (
+      <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
+        <code>{children}</code>
+      </pre>
+    ) : (
+      <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+    );
+  },
+  pre: ({ children }) => <>{children}</>,
+  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
+  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
+  li: ({ children }) => <li>{children}</li>,
+  a: ({ href, children }) => (
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+      {children}
+    </a>
+  ),
+  h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
+  h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
+  h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+  blockquote: ({ children }) => (
+    <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
+  ),
+  hr: () => <hr className="border-border my-3" />,
+  img: ({ src, alt }) => typeof src === "string" && src ? (
+    <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
+      <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
+    </a>
+  ) : null,
+};
+
+/**
+ * Typewriter that renders streamed markdown content character-by-character via
+ * requestAnimationFrame, decoupling display speed from network arrival speed.
+ *
+ * Why: WebSocket + React batching coalesces chunks into single renders, making
+ * messages "pop" instead of typing. This component buffers the full target text
+ * and advances a display cursor at ~60 chars/sec regardless of how chunks arrive.
+ */
+function TypewriterMarkdown({ text }: { text: string }) {
+  const [displayed, setDisplayed] = useState("");
+  const targetRef = useRef(text);
+  targetRef.current = text;
+
+  useEffect(() => {
+    let raf: number;
+    let last = performance.now();
+    // Characters revealed per millisecond — tuned for fluid LLM-like typing.
+    // ~70 chars/sec = nice middle ground; faster than reading speed but visible.
+    const CHARS_PER_MS = 0.07;
+
+    const tick = (now: number) => {
+      const dt = now - last;
+      last = now;
+      setDisplayed((cur) => {
+        const target = targetRef.current;
+        if (cur.length >= target.length) return cur;
+        // Catch up faster if we're far behind (avoids long lag at end of stream)
+        const behind = target.length - cur.length;
+        const speedMultiplier = behind > 200 ? 4 : behind > 80 ? 2 : 1;
+        const advance = Math.max(1, Math.ceil(dt * CHARS_PER_MS * speedMultiplier));
+        return target.slice(0, cur.length + advance);
+      });
+      raf = requestAnimationFrame(tick);
+    };
+    raf = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(raf);
+  }, []);
+
+  return <Markdown components={MARKDOWN_COMPONENTS}>{displayed}</Markdown>;
+}
+
 function formatTime(ts?: number): string {
   if (!ts) return "";
   return new Date(ts).toLocaleTimeString([], {
@@ -272,7 +356,7 @@ export function ChatMessageBubble({
         );
       })()}
 
-      <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "flex-1 min-w-0" : ""}`}>
+      <div className={`flex flex-col min-w-0 ${isUser ? "items-end" : "items-start flex-1"}`}>
 
         {/* v1 name: monogram + muted label above bubble */}
         {showV1Name && (() => {
@@ -297,6 +381,25 @@ export function ChatMessageBubble({
           );
         })()}
 
+        {/* Thinking — subtle italic quote with left accent, click to expand */}
+        {message.thinking && !isUser && (
+          <button
+            onClick={() => setThinkingOpen((v) => !v)}
+            className="group/think w-full max-w-full mb-2 text-left text-xs italic text-text-muted/70 hover:text-text-muted transition-colors pl-2.5 border-l border-[#38D39F]/30 hover:border-[#38D39F]/60"
+          >
+            {thinkingOpen ? (
+              <span className="whitespace-pre-wrap leading-relaxed block">{message.thinking}</span>
+            ) : (
+              <span className="line-clamp-2 leading-relaxed">
+                {thinkingPreview?.preview ?? message.thinking}
+                {thinkingPreview?.truncated && (
+                  <span className="text-[#38D39F]/60 ml-1 not-italic font-medium opacity-0 group-hover/think:opacity-100 transition-opacity">show more</span>
+                )}
+              </span>
+            )}
+          </button>
+        )}
+
         {/* Tool calls */}
         {message.toolCalls?.map((tc, j) => {
           const hasResult = Boolean(tc.result);
@@ -308,11 +411,11 @@ export function ChatMessageBubble({
           return (
             <div
               key={j}
-              className="mb-2 text-xs bg-background/50 border border-border rounded-md overflow-hidden"
+              className="mb-2 w-full text-xs bg-background/50 border border-border rounded-md overflow-hidden"
             >
               <button
                 onClick={() =>
-                  setToolsOpen((prev) => ({ ...prev, [j]: !prev[j] }))
+                  setToolsOpen((prev) => ({ ...prev, [j]: prev[j] === false }))
                 }
                 className="flex items-center gap-1.5 w-full px-2.5 py-1.5 hover:bg-surface-low transition-colors text-left"
               >
@@ -323,16 +426,16 @@ export function ChatMessageBubble({
                 )}
                 <Wrench className="w-3 h-3 text-[#f0c56c] shrink-0" />
                 <span className="text-[#f0c56c] font-medium">{tc.name}</span>
-                {!toolsOpen[j] && summary && (
+                {toolsOpen[j] === false && summary && (
                   <span className="text-text-muted truncate ml-1 flex-1 min-w-0">{summary}</span>
                 )}
-                {toolsOpen[j] ? (
-                  <ChevronDown className="w-3 h-3 text-text-muted ml-auto shrink-0" />
-                ) : (
+                {toolsOpen[j] === false ? (
                   <ChevronRight className="w-3 h-3 text-text-muted ml-auto shrink-0" />
+                ) : (
+                  <ChevronDown className="w-3 h-3 text-text-muted ml-auto shrink-0" />
                 )}
               </button>
-              {toolsOpen[j] && (
+              {toolsOpen[j] !== false && (
                 <pre className="px-2.5 py-1.5 text-text-muted whitespace-pre-wrap border-t border-border font-mono">
                   {tc.args}
                   {tc.result && (
@@ -420,49 +523,27 @@ export function ChatMessageBubble({
 
         {/* Content */}
         {message.content && (
-          <div className="leading-relaxed prose-chat">
-            <Markdown
-              components={{
-                p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-                strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-                em: ({ children }) => <em className="italic">{children}</em>,
-                code: ({ children, className }) => {
-                  const isBlock = className?.includes("language-");
-                  return isBlock ? (
-                    <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
-                      <code>{children}</code>
-                    </pre>
-                  ) : (
-                    <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
-                  );
-                },
-                pre: ({ children }) => <>{children}</>,
-                ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-                ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-                li: ({ children }) => <li>{children}</li>,
-                a: ({ href, children }) => (
-                  <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-                    {children}
-                  </a>
-                ),
-                h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
-                h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
-                h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
-                blockquote: ({ children }) => (
-                  <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
-                ),
-                hr: () => <hr className="border-border my-3" />,
-                img: ({ src, alt }) => typeof src === "string" && src ? (
-                  <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
-                    <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
-                  </a>
-                ) : null,
-              }}
-            >
-              {message.content}
-            </Markdown>
+          <div
+            className="leading-relaxed prose-chat relative"
+            style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
+          >
+            {isStreaming && !isUser ? (
+              <TypewriterMarkdown text={message.content} />
+            ) : (
+              <Markdown components={MARKDOWN_COMPONENTS}>{message.content}</Markdown>
+            )}
+            {isStreaming && !isUser && (
+              <motion.span
+                aria-label="streaming"
+                className="inline-block w-[7px] h-[7px] align-middle ml-1 rounded-full bg-[#38D39F]"
+                style={{ boxShadow: "0 0 6px rgba(56, 211, 159, 0.6)" }}
+                animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.6, 1, 0.6] }}
+                transition={{ repeat: Infinity, duration: 1.1, ease: "easeInOut" }}
+              />
+            )}
           </div>
         )}
+
 
         {inlineAudioUrl && (
           <button
@@ -487,17 +568,49 @@ export function ChatMessageBubble({
 }
 
 export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVariant } = {}) {
+  void variant; // accepted for future style options
   return (
-    <div className="flex justify-start">
-      <div className="bg-surface-low rounded-lg px-4 py-3 flex items-center gap-3 border-l-2 border-[#38D39F]/50">
-        <Brain className="w-4 h-4 text-[#38D39F]" />
-        <span className="text-sm text-text-secondary">Thinking</span>
+    <motion.div
+      className="flex justify-start"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      <div className="relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-2.5 border border-[#38D39F]/20 overflow-hidden">
+        {/* Subtle shimmer background */}
+        <motion.div
+          aria-hidden
+          className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-[#38D39F]/8 to-transparent"
+          animate={{ x: ["-100%", "100%"] }}
+          transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
+          style={{ width: "60%" }}
+        />
+        <motion.div
+          animate={{ scale: [1, 1.08, 1] }}
+          transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
+        >
+          <Brain className="w-4 h-4 text-[#38D39F]" />
+        </motion.div>
+        <span className="text-xs font-medium text-text-secondary">Thinking</span>
         <span className="flex items-center gap-1">
-          <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F] animate-bounce" style={{ animationDelay: "0ms" }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F] animate-bounce" style={{ animationDelay: "150ms" }} />
-          <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F] animate-bounce" style={{ animationDelay: "300ms" }} />
+          <motion.span
+            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
+          />
+          <motion.span
+            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.18 }}
+          />
+          <motion.span
+            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.36 }}
+          />
         </span>
       </div>
-    </div>
+    </motion.div>
   );
 }

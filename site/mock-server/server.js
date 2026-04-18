@@ -30,14 +30,28 @@ function generateAgent(overrides = {}) {
   const id = overrides.id || uuidv4();
   const states = ['STOPPED', 'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'ERROR'];
   const state = overrides.state || faker.helpers.arrayElement(states);
+  const tier = overrides.type || faker.helpers.arrayElement(['small', 'medium', 'large']);
+  const tierPresets = { small: { cpu: 1, memory: 1 }, medium: { cpu: 2, memory: 2 }, large: { cpu: 4, memory: 4 } };
+  const preset = tierPresets[tier] || tierPresets.small;
+  const startedAt = state === 'RUNNING' ? faker.date.recent({ days: 2 }).toISOString() : null;
 
   return {
     id,
     name: overrides.name || faker.commerce.productName(),
+    user_id: 'mock-user',
+    pod_id: state === 'RUNNING' ? `pod-${id.slice(0, 8)}` : null,
+    pod_name: state === 'RUNNING' ? `agent-${id.slice(0, 8)}` : null,
     state,
+    cpu: preset.cpu,
+    memory: preset.memory,
+    cpu_millicores: preset.cpu * 1000,
+    memory_mib: preset.memory * 1024,
     hostname: state === 'RUNNING' ? `localhost:8000` : null,
     openclaw_url: state === 'RUNNING' ? `ws://localhost:8000/gateway/${id}` : null,
-    type: faker.helpers.arrayElement(['nano', 'small', 'medium', 'large']),
+    started_at: startedAt,
+    stopped_at: state === 'STOPPED' ? faker.date.recent({ days: 1 }).toISOString() : null,
+    last_error: null,
+    type: tier,
     created_at: faker.date.past().toISOString(),
     updated_at: faker.date.recent().toISOString(),
     budget: faker.number.float({ min: 10, max: 1000, precision: 0.01 }),
@@ -47,6 +61,7 @@ function generateAgent(overrides = {}) {
       NODE_ENV: 'production',
       LOG_LEVEL: 'info',
     },
+    meta: null,
     ...overrides,
   };
 }
@@ -173,14 +188,17 @@ function initializeData() {
   const testUser = generateUser();
   mockData.users.set(testUser.id, testUser);
 
-  // Create some test agents - first one should be RUNNING
-  for (let i = 0; i < 5; i++) {
-    const agent = generateAgent({
-      name: `Agent ${i + 1}`,
-      state: i === 0 ? 'RUNNING' : faker.helpers.arrayElement(['STOPPED', 'RUNNING']),
-    });
+  // Create some test agents - first one should be RUNNING with a stable ID
+  const presetAgents = [
+    { id: 'mock-agent-1', name: 'Mock Agent', state: 'RUNNING', type: 'medium' },
+    { id: 'mock-agent-2', name: 'Telegram Bot', state: 'RUNNING', type: 'small' },
+    { id: 'mock-agent-3', name: 'Research Assistant', state: 'STOPPED', type: 'large' },
+    { id: 'mock-agent-4', name: 'Cron Runner', state: 'STOPPED', type: 'small' },
+  ];
+  presetAgents.forEach((preset) => {
+    const agent = generateAgent(preset);
     mockData.agents.set(agent.id, agent);
-  }
+  });
 
   // Create some API keys
   for (let i = 0; i < 3; i++) {
@@ -279,14 +297,27 @@ app.get('/agents/deployments', (req, res) => {
 
 app.get('/agents/deployments/budget', (req, res) => {
   const agents = Array.from(mockData.agents.values());
-  const totalBudget = agents.reduce((sum, a) => sum + (a.budget || 0), 0);
-  const totalSpent = agents.reduce((sum, a) => sum + (a.spent || 0), 0);
+  // Count used slots per tier from running/transitioning agents
+  const tierUsage = { small: 0, medium: 0, large: 0 };
+  agents.forEach((a) => {
+    if (['RUNNING', 'STARTING', 'PENDING', 'STOPPING'].includes(a.state)) {
+      const tier = a.type || 'small';
+      if (tierUsage[tier] !== undefined) tierUsage[tier] += 1;
+    }
+  });
 
   res.json({
-    total_budget: totalBudget,
-    total_spent: totalSpent,
-    remaining: totalBudget - totalSpent,
-    agents_count: agents.length,
+    slots: {
+      small:  { granted: 5, used: tierUsage.small,  available: Math.max(0, 5 - tierUsage.small) },
+      medium: { granted: 3, used: tierUsage.medium, available: Math.max(0, 3 - tierUsage.medium) },
+      large:  { granted: 1, used: tierUsage.large,  available: Math.max(0, 1 - tierUsage.large) },
+    },
+    pooled_tpd: 5_000_000,
+    size_presets: {
+      small:  { cpu: 1, memory: 1 },
+      medium: { cpu: 2, memory: 2 },
+      large:  { cpu: 4, memory: 4 },
+    },
   });
 });
 
@@ -637,6 +668,12 @@ app.get('/api/agents/models', (req, res) => {
   res.json({ models });
 });
 
+// Same endpoint without /api prefix (used by landing page ModelsSection via NEXT_PUBLIC_HYPER_AGENT_MODELS_URL)
+app.get('/agents/models', (req, res) => {
+  const models = Array.from({ length: 12 }, () => generateModel());
+  res.json({ models });
+});
+
 // Agent types (both with and without /api prefix)
 const agentTypes = {
   types: [
@@ -722,8 +759,132 @@ function gwEvent(ws, event, payload) {
   ws.send(JSON.stringify({ type: 'event', event, payload: payload || {}, seq: gatewayEventSeq }));
 }
 
+// ---- Mutable sessions state (shared across the gateway connection lifetime) ----
+// Sessions get their `lastMessageAt` bumped whenever the client sends a chat
+// message, and an updated list is broadcast via a `sessions.updated` event so
+// the Sessions module reflects activity in real time.
+const mockSessions = [
+  {
+    key: 'main',
+    clientMode: 'browser',
+    clientDisplayName: 'Chrome on macOS',
+    createdAt: Date.now() - 1000 * 60 * 60 * 3,
+    lastMessageAt: Date.now() - 1000 * 60 * 5,
+  },
+  {
+    key: 'cli-local',
+    clientMode: 'cli',
+    clientDisplayName: 'hyperclaw CLI v0.4',
+    createdAt: Date.now() - 1000 * 60 * 60 * 24,
+    lastMessageAt: Date.now() - 1000 * 60 * 60 * 2,
+  },
+  {
+    key: 'tg-bot',
+    clientMode: 'telegram',
+    clientDisplayName: '@my_mock_bot',
+    createdAt: Date.now() - 1000 * 60 * 60 * 48,
+    lastMessageAt: Date.now() - 1000 * 60 * 30,
+  },
+];
+
+function bumpSession(key) {
+  const sess = mockSessions.find((s) => s.key === key);
+  if (sess) sess.lastMessageAt = Date.now();
+}
+
+function broadcastSessionsUpdate(ws) {
+  gwEvent(ws, 'sessions.updated', { sessions: mockSessions });
+}
+
+// ---- Activity log pipeline ----
+// The frontend's activity feed listens for `activity.log` events. The mock
+// pushes entries on user messages, tool invocations, cron ticks, connection
+// pings, etc. so the Activity tab reflects realistic agent traffic even when
+// the user isn't actively chatting.
+let activitySeq = 0;
+function emitActivity(ws, type, action, detail = '') {
+  activitySeq += 1;
+  gwEvent(ws, 'activity.log', {
+    id: `act_${Date.now()}_${activitySeq}`,
+    type,
+    action,
+    detail,
+    timestamp: Date.now(),
+  });
+}
+
+const BACKGROUND_ACTIVITIES = [
+  { type: 'connection', action: 'Gmail polled', detail: 'Fetched 3 new messages' },
+  { type: 'connection', action: 'Telegram ping', detail: 'Channel heartbeat ok' },
+  { type: 'cron',       action: 'Cron tick', detail: 'Morning briefing scheduled in 42m' },
+  { type: 'skill',      action: 'Skill loaded', detail: 'web_search ready' },
+  { type: 'system',     action: 'Config hash', detail: 'baseHash=mock-hash-1' },
+  { type: 'connection', action: 'Calendar sync', detail: '2 upcoming events synced' },
+  { type: 'tool',       action: 'file_read', detail: '/workspace/README.md' },
+  { type: 'system',     action: 'Heartbeat', detail: 'Agent healthy · cpu 12%' },
+];
+
+function startBackgroundActivity(ws) {
+  let stopped = false;
+  const tick = () => {
+    if (stopped || ws.readyState !== ws.OPEN) return;
+    const pick = BACKGROUND_ACTIVITIES[Math.floor(Math.random() * BACKGROUND_ACTIVITIES.length)];
+    emitActivity(ws, pick.type, pick.action, pick.detail);
+    // 8–18s between events — slow enough to read, frequent enough to feel alive
+    const next = 8000 + Math.floor(Math.random() * 10000);
+    setTimeout(tick, next);
+  };
+  setTimeout(tick, 3500);
+  return () => { stopped = true; };
+}
+
 function gwResponse(ws, id, payload) {
   ws.send(JSON.stringify({ type: 'res', id, ok: true, payload: payload || {} }));
+}
+
+/**
+ * Stream `text` to the client as many small `chat.content` chunks, mimicking
+ * real LLM token-by-token streaming. Returns the timestamp at which the last
+ * chunk was scheduled, so callers can chain `chat.done` after it.
+ *
+ * Strategy: split into ~3-char pieces with small jittered delays. Whitespace is
+ * preserved (split happens on every Nth character regardless of word bounds).
+ * The result is a smooth typewriter effect.
+ */
+function streamText(ws, text, startMs = 0, opts = {}) {
+  // Slower than reality but each chunk has time to render separately on the client
+  const baseDelay = opts.baseDelay ?? 40;
+  const jitter = opts.jitter ?? 25;
+  const charsPerChunk = opts.charsPerChunk ?? 4;
+  let cursor = 0;
+  let scheduled = startMs;
+  while (cursor < text.length) {
+    const end = Math.min(cursor + charsPerChunk, text.length);
+    const chunk = text.slice(cursor, end);
+    const delay = scheduled;
+    setTimeout(() => gwEvent(ws, 'chat.content', { text: chunk }), delay);
+    cursor = end;
+    scheduled += baseDelay + Math.floor(Math.random() * jitter);
+  }
+  return scheduled;
+}
+
+/** Same as streamText but emits chat.thinking events. */
+function streamThinking(ws, text, startMs = 0, opts = {}) {
+  const baseDelay = opts.baseDelay ?? 35;
+  const jitter = opts.jitter ?? 20;
+  const charsPerChunk = opts.charsPerChunk ?? 5;
+  let cursor = 0;
+  let scheduled = startMs;
+  while (cursor < text.length) {
+    const end = Math.min(cursor + charsPerChunk, text.length);
+    const chunk = text.slice(cursor, end);
+    const delay = scheduled;
+    setTimeout(() => gwEvent(ws, 'chat.thinking', { text: chunk }), delay);
+    cursor = end;
+    scheduled += baseDelay + Math.floor(Math.random() * jitter);
+  }
+  return scheduled;
 }
 
 // ============================================================================
@@ -864,23 +1025,15 @@ const CHAT_TRIGGERS = [
     keyword: '/long',
     description: 'Long streaming response',
     handler: (ws) => {
-      const chunks = [
-        'This is a long streaming response ',
-        'that demonstrates how the mock gateway ',
-        'can simulate realistic token-by-token streaming. ',
-        'Each chunk is sent as a separate chat.content event ',
-        'with a small delay between them, ',
-        'making the response feel more natural. ',
-        'This is useful for testing UI rendering ',
-        'of streaming text, loading states, ',
-        'and scroll-to-bottom behavior. ',
-        'The response continues for several sentences ',
-        'to give you a good sample to work with.',
-      ];
-      chunks.forEach((chunk, i) => {
-        setTimeout(() => gwEvent(ws, 'chat.content', { text: chunk }), 100 + i * 150);
-      });
-      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 100 + chunks.length * 150 + 200);
+      const text =
+        'This is a long streaming response that demonstrates how the mock gateway ' +
+        'can simulate realistic token-by-token streaming. Each chunk is sent as a ' +
+        'separate chat.content event with a small delay between them, making the ' +
+        'response feel more natural. This is useful for testing UI rendering of ' +
+        'streaming text, loading states, and scroll-to-bottom behavior. The response ' +
+        'continues for several sentences to give you a good sample to work with.';
+      const endMs = streamText(ws, text, 100);
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), endMs + 200);
     },
   },
 
@@ -1047,6 +1200,409 @@ const CHAT_TRIGGERS = [
       setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 1300);
     },
   },
+
+  // ── Compound triggers — mimic full agent conversation flows ──
+
+  {
+    keyword: '/research',
+    description: 'Compound: thinking → web_search (multiple) → analysis → markdown summary',
+    handler: (ws) => {
+      const thinkEnd = streamThinking(ws,
+        'Let me break this question down. First I should search the web for current information, ' +
+        'then cross-reference with documentation, and finally synthesize a clear answer.',
+        100);
+
+      const introEnd = streamText(ws, 'I\'ll research this for you. ', thinkEnd + 100);
+
+      // First search
+      const search1 = `call_${faker.string.alphanumeric(12)}`;
+      const tool1Start = introEnd + 150;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: search1, name: 'web_search', args: { query: 'latest documentation overview' },
+      }), tool1Start);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: search1, name: 'web_search',
+        result: 'Found 12 results. Top: docs.example.com — "Getting Started" guide updated 3 days ago.',
+      }), tool1Start + 600);
+
+      const c1End = streamText(ws,
+        'Found a recent docs update. Let me also check the changelog.',
+        tool1Start + 800);
+
+      // Second search
+      const search2 = `call_${faker.string.alphanumeric(12)}`;
+      const tool2Start = c1End + 200;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: search2, name: 'fetch_url', args: { url: 'https://docs.example.com/changelog' },
+      }), tool2Start);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: search2, name: 'fetch_url',
+        result: 'v4.2 (2026-04-10): new auth flow, deprecated `legacyToken`. v4.1: streaming events stable.',
+      }), tool2Start + 700);
+
+      const summary =
+        '\n\n## Summary\n\n' +
+        'Based on the latest sources:\n\n' +
+        '- **Auth:** the new flow shipped in v4.2 (this week). `legacyToken` is now deprecated.\n' +
+        '- **Streaming:** event-based streaming is stable since v4.1.\n' +
+        '- **Migration:** straightforward — see the [migration guide](https://docs.example.com/migrate).\n';
+      const endMs = streamText(ws, summary, tool2Start + 900);
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), endMs + 200);
+    },
+  },
+
+  {
+    keyword: '/debug',
+    description: 'Compound: thinking → read_file → grep → edit → verify → conclusion',
+    handler: (ws) => {
+      setTimeout(() => gwEvent(ws, 'chat.thinking', {
+        text: 'I need to find what\'s causing this. Let me start by reading the file the user mentioned.',
+      }), 100);
+
+      // Read the suspect file
+      const read1 = `call_${faker.string.alphanumeric(12)}`;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: read1, name: 'read_file', args: { path: 'src/handler.ts', offset: 1, limit: 60 },
+      }), 600);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: read1, name: 'read_file',
+        result: '...\n42:  if (input == null) {\n43:    return undefined;\n44:  }\n...',
+      }), 1100);
+
+      setTimeout(() => gwEvent(ws, 'chat.thinking', {
+        text: '\n\nLooks like loose equality. Let me check whether other call sites depend on this behavior.',
+      }), 1300);
+
+      // Grep for usages
+      const grep1 = `call_${faker.string.alphanumeric(12)}`;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: grep1, name: 'grep', args: { pattern: 'handler\\(' },
+      }), 1600);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: grep1, name: 'grep',
+        result: 'src/main.ts:14: handler(req)\nsrc/api.ts:88: handler(payload)\ntests/handler.test.ts:6: handler(null)',
+      }), 2100);
+
+      setTimeout(() => gwEvent(ws, 'chat.content', {
+        text: 'Found the issue. Three call sites — and the test passes `null` explicitly, which the loose `==` was masking. Patching now.',
+      }), 2400);
+
+      // Apply edit
+      const edit1 = `call_${faker.string.alphanumeric(12)}`;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: edit1, name: 'edit',
+        args: { file_path: 'src/handler.ts', old: 'input == null', new: 'input === null || input === undefined' },
+      }), 2700);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: edit1, name: 'edit', result: 'Edited src/handler.ts (1 replacement)',
+      }), 3000);
+
+      // Verify with tests
+      const test1 = `call_${faker.string.alphanumeric(12)}`;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: test1, name: 'bash', args: { command: 'npm test -- handler' },
+      }), 3300);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: test1, name: 'bash', result: 'PASS  tests/handler.test.ts (4 tests)\n\nTests: 4 passed, 4 total',
+      }), 4000);
+
+      const conclusion = [
+        '\n\n**Fixed.** Replaced `==` with explicit `=== null || === undefined` in `src/handler.ts:42`.',
+        '\n\nAll 4 handler tests pass. The behavior change is safe — the loose equality was matching `null` and `undefined` (and nothing else), so the new code is equivalent for all real call sites.',
+      ];
+      conclusion.forEach((c, i) => setTimeout(() => gwEvent(ws, 'chat.content', { text: c }), 4200 + i * 70));
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 4200 + conclusion.length * 250 + 200);
+    },
+  },
+
+  {
+    keyword: '/code_review',
+    description: 'Compound: read multiple files → analyze → markdown findings + suggestions',
+    handler: (ws) => {
+      setTimeout(() => gwEvent(ws, 'chat.thinking', {
+        text: 'I\'ll skim the changed files first, then look for common issues: error handling, types, naming, edge cases.',
+      }), 100);
+
+      const files = ['src/api/route.ts', 'src/api/validators.ts', 'src/db/queries.ts'];
+      files.forEach((path, i) => {
+        const id = `call_${faker.string.alphanumeric(12)}`;
+        setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+          toolCallId: id, name: 'read_file', args: { path },
+        }), 500 + i * 600);
+        setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+          toolCallId: id, name: 'read_file', result: `// ${path}\n// ${faker.number.int({ min: 30, max: 180 })} lines, modified ${faker.date.recent({ days: 1 }).toLocaleString()}`,
+        }), 800 + i * 600);
+      });
+
+      const review = [
+        '\n\n## Code Review\n\n',
+        '### ✅ Looks good\n',
+        '- Validators are pure functions with clear inputs/outputs\n',
+        '- DB queries use parameterised statements (no SQL injection)\n\n',
+        '### ⚠️ Suggestions\n',
+        '1. **`route.ts:42`** — the `try` block swallows DB errors. Consider re-throwing as `AppError` with the original cause attached, so the error reporter gets context.\n',
+        '2. **`validators.ts:88`** — `validateEmail` regex doesn\'t cover the `+` alias case. Use the [whatwg URL parser](https://url.spec.whatwg.org/) or RFC 5322 simplified pattern.\n',
+        '3. **`queries.ts:150`** — `getUsersBy` returns `Promise<User[]>` but the call sites use it as `Promise<User | null>`. Either tighten the type or fix the callers.\n\n',
+        '### 💭 Stylistic\n',
+        '- Consider extracting the inline mapping at `route.ts:67` into a small helper — it appears twice with subtle differences.\n',
+      ];
+      const startMs = 500 + files.length * 600 + 400;
+      review.forEach((c, i) => setTimeout(() => gwEvent(ws, 'chat.content', { text: c }), startMs + i * 60));
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), startMs + review.length * 200 + 200);
+    },
+  },
+
+  {
+    keyword: '/conversation',
+    description: 'Compound: brief thinking → content → tool → result → more content → image attachment',
+    handler: (ws) => {
+      setTimeout(() => gwEvent(ws, 'chat.thinking', {
+        text: 'Quick request. Let me grab the data and a visualisation.',
+      }), 100);
+
+      setTimeout(() => gwEvent(ws, 'chat.content', {
+        text: 'Sure — here\'s the breakdown. ',
+      }), 500);
+
+      const id = `call_${faker.string.alphanumeric(12)}`;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: id, name: 'query_metrics', args: { metric: 'requests_per_second', range: '24h' },
+      }), 800);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: id, name: 'query_metrics',
+        result: 'avg=42 req/s · p50=38 · p95=120 · p99=340 · errors=0.4%',
+      }), 1300);
+
+      setTimeout(() => gwEvent(ws, 'chat.content', {
+        text: 'Traffic was steady at ~42 req/s with healthy tail latency.',
+      }), 1500);
+
+      setTimeout(() => gwEvent(ws, 'chat.content', {
+        text: '\n\nHere\'s a chart of the last 24 hours:',
+        mediaUrls: ['https://picsum.photos/seed/metrics/640/360'],
+      }), 1900);
+
+      setTimeout(() => gwEvent(ws, 'chat.content', {
+        text: '\n\nWant me to drill into the p99 spike around 14:00?',
+      }), 2300);
+
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 2700);
+    },
+  },
+
+  {
+    keyword: '/multistep',
+    description: 'Compound: long thinking → 4 tool calls in sequence with intermediate content',
+    handler: (ws) => {
+      // Long thinking with realistic pauses
+      const thoughts = [
+        'OK, this is a multi-part task.',
+        '\n\nStep 1: validate input.',
+        '\n\nStep 2: load relevant context.',
+        '\n\nStep 3: perform the operation.',
+        '\n\nStep 4: confirm and report.',
+      ];
+      thoughts.forEach((t, i) => setTimeout(() => gwEvent(ws, 'chat.thinking', { text: t }), 100 + i * 300));
+
+      const baseMs = 100 + thoughts.length * 300 + 300;
+      const steps = [
+        { name: 'validate', args: { schema: 'request' }, result: 'ok' },
+        { name: 'load_context', args: { id: 'ctx_42' }, result: '8 items loaded' },
+        { name: 'process', args: { mode: 'incremental' }, result: 'processed 8/8' },
+        { name: 'commit', args: { dryRun: false }, result: 'committed (rev abc1234)' },
+      ];
+      steps.forEach((step, i) => {
+        const id = `call_${faker.string.alphanumeric(12)}`;
+        const startMs = baseMs + i * 700;
+        setTimeout(() => gwEvent(ws, 'chat.tool_call', { toolCallId: id, name: step.name, args: step.args }), startMs);
+        setTimeout(() => gwEvent(ws, 'chat.tool_result', { toolCallId: id, name: step.name, result: step.result }), startMs + 400);
+        setTimeout(() => gwEvent(ws, 'chat.content', { text: i === 0 ? `Step ${i + 1}: ${step.name} → ${step.result}.` : ` Step ${i + 1}: ${step.name} → ${step.result}.` }), startMs + 550);
+      });
+
+      const finalMs = baseMs + steps.length * 700 + 200;
+      setTimeout(() => gwEvent(ws, 'chat.content', {
+        text: '\n\nAll steps completed. Revision `abc1234` is now live.',
+      }), finalMs);
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), finalMs + 300);
+    },
+  },
+
+  {
+    // NOTE: must come BEFORE /realistic since the matcher uses substring includes()
+    keyword: '/realistic_long',
+    description: 'Compound: very long markdown response (50+ lines) — full architectural deep-dive',
+    handler: (ws) => {
+      // Brief thinking before the deep dive
+      const t1End = streamThinking(ws,
+        'This is a comprehensive question. Let me organize my response into sections: ' +
+        'overview, architecture, key concepts, implementation details, common pitfalls, ' +
+        'and recommendations. I\'ll include code examples where useful.',
+        100);
+
+      // Tiny intro tool call to feel grounded
+      const lookup = `call_${faker.string.alphanumeric(12)}`;
+      const toolStart = t1End + 200;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: lookup, name: 'search_docs', args: { query: 'event-driven architecture overview' },
+      }), toolStart);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: lookup, name: 'search_docs',
+        result: 'Found 47 results across 12 sections. Synthesizing relevant excerpts.',
+      }), toolStart + 600);
+
+      const longText = `# Event-Driven Architecture: A Practical Guide
+
+Event-driven architecture (EDA) is a software design pattern in which decoupled components communicate by producing and consuming **events** rather than calling each other directly. It's foundational to modern distributed systems and is the backbone of platforms like AWS Lambda, Kafka, and the agent runtime you're working with right now.
+
+## Why It Matters
+
+Traditional request/response architectures couple services tightly: A calls B, waits for B, then continues. This works at small scale but breaks down quickly:
+
+- **Cascading failures** — if B is slow, A is slow
+- **Tight coupling** — A must know B's API surface
+- **Poor scalability** — every call adds latency and a failure point
+- **Hard to extend** — adding C means modifying A
+
+EDA flips this: A *publishes* an event, and any number of consumers (B, C, D...) react independently. A doesn't know — or care — who's listening.
+
+## Core Concepts
+
+### 1. Events
+
+An event is an immutable record that something happened. Crucially, it's in **past tense**:
+
+\`\`\`json
+{
+  "type": "user.signed_up",
+  "userId": "u_abc123",
+  "email": "alice@example.com",
+  "timestamp": "2026-04-15T10:24:31Z",
+  "version": 1
+}
+\`\`\`
+
+Note the past tense (\`signed_up\`, not \`sign_up\`). Events describe facts, not commands.
+
+### 2. Producers
+
+A producer publishes events without knowing who consumes them. The contract is the event schema, nothing else.
+
+### 3. Consumers
+
+Consumers subscribe to event types they care about. Multiple consumers can subscribe to the same event — this is **fan-out**, and it's where EDA shines for extensibility.
+
+### 4. Event Bus / Broker
+
+The middleman that routes events. Common choices: **Kafka** (high throughput, durable log), **NATS** (low latency, simple), **RabbitMQ** (flexible routing), **AWS EventBridge** (managed, integrates with AWS services).
+
+## Implementation Patterns
+
+### Outbox Pattern
+
+Don't publish events from inside your DB transaction — instead, write the event to an \`outbox\` table in the same transaction, then have a worker poll the outbox and publish. This guarantees you never publish an event for a transaction that rolled back.
+
+\`\`\`sql
+BEGIN;
+  INSERT INTO users (...) VALUES (...);
+  INSERT INTO outbox (event_type, payload) VALUES ('user.signed_up', '{...}');
+COMMIT;
+\`\`\`
+
+### Idempotency
+
+Consumers should be idempotent: processing the same event twice should produce the same result as processing it once. Stamp events with a unique \`eventId\` and have consumers track which IDs they've already processed.
+
+### Event Sourcing
+
+A more radical pattern: don't store *state*, store the *sequence of events* that led to it. Current state is computed by replaying events. Powerful, but adds significant complexity — only adopt it if you have clear audit/replay requirements.
+
+### CQRS (Command Query Responsibility Segregation)
+
+Often paired with event sourcing. Writes go through a "command" path that emits events; reads come from separate denormalized "query" projections built by event handlers. Lets you scale reads and writes independently.
+
+## Common Pitfalls
+
+1. **Treating events as commands** — if an event triggers exactly one consumer that does exactly one thing, you've reinvented RPC with extra steps. Events are for fan-out.
+
+2. **Schemas that change without versioning** — events live forever. Version them from day one (\`v1\`, \`v2\`...) and never break consumers silently.
+
+3. **Hidden ordering dependencies** — events arrive out of order across partitions. If your logic depends on order, you need a single-partition strategy or causality tracking (vector clocks, happens-before).
+
+4. **Skipping the outbox** — in-process publishing after a DB write is a recipe for ghost events when the publish succeeds but a downstream commit retries.
+
+5. **No backpressure** — slow consumers can fall arbitrarily far behind. Monitor lag and degrade gracefully.
+
+## When NOT to Use EDA
+
+EDA isn't free. It adds operational complexity (monitoring, dead-letter queues, schema registries), makes debugging harder (no stack trace across event boundaries), and shifts consistency from synchronous to eventual.
+
+Skip EDA if:
+- You have a small monolith and don't need extensibility
+- You need strong consistency on every write
+- Your team doesn't have ops capacity for a broker
+
+## Recommended Reading
+
+- *Designing Data-Intensive Applications* by Martin Kleppmann (chapter 11)
+- The original EDA paper by **Brenda Michelson** (2006)
+- **Event Sourcing** by Greg Young (talk + blog series)
+
+---
+
+That should give you a working mental model. Want me to dive deeper into any specific pattern — outbox, event sourcing, or how to choose a broker?`;
+
+      const endMs = streamText(ws, longText, toolStart + 800);
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), endMs + 200);
+    },
+  },
+
+  {
+    keyword: '/realistic',
+    description: 'Compound: brief thought → tool → reasoning → another tool → conclusion (most natural feel)',
+    handler: (ws, userContent) => {
+      const userQuestion = userContent.replace(/\/realistic/i, '').trim() || 'your question';
+
+      const t1End = streamThinking(ws,
+        `The user is asking about: "${userQuestion}". Let me check the relevant source files first.`,
+        100);
+
+      const read1 = `call_${faker.string.alphanumeric(12)}`;
+      const tool1Start = t1End + 100;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: read1, name: 'grep', args: { pattern: userQuestion.split(' ')[0] || 'TODO' },
+      }), tool1Start);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: read1, name: 'grep',
+        result: '3 files match: src/index.ts, lib/util.ts, README.md',
+      }), tool1Start + 500);
+
+      const c1End = streamText(ws,
+        'I found three relevant files. The most relevant one is `lib/util.ts` — let me read it.',
+        tool1Start + 700);
+
+      const read2 = `call_${faker.string.alphanumeric(12)}`;
+      const tool2Start = c1End + 200;
+      setTimeout(() => gwEvent(ws, 'chat.tool_call', {
+        toolCallId: read2, name: 'read_file', args: { path: 'lib/util.ts' },
+      }), tool2Start);
+      setTimeout(() => gwEvent(ws, 'chat.tool_result', {
+        toolCallId: read2, name: 'read_file',
+        result: 'export function format(value) { /* ... */ }\nexport function parse(text) { /* ... */ }',
+      }), tool2Start + 500);
+
+      const t2End = streamThinking(ws,
+        '\n\nThat clarifies it. The function the user is asking about is `format` in `lib/util.ts`.',
+        tool2Start + 700);
+
+      const answer =
+        '\n\nHere\'s what I found:\n\n' +
+        '- **`format(value)`** in `lib/util.ts` — this is what you\'re looking for.\n' +
+        '- It\'s used in 3 places (`src/index.ts`, `lib/util.ts` itself, and the README docs).\n\n' +
+        'Let me know if you want me to dig into any specific call site.';
+      const endMs = streamText(ws, answer, t2End + 200);
+      setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), endMs + 200);
+    },
+  },
 ];
 
 function simulateChatResponse(ws, userContent) {
@@ -1060,14 +1616,25 @@ function simulateChatResponse(ws, userContent) {
     }
   }
 
-  // Default: echo response
-  setTimeout(() => gwEvent(ws, 'chat.content', {
-    text: `Echo from mock: ${userContent}`,
-  }), 200);
-  setTimeout(() => gwEvent(ws, 'chat.content', {
-    text: '\n\nType `/help` to see available test triggers.',
-  }), 500);
-  setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 800);
+  // Default: realistic-feeling echo (brief thought, then streamed response)
+  setTimeout(() => gwEvent(ws, 'chat.thinking', {
+    text: 'Mock agent is processing your message…',
+  }), 150);
+
+  const echoChunks = [
+    `You said: "${userContent.length > 80 ? userContent.slice(0, 80) + '…' : userContent}".\n\n`,
+    'I\'m a mocked agent so I can\'t actually run tools or fetch data. ',
+    'But I can simulate realistic conversation flows — try one of these triggers:\n\n',
+    '• `/realistic` — natural multi-step response\n',
+    '• `/research` — multi-source web search + synthesis\n',
+    '• `/debug` — read → analyze → edit → verify\n',
+    '• `/code_review` — markdown findings across files\n',
+    '• `/multistep` — long thinking + 4 sequential tools\n',
+    '• `/conversation` — quick Q&A with chart\n\n',
+    'Or `/help` for the full list.',
+  ];
+  echoChunks.forEach((c, i) => setTimeout(() => gwEvent(ws, 'chat.content', { text: c }), 600 + i * 50));
+  setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 600 + echoChunks.length * 120 + 200);
 }
 
 wss.on('connection', (ws, req) => {
@@ -1086,6 +1653,10 @@ wss.on('connection', (ws, req) => {
   // Step 1: Send connect.challenge with a nonce
   const nonce = uuidv4();
   setTimeout(() => gwEvent(ws, 'connect.challenge', { nonce }), 50);
+
+  // Background activity stream so the Activity tab has content even when the
+  // user is idle. Cleaned up on disconnect.
+  const stopBackgroundActivity = startBackgroundActivity(ws);
 
   ws.on('message', (data) => {
     let message;
@@ -1120,11 +1691,11 @@ wss.on('connection', (ws, req) => {
           messages: [
             {
               role: 'assistant',
-              text: 'Hello! I am a mocked agent. Send me a message and I will echo it back!',
+              text: 'Hello! I am a mocked agent. Try typing `/help` to see available test triggers like `/think`, `/tool`, `/tools`, and `/error`.',
               thinking: '',
               toolCalls: [],
               mediaUrls: [],
-              timestamp: Date.now(),
+              timestamp: Date.now() - 1000 * 60 * 60,
             },
           ],
         });
@@ -1139,6 +1710,20 @@ wss.on('connection', (ws, req) => {
           '';
         gwResponse(ws, id, { ok: true });
 
+        // Real chat activity → bump the active browser session and notify
+        // listeners. Other sessions occasionally tick to simulate multi-client
+        // traffic so the Sessions module feels alive.
+        bumpSession('main');
+        if (Math.random() < 0.35) {
+          const others = mockSessions.filter((s) => s.key !== 'main');
+          const pick = others[Math.floor(Math.random() * others.length)];
+          if (pick) bumpSession(pick.key);
+        }
+        broadcastSessionsUpdate(ws);
+
+        // Note: user-message activity is logged client-side in useGatewayChat.ts
+        // to avoid double-logging when running against the mock.
+
         simulateChatResponse(ws, userContent);
         break;
       }
@@ -1150,14 +1735,28 @@ wss.on('connection', (ws, req) => {
       // ---- Config ----
       case 'config.get':
         gwResponse(ws, id, {
-          config: {
-            name: 'mock-agent',
-            version: '1.0.0',
+          llm: {
             model: 'claude-sonnet-4-6',
-            system_prompt: 'You are a helpful mock assistant.',
+            system: 'You are a helpful mock assistant for local development.',
+            temperature: 0.7,
+            maxTokens: 4096,
           },
-          hash: 'mock-hash-1',
-          baseHash: 'mock-hash-0',
+          identity: {
+            name: 'Mock Agent',
+            description: 'A mocked agent for local UI testing',
+          },
+          tools: {
+            web_search:    { enabled: true,  apiKey: '' },
+            browser:       { enabled: true },
+            code_execution:{ enabled: false },
+            memory:        { enabled: true,  store: 'sqlite' },
+            file_io:       { enabled: true },
+          },
+          integrations: {
+            telegram: { enabled: false, token: '' },
+            slack:    { enabled: false, token: '' },
+            discord:  { enabled: false, token: '' },
+          },
         });
         break;
 
@@ -1173,20 +1772,66 @@ wss.on('connection', (ws, req) => {
 
       case 'config.schema':
         gwResponse(ws, id, {
+          version: '1.0.0',
           schema: {
             type: 'object',
             properties: {
-              name: { type: 'string', title: 'Agent Name' },
-              model: { type: 'string', title: 'Model' },
-              system_prompt: { type: 'string', title: 'System Prompt' },
+              llm: {
+                type: 'object',
+                title: 'Language Model',
+                description: 'Model selection and inference settings',
+                properties: {
+                  model: { type: 'string', title: 'Model', enum: ['claude-sonnet-4-6', 'claude-opus-4-6', 'claude-haiku-4-5'] },
+                  system: { type: 'string', title: 'System Prompt' },
+                  temperature: { type: 'number', title: 'Temperature', minimum: 0, maximum: 2 },
+                  maxTokens: { type: 'integer', title: 'Max Tokens', minimum: 1 },
+                },
+              },
+              identity: {
+                type: 'object',
+                title: 'Identity',
+                properties: {
+                  name: { type: 'string', title: 'Name' },
+                  description: { type: 'string', title: 'Description' },
+                },
+              },
+              tools: {
+                type: 'object',
+                title: 'Tools',
+                description: 'Capabilities the agent can invoke',
+                properties: {
+                  web_search:     { type: 'object', title: 'Web Search',     properties: { enabled: { type: 'boolean' }, apiKey: { type: 'string' } } },
+                  browser:        { type: 'object', title: 'Browser',        properties: { enabled: { type: 'boolean' } } },
+                  code_execution: { type: 'object', title: 'Code Execution', properties: { enabled: { type: 'boolean' } } },
+                  memory:         { type: 'object', title: 'Memory',         properties: { enabled: { type: 'boolean' }, store: { type: 'string' } } },
+                  file_io:        { type: 'object', title: 'File I/O',       properties: { enabled: { type: 'boolean' } } },
+                },
+              },
+              integrations: {
+                type: 'object',
+                title: 'Integrations',
+                description: 'External channels the agent connects to',
+                properties: {
+                  telegram: { type: 'object', title: 'Telegram', properties: { enabled: { type: 'boolean' }, token: { type: 'string' } } },
+                  slack:    { type: 'object', title: 'Slack',    properties: { enabled: { type: 'boolean' }, token: { type: 'string' } } },
+                  discord:  { type: 'object', title: 'Discord',  properties: { enabled: { type: 'boolean' }, token: { type: 'string' } } },
+                },
+              },
             },
+          },
+          uiHints: {
+            'integrations.telegram.token': { sensitive: true, label: 'Bot Token' },
+            'integrations.slack.token':    { sensitive: true, label: 'Bot Token' },
+            'integrations.discord.token':  { sensitive: true, label: 'Bot Token' },
+            'tools.web_search.apiKey':     { sensitive: true, label: 'API Key' },
+            'llm.system':                  { label: 'System Prompt', help: 'Identity and instructions for the agent' },
           },
         });
         break;
 
       // ---- Sessions ----
       case 'sessions.list':
-        gwResponse(ws, id, { sessions: [] });
+        gwResponse(ws, id, { sessions: mockSessions });
         break;
 
       case 'sessions.preview':
@@ -1202,17 +1847,36 @@ wss.on('connection', (ws, req) => {
       case 'agents.files.list':
         gwResponse(ws, id, {
           files: [
+            // Core protected files (read-only in the editor)
+            { name: 'AGENTS.MD', size: 1536, missing: false },
+            { name: 'BOOTSTRAP.MD', size: 2200, missing: false },
+            { name: 'SOUL.MD', size: 2048, missing: false },
+            { name: 'HEARTBEAT.MD', size: 480, missing: false },
+            { name: 'MEMORY.MD', size: 3072, missing: false },
+            // Editable files
             { name: 'README.md', size: 1024, missing: false },
             { name: 'config.json', size: 512, missing: false },
+            { name: 'skills/note-taker.md', size: 768, missing: false },
+            { name: 'skills/research.md', size: 1280, missing: false },
+            { name: 'data/notes.txt', size: 4096, missing: false },
           ],
         });
         break;
 
-      case 'agents.files.get':
-        gwResponse(ws, id, {
-          content: `# Mock file: ${params?.name || 'unknown'}\n\nThis is mocked file content.`,
-        });
+      case 'agents.files.get': {
+        const requested = (params?.name || 'unknown').toUpperCase();
+        const PROTECTED_CONTENT = {
+          'AGENTS.MD': `# Agents\n\nThis file describes the sub-agents this agent can delegate to.\n\n- research-bot — handles web research and data gathering\n- code-bot — generates and reviews code snippets\n- writer-bot — drafts and edits prose\n\n> Edit via download → modify → re-upload.\n`,
+          'BOOTSTRAP.MD': `# Bootstrap\n\nInstructions executed when the agent first comes online.\n\n1. Load identity from SOUL.MD\n2. Restore working memory from MEMORY.MD\n3. Subscribe to configured channels\n4. Emit HEARTBEAT every 60s\n\nDo not edit live — agent must be restarted to pick up changes.\n`,
+          'SOUL.MD': `# Soul\n\nCore identity and operating principles.\n\n## Name\nMock Agent\n\n## Purpose\nAssist the user with software engineering tasks while remaining concise and accurate.\n\n## Tone\nDirect, friendly, low-fluff. Prefer concrete suggestions over hedging.\n\n## Hard rules\n- Never fabricate citations.\n- Never run destructive commands without explicit confirmation.\n- Surface uncertainty when relevant.\n`,
+          'HEARTBEAT.MD': `# Heartbeat\n\nThe agent emits this prompt to itself periodically to check internal state.\n\nIs anything pending? Are any cron jobs overdue? Any unread messages?\n\nIf nothing requires attention, do nothing.\n`,
+          'MEMORY.MD': `# Memory\n\n## User profile\n- Working in TypeScript / Next.js\n- Prefers terse responses with concrete diffs over long explanations\n\n## Recent context\n- Currently testing the agent UI redesign\n- Mock server is in use; real backend gateway is being repaired\n\n## Open threads\n- Awaiting Sam + Damian on the protected-files canonical list\n- Awaiting Connections marketplace taxonomy\n`,
+        };
+        const content = PROTECTED_CONTENT[requested]
+          || `# Mock file: ${params?.name || 'unknown'}\n\nThis is mocked file content.`;
+        gwResponse(ws, id, { content });
         break;
+      }
 
       case 'agents.files.set':
         gwResponse(ws, id, { ok: true });
@@ -1250,7 +1914,31 @@ wss.on('connection', (ws, req) => {
 
       // ---- Channels ----
       case 'channels.status':
-        gwResponse(ws, id, { connected: false, channel: params?.channel || 'unknown' });
+        gwResponse(ws, id, {
+          channels: {
+            telegram: {
+              configured: true,
+              running: true,
+              accountId: 'mock_telegram_acc',
+              accountDisplayName: '@my_mock_bot',
+              lastActiveAt: Date.now() - 1000 * 60 * 30,
+              probe: { ok: true, latencyMs: 142 },
+            },
+            slack: {
+              configured: true,
+              running: false,
+              accountId: 'mock_slack_acc',
+              accountDisplayName: 'Mock Workspace',
+              errorDetail: 'Token expired',
+              probe: { ok: false, error: 'Token expired' },
+            },
+            discord: {
+              configured: false,
+              running: false,
+              probe: { ok: false },
+            },
+          },
+        });
         break;
 
       case 'channels.logout':
@@ -1271,15 +1959,49 @@ wss.on('connection', (ws, req) => {
 
       // ---- Cron ----
       case 'cron.list':
-        gwResponse(ws, id, { crons: [], jobs: [] });
+        gwResponse(ws, id, {
+          jobs: [
+            {
+              id: 'cron-daily-summary',
+              schedule: '0 9 * * *',
+              prompt: 'Generate a daily summary of yesterday\'s activity and email it to me.',
+              description: 'Daily activity summary',
+              enabled: true,
+              lastRun: Date.now() - 1000 * 60 * 60 * 18,
+              nextRun: Date.now() + 1000 * 60 * 60 * 6,
+            },
+            {
+              id: 'cron-weekly-report',
+              schedule: '0 10 * * 1',
+              prompt: 'Compile a weekly progress report from project notes.',
+              description: 'Weekly progress report',
+              enabled: true,
+              lastRun: Date.now() - 1000 * 60 * 60 * 24 * 4,
+              nextRun: Date.now() + 1000 * 60 * 60 * 24 * 3,
+            },
+            {
+              id: 'cron-cleanup',
+              schedule: '0 3 * * 0',
+              prompt: 'Clean up temp files and old log entries.',
+              description: 'Weekly cleanup',
+              enabled: false,
+              lastRun: Date.now() - 1000 * 60 * 60 * 24 * 14,
+              nextRun: Date.now() + 1000 * 60 * 60 * 24 * 4,
+            },
+          ],
+        });
         break;
 
       case 'cron.add':
-        gwResponse(ws, id, { jobId: uuidv4() });
+        gwResponse(ws, id, { jobId: `cron-${uuidv4().slice(0, 8)}` });
         break;
 
       case 'cron.remove':
       case 'cron.run':
+        gwResponse(ws, id, { ok: true });
+        break;
+
+      case 'cron.patch':
         gwResponse(ws, id, { ok: true });
         break;
 
@@ -1304,6 +2026,7 @@ wss.on('connection', (ws, req) => {
   });
 
   ws.on('close', () => {
+    stopBackgroundActivity();
     gatewayConnections.delete(agentId);
     console.log(`[Gateway] Client disconnected: ${agentId}`);
   });

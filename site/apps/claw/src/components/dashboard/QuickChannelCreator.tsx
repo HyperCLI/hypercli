@@ -4,7 +4,7 @@ import { useState, useRef, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Hash, ChevronDown, Bot, User, Check } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
-import type { Participant } from "./ConversationsSidebar";
+import type { Participant } from "./AgentsChannelsSidebar";
 
 // ── Types ──
 

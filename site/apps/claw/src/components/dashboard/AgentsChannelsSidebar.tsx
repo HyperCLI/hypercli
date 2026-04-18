@@ -16,8 +16,8 @@ import {
   Play,
   AlertTriangle,
   PenLine,
-  SlidersHorizontal,
-  Check,
+  Hash,
+  PanelLeftClose,
 } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
@@ -47,18 +47,25 @@ export interface ConversationThread {
   isActive: boolean;
 }
 
-export type ConversationsSidebarVariant = "v1" | "v2" | "v3" | "v3.1";
+export type AgentsChannelsSidebarVariant = "v1" | "v2" | "v3" | "v3.1";
 
-export interface ConversationsSidebarProps {
-  variant: ConversationsSidebarVariant;
+export interface AgentsChannelsSidebarProps {
+  variant: AgentsChannelsSidebarVariant;
   threads: ConversationThread[];
   selectedThreadId: string | null;
   onSelectThread: (threadId: string) => void;
+  /** Trigger the "new agent" creation modal. */
   onNewThread?: () => void;
+  /** Trigger the "new channel" creation modal. */
+  onNewChannel?: () => void;
   onStartAgentChat?: (agent: Participant) => void;
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onDeleteThread?: (threadId: string) => void;
   onRenameThread?: (threadId: string, title: string) => void;
+  /** Show/hide the Channels section and "New Channel" chooser option. Default: true. */
+  showChannels?: boolean;
+  /** When provided, renders a collapse button in the header that calls this. */
+  onCollapse?: () => void;
 }
 
 // ── Mock Data ──
@@ -411,41 +418,49 @@ function ThreadRow({
   );
 }
 
-interface SidebarToggle {
-  key: string;
-  label: string;
-  enabled: boolean;
-}
-
-function SidebarOptionsMenu({
-  toggles,
-  onToggle,
+function NewThreadChooser({
+  onNewAgent,
+  onNewChannel,
+  showChannel = true,
 }: {
-  toggles: SidebarToggle[];
-  onToggle: (key: string) => void;
+  onNewAgent?: () => void;
+  onNewChannel?: () => void;
+  showChannel?: boolean;
 }) {
+  // If only the Agent option is available, skip the chooser entirely and trigger directly.
+  if (!showChannel) {
+    return (
+      <button
+        onClick={onNewAgent}
+        className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+        title="New Agent"
+      >
+        <Plus className="w-3.5 h-3.5" />
+      </button>
+    );
+  }
   const [open, setOpen] = useState(false);
-  const menuRef = useRef<HTMLDivElement>(null);
+  const ref = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
     if (!open) return;
     const handler = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) setOpen(false);
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
     };
     document.addEventListener("mousedown", handler);
     return () => document.removeEventListener("mousedown", handler);
   }, [open]);
 
   return (
-    <div className="relative" ref={menuRef}>
+    <div className="relative" ref={ref}>
       <button
         onClick={() => setOpen((v) => !v)}
         className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
           open ? "text-foreground bg-surface-low" : "text-text-muted hover:text-foreground hover:bg-surface-low"
         }`}
-        title="Sidebar options"
+        title="New"
       >
-        <SlidersHorizontal className="w-3.5 h-3.5" />
+        <Plus className="w-3.5 h-3.5" />
       </button>
       <AnimatePresence>
         {open && (
@@ -454,27 +469,22 @@ function SidebarOptionsMenu({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.95, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full mt-1 z-50 w-48 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden"
+            className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden py-1"
           >
-            <div className="px-3 py-2 border-b border-border">
-              <span className="text-[10px] font-semibold text-text-secondary uppercase tracking-wider">Options</span>
-            </div>
-            <div className="py-1">
-              {toggles.map((t) => (
-                <button
-                  key={t.key}
-                  onClick={() => onToggle(t.key)}
-                  className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
-                >
-                  <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${
-                    t.enabled ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
-                  }`}>
-                    {t.enabled && <Check className="w-2.5 h-2.5 text-white" />}
-                  </div>
-                  <span className={`text-[11px] ${t.enabled ? "text-foreground" : "text-text-muted"}`}>{t.label}</span>
-                </button>
-              ))}
-            </div>
+            <button
+              onClick={() => { setOpen(false); onNewAgent?.(); }}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
+            >
+              <Bot className="w-3.5 h-3.5 text-[#38D39F]" />
+              <span className="text-[11px] text-foreground">New Agent</span>
+            </button>
+            <button
+              onClick={() => { setOpen(false); onNewChannel?.(); }}
+              className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
+            >
+              <Hash className="w-3.5 h-3.5 text-[#6b9eff]" />
+              <span className="text-[11px] text-foreground">New Channel</span>
+            </button>
           </motion.div>
         )}
       </AnimatePresence>
@@ -488,36 +498,40 @@ function SidebarHeader({
   onToggleSearch,
   onSearchChange,
   onNewThread,
-  toggles,
-  onToggle,
+  onNewChannel,
+  showChannels = true,
+  onCollapse,
 }: {
   showSearch: boolean;
   searchQuery: string;
   onToggleSearch: () => void;
   onSearchChange: (q: string) => void;
   onNewThread?: () => void;
-  toggles: SidebarToggle[];
-  onToggle: (key: string) => void;
+  onNewChannel?: () => void;
+  showChannels?: boolean;
+  onCollapse?: () => void;
 }) {
   return (
     <div className="flex-shrink-0 border-b border-border">
-      <div className="flex items-center justify-between px-3 h-12">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Agents / Channels</span>
+      <div className="flex items-center justify-between px-3 h-14">
+        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Agents</span>
         <div className="flex items-center gap-1">
-          <SidebarOptionsMenu toggles={toggles} onToggle={onToggle} />
           <button
             onClick={onToggleSearch}
             className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
           >
             {showSearch ? <X className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
           </button>
-          <button
-            onClick={onNewThread}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-            title="New conversation"
-          >
-            <Plus className="w-3.5 h-3.5" />
-          </button>
+          <NewThreadChooser onNewAgent={onNewThread} onNewChannel={onNewChannel} showChannel={showChannels} />
+          {onCollapse && (
+            <button
+              onClick={onCollapse}
+              title="Collapse sidebar"
+              className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            >
+              <PanelLeftClose className="w-3.5 h-3.5" />
+            </button>
+          )}
         </div>
       </div>
       <AnimatePresence>
@@ -535,7 +549,7 @@ function SidebarHeader({
                 type="text"
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
-                placeholder="Search conversations..."
+                placeholder="Search Agents · Channels"
                 className="w-full bg-surface-low border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong"
               />
             </div>
@@ -1492,6 +1506,7 @@ function HandoffThreadView({
   onRenameThread,
   onStartAgentChat,
   onCreateChannel,
+  showChannels = true,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
@@ -1500,10 +1515,13 @@ function HandoffThreadView({
   onRenameThread?: (threadId: string, title: string) => void;
   onStartAgentChat?: (agent: Participant) => void;
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
+  showChannels?: boolean;
 }) {
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [showChannelCreator, setShowChannelCreator] = useState(false);
   const [agentsExpanded, setAgentsExpanded] = useState(false);
+  const [myAgentsOpen, setMyAgentsOpen] = useState(true);
+  const [channelsOpen, setChannelsOpen] = useState(true);
 
   const sortedThreads = useMemo(
     () => [...threads].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
@@ -1522,17 +1540,21 @@ function HandoffThreadView({
   return (
     <div className="flex-1 overflow-y-auto">
       {/* ── My Agents section header ── */}
-      <div className="px-3 py-1.5 flex items-center gap-2">
+      <button
+        onClick={() => setMyAgentsOpen((v) => !v)}
+        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-surface-low/40 transition-colors"
+      >
+        <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${myAgentsOpen ? "" : "-rotate-90"}`} />
         <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
         <div className="flex-1 h-px bg-border/50" />
         {privateThreads.length > 0 && (
           <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
         )}
-        <motion.button
+        <motion.div
           whileHover={{ scale: 1.05, boxShadow: "0 0 12px rgba(56,211,159,0.12)" }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => { setShowAgentCreator((v) => !v); setShowChannelCreator(false); }}
-          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+          onClick={(e) => { e.stopPropagation(); setShowAgentCreator((v) => !v); setShowChannelCreator(false); setMyAgentsOpen(true); }}
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors cursor-pointer ${
             showAgentCreator
               ? "text-[#38D39F] bg-[#38D39F]/15 border border-[#38D39F]/30"
               : "text-[#38D39F]/80 bg-[#38D39F]/8 border border-[#38D39F]/15 hover:border-[#38D39F]/30 hover:text-[#38D39F]"
@@ -1540,31 +1562,43 @@ function HandoffThreadView({
         >
           <Plus className="w-3 h-3" />
           <span>New</span>
-        </motion.button>
-      </div>
+        </motion.div>
+      </button>
 
-      {/* Inline agent creator */}
-      <QuickAgentCreator
-        open={showAgentCreator}
-        onClose={() => setShowAgentCreator(false)}
-        onCreated={(name, _iconIndex, _size) => {
-          setShowAgentCreator(false);
-          const newAgent: Participant = { id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`, name, type: "agent" };
-          onStartAgentChat?.(newAgent);
-        }}
-      />
+      <AnimatePresence initial={false}>
+        {myAgentsOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            {/* Inline agent creator */}
+            <QuickAgentCreator
+              open={showAgentCreator}
+              onClose={() => setShowAgentCreator(false)}
+              onCreated={(name, _iconIndex, _size) => {
+                setShowAgentCreator(false);
+                const newAgent: Participant = { id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`, name, type: "agent" };
+                onStartAgentChat?.(newAgent);
+              }}
+            />
 
-      {/* Active agent threads */}
-      {privateThreads.map((thread) => (
-        <ThreadRow
-          key={thread.id}
-          thread={thread}
-          selected={selectedThreadId === thread.id}
-          onSelect={() => onSelectThread(thread.id)}
-          onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
-          onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
-        />
-      ))}
+            {/* Active agent threads */}
+            {privateThreads.map((thread) => (
+              <ThreadRow
+                key={thread.id}
+                thread={thread}
+                selected={selectedThreadId === thread.id}
+                onSelect={() => onSelectThread(thread.id)}
+                onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
+                onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+              />
+            ))}
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       {/* Available agents (always visible, collapsible) */}
       <div className="px-3 py-2">
@@ -1604,17 +1638,22 @@ function HandoffThreadView({
       </div>
 
       {/* ── Channels section ── */}
-      <div className="px-3 py-1.5 flex items-center gap-2 mt-1">
+      {showChannels && (<>
+      <button
+        onClick={() => setChannelsOpen((v) => !v)}
+        className="w-full px-3 py-1.5 flex items-center gap-2 mt-1 hover:bg-surface-low/40 transition-colors"
+      >
+        <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${channelsOpen ? "" : "-rotate-90"}`} />
         <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">Channels</span>
         <div className="flex-1 h-px bg-border/50" />
         {groupThreads.length > 0 && (
           <span className="text-[10px] text-text-muted">{groupThreads.length}</span>
         )}
-        <motion.button
+        <motion.div
           whileHover={{ scale: 1.05, boxShadow: "0 0 12px rgba(107,158,255,0.12)" }}
           whileTap={{ scale: 0.95 }}
-          onClick={() => { setShowChannelCreator((v) => !v); setShowAgentCreator(false); }}
-          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
+          onClick={(e) => { e.stopPropagation(); setShowChannelCreator((v) => !v); setShowAgentCreator(false); setChannelsOpen(true); }}
+          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors cursor-pointer ${
             showChannelCreator
               ? "text-[#6b9eff] bg-[#6b9eff]/15 border border-[#6b9eff]/30"
               : "text-[#6b9eff]/80 bg-[#6b9eff]/8 border border-[#6b9eff]/15 hover:border-[#6b9eff]/30 hover:text-[#6b9eff]"
@@ -1622,39 +1661,52 @@ function HandoffThreadView({
         >
           <Plus className="w-3 h-3" />
           <span>New</span>
-        </motion.button>
-      </div>
+        </motion.div>
+      </button>
 
-      {/* Inline channel creator */}
-      <QuickChannelCreator
-        open={showChannelCreator}
-        onClose={() => setShowChannelCreator(false)}
-        onCreated={(name, agents, users) => {
-          setShowChannelCreator(false);
-          onCreateChannel?.(name, agents, users);
-        }}
-        availableAgents={AVAILABLE_AGENTS_LIST}
-        availableUsers={AVAILABLE_USERS_LIST}
-      />
+      <AnimatePresence initial={false}>
+        {channelsOpen && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="overflow-hidden"
+          >
+            {/* Inline channel creator */}
+            <QuickChannelCreator
+              open={showChannelCreator}
+              onClose={() => setShowChannelCreator(false)}
+              onCreated={(name, agents, users) => {
+                setShowChannelCreator(false);
+                onCreateChannel?.(name, agents, users);
+              }}
+              availableAgents={AVAILABLE_AGENTS_LIST}
+              availableUsers={AVAILABLE_USERS_LIST}
+            />
 
-      {/* Channel threads */}
-      {groupThreads.map((thread) => (
-        <ThreadRow
-          key={thread.id}
-          thread={thread}
-          selected={selectedThreadId === thread.id}
-          onSelect={() => onSelectThread(thread.id)}
-          onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
-          onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
-        />
-      ))}
+            {/* Channel threads */}
+            {groupThreads.map((thread) => (
+              <ThreadRow
+                key={thread.id}
+                thread={thread}
+                selected={selectedThreadId === thread.id}
+                onSelect={() => onSelectThread(thread.id)}
+                onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
+                onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+              />
+            ))}
 
-      {/* Empty channel hint */}
-      {groupThreads.length === 0 && !showChannelCreator && (
-        <div className="px-3 py-2">
-          <p className="text-[9px] text-text-muted">Create a channel to collaborate with agents and users</p>
-        </div>
-      )}
+            {/* Empty channel hint */}
+            {groupThreads.length === 0 && !showChannelCreator && (
+              <div className="px-3 py-2">
+                <p className="text-[9px] text-text-muted">Create a channel to collaborate with agents and users</p>
+              </div>
+            )}
+          </motion.div>
+        )}
+      </AnimatePresence>
+      </>)}
     </div>
   );
 }
@@ -1773,30 +1825,22 @@ function ConversationsEmptyPrompt({
 
 // ── Main Component ──
 
-export function ConversationsSidebar({
+export function AgentsChannelsSidebar({
   variant,
   threads,
   selectedThreadId,
   onSelectThread,
   onNewThread,
+  onNewChannel,
   onStartAgentChat,
   onCreateChannel,
   onDeleteThread,
   onRenameThread,
-}: ConversationsSidebarProps) {
+  showChannels = true,
+  onCollapse,
+}: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const [sidebarToggles, setSidebarToggles] = useState<Record<string, boolean>>(() => ({
-    needsAttention: true,
-  }));
-
-  const toggles: SidebarToggle[] = [
-    { key: "needsAttention", label: "Needs Attention", enabled: sidebarToggles.needsAttention ?? true },
-  ];
-
-  const handleToggle = useCallback((key: string) => {
-    setSidebarToggles((prev) => ({ ...prev, [key]: !prev[key] }));
-  }, []);
 
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return threads;
@@ -1810,8 +1854,7 @@ export function ConversationsSidebar({
   }, [threads, searchQuery]);
 
   return (
-    <div className="w-[280px] flex-shrink-0 flex flex-col border-r border-border min-h-0 bg-background">
-      {sidebarToggles.needsAttention && <HandoffWidget />}
+    <div className="w-[280px] flex-shrink-0 flex flex-col border-r border-border h-full min-h-0 bg-background">
       <SidebarHeader
         showSearch={showSearch}
         searchQuery={searchQuery}
@@ -1821,9 +1864,11 @@ export function ConversationsSidebar({
         }}
         onSearchChange={setSearchQuery}
         onNewThread={onNewThread}
-        toggles={toggles}
-        onToggle={handleToggle}
+        onNewChannel={onNewChannel}
+        showChannels={showChannels}
+        onCollapse={onCollapse}
       />
+      <HandoffWidget />
 
       {variant === "v1" && (
         <FlatThreadList
@@ -1849,6 +1894,7 @@ export function ConversationsSidebar({
           onDeleteThread={onDeleteThread}
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
+          showChannels={showChannels}
         />
       )}
       {variant === "v3.1" && (
@@ -1860,6 +1906,7 @@ export function ConversationsSidebar({
           onRenameThread={onRenameThread}
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
+          showChannels={showChannels}
         />
       )}
     </div>

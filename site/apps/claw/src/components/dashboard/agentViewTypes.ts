@@ -1,9 +1,9 @@
 import type { LucideIcon } from "lucide-react";
-import type { ConversationThread } from "./ConversationsSidebar";
+import type { ConversationThread } from "./AgentsChannelsSidebar";
 
 // ── Core types ──
 
-export type TabId = "overview" | "activity" | "skills" | "connections" | "cron";
+export type TabId = "overview" | "activity" | "connections" | "cron";
 export type StyleVariant = "off" | "v1" | "v2" | "v3";
 export type ActivityType = "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
 export type ModuleTier = "basic" | "advanced";
@@ -158,6 +158,32 @@ export interface AgentViewProps {
   agentConfig?: AgentConfig | null;
   agentSessions?: AgentSession[] | null;
   agentConnections?: Connection[] | null;
+  activityEntries?: ActivityEntry[] | null;
+  recentToolCalls?: RecentToolCall[] | null;
+  agentCronJobs?: CronJob[] | null;
+  agentWorkspaceFiles?: Array<{ name: string; type: "file" | "directory"; size: number }> | null;
+  /** Insert a suggested prompt into the chat input. Wired to ExamplePromptsModule + WhatCanIDoPanel. */
+  onPromptClick?: (prompt: string) => void;
+  /** Delete a cron job. */
+  onCronRemove?: (jobId: string) => void;
+  /** Open the "create cron" dialog. */
+  onCronAdd?: () => void;
+  /** Open the integrations Directory modal (Connections tab CTA). */
+  onMarketplaceClick?: () => void;
+  /** Start the agent (AgentCardModule). */
+  onAgentStart?: () => void;
+  /** Stop the agent (AgentCardModule). */
+  onAgentStop?: () => void;
+  /** Loading flag for start. */
+  agentStarting?: boolean;
+  /** Loading flag for stop. */
+  agentStopping?: boolean;
+  /** When true, the start button is disabled (e.g. tier capacity exhausted). */
+  agentStartBlocked?: boolean;
+  /** Tooltip text for the disabled-start state. */
+  agentStartBlockedReason?: string;
+  /** Open the full file browser drawer (Workspace Files module CTA). */
+  onOpenFiles?: () => void;
 }
 
 export interface ConnectionDetailProps {

@@ -90,10 +90,26 @@ export const MOCK_CONNECTIONS: Connection[] = [
   { id: "github", name: "GitHub", icon: GitBranch, category: "Dev / Technical Tools", connected: false, description: "Repositories, issues, and pull requests" },
   { id: "asana", name: "Asana", icon: CheckSquare, category: "Task / Project Management", connected: false, description: "Task and project tracking" },
   { id: "slack", name: "Slack", icon: MessageSquare, category: "Communication", connected: false, description: "Team messaging and channels" },
+  { id: "teams", name: "Microsoft Teams", icon: Users, category: "Communication", connected: false, description: "Teams chat, channels, and meetings" },
   { id: "gdrive", name: "Google Drive", icon: HardDrive, category: "File Storage", connected: false, description: "Cloud file storage and sharing" },
   { id: "notion", name: "Notion", icon: FileText, category: "Documents & Knowledge", connected: false, description: "Wiki, docs, and knowledge base" },
   { id: "zapier", name: "Zapier", icon: Zap, category: "Automation & Webhooks", connected: false, description: "Workflow automation and integrations" },
   { id: "linear", name: "Linear", icon: CheckSquare, category: "Task / Project Management", connected: false, description: "Issue tracking for engineering teams" },
+];
+
+// Featured integrations — surfaced as branded CTAs at the top of the
+// Connections tab. Brand color used for the pill background tint.
+// `iconKey` maps to BRAND_ICONS in BrandIcons.tsx (real brand SVGs).
+export const FEATURED_INTEGRATIONS: Array<{
+  id: string;
+  name: string;
+  brand: string;
+  iconKey: "slack" | "telegram" | "teams";
+  description: string;
+}> = [
+  { id: "slack",    name: "Slack",    brand: "#4A154B", iconKey: "slack",    description: "Team messaging and channels" },
+  { id: "teams",    name: "Teams",    brand: "#5059C9", iconKey: "teams",    description: "Microsoft Teams chat and meetings" },
+  { id: "telegram", name: "Telegram", brand: "#229ED9", iconKey: "telegram", description: "Send and receive messages via Telegram bot" },
 ];
 
 export const MOCK_SKILLS: Skill[] = [
@@ -401,9 +417,12 @@ export const MOCK_HANDOFF = {
 
 export const OVERVIEW_MODULE_KEYS: ModuleDefinition[] = [
   // ── General (always available) ──
-  { key: "completeness", label: "Agent Readiness", section: "general", tier: "basic", defaultVisible: true },
+  // Design doc §2.1 — Overview modules on by default: Agent Card, Active Sessions,
+  // Workspace Files, What Can I Do?, Example Prompts. Config Quick-View is
+  // conditional per §11 and stays off until metrics/identity wiring lands.
+  { key: "completeness", label: "Agent Readiness", section: "general", tier: "basic" },
   { key: "status", label: "Status Card", section: "general", tier: "basic" },
-  { key: "config", label: "Config", section: "general", tier: "basic", defaultVisible: true },
+  { key: "config", label: "Config", section: "general", tier: "basic" },
   { key: "modelCaps", label: "Model Capabilities", section: "general", tier: "advanced" },
   { key: "toolUsage", label: "Tool Usage", section: "general", tier: "advanced" },
   { key: "limits", label: "Limits", section: "general", tier: "advanced" },
@@ -412,15 +431,15 @@ export const OVERVIEW_MODULE_KEYS: ModuleDefinition[] = [
   { key: "providers", label: "Providers", section: "general", tier: "advanced" },
   { key: "agentUrls", label: "Endpoints", section: "general", tier: "advanced" },
   { key: "gateway", label: "Gateway Status", section: "general", tier: "advanced" },
-  { key: "workspace", label: "Workspace Files", section: "general", tier: "advanced" },
+  { key: "workspace", label: "Workspace Files", section: "general", tier: "basic", defaultVisible: true },
   { key: "quickActions", label: "Quick Actions", section: "general", tier: "basic" },
   { key: "whatCanIDo", label: "What Can I Do?", section: "general", tier: "basic", defaultVisible: true },
   { key: "toolDiscovery", label: "Tool Discovery", section: "general", tier: "basic" },
   { key: "agentCard", label: "Agent Card", section: "general", tier: "basic", defaultVisible: true },
   // ── Single Conversation (user-agent, agent-agent) ──
   { key: "patterns", label: "Interaction Patterns", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "basic" },
-  { key: "prompts", label: "Example Prompts", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "basic" },
-  { key: "sessions", label: "Sessions", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "basic" },
+  { key: "prompts", label: "Example Prompts", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "basic", defaultVisible: true },
+  { key: "sessions", label: "Sessions", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "basic", defaultVisible: true },
   { key: "execQueue", label: "Exec Approval", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "advanced" },
   { key: "nudges", label: "Nudges", section: "single-conversation", contextFilter: ["user-agent", "agent-agent"], tier: "basic" },
   // ── Group Conversation ──
