@@ -309,4 +309,52 @@ describe('HyperAgent API', () => {
       globalThis.fetch = fetchMock;
     }
   });
+
+  it('updates a subscription bundle on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          message: 'Subscription updated',
+          subscription: {
+            id: 'sub-1',
+            user_id: 'user-1',
+            plan_id: 'medium',
+            plan_name: 'Medium',
+            provider: 'STRIPE',
+            status: 'ACTIVE',
+            cancel_at_period_end: false,
+            can_cancel: true,
+          },
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.updateSubscription('sub-1', { bundle: { medium: 1 } });
+      expect(result.ok).toBe(true);
+      expect(result.subscription?.planId).toBe('medium');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/sub-1/update');
+      expect(calls[0]?.init?.method).toBe('POST');
+      expect(calls[0]?.init?.headers).toEqual(
+        expect.objectContaining({
+          Authorization: 'Bearer sk-hyper-test',
+          'Content-Type': 'application/json',
+        }),
+      );
+      expect(calls[0]?.init?.body).toBe(JSON.stringify({ bundle: { medium: 1 } }));
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
 });

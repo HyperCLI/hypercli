@@ -191,6 +191,10 @@ export interface HyperAgentSubscriptionMutationResult {
   subscription?: HyperAgentSubscription;
 }
 
+export interface HyperAgentUpdateSubscriptionRequest {
+  bundle?: Record<string, number> | null;
+}
+
 export interface HyperAgentModel {
   id: string;
   name: string;
@@ -887,6 +891,33 @@ export class HyperAgent {
 
     if (!response.ok) {
       throw new Error(`Failed to get entitlements: ${response.statusText}`);
+    }
+
+    const data: any = await response.json();
+    return {
+      ok: Boolean(data.ok),
+      message: data.message || '',
+      subscription: data.subscription ? hyperAgentSubscriptionFromDict(data.subscription) : undefined,
+    };
+  }
+
+  async updateSubscription(
+    subscriptionId: string,
+    request: HyperAgentUpdateSubscriptionRequest,
+  ): Promise<HyperAgentSubscriptionMutationResult> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/update`, {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${this.apiKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        bundle: request.bundle ?? null,
+      }),
+    });
+
+    if (!response.ok) {
+      throw new Error(`Failed to update subscription: ${response.statusText}`);
     }
 
     const data: any = await response.json();

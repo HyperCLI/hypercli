@@ -122,6 +122,7 @@ export {
   type HyperAgentSubscription,
   type HyperAgentSubscriptionMutationResult,
   type HyperAgentSubscriptionSummary,
+  type HyperAgentUpdateSubscriptionRequest,
   type HyperAgentModel,
   type HyperAgentUsageSummary,
   type HyperAgentUsageHistoryEntry,
