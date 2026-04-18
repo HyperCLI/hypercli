@@ -460,6 +460,29 @@ h1, h2, h3, h4, h5, h6 {
   color: var(--foreground);
 }
 
+/* Highlight flash for newly-arrived activity / tool-call rows.
+ * Kicks off with a soft green tint and a left accent bar, then fades to
+ * transparent over 5s. Uses background-color (not border) to avoid layout
+ * shift when the highlight starts/ends. */
+@keyframes activity-flash {
+  0% {
+    background-color: rgba(56, 211, 159, 0.18);
+    box-shadow: inset 2px 0 0 0 rgba(56, 211, 159, 0.7);
+  }
+  20% {
+    background-color: rgba(56, 211, 159, 0.12);
+    box-shadow: inset 2px 0 0 0 rgba(56, 211, 159, 0.5);
+  }
+  100% {
+    background-color: rgba(56, 211, 159, 0);
+    box-shadow: inset 2px 0 0 0 rgba(56, 211, 159, 0);
+  }
+}
+
+.activity-flash {
+  animation: activity-flash 5s ease-out forwards;
+}
+
 ::-webkit-scrollbar {
   width: 8px;
   height: 8px;

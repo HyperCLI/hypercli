@@ -8,9 +8,11 @@ import { MOCK_NUDGES, MOCK_CONNECTIONS, EXAMPLE_PROMPTS_BY_CAPABILITY } from "..
 interface WhatCanIDoPanelProps {
   open: boolean;
   onToggle: () => void;
+  /** Insert a suggested prompt into the chat input. */
+  onPromptClick?: (prompt: string) => void;
 }
 
-export function WhatCanIDoPanel({ open, onToggle }: WhatCanIDoPanelProps) {
+export function WhatCanIDoPanel({ open, onToggle, onPromptClick }: WhatCanIDoPanelProps) {
   const [dismissedNudges, setDismissedNudges] = useState<Set<string>>(new Set());
 
   return (
@@ -141,6 +143,7 @@ export function WhatCanIDoPanel({ open, onToggle }: WhatCanIDoPanelProps) {
                       {cap.prompts.map((prompt) => (
                         <button
                           key={prompt}
+                          onClick={() => { onPromptClick?.(prompt); onToggle(); }}
                           className="w-full text-left px-3 py-1.5 rounded-md text-[11px] text-text-muted hover:text-foreground hover:bg-surface-low/50 transition-colors truncate"
                         >
                           &quot;{prompt}&quot;

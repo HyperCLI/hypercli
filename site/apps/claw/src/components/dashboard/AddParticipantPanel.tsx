@@ -4,7 +4,7 @@ import { useState, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import { X, Search, Check, Bot, User, UserPlus } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
-import type { Participant } from "./ConversationsSidebar";
+import type { Participant } from "./AgentsChannelsSidebar";
 
 interface AddParticipantPanelProps {
   currentParticipants: Participant[];

@@ -158,19 +158,20 @@ function mergeToolCalls(
 }
 
 function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
+  // Cumulative vs delta detection: only treat as cumulative when the incoming
+  // text actually contains the current text as a prefix. The previous
+  // length-based heuristic broke delta streams whenever a single chunk was
+  // longer than the accumulated text, silently dropping prior content.
   const mergedContent = incoming.content
     ? (
-      incoming.content.startsWith(current.content) || incoming.content.length >= current.content.length
+      current.content && incoming.content.startsWith(current.content)
         ? incoming.content
-        : `${current.content}${incoming.content}`
+        : `${current.content ?? ""}${incoming.content}`
     )
     : current.content;
   const mergedThinking = incoming.thinking
     ? (
-      current.thinking && (
-        incoming.thinking.startsWith(current.thinking) ||
-        incoming.thinking.length >= current.thinking.length
-      )
+      current.thinking && incoming.thinking.startsWith(current.thinking)
         ? incoming.thinking
         : `${current.thinking ?? ""}${incoming.thinking}`
     )
@@ -263,6 +264,30 @@ export function useGatewayChat(
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configSchema, setConfigSchema] = useState<OpenClawConfigSchemaResponse | null>(null);
   const [gwAgentId, setGwAgentId] = useState("main");
+  const [sessions, setSessions] = useState<Array<Record<string, unknown>>>([]);
+  const [cronJobs, setCronJobs] = useState<Array<Record<string, unknown>>>([]);
+  const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
+  const [activityFeed, setActivityFeed] = useState<Array<{
+    id: string;
+    type: "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
+    action: string;
+    detail: string;
+    timestamp: number;
+  }>>([]);
+
+  type ActivityKind = "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
+  const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
+    setActivityFeed((prev) => {
+      const next = [...prev, {
+        type: entry.type,
+        action: entry.action,
+        detail: entry.detail ?? "",
+        id: entry.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+        timestamp: entry.timestamp ?? Date.now(),
+      }];
+      return next.length > 500 ? next.slice(next.length - 500) : next;
+    });
+  }, []);
 
   useEffect(() => {
     getTokenRef.current = getToken;
@@ -441,6 +466,21 @@ export function useGatewayChat(
             }));
           } else if (event === "chat.done") {
             setSending(false);
+            // Pull a fresh session list as a safety net in case the gateway
+            // didn't push a `sessions.updated` event.
+            void (async () => {
+              try {
+                const list = await gw?.sessionsList();
+                if (!cancelled && list) setSessions(list as Array<Record<string, unknown>>);
+              } catch {
+                // optional
+              }
+            })();
+          } else if (event === "sessions.updated") {
+            const list = (payload as Record<string, unknown>).sessions;
+            if (Array.isArray(list)) {
+              setSessions(list as Array<Record<string, unknown>>);
+            }
           } else if (event === "chat.error") {
             setSending(false);
             setMessages((prev) => [
@@ -451,6 +491,35 @@ export function useGatewayChat(
                 timestamp: Date.now(),
               },
             ]);
+          }
+
+          // Server-driven activity events → feed (hoisted appendActivity)
+          const isActivityKind = (v: unknown): v is ActivityKind =>
+            v === "message" || v === "tool" || v === "connection" || v === "skill" || v === "cron" || v === "error" || v === "system";
+          if (event === "chat.tool_call") {
+            const tc = normalizeLiveToolCall(payload as Record<string, unknown>);
+            if (tc) appendActivity({ type: "tool", action: tc.name, detail: tc.args || "" });
+          } else if (event === "chat.tool_result") {
+            const tc = normalizeLiveToolResult(payload as Record<string, unknown>);
+            if (tc?.result) appendActivity({ type: "tool", action: `${tc.name} → result`, detail: tc.result });
+          } else if (event === "chat.done") {
+            appendActivity({ type: "message", action: "Assistant response complete" });
+          } else if (event === "chat.error") {
+            appendActivity({ type: "error", action: "Error", detail: String((payload as Record<string, unknown>).message ?? "Unknown error") });
+          } else if (event === "activity.log") {
+            const entry = payload as Record<string, unknown>;
+            const kind = isActivityKind(entry.type) ? entry.type : "system";
+            appendActivity({
+              type: kind,
+              action: typeof entry.action === "string" ? entry.action : "Activity",
+              detail: typeof entry.detail === "string" ? entry.detail : "",
+              id: typeof entry.id === "string" ? entry.id : undefined,
+              timestamp: typeof entry.timestamp === "number" ? entry.timestamp : undefined,
+            });
+          } else if (event === "sessions.updated") {
+            const sessionsList = (payload as Record<string, unknown>).sessions;
+            const count = Array.isArray(sessionsList) ? sessionsList.length : 0;
+            appendActivity({ type: "system", action: "Sessions updated", detail: `${count} active` });
           }
         });
 
@@ -508,6 +577,20 @@ export function useGatewayChat(
         } catch {
           // File listing is optional for chat-first views.
         }
+
+        // Load sessions / cron / models in parallel — all optional
+        {
+          const [sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
+            gw.sessionsList(),
+            gw.cronList(),
+            gw.modelsList(),
+          ]);
+          if (!cancelled) {
+            if (sessionsRes.status === "fulfilled") setSessions(sessionsRes.value as Array<Record<string, unknown>>);
+            if (cronRes.status === "fulfilled") setCronJobs(cronRes.value as Array<Record<string, unknown>>);
+            if (modelsRes.status === "fulfilled") setModels(modelsRes.value as Array<Record<string, unknown>>);
+          }
+        }
       } catch (e: unknown) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
@@ -537,6 +620,10 @@ export function useGatewayChat(
       setGwAgentId("main");
       setPendingAttachments([]);
       setPendingFiles([]);
+      setSessions([]);
+      setCronJobs([]);
+      setModels([]);
+      setActivityFeed([]);
     };
   }, [
     agent?.hostname,
@@ -629,6 +716,13 @@ export function useGatewayChat(
     }
     setMessages((prev) => [...prev, userMsg]);
 
+    const preview = msg.slice(0, 80);
+    appendActivity({
+      type: "message",
+      action: "User message sent",
+      detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : ""),
+    });
+
     try {
       await gw.sendChat(
         agentMessage || "What's in this image?",
@@ -637,26 +731,30 @@ export function useGatewayChat(
         attachments.length > 0 ? attachments : undefined,
       );
     } catch (e: unknown) {
+      const errMsg = e instanceof Error ? e.message : String(e);
       setMessages((prev) => [
         ...prev,
         {
           role: "system",
-          content: `Error: ${e instanceof Error ? e.message : String(e)}`,
+          content: `Error: ${errMsg}`,
           timestamp: Date.now(),
         },
       ]);
+      appendActivity({ type: "error", action: "Send failed", detail: errMsg });
       setSending(false);
     }
-  }, [input, sending, pendingAttachments, pendingFiles]);
+  }, [input, sending, pendingAttachments, pendingFiles, appendActivity]);
 
   // File operations
   const openFile = useCallback(
     async (name: string): Promise<string> => {
       const gw = gwRef.current;
       if (!gw) throw new Error("Not connected");
-      return gw.fileGet(gwAgentId, name);
+      const content = await gw.fileGet(gwAgentId, name);
+      appendActivity({ type: "tool", action: "file_read", detail: name });
+      return content;
     },
-    [gwAgentId]
+    [gwAgentId, appendActivity]
   );
 
   const saveFile = useCallback(
@@ -664,8 +762,9 @@ export function useGatewayChat(
       const gw = gwRef.current;
       if (!gw) throw new Error("Not connected");
       await gw.fileSet(gwAgentId, name, content);
+      appendActivity({ type: "tool", action: "file_write", detail: `${name} · ${content.length.toLocaleString()} chars` });
     },
-    [gwAgentId]
+    [gwAgentId, appendActivity]
   );
 
   // Config operations
@@ -673,13 +772,72 @@ export function useGatewayChat(
     const gw = gwRef.current;
     if (!gw) throw new Error("Not connected");
     await gw.configPatch(patch);
-  }, []);
+    const keys = Object.keys(patch);
+    appendActivity({
+      type: "system",
+      action: "Config updated",
+      detail: keys.length > 0 ? keys.slice(0, 3).join(", ") + (keys.length > 3 ? `, +${keys.length - 3}` : "") : "",
+    });
+  }, [appendActivity]);
 
   const channelsStatus = useCallback(async (probe = false, timeoutMs?: number) => {
     const gw = gwRef.current;
     if (!gw) throw new Error("Not connected");
     return gw.channelsStatus(probe, timeoutMs);
   }, []);
+
+  // Sessions / Cron / Models — Phase 4 wiring
+
+  const refreshSessions = useCallback(async () => {
+    const gw = gwRef.current;
+    if (!gw) return;
+    try {
+      const list = await gw.sessionsList();
+      setSessions(list as Array<Record<string, unknown>>);
+    } catch {
+      // optional
+    }
+  }, []);
+
+  const refreshCron = useCallback(async () => {
+    const gw = gwRef.current;
+    if (!gw) return;
+    try {
+      const list = await gw.cronList();
+      setCronJobs(list as Array<Record<string, unknown>>);
+    } catch {
+      // optional
+    }
+  }, []);
+
+  const addCron = useCallback(async (job: Record<string, unknown>) => {
+    const gw = gwRef.current;
+    if (!gw) throw new Error("Not connected");
+    await gw.cronAdd(job);
+    await refreshCron();
+    const schedule = typeof job.schedule === "string" ? job.schedule : "";
+    const description = typeof job.description === "string" ? job.description : "";
+    appendActivity({
+      type: "cron",
+      action: "Cron added",
+      detail: [description, schedule].filter(Boolean).join(" · "),
+    });
+  }, [refreshCron, appendActivity]);
+
+  const removeCron = useCallback(async (jobId: string) => {
+    const gw = gwRef.current;
+    if (!gw) throw new Error("Not connected");
+    await gw.cronRemove(jobId);
+    await refreshCron();
+    appendActivity({ type: "cron", action: "Cron removed", detail: jobId });
+  }, [refreshCron, appendActivity]);
+
+  const runCron = useCallback(async (jobId: string) => {
+    const gw = gwRef.current;
+    if (!gw) throw new Error("Not connected");
+    appendActivity({ type: "cron", action: "Cron run", detail: jobId });
+    return gw.cronRun(jobId);
+  }, [appendActivity]);
 
   return {
     messages,
@@ -703,5 +861,14 @@ export function useGatewayChat(
     addAttachments,
     removePendingFile,
     removeAttachment,
+    sessions,
+    cronJobs,
+    models,
+    activityFeed,
+    refreshSessions,
+    refreshCron,
+    addCron,
+    removeCron,
+    runCron,
   };
 }

@@ -13,6 +13,7 @@ import {
   FileImage,
   FileCode,
   AlertCircle,
+  Lock,
 } from "lucide-react";
 import type { FileEntry } from "./types";
 import { formatFileSize } from "./FileRow";
@@ -25,6 +26,9 @@ interface FilePreviewProps {
   loading: boolean;
   error: string | null;
   dirty?: boolean;
+  /** When true, the editor becomes read-only and the Save button is hidden.
+   *  Used for core agent files that should be edited via download/re-upload. */
+  readOnly?: boolean;
   onClose: () => void;
   onSave?: (path: string, content: string) => Promise<void>;
   onDownload?: (entry: FileEntry) => void;
@@ -69,6 +73,7 @@ export function FilePreview({
   loading,
   error,
   dirty = false,
+  readOnly = false,
   onClose,
   onSave,
   onDownload,
@@ -131,7 +136,16 @@ export function FilePreview({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
-          {isEditable && onSave && (
+          {readOnly && (
+            <span
+              title="This file is read-only. Download, edit locally, then re-upload."
+              className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[#f0c56c] bg-[#f0c56c]/10 px-1.5 py-0.5 rounded"
+            >
+              <Lock className="w-2.5 h-2.5" />
+              Read-only
+            </span>
+          )}
+          {isEditable && onSave && !readOnly && (
             <button
               onClick={handleSave}
               disabled={!isDirty || saving}
@@ -170,6 +184,16 @@ export function FilePreview({
         </div>
       </div>
 
+      {/* Read-only banner */}
+      {readOnly && (
+        <div className="flex items-start gap-2 px-3 py-2 border-b border-border bg-[#f0c56c]/5 text-[11px] text-[#f0c56c]">
+          <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
+          <p>
+            This is a core agent file. To make changes safely, <span className="font-semibold">download it</span>, edit locally, then <span className="font-semibold">re-upload</span> via the file browser.
+          </p>
+        </div>
+      )}
+
       {/* Content */}
       <div className="flex-1 overflow-auto min-h-0">
         {loading && (
@@ -199,6 +223,7 @@ export function FilePreview({
               <textarea
                 value={editContent}
                 onChange={(e) => setEditContent(e.target.value)}
+                readOnly={readOnly}
                 className="w-full h-full p-3 bg-transparent text-xs font-mono text-foreground leading-relaxed resize-none focus:outline-none"
                 spellCheck={false}
               />
@@ -212,7 +237,7 @@ export function FilePreview({
       </div>
 
       {/* Dirty state footer */}
-      {isDirty && onSave && (
+      {isDirty && onSave && !readOnly && (
         <motion.div
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}

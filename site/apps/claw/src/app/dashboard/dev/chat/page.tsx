@@ -32,7 +32,7 @@ import {
   type StreamingVariant,
 } from "@/components/dashboard/ChatMessage";
 import { AgentView, ConnectionDetail, type TabId as AgentTabId } from "@/components/dashboard/AgentView";
-import { ConversationsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type ConversationsSidebarVariant, type Participant } from "@/components/dashboard/ConversationsSidebar";
+import { AgentsChannelsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type AgentsChannelsSidebarVariant, type Participant } from "@/components/dashboard/AgentsChannelsSidebar";
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
 import { FilesDrawer } from "@/components/dashboard/files";
 import { FilesPanel } from "@/components/dashboard/files-panel";
@@ -449,7 +449,7 @@ export default function DevChatPage() {
   const [streamingVariant, setStreamingVariant] = useState<StreamingVariant>("off");
 
   // ── Conversations Sidebar ──
-  const [conversationsSidebarVariant, setConversationsSidebarVariant] = useState<ConversationsSidebarVariant | "off">("v3");
+  const [conversationsSidebarVariant, setAgentsChannelsSidebarVariant] = useState<AgentsChannelsSidebarVariant | "off">("v3");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<typeof MOCK_CONVERSATION_THREADS>([]);
   const [addParticipantOpen, setAddParticipantOpen] = useState(false);
@@ -1091,7 +1091,7 @@ export default function DevChatPage() {
           <VariantGroup
             label="Conversations Sidebar"
             value={conversationsSidebarVariant}
-            onChange={setConversationsSidebarVariant}
+            onChange={setAgentsChannelsSidebarVariant}
             options={[
               { value: "off", label: "Off — hidden" },
               { value: "v1", label: "Alt 1 — flat list" },
@@ -1129,7 +1129,7 @@ export default function DevChatPage() {
           {/* Default tab */}
           <div className="space-y-2">
             <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider">Default Tab</h3>
-            {(["overview", "activity", "skills", "connections", "cron"] as const).map((tab) => (
+            {(["overview", "activity", "connections", "cron"] as const).map((tab) => (
               <label key={tab} className="flex items-center gap-2 text-xs text-foreground cursor-pointer hover:text-foreground/80">
                 <input
                   type="radio"
@@ -1664,7 +1664,7 @@ export default function DevChatPage() {
 
       {/* ── Conversations Sidebar ── */}
       {conversationsSidebarVariant !== "off" && (
-        <ConversationsSidebar
+        <AgentsChannelsSidebar
           variant={conversationsSidebarVariant}
           threads={threads}
           selectedThreadId={selectedThreadId}

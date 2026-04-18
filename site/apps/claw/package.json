@@ -5,7 +5,7 @@
   "scripts": {
     "dev": "sh -lc 'next dev --port ${PORT:-4003}'",
     "dev:mock": "cp .env.mock .env.local && npm run dev",
-    "dev:real": "cp .env.real .env.local && npm run dev",
+    "dev:real": "cp .env.feat .env.local && npm run dev",
     "switch:mock": "cp .env.mock .env.local && echo '✅ Switched to MOCK server'",
     "switch:feat": "cp .env.feat .env.local && echo '✅ Switched to REAL API'",
     "build": "next build",

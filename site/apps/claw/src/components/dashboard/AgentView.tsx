@@ -21,7 +21,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { agentAvatar } from "@/lib/avatar";
-import { ConversationGraphModule } from "./ConversationsSidebar";
+import { ConversationGraphModule } from "./AgentsChannelsSidebar";
 import { AgentFocusModule } from "./modules/AgentFocusModule";
 import { GroupPermissionsModule } from "./modules/GroupPermissionsModule";
 import { AgentChangelogModule } from "./modules/AgentChangelogModule";
@@ -62,15 +62,17 @@ import { SharedFilesModule } from "./modules/SharedFilesModule";
 import { PinnedItemsModule } from "./modules/PinnedItemsModule";
 import { SharedWorkspaceModule } from "./modules/SharedWorkspaceModule";
 import type { TabId, StyleVariant, ActivityType, ActivityEntry, Connection, AgentViewProps, ConnectionDetailProps } from "./agentViewTypes";
-import type { ConversationThread } from "./ConversationsSidebar";
+import type { ConversationThread } from "./AgentsChannelsSidebar";
 import {
   CATEGORY_ICONS, ACTIVITY_TYPE_COLORS,
-  MOCK_CONNECTIONS, MOCK_SKILLS, MOCK_ACTIVITY, MOCK_STATUS,
+  MOCK_CONNECTIONS, MOCK_SKILLS, MOCK_STATUS,
   MOCK_CONFIG, MOCK_SESSIONS,
-  MOCK_CRONS, MOCK_TOOL_CALLS,
+  MOCK_CRONS,
+  FEATURED_INTEGRATIONS,
   ONBOARDING_STEPS,
   OVERVIEW_MODULE_KEYS,
 } from "./agentViewMockData";
+import { BRAND_ICONS } from "./BrandIcons";
 import { relativeTime } from "./agentViewUtils";
 
 export type { TabId, StyleVariant } from "./agentViewTypes";
@@ -145,6 +147,21 @@ export function AgentView({
   agentConfig: agentConfigProp,
   agentSessions: agentSessionsProp,
   agentConnections: agentConnectionsProp,
+  activityEntries: activityEntriesProp,
+  recentToolCalls: recentToolCallsProp,
+  agentCronJobs: agentCronJobsProp,
+  agentWorkspaceFiles: agentWorkspaceFilesProp,
+  onPromptClick,
+  onCronRemove,
+  onCronAdd,
+  onMarketplaceClick,
+  onAgentStart,
+  onAgentStop,
+  agentStarting = false,
+  agentStopping = false,
+  agentStartBlocked = false,
+  agentStartBlockedReason,
+  onOpenFiles,
 }: AgentViewProps) {
   const status = agentStatusProp ?? MOCK_STATUS;
   const config = agentConfigProp ?? MOCK_CONFIG;
@@ -167,7 +184,8 @@ export function AgentView({
   const [myConnectionsOpen, setMyConnectionsOpen] = useState(true);
   const [recommendedOpen, setRecommendedOpen] = useState(true);
   const [selectedConnection, setSelectedConnection] = useState<string | null>(null);
-  const [cronJobs, setCronJobs] = useState(MOCK_CRONS);
+  const [internalCronJobs, setInternalCronJobs] = useState(MOCK_CRONS);
+  const cronJobs = agentCronJobsProp ?? internalCronJobs;
   const [activityFilter, setActivityFilter] = useState<ActivityType | "all">("all");
   const [onboardingStep, setOnboardingStep] = useState(0);
   const [onboardingDismissed, setOnboardingDismissed] = useState(false);
@@ -297,10 +315,61 @@ export function AgentView({
     return () => document.removeEventListener("mousedown", handler);
   }, [overviewMenuOpen]);
 
+  const activitySource = activityEntriesProp ?? [];
+  // Reverse-chronological: newest events render at the top of the Activity Log.
+  // Recent Tool Calls already arrive in display order from the page (last 20),
+  // so we reverse those too for consistency.
   const filteredActivity = useMemo(
-    () => activityFilter === "all" ? MOCK_ACTIVITY : MOCK_ACTIVITY.filter((a) => a.type === activityFilter),
-    [activityFilter],
+    () => {
+      const filtered = activityFilter === "all" ? activitySource : activitySource.filter((a) => a.type === activityFilter);
+      return [...filtered].reverse();
+    },
+    [activityFilter, activitySource],
   );
+  const recentToolCallsSource = useMemo(
+    () => recentToolCallsProp ? [...recentToolCallsProp].reverse() : [],
+    [recentToolCallsProp],
+  );
+
+  // Track when each activity / tool-call ID was first seen so we can flash a
+  // 5s highlight on newly-arrived rows. Skip the very first render so the
+  // initial backlog doesn't all light up at once.
+  const seenIdsRef = useRef<Map<string, number>>(new Map());
+  const isFirstActivityRender = useRef(true);
+  const [, forceHighlightTick] = useState(0);
+  const HIGHLIGHT_MS = 5000;
+  useEffect(() => {
+    const now = Date.now();
+    const ids = [
+      ...activitySource.map((a) => a.id),
+      ...(recentToolCallsProp ?? []).map((tc) => tc.id),
+    ];
+    if (isFirstActivityRender.current) {
+      ids.forEach((id) => seenIdsRef.current.set(id, 0));
+      isFirstActivityRender.current = false;
+      return;
+    }
+    const newIds: string[] = [];
+    ids.forEach((id) => {
+      if (!seenIdsRef.current.has(id)) {
+        seenIdsRef.current.set(id, now);
+        newIds.push(id);
+      }
+    });
+    if (newIds.length === 0) return;
+    // Re-render now so isHighlighted() returns true for the new ids → class
+    // gets applied → CSS animation kicks in. Then again after the 5s window
+    // so we can remove the class.
+    forceHighlightTick((t) => t + 1);
+    const timer = setTimeout(() => forceHighlightTick((t) => t + 1), HIGHLIGHT_MS + 50);
+    return () => clearTimeout(timer);
+  }, [activitySource, recentToolCallsProp]);
+
+  const isHighlighted = useCallback((id: string): boolean => {
+    const ts = seenIdsRef.current.get(id);
+    if (!ts) return false;
+    return Date.now() - ts < HIGHLIGHT_MS;
+  }, []);
 
   const activityTypes: { value: ActivityType | "all"; label: string }[] = [
     { value: "all", label: "All" },
@@ -325,24 +394,52 @@ export function AgentView({
     [search, recommended],
   );
 
+  // Group a connection list by category for the marketplace layout. Returns
+  // entries in a stable order so the UI doesn't jump around as items move.
+  const groupByCategory = useCallback((list: Connection[]): Array<[string, Connection[]]> => {
+    const buckets = new Map<string, Connection[]>();
+    list.forEach((c) => {
+      const arr = buckets.get(c.category) ?? [];
+      arr.push(c);
+      buckets.set(c.category, arr);
+    });
+    return Array.from(buckets.entries()).sort(([a], [b]) => a.localeCompare(b));
+  }, []);
+  const groupedMy = useMemo(() => groupByCategory(filteredMy), [filteredMy, groupByCategory]);
+  const groupedRecommended = useMemo(() => groupByCategory(filteredRecommended), [filteredRecommended, groupByCategory]);
+
+  const featuredConnections = useMemo(
+    () => FEATURED_INTEGRATIONS.map((f) => {
+      const conn = MOCK_CONNECTIONS.find((c) => c.id === f.id);
+      return { ...f, connected: !!conn?.connected, BrandIcon: BRAND_ICONS[f.iconKey] };
+    }),
+    [],
+  );
+
   const handleConnectionClick = useCallback((conn: Connection) => {
     setSelectedConnection(conn.id);
     onConnectionSelect?.(conn);
   }, [onConnectionSelect]);
 
   const toggleCron = useCallback((id: string) => {
-    setCronJobs((prev) => prev.map((c) => c.id === id ? { ...c, enabled: !c.enabled } : c));
-  }, []);
+    // Real data path: backend doesn't yet support toggle (no cron.patch RPC).
+    // Fall back to local-state toggle for the mock case.
+    if (agentCronJobsProp) return;
+    setInternalCronJobs((prev) => prev.map((c) => c.id === id ? { ...c, enabled: !c.enabled } : c));
+  }, [agentCronJobsProp]);
 
   const removeCron = useCallback((id: string) => {
-    setCronJobs((prev) => prev.filter((c) => c.id !== id));
-  }, []);
+    if (onCronRemove) {
+      onCronRemove(id);
+      return;
+    }
+    setInternalCronJobs((prev) => prev.filter((c) => c.id !== id));
+  }, [onCronRemove]);
 
   // Build tabs list — conditionally include cron
   const tabs: { id: TabId; label: string; icon: LucideIcon }[] = [
     { id: "overview", label: "Overview", icon: Gauge },
     { id: "activity", label: "Activity", icon: Activity },
-    { id: "skills", label: "Skills", icon: Layers },
     { id: "connections", label: "Connections", icon: Link2 },
     ...(showCronManager ? [{ id: "cron" as TabId, label: "Cron", icon: Timer }] : []),
   ];
@@ -353,12 +450,12 @@ export function AgentView({
 
     if (tabBarStyle === "v1") {
       return (
-        <div className="flex gap-1 p-2 flex-shrink-0 flex-wrap">
+        <div className="flex gap-1 p-2 flex-shrink-0 flex-nowrap whitespace-nowrap overflow-hidden">
           {tabs.map((tab) => {
             const disabled = isTabDisabled(tab.id);
             return (
               <button key={tab.id} onClick={() => !disabled && handleTabChange(tab.id)} disabled={disabled}
-                className={`px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "bg-[#38D39F]/15 text-[#38D39F]" : "text-text-muted hover:text-text-secondary hover:bg-surface-low"}`}
+                className={`flex-shrink-0 px-3 py-1.5 text-xs font-medium rounded-full transition-colors ${disabled ? "text-text-muted/40 cursor-not-allowed" : activeTab === tab.id ? "bg-[#38D39F]/15 text-[#38D39F]" : "text-text-muted hover:text-text-secondary hover:bg-surface-low"}`}
               >{tab.label}</button>
             );
           })}
@@ -415,10 +512,11 @@ export function AgentView({
   }
 
   return (
-    <div className={`flex flex-col h-full bg-background border border-border rounded-xl overflow-hidden ${className ?? ""}`}>
-      <div className="flex items-center">
+    <div className={`flex flex-col h-full bg-background overflow-hidden ${className ?? ""}`}>
+      <div className="flex items-center h-14 border-b border-border flex-shrink-0">
         <div className="flex-1 min-w-0">{renderTabBar()}</div>
-        {activeTab === "overview" && hasAgent && (
+        {/* Module visibility menu hidden — Section 2.1 specifies a fixed module list */}
+        {false && activeTab === "overview" && hasAgent && (
           <div className="relative flex-shrink-0 pr-2" ref={menuRef}>
             <motion.button
               whileTap={{ scale: 0.85 }}
@@ -578,104 +676,88 @@ export function AgentView({
           <>
           <div className="flex-1 overflow-y-auto p-3 space-y-3">
 
-            {/* ── Section: General (divider hidden) ── */}
+            {/* Overview module order (post-2026-04-17 review):
+                1. Workspace Files (promoted to top — file presence is the primary trust signal)
+                2. Agent Card  3. Active Sessions  4. What Can I Do?  5. Example Prompts
+                (What Can I Do? is the bottom-fixed slide-up panel rendered below the scroll area.) */}
 
-            {/* ── Completeness Ring ── */}
-            {completenessRingVariant !== "off" && isModuleVisible("completeness") && (
-              <CompletenessRingModule variant={completenessRingVariant} />
-            )}
-
-
-            {/* Config Quick-View */}
-            {showConfigQuickView && isModuleVisible("config") && (
-              <ConfigModule />
-            )}
-
-            {/* ── 1. Model Capabilities ── */}
-            {modelCapsVariant !== "off" && isModuleVisible("modelCaps") && (
-              <ModelCapsModule variant={modelCapsVariant} />
-            )}
-
-            {/* ── 2. Tool Usage Heatmap ── */}
-            {toolUsageVariant !== "off" && isModuleVisible("toolUsage") && (
-              <ToolUsageModule variant={toolUsageVariant} />
-            )}
-
-            {/* ── 5. Limits & Boundaries ── */}
-            {limitsVariant !== "off" && isModuleVisible("limits") && (
-              <LimitsModule variant={limitsVariant} />
-            )}
-
-            {/* ── 6. Recent Achievements ── */}
-            {achievementsVariant !== "off" && isModuleVisible("achievements") && (
-              <AchievementsModule variant={achievementsVariant} />
-            )}
-
-            {/* ── 7. Permission Map ── */}
-            {permissionsVariant !== "off" && isModuleVisible("permissions") && (
-              <PermissionsModule variant={permissionsVariant} />
-            )}
-
-            {/* ── Model Providers ── */}
-            {providersVariant !== "off" && isModuleVisible("providers") && (
-              <ProvidersModule variant={providersVariant} />
-            )}
-
-            {/* ── Agent URLs ── */}
-            {agentUrlsVariant !== "off" && isModuleVisible("agentUrls") && (
-              <AgentUrlsModule variant={agentUrlsVariant} />
-            )}
-
-            {/* ── Gateway Status ── */}
-            {gatewayStatusVariant !== "off" && isModuleVisible("gateway") && (
-              <GatewayStatusModule variant={gatewayStatusVariant} />
-            )}
-
-            {/* ── Workspace Files ── */}
+            {/* 1. Workspace Files */}
             {workspaceFilesVariant !== "off" && isModuleVisible("workspace") && (
-              <WorkspaceFilesModule variant={workspaceFilesVariant} />
+              <WorkspaceFilesModule variant={workspaceFilesVariant} files={agentWorkspaceFilesProp} onOpenFiles={onOpenFiles} />
             )}
 
-            {/* ── Quick Actions Bar ── */}
-            {quickActionsVariant !== "off" && isModuleVisible("quickActions") && (
-              <QuickActionsModule variant={quickActionsVariant} />
-            )}
-
-            {/* What Can I Do — moved to fixed bottom position */}
-
-            {/* ── Tool Discovery Cards ── */}
-            {toolDiscoveryVariant !== "off" && isModuleVisible("toolDiscovery") && (
-              <ToolDiscoveryModule variant={toolDiscoveryVariant} />
-            )}
-
-            {/* ── Agent Card / Summary Sheet ── */}
+            {/* 2. Agent Card */}
             {agentCardVariant !== "off" && isModuleVisible("agentCard") && (
-              <AgentCardModule variant={agentCardVariant} agentName={agentName} agentStatus={status} />
+              <AgentCardModule
+                variant={agentCardVariant}
+                agentName={agentName}
+                agentStatus={status}
+                config={agentConfigProp}
+                connections={agentConnectionsProp}
+                sessions={agentSessionsProp}
+                onStart={onAgentStart}
+                onStop={onAgentStop}
+                starting={agentStarting}
+                stopping={agentStopping}
+                startBlocked={agentStartBlocked}
+                startBlockedReason={agentStartBlockedReason}
+              />
             )}
 
-            {/* ── Section: Single Conversation (divider hidden) ── */}
-
-            {/* ── Interaction Patterns ── */}
-            {interactionPatternsVariant !== "off" && isModuleVisible("patterns") && (
-              <InteractionPatternsModule variant={interactionPatternsVariant} />
-            )}
-
-            {/* ── Example Prompts by Capability ── */}
-            {examplePromptsVariant !== "off" && isModuleVisible("prompts") && (
-              <ExamplePromptsModule variant={examplePromptsVariant} />
-            )}
-
-            {/* ── Active Sessions ── */}
+            {/* 3. Active Sessions */}
             {showActiveSessions && isModuleVisible("sessions") && (
               <SessionsModule />
             )}
 
-            {/* ── Execution Approval Queue ── */}
+            {/* 5. Example Prompts (4. What Can I Do? is bottom-fixed) */}
+            {examplePromptsVariant !== "off" && isModuleVisible("prompts") && (
+              <ExamplePromptsModule variant={examplePromptsVariant} onPromptClick={onPromptClick} />
+            )}
+
+            {/* ── Out-of-scope modules (opt-in via variant props) ── */}
+
+            {completenessRingVariant !== "off" && isModuleVisible("completeness") && (
+              <CompletenessRingModule variant={completenessRingVariant} />
+            )}
+            {showConfigQuickView && isModuleVisible("config") && (
+              <ConfigModule />
+            )}
+            {modelCapsVariant !== "off" && isModuleVisible("modelCaps") && (
+              <ModelCapsModule variant={modelCapsVariant} />
+            )}
+            {toolUsageVariant !== "off" && isModuleVisible("toolUsage") && (
+              <ToolUsageModule variant={toolUsageVariant} />
+            )}
+            {limitsVariant !== "off" && isModuleVisible("limits") && (
+              <LimitsModule variant={limitsVariant} />
+            )}
+            {achievementsVariant !== "off" && isModuleVisible("achievements") && (
+              <AchievementsModule variant={achievementsVariant} />
+            )}
+            {permissionsVariant !== "off" && isModuleVisible("permissions") && (
+              <PermissionsModule variant={permissionsVariant} />
+            )}
+            {providersVariant !== "off" && isModuleVisible("providers") && (
+              <ProvidersModule variant={providersVariant} />
+            )}
+            {agentUrlsVariant !== "off" && isModuleVisible("agentUrls") && (
+              <AgentUrlsModule variant={agentUrlsVariant} />
+            )}
+            {gatewayStatusVariant !== "off" && isModuleVisible("gateway") && (
+              <GatewayStatusModule variant={gatewayStatusVariant} />
+            )}
+            {quickActionsVariant !== "off" && isModuleVisible("quickActions") && (
+              <QuickActionsModule variant={quickActionsVariant} />
+            )}
+            {toolDiscoveryVariant !== "off" && isModuleVisible("toolDiscovery") && (
+              <ToolDiscoveryModule variant={toolDiscoveryVariant} />
+            )}
+            {interactionPatternsVariant !== "off" && isModuleVisible("patterns") && (
+              <InteractionPatternsModule variant={interactionPatternsVariant} />
+            )}
             {execQueueVariant !== "off" && isModuleVisible("execQueue") && (
               <ExecQueueModule variant={execQueueVariant} />
             )}
-
-            {/* ── Proactive Nudges ── */}
             {nudgesVariant !== "off" && isModuleVisible("nudges") && (
               <NudgesModule variant={nudgesVariant} />
             )}
@@ -793,7 +875,7 @@ export function AgentView({
 
           {/* ── What Can I Do — slide-up panel + fixed bottom trigger ── */}
           {whatCanIDoVariant !== "off" && isModuleVisible("whatCanIDo") && (
-            <WhatCanIDoPanel open={whatCanIDoOpen} onToggle={() => setWhatCanIDoOpen((v) => !v)} />
+            <WhatCanIDoPanel open={whatCanIDoOpen} onToggle={() => setWhatCanIDoOpen((v) => !v)} onPromptClick={onPromptClick} />
           )}
           </>
           ) : (
@@ -918,54 +1000,63 @@ export function AgentView({
             {showRecentToolCalls && activityFilter === "all" && (
               <>
                 <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider px-1 py-1.5">Recent Tool Calls</div>
-                {MOCK_TOOL_CALLS.map((tc, i) => (
-                  <motion.div
-                    key={tc.id}
-                    initial={{ opacity: 0, y: 8 }}
-                    animate={{ opacity: 1, y: 0 }}
-                    transition={{ duration: 0.2, delay: i * 0.04 }}
-                    className="flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-low transition-colors"
-                  >
+                {recentToolCallsSource.length === 0 ? (
+                  <div className="px-3 py-4 text-[10px] text-text-muted text-center">No tool calls yet</div>
+                ) : (
+                  recentToolCallsSource.map((tc, i) => (
                     <motion.div
-                      animate={!tc.result ? { rotate: [0, 180, 360] } : {}}
-                      transition={!tc.result ? { repeat: Infinity, duration: 2, ease: "linear" } : {}}
+                      key={tc.id}
+                      initial={{ opacity: 0, y: 8 }}
+                      animate={{ opacity: 1, y: 0 }}
+                      transition={{ duration: 0.2, delay: i * 0.04 }}
+                      className={`flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-low transition-colors ${isHighlighted(tc.id) ? "activity-flash" : ""}`}
                     >
-                      <Wrench className="w-3.5 h-3.5 text-[#f0c56c] mt-0.5 shrink-0" />
-                    </motion.div>
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-1.5">
-                        <span className="text-xs font-mono font-medium text-foreground">{tc.name}</span>
-                        {tc.result ? (
-                          <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 20 }}>
-                            <Check className="w-3 h-3 text-[#38D39F]" />
-                          </motion.div>
-                        ) : (
-                          <motion.span
-                            className="inline-block w-1.5 h-1.5 rounded-full bg-[#f0c56c]"
-                            animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
-                            transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut" }}
-                          />
+                      <motion.div
+                        animate={!tc.result ? { rotate: [0, 180, 360] } : {}}
+                        transition={!tc.result ? { repeat: Infinity, duration: 2, ease: "linear" } : {}}
+                      >
+                        <Wrench className="w-3.5 h-3.5 text-[#f0c56c] mt-0.5 shrink-0" />
+                      </motion.div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="text-xs font-mono font-medium text-foreground">{tc.name}</span>
+                          {tc.result ? (
+                            <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 20 }}>
+                              <Check className="w-3 h-3 text-[#38D39F]" />
+                            </motion.div>
+                          ) : (
+                            <motion.span
+                              className="inline-block w-1.5 h-1.5 rounded-full bg-[#f0c56c]"
+                              animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
+                              transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut" }}
+                            />
+                          )}
+                        </div>
+                        <div className="text-[10px] text-text-muted mt-0.5 truncate font-mono">
+                          {tc.args.length > 60 ? tc.args.slice(0, 60) + "..." : tc.args}
+                        </div>
+                        {tc.result && (
+                          <div className="text-[10px] text-text-secondary mt-0.5 truncate">{tc.result}</div>
                         )}
                       </div>
-                      <div className="text-[10px] text-text-muted mt-0.5 truncate font-mono">
-                        {tc.args.length > 60 ? tc.args.slice(0, 60) + "..." : tc.args}
-                      </div>
-                      {tc.result && (
-                        <div className="text-[10px] text-text-secondary mt-0.5 truncate">{tc.result}</div>
-                      )}
-                    </div>
-                    <span className="text-[10px] text-text-muted whitespace-nowrap mt-0.5">{relativeTime(tc.timestamp)}</span>
-                  </motion.div>
-                ))}
+                      <span className="text-[10px] text-text-muted whitespace-nowrap mt-0.5">{relativeTime(tc.timestamp)}</span>
+                    </motion.div>
+                  ))
+                )}
                 <div className="border-t border-border my-2" />
                 <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider px-1 py-1.5">Activity Log</div>
               </>
+            )}
+
+            {filteredActivity.length === 0 && (
+              <div className="px-3 py-4 text-[10px] text-text-muted text-center">No activity yet</div>
             )}
 
             {/* Activity entries with variants */}
             {filteredActivity.map((entry, i) => {
               const EntryIcon = entry.icon;
               const color = ACTIVITY_TYPE_COLORS[entry.type];
+              const flash = isHighlighted(entry.id) ? "activity-flash" : "";
 
               if (activityVariant === "v1") {
                 // Compact timeline — left color bar + icon
@@ -975,7 +1066,7 @@ export function AgentView({
                     initial={{ opacity: 0, x: -16 }}
                     animate={{ opacity: 1, x: 0 }}
                     transition={{ type: "spring", stiffness: 400, damping: 30, delay: i * 0.04 }}
-                    className="flex items-start gap-2 pl-2 border-l-2 border-border hover:border-[#38D39F]/50 transition-colors py-1.5"
+                    className={`flex items-start gap-2 pl-2 border-l-2 border-border hover:border-[#38D39F]/50 transition-colors py-1.5 ${flash}`}
                   >
                     <motion.div
                       animate={entry.type === "error" ? { x: [-1, 1, -1, 0] } : {}}
@@ -1000,7 +1091,7 @@ export function AgentView({
                     initial={{ opacity: 0, scale: 0.95 }}
                     animate={{ opacity: 1, scale: 1 }}
                     transition={{ type: "spring", stiffness: 400, damping: 25, delay: i * 0.05 }}
-                    className="rounded-lg border border-border px-3 py-2 hover:bg-surface-low/50 transition-colors mb-1"
+                    className={`rounded-lg border border-border px-3 py-2 hover:bg-surface-low/50 transition-colors mb-1 ${flash}`}
                   >
                     <div className="flex items-center justify-between mb-1">
                       <div className="flex items-center gap-1.5">
@@ -1032,7 +1123,7 @@ export function AgentView({
                     initial={{ opacity: 0, y: 6 }}
                     animate={{ opacity: 1, y: 0 }}
                     transition={{ duration: 0.18, delay: i * 0.03 }}
-                    className="group flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-low transition-colors"
+                    className={`group flex items-center gap-2 px-2 py-1 rounded-md hover:bg-surface-low transition-colors ${flash}`}
                   >
                     <motion.div
                       whileHover={{ scale: 1.2, rotate: 10 }}
@@ -1056,7 +1147,7 @@ export function AgentView({
                   initial={{ opacity: 0, y: 10 }}
                   animate={{ opacity: 1, y: 0 }}
                   transition={{ duration: 0.22, ease: "easeOut", delay: i * 0.04 }}
-                  className="flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-low transition-colors"
+                  className={`flex items-start gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-low transition-colors ${flash}`}
                 >
                   <motion.div
                     whileHover={{ scale: 1.15 }}
@@ -1083,210 +1174,122 @@ export function AgentView({
 
       )}
 
-      {/* ── Skills tab ── */}
-      {activeTab === "skills" && (
-        <div className="p-3 space-y-1.5">
-          {MOCK_SKILLS.map((skill, i) => {
-            const SkillIcon = skill.icon;
-
-            if (skillsVariant === "v1") {
-              // Grid cards — 2-col icon-centric cards
-              return (
-                <motion.div
-                  key={skill.id}
-                  initial={{ opacity: 0, scale: 0.88 }}
-                  animate={{ opacity: 1, scale: 1 }}
-                  transition={{ type: "spring", stiffness: 460, damping: 22, delay: i * 0.06 }}
-                  className={`rounded-xl border p-3 transition-colors cursor-pointer ${skill.enabled
-                      ? "border-[#38D39F]/25 bg-[#38D39F]/5 hover:bg-[#38D39F]/10"
-                      : "border-border hover:bg-surface-low"
-                    }`}
-                >
-                  <div className="flex items-center justify-between mb-2">
-                    <motion.div
-                      className={`w-9 h-9 rounded-xl flex items-center justify-center ${skill.enabled ? "bg-[#38D39F]/15 text-[#38D39F]" : "bg-surface-high text-text-muted"
-                        }`}
-                      animate={skill.enabled ? { scale: [1, 1.08, 1] } : {}}
-                      transition={skill.enabled ? { repeat: Infinity, duration: 2.8, ease: "easeInOut", delay: i * 0.4 } : {}}
-                    >
-                      <SkillIcon className="w-4.5 h-4.5" />
-                    </motion.div>
-                    {skill.enabled && (
-                      <motion.span
-                        className="inline-block w-2 h-2 rounded-full bg-[#38D39F]"
-                        animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
-                        transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut", delay: i * 0.2 }}
-                      />
-                    )}
-                  </div>
-                  <div className="text-sm font-medium text-foreground">{skill.name}</div>
-                  <div className="text-[10px] text-text-muted mt-0.5 line-clamp-2">{skill.description}</div>
-                </motion.div>
-              );
-            }
-
-            if (skillsVariant === "v2") {
-              // Chip/pill — horizontal chips with toggle
-              return (
-                <motion.div
-                  key={skill.id}
-                  initial={{ opacity: 0, x: -20 }}
-                  animate={{ opacity: 1, x: 0 }}
-                  transition={{ type: "spring", stiffness: 380, damping: 28, delay: i * 0.05 }}
-                  whileHover={{ x: 4 }}
-                  className={`flex items-center gap-2.5 px-3 py-2 rounded-full border transition-colors ${skill.enabled
-                      ? "border-[#38D39F]/25 bg-[#38D39F]/5"
-                      : "border-border hover:bg-surface-low"
-                    }`}
-                >
-                  <motion.div
-                    animate={skill.enabled ? { rotate: [0, 5, -5, 0] } : {}}
-                    transition={skill.enabled ? { repeat: Infinity, duration: 3, ease: "easeInOut", delay: i * 0.5 } : {}}
-                  >
-                    <SkillIcon className={`w-4 h-4 shrink-0 ${skill.enabled ? "text-[#38D39F]" : "text-text-muted"}`} />
-                  </motion.div>
-                  <span className="text-xs font-medium text-foreground flex-1">{skill.name}</span>
-                  {skill.enabled && (
-                    <motion.span
-                      className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#38D39F]/15 text-[#38D39F] font-medium"
-                      animate={{ opacity: [0.7, 1, 0.7] }}
-                      transition={{ repeat: Infinity, duration: 2, ease: "easeInOut" }}
-                    >
-                      active
-                    </motion.span>
-                  )}
-                  <div className={`w-7 h-[16px] rounded-full flex items-center px-0.5 transition-colors cursor-pointer ${skill.enabled ? "bg-[#38D39F] justify-end" : "bg-[#303030] justify-start"}`}>
-                    <motion.div className="w-3 h-3 rounded-full bg-white shadow-sm" layout transition={{ type: "spring", stiffness: 500, damping: 30 }} />
-                  </div>
-                </motion.div>
-              );
-            }
-
-            if (skillsVariant === "v3") {
-              // Minimal list — icon left, description on hover only
-              return (
-                <motion.div
-                  key={skill.id}
-                  initial={{ opacity: 0, y: 6 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ duration: 0.18, delay: i * 0.04 }}
-                  className="group flex items-center gap-2 px-2 py-1.5 rounded-md hover:bg-surface-low transition-colors"
-                >
-                  <motion.div
-                    whileHover={{ scale: 1.2, rotate: 10 }}
-                    transition={{ type: "spring", stiffness: 400, damping: 15 }}
-                  >
-                    <SkillIcon className={`w-3.5 h-3.5 shrink-0 ${skill.enabled ? "text-[#38D39F]" : "text-text-muted"}`} />
-                  </motion.div>
-                  <span className="text-xs text-foreground flex-1">
-                    {skill.name}
-                    <span className="text-text-muted ml-1 hidden group-hover:inline text-[10px]"> — {skill.description}</span>
-                  </span>
-                  {skill.enabled && (
-                    <motion.span
-                      className="inline-block w-1.5 h-1.5 rounded-full bg-[#38D39F]"
-                      animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
-                      transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut", delay: i * 0.15 }}
-                    />
-                  )}
-                </motion.div>
-              );
-            }
-
-            // Default (off) — current icon + pulsing dot style
-            return (
-              <motion.div
-                key={skill.id}
-                initial={{ opacity: 0, x: -28 }}
-                animate={{ opacity: 1, x: 0 }}
-                transition={{ type: "spring", stiffness: 380, damping: 28, delay: i * 0.06 }}
-                className="flex items-center gap-3 px-3 py-2.5 rounded-lg hover:bg-surface-low transition-colors"
-              >
-                <motion.div
-                  className={`w-8 h-8 rounded-lg flex items-center justify-center shrink-0 ${skill.enabled ? "bg-[#38D39F]/15 text-[#38D39F]" : "bg-surface-high text-text-muted"
-                    }`}
-                  animate={skill.enabled ? { scale: [1, 1.12, 1] } : {}}
-                  transition={skill.enabled ? { repeat: Infinity, duration: 2.4, ease: "easeInOut", delay: i * 0.3 } : {}}
-                >
-                  <SkillIcon className="w-4 h-4" />
-                </motion.div>
-                <div className="flex-1 min-w-0">
-                  <div className="flex items-center gap-1.5">
-                    <span className="text-sm font-medium text-foreground">{skill.name}</span>
-                    {skill.enabled && (
-                      <motion.span
-                        className="inline-block w-1.5 h-1.5 rounded-full bg-[#38D39F]"
-                        animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
-                        transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut", delay: i * 0.2 }}
-                      />
-                    )}
-                  </div>
-                  <div className="text-xs text-text-muted mt-0.5">{skill.description}</div>
-                </div>
-                <div className={`w-8 h-[18px] rounded-full flex items-center px-0.5 transition-colors cursor-pointer ${skill.enabled ? "bg-[#38D39F] justify-end" : "bg-[#303030] justify-start"}`}>
-                  <motion.div
-                    className="w-3.5 h-3.5 rounded-full bg-white shadow-sm"
-                    layout
-                    transition={{ type: "spring", stiffness: 500, damping: 30 }}
-                  />
-                </div>
-              </motion.div>
-            );
-          })}
-        </div>
-      )}
-
       {/* ── Connections tab ── */}
       {activeTab === "connections" && (
-        <div className="flex flex-col h-full">
-          {showSearchProp && (
-            <div className="p-3">
-              <div className="relative">
-                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
-                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search connections..."
-                  className="w-full pl-9 pr-3 py-2 bg-surface-low border border-border rounded-lg text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-[#38D39F]/50" />
-              </div>
+        <div className="flex-1 flex flex-col min-h-0">
+          {/* Top: Explore integrations CTA */}
+          {showMarketplaceProp && (
+            <div className="p-3 border-b border-border flex-shrink-0">
+              <button
+                onClick={onMarketplaceClick}
+                disabled={!onMarketplaceClick}
+                className="flex items-center justify-center gap-2 w-full py-2.5 bg-surface-low hover:bg-surface-high border border-border rounded-lg text-sm font-medium text-foreground transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                <Store className="w-4 h-4" /> Explore integrations
+              </button>
             </div>
           )}
-          <div className="px-3">
-            <button onClick={() => setMyConnectionsOpen(!myConnectionsOpen)}
-              className="flex items-center gap-1.5 w-full py-2 text-xs font-semibold text-text-secondary uppercase tracking-wider hover:text-foreground transition-colors">
-              {myConnectionsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-              My Connections <span className="text-text-muted font-normal normal-case">({filteredMy.length})</span>
-            </button>
-            {myConnectionsOpen && (
-              <div className="space-y-0.5 pb-2">
-                {filteredMy.map((conn) => (
-                  <ConnectionRow key={conn.id} connection={conn} selected={selectedConnection === conn.id} onClick={() => handleConnectionClick(conn)} variant={connectionRowStyle} />
-                ))}
-                <button className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[#38D39F] hover:bg-[#38D39F]/8 rounded-lg transition-colors">
-                  <Plus className="w-4 h-4" /> More Connections
-                </button>
+
+          {/* Middle: scrollable list */}
+          <div className="flex-1 min-h-0 overflow-y-auto">
+            {/* Featured CTAs — branded shortcuts to popular integrations.
+                One full-width row per integration with the real brand SVG. */}
+            {!search && (
+              <div className="px-3 pt-3 pb-2">
+                <div className="space-y-1.5">
+                  {featuredConnections.map((f) => {
+                    const BrandIcon = f.BrandIcon;
+                    return (
+                      <button
+                        key={f.id}
+                        onClick={() => onMarketplaceClick?.()}
+                        disabled={!onMarketplaceClick}
+                        className="group flex items-center gap-3 w-full px-3 py-2.5 rounded-lg border border-border hover:border-text-muted/40 transition-colors disabled:opacity-50 disabled:cursor-not-allowed text-left"
+                        style={{ backgroundColor: `${f.brand}10` }}
+                        title={f.connected ? `${f.name} · connected` : `Connect ${f.name}`}
+                      >
+                        <div
+                          className="w-9 h-9 rounded-md flex items-center justify-center flex-shrink-0"
+                          style={{ backgroundColor: f.brand }}
+                        >
+                          <BrandIcon className="w-5 h-5 text-white" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <div className="text-xs font-medium text-foreground">{f.name}</div>
+                          <div className="text-[10px] text-text-muted truncate">{f.description}</div>
+                        </div>
+                        {f.connected ? (
+                          <span className="text-[10px] text-[#38D39F] flex items-center gap-1 flex-shrink-0">
+                            <Check className="w-3 h-3" /> Connected
+                          </span>
+                        ) : (
+                          <span className="text-[10px] font-medium text-text-secondary group-hover:text-foreground flex-shrink-0">Connect →</span>
+                        )}
+                      </button>
+                    );
+                  })}
+                </div>
               </div>
             )}
-          </div>
-          {showRecommendedProp && (
+
             <div className="px-3">
-              <button onClick={() => setRecommendedOpen(!recommendedOpen)}
+              <button onClick={() => setMyConnectionsOpen(!myConnectionsOpen)}
                 className="flex items-center gap-1.5 w-full py-2 text-xs font-semibold text-text-secondary uppercase tracking-wider hover:text-foreground transition-colors">
-                {recommendedOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
-                Recommended
+                {myConnectionsOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                My Integrations <span className="text-text-muted font-normal normal-case">({filteredMy.length})</span>
               </button>
-              {recommendedOpen && (
-                <div className="space-y-0.5 pb-2">
-                  {filteredRecommended.map((conn) => (
-                    <ConnectionRow key={conn.id} connection={conn} selected={selectedConnection === conn.id} onClick={() => handleConnectionClick(conn)} variant={connectionRowStyle} />
-                  ))}
+              {myConnectionsOpen && (
+                <div className="pb-2">
+                  {filteredMy.length === 0 ? (
+                    <div className="px-2 py-3 text-[10px] text-text-muted text-center">No integrations connected yet</div>
+                  ) : (
+                    groupedMy.map(([category, conns]) => (
+                      <div key={category} className="mb-2">
+                        <div className="text-[10px] font-medium text-text-muted px-2 py-1 uppercase tracking-wider">{category}</div>
+                        <div className="space-y-0.5">
+                          {conns.map((conn) => (
+                            <ConnectionRow key={conn.id} connection={conn} selected={selectedConnection === conn.id} onClick={() => handleConnectionClick(conn)} variant={connectionRowStyle} />
+                          ))}
+                        </div>
+                      </div>
+                    ))
+                  )}
                 </div>
               )}
             </div>
-          )}
-          <div className="flex-1" />
-          {showMarketplaceProp && (
-            <div className="p-3 border-t border-border">
-              <button className="flex items-center justify-center gap-2 w-full py-2.5 bg-surface-low hover:bg-surface-high border border-border rounded-lg text-sm font-medium text-foreground transition-colors">
-                <Store className="w-4 h-4" /> Marketplace
-              </button>
+            {showRecommendedProp && (
+              <div className="px-3 pb-3">
+                <button onClick={() => setRecommendedOpen(!recommendedOpen)}
+                  className="flex items-center gap-1.5 w-full py-2 text-xs font-semibold text-text-secondary uppercase tracking-wider hover:text-foreground transition-colors">
+                  {recommendedOpen ? <ChevronDown className="w-3.5 h-3.5" /> : <ChevronRight className="w-3.5 h-3.5" />}
+                  Discover <span className="text-text-muted font-normal normal-case">({filteredRecommended.length})</span>
+                </button>
+                {recommendedOpen && (
+                  <div className="pb-2">
+                    {groupedRecommended.map(([category, conns]) => (
+                      <div key={category} className="mb-2">
+                        <div className="text-[10px] font-medium text-text-muted px-2 py-1 uppercase tracking-wider">{category}</div>
+                        <div className="space-y-0.5">
+                          {conns.map((conn) => (
+                            <ConnectionRow key={conn.id} connection={conn} selected={selectedConnection === conn.id} onClick={() => handleConnectionClick(conn)} variant={connectionRowStyle} />
+                          ))}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
+          {/* Bottom: search bar */}
+          {showSearchProp && (
+            <div className="p-3 border-t border-border flex-shrink-0">
+              <div className="relative">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-text-muted" />
+                <input type="text" value={search} onChange={(e) => setSearch(e.target.value)} placeholder="Search integrations..."
+                  className="w-full pl-9 pr-3 py-2 bg-surface-low border border-border rounded-lg text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-[#38D39F]/50" />
+              </div>
             </div>
           )}
         </div>
@@ -1355,7 +1358,12 @@ export function AgentView({
               </div>
             </div>
           ))}
-          <button className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[#38D39F] hover:bg-[#38D39F]/8 rounded-lg transition-colors mt-2">
+          <button
+            onClick={onCronAdd}
+            disabled={!onCronAdd}
+            className="flex items-center gap-2 w-full px-3 py-2 text-sm text-[#38D39F] hover:bg-[#38D39F]/8 rounded-lg transition-colors mt-2 disabled:opacity-40 disabled:cursor-not-allowed"
+            title={onCronAdd ? "Add a cron job" : "Coming soon — cron creation UI"}
+          >
             <Plus className="w-4 h-4" /> Add Cron Job
           </button>
         </div>
