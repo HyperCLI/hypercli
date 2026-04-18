@@ -226,6 +226,8 @@ const OPERATOR_ROLE = "operator";
 const OPERATOR_SCOPES = ["operator.admin", "operator.approvals", "operator.pairing"];
 const STORAGE_KEY = "openclaw.device.auth.v1";
 const CONNECT_ERROR_PAIRING_REQUIRED = "PAIRING_REQUIRED";
+const CONNECT_ERROR_AUTH_TOKEN_MISMATCH = "AUTH_TOKEN_MISMATCH";
+const CONNECT_ERROR_AUTH_RATE_LIMITED = "AUTH_RATE_LIMITED";
 const CONNECT_ERROR_DEVICE_TOKEN_MISMATCH = "AUTH_DEVICE_TOKEN_MISMATCH";
 const VALID_CLIENT_IDS = new Set([
   "webchat-ui",
@@ -1303,6 +1305,34 @@ function readConnectPairingRequestId(error: unknown): string | null {
   return typeof requestId === "string" && requestId.trim() ? requestId.trim() : null;
 }
 
+function canRetryWithDeviceToken(error: unknown): boolean {
+  if (!(error instanceof GatewayRequestError)) return false;
+  const details = error.details;
+  if (!details || typeof details !== "object" || Array.isArray(details)) return false;
+  const record = details as {
+    canRetryWithDeviceToken?: unknown;
+    recommendedNextStep?: unknown;
+  };
+  return (
+    record.canRetryWithDeviceToken === true ||
+    record.recommendedNextStep === "retry_with_device_token"
+  );
+}
+
+function shouldPauseReconnectAfterAuthFailure(detailCode: string | null, pendingDeviceTokenRetry: boolean): boolean {
+  if (!detailCode) return false;
+  if (
+    detailCode === CONNECT_ERROR_AUTH_RATE_LIMITED ||
+    detailCode === CONNECT_ERROR_PAIRING_REQUIRED
+  ) {
+    return true;
+  }
+  if (detailCode !== CONNECT_ERROR_AUTH_TOKEN_MISMATCH) {
+    return false;
+  }
+  return !pendingDeviceTokenRetry;
+}
+
 type GatewaySocket = WebSocket | NodeWebSocket;
 
 function isSocketOpen(ws: GatewaySocket | null): boolean {
@@ -1347,7 +1377,9 @@ export class GatewayClient {
   private pendingConnectError: GatewayErrorShape | null = null;
   private pairingState: GatewayPairingState | null = null;
   private autoApproveAttemptedRequestIds = new Set<string>();
+  private authTokenMismatchRetried = false;
   private deviceTokenMismatchRetried = false;
+  private pendingDeviceTokenRetry = false;
   private lastSeq: number | null = null;
   private connectPromise: Promise<void> | null = null;
   private resolveConnectPromise: (() => void) | null = null;
@@ -1643,7 +1675,17 @@ export class GatewayClient {
     this.onClose?.({ code, reason, error });
     if (!this.closed) {
       this.onDisconnect?.();
-      this.scheduleReconnect();
+      const detailCode =
+        error && typeof error === "object"
+          ? readConnectErrorCode(new GatewayRequestError({
+              code: error.code ?? "UNAVAILABLE",
+              message: error.message ?? "gateway request failed",
+              details: error.details,
+            }))
+          : null;
+      if (!shouldPauseReconnectAfterAuthFailure(detailCode, this.pendingDeviceTokenRetry)) {
+        this.scheduleReconnect();
+      }
     }
   }
 
@@ -1668,14 +1710,16 @@ export class GatewayClient {
     }
 
     let identity: DeviceIdentityRecord | null = null;
+    let storedDeviceToken: string | null = null;
     try {
       identity = await loadOrCreateDeviceIdentity();
-      const storedDeviceToken = loadStoredDeviceToken(
+      storedDeviceToken = loadStoredDeviceToken(
         identity.deviceId,
         this.storageScope(),
         OPERATOR_ROLE,
       )?.token;
-      const authToken = storedDeviceToken ?? this.gatewayToken;
+      const authToken = this.gatewayToken ?? storedDeviceToken;
+      const authDeviceToken = this.pendingDeviceTokenRetry ? (storedDeviceToken ?? undefined) : undefined;
       const signedAtMs = Date.now();
       const payload = buildDeviceAuthPayload({
         deviceId: identity.deviceId,
@@ -1714,9 +1758,16 @@ export class GatewayClient {
           ? {
               auth: {
                 ...(authToken ? { token: authToken } : {}),
+                ...(authDeviceToken ? { deviceToken: authDeviceToken } : {}),
               },
             }
-          : {}),
+          : authDeviceToken
+            ? {
+                auth: {
+                  deviceToken: authDeviceToken,
+                },
+              }
+            : {}),
         ...(resolveUserAgent() ? { userAgent: resolveUserAgent() } : {}),
         ...(resolveLocale() ? { locale: resolveLocale() } : {}),
       };
@@ -1744,7 +1795,9 @@ export class GatewayClient {
       this.connected = true;
       this.pendingConnectError = null;
       this.backoffMs = INITIAL_BACKOFF_MS;
+      this.authTokenMismatchRetried = false;
       this.deviceTokenMismatchRetried = false;
+      this.pendingDeviceTokenRetry = false;
       this.updatePairingState(null);
 
       if (this.resolveConnectPromise) {
@@ -1766,6 +1819,23 @@ export class GatewayClient {
       if (identity && detailCode === CONNECT_ERROR_DEVICE_TOKEN_MISMATCH && !this.deviceTokenMismatchRetried) {
         this.deviceTokenMismatchRetried = true;
         clearStoredDeviceToken(identity.deviceId, this.storageScope(), OPERATOR_ROLE);
+        this.connectSent = false;
+        this.pendingConnectError = null;
+        this.pendingDeviceTokenRetry = false;
+        await this.sendConnect();
+        return;
+      }
+
+      if (
+        identity &&
+        detailCode === CONNECT_ERROR_AUTH_TOKEN_MISMATCH &&
+        !this.authTokenMismatchRetried &&
+        storedDeviceToken &&
+        this.gatewayToken &&
+        canRetryWithDeviceToken(error)
+      ) {
+        this.authTokenMismatchRetried = true;
+        this.pendingDeviceTokenRetry = true;
         this.connectSent = false;
         this.pendingConnectError = null;
         await this.sendConnect();

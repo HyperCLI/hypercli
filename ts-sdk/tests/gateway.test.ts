@@ -187,7 +187,7 @@ describe("GatewayClient", () => {
     expect(stored.tokens[URL_SCOPE_KEY].scopes).toEqual(["operator.admin"]);
   });
 
-  it("prefers a cached device token over the shared gateway token on reconnect", async () => {
+  it("uses the shared gateway token on reconnect even when a cached device token exists", async () => {
     await connectClient();
 
     const secondClient = new GatewayClient({
@@ -203,7 +203,8 @@ describe("GatewayClient", () => {
     await waitForSentFrame(ws);
 
     const request = await parseFirstRequest(ws);
-    expect(request.params.auth.token).toBe("device-token-1");
+    expect(request.params.auth.token).toBe("gw-token");
+    expect(request.params.auth.deviceToken).toBeUndefined();
     expect(request.params.device.nonce).toBe("nonce-456");
 
     ws.emitHello(request.id, "device-token-2");
@@ -263,6 +264,43 @@ describe("GatewayClient", () => {
     expect(secondRequest.params.auth.token).toBe("gw-token-2");
   });
 
+  it("retries with the cached device token when connect fails with a shared-token mismatch", async () => {
+    await connectClient();
+
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    void client.connect();
+    await flushMicrotasks();
+
+    const ws = MockWebSocket.instances.at(-1);
+    if (!ws) throw new Error("Missing websocket instance");
+    ws.emitChallenge("nonce-retry-device-token");
+    await waitForSentFrame(ws);
+
+    const request = await parseFirstRequest(ws);
+    expect(request.params.auth.token).toBe("gw-token");
+    expect(request.params.auth.deviceToken).toBeUndefined();
+
+    ws.emitConnectError(request.id, "AUTH_TOKEN_MISMATCH", "token mismatch", {
+      code: "AUTH_TOKEN_MISMATCH",
+      canRetryWithDeviceToken: true,
+      recommendedNextStep: "retry_with_device_token",
+    });
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      if (ws.sent.length > 1) break;
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+    expect(ws.closedWith).toBeNull();
+    expect(ws.sent.length).toBe(2);
+    const retryRequest = JSON.parse(ws.sent[1] ?? "{}");
+    expect(retryRequest.params.auth.token).toBe("gw-token");
+    expect(retryRequest.params.auth.deviceToken).toBe("device-token-1");
+  });
+
   it("clears the cached device token when connect fails with a device-token auth error", async () => {
     await connectClient();
 
@@ -279,7 +317,7 @@ describe("GatewayClient", () => {
     await waitForSentFrame(ws);
 
     const request = await parseFirstRequest(ws);
-    expect(request.params.auth.token).toBe("device-token-1");
+    expect(request.params.auth.token).toBe("gw-token");
 
     ws.emitConnectError(request.id, "AUTH_DEVICE_TOKEN_MISMATCH");
 
@@ -295,9 +333,44 @@ describe("GatewayClient", () => {
     expect(ws.sent.length).toBe(2); // original + retry
     const retryRequest = JSON.parse(ws.sent[1] ?? "{}");
     expect(retryRequest.params.auth.token).toBe("gw-token");
+    expect(retryRequest.params.auth.deviceToken).toBeUndefined();
 
     const stored = JSON.parse(localStorage.getItem(STORAGE_KEY) ?? "{}");
     expect(stored.tokens?.[URL_SCOPE_KEY]).toBeUndefined();
+  });
+
+  it("does not reconnect-loop after a rate-limited auth failure", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    void client.connect();
+    await flushMicrotasks();
+
+    const ws = MockWebSocket.instances.at(-1);
+    if (!ws) throw new Error("Missing websocket instance");
+    ws.emitChallenge("nonce-rate-limit");
+    await waitForSentFrame(ws);
+
+    const request = await parseFirstRequest(ws);
+    ws.emitConnectError(
+      request.id,
+      "AUTH_RATE_LIMITED",
+      "too many failed authentication attempts (retry later)",
+      {
+        code: "AUTH_RATE_LIMITED",
+        authReason: "rate_limited",
+        canRetryWithDeviceToken: false,
+        recommendedNextStep: "wait_then_retry",
+      },
+    );
+
+    for (let attempt = 0; attempt < 20; attempt += 1) {
+      await flushMicrotasks();
+      await new Promise((resolve) => setTimeout(resolve, 0));
+    }
+
+    expect(MockWebSocket.instances).toHaveLength(1);
   });
 
   it("does not call onDisconnect for intentional local closes", async () => {

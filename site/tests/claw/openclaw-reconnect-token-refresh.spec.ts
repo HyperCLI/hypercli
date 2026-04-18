@@ -7,7 +7,7 @@ loadEnv({ path: path.resolve(__dirname, ".env"), quiet: true });
 const TEST_JWT = "eyJhbGciOiJIUzI1NiJ9.eyJleHAiOjQxMDI0NDQ4MDB9.signature";
 
 test("dashboard refreshes the gateway token before sdk reconnect", async ({ page }) => {
-  let envCalls = 0;
+  let inferenceTokenCalls = 0;
 
   await page.context().addCookies([
     {
@@ -169,15 +169,14 @@ test("dashboard refreshes the gateway token before sdk reconnect", async ({ page
       return;
     }
 
-    if (pathName.endsWith("/agents/deployments/agent-1/env")) {
-      envCalls += 1;
+    if (pathName.endsWith("/agents/deployments/agent-1/inference/token")) {
+      inferenceTokenCalls += 1;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          env: {
-            OPENCLAW_GATEWAY_TOKEN: envCalls === 1 ? "gw-token-1" : "gw-token-2",
-          },
+          gateway_token: inferenceTokenCalls === 1 ? "gw-token-1" : "gw-token-2",
+          openclaw_url: "wss://agent-1.example.test",
         }),
       });
       return;
@@ -195,7 +194,7 @@ test("dashboard refreshes the gateway token before sdk reconnect", async ({ page
   });
 
   await expect
-    .poll(async () => envCalls, { timeout: 15_000 })
+    .poll(async () => inferenceTokenCalls, { timeout: 15_000 })
     .toBeGreaterThanOrEqual(2);
 
   const connectTokens = await page.evaluate(() => {
