@@ -1717,7 +1717,7 @@ export class GatewayClient {
         identity.deviceId,
         this.storageScope(),
         OPERATOR_ROLE,
-      )?.token;
+      )?.token ?? null;
       const authToken = this.gatewayToken ?? storedDeviceToken;
       const authDeviceToken = this.pendingDeviceTokenRetry ? (storedDeviceToken ?? undefined) : undefined;
       const signedAtMs = Date.now();
