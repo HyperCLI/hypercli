@@ -4,14 +4,21 @@
   "private": true,
   "scripts": {
     "dev": "sh -lc 'next dev --port ${PORT:-4003}'",
+    "dev:mock": "cp .env.mock .env.local && npm run dev",
+    "dev:real": "cp .env.feat .env.local && npm run dev",
+    "switch:mock": "cp .env.mock .env.local && echo '✅ Switched to MOCK server'",
+    "switch:feat": "cp .env.feat .env.local && echo '✅ Switched to REAL API'",
     "build": "next build",
     "start": "sh -lc 'next start --port ${PORT:-4003}'",
     "lint": "eslint",
-    "clean": "rm -rf .next"
+    "clean": "rm -rf .next",
+    "storybook": "storybook dev -p 6006",
+    "build-storybook": "storybook build"
   },
   "dependencies": {
     "@hypercli.com/sdk": "2026.4.17",
     "@hypercli/shared-ui": "*",
+    "@tanstack/react-query": "^5.90.10",
     "@privy-io/react-auth": "^3.13.1",
     "@x402/axios": "^2.0.0",
     "@x402/evm": "^2.0.0",
@@ -36,6 +43,23 @@
     "eslint-config-next": "*",
     "null-loader": "^4.0.1",
     "tailwindcss": "*",
-    "typescript": "5.9.3"
+    "typescript": "5.9.3",
+    "storybook": "^10.3.5",
+    "@storybook/nextjs-vite": "^10.3.5",
+    "@chromatic-com/storybook": "^5.1.1",
+    "@storybook/addon-vitest": "^10.3.5",
+    "@storybook/addon-a11y": "^10.3.5",
+    "@storybook/addon-docs": "^10.3.5",
+    "@storybook/addon-onboarding": "^10.3.5",
+    "vite": "^8.0.8",
+    "eslint-plugin-storybook": "^10.3.5",
+    "vitest": "^4.1.4",
+    "@vitest/browser-playwright": "^4.1.4",
+    "@vitest/coverage-v8": "^4.1.4"
+  },
+  "eslintConfig": {
+    "extends": [
+      "plugin:storybook/recommended"
+    ]
   }
 }

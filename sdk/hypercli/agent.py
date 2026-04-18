@@ -222,6 +222,36 @@ class HyperAgentEntitlements:
 
 
 @dataclass
+class HyperAgentEntitlements:
+    """Effective account entitlements computed by the backend."""
+
+    effective_plan_id: str
+    pooled_tpm_limit: int
+    pooled_rpm_limit: int
+    pooled_tpd: int
+    slot_inventory: dict[str, Any]
+    active_entitlement_count: int
+
+    @classmethod
+    def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
+        payload = data.get("entitlements") if isinstance(data.get("entitlements"), dict) else data
+        return cls(
+            effective_plan_id=payload.get("effective_plan_id", data.get("effective_plan_id", "")),
+            pooled_tpm_limit=int(payload.get("pooled_tpm_limit", data.get("pooled_tpm_limit", 0)) or 0),
+            pooled_rpm_limit=int(payload.get("pooled_rpm_limit", data.get("pooled_rpm_limit", 0)) or 0),
+            pooled_tpd=int(payload.get("pooled_tpd", data.get("pooled_tpd", 0)) or 0),
+            slot_inventory=payload.get("slot_inventory") or data.get("slot_inventory") or {},
+            active_entitlement_count=int(
+                payload.get(
+                    "active_entitlement_count",
+                    data.get("active_entitlement_count", data.get("active_subscription_count", 0)),
+                )
+                or 0
+            ),
+        )
+
+
+@dataclass
 class HyperAgentSubscriptionSummary:
     """Effective entitlement summary for an authenticated HyperClaw user."""
 
@@ -236,7 +266,6 @@ class HyperAgentSubscriptionSummary:
     active_subscription_count: int
     active_entitlement_count: int
     entitlements: HyperAgentEntitlements
-    entitlement_items: list[HyperAgentEntitlement]
     active_subscriptions: list[HyperAgentSubscription]
     subscriptions: list[HyperAgentSubscription]
     user: dict[str, Any]
@@ -257,7 +286,6 @@ class HyperAgentSubscriptionSummary:
             active_subscription_count=int(data.get("active_subscription_count", 0) or 0),
             active_entitlement_count=int(data.get("active_entitlement_count", data.get("active_subscription_count", 0)) or 0),
             entitlements=HyperAgentEntitlements.from_dict(data),
-            entitlement_items=[HyperAgentEntitlement.from_dict(item) for item in data.get("entitlement_items", [])],
             active_subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("active_subscriptions", [])],
             subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("subscriptions", [])],
             user=data.get("user") or {},
@@ -265,21 +293,6 @@ class HyperAgentSubscriptionSummary:
 
 
 HyperAgentEntitlementsSummary = HyperAgentSubscriptionSummary
-
-
-@dataclass
-class HyperAgentSubscriptionMutationResult:
-    ok: bool
-    message: str
-    subscription: HyperAgentSubscription | None = None
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "HyperAgentSubscriptionMutationResult":
-        return cls(
-            ok=bool(data.get("ok", False)),
-            message=str(data.get("message") or ""),
-            subscription=HyperAgentSubscription.from_dict(data["subscription"]) if data.get("subscription") else None,
-        )
 
 
 @dataclass
@@ -888,102 +901,13 @@ class HyperAgent:
         response.raise_for_status()
         return HyperAgentEntitlementsSummary.from_dict(response.json())
 
-    def entitlement_instances(self) -> list[HyperAgentEntitlement]:
-        response = self._http._session.get(
-            f"{self._control_base_url}/entitlements/instances",
-            headers={"Authorization": f"Bearer {self._api_key}"},
-        )
-        response.raise_for_status()
-        data = response.json()
-        return [HyperAgentEntitlement.from_dict(item) for item in data.get("items", [])]
-
-    def update_subscription(self, subscription_id: str, bundle: dict[str, int] | None) -> HyperAgentSubscriptionMutationResult:
+    def cancel_subscription(self, subscription_id: str) -> Dict[str, Any]:
         response = self._http._session.post(
-            f"{self._control_base_url}/subscriptions/{subscription_id}/update",
+            f"{self._control_base_url}/subscriptions/{subscription_id}/cancel",
             headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"bundle": dict(bundle or {})},
         )
         response.raise_for_status()
-        return HyperAgentSubscriptionMutationResult.from_dict(response.json())
-
-    def cancel_subscription(self, subscription_id: str) -> HyperAgentSubscriptionMutationResult:
-        return self.update_subscription(subscription_id, {})
-
-    def usage_summary(self) -> HyperAgentUsageSummary:
-        return HyperAgentUsageSummary.from_dict(self._control_get("/usage"))
-
-    def usage_history(self, days: int = 7) -> HyperAgentUsageHistory:
-        return HyperAgentUsageHistory.from_dict(self._control_get("/usage/history", params={"days": days}))
-
-    def key_usage(self, days: int = 7) -> HyperAgentKeyUsage:
-        return HyperAgentKeyUsage.from_dict(self._control_get("/usage/keys", params={"days": days}))
-
-    def agent_types(self) -> HyperAgentTypeCatalog:
-        return HyperAgentTypeCatalog.from_dict(self._control_get("/types"))
-
-    def billing_info(self) -> HyperAgentBillingInfo:
-        return HyperAgentBillingInfo.from_dict(self._control_get("/billing/info").get("company_billing", {}))
-
-    def billing_profile(self) -> HyperAgentBillingProfileResponse:
-        return HyperAgentBillingProfileResponse.from_dict(self._control_get("/billing/profile"))
-
-    def update_billing_profile(self, profile: HyperAgentBillingProfileFields) -> HyperAgentBillingProfileResponse:
-        return HyperAgentBillingProfileResponse.from_dict(
-            self._control_put("/billing/profile", payload=profile.to_dict())
-        )
-
-    def payments(
-        self,
-        *,
-        limit: int | None = None,
-        provider: str | None = None,
-        status: str | None = None,
-    ) -> HyperAgentPaymentsResponse:
-        params: dict[str, Any] = {}
-        if limit is not None:
-            params["limit"] = limit
-        if provider:
-            params["provider"] = provider
-        if status:
-            params["status"] = status
-        return HyperAgentPaymentsResponse.from_dict(self._control_get("/billing/payments", params=params or None))
-
-    def payment(self, payment_id: str) -> HyperAgentPayment:
-        return HyperAgentPayment.from_dict(self._control_get(f"/billing/payments/{payment_id}"))
-
-    def create_stripe_checkout(
-        self,
-        *,
-        bundle: dict[str, int] | None = None,
-        quantity: int | None = None,
-        success_url: str | None = None,
-        cancel_url: str | None = None,
-        plan_id: str | None = None,
-    ) -> HyperAgentStripeCheckoutResponse:
-        payload: dict[str, Any] = {}
-        if bundle is not None:
-            payload["bundle"] = dict(bundle)
-        if quantity is not None:
-            payload["quantity"] = quantity
-        if success_url is not None:
-            payload["success_url"] = success_url
-        if cancel_url is not None:
-            payload["cancel_url"] = cancel_url
-        path = f"/stripe/{plan_id}" if plan_id else "/stripe/checkout"
-        return HyperAgentStripeCheckoutResponse.from_dict(self._control_post(path, payload=payload))
-
-    def create_x402_checkout(
-        self,
-        *,
-        bundle: dict[str, int] | None = None,
-        quantity: int | None = None,
-    ) -> HyperAgentX402CheckoutResponse:
-        payload: dict[str, Any] = {}
-        if bundle is not None:
-            payload["bundle"] = dict(bundle)
-        if quantity is not None:
-            payload["quantity"] = quantity
-        return HyperAgentX402CheckoutResponse.from_dict(self._control_post("/x402/checkout", payload=payload))
+        return response.json()
 
     def discovery_health(self) -> Dict[str, Any]:
         response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")

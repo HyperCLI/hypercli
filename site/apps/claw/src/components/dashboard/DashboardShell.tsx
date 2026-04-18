@@ -84,11 +84,11 @@ export function DashboardShell({
           }
         >
           <div
-            className={`max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${
+            className={
               isAgentsRoute
-                ? `${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-hidden py-0`
-                : `${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
-            }`}
+                ? `w-full ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-hidden py-0`
+                : `max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
+            }
           >
             {isLoading ? (
               <FullPageSkeleton />

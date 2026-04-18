@@ -157,6 +157,15 @@ export interface HyperAgentEntitlements {
   billingResetAt: Date | null;
 }
 
+export interface HyperAgentEntitlements {
+  effectivePlanId: string;
+  pooledTpmLimit: number;
+  pooledRpmLimit: number;
+  pooledTpd: number;
+  slotInventory: Record<string, { granted: number; used: number; available: number }>;
+  activeEntitlementCount: number;
+}
+
 export interface HyperAgentSubscriptionSummary {
   effectivePlanId: string;
   currentSubscriptionId: string | null;
@@ -169,7 +178,6 @@ export interface HyperAgentSubscriptionSummary {
   activeSubscriptionCount: number;
   activeEntitlementCount: number;
   entitlements: HyperAgentEntitlements;
-  entitlementItems: HyperAgentEntitlement[];
   activeSubscriptions: HyperAgentSubscription[];
   subscriptions: HyperAgentSubscription[];
   user: Record<string, any>;
@@ -181,10 +189,6 @@ export interface HyperAgentSubscriptionMutationResult {
   ok: boolean;
   message: string;
   subscription?: HyperAgentSubscription;
-}
-
-export interface HyperAgentSubscriptionUpdateRequest {
-  bundle?: Record<string, number>;
 }
 
 export interface HyperAgentModel {
@@ -477,6 +481,8 @@ function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
   };
 }
 
+
+
 function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptionSummary {
   return {
     effectivePlanId: data.effective_plan_id || '',
@@ -490,7 +496,6 @@ function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptio
     activeSubscriptionCount: data.active_subscription_count || 0,
     activeEntitlementCount: data.active_entitlement_count || data.active_subscription_count || 0,
     entitlements: hyperAgentEntitlementsFromDict(data),
-    entitlementItems: (data.entitlement_items || []).map(hyperAgentEntitlementFromDict),
     activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
     subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
     user: data.user || {},
@@ -872,36 +877,16 @@ export class HyperAgent {
     return hyperAgentSubscriptionSummaryFromDict(data);
   }
 
-  async entitlementInstances(): Promise<HyperAgentEntitlement[]> {
-    const response = await fetch(`${this.controlBaseUrl}/entitlements/instances`, {
-      headers: {
-        Authorization: `Bearer ${this.apiKey}`,
-      },
-    });
-
-    if (!response.ok) {
-      throw new Error(`Failed to get entitlement instances: ${response.statusText}`);
-    }
-
-    const data: any = await response.json();
-    return (data.items || []).map(hyperAgentEntitlementFromDict);
-  }
-
-  async updateSubscription(
-    subscriptionId: string,
-    request: HyperAgentSubscriptionUpdateRequest,
-  ): Promise<HyperAgentSubscriptionMutationResult> {
-    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/update`, {
+  async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscriptionMutationResult> {
+    const response = await fetch(`${this.controlBaseUrl}/subscriptions/${subscriptionId}/cancel`, {
       method: 'POST',
       headers: {
         Authorization: `Bearer ${this.apiKey}`,
-        'Content-Type': 'application/json',
       },
-      body: JSON.stringify({ bundle: request.bundle || {} }),
     });
 
     if (!response.ok) {
-      throw new Error(`Failed to update subscription: ${response.statusText}`);
+      throw new Error(`Failed to get entitlements: ${response.statusText}`);
     }
 
     const data: any = await response.json();
@@ -910,10 +895,6 @@ export class HyperAgent {
       message: data.message || '',
       subscription: data.subscription ? hyperAgentSubscriptionFromDict(data.subscription) : undefined,
     };
-  }
-
-  async cancelSubscription(subscriptionId: string): Promise<HyperAgentSubscriptionMutationResult> {
-    return this.updateSubscription(subscriptionId, { bundle: {} });
   }
 
   async models(): Promise<HyperAgentModel[]> {

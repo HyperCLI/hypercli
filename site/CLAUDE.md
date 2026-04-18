@@ -26,9 +26,68 @@ npm run build                              # Build all apps
 npm run lint                               # Lint all apps
 npm run clean                              # Remove .next + node_modules
 npm run clear-cache                        # Clear Turborepo cache
+npm run mock-server:all                    # Start all mock servers (agents + chat)
+npm run dev:with-mock                      # Start all apps + mock servers together
 ```
 
 Environment: copy `env.sample` to each app's `.env.local`. Required vars are validated at build time in each app's `next.config.ts`.
+
+## Mock Servers for Local Development
+
+Mock API servers are available for local development without hitting real endpoints.
+
+### Quick Start
+
+**Start mock servers (Agents API + Chat):**
+```bash
+npm run mock-server:all
+# Agents API: http://localhost:8000
+# Chat: http://localhost:4002
+```
+
+**Start all apps + mock servers together:**
+```bash
+npm run dev:with-mock
+```
+
+### Using Mock Servers with Claw
+
+**Start claw with mock servers:**
+```bash
+cd apps/claw
+npm run dev:mock
+```
+
+**Switch to real API (dev environment):**
+```bash
+npm run dev:real
+```
+
+**Just switch endpoints (without restarting dev):**
+```bash
+npm run switch:mock    # Switch to mock servers
+npm run switch:real    # Switch to real API
+npm run switch:mock status  # Check current configuration
+```
+
+### Mock Server Features
+
+| Feature | Details |
+|---------|---------|
+| **Agents API** | 60+ endpoints — agents, billing, files, models, usage |
+| **Chat Service** | Conversations, messages, WebSocket real-time support |
+| **Realistic Data** | @faker-js/faker for all responses |
+| **State Transitions** | Agents transition STARTING → RUNNING with delays |
+| **Persistence** | Data stored in-memory across requests |
+
+### Environment Files
+
+| File | Endpoints |
+|------|-----------|
+| `apps/claw/.env.mock` | `http://localhost:8000` (agents), `http://localhost:4002` (chat) |
+| `apps/claw/.env.real` | `https://api.dev.hypercli.com` (agents), `https://chat.dev.hypercli.com` (chat) |
+
+See [mock-server/README.md](./mock-server/README.md) and [apps/claw/API-SWITCHING.md](./apps/claw/API-SWITCHING.md) for complete documentation.
 
 ## HyperClaw App (apps/claw/) — Primary Focus
 
@@ -41,7 +100,7 @@ Environment: copy `env.sample` to each app's `.env.local`. Required vars are val
 | `/dashboard/agents/` | `app/dashboard/agents/page.tsx` | **Main agent interface** — sidebar + tabbed panels (1568 lines) |
 | `/dashboard/agents/[id]/console/` | `app/dashboard/agents/[id]/console/page.tsx` | Simplified 3-panel agent console (chat/files/config) |
 | `/dashboard/keys/` | `app/dashboard/keys/page.tsx` | API key management (create, rename, revoke) |
-| `/plans/` | `app/plans/page.tsx` | Plan selection + checkout (Stripe + x402 USDC) |
+| `/dashboard/plans/` | `app/dashboard/plans/page.tsx` | Plan selection + checkout (Stripe + x402 USDC) |
 | `/dashboard/settings/` | `app/dashboard/settings/page.tsx` | User settings |
 | `/privacy/`, `/terms/` | Static legal pages | |
 
@@ -53,6 +112,18 @@ Environment: copy `env.sample` to each app's `.env.local`. Required vars are val
 | `src/hooks/useGatewayChat.ts` | React hook managing gateway connection + chat state (~450 lines) |
 | `src/lib/api.ts` | `clawFetch()`, JWT token management, Privy exchange (~120 lines) |
 | `src/components/ClawAuthProvider.tsx` | Auth context — Privy login → HyperClaw JWT exchange |
+
+### Local Development with Mock APIs
+
+For testing without hitting real endpoints:
+
+- **`.env.mock`** — Pre-configured for mock servers (localhost:8000, localhost:4002)
+- **`.env.real`** — Pre-configured for real API (api.dev.hypercli.com)
+- **`switch-api.sh`** / **`switch-api.bat`** — Quick scripts to switch between environments
+- **`npm run dev:mock`** — Start claw with mock servers
+- **`npm run dev:real`** — Start claw with real API
+
+See [API-SWITCHING.md](./API-SWITCHING.md) for detailed usage and troubleshooting.
 
 ### Auth Flow
 
@@ -89,7 +160,7 @@ The largest file — manages the full agent experience:
 
 **Tabs**:
 - **Chat** — Uses `useGatewayChat` hook. Messages, files, config loaded from gateway.
-- **Logs** — WebSocket to `wss://api.{domain}/ws/logs/{agent_id}?jwt=...`. Backend streams from the per-agent buffer fed by Lagoon's shared ingest firehose.
+- **Logs** — WebSocket to `wss://api.{domain}/ws/{agent_id}?jwt=...`. Backend streams from in-memory buffer (fed by Lagoon ingest).
 - **Shell** — xterm.js terminal + WebSocket to `wss://api.{domain}/ws/shell/{agent_id}?jwt=...`. Backend proxies → Lagoon → K8s exec. Resize via `\x1b[8;{rows};{cols}t` escape.
 - **Files** — Gateway RPC file operations (requires RUNNING agent).
 - **OpenClaw** — JSON config editor built from gateway schema. Uses `configPatch()`.
@@ -111,6 +182,32 @@ The largest file — manages the full agent experience:
 | `PlanCheckoutModal` | `components/PlanCheckoutModal.tsx` | Stripe + x402 USDC payment |
 | `IntegrationsPage` | `components/dashboard/integrations/` | Telegram, STT, TTS panels |
 
+### Data Layer (hooks + providers)
+
+Hook-based data layer using `@tanstack/react-query` that wraps the `@hypercli.com/sdk`. **Not yet wired into pages** — created for incremental adoption. See `src/hooks/DATA_LAYER_PLAN.md` for the full migration plan.
+
+**Providers** (in `src/providers/`, wire into dashboard layout when ready):
+- `QueryProvider` — TanStack Query client (30s stale time, 1 retry)
+- `HyperCLIProvider` — creates `Deployments` + `HyperAgent` SDK clients from auth token
+
+**Hooks** (in `src/hooks/`):
+
+| Hook | SDK Class | Purpose |
+|------|-----------|---------|
+| `useHyperCLI` | Context | Access `deployments`, `hyperAgent`, `token` from provider |
+| `useAgents` | `Deployments` | Agent list + create/start/stop/delete mutations, adaptive polling |
+| `useAgent` | `Deployments.get` | Single agent detail, token refresh, env, metrics |
+| `useAgentFiles` | `Deployments.files*` | File list, upload, download, delete for an agent |
+| `useAgentLogs` | `Deployments.logsConnect` | WebSocket log streaming with auto-reconnect |
+| `useAgentShell` | `Deployments.shellConnect` | WebSocket shell with send/resize |
+| `usePlans` | `HyperAgent` | Plans catalog, current plan, type catalog |
+| `useUsage` | `clawFetch` | Usage stats, 7-day history, per-key breakdown |
+| `useBilling` | `clawFetch` | Payments, billing profile, update profile |
+
+**Shared types** in `src/types/index.ts` — re-exports SDK types + frontend-specific shapes (`AgentState`, `UsageInfo`, `DayData`, etc.)
+
+**Browser safety**: All SDK imports use subpath exports (`/agents`, `/agent`, `/http`, `/gateway`). Never import from the main `@hypercli.com/sdk` entry (pulls in Node `dns`).
+
 ### Lib Utilities
 
 | File | Exports |
@@ -119,6 +216,7 @@ The largest file — manages the full agent experience:
 | `lib/format.ts` | `formatTokens()`, `formatCpu()`, `formatMemory()`, `Plan` type |
 | `lib/avatar.ts` | `agentAvatar(name)` → deterministic icon + hue from agent name |
 | `lib/x402.ts` | `connectWallet()`, `x402Subscribe()` — MetaMask + Base chain USDC |
+| `lib/billing.ts` | `getAgentPayments()`, `getAgentBillingProfile()`, `updateAgentBillingProfile()` |
 
 ### API Calls Made by Frontend
 
@@ -197,3 +295,4 @@ Netlify builds via `@netlify/plugin-nextjs`. Build commands set per Netlify site
 `NEXT_PUBLIC_MAIN_SITE_URL`, `NEXT_PUBLIC_CONSOLE_URL`, `NEXT_PUBLIC_AGENTS_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`
 
 **Key insight for feat-claw**: Frontend is at `feat.hypercli.com` but backend is `api.dev.hypercli.com`. Gateway cookies need `domain=.hypercli.com` to reach `openclaw-{name}.dev.hypercli.com`. The `useGatewayChat` hook handles cross-domain cookie logic automatically.
+
