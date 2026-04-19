@@ -527,18 +527,41 @@ async function waitForConsoleSession(page: Page, url: string, timeout = 45_000):
   await expect
     .poll(
       async () => {
-        const cookies = await page.context().cookies([url]);
-        const cookieValue = cookies.find((cookie) => cookie.name === "auth_token")?.value ?? null;
-        let storageValue: string | null = null;
-
         try {
-          storageValue = await page.evaluate(() => localStorage.getItem("app_auth_token"));
-        } catch {
-          storageValue = null;
-        }
+          const authState = await page.evaluate(async () => {
+            const localToken =
+              localStorage.getItem("app_auth_token") || localStorage.getItem("claw_auth_token");
+            if (localToken) {
+              return {
+                tokenSource: "localStorage",
+                value: localToken,
+              };
+            }
 
-        latestValue = cookieValue || storageValue;
-        return latestValue;
+            const cookieNames = document.cookie
+              .split("; ")
+              .map((entry) => entry.split("=")[0])
+              .filter(Boolean);
+            if (cookieNames.includes("auth_token")) {
+              return {
+                tokenSource: "cookie",
+                value: "cookie-present",
+              };
+            }
+
+            return null;
+          });
+          if (!authState) {
+            await logPrivyAuthState(page, "console-waiting-for-session");
+            return null;
+          }
+          console.log(`[privy-auth:console-token-ready] source=${authState.tokenSource}`);
+          latestValue = authState.value;
+          return latestValue;
+        } catch {
+          await logPrivyAuthState(page, "console-session-eval-error");
+          return null;
+        }
       },
       { timeout }
     )
