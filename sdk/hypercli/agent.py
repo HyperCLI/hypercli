@@ -7,7 +7,7 @@ Uses the official OpenAI Python client for chat completions.
 from dataclasses import dataclass
 from datetime import datetime
 from typing import Any, Dict, List, Optional, Union
-from urllib.parse import urlsplit
+from urllib.parse import quote, urlsplit
 
 from .config import get_agents_api_base_url
 from .http import HTTPClient
@@ -266,6 +266,7 @@ class HyperAgentSubscriptionSummary:
     active_subscription_count: int
     active_entitlement_count: int
     entitlements: HyperAgentEntitlements
+    entitlement_items: list[HyperAgentEntitlement]
     active_subscriptions: list[HyperAgentSubscription]
     subscriptions: list[HyperAgentSubscription]
     user: dict[str, Any]
@@ -286,6 +287,7 @@ class HyperAgentSubscriptionSummary:
             active_subscription_count=int(data.get("active_subscription_count", 0) or 0),
             active_entitlement_count=int(data.get("active_entitlement_count", data.get("active_subscription_count", 0)) or 0),
             entitlements=HyperAgentEntitlements.from_dict(data),
+            entitlement_items=[HyperAgentEntitlement.from_dict(item) for item in data.get("entitlement_items", [])],
             active_subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("active_subscriptions", [])],
             subscriptions=[HyperAgentSubscription.from_dict(item) for item in data.get("subscriptions", [])],
             user=data.get("user") or {},
@@ -908,6 +910,54 @@ class HyperAgent:
         )
         response.raise_for_status()
         return response.json()
+
+    def purchase_via_x402(
+        self,
+        plan_id: str,
+        *,
+        quantity: int | None = None,
+        bundle: dict[str, int] | None = None,
+    ) -> HyperAgentX402CheckoutResponse:
+        payload: dict[str, Any] = {}
+        if quantity is not None:
+            payload["quantity"] = int(quantity)
+        if bundle is not None:
+            payload["bundle"] = {str(k): int(v) for k, v in bundle.items()}
+        response = self._http._session.post(
+            f"{self._control_base_url}/x402/{quote(str(plan_id), safe='')}",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        return HyperAgentX402CheckoutResponse.from_dict(response.json())
+
+    def purchase_bundle_via_x402(
+        self,
+        *,
+        quantity: int | None = None,
+        bundle: dict[str, int] | None = None,
+    ) -> HyperAgentX402CheckoutResponse:
+        payload: dict[str, Any] = {}
+        if quantity is not None:
+            payload["quantity"] = int(quantity)
+        if bundle is not None:
+            payload["bundle"] = {str(k): int(v) for k, v in bundle.items()}
+        response = self._http._session.post(
+            f"{self._control_base_url}/x402/_bundle",
+            headers={"Authorization": f"Bearer {self._api_key}"},
+            json=payload,
+        )
+        response.raise_for_status()
+        return HyperAgentX402CheckoutResponse.from_dict(response.json())
+
+    def create_x402_checkout(
+        self,
+        *,
+        quantity: int | None = None,
+        bundle: dict[str, int] | None = None,
+    ) -> HyperAgentX402CheckoutResponse:
+        """Backward-compatible bundle x402 checkout shim."""
+        return self.purchase_bundle_via_x402(quantity=quantity, bundle=bundle)
 
     def discovery_health(self) -> Dict[str, Any]:
         response = self._http._session.get(f"{self._api_base_without_v1()}/discovery/health")

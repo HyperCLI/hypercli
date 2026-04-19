@@ -12,6 +12,7 @@ from hypercli.agent import (
     HyperAgentPlan,
     HyperAgentCurrentPlan,
     HyperAgentSubscription,
+    HyperAgentEntitlement,
     HyperAgentSubscriptionSummary,
     HyperAgentModel,
     HyperAgentUsageSummary,
@@ -99,6 +100,23 @@ class TestHyperAgentDataclasses:
                     "slot_inventory": {"large": {"granted": 2, "used": 1, "available": 1}},
                     "active_entitlement_count": 1,
                 },
+                "entitlement_items": [
+                    {
+                        "id": "ent-1",
+                        "user_id": "user-1",
+                        "subscription_id": "sub-1",
+                        "plan_id": "large",
+                        "plan_name": "Large",
+                        "provider": "STRIPE",
+                        "status": "ACTIVE",
+                        "expires_at": "2026-04-15T00:00:00Z",
+                        "agent_tier": "large",
+                        "features": {"voice": True},
+                        "tags": ["customer=acme"],
+                        "active_agent_count": 1,
+                        "active_agent_ids": ["agent-1"],
+                    }
+                ],
                 "active_subscriptions": [
                     {
                         "id": "sub-1",
@@ -368,6 +386,90 @@ class TestHyperAgentClient:
                 temperature=0.7,
                 max_tokens=100
             )
+
+    def test_purchase_via_x402_uses_plan_route(self, mock_http):
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "ok": True,
+            "key": "hyper_api_x402",
+            "plan_id": "1aiu",
+            "quantity": 1,
+            "bundle": {"small": 1},
+            "amount_paid": "20.00",
+            "duration_days": 30,
+            "expires_at": "2026-05-19T12:00:00Z",
+            "tpm_limit": 1000,
+            "rpm_limit": 10,
+        }
+        mock_http._session.post.return_value = mock_response
+
+        result = agent.purchase_via_x402("1aiu", quantity=1, bundle={"small": 1})
+
+        assert result.plan_id == "1aiu"
+        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/1aiu"
+        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"small": 1}}
+
+    def test_purchase_bundle_via_x402_uses_bundle_route(self, mock_http):
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "ok": True,
+            "key": "hyper_api_x402",
+            "plan_id": "_bundle",
+            "quantity": 1,
+            "bundle": {"large": 2},
+            "amount_paid": "200.00",
+            "duration_days": 30,
+            "expires_at": "2026-05-19T12:00:00Z",
+            "tpm_limit": 1000,
+            "rpm_limit": 10,
+        }
+        mock_http._session.post.return_value = mock_response
+
+        result = agent.purchase_bundle_via_x402(quantity=1, bundle={"large": 2})
+
+        assert result.plan_id == "_bundle"
+        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/_bundle"
+        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"large": 2}}
+
+    def test_create_x402_checkout_is_bundle_shim(self, mock_http):
+        agent = HyperAgent(
+            mock_http,
+            agent_api_key="sk-hyper-test",
+            agents_api_base_url="https://api.hypercli.com/agents",
+        )
+        mock_response = Mock()
+        mock_response.raise_for_status.return_value = None
+        mock_response.json.return_value = {
+            "ok": True,
+            "key": "hyper_api_x402",
+            "plan_id": "_bundle",
+            "quantity": 1,
+            "bundle": {"medium": 1},
+            "amount_paid": "40.00",
+            "duration_days": 30,
+            "expires_at": "2026-05-19T12:00:00Z",
+            "tpm_limit": 1000,
+            "rpm_limit": 10,
+        }
+        mock_http._session.post.return_value = mock_response
+
+        result = agent.create_x402_checkout(quantity=1, bundle={"medium": 1})
+
+        assert result.plan_id == "_bundle"
+        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/_bundle"
+        assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"medium": 1}}
 
 class TestHyperAgentIntegration:
     """Integration tests for HyperAgent client (require running service)."""
