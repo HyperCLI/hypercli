@@ -1350,6 +1350,21 @@ class Deployments:
         payload = {"name": name} if name is not None else {}
         return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/keys", json=payload or None)
 
+    def purchase_entitlement_from_balance(
+        self,
+        plan_id: str,
+        *,
+        duration: int,
+        tags: list[str] | None = None,
+    ) -> dict:
+        payload: dict[str, Any] = {"duration": int(duration)}
+        if tags is not None:
+            payload["tags"] = list(tags)
+        return self._post(f"/billing/balance/{quote(str(plan_id), safe='')}", json=payload)
+
+    def redeem_grant_code(self, code: str) -> dict:
+        return self._post("/billing/grants/redeem", json={"code": str(code)})
+
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived JWT token for backend log streaming."""
         return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/logs/token")

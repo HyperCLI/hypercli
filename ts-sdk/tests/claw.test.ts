@@ -357,4 +357,121 @@ describe('HyperAgent API', () => {
       globalThis.fetch = fetchMock;
     }
   });
+
+  it('purchases a balance-funded entitlement on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          grant: {
+            id: 'grant-1',
+            type: 'BALANCE',
+            plan_id: '1aiu',
+            duration: 3600,
+            tags: ['customer=acme'],
+          },
+          entitlement: {
+            id: 'ent-1',
+            user_id: 'user-1',
+            subscription_id: null,
+            plan_id: '1aiu',
+            plan_name: '1 AIU',
+            provider: 'BALANCE',
+            status: 'ACTIVE',
+            starts_at: '2026-04-19T12:00:00Z',
+            expires_at: '2026-04-19T13:00:00Z',
+            tpm_limit: 1000,
+            rpm_limit: 10,
+            tpd_limit: 1000000,
+            agent_tier: 'small',
+            features: {},
+            tags: ['customer=acme'],
+            slot_grants: { small: 1, medium: 0, large: 0 },
+            active_agent_count: 0,
+            active_agent_ids: [],
+          },
+          payment: {
+            id: 'pay-1',
+            user_id: 'user-1',
+            provider: 'BALANCE',
+            status: 'SUCCEEDED',
+            amount: '10000',
+            currency: 'usdc',
+            external_payment_id: 'tx-1',
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.purchaseEntitlementFromBalance('1aiu', { duration: 3600, tags: ['customer=acme'] });
+      expect(result.grant.type).toBe('BALANCE');
+      expect(result.entitlement.startsAt?.toISOString()).toBe('2026-04-19T12:00:00.000Z');
+      expect(result.payment?.provider).toBe('BALANCE');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/1aiu');
+      expect(calls[0]?.init?.method).toBe('POST');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('redeems a grant code on the primary API host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          grant: {
+            id: 'grant-1',
+            type: 'ACTIVATION_CODE',
+            code: 'promo-123',
+            plan_id: '1aiu',
+            duration: 3600,
+            tags: ['customer=acme'],
+          },
+          entitlement: {
+            id: 'ent-1',
+            user_id: 'user-1',
+            subscription_id: null,
+            plan_id: '1aiu',
+            plan_name: '1 AIU',
+            provider: 'ACTIVATION_CODE',
+            status: 'ACTIVE',
+            starts_at: '2026-04-19T12:00:00Z',
+            expires_at: '2026-04-19T13:00:00Z',
+            tpm_limit: 1000,
+            rpm_limit: 10,
+            tpd_limit: 1000000,
+            agent_tier: 'small',
+            features: {},
+            tags: ['customer=acme'],
+            slot_grants: { small: 1, medium: 0, large: 0 },
+            active_agent_count: 0,
+            active_agent_ids: [],
+          },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.redeemGrantCode('promo-123');
+      expect(result.grant.code).toBe('promo-123');
+      expect(result.entitlement.provider).toBe('ACTIVATION_CODE');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/grants/redeem');
+      expect(calls[0]?.init?.method).toBe('POST');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
 });

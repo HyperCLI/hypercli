@@ -1034,6 +1034,48 @@ def test_agents_create_scoped_key(agents_client):
         assert mock_client.post.call_args[1]["json"] == {"name": "agent-client"}
 
 
+def test_agents_purchase_entitlement_from_balance(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "grant": {"id": "grant-1", "type": "BALANCE", "duration": 3600},
+            "entitlement": {"id": "ent-1", "plan_id": "1aiu"},
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        result = agents_client.purchase_entitlement_from_balance("1aiu", duration=3600, tags=["customer=acme"])
+
+        assert result["grant"]["type"] == "BALANCE"
+        assert mock_client.post.call_args[0][0].endswith("/billing/balance/1aiu")
+        assert mock_client.post.call_args[1]["json"] == {"duration": 3600, "tags": ["customer=acme"]}
+
+
+def test_agents_redeem_grant_code(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {
+            "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123"},
+            "entitlement": {"id": "ent-1", "plan_id": "1aiu"},
+        }
+        mock_client.post.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        result = agents_client.redeem_grant_code("promo-123")
+
+        assert result["grant"]["code"] == "promo-123"
+        assert mock_client.post.call_args[0][0].endswith("/billing/grants/redeem")
+        assert mock_client.post.call_args[1]["json"] == {"code": "promo-123"}
+
+
 def test_openclaw_agent_resolve_gateway_token_uses_inference_endpoint():
     manager = Mock()
     manager.inference_token.return_value = {

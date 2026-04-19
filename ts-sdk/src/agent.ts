@@ -133,6 +133,7 @@ export interface HyperAgentEntitlement {
   planName: string;
   provider: string;
   status: string;
+  startsAt: Date | null;
   expiresAt: Date | null;
   updatedAt: Date | null;
   tpmLimit: number;
@@ -352,6 +353,32 @@ export interface HyperAgentPaymentsOptions {
   status?: string;
 }
 
+export interface HyperAgentGrant {
+  id: string;
+  userId: string | null;
+  entitlementId: string | null;
+  type: string;
+  planId: string;
+  duration: number;
+  code: string | null;
+  tags: string[];
+  meta: Record<string, any> | null;
+  appliedAt: Date | null;
+  createdAt: Date | null;
+  updatedAt: Date | null;
+}
+
+export interface HyperAgentBalanceEntitlementPurchaseRequest {
+  duration: number;
+  tags?: string[];
+}
+
+export interface HyperAgentGrantRedemptionResponse {
+  grant: HyperAgentGrant;
+  entitlement: HyperAgentEntitlement;
+  payment?: HyperAgentPayment;
+}
+
 export interface HyperAgentStripeCheckoutRequest {
   successUrl?: string;
   cancelUrl?: string;
@@ -457,6 +484,7 @@ function hyperAgentEntitlementFromDict(data: any): HyperAgentEntitlement {
     planName: data.plan_name || data.plan_id || '',
     provider: data.provider || '',
     status: data.status || '',
+    startsAt: dateFromDict(data.starts_at),
     expiresAt: data.expires_at ? new Date(String(data.expires_at).replace('Z', '+00:00')) : null,
     updatedAt: data.updated_at ? new Date(String(data.updated_at).replace('Z', '+00:00')) : null,
     tpmLimit: data.tpm_limit || 0,
@@ -469,6 +497,23 @@ function hyperAgentEntitlementFromDict(data: any): HyperAgentEntitlement {
     slotGrants: data.slot_grants || null,
     activeAgentCount: data.active_agent_count || 0,
     activeAgentIds: data.active_agent_ids || [],
+  };
+}
+
+function hyperAgentGrantFromDict(data: any): HyperAgentGrant {
+  return {
+    id: String(data?.id || ''),
+    userId: data?.user_id ?? null,
+    entitlementId: data?.entitlement_id ?? null,
+    type: String(data?.type || ''),
+    planId: String(data?.plan_id || ''),
+    duration: Number(data?.duration || 0),
+    code: data?.code ?? null,
+    tags: Array.isArray(data?.tags) ? data.tags.map(String) : [],
+    meta: data?.meta || null,
+    appliedAt: dateFromDict(data?.applied_at),
+    createdAt: dateFromDict(data?.created_at),
+    updatedAt: dateFromDict(data?.updated_at),
   };
 }
 
@@ -687,6 +732,14 @@ function hyperAgentPaymentFromDict(data: any): HyperAgentPayment {
 function hyperAgentPaymentsResponseFromDict(data: any): HyperAgentPaymentsResponse {
   return {
     items: (data?.items || []).map(hyperAgentPaymentFromDict),
+  };
+}
+
+function hyperAgentGrantRedemptionResponseFromDict(data: any): HyperAgentGrantRedemptionResponse {
+  return {
+    grant: hyperAgentGrantFromDict(data?.grant || {}),
+    entitlement: hyperAgentEntitlementFromDict(data?.entitlement || {}),
+    ...(data?.payment ? { payment: hyperAgentPaymentFromDict(data.payment) } : {}),
   };
 }
 
@@ -1022,6 +1075,24 @@ export class HyperAgent {
 
   async payment(paymentId: string): Promise<HyperAgentPayment> {
     return hyperAgentPaymentFromDict(await this.controlGet(`/billing/payments/${encodeURIComponent(paymentId)}`));
+  }
+
+  async purchaseEntitlementFromBalance(
+    planId: string,
+    request: HyperAgentBalanceEntitlementPurchaseRequest,
+  ): Promise<HyperAgentGrantRedemptionResponse> {
+    return hyperAgentGrantRedemptionResponseFromDict(
+      await this.controlPost(`/billing/balance/${encodeURIComponent(planId)}`, {
+        duration: request.duration,
+        ...(request.tags ? { tags: request.tags } : {}),
+      }),
+    );
+  }
+
+  async redeemGrantCode(code: string): Promise<HyperAgentGrantRedemptionResponse> {
+    return hyperAgentGrantRedemptionResponseFromDict(
+      await this.controlPost('/billing/grants/redeem', { code }),
+    );
   }
 
   async createStripeCheckout(
