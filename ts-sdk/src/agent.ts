@@ -408,6 +408,13 @@ export interface HyperAgentX402CheckoutResponse {
   rpmLimit: number;
 }
 
+export interface HyperAgentX402PurchaseRequest {
+  quantity?: number;
+  bundle?: Record<string, number>;
+}
+
+export interface HyperAgentX402PurchaseResponse extends HyperAgentX402CheckoutResponse {}
+
 function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   return {
     id: data.id,
@@ -1109,11 +1116,30 @@ export class HyperAgent {
     return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
   }
 
-  async createX402Checkout(request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
+  async purchaseViaX402(
+    planId: string,
+    request: HyperAgentX402PurchaseRequest = {},
+  ): Promise<HyperAgentX402PurchaseResponse> {
     const payload = {
       ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
       ...(request.bundle ? { bundle: request.bundle } : {}),
     };
-    return hyperAgentX402CheckoutResponseFromDict(await this.controlPost('/x402/checkout', payload));
+    return hyperAgentX402CheckoutResponseFromDict(
+      await this.controlPost(`/x402/${encodeURIComponent(planId)}`, payload),
+    );
+  }
+
+  async purchaseBundleViaX402(
+    request: HyperAgentX402PurchaseRequest = {},
+  ): Promise<HyperAgentX402PurchaseResponse> {
+    const payload = {
+      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
+      ...(request.bundle ? { bundle: request.bundle } : {}),
+    };
+    return hyperAgentX402CheckoutResponseFromDict(await this.controlPost('/x402/_bundle', payload));
+  }
+
+  async createX402Checkout(request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
+    return this.purchaseBundleViaX402(request);
   }
 }

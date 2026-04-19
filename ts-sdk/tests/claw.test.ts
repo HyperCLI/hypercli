@@ -474,4 +474,109 @@ describe('HyperAgent API', () => {
       globalThis.fetch = fetchMock;
     }
   });
+
+  it('purchases a concrete x402 plan on the agents control host', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          key: 'hyper_api_x402',
+          plan_id: '1aiu',
+          quantity: 1,
+          bundle: { small: 1 },
+          amount_paid: '20.00',
+          duration_days: 30,
+          expires_at: '2026-05-19T12:00:00Z',
+          tpm_limit: 1000,
+          rpm_limit: 10,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.purchaseViaX402('1aiu', { quantity: 1, bundle: { small: 1 } });
+      expect(result.planId).toBe('1aiu');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/1aiu');
+      expect(calls[0]?.init?.method).toBe('POST');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('purchases an x402 bundle through the explicit bundle route', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          key: 'hyper_api_x402',
+          plan_id: '_bundle',
+          quantity: 1,
+          bundle: { large: 2 },
+          amount_paid: '200.00',
+          duration_days: 30,
+          expires_at: '2026-05-19T12:00:00Z',
+          tpm_limit: 1000,
+          rpm_limit: 10,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.purchaseBundleViaX402({ quantity: 1, bundle: { large: 2 } });
+      expect(result.planId).toBe('_bundle');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/_bundle');
+      expect(calls[0]?.init?.method).toBe('POST');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('keeps legacy x402 checkout as a bundle-purchase shim', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          ok: true,
+          key: 'hyper_api_x402',
+          plan_id: '_bundle',
+          quantity: 1,
+          bundle: { medium: 1 },
+          amount_paid: '40.00',
+          duration_days: 30,
+          expires_at: '2026-05-19T12:00:00Z',
+          tpm_limit: 1000,
+          rpm_limit: 10,
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.createX402Checkout({ quantity: 1, bundle: { medium: 1 } });
+      expect(result.planId).toBe('_bundle');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/_bundle');
+      expect(calls[0]?.init?.method).toBe('POST');
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
 });
