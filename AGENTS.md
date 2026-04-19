@@ -113,3 +113,12 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   - `2026.4.17` -> `2026.4.17`
   - `2026.4.17-2` -> `2026.4.17.post2`
 - Do not start a new day with `-1`; that should be a plain date release.
+
+## Agents Billing Contract
+- `client.agent.purchaseEntitlementFromBalance(planId, { duration, tags? })`
+  maps to `POST /agents/billing/balance/{plan_id}`
+- `client.agent.redeemGrantCode(code)`
+  maps to `POST /agents/billing/grants/redeem`
+- unactivated codes are `grants`, not entitlements
+- `duration` is in seconds
+- matching entitlements are extended in place when `plan_id + tags` match

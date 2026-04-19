@@ -43,6 +43,8 @@ Use this namespace for:
 - `subscriptionSummary()`
 - `entitlements()`
 - `entitlementInstances()`
+- `purchaseEntitlementFromBalance(planId, { duration, tags? })`
+- `redeemGrantCode(code)`
 - `updateSubscription(subscriptionId, { bundle })`
 - `cancelSubscription(subscriptionId)`
 - `models()`
@@ -70,6 +72,13 @@ const entitlements = await client.agent.entitlements();
 const entitlementItems = await client.agent.entitlementInstances();
 const subscriptions = await client.agent.subscriptions();
 
+await client.agent.purchaseEntitlementFromBalance("1aiu", {
+  duration: 30 * 24 * 60 * 60,
+  tags: ["customer=acme"],
+});
+
+await client.agent.redeemGrantCode("7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59");
+
 await client.agent.updateSubscription("sub_123", { bundle: { large: 1 } });
 ```
 
@@ -78,6 +87,21 @@ Use an empty bundle to cancel at period end:
 ```ts
 await client.agent.updateSubscription("sub_123", { bundle: {} });
 ```
+
+## Grants And Balance Purchases
+
+Two account-level helpers now mint entitlements without going through Stripe:
+
+- `purchaseEntitlementFromBalance(planId, { duration, tags? })`
+  - charges Orchestra balance
+  - creates a `grant`
+  - creates or extends the matching entitlement
+- `redeemGrantCode(code)`
+  - applies an existing unapplied grant by code
+
+`duration` is always in seconds.
+
+If a matching entitlement already exists for the same `planId + tags`, the backend extends that entitlement instead of creating another overlapping active one.
 
 ## `client.deployments`
 

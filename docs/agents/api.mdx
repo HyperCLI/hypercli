@@ -116,6 +116,76 @@ So exact plan price gives base duration, and higher amounts increase duration pr
 }
 ```
 
+## Balance-Funded Entitlements
+
+Endpoint: `POST /agents/billing/balance/{plan_id}`
+
+- Requires JWT auth
+- Charges the linked Orchestra balance
+- Creates a `grant`
+- Applies that grant to create or extend the matching entitlement
+
+Request body:
+
+```json
+{
+  "duration": 2592000,
+  "tags": ["customer=acme"]
+}
+```
+
+Response shape:
+
+```json
+{
+  "grant": {
+    "id": "2b1c...",
+    "type": "balance",
+    "plan_id": "1aiu",
+    "duration": 2592000,
+    "tags": ["customer=acme"]
+  },
+  "entitlement": {
+    "id": "6a54...",
+    "starts_at": "2026-04-19T20:00:00+00:00",
+    "expires_at": "2026-05-19T20:00:00+00:00",
+    "plan_id": "1aiu",
+    "tags": ["customer=acme"]
+  },
+  "payment": {
+    "provider": "balance",
+    "status": "succeeded"
+  }
+}
+```
+
+Notes:
+
+- `duration` is in seconds
+- if a matching entitlement already exists for the same `plan_id + tags`, the backend extends it instead of minting a parallel active window
+- ownership is not encoded with hidden tags; entitlement binding remains a DB relationship
+
+## Grant-Code Redemption
+
+Endpoint: `POST /agents/billing/grants/redeem`
+
+- Requires JWT auth
+- Treats the code as an unapplied `grant`
+- Applies that grant to create or extend the matching entitlement
+
+Request body:
+
+```json
+{
+  "code": "7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59"
+}
+```
+
+Important:
+
+- unactivated codes are `grants`, not `entitlements`
+- redeemed codes become applied grants linked to an entitlement
+
 ## Job Tags
 
 HyperClaw's x402 job creation endpoint accepts the same optional `tags` object used by Orchestra jobs:

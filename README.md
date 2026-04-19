@@ -42,6 +42,19 @@ hyper claw subscribe 1aiu
 hyper claw config env
 ```
 
+## Agents Billing Notes
+
+HyperClaw now supports three distinct entitlement paths:
+
+- Stripe recurring checkout
+- x402 wallet-funded checkout
+- Orchestra balance-funded entitlement purchase
+
+It also supports unapplied grant codes:
+
+- an unactivated code is a `grant`
+- redeeming it creates or extends the matching entitlement window
+
 ## Repo Layout
 
 - `sdk/` Python SDK (`hypercli-sdk`)

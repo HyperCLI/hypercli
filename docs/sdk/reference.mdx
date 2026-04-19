@@ -56,6 +56,8 @@ Major methods:
 - `subscription_summary()`
 - `entitlements()`
 - `entitlement_instances()`
+- `purchase_entitlement_from_balance(plan_id, duration=..., tags=None)`
+- `redeem_grant_code(code)`
 - `update_subscription(subscription_id, bundle)`
 - `cancel_subscription(subscription_id)` as a convenience alias for update-to-empty
 - `models()`
@@ -75,6 +77,10 @@ Important account types:
   combined view with `entitlements`, `subscriptions`, `active_subscriptions`, and `billing_reset_at`
 - `HyperAgentSubscriptionMutationResult`
   message wrapper returned by recurring subscription updates
+- `HyperAgentGrant`
+  unapplied or applied grant record with `type`, `plan_id`, `duration`, `code`, `tags`, and `applied_at`
+- `HyperAgentGrantRedemptionResponse`
+  wrapper returned by balance purchases and grant-code redemption with both the resulting `grant` and `entitlement`
 
 ## `client.keys`
 

@@ -37,6 +37,12 @@ summary = client.agent.subscription_summary()
 entitlements = client.agent.entitlements()
 entitlement_items = client.agent.entitlement_instances()
 subscriptions = client.agent.subscriptions()
+purchase = client.agent.purchase_entitlement_from_balance(
+    "1aiu",
+    duration=30 * 24 * 60 * 60,
+    tags=["customer=acme"],
+)
+redemption = client.agent.redeem_grant_code("7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59")
 models = client.agent.models()
 health = client.agent.discovery_health()
 config = client.agent.discovery_config()
@@ -54,6 +60,10 @@ The key split is:
   combined account view that includes both the effective `entitlements` object and the active subscription list
 - `update_subscription()`
   unified recurring billing mutation surface for upgrade, downgrade, and cancel-at-period-end
+- `purchase_entitlement_from_balance()`
+  charges Orchestra balance, creates a grant, then creates or extends the matching entitlement
+- `redeem_grant_code()`
+  applies an existing unapplied grant code to create or extend the matching entitlement
 
 Update a recurring billing subscription:
 
@@ -73,6 +83,19 @@ This namespace also exposes convenience helpers such as:
 - `openai()`
 
 Those are account/inference helpers, not agent runtime helpers.
+
+## Grants And Balance Purchases
+
+The Python SDK exposes the same prepaid entitlement surface as the backend:
+
+- `client.agent.purchase_entitlement_from_balance(plan_id, duration=..., tags=...)`
+- `client.agent.redeem_grant_code(code)`
+
+Notes:
+
+- `duration` is always seconds
+- an unactivated code is a `grant`, not an `entitlement`
+- if the same `plan_id + tags` entitlement already exists, the backend extends it instead of minting a parallel active window
 
 ## URL Model
 
