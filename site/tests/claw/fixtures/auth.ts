@@ -272,20 +272,44 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
   const otpCount = await otpInputs.count();
 
   if (otpCount >= 6) {
-    for (let index = 0; index < Math.min(otp.length, otpCount); index += 1) {
-      await otpInputs.nth(index).fill(otp[index]);
+    const targetLength = Math.min(otp.length, otpCount);
+    const readOtpValues = async (): Promise<string[]> =>
+      otpInputs.evaluateAll((elements) =>
+        elements.map((element) => (element instanceof HTMLInputElement ? element.value : ""))
+      );
+
+    const hasTypedOtp = async (): Promise<boolean> => {
+      const values = await readOtpValues();
+      return values.slice(0, targetLength).every((value, index) => value === otp[index]);
+    };
+
+    await otpInputs.first().click();
+    await page.keyboard.type(otp, { delay: 40 });
+
+    if (!(await hasTypedOtp())) {
+      for (let index = 0; index < targetLength; index += 1) {
+        const input = otpInputs.nth(index);
+        await input.click();
+        await input.fill("");
+        await input.pressSequentially(otp[index]);
+      }
     }
+
+    const values = await readOtpValues();
+    console.log(`[privy-auth:otp-values] ${JSON.stringify(values.slice(0, targetLength))}`);
     return;
   }
 
   const singleInput = otpInputs.first();
   if (await singleInput.isVisible()) {
     await singleInput.fill(otp);
+    console.log(`[privy-auth:otp-single-value] ${JSON.stringify(await singleInput.inputValue())}`);
     return;
   }
 
   const textbox = page.getByRole("textbox").last();
   await textbox.fill(otp);
+  console.log(`[privy-auth:otp-textbox-value] ${JSON.stringify(await textbox.inputValue())}`);
 }
 
 interface PrivyAuthDebugState {
