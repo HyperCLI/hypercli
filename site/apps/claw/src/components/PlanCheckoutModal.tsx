@@ -97,7 +97,7 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      await x402Subscribe(plan.bundle, token, plan.price, 1);
+      await x402Subscribe(plan.id, plan.bundle, token, plan.price, 1);
       setSuccess(true);
       setTimeout(() => {
         onSuccess();

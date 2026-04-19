@@ -121,6 +121,7 @@ function buildPaymentApi(wallet: WalletClient): AxiosInstance {
 }
 
 export async function x402Subscribe(
+  planId: string,
   bundle: Record<string, number>,
   token: string,
   amountUsd: number,
@@ -134,8 +135,9 @@ export async function x402Subscribe(
     paymentApi = buildPaymentApi(wallet.client);
   }
 
+  const x402Path = planId ? `/x402/${encodeURIComponent(planId)}` : `/x402/_bundle`;
   const res = await paymentApi.post(
-    `/x402/checkout`,
+    x402Path,
     { quantity, bundle },
     {
       headers: { Authorization: `Bearer ${token}` },
