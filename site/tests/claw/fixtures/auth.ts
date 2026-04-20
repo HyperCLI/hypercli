@@ -313,20 +313,37 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
 }
 
 async function submitPrivyOtp(page: Page): Promise<void> {
-  const submitButton = page
-    .locator(
-      '#privy-modal-content button:visible, [role="dialog"] button:visible'
-    )
-    .filter({ hasText: /verify|continue|submit|sign in|log in|complete/i })
-    .first();
+  const candidates = [
+    page.locator('#privy-modal-content button:visible').filter({ hasText: /^sign in$/i }).first(),
+    page.locator('[role="dialog"] button:visible').filter({ hasText: /^sign in$/i }).first(),
+    page.getByRole("button", { name: /^sign in$/i }).last(),
+    page.locator('#privy-modal-content button:visible').filter({
+      hasText: /verify|continue|submit|log in|complete/i,
+    }).first(),
+    page.locator('[role="dialog"] button:visible').filter({
+      hasText: /verify|continue|submit|log in|complete/i,
+    }).first(),
+  ];
 
-  if (await submitButton.isVisible().catch(() => false)) {
-    console.log(`[privy-auth:otp-submit] clicking ${JSON.stringify(await submitButton.textContent())}`);
-    await submitButton.click();
+  for (const candidate of candidates) {
+    if (await candidate.isVisible().catch(() => false)) {
+      const label = (await candidate.textContent().catch(() => ""))?.replace(/\s+/g, " ").trim();
+      console.log(`[privy-auth:otp-submit] clicking ${JSON.stringify(label || "button")}`);
+      await candidate.click();
+      return;
+    }
+  }
+
+  const otpInputs = page.locator(
+    'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
+  );
+  if (await otpInputs.last().isVisible().catch(() => false)) {
+    console.log("[privy-auth:otp-submit] pressing Enter on otp input");
+    await otpInputs.last().press("Enter").catch(() => {});
     return;
   }
 
-  console.log("[privy-auth:otp-submit] pressing Enter");
+  console.log("[privy-auth:otp-submit] pressing Enter on page");
   await page.keyboard.press("Enter").catch(() => {});
 }
 
