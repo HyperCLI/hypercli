@@ -273,12 +273,9 @@ def bootstrap() -> BootstrapState:
     hyperclaw_user_id = str(hyperclaw_user_response["id"])
     _request(
         "POST",
-        f"{agents_api_base}/admin/subscriptions/grant",
-        headers=_headers(agents_admin_key),
-        json={
-            "user_id": hyperclaw_user_id,
-            "plan_id": os.getenv("HYPERCLAW_SMOKE_PLAN_ID", DEFAULT_PLAN_ID),
-        },
+        f"{agents_api_base}/billing/balance/{os.getenv('HYPERCLAW_SMOKE_PLAN_ID', DEFAULT_PLAN_ID)}",
+        headers={"Authorization": f"Bearer {orchestra_jwt}", "Content-Type": "application/json"},
+        json={"duration": 60},
         expected=(200,),
     )
     hyperclaw_key_response = _request(
