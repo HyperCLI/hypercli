@@ -312,6 +312,24 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
   console.log(`[privy-auth:otp-textbox-value] ${JSON.stringify(await textbox.inputValue())}`);
 }
 
+async function submitPrivyOtp(page: Page): Promise<void> {
+  const submitButton = page
+    .locator(
+      '#privy-modal-content button:visible, [role="dialog"] button:visible'
+    )
+    .filter({ hasText: /verify|continue|submit|sign in|log in|complete/i })
+    .first();
+
+  if (await submitButton.isVisible().catch(() => false)) {
+    console.log(`[privy-auth:otp-submit] clicking ${JSON.stringify(await submitButton.textContent())}`);
+    await submitButton.click();
+    return;
+  }
+
+  console.log("[privy-auth:otp-submit] pressing Enter");
+  await page.keyboard.press("Enter").catch(() => {});
+}
+
 interface PrivyAuthDebugState {
   url: string;
   localStorageKeys: string[];
@@ -409,6 +427,7 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   const otpSubmittedAt = new Date();
   const otp = await pollForPrivyOtp(otpSubmittedAt);
   await fillOtp(page, otp);
+  await submitPrivyOtp(page);
   await captureStep(page, "05-otp-entered");
   await logPrivyAuthState(page, "otp-entered");
 
@@ -510,6 +529,7 @@ export async function loginToConsoleWithPrivy(
   const otpSubmittedAt = new Date();
   const otp = await pollForPrivyOtp(otpSubmittedAt);
   await fillOtp(page, otp);
+  await submitPrivyOtp(page);
   await captureStep(page, "console-03-otp-entered");
 
   await waitForConsoleSession(page, baseUrl);
