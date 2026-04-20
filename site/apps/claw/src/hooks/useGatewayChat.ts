@@ -68,9 +68,9 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
-/** Detect internal heartbeat poll prompts that should never be shown to users. */
+/** Detect internal heartbeat poll prompts/replies that should never be shown to users. */
 function isHeartbeatMessage(content: string): boolean {
-  return content.includes("HEARTBEAT.md");
+  return content.includes("HEARTBEAT.md") || content.includes("HEARTBEAT_OK");
 }
 
 function formatToolValue(value: unknown): string {
@@ -384,6 +384,16 @@ export function useGatewayChat(
           if (cancelled) return;
           const event = gatewayEvent.event;
           const payload = gatewayEvent.payload ?? {};
+
+          // Suppress traffic from non-main sessions (cron heartbeats, background
+          // jobs, agent-initiated sessions). Only filter when sessionKey is
+          // explicitly present — some chat events may not carry it.
+          if (typeof event === "string" && event.startsWith("chat")) {
+            const sk = (payload as Record<string, unknown>).sessionKey;
+            if (typeof sk === "string" && sk.trim() && sk.trim() !== "main") {
+              return;
+            }
+          }
 
           // HYP-27: process agent tool stream events into ChatMessage toolCalls
           if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {

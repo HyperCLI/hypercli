@@ -1,13 +1,13 @@
 "use client";
 
-import { useState, useCallback, useMemo, useEffect } from "react";
+import { useState, useCallback, useMemo, useEffect, useRef } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   FolderOpen, ArrowLeft, Eye, EyeOff, ArrowUpDown,
   WifiOff, Loader2, Upload,
 } from "lucide-react";
 import Link from "next/link";
-import { useParams } from "next/navigation";
+import { useParams, useSearchParams } from "next/navigation";
 import type { FileEntry, FileSortKey, FileSortDir } from "@/components/dashboard/files/types";
 import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
 import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
@@ -41,7 +41,9 @@ const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
 
 export default function AgentFilesPage() {
   const params = useParams<{ id: string }>();
+  const searchParams = useSearchParams();
   const agentId = params?.id ?? "";
+  const initialFilePath = searchParams?.get("file") ?? null;
   const { getToken } = useAgentAuth();
 
   // Agent metadata
@@ -178,6 +180,18 @@ export default function AgentFilesPage() {
     window.addEventListener("keydown", handler);
     return () => window.removeEventListener("keydown", handler);
   }, [previewEntry]);
+
+  // Auto-open the file passed via ?file=... (one-shot, once the gateway has the file list)
+  const autoOpenedRef = useRef(false);
+  useEffect(() => {
+    if (autoOpenedRef.current) return;
+    if (!initialFilePath) return;
+    if (!connected) return;
+    const match = files.find((f) => f.path === initialFilePath);
+    if (!match) return;
+    autoOpenedRef.current = true;
+    void handleOpenFile(match);
+  }, [connected, files, initialFilePath, handleOpenFile]);
 
   // Loading / error states for agent fetch
   if (agentLoading) {
