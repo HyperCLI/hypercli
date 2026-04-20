@@ -317,6 +317,9 @@ async function submitPrivyOtp(page: Page): Promise<void> {
     page.locator('#privy-modal-content button:visible').filter({ hasText: /^sign in$/i }).first(),
     page.locator('[role="dialog"] button:visible').filter({ hasText: /^sign in$/i }).first(),
     page.getByRole("button", { name: /^sign in$/i }).last(),
+    page.locator('#privy-modal-content button:visible').filter({ hasText: /^login with privy$/i }).first(),
+    page.locator('[role="dialog"] button:visible').filter({ hasText: /^login with privy$/i }).first(),
+    page.getByRole("button", { name: /^login with privy$/i }).last(),
     page.locator('#privy-modal-content button:visible').filter({
       hasText: /verify|continue|submit|log in|complete/i,
     }).first(),
