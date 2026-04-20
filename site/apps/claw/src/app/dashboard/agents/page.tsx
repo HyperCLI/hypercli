@@ -1577,6 +1577,11 @@ export default function AgentsPage() {
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
+    if (chat.sending) {
+      chat.setInput("");
+      chat.addPendingMessage(chat.input);
+      return;
+    }
     chat.sendMessage();
   };
 
@@ -2354,7 +2359,7 @@ export default function AgentsPage() {
                               }}
                               rows={1}
                               placeholder={chat.connected ? "Message agent..." : "Waiting for gateway..."}
-                              disabled={!chat.connected || chat.sending}
+                              disabled={!chat.connected}
                               className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
                             />
                             {/* Right-pinned actions — single flex row so all three share one baseline.
@@ -2388,7 +2393,7 @@ export default function AgentsPage() {
                               </button>
                               <button
                                 onClick={handleSendChat}
-                                disabled={!chat.connected || chat.sending || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)}
+                                disabled={!chat.connected || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)}
                                 className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center"
                                 title="Send message"
                               >
