@@ -258,6 +258,7 @@ export function useGatewayChat(
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
+  const [pendingInput, setPendingInput] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
 
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
@@ -634,6 +635,22 @@ export function useGatewayChat(
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
 
+  const addPendingMessage = (message: string) => {
+    setPendingInput((prev) => [...prev, message]);
+  };
+
+  useEffect(() => {
+    if (!sending && pendingInput.length > 0) {
+      const nextMessage = pendingInput[0];
+
+      // Remove the first message from the queue
+      setPendingInput((prev) => prev.slice(1));
+
+      // Send it
+      sendMessage(nextMessage);
+    }
+  }, [sending, pendingInput]);
+
   const addAttachments = useCallback((files: FileList) => {
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
@@ -844,6 +861,8 @@ export function useGatewayChat(
     sendMessage,
     input,
     setInput,
+    pendingInput,
+    addPendingMessage,
     sending,
     connected,
     connecting,
