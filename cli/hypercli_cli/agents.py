@@ -60,7 +60,7 @@ def _get_agent_api_key() -> str:
         if key:
             return key
     console.print("[red]❌ No HyperClaw API key found.[/red]")
-    console.print("Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe: [bold]hyper agent subscribe 1aiu[/bold]")
+    console.print("Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe: [bold]hyper agent subscribe basic[/bold]")
     raise typer.Exit(1)
 
 

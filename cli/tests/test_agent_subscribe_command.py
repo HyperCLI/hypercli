@@ -26,11 +26,11 @@ def test_agent_subscribe_passes_explicit_passphrase(monkeypatch, tmp_path):
 
     def _fake_subscribe_async(account, plan_id: str, api_base: str, amount: str | None = None):
         assert account.address == "0xabc"
-        assert plan_id == "1aiu"
+        assert plan_id == "basic"
         assert amount == "0.01"
         return {
             "key": "hyper_api_test",
-            "plan_id": "1aiu",
+            "plan_id": "basic",
             "amount_paid": "0.010000",
             "duration_days": 0.5,
             "expires_at": "2026-04-14T00:00:00Z",
@@ -42,7 +42,7 @@ def test_agent_subscribe_passes_explicit_passphrase(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_mod.asyncio, "run", lambda coro: coro)
     monkeypatch.setattr(agent_mod, "_subscribe_async", _fake_subscribe_async)
 
-    result = runner.invoke(app, ["agent", "subscribe", "1aiu", "0.01", "--passphrase", "secret"])
+    result = runner.invoke(app, ["agent", "subscribe", "basic", "0.01", "--passphrase", "secret"])
 
     assert result.exit_code == 0
     assert load_calls == ["secret"]
@@ -63,12 +63,12 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
 
     def _fake_subscribe_async(account, plan_id: str, api_base: str, amount: str | None = None):
         assert account.address == "0xabc"
-        assert plan_id == "1aiu"
+        assert plan_id == "basic"
         assert amount == "0.01"
         assert api_base == "https://api.dev.hypercli.com"
         return {
             "key": "hyper_api_test",
-            "plan_id": "1aiu",
+            "plan_id": "basic",
             "amount_paid": "0.010000",
             "duration_days": 0.5,
             "expires_at": "2026-04-14T00:00:00Z",
@@ -80,7 +80,7 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
     monkeypatch.setattr(agent_mod.asyncio, "run", lambda coro: coro)
     monkeypatch.setattr(agent_mod, "_subscribe_async", _fake_subscribe_async)
 
-    result = runner.invoke(app, ["agent", "subscribe", "1aiu", "0.01"])
+    result = runner.invoke(app, ["agent", "subscribe", "basic", "0.01"])
 
     assert result.exit_code == 0
 
@@ -88,14 +88,14 @@ def test_agent_subscribe_uses_product_api_base_env(monkeypatch, tmp_path):
 def test_extract_plan_purchase_url_from_agent_discovery():
     discovery = {
         "resources": [
-            "https://api.dev.hypercli.com/agents/x402/1aiu",
-            "https://api.dev.hypercli.com/agents/x402/2aiu",
+            "https://api.dev.hypercli.com/agents/x402/basic",
+            "https://api.dev.hypercli.com/agents/x402/plus",
         ]
     }
 
     assert (
-        agent_mod._extract_plan_purchase_url_from_discovery(discovery, "1aiu")
-        == "https://api.dev.hypercli.com/agents/x402/1aiu"
+        agent_mod._extract_plan_purchase_url_from_discovery(discovery, "basic")
+        == "https://api.dev.hypercli.com/agents/x402/basic"
     )
 
 
@@ -107,4 +107,4 @@ def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources(
         ]
     }
 
-    assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "1aiu") is None
+    assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "basic") is None

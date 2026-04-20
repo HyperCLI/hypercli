@@ -59,7 +59,7 @@ describe('HyperAgent API', () => {
       calls.push({ url: String(input), init });
       return new Response(JSON.stringify({
         plans: [{
-          id: '5aiu',
+          id: 'pro',
           name: '5 AIU',
           price: 100,
           aiu: 5,
@@ -98,7 +98,7 @@ describe('HyperAgent API', () => {
       calls.push({ url: String(input), init });
       return new Response(
         JSON.stringify({
-          id: '1aiu',
+          id: 'basic',
           name: '1 Agent',
           price: 20,
           aiu: 1,
@@ -371,7 +371,7 @@ describe('HyperAgent API', () => {
           grant: {
             id: 'grant-1',
             type: 'BALANCE',
-            plan_id: '1aiu',
+            plan_id: 'basic',
             duration: 3600,
             tags: ['customer=acme'],
           },
@@ -379,7 +379,7 @@ describe('HyperAgent API', () => {
             id: 'ent-1',
             user_id: 'user-1',
             subscription_id: null,
-            plan_id: '1aiu',
+            plan_id: 'basic',
             plan_name: '1 AIU',
             provider: 'BALANCE',
             status: 'ACTIVE',
@@ -410,11 +410,11 @@ describe('HyperAgent API', () => {
     }) as typeof fetch;
 
     try {
-      const result = await agent.purchaseEntitlementFromBalance('1aiu', { duration: 3600, tags: ['customer=acme'] });
+      const result = await agent.purchaseEntitlementFromBalance('basic', { duration: 3600, tags: ['customer=acme'] });
       expect(result.grant.type).toBe('BALANCE');
       expect(result.entitlement.startsAt?.toISOString()).toBe('2026-04-19T12:00:00.000Z');
       expect(result.payment?.provider).toBe('BALANCE');
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/1aiu');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/basic');
       expect(calls[0]?.init?.method).toBe('POST');
     } finally {
       globalThis.fetch = fetchMock;
@@ -435,7 +435,7 @@ describe('HyperAgent API', () => {
             id: 'grant-1',
             type: 'ACTIVATION_CODE',
             code: 'promo-123',
-            plan_id: '1aiu',
+            plan_id: 'basic',
             duration: 3600,
             tags: ['customer=acme'],
           },
@@ -443,7 +443,7 @@ describe('HyperAgent API', () => {
             id: 'ent-1',
             user_id: 'user-1',
             subscription_id: null,
-            plan_id: '1aiu',
+            plan_id: 'basic',
             plan_name: '1 AIU',
             provider: 'ACTIVATION_CODE',
             status: 'ACTIVE',
@@ -487,7 +487,7 @@ describe('HyperAgent API', () => {
         JSON.stringify({
           ok: true,
           key: 'hyper_api_x402',
-          plan_id: '1aiu',
+          plan_id: 'basic',
           quantity: 1,
           bundle: { small: 1 },
           amount_paid: '20.00',
@@ -501,9 +501,9 @@ describe('HyperAgent API', () => {
     }) as typeof fetch;
 
     try {
-      const result = await agent.purchaseViaX402('1aiu', { quantity: 1, bundle: { small: 1 } });
-      expect(result.planId).toBe('1aiu');
-      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/1aiu');
+      const result = await agent.purchaseViaX402('basic', { quantity: 1, bundle: { small: 1 } });
+      expect(result.planId).toBe('basic');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/x402/basic');
       expect(calls[0]?.init?.method).toBe('POST');
     } finally {
       globalThis.fetch = fetchMock;

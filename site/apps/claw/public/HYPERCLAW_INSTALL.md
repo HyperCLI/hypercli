@@ -28,7 +28,7 @@ This walks you through everything: wallet creation, funding, plan selection, pay
 ```bash
 hyper claw onboard --dry-run   # Preview steps without making changes
 hyper claw onboard --json      # JSON mode for agent integration (writes state to ~/.hypercli/onboard/state.json)
-hyper claw onboard --plan 1aiu --amount 35  # Skip prompts
+hyper claw onboard --plan basic --amount 35  # Skip prompts
 hyper claw onboard --status    # Check onboard progress
 hyper claw onboard --reset     # Start fresh
 ```
@@ -78,15 +78,15 @@ hyper claw plans
 ```
 
 Plans and pricing:
-- **1aiu** (1 Agent): $35/mo — 100K TPM / 2K RPM
-- **2aiu** (2 Agents): $65/mo — 200K TPM / 4K RPM
-- **5aiu** (5 Agents): $120/mo — 500K TPM / 10K RPM
-- **10aiu** (10 Agents): $225/mo — 1M TPM / 20K RPM
+- **basic** (1 Agent): $35/mo — 100K TPM / 2K RPM
+- **plus** (2 Agents): $65/mo — 200K TPM / 4K RPM
+- **pro** (5 Agents): $120/mo — 500K TPM / 10K RPM
+- **team** (10 Agents): $225/mo — 1M TPM / 20K RPM
 
 Subscribe:
 ```bash
-hyper claw subscribe 1aiu 35    # 1 Agent plan
-hyper claw subscribe 5aiu 120   # 5 Agents plan
+hyper claw subscribe basic 35    # 1 Agent plan
+hyper claw subscribe pro 120   # 5 Agents plan
 ```
 
 On success, your API key is saved to `~/.hypercli/claw-key.json`.
@@ -113,7 +113,7 @@ curl -s https://api.hypercli.com/v1/models \
 For OpenClaw agents onboarding users programmatically:
 
 ```bash
-hyper claw onboard --json --plan 1aiu --amount 35
+hyper claw onboard --json --plan basic --amount 35
 ```
 
 State is written to `~/.hypercli/onboard/state.json` at each step:
@@ -157,7 +157,7 @@ Run `hyper claw status` to check expiration. Renew with `hyper claw subscribe`.
 | `hyper claw onboard --dry-run` | Preview onboarding steps |
 | `hyper claw onboard --json` | JSON mode for agent integration |
 | `hyper claw plans` | List available plans |
-| `hyper claw subscribe 1aiu 35` | Purchase 1 Agent plan |
+| `hyper claw subscribe basic 35` | Purchase 1 Agent plan |
 | `hyper claw status` | Check subscription status |
 | `hyper claw openclaw-setup` | Patch OpenClaw config |
 | `hyper wallet create` | Create new wallet |

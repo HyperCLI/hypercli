@@ -79,7 +79,7 @@ def _get_agent_query_client(dev: bool) -> HyperCLI:
 
 @app.command("subscribe")
 def subscribe(
-    plan_id: str = typer.Argument("1aiu", help="Plan ID: 1aiu, 2aiu, 5aiu, 10aiu (default: 1aiu)"),
+    plan_id: str = typer.Argument("basic", help="Plan ID: basic, plus, pro, team (default: basic)"),
     amount: str = typer.Argument(None, help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally."),
     passphrase: str = typer.Option(
         None,
@@ -89,15 +89,15 @@ def subscribe(
 ):
     """Subscribe to a HyperClaw plan via x402 payment.
     
-    Duration scales with payment amount (1aiu: $25 = 32 days):
+    Duration scales with payment amount (basic: $25 = 32 days):
       - $25 → 32 days
       - $12.50 → 16 days
       - $1 → ~1.3 days
     
     Examples:
-      hyper agent subscribe 1aiu 25     # Pay $25 for 32 days
-      hyper agent subscribe 1aiu 50     # Pay $50 for 64 days
-      hyper agent subscribe 5aiu 100    # Pay $100 for 5aiu plan
+      hyper agent subscribe basic 25     # Pay $25 for 32 days
+      hyper agent subscribe basic 50     # Pay $50 for 64 days
+      hyper agent subscribe pro 100    # Pay $100 for pro plan
     """
     require_x402_deps()
     
@@ -800,7 +800,7 @@ def openclaw_setup(
     # Load HyperClaw key
     if not AGENT_KEY_PATH.exists():
         console.print("[red]❌ No HyperClaw key found.[/red]")
-        console.print("Run: [bold]hyper agent subscribe 1aiu <amount>[/bold]")
+        console.print("Run: [bold]hyper agent subscribe basic <amount>[/bold]")
         raise typer.Exit(1)
 
     with open(AGENT_KEY_PATH) as f:
@@ -860,7 +860,7 @@ def _resolve_api_key(key: str | None) -> str:
             return k
     console.print("[red]❌ No API key found.[/red]")
     console.print("Either pass [bold]--key sk-...[/bold] or subscribe first:")
-    console.print("  [bold]hyper agent subscribe 1aiu[/bold]")
+    console.print("  [bold]hyper agent subscribe basic[/bold]")
     raise typer.Exit(1)
 
 

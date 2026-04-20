@@ -85,7 +85,7 @@ test("agents page resizes a stopped agent to an available tier before starting i
             { id: "large", name: "Large", cpu: 4, memory: 4, cpu_limit: 4, memory_limit: 4 },
           ],
           plans: [
-            { id: "10aiu", name: "10 AIU", price: 200, agents: 2, agent_type: "large", highlighted: true },
+            { id: "team", name: "10 AIU", price: 200, agents: 2, agent_type: "large", highlighted: true },
           ],
         }),
       });

@@ -32,7 +32,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          id: "5aiu",
+          id: "pro",
           name: "5 AIU",
           price: 100,
           aiu: 5,
@@ -50,7 +50,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
-          effective_plan_id: "5aiu",
+          effective_plan_id: "pro",
           current_subscription_id: "sub-1",
           current_entitlement_id: "sub-1",
           pooled_tpm_limit: 173611,
@@ -63,7 +63,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
           active_subscription_count: 1,
           active_entitlement_count: 1,
           entitlements: {
-            effective_plan_id: "5aiu",
+            effective_plan_id: "pro",
             pooled_tpm_limit: 173611,
             pooled_rpm_limit: 3472,
             pooled_tpd: 250000000,
@@ -76,7 +76,7 @@ test("plans page shows additive entitlements and repeat purchase CTA", async ({ 
             {
               id: "sub-1",
               user_id: "user-1",
-              plan_id: "5aiu",
+              plan_id: "pro",
               plan_name: "5 AIU",
               provider: "STRIPE",
               status: "ACTIVE",

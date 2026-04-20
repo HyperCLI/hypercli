@@ -54,7 +54,7 @@ Endpoint: `POST /agents/stripe/{plan_id}`
 - Webhook (`/api/stripe/hook`) activates subscription and applies team limits
 
 ```bash
-curl -X POST https://api.hypercli.com/agents/stripe/1aiu \
+curl -X POST https://api.hypercli.com/agents/stripe/basic \
   -H "Authorization: Bearer <jwt>" \
   -H "Content-Type: application/json" \
   -d '{
@@ -80,10 +80,10 @@ Endpoint: `POST /agents/x402/{plan_id}`
 
 ```bash
 # Step 1
-curl -X POST https://api.hypercli.com/agents/x402/1aiu
+curl -X POST https://api.hypercli.com/agents/x402/basic
 
 # Step 2: retry with x402 payment payload
-curl -X POST https://api.hypercli.com/agents/x402/1aiu \
+curl -X POST https://api.hypercli.com/agents/x402/basic \
   -H "X-PAYMENT: <signed-payment-payload>"
 ```
 
@@ -107,7 +107,7 @@ So exact plan price gives base duration, and higher amounts increase duration pr
 {
   "ok": true,
   "key": "sk-...",
-  "plan_id": "1aiu",
+  "plan_id": "basic",
   "amount_paid": "35.000000",
   "duration_days": 30.0,
   "expires_at": "2026-03-15T12:00:00+00:00",
@@ -141,7 +141,7 @@ Response shape:
   "grant": {
     "id": "2b1c...",
     "type": "balance",
-    "plan_id": "1aiu",
+    "plan_id": "basic",
     "duration": 2592000,
     "tags": ["customer=acme"]
   },
@@ -149,7 +149,7 @@ Response shape:
     "id": "6a54...",
     "starts_at": "2026-04-19T20:00:00+00:00",
     "expires_at": "2026-05-19T20:00:00+00:00",
-    "plan_id": "1aiu",
+    "plan_id": "basic",
     "tags": ["customer=acme"]
   },
   "payment": {

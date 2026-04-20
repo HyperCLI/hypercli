@@ -38,7 +38,7 @@ hyper flow text-to-image "a cinematic portrait" --x402
 
 # HyperClaw plan + config workflow
 hyper claw plans
-hyper claw subscribe 1aiu
+hyper claw subscribe basic
 hyper claw config env
 ```
 

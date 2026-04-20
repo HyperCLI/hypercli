@@ -54,7 +54,7 @@ test("plans crypto checkout posts to the concrete agents x402 plan route", async
         body: JSON.stringify({
           plans: [
             {
-              id: "5aiu",
+              id: "pro",
               name: "Pro",
               price: 100,
               aiu: 5,
@@ -115,14 +115,14 @@ test("plans crypto checkout posts to the concrete agents x402 plan route", async
       return;
     }
 
-    if (pathName.endsWith("/agents/x402/5aiu")) {
+    if (pathName.endsWith("/agents/x402/pro")) {
       x402Path = pathName;
       await route.fulfill({
         status: 200,
         contentType: "application/json",
         body: JSON.stringify({
           ok: true,
-          plan_id: "5aiu",
+          plan_id: "pro",
           expires_at: "2026-05-19T12:00:00Z",
         }),
       });
@@ -140,6 +140,6 @@ test("plans crypto checkout posts to the concrete agents x402 plan route", async
   await expect(page.getByText(/\$100 USDC on Base/i)).toBeVisible();
   await page.getByRole("button", { name: "Pay $100 with USDC" }).click();
 
-  await expect.poll(() => x402Path).toBe("/agents/x402/5aiu");
+  await expect.poll(() => x402Path).toBe("/agents/x402/pro");
   await expect(page.getByText(/Entitlement Active!/i)).toBeVisible();
 });

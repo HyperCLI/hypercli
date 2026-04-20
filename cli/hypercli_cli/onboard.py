@@ -282,9 +282,9 @@ def step_plan(state: dict, json_mode: bool, api_base: str,
     if plan_override:
         plan_id = plan_override
     elif json_mode:
-        plan_id = "1aiu"
+        plan_id = "basic"
     else:
-        plan_id = typer.prompt("Select plan", default="1aiu")
+        plan_id = typer.prompt("Select plan", default="basic")
 
     # Find plan details
     plan_info = next((p for p in plans if p["id"] == plan_id), None)
@@ -668,7 +668,7 @@ def _run_dry(api_base: str, plan_override: str = None, amount_override: str = No
                           f"{p['tpm_limit']:,}", f"{p['rpm_limit']:,}")
         console.print(table)
 
-        plan_id = plan_override or "1aiu"
+        plan_id = plan_override or "basic"
         plan_info = next((p for p in plans if p["id"] == plan_id), plans[0] if plans else None)
         amt = amount_override or str(plan_info["price"]) if plan_info else "35"
         console.print(f"\n[green]✓[/green] Would select: {plan_id} ({plan_info['name'] if plan_info else '?'}) — ${amt} USDC")

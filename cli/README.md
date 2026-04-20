@@ -40,7 +40,7 @@ hyper flow text-to-image "a cinematic portrait" --x402
 
 # HyperClaw checkout/config
 hyper agent plans
-hyper agent subscribe 1aiu
+hyper agent subscribe basic
 hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>

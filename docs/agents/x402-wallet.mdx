@@ -31,10 +31,10 @@ The x402 amount is also duration-aware. Paying the full plan price grants the no
 
 ```bash
 # Initial request (expect 402)
-curl -i -X POST https://api.hypercli.com/agents/x402/5aiu
+curl -i -X POST https://api.hypercli.com/agents/x402/pro
 
 # Retry with signed payment payload
-curl -X POST https://api.hypercli.com/agents/x402/5aiu \
+curl -X POST https://api.hypercli.com/agents/x402/pro \
   -H "X-PAYMENT: <signed-payment-payload>"
 ```
 
@@ -44,7 +44,7 @@ curl -X POST https://api.hypercli.com/agents/x402/5aiu \
 {
   "ok": true,
   "key": "sk-...",
-  "plan_id": "5aiu",
+  "plan_id": "pro",
   "amount_paid": "35.000000",
   "duration_days": 30.0,
   "expires_at": "2026-03-15T12:00:00+00:00",

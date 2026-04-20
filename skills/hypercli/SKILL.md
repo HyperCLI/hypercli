@@ -9,7 +9,7 @@ HyperCLI (`hyper`) is the CLI for HyperClaw infrastructure. Use it to manage GPU
 hyper login
 
 # Purchase/check agent access
-hyper agent subscribe 1aiu
+hyper agent subscribe basic
 hyper agent status
 ```
 
@@ -60,9 +60,9 @@ hyper agent status                      # Check subscription status
 ```
 
 ### Plans
-- **1aiu** — $25/30 days, 1 agent
-- **5aiu** — $100/30 days, 5 agents
-- **10aiu** — $200/30 days, 10 agents
+- **basic** — $25/30 days, 1 agent
+- **pro** — $100/30 days, 5 agents
+- **team** — $200/30 days, 10 agents
 
 ## Configuration
 

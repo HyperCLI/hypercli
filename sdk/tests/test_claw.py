@@ -33,14 +33,14 @@ class TestHyperAgentDataclasses:
 
     def test_agent_plan_from_dict(self):
         data = {
-            "id": "5aiu",
+            "id": "pro",
             "name": "5 Agents",
             "price_usd": 3.0,
             "tpm_limit": 250000,
             "rpm_limit": 5000
         }
         plan = HyperAgentPlan.from_dict(data)
-        assert plan.id == "5aiu"
+        assert plan.id == "pro"
         assert plan.price_usd == 3.0
     
     def test_agent_model_from_dict(self):
@@ -398,7 +398,7 @@ class TestHyperAgentClient:
         mock_response.json.return_value = {
             "ok": True,
             "key": "hyper_api_x402",
-            "plan_id": "1aiu",
+            "plan_id": "basic",
             "quantity": 1,
             "bundle": {"small": 1},
             "amount_paid": "20.00",
@@ -409,10 +409,10 @@ class TestHyperAgentClient:
         }
         mock_http._session.post.return_value = mock_response
 
-        result = agent.purchase_via_x402("1aiu", quantity=1, bundle={"small": 1})
+        result = agent.purchase_via_x402("basic", quantity=1, bundle={"small": 1})
 
-        assert result.plan_id == "1aiu"
-        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/1aiu"
+        assert result.plan_id == "basic"
+        assert mock_http._session.post.call_args[0][0] == "https://api.hypercli.com/agents/x402/basic"
         assert mock_http._session.post.call_args[1]["json"] == {"quantity": 1, "bundle": {"small": 1}}
 
     def test_purchase_bundle_via_x402_uses_bundle_route(self, mock_http):
