@@ -157,3 +157,10 @@ jobs:
             echo "- PyPI: hypercli-sdk==${PYTHON_VERSION}"
             echo "- PyPI: hypercli-cli==${PYTHON_VERSION}"
           } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Clean publish workspace
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${{ github.workspace }}/${{ env.RELEASE_WORKDIR }}"
