@@ -329,8 +329,14 @@ async function submitPrivyOtp(page: Page): Promise<void> {
     if (await candidate.isVisible().catch(() => false)) {
       const label = (await candidate.textContent().catch(() => ""))?.replace(/\s+/g, " ").trim();
       console.log(`[privy-auth:otp-submit] clicking ${JSON.stringify(label || "button")}`);
-      await candidate.click();
-      return;
+      try {
+        await candidate.click({ force: true, timeout: 5000 });
+        return;
+      } catch (error) {
+        console.log(
+          `[privy-auth:otp-submit] forced click failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
     }
   }
 
