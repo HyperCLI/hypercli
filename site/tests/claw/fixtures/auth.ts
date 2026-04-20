@@ -313,13 +313,20 @@ export async function fillOtp(page: Page, otp: string): Promise<void> {
 }
 
 async function submitPrivyOtp(page: Page): Promise<void> {
+  const otpInputs = page.locator(
+    'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
+  );
+  if (await otpInputs.last().isVisible().catch(() => false)) {
+    console.log("[privy-auth:otp-submit] pressing Enter on otp input");
+    await otpInputs.last().press("Enter").catch(() => {});
+    await page.waitForTimeout(750);
+  }
+
   const candidates = [
     page.locator('#privy-modal-content button:visible').filter({ hasText: /^sign in$/i }).first(),
     page.locator('[role="dialog"] button:visible').filter({ hasText: /^sign in$/i }).first(),
-    page.getByRole("button", { name: /^sign in$/i }).last(),
     page.locator('#privy-modal-content button:visible').filter({ hasText: /^login with privy$/i }).first(),
     page.locator('[role="dialog"] button:visible').filter({ hasText: /^login with privy$/i }).first(),
-    page.getByRole("button", { name: /^login with privy$/i }).last(),
     page.locator('#privy-modal-content button:visible').filter({
       hasText: /verify|continue|submit|log in|complete/i,
     }).first(),
@@ -343,9 +350,6 @@ async function submitPrivyOtp(page: Page): Promise<void> {
     }
   }
 
-  const otpInputs = page.locator(
-    'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
-  );
   if (await otpInputs.last().isVisible().catch(() => false)) {
     console.log("[privy-auth:otp-submit] pressing Enter on otp input");
     await otpInputs.last().press("Enter").catch(() => {});
