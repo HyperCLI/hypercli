@@ -5,6 +5,7 @@ import {
   captureStep,
   completeStripeCheckout,
   fetchBalanceSnapshot,
+  fetchTransactionSnapshots,
   loginToConsoleWithPrivy,
   waitForTopUpSettlement,
 } from "./fixtures/auth";
@@ -20,6 +21,7 @@ test("tops up the Console balance by $10 and verifies the updated dashboard bala
   test.setTimeout(300_000);
 
   const initialBalance = await fetchBalanceSnapshot();
+  const initialTransactionIds = new Set((await fetchTransactionSnapshots(50)).map((transaction) => transaction.id));
   await loginToConsoleWithPrivy(page, consoleBaseUrl);
 
   await page.getByRole("button", { name: /^top up$/i }).click();
@@ -38,7 +40,7 @@ test("tops up the Console balance by $10 and verifies the updated dashboard bala
   await completeStripeCheckout(page);
   await captureStep(page, "console-06-checkout-submitted");
 
-  const settlement = await waitForTopUpSettlement(initialBalance, checkoutSubmittedAt, 10);
+  const settlement = await waitForTopUpSettlement(initialBalance, checkoutSubmittedAt, 10, initialTransactionIds);
   expect(settlement.balance.availableBalance).toBeGreaterThanOrEqual(initialBalance.availableBalance + 10);
   await captureStep(page, "console-07-balance-updated");
 });

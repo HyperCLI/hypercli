@@ -915,17 +915,22 @@ export async function fetchTransactionSnapshots(limit = 20): Promise<BillingTran
 export async function waitForTopUpSettlement(
   previousBalance: BillingBalanceSnapshot,
   submittedAt: Date,
-  amountDelta = 10
+  amountDelta = 10,
+  previousTransactionIds: Iterable<string> = []
 ): Promise<{ balance: BillingBalanceSnapshot; topUp: BillingTransactionSnapshot | null }> {
   const deadline = Date.now() + TOP_UP_POLL_TIMEOUT_MS;
   let latestBalance = previousBalance;
   let latestTopUp: BillingTransactionSnapshot | null = null;
+  const knownTransactionIds = new Set(previousTransactionIds);
 
   while (Date.now() < deadline) {
     latestBalance = await fetchBalanceSnapshot();
     const transactions = await fetchTransactionSnapshots();
     latestTopUp =
       transactions.find((transaction) => {
+        if (knownTransactionIds.has(transaction.id)) {
+          return false;
+        }
         if (transaction.transactionType.toLowerCase() !== "top_up") {
           return false;
         }
@@ -935,9 +940,7 @@ export async function waitForTopUpSettlement(
         if (transaction.amountUsd < amountDelta) {
           return false;
         }
-
-        const createdAtMs = Date.parse(transaction.createdAt);
-        return Number.isFinite(createdAtMs) && createdAtMs >= submittedAt.getTime() - 60_000;
+        return true;
       }) || null;
 
     if (latestBalance.availableBalance >= previousBalance.availableBalance + amountDelta || latestTopUp) {
@@ -952,7 +955,7 @@ export async function waitForTopUpSettlement(
 
   throw new Error(
     `Timed out waiting for top-up settlement. Available balance stayed at $${latestBalance.availableBalanceText} ` +
-      `from initial $${previousBalance.availableBalanceText}`
+      `from initial $${previousBalance.availableBalanceText} after checkout at ${submittedAt.toISOString()}`
   );
 }
 
