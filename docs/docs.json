@@ -236,12 +236,12 @@
       ]
     }
   },
-  "logo": {
-    "light": "/logo/light.svg",
-    "dark": "/logo/dark.svg"
-  },
   "navbar": {
     "links": [
+      {
+        "label": "Pricing",
+        "href": "https://hypercli.com/pricing"
+      },
       {
         "label": "Support",
         "href": "mailto:support@hypercli.com"
@@ -256,7 +256,8 @@
   "footer": {
     "socials": {
       "x": "https://x.com/hypercliai",
-      "github": "https://github.com/HyperCLI/hypercli"
+      "github": "https://github.com/HyperCLI/hypercli",
+      "linkedin": "https://www.linkedin.com/company/hypercli"
     }
   }
 }

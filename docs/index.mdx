@@ -1,66 +1,119 @@
 ---
 title: HyperCLI
-description: GPU orchestration, media flows, HyperClaw inference, and OpenClaw agents.
+description: GPU orchestration, media flows, inference, and managed OpenClaw agents.
 ---
 
-HyperCLI is the unified control plane for GPU jobs, media flows, inference, and
-agent runtimes.
+HyperCLI is the platform surface behind GPU jobs, hosted model access, media
+flows, and browser-accessible agent runtimes.
 
-Use it when you need to:
+<Card
+  title="Quickstart"
+  icon="rocket"
+  href="/quickstart"
+  horizontal
+>
+  Install the CLI or SDK, authenticate once, and run your first working command
+  in a few minutes.
+</Card>
 
-- launch raw GPU capacity on demand
-- run image, video, speech, and transcription flows
-- integrate against HyperClaw chat and embeddings endpoints
-- deploy and operate OpenClaw desktop agents
+## Core Surfaces
 
-## Start Here
+<Columns cols={2}>
+  <Card
+    title="GPU Instances"
+    icon="microchip"
+    href="/instances/index"
+  >
+    Launch raw GPU capacity with your own container image, entrypoint, and
+    region selection.
+  </Card>
+  <Card
+    title="Flows"
+    icon="wand-magic-sparkles"
+    href="/flows/index"
+  >
+    Run text-to-image, speech, transcription, and video pipelines through
+    managed APIs.
+  </Card>
+  <Card
+    title="Inference"
+    icon="brain-circuit"
+    href="/inference/index"
+  >
+    Call hosted chat and embedding models through Anthropic-style and
+    OpenAI-compatible surfaces.
+  </Card>
+  <Card
+    title="Agents"
+    icon="terminal"
+    href="/agents/index"
+  >
+    Operate OpenClaw desktop containers with files, shell access, routes, and
+    the gateway runtime.
+  </Card>
+</Columns>
 
-- [Quickstart](/quickstart) for install, auth, and the first working commands
-- [Authentication](/authentication) for API keys, scoped keys, and JWT flows
-- [Instances](/instances/index) for direct GPU capacity
-- [Inference](/inference/index) for hosted model access
-- [Agents](/agents/index) for managed OpenClaw runtimes
-- [TypeScript SDK](/ts-sdk/index) and [Python SDK](/sdk/index) for app
-  integration
+## Start Paths
 
-## Platform Areas
+<Columns cols={3}>
+  <Card
+    title="CLI Operators"
+    icon="square-terminal"
+    href="/cli/index"
+  >
+    Use the CLI for launches, billing, agents, flows, and x402 workflows.
+  </Card>
+  <Card
+    title="App Developers"
+    icon="code"
+    href="/ts-sdk/index"
+  >
+    Integrate with HyperCLI from TypeScript or Python and build directly on the
+    API surface.
+  </Card>
+  <Card
+    title="Platform Teams"
+    icon="network-wired"
+    href="/agents/integrations"
+  >
+    Route coding tools, LiteLLM, and internal AI applications through HyperClaw
+    and managed agents.
+  </Card>
+</Columns>
 
-### GPU Instances
+## Common Entry Points
 
-Run containers directly on GPU infrastructure when you want low-level control
-over the image, entrypoint, and region selection.
-
-- [Pricing](/instances/pricing)
-- [GPU Types](/instances/types)
-- [Regions](/instances/regions)
-
-### Flows
-
-Use higher-level APIs for text-to-image, speech, video, and other managed media
-workloads.
-
-- [Flow API](/flows/index)
-- [x402 pay-per-use](/flows/x402)
-
-### Inference
-
-Call hosted LLM and embedding models through OpenAI-compatible and
-Anthropic-style surfaces.
-
-- [Inference Quickstart](/inference/quickstart)
-- [Models](/inference/models)
-- [Pricing](/inference/pricing)
-- [Tiers](/inference/tiers)
-
-### Agents
-
-Run browser-accessible desktop containers with shell access, files, routes, and
-the OpenClaw gateway.
-
-- [Agents Overview](/agents/index)
-- [Agent Quickstart](/agents/quickstart)
-- [Agent Integrations](/agents/integrations)
-- [Agent API](/agents/api)
+<Columns cols={2}>
+  <Card
+    title="Authentication"
+    icon="key"
+    href="/authentication"
+  >
+    API keys, scoped keys, exact-agent selectors, and JWT-based access.
+  </Card>
+  <Card
+    title="API Reference"
+    icon="book-open"
+    href="/api-reference/introduction"
+  >
+    Narrative API guides plus downloadable static OpenAPI specs for Orchestra
+    and Agents.
+  </Card>
+  <Card
+    title="Inference Models"
+    icon="messages"
+    href="/inference/models"
+  >
+    Current model lineup, route surfaces, and model naming for production use.
+  </Card>
+  <Card
+    title="Agent Integrations"
+    icon="plug"
+    href="/agents/integrations"
+  >
+    OpenClaw, LiteLLM, Codex, OpenCode, and OpenAI-compatible client examples.
+  </Card>
+</Columns>
 
 ## Install
 
@@ -83,36 +136,13 @@ export HYPERCLI_API_KEY=hyper_...
 
 ## Quick Examples
 
-### Launch A GPU Job
-
 ```bash
+# Launch a GPU job
 hyper instances launch nvidia/cuda:12.6.3-runtime-ubuntu22.04 -g l40s -c "nvidia-smi"
-```
 
-### Run A Flow
-
-```bash
+# Run a managed flow
 hyper flow text-to-image "a product hero image"
-```
 
-### x402 Pay-Per-Use
-
-```bash
-hyper flow text-to-image "a product hero image" --x402
-```
-
-### HyperClaw
-
-```bash
+# Discover HyperClaw plans
 hyper agent plans
-hyper agent config env
 ```
-
-## Build Paths
-
-- CLI-first operators: start with [Quickstart](/quickstart) and
-  [CLI Configuration](/cli/configuration)
-- App developers: go to [TypeScript SDK](/ts-sdk/index),
-  [Python SDK](/sdk/index), or [API Reference](/api-reference/introduction)
-- AI platform teams: use [Agent Integrations](/agents/integrations) and
-  [Inference Models](/inference/models)
