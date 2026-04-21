@@ -220,13 +220,22 @@ export function AgentCardModule({
   startBlocked = false,
   startBlockedReason,
 }: AgentCardModuleProps) {
-  const status = agentStatus ?? MOCK_STATUS;
-  const isMock = !configProp;
-  const config = configProp ?? MOCK_CONFIG;
+  // Render real agent data only. When a field hasn't loaded yet we show
+  // empty/placeholder values — never mock data — so the card never
+  // misrepresents a real agent. Mock fallbacks are reserved for the
+  // "fully unbound" demo/storybook case (no name, no status, no config).
+  const hasRealBinding = Boolean(agentStatus || configProp || connectionsProp || sessionsProp);
+  const status: AgentStatus = agentStatus ?? (hasRealBinding
+    ? { state: "STOPPED", uptime: 0, cpu: 0, memory: { used: 0, total: 0 }, version: "" }
+    : MOCK_STATUS);
+  const config = configProp ?? (hasRealBinding
+    ? { model: "", systemPrompt: "", tools: [] as { name: string; enabled: boolean }[] }
+    : MOCK_CONFIG);
+  const isMock = !hasRealBinding;
   const configTools = config.tools;
   const enabledTools = configTools.filter((t) => t.enabled).map((t) => t.name);
-  const sessionsCount = (sessionsProp ?? MOCK_SESSIONS).length;
-  const connectedCount = (connectionsProp ?? MOCK_CONNECTIONS).filter((c) => c.connected).length;
+  const sessionsCount = sessionsProp?.length ?? (hasRealBinding ? 0 : MOCK_SESSIONS.length);
+  const connectedCount = (connectionsProp ?? (hasRealBinding ? [] : MOCK_CONNECTIONS)).filter((c) => c.connected).length;
 
   // State-driven action button
   const isRunning = status.state === "RUNNING";
@@ -297,9 +306,11 @@ export function AgentCardModule({
               <div className="text-sm font-semibold text-foreground truncate">
                 {agentName}
               </div>
-              <div className="text-[10px] text-text-muted truncate">
-                {config.model}{status.version ? ` · v${status.version}` : ""}
-              </div>
+              {(config.model || status.version) && (
+                <div className="text-[10px] text-text-muted truncate">
+                  {config.model}{status.version ? ` · v${status.version}` : ""}
+                </div>
+              )}
             </div>
             {renderActionButton()}
           </div>
@@ -370,14 +381,18 @@ export function AgentCardModule({
   // v3: Compact inline
   return (
     <div className="relative">
-      <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
-        mock
-      </span>
+      {isMock && (
+        <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
+          mock
+        </span>
+      )}
       <div className="rounded-md px-3 py-2 flex items-center gap-3 text-[10px] text-text-muted">
         <Bot className="w-4 h-4 text-[#38D39F] shrink-0" />
         <span className="text-foreground font-medium">{agentName}</span>
-        <span>·</span>
-        <span>{MOCK_CONFIG.model}</span>
+        {config.model && (<>
+          <span>·</span>
+          <span>{config.model}</span>
+        </>)}
         <span>·</span>
         <span>{enabledTools.length} tools</span>
         <span>·</span>

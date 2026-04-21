@@ -66,6 +66,12 @@ export interface AgentsChannelsSidebarProps {
   showChannels?: boolean;
   /** When provided, renders a collapse button in the header that calls this. */
   onCollapse?: () => void;
+  /** Real agent roster shown under "Available Agents". Falls back to mock list when undefined. */
+  availableAgents?: Participant[];
+  /** Create a real agent via the inline "New Agent" form. Must return the created agent id on success. */
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
+  openAgentCreatorSignal?: number;
 }
 
 // ── Mock Data ──
@@ -1506,7 +1512,10 @@ function HandoffThreadView({
   onRenameThread,
   onStartAgentChat,
   onCreateChannel,
+  onCreateAgent,
   showChannels = true,
+  availableAgents,
+  openAgentCreatorSignal,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
@@ -1515,13 +1524,24 @@ function HandoffThreadView({
   onRenameThread?: (threadId: string, title: string) => void;
   onStartAgentChat?: (agent: Participant) => void;
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
   showChannels?: boolean;
+  availableAgents?: Participant[];
+  openAgentCreatorSignal?: number;
 }) {
+  const agentsList = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
   const [showChannelCreator, setShowChannelCreator] = useState(false);
   const [agentsExpanded, setAgentsExpanded] = useState(false);
   const [myAgentsOpen, setMyAgentsOpen] = useState(true);
   const [channelsOpen, setChannelsOpen] = useState(true);
+
+  useEffect(() => {
+    if (openAgentCreatorSignal === undefined || openAgentCreatorSignal === 0) return;
+    setShowAgentCreator(true);
+    setShowChannelCreator(false);
+    setMyAgentsOpen(true);
+  }, [openAgentCreatorSignal]);
 
   const sortedThreads = useMemo(
     () => [...threads].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
@@ -1578,7 +1598,15 @@ function HandoffThreadView({
             <QuickAgentCreator
               open={showAgentCreator}
               onClose={() => setShowAgentCreator(false)}
-              onCreated={(name, _iconIndex, _size) => {
+              onCreated={async (name, iconIndex, size) => {
+                if (onCreateAgent) {
+                  const createdId = await onCreateAgent({ name, iconIndex, size });
+                  setShowAgentCreator(false);
+                  if (createdId) {
+                    onStartAgentChat?.({ id: createdId, name, type: "agent" });
+                  }
+                  return;
+                }
                 setShowAgentCreator(false);
                 const newAgent: Participant = { id: `agent-${name.toLowerCase().replace(/\s+/g, "-")}-${Date.now()}`, name, type: "agent" };
                 onStartAgentChat?.(newAgent);
@@ -1610,12 +1638,12 @@ function HandoffThreadView({
           <span className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
             Available Agents
           </span>
-          {!agentsExpanded && AVAILABLE_AGENTS_LIST.length > 3 && (
-            <span className="text-[9px] text-text-muted ml-1">+{AVAILABLE_AGENTS_LIST.length - 3} more</span>
+          {!agentsExpanded && agentsList.length > 3 && (
+            <span className="text-[9px] text-text-muted ml-1">+{agentsList.length - 3} more</span>
           )}
         </button>
         <div className="space-y-0.5">
-          {(agentsExpanded ? AVAILABLE_AGENTS_LIST : AVAILABLE_AGENTS_LIST.slice(0, 3)).map((agent) => {
+          {(agentsExpanded ? agentsList : agentsList.slice(0, 3)).map((agent) => {
             const av = agentAvatar(agent.name);
             const AvIcon = av.icon;
             return (
@@ -1681,7 +1709,7 @@ function HandoffThreadView({
                 setShowChannelCreator(false);
                 onCreateChannel?.(name, agents, users);
               }}
-              availableAgents={AVAILABLE_AGENTS_LIST}
+              availableAgents={agentsList}
               availableUsers={AVAILABLE_USERS_LIST}
             />
 
@@ -1838,6 +1866,9 @@ export function AgentsChannelsSidebar({
   onRenameThread,
   showChannels = true,
   onCollapse,
+  availableAgents,
+  onCreateAgent,
+  openAgentCreatorSignal,
 }: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -1894,7 +1925,10 @@ export function AgentsChannelsSidebar({
           onDeleteThread={onDeleteThread}
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
+          onCreateAgent={onCreateAgent}
           showChannels={showChannels}
+          availableAgents={availableAgents}
+          openAgentCreatorSignal={openAgentCreatorSignal}
         />
       )}
       {variant === "v3.1" && (
@@ -1906,7 +1940,10 @@ export function AgentsChannelsSidebar({
           onRenameThread={onRenameThread}
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
+          onCreateAgent={onCreateAgent}
           showChannels={showChannels}
+          availableAgents={availableAgents}
+          openAgentCreatorSignal={openAgentCreatorSignal}
         />
       )}
     </div>

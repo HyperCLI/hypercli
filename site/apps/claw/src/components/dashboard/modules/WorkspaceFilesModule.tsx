@@ -10,8 +10,8 @@ import type { FileEntry } from "../files/types";
 interface WorkspaceFilesModuleProps {
   variant: StyleVariant;
   files?: typeof MOCK_WORKSPACE_FILES | null;
-  /** Open the full file browser route. */
-  onOpenFiles?: () => void;
+  /** Open the full file browser route. If a path is supplied, the target should preview that file. */
+  onOpenFiles?: (path?: string) => void;
 }
 
 const PREVIEW_LIMIT = 5;
@@ -68,7 +68,7 @@ export function WorkspaceFilesModule({ variant: _variant, files: filesProp, onOp
             <FileRow
               key={entry.path}
               entry={entry}
-              onOpen={() => onOpenFiles?.()}
+              onOpen={(opened) => onOpenFiles?.(opened.type === "file" ? opened.path : undefined)}
             />
           ))}
           {overflowCount > 0 && (
@@ -80,7 +80,7 @@ export function WorkspaceFilesModule({ variant: _variant, files: filesProp, onOp
       {/* Footer — open full file browser */}
       {onOpenFiles && (
         <button
-          onClick={onOpenFiles}
+          onClick={() => onOpenFiles()}
           className="flex items-center justify-center gap-1.5 w-full py-1.5 rounded-md border border-border text-[11px] font-medium text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
         >
           <FolderOpen className="w-3.5 h-3.5" />

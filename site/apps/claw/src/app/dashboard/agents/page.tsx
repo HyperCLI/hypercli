@@ -45,7 +45,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { API_BASE_URL, agentApiFetch } from "@/lib/api";
-import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
+import { createAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
@@ -146,6 +146,7 @@ export default function AgentsPage() {
   const [reconnectNonce, setReconnectNonce] = useState(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
+  const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("agents.sidebarCollapsed") === "1";
@@ -1912,11 +1913,42 @@ export default function AgentsPage() {
                   threads={syntheticThreads}
                   selectedThreadId={selectedAgentId}
                   showChannels={false}
+                  availableAgents={agents.map((a) => ({
+                    id: a.id,
+                    name: a.name || a.id,
+                    type: "agent" as const,
+                  }))}
                   onSelectThread={(threadId) => {
                     setSelectedAgentId(threadId);
                     setMobileShowChat(true);
                   }}
+                  onStartAgentChat={(agent) => {
+                    setSelectedAgentId(agent.id);
+                    setMobileShowChat(true);
+                  }}
+                  onCreateAgent={async ({ name, iconIndex, size }) => {
+                    try {
+                      const token = await getToken();
+                      const created = await createOpenClawAgent(token, {
+                        name: name || undefined,
+                        start: true,
+                        size,
+                        meta: { ui: { avatar: { icon_index: iconIndex } } },
+                      });
+                      const gwToken = (created as { gatewayToken?: string }).gatewayToken;
+                      if (created.id && gwToken) {
+                        gatewayTokensRef.current[created.id] = gwToken;
+                        setGatewayToken(created.id, gwToken);
+                      }
+                      await fetchAgents();
+                      return created.id ?? null;
+                    } catch (err) {
+                      setError(err instanceof Error ? err.message : "Failed to create agent");
+                      return null;
+                    }
+                  }}
                   onNewThread={() => openCreateDialog()}
+                  openAgentCreatorSignal={sidebarCreatorSignal}
                   onDeleteThread={(threadId) => {
                     const a = agents.find((x) => x.id === threadId);
                     if (a) setPendingAgentDelete({ id: a.id, name: a.name || a.id });
@@ -1945,7 +1977,20 @@ export default function AgentsPage() {
             <div className="flex-1 flex items-center justify-center">
               <div className="text-center">
                 <Bot className="w-10 h-10 text-text-muted mx-auto mb-3" />
-                <p className="text-text-secondary">Select an agent to get started</p>
+                <p className="text-text-secondary mb-4">Select or create an agent to get started</p>
+                <motion.button
+                  whileHover={{ scale: 1.02, boxShadow: "0 0 16px rgba(56,211,159,0.12)" }}
+                  whileTap={{ scale: 0.97 }}
+                  onClick={() => {
+                    setSidebarCollapsed(false);
+                    setMobileShowChat(false);
+                    setSidebarCreatorSignal((v) => v + 1);
+                  }}
+                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#38D39F]/10 border border-[#38D39F]/20 hover:border-[#38D39F]/40 text-[#38D39F] transition-colors"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>Create new agent</span>
+                </motion.button>
               </div>
             </div>
           ) : (
@@ -2452,12 +2497,14 @@ export default function AgentsPage() {
                 uptime: selectedAgent.started_at ? Date.now() - new Date(selectedAgent.started_at).getTime() : 0,
                 cpu: selectedAgent.cpu_millicores / 10,
                 memory: { used: selectedAgent.memory_mib, total: selectedAgent.memory_mib },
-              } : selectedAgent.state === "STOPPED" ? {
-                state: "STOPPED",
+              } : {
+                state: (selectedAgent.state === "PENDING" || selectedAgent.state === "FAILED"
+                  ? "STOPPED"
+                  : selectedAgent.state) as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
                 uptime: 0,
                 cpu: 0,
                 memory: { used: 0, total: selectedAgent.memory_mib },
-              } : null}
+              }}
               agentConfig={agentConfigForView}
               agentConnections={agentConnectionsForView}
               agentSessions={agentSessionsForView}
@@ -2474,7 +2521,10 @@ export default function AgentsPage() {
               agentStopping={stoppingId === selectedAgent.id}
               agentStartBlocked={selectedAgentLaunchBlocked}
               agentStartBlockedReason={selectedAgentStartGuidance?.title}
-              onOpenFiles={() => router.push(`/dashboard/agents/${selectedAgent.id}/files`)}
+              onOpenFiles={(path) => {
+                const base = `/dashboard/agents/${selectedAgent.id}/files`;
+                router.push(path ? `${base}?file=${encodeURIComponent(path)}` : base);
+              }}
               conversationThreads={syntheticThreads}
               selectedConversationThreadId={selectedAgent.id}
             />
@@ -2526,7 +2576,10 @@ export default function AgentsPage() {
                 agentStopping={stoppingId === selectedAgent.id}
                 agentStartBlocked={selectedAgentLaunchBlocked}
                 agentStartBlockedReason={selectedAgentStartGuidance?.title}
-                onOpenFiles={() => router.push(`/dashboard/agents/${selectedAgent.id}/files`)}
+                onOpenFiles={(path) => {
+                const base = `/dashboard/agents/${selectedAgent.id}/files`;
+                router.push(path ? `${base}?file=${encodeURIComponent(path)}` : base);
+              }}
                 conversationThreads={syntheticThreads}
                 selectedConversationThreadId={selectedAgent.id}
               />
