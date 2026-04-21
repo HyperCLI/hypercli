@@ -258,13 +258,10 @@ model_list:
       model: openai/glm-5
       api_base: https://api.hypercli.com/v1
       api_key: sk-YOUR-HYPERCLAW-KEY
-
-  - model_name: qwen3-embedding-4b
-    litellm_params:
-      model: openai/qwen3-embedding-4b
-      api_base: https://api.hypercli.com/v1
-      api_key: sk-YOUR-HYPERCLAW-KEY
 ```
+
+For embeddings, use the same OpenAI-compatible upstream pattern with
+`model: openai/qwen3-embedding-4b` against `https://api.hypercli.com/v1`.
 
 ### Anthropic-style upstream
 
@@ -303,12 +300,6 @@ model_list:
       model: anthropic/kimi-k2.6-anthropic
       api_base: https://api.hypercli.com
       api_key: sk-YOUR-HYPERCLAW-KEY
-
-  - model_name: qwen3-embedding-4b
-    litellm_params:
-      model: openai/qwen3-embedding-4b
-      api_base: https://api.hypercli.com/v1
-      api_key: sk-YOUR-HYPERCLAW-KEY
 ```
 
 Use the Anthropic-style entries for chat-first agent workloads. Keep the
@@ -323,7 +314,6 @@ that expect `/v1`.
 | `glm-5-anthropic` | 202K tokens | GLM-5 on the recommended Anthropic Messages route |
 | `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route |
 | `glm-5` | 202K tokens | GLM-5 on the OpenAI-compatible route |
-| `qwen3-embedding-4b` | 32K tokens | Qwen3 Embedding 4B on the OpenAI-compatible embeddings route |
 
 Check available models at any time:
 
