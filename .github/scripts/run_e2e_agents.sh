@@ -115,6 +115,7 @@ trap 'cleanup; sync_artifacts' EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
+npm run sdk:use-checkout
 rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
 npm run build --workspace @hypercli/console --workspace @hypercli/claw
 
