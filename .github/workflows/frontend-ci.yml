@@ -28,6 +28,8 @@ jobs:
     secrets: inherit
 
   e2e-agents:
-    needs: build-site
+    # Both Privy E2E suites currently consume the same OTP inbox.
+    # Running them concurrently causes nondeterministic code pickup.
+    needs: e2e-console
     uses: ./.github/workflows/e2e-agents.yml
     secrets: inherit
