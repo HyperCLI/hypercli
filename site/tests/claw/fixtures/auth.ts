@@ -201,15 +201,19 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   const fetchOtpScript = path.resolve(__dirname, "..", "..", "..", "e2e", "flows", "fetch-otp.py");
   const pollTimeoutSec = Math.max(5, Math.ceil(OTP_TIMEOUT_MS / 1000));
 
-  execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
-    env: {
-      ...process.env,
-      IMAP_HOST: getEnv("TEST_IMAP_HOST"),
-      IMAP_USER: getEnv("TEST_IMAP_USER"),
-      IMAP_PASS: getEnv("TEST_IMAP_PASS"),
-    },
-    stdio: "ignore",
-  });
+  try {
+    execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
+      env: {
+        ...process.env,
+        IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+        IMAP_USER: getEnv("TEST_IMAP_USER"),
+        IMAP_PASS: getEnv("TEST_IMAP_PASS"),
+      },
+      stdio: "ignore",
+    });
+  } catch {
+    console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP poll");
+  }
 
   const output = execFileSync("python3", [fetchOtpScript, "--timeout", String(pollTimeoutSec)], {
     env: {
