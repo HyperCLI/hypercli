@@ -6,6 +6,7 @@
  */
 import type { HTTPClient } from './http.js';
 import { getAgentsApiBaseUrl } from './config.js';
+import type { X402Signer } from './x402.js';
 
 function resolveHyperAgentBaseUrl(agentsApiBaseUrl: string | undefined, dev: boolean): string {
   const raw = (agentsApiBaseUrl || '').replace(/\/+$/, '');
@@ -414,6 +415,56 @@ export interface HyperAgentX402PurchaseRequest {
 }
 
 export interface HyperAgentX402PurchaseResponse extends HyperAgentX402CheckoutResponse {}
+
+export interface HyperAgentBrowserX402PurchaseRequest extends HyperAgentX402PurchaseRequest {
+  amountUsd: number;
+  signer: X402Signer;
+}
+
+async function controlPostWithX402Middleware(
+  controlBaseUrl: string,
+  apiKey: string,
+  path: string,
+  body: Record<string, any>,
+  signer: X402Signer,
+  amountUsd: number,
+): Promise<any> {
+  let axiosMod: any;
+  let x402AxiosMod: any;
+  let evmMod: any;
+  try {
+    axiosMod = await import('axios');
+    x402AxiosMod = await import('@x402/axios');
+    evmMod = await import('@x402/evm');
+  } catch {
+    throw new Error(
+      'x402 browser dependencies missing. Install with: npm install axios @x402/axios @x402/evm'
+    );
+  }
+
+  const axios = axiosMod.default ?? axiosMod;
+  const { wrapAxiosWithPayment, x402Client } = x402AxiosMod;
+  const { ExactEvmScheme } = evmMod;
+
+  const client = new x402Client();
+  client.register('eip155:*', new ExactEvmScheme(signer));
+
+  const instance = axios.create({
+    baseURL: controlBaseUrl,
+    headers: { 'Content-Type': 'application/json' },
+  });
+
+  const api = wrapAxiosWithPayment(instance, client);
+  const response = await api.post(path, body, {
+    headers: {
+      Authorization: `Bearer ${apiKey}`,
+    },
+    params: {
+      amount: amountUsd.toFixed(2),
+    },
+  });
+  return response.data;
+}
 
 function hyperAgentPlanFromDict(data: any): HyperAgentPlan {
   return {
@@ -1129,6 +1180,26 @@ export class HyperAgent {
     );
   }
 
+  async purchaseViaX402WithSigner(
+    planId: string,
+    request: HyperAgentBrowserX402PurchaseRequest,
+  ): Promise<HyperAgentX402PurchaseResponse> {
+    const payload = {
+      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
+      ...(request.bundle ? { bundle: request.bundle } : {}),
+    };
+    return hyperAgentX402CheckoutResponseFromDict(
+      await controlPostWithX402Middleware(
+        this.controlBaseUrl,
+        this.apiKey,
+        `/x402/${encodeURIComponent(planId)}`,
+        payload,
+        request.signer,
+        request.amountUsd,
+      ),
+    );
+  }
+
   async purchaseBundleViaX402(
     request: HyperAgentX402PurchaseRequest = {},
   ): Promise<HyperAgentX402PurchaseResponse> {
@@ -1139,7 +1210,32 @@ export class HyperAgent {
     return hyperAgentX402CheckoutResponseFromDict(await this.controlPost('/x402/_bundle', payload));
   }
 
+  async purchaseBundleViaX402WithSigner(
+    request: HyperAgentBrowserX402PurchaseRequest,
+  ): Promise<HyperAgentX402PurchaseResponse> {
+    const payload = {
+      ...(request.quantity !== undefined ? { quantity: request.quantity } : {}),
+      ...(request.bundle ? { bundle: request.bundle } : {}),
+    };
+    return hyperAgentX402CheckoutResponseFromDict(
+      await controlPostWithX402Middleware(
+        this.controlBaseUrl,
+        this.apiKey,
+        '/x402/_bundle',
+        payload,
+        request.signer,
+        request.amountUsd,
+      ),
+    );
+  }
+
   async createX402Checkout(request: HyperAgentX402CheckoutRequest = {}): Promise<HyperAgentX402CheckoutResponse> {
     return this.purchaseBundleViaX402(request);
+  }
+
+  async createX402CheckoutWithSigner(
+    request: HyperAgentBrowserX402PurchaseRequest,
+  ): Promise<HyperAgentX402CheckoutResponse> {
+    return this.purchaseBundleViaX402WithSigner(request);
   }
 }

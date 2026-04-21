@@ -427,6 +427,11 @@ function randomHexToken(bytes: number): string {
   return Array.from(buffer, (value) => value.toString(16).padStart(2, '0')).join('');
 }
 
+function defaultControlUiAllowedOrigin(): string | null {
+  const locationOrigin = (globalThis as { location?: { origin?: string } }).location?.origin;
+  return typeof locationOrigin === 'string' && locationOrigin.trim() ? locationOrigin : null;
+}
+
 function encodeFilePath(path: string): string {
   return path
     .replace(/^\/+/, '')
@@ -518,6 +523,12 @@ export function buildAgentConfig(
   }
 
   env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
+  if (!env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
+    const controlUiOrigin = defaultControlUiAllowedOrigin();
+    if (controlUiOrigin) {
+      env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;
+    }
+  }
 
   const prepared: Record<string, any> = {};
   if (Object.keys(preparedConfig).length > 0) prepared.config = preparedConfig;

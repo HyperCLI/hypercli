@@ -3,7 +3,7 @@
 import { useState } from "react";
 import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
-import { agentApiFetch } from "@/lib/api";
+import { createHyperAgentClient } from "@/lib/agent-client";
 import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
 import { formatTokens } from "@/lib/format";
 
@@ -58,19 +58,17 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      const data = await agentApiFetch<{ checkout_url: string }>(
-        `/stripe/checkout`,
-        token,
+      const hyperAgent = createHyperAgentClient(token);
+      const data = await hyperAgent.createStripeCheckout(
         {
-          method: "POST",
-          body: JSON.stringify({
-            bundle: plan.bundle,
-            success_url: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
-            cancel_url: `${window.location.origin}/plans?cancelled=true`,
-          }),
-        }
+          bundle: plan.bundle,
+          quantity: 1,
+          successUrl: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
+          cancelUrl: `${window.location.origin}/plans?cancelled=true`,
+        },
+        plan.id,
       );
-      window.location.href = data.checkout_url;
+      window.location.href = data.checkoutUrl;
     } catch (err) {
       setError(
         err instanceof Error ? err.message : "Failed to create checkout session"

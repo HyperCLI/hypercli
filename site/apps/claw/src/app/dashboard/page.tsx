@@ -18,14 +18,20 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { agentApiFetch } from "@/lib/api";
-import { createAgentClient, startOpenClawAgent } from "@/lib/agent-client";
+import { createAgentClient, createHyperAgentClient, startOpenClawAgent } from "@/lib/agent-client";
 import { removeAgentState } from "@/lib/agent-store";
 import { refreshGatewayToken } from "@/lib/gateway-auth";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import type {
+  HyperAgentCurrentPlan,
+  HyperAgentKeyUsage,
+  HyperAgentUsageHistory,
+  HyperAgentUsageSummary,
+} from "@hypercli.com/sdk/agent";
+import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 
 // ── Types ──
 
@@ -135,6 +141,79 @@ function x402CountdownLabel(secondsRemaining: number): string {
   return String(Math.max(0, Math.ceil(secondsRemaining / 86400)));
 }
 
+function normalizePlan(plan: HyperAgentCurrentPlan): PlanInfo {
+  return {
+    id: plan.id,
+    name: plan.name,
+    price: typeof plan.price === "string" ? Number(plan.price) : plan.price,
+    aiu: plan.aiu ?? 0,
+    features: [],
+    expires_at: plan.expiresAt?.toISOString() ?? null,
+    provider: plan.provider ?? null,
+    seconds_remaining: plan.secondsRemaining ?? null,
+    limits: {
+      tpd: plan.pooledTpd ?? 0,
+      tpm: plan.tpmLimit,
+      burst_tpm: plan.tpmLimit,
+      rpm: plan.rpmLimit,
+    },
+  };
+}
+
+function normalizeUsage(usage: HyperAgentUsageSummary): UsageInfo {
+  return {
+    total_tokens: usage.totalTokens,
+    prompt_tokens: usage.promptTokens,
+    completion_tokens: usage.completionTokens,
+    request_count: usage.requestCount,
+    active_keys: usage.activeKeys,
+    current_tpm: usage.currentTpm,
+    current_rpm: usage.currentRpm,
+    period: usage.period,
+  };
+}
+
+function normalizeHistory(history: HyperAgentUsageHistory): HistoryResponse {
+  return {
+    days: history.days,
+    history: history.history.map((entry) => ({
+      date: entry.date,
+      total_tokens: entry.totalTokens,
+      prompt_tokens: entry.promptTokens,
+      completion_tokens: entry.completionTokens,
+      requests: entry.requests,
+    })),
+  };
+}
+
+function normalizeKeyUsage(keyUsage: HyperAgentKeyUsage): KeyUsageResponse {
+  return {
+    days: keyUsage.days,
+    keys: keyUsage.keys.map((entry) => ({
+      key_hash: entry.keyHash,
+      name: entry.name,
+      total_tokens: entry.totalTokens,
+      prompt_tokens: entry.promptTokens,
+      completion_tokens: entry.completionTokens,
+      requests: entry.requests,
+    })),
+  };
+}
+
+function normalizeAgent(agent: SdkAgent): Agent {
+  return {
+    id: agent.id,
+    name: agent.name ?? agent.id,
+    state: agent.state as AgentState,
+    cpu: agent.cpu,
+    memory: agent.memory,
+    hostname: agent.hostname ?? null,
+    started_at: agent.startedAt?.toISOString() ?? null,
+    last_error: agent.lastError ?? null,
+    meta: agent.meta ?? null,
+  };
+}
+
 // ── Main component ──
 
 export default function DashboardPage() {
@@ -152,22 +231,23 @@ export default function DashboardPage() {
   const fetchData = useCallback(async () => {
     try {
       const token = await getToken();
+      const hyperAgent = createHyperAgentClient(token);
+      const deployments = createAgentClient(token);
       const [planData, usageData, historyData, keyData, agentData] =
         await Promise.allSettled([
-          agentApiFetch<PlanInfo>("/plans/current", token),
-          agentApiFetch<UsageInfo>("/usage", token),
-          agentApiFetch<HistoryResponse>("/usage/history?days=7", token),
-          agentApiFetch<KeyUsageResponse>("/usage/keys?days=7", token),
-          agentApiFetch<{ items?: Agent[] } | Agent[]>("/deployments", token),
+          hyperAgent.currentPlan(),
+          hyperAgent.usageSummary(),
+          hyperAgent.usageHistory(7),
+          hyperAgent.keyUsage(7),
+          deployments.list(),
         ]);
 
-      if (planData.status === "fulfilled") setPlan(planData.value);
-      if (usageData.status === "fulfilled") setUsage(usageData.value);
-      if (historyData.status === "fulfilled") setHistory(historyData.value.history);
-      if (keyData.status === "fulfilled") setKeyUsage(keyData.value.keys);
+      if (planData.status === "fulfilled") setPlan(normalizePlan(planData.value));
+      if (usageData.status === "fulfilled") setUsage(normalizeUsage(usageData.value));
+      if (historyData.status === "fulfilled") setHistory(normalizeHistory(historyData.value).history);
+      if (keyData.status === "fulfilled") setKeyUsage(normalizeKeyUsage(keyData.value).keys);
       if (agentData.status === "fulfilled") {
-        const items = Array.isArray(agentData.value) ? agentData.value : agentData.value.items || [];
-        setAgents(items);
+        setAgents(agentData.value.map(normalizeAgent));
       }
     } catch {
       // Graceful fallback

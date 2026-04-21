@@ -66,11 +66,30 @@
     "@noble/ed25519": "^3.0.0",
     "ws": "^8.16.0"
   },
+  "peerDependencies": {
+    "@x402/axios": "^2.0.0",
+    "@x402/evm": "^2.0.0",
+    "axios": "^1.7.0"
+  },
+  "peerDependenciesMeta": {
+    "@x402/axios": {
+      "optional": true
+    },
+    "@x402/evm": {
+      "optional": true
+    },
+    "axios": {
+      "optional": true
+    }
+  },
   "devDependencies": {
+    "@x402/axios": "^2.0.0",
+    "@x402/evm": "^2.0.0",
     "@types/node": "^20.11.0",
     "@types/ws": "^8.5.10",
     "@typescript-eslint/eslint-plugin": "^8.55.0",
     "@typescript-eslint/parser": "^8.55.0",
+    "axios": "^1.7.0",
     "@vitest/ui": "^4.0.18",
     "eslint": "^9.39.2",
     "typescript": "^5.3.3",

@@ -9,8 +9,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL } from "@/lib/api";
-import { createOpenClawAgent } from "@/lib/agent-client";
+import { createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
 import { formatTokens, type SlotInventory } from "@/lib/format";
 
 // ── Types ──
@@ -184,12 +183,10 @@ export function AgentCreationWizard({
 
     const loadTypeCatalog = async () => {
       try {
-        const catalogResponse = await fetch(`${API_BASE_URL}/types`);
+        const token = await getToken();
+        const catalogResponse = await createHyperAgentClient(token).agentTypes();
         if (cancelled) return;
-        if (catalogResponse.ok) {
-          const payload = (await catalogResponse.json()) as AgentTypeCatalogResponse;
-          setTypeCatalog(payload);
-        }
+        setTypeCatalog(catalogResponse as unknown as AgentTypeCatalogResponse);
       } catch {
         if (!cancelled) {
           setTypeCatalog(null);
@@ -201,7 +198,7 @@ export function AgentCreationWizard({
     return () => {
       cancelled = true;
     };
-  }, [open]);
+  }, [getToken, open]);
 
   useEffect(() => {
     if (!open || sizeOptions.length === 0) return;

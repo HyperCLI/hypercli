@@ -3,7 +3,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import { useCallback } from "react";
 import { useHyperCLI } from "./useHyperCLI";
-import { API_BASE_URL } from "@/lib/api";
 import type { HyperAgentPlan, HyperAgentCurrentPlan, AgentTypeCatalogResponse } from "@/types";
 
 export const plansKeys = {
@@ -51,11 +50,10 @@ export function usePlans() {
   } = useQuery({
     queryKey: plansKeys.types,
     queryFn: async (): Promise<AgentTypeCatalogResponse> => {
-      const response = await fetch(`${API_BASE_URL}/types`);
-      if (!response.ok) throw new Error(`Failed to load types: ${response.status}`);
-      return response.json();
+      if (!hyperAgent) throw new Error("SDK not ready");
+      return hyperAgent.agentTypes() as unknown as AgentTypeCatalogResponse;
     },
-    enabled: !!token,
+    enabled: ready && !!hyperAgent && !!token,
   });
 
   const error = plansError || currentPlanError

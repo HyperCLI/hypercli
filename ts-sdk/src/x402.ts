@@ -73,6 +73,11 @@ export interface X402CreateFlowOptions {
   notifyUrl?: string;
 }
 
+export interface X402PostOptions {
+  headers?: Record<string, string>;
+  query?: Record<string, string | number>;
+}
+
 // ---------------------------------------------------------------------------
 // Helpers
 // ---------------------------------------------------------------------------
@@ -209,12 +214,13 @@ async function jsonGet(baseUrl: string, path: string, timeout: number): Promise<
  * This requires the `@x402/client` and `@x402/evm` packages.
  * The signer must implement `signTypedData` (e.g., a viem WalletClient or ethers Signer).
  */
-async function x402Post(
+export async function x402Post(
   baseUrl: string,
   path: string,
   payload: Record<string, any>,
   signer: X402Signer,
   timeout: number,
+  options: X402PostOptions = {},
 ): Promise<any> {
   let x402ClientClass: any;
   let ExactEvmScheme: any;
@@ -225,7 +231,7 @@ async function x402Post(
     // @ts-ignore — optional peer dependency
     const evmMod = await import('@x402/evm');
     x402ClientClass = clientMod.x402Client ?? clientMod.default;
-    ExactEvmScheme = evmMod.ExactEvmScheme ?? evmMod.default;
+    ExactEvmScheme = evmMod.ExactEvmScheme;
   } catch {
     throw new Error(
       'x402 dependencies missing. Install with: npm install @x402/client @x402/evm'
@@ -235,8 +241,17 @@ async function x402Post(
   const client = new x402ClientClass();
   client.register('eip155:*', new ExactEvmScheme(signer));
 
-  const endpoint = `${baseUrl}${path}`;
-  const headers: Record<string, string> = { 'Content-Type': 'application/json' };
+  const endpointUrl = new URL(`${baseUrl}${path}`);
+  for (const [key, value] of Object.entries(options.query ?? {})) {
+    if (value !== undefined && value !== null) {
+      endpointUrl.searchParams.set(key, String(value));
+    }
+  }
+  const endpoint = endpointUrl.toString();
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options.headers ?? {}),
+  };
 
   const controller = new AbortController();
   const timer = setTimeout(() => controller.abort(), timeout);

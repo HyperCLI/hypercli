@@ -145,6 +145,7 @@ export {
   type HyperAgentStripeCheckoutResponse,
   type HyperAgentX402CheckoutRequest,
   type HyperAgentX402CheckoutResponse,
+  type HyperAgentBrowserX402PurchaseRequest,
   type HyperAgentX402PurchaseRequest,
   type HyperAgentX402PurchaseResponse,
 } from './agent.js';

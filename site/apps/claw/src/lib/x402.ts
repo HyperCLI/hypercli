@@ -84,15 +84,8 @@ export function getWalletState(): WalletState | null {
   return walletState;
 }
 
-// ---------------------------------------------------------------------------
-// x402 payment client
-// ---------------------------------------------------------------------------
-
-let paymentApi: AxiosInstance | null = null;
-
-function buildPaymentApi(wallet: WalletClient): AxiosInstance {
-  // WalletClient satisfies ClientEvmSigner (address + signTypedData)
-  const signer = {
+export function walletClientToX402Signer(wallet: WalletClient) {
+  return {
     address: wallet.account!.address,
     signTypedData: (params: {
       domain: Record<string, unknown>;
@@ -108,9 +101,13 @@ function buildPaymentApi(wallet: WalletClient): AxiosInstance {
         message: params.message as any,
       }),
   };
+}
 
+let paymentApi: AxiosInstance | null = null;
+
+function buildPaymentApi(wallet: WalletClient): AxiosInstance {
   const client = new x402Client();
-  client.register("eip155:*", new ExactEvmScheme(signer));
+  client.register("eip155:*", new ExactEvmScheme(walletClientToX402Signer(wallet)));
 
   const instance = axios.create({
     baseURL: X402_BASE_URL,
@@ -127,10 +124,7 @@ export async function x402Subscribe(
   amountUsd: number,
   quantity: number = 1,
 ): Promise<{ ok: boolean; plan_id: string; expires_at: string }> {
-  // Ensure wallet is connected
   const wallet = await connectWallet();
-
-  // Build payment API if needed
   if (!paymentApi) {
     paymentApi = buildPaymentApi(wallet.client);
   }

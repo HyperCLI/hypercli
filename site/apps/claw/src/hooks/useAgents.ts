@@ -3,7 +3,6 @@
 import { useCallback, useMemo } from "react";
 import { useQuery, useMutation, useQueryClient } from "@tanstack/react-query";
 import { useHyperCLI } from "./useHyperCLI";
-import { createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
 import { isTransitionalState } from "@/types";
 import type { SdkAgent, AgentListResponse } from "@/types";
 
@@ -52,8 +51,8 @@ export function useAgents() {
   // ── Create mutation ──
   const createMutation = useMutation({
     mutationFn: async (options: Record<string, unknown>) => {
-      if (!token) throw new Error("Not authenticated");
-      return createOpenClawAgent(token, options);
+      if (!deployments) throw new Error("SDK not ready");
+      return deployments.createOpenClaw(options);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentsKeys.all });
@@ -63,8 +62,8 @@ export function useAgents() {
   // ── Start mutation ──
   const startMutation = useMutation({
     mutationFn: async (agentId: string) => {
-      if (!token) throw new Error("Not authenticated");
-      return startOpenClawAgent(token, agentId);
+      if (!deployments) throw new Error("SDK not ready");
+      return deployments.startOpenClaw(agentId);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentsKeys.all });
