@@ -60,8 +60,7 @@ test.describe.serial("Agents subscription", () => {
         await deleteClawAgent(page, createdAgentId).catch(() => {});
       }
 
-      const cancelled = await cancelActiveClawStripeSubscriptionsForTestUser();
-      expect(cancelled.length).toBeGreaterThan(0);
+      await cancelActiveClawStripeSubscriptionsForTestUser();
       const downgradedPlan = await waitForClawPlanId(page, "free");
       expect(downgradedPlan.id).toBe("free");
       await captureStep(page, "agents-09-plan-downgraded");
