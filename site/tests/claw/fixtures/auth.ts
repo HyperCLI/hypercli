@@ -162,10 +162,16 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     SCREENSHOT_DIR,
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${slugifyStep(step)}.png`
   );
-  if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
-    await page.waitForTimeout(SCREENSHOT_DELAY_MS);
+  if (page.isClosed()) {
+    return filePath;
   }
-  await page.screenshot({ path: filePath, fullPage: true });
+  if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
+    await page.waitForTimeout(SCREENSHOT_DELAY_MS).catch(() => {});
+  }
+  if (page.isClosed()) {
+    return filePath;
+  }
+  await page.screenshot({ path: filePath, fullPage: true }).catch(() => {});
   return filePath;
 }
 
