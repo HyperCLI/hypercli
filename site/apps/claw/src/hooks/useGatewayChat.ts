@@ -385,16 +385,6 @@ export function useGatewayChat(
           const event = gatewayEvent.event;
           const payload = gatewayEvent.payload ?? {};
 
-          // Suppress traffic from non-main sessions (cron heartbeats, background
-          // jobs, agent-initiated sessions). Only filter when sessionKey is
-          // explicitly present — some chat events may not carry it.
-          if (typeof event === "string" && event.startsWith("chat")) {
-            const sk = (payload as Record<string, unknown>).sessionKey;
-            if (typeof sk === "string" && sk.trim() && sk.trim() !== "main") {
-              return;
-            }
-          }
-
           // HYP-27: process agent tool stream events into ChatMessage toolCalls
           if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
             const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;
