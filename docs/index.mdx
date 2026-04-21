@@ -3,13 +3,64 @@ title: HyperCLI
 description: GPU orchestration, media flows, HyperClaw inference, and OpenClaw agents.
 ---
 
-HyperCLI provides:
+HyperCLI is the unified control plane for GPU jobs, media flows, inference, and
+agent runtimes.
 
-- GPU job orchestration through jobs and instance launches
-- Managed media flows for image, video, speech, and transcription
-- x402 pay-per-use launches for jobs and flows
-- HyperClaw inference plans and model discovery
-- OpenClaw and `hypercli-openclaw` deployments
+Use it when you need to:
+
+- launch raw GPU capacity on demand
+- run image, video, speech, and transcription flows
+- integrate against HyperClaw chat and embeddings endpoints
+- deploy and operate OpenClaw desktop agents
+
+## Start Here
+
+- [Quickstart](/quickstart) for install, auth, and the first working commands
+- [Authentication](/authentication) for API keys, scoped keys, and JWT flows
+- [Instances](/instances/index) for direct GPU capacity
+- [Inference](/inference/index) for hosted model access
+- [Agents](/agents/index) for managed OpenClaw runtimes
+- [TypeScript SDK](/ts-sdk/index) and [Python SDK](/sdk/index) for app
+  integration
+
+## Platform Areas
+
+### GPU Instances
+
+Run containers directly on GPU infrastructure when you want low-level control
+over the image, entrypoint, and region selection.
+
+- [Pricing](/instances/pricing)
+- [GPU Types](/instances/types)
+- [Regions](/instances/regions)
+
+### Flows
+
+Use higher-level APIs for text-to-image, speech, video, and other managed media
+workloads.
+
+- [Flow API](/flows/index)
+- [x402 pay-per-use](/flows/x402)
+
+### Inference
+
+Call hosted LLM and embedding models through OpenAI-compatible and
+Anthropic-style surfaces.
+
+- [Inference Quickstart](/inference/quickstart)
+- [Models](/inference/models)
+- [Pricing](/inference/pricing)
+- [Tiers](/inference/tiers)
+
+### Agents
+
+Run browser-accessible desktop containers with shell access, files, routes, and
+the OpenClaw gateway.
+
+- [Agents Overview](/agents/index)
+- [Agent Quickstart](/agents/quickstart)
+- [Agent Integrations](/agents/integrations)
+- [Agent API](/agents/api)
 
 ## Install
 
@@ -56,3 +107,12 @@ hyper flow text-to-image "a product hero image" --x402
 hyper agent plans
 hyper agent config env
 ```
+
+## Build Paths
+
+- CLI-first operators: start with [Quickstart](/quickstart) and
+  [CLI Configuration](/cli/configuration)
+- App developers: go to [TypeScript SDK](/ts-sdk/index),
+  [Python SDK](/sdk/index), or [API Reference](/api-reference/introduction)
+- AI platform teams: use [Agent Integrations](/agents/integrations) and
+  [Inference Models](/inference/models)
