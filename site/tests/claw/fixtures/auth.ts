@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ImapFlow } from "imapflow";
+import { execFileSync } from "node:child_process";
 import { expect, type Frame, type Locator, type Page } from "@playwright/test";
 
 type RequiredEnvKey =
@@ -78,6 +78,19 @@ interface HyperAgentClientLike {
   currentPlan(): Promise<HyperAgentCurrentPlan>;
 }
 
+interface DeploymentRecord {
+  id: string;
+  name?: string | null;
+  state?: string | null;
+}
+
+interface DeploymentsClientLike {
+  list(): Promise<DeploymentRecord[]>;
+  get(agentId: string): Promise<DeploymentRecord>;
+  stop(agentId: string): Promise<unknown>;
+  delete(agentId: string): Promise<unknown>;
+}
+
 interface TopUpApiClientLike {
   billing: {
     balance(): Promise<unknown>;
@@ -119,6 +132,20 @@ async function getHyperAgentClient(token: string): Promise<HyperAgentClientLike>
     import("@hypercli.com/sdk"),
   ]);
   return new HyperAgent(new HTTPClient(getAgentsApiBaseUrl(), token), token, true);
+}
+
+async function getDeploymentsClient(token: string): Promise<DeploymentsClientLike> {
+  const [{ HTTPClient }, { Deployments }] = await Promise.all([
+    import("@hypercli.com/sdk/http"),
+    import("@hypercli.com/sdk/agents"),
+  ]);
+  const agentsApiBaseUrl = getAgentsApiBaseUrl();
+  return new Deployments(
+    new HTTPClient(agentsApiBaseUrl, token),
+    token,
+    agentsApiBaseUrl,
+    getOptionalEnv("NEXT_PUBLIC_AGENTS_WS_URL") || undefined
+  );
 }
 
 async function ensureScreenshotDir(): Promise<void> {
@@ -171,98 +198,45 @@ function extractOtpFromText(text: string): string | null {
 }
 
 export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
-  const client = new ImapFlow({
-    host: getEnv("TEST_IMAP_HOST"),
-    port: DEFAULT_IMAP_PORT,
-    secure: true,
-    auth: {
-      user: getEnv("TEST_IMAP_USER"),
-      pass: getEnv("TEST_IMAP_PASS"),
+  const fetchOtpScript = path.resolve(__dirname, "..", "..", "..", "e2e", "flows", "fetch-otp.py");
+  const pollTimeoutSec = Math.max(5, Math.ceil(OTP_TIMEOUT_MS / 1000));
+
+  execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
+    env: {
+      ...process.env,
+      IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+      IMAP_USER: getEnv("TEST_IMAP_USER"),
+      IMAP_PASS: getEnv("TEST_IMAP_PASS"),
     },
-    logger: false,
+    stdio: "ignore",
   });
 
-  await client.connect();
+  const output = execFileSync("python3", [fetchOtpScript, "--timeout", String(pollTimeoutSec)], {
+    env: {
+      ...process.env,
+      IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+      IMAP_USER: getEnv("TEST_IMAP_USER"),
+      IMAP_PASS: getEnv("TEST_IMAP_PASS"),
+    },
+    encoding: "utf8",
+  });
 
-  try {
-    const lock = await client.getMailboxLock("INBOX");
-    try {
-      const deadline = Date.now() + OTP_TIMEOUT_MS;
-      await new Promise((resolve) => setTimeout(resolve, OTP_INITIAL_DELAY_MS));
+  const otp = output
+    .trim()
+    .split("\n")
+    .map((line) => line.trim())
+    .filter(Boolean)
+    .at(-1);
 
-      while (Date.now() < deadline) {
-        const uids = (await client.search({ since: submittedAt }, { uid: true })) || [];
-        const candidateMessages: Array<{
-          internalDate: Date;
-          normalizedSource: string;
-        }> = [];
-
-        for (const uid of uids) {
-          let message:
-            | {
-                envelope?: { from?: Array<{ address?: string | null }>; subject?: string | null };
-                source?: Buffer;
-                internalDate?: Date | string;
-              }
-            | null = null;
-
-          for await (const item of client.fetch(String(uid), {
-            uid: true,
-            envelope: true,
-            source: true,
-            internalDate: true,
-          }, { uid: true })) {
-            message = item as typeof message;
-            break;
-          }
-
-          if (!message) {
-            continue;
-          }
-
-          const fromValue = message?.envelope?.from?.map((entry) => entry.address || "").join(" ") || "";
-          const source = message?.source;
-          const internalDate = message?.internalDate ? new Date(message.internalDate) : null;
-          if (!source || !internalDate || internalDate <= submittedAt) {
-            continue;
-          }
-
-          const normalizedSource = decodeMessage(source);
-          const looksLikePrivy =
-            /privy\.io|privy/i.test(fromValue) ||
-            /privy/i.test(message?.envelope?.subject || "");
-
-          if (!looksLikePrivy) {
-            continue;
-          }
-
-          candidateMessages.push({
-            internalDate,
-            normalizedSource,
-          });
-        }
-
-        candidateMessages.sort(
-          (left, right) => right.internalDate.getTime() - left.internalDate.getTime()
-        );
-
-        for (const message of candidateMessages) {
-          const otp = extractOtpFromText(message.normalizedSource);
-          if (otp) {
-            return otp;
-          }
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, OTP_POLL_INTERVAL_MS));
-      }
-    } finally {
-      lock.release();
-    }
-  } finally {
-    await client.logout().catch(() => client.close());
+  if (!otp || !/^\d{6}$/.test(otp)) {
+    throw new Error("Timed out waiting for a Privy OTP email");
   }
 
-  throw new Error("Timed out waiting for a Privy OTP email");
+  if (submittedAt) {
+    void submittedAt;
+  }
+
+  return otp;
 }
 
 export async function fillOtp(page: Page, otp: string): Promise<void> {
@@ -1075,6 +1049,108 @@ export async function waitForPaidClawPlan(
     .not.toBe("free");
 
   return latestPlan!;
+}
+
+export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<void> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  const existingAgents = await deployments.list();
+
+  for (const agent of existingAgents) {
+    const agentId = String(agent.id || "");
+    if (!agentId) continue;
+    try {
+      await deployments.delete(agentId);
+    } catch {
+      try {
+        await deployments.stop(agentId);
+      } catch {
+        // Keep going; delete polling below will surface any stuck agents.
+      }
+      try {
+        await deployments.delete(agentId);
+      } catch {
+        // Ignore individual delete errors here; the poll below is the real gate.
+      }
+    }
+  }
+
+  await expect
+    .poll(async () => {
+      const items = await deployments.list();
+      return items.length;
+    }, { timeout, intervals: [1_000, 2_000, 5_000] })
+    .toBe(0);
+}
+
+export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240_000): Promise<DeploymentRecord> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+
+  await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("button", { name: /create new agent|new agent|create/i }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await captureStep(page, "agents-10-dashboard");
+
+  const createButton = page.getByRole("button", { name: /create new agent|new agent|create/i }).first();
+  await createButton.click();
+
+  const nextButton = page.getByRole("button", { name: /^next$/i }).first();
+  await expect(nextButton).toBeVisible({ timeout: 10_000 });
+  await nextButton.click();
+
+  const secondNextButton = page.getByRole("button", { name: /^next$/i }).first();
+  if (await secondNextButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await secondNextButton.click();
+  }
+
+  const createResponsePromise = page.waitForResponse((response) => {
+    return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
+  });
+
+  const launchButton = page.getByRole("button", { name: /create|launch|deploy/i }).first();
+  await expect(launchButton).toBeVisible({ timeout: 10_000 });
+  await launchButton.click();
+
+  const createResponse = await createResponsePromise;
+  expect(createResponse.ok()).toBeTruthy();
+  const created = (await createResponse.json()) as DeploymentRecord;
+  expect(created.id).toBeTruthy();
+  await captureStep(page, "agents-11-created");
+
+  await expect
+    .poll(async () => {
+      const latest = await deployments.get(created.id);
+      return latest.state ?? null;
+    }, { timeout, intervals: [2_000, 5_000, 10_000] })
+    .toBe("RUNNING");
+
+  await expect(page.getByPlaceholder("Type a message...")).toBeVisible({ timeout: 60_000 });
+  await expect(page.getByText("Send a message to start chatting with your agent", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(
+    page.getByText("Connecting to gateway...", { exact: true }).first()
+  ).not.toBeVisible({ timeout: 60_000 });
+  await captureStep(page, "agents-12-gateway-connected");
+
+  return created;
+}
+
+export async function deleteClawAgent(page: Page, agentId: string): Promise<void> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  try {
+    await deployments.delete(agentId);
+  } catch {
+    try {
+      await deployments.stop(agentId);
+    } catch {
+      // Best effort cleanup only.
+    }
+    await deployments.delete(agentId);
+  }
 }
 
 async function stripeApiRequest<T>(
