@@ -42,7 +42,20 @@ jobs:
           source .bootstrap-venv/bin/activate
           python -m pip install --upgrade pip
           python -m pip install requests
-          python .github/scripts/bootstrap_console_test_key.py bootstrap --format github-env >> "$GITHUB_ENV"
+          bootstrap_json="$(python .github/scripts/bootstrap_console_test_key.py bootstrap --format json)"
+          test_api_key="$(printf '%s' "$bootstrap_json" | python -c 'import json,sys; print(json.load(sys.stdin)["test_api_key"])')"
+          expected_test_email="$(printf '%s' "$bootstrap_json" | python -c 'import json,sys; print(json.load(sys.stdin)["email"])')"
+          bootstrap_state_file="$(printf '%s' "$bootstrap_json" | python -c 'import json,sys; print(json.load(sys.stdin)["state_file"])')"
+          echo "::add-mask::$test_api_key"
+          echo "TEST_API_KEY<<EOF" >> "$GITHUB_ENV"
+          echo "$test_api_key" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+          echo "EXPECTED_TEST_EMAIL<<EOF" >> "$GITHUB_ENV"
+          echo "$expected_test_email" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
+          echo "BOOTSTRAP_STATE_FILE<<EOF" >> "$GITHUB_ENV"
+          echo "$bootstrap_state_file" >> "$GITHUB_ENV"
+          echo "EOF" >> "$GITHUB_ENV"
 
       - name: Build E2E image
         id: build-e2e
