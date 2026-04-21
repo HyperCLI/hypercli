@@ -227,22 +227,88 @@ curl https://api.hypercli.com/v1/chat/completions \
 
 ## LiteLLM
 
+Teams and organizations can request pooled inference if they want to put another
+LiteLLM layer in front of HyperClaw for custom agents, internal tools, or AI
+applications.
+
+In that setup:
+
+- your downstream LiteLLM does its own auth, aliases, and routing
+- HyperClaw remains the upstream inference provider
+- you use a normal HyperClaw API key as the upstream credential
+
+You do not need to inject a custom authorization header beyond the normal
+LiteLLM `api_key` field.
+
+### OpenAI-compatible upstream
+
+Use this when your downstream LiteLLM is routing through the OpenAI-compatible
+`/v1` surface:
+
 ```yaml
 model_list:
-  - model_name: kimi-k2.5
+  - model_name: kimi-k2.6
     litellm_params:
-      model: openai/kimi-k2.5
-      api_key: sk-YOUR-API-KEY
+      model: openai/kimi-k2.6
       api_base: https://api.hypercli.com/v1
+      api_key: sk-YOUR-HYPERCLAW-KEY
+
+  - model_name: glm-5
+    litellm_params:
+      model: openai/glm-5
+      api_base: https://api.hypercli.com/v1
+      api_key: sk-YOUR-HYPERCLAW-KEY
 ```
+
+### Anthropic-style upstream
+
+Use this when you want the recommended Anthropic Messages route for chat and tool
+calling:
+
+```yaml
+model_list:
+  - model_name: kimi-k2.6-anthropic
+    litellm_params:
+      model: anthropic/kimi-k2.6-anthropic
+      api_base: https://api.hypercli.com
+      api_key: sk-YOUR-HYPERCLAW-KEY
+
+  - model_name: glm-5-anthropic
+    litellm_params:
+      model: anthropic/glm-5-anthropic
+      api_base: https://api.hypercli.com
+      api_key: sk-YOUR-HYPERCLAW-KEY
+```
+
+### Mixed downstream config
+
+If you want to offer both surfaces from one downstream LiteLLM:
+
+```yaml
+model_list:
+  - model_name: kimi-k2.6
+    litellm_params:
+      model: openai/kimi-k2.6
+      api_base: https://api.hypercli.com/v1
+      api_key: sk-YOUR-HYPERCLAW-KEY
+
+  - model_name: kimi-k2.6-anthropic
+    litellm_params:
+      model: anthropic/kimi-k2.6-anthropic
+      api_base: https://api.hypercli.com
+      api_key: sk-YOUR-HYPERCLAW-KEY
+```
+
+Use the Anthropic-style entries for chat-first agent workloads. Keep the
+OpenAI-compatible entries for SDKs, tools, and frameworks that expect `/v1`.
 
 ## Available Models
 
 | Model | Context | Description |
 |-------|---------|-------------|
-| `kimi-k2.5-anthropic` | 262K tokens | Kimi K2.5 on the recommended Anthropic Messages route |
+| `kimi-k2.6-anthropic` | 262K tokens | Kimi K2.6 on the recommended Anthropic Messages route |
 | `glm-5-anthropic` | 202K tokens | GLM-5 on the recommended Anthropic Messages route |
-| `kimi-k2.5` | 262K tokens | Kimi K2.5 on the OpenAI-compatible route |
+| `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route |
 | `glm-5` | 202K tokens | GLM-5 on the OpenAI-compatible route |
 
 Check available models at any time:
