@@ -350,6 +350,22 @@ async function submitPrivyOtp(page: Page): Promise<void> {
     }
   }
 
+  const submittedForm = await page
+    .evaluate(() => {
+      const modal = document.querySelector("#privy-modal-content");
+      const form = modal?.querySelector("form");
+      if (form instanceof HTMLFormElement) {
+        form.requestSubmit();
+        return true;
+      }
+      return false;
+    })
+    .catch(() => false);
+  if (submittedForm) {
+    console.log("[privy-auth:otp-submit] submitted modal form");
+    return;
+  }
+
   if (await otpInputs.last().isVisible().catch(() => false)) {
     console.log("[privy-auth:otp-submit] pressing Enter on otp input");
     await otpInputs.last().press("Enter").catch(() => {});
@@ -461,6 +477,8 @@ export async function loginWithPrivy(page: Page): Promise<void> {
   await captureStep(page, "05-otp-entered");
   await logPrivyAuthState(page, "otp-entered");
 
+  let authToken: string | null = null;
+  let lastResubmitAt = Date.now();
   await expect
     .poll(async () => {
       try {
@@ -488,15 +506,25 @@ export async function loginWithPrivy(page: Page): Promise<void> {
         });
         if (!authState) {
           await logPrivyAuthState(page, "waiting-for-auth-token");
+          const modalVisible = await privyModal.isVisible().catch(() => false);
+          if (modalVisible && Date.now() - lastResubmitAt >= 3_000) {
+            lastResubmitAt = Date.now();
+            await submitPrivyOtp(page);
+          }
           return null;
         }
         console.log(`[privy-auth:token-ready] source=${authState.tokenSource}`);
+        authToken = authState.value;
         return authState.value;
       } catch {
         return null;
       }
     }, { timeout: PRIVY_AUTH_SETTLE_TIMEOUT_MS })
     .not.toBeNull();
+
+  if (!authToken) {
+    throw new Error("Privy auth token did not materialize after OTP submission");
+  }
 
   await expect
     .poll(async () => {
