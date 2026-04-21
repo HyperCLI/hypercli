@@ -182,8 +182,8 @@ export interface AgentViewProps {
   agentStartBlocked?: boolean;
   /** Tooltip text for the disabled-start state. */
   agentStartBlockedReason?: string;
-  /** Open the full file browser drawer (Workspace Files module CTA). */
-  onOpenFiles?: () => void;
+  /** Open the full file browser drawer (Workspace Files module CTA). If a path is supplied, the browser should preview that file. */
+  onOpenFiles?: (path?: string) => void;
 }
 
 export interface ConnectionDetailProps {
