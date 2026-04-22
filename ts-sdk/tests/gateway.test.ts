@@ -958,4 +958,59 @@ describe("GatewayClient", () => {
     expect(stored.pendingPairings).toBeUndefined();
     expect(stored.tokens[DEPLOYMENT_SCOPE_KEY].token).toBe("device-token-after-pair");
   });
+
+  it("treats unknown requestId during auto-approve as concurrent approval and reconnects", async () => {
+    const fetchMock = vi.fn().mockRejectedValue(new Error("unknown requestId"));
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing first websocket instance");
+    firstSocket.emitChallenge("nonce-pair");
+    await waitForSentFrame(firstSocket);
+    const firstRequest = JSON.parse(firstSocket.sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, any>;
+    };
+    firstSocket.emitConnectError(
+      firstRequest.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-race", reason: "not-paired" },
+    );
+    await flushMicrotasks();
+
+    await new Promise((resolve) => setTimeout(resolve, 850));
+    await flushMicrotasks();
+
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) {
+      throw new Error("Missing reconnect websocket instance");
+    }
+    secondSocket.emitChallenge("nonce-reconnect");
+    await waitForSentFrame(secondSocket);
+    const secondRequest = JSON.parse(secondSocket.sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, any>;
+    };
+    secondSocket.emitHello(secondRequest.id, "device-token-after-race");
+    await connectPromise;
+
+    expect(client.isConnected).toBe(true);
+    expect(client.pendingPairing).toBeNull();
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+  });
 });

@@ -300,6 +300,10 @@ def _read_connect_pairing_request_id(details: Any) -> str | None:
     return request_id.strip() if isinstance(request_id, str) and request_id.strip() else None
 
 
+def _is_concurrent_pairing_approval_race(exc: Exception) -> bool:
+    return "unknown requestid" in str(exc).lower()
+
+
 def _is_retryable_connect_error(exc: Exception) -> bool:
     status_code = getattr(exc, "status_code", None)
     response = getattr(exc, "response", None)
@@ -1081,6 +1085,22 @@ class GatewayClient:
                             delay = min(delay * BACKOFF_MULTIPLIER, MAX_RECONNECT_DELAY)
                             continue
                         except Exception as approval_error:
+                            if _is_concurrent_pairing_approval_race(approval_error):
+                                self._update_pairing_state(
+                                    GatewayPairingState(
+                                        request_id=request_id,
+                                        role=OPERATOR_ROLE,
+                                        gateway_url=self.url,
+                                        device_id=identity.device_id,
+                                        status="approved",
+                                        updated_at_ms=_now_ms(),
+                                    )
+                                )
+                                if ws is not None:
+                                    await ws.close()
+                                await asyncio.sleep(delay)
+                                delay = min(delay * BACKOFF_MULTIPLIER, MAX_RECONNECT_DELAY)
+                                continue
                             self._update_pairing_state(
                                 GatewayPairingState(
                                     request_id=request_id,
