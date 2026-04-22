@@ -31,6 +31,10 @@ const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
   10
 );
 
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
 interface BillingBalanceSnapshot {
   availableBalance: number;
   availableBalanceText: string;
@@ -126,6 +130,22 @@ function getAgentsApiBaseUrl(): string {
   ).replace(/\/$/, "");
 }
 
+function privyImapEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+    IMAP_USER: getEnv("TEST_IMAP_USER"),
+    IMAP_PASS: getEnv("TEST_IMAP_PASS"),
+  };
+}
+
+function runFetchOtpScript(args: string[]): string {
+  return execFileSync("python3", args, {
+    env: privyImapEnv(),
+    encoding: "utf8",
+  });
+}
+
 async function getHyperAgentClient(token: string): Promise<HyperAgentClientLike> {
   const [{ HTTPClient }, { HyperAgent }] = await Promise.all([
     import("@hypercli.com/sdk/http"),
@@ -210,35 +230,24 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
 
   try {
     execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
-      env: {
-        ...process.env,
-        IMAP_HOST: getEnv("TEST_IMAP_HOST"),
-        IMAP_USER: getEnv("TEST_IMAP_USER"),
-        IMAP_PASS: getEnv("TEST_IMAP_PASS"),
-      },
+      env: privyImapEnv(),
       stdio: "ignore",
     });
   } catch {
     console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP poll");
   }
 
-  await new Promise((resolve) => setTimeout(resolve, OTP_INITIAL_DELAY_MS));
+  await sleep(OTP_INITIAL_DELAY_MS);
 
   for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const output = execFileSync(
-        "python3",
-        [fetchOtpScript, "--timeout", String(pollTimeoutSec), "--after", String(submittedAfterEpoch)],
-        {
-          env: {
-            ...process.env,
-            IMAP_HOST: getEnv("TEST_IMAP_HOST"),
-            IMAP_USER: getEnv("TEST_IMAP_USER"),
-            IMAP_PASS: getEnv("TEST_IMAP_PASS"),
-          },
-          encoding: "utf8",
-        }
-      );
+      const output = runFetchOtpScript([
+        fetchOtpScript,
+        "--timeout",
+        String(pollTimeoutSec),
+        "--after",
+        String(submittedAfterEpoch),
+      ]);
 
       const otp = output
         .trim()
@@ -255,6 +264,7 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
         throw error;
       }
       console.log("[privy-auth:otp-poll] first OTP poll failed; retrying once");
+      await sleep(OTP_POLL_INTERVAL_MS);
     }
   }
 
