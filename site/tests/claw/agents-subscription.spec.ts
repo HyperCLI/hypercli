@@ -34,7 +34,7 @@ test.describe.serial("Agents subscription", () => {
         await subscribeButton.click();
 
         await expect(page.getByRole("heading", { name: /purchase|subscribe|add/i })).toBeVisible({ timeout: 20_000 });
-        const payWithCardButton = page.getByRole("button", { name: /pay \\$.*card/i }).first();
+        const payWithCardButton = page.getByRole("button", { name: /pay \$.*with card/i }).first();
         await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
         await payWithCardButton.click();
 

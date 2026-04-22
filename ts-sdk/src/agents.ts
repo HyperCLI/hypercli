@@ -786,7 +786,7 @@ export class OpenClawAgent extends Agent {
    * fetches from the pod's runtime env via the backend.
    */
   async resolveGatewayToken(): Promise<string | null> {
-    if (this.gatewayToken) return this.gatewayToken;
+    if (this.gatewayToken && this.gatewayUrl) return this.gatewayToken;
     const tokenData = await this.requireDeployments().inferenceToken(this.id);
     this.gatewayToken = tokenData.gateway_token ?? null;
     this.gatewayUrl = tokenData.openclaw_url ?? this.gatewayUrl;
@@ -824,8 +824,8 @@ export class OpenClawAgent extends Agent {
   }
 
   async connect(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewayClient> {
-    // Auto-resolve gateway token if missing
-    if (!this.gatewayToken && !options.gatewayToken) {
+    // Auto-resolve gateway context if missing from the deployment payload.
+    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
       await this.resolveGatewayToken();
     }
     const client = this.gateway(options);

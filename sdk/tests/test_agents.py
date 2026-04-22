@@ -145,7 +145,7 @@ def test_openclaw_agent_gateway_requires_url():
         pod_name="test-pod",
         state="running",
     )
-    with pytest.raises(ValueError, match="OpenClaw gateway URL"):
+    with pytest.raises(ValueError, match="Deployments client"):
         agent.gateway()
 
 def test_openclaw_agent_gateway_allows_jwtless_when_route_auth_disabled():
@@ -1096,6 +1096,32 @@ def test_openclaw_agent_resolve_gateway_token_uses_inference_endpoint():
     assert token == "gw-fetched"
     assert agent.gateway_token == "gw-fetched"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    manager.inference_token.assert_called_once_with("agent-123")
+
+
+def test_openclaw_agent_gateway_resolves_missing_url_via_inference_endpoint():
+    manager = Mock()
+    manager._api_key = "sk-hyper-test123"
+    manager._api_base = "https://api.test.hypercli.com"
+    manager.inference_token.return_value = {
+        "openclaw_url": "wss://openclaw-test.hypercli.com",
+        "gateway_token": "gw-fetched",
+    }
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        gateway_token="gw-inline",
+        _deployments=manager,
+    )
+
+    gw = agent.gateway()
+
+    assert gw.url == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_token == "gw-fetched"
     manager.inference_token.assert_called_once_with("agent-123")
 
 

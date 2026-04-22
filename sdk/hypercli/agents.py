@@ -483,7 +483,7 @@ class OpenClawAgent(Agent):
 
     def resolve_gateway_token(self) -> str | None:
         """Resolve the gateway token. Fetches from pod env if not set locally."""
-        if self.gateway_token:
+        if self.gateway_token and self.gateway_url:
             return self.gateway_token
         token_data = self._require_deployments().inference_token(self.id)
         self.gateway_token = token_data.get("gateway_token")
@@ -493,6 +493,8 @@ class OpenClawAgent(Agent):
     def gateway(self, **kwargs) -> "GatewayClient":
         """Create a GatewayClient for this OpenClaw agent."""
         from .gateway import GatewayClient
+        if not self.gateway_url:
+            self.resolve_gateway_token()
         if not self.gateway_url:
             raise ValueError("Agent has no OpenClaw gateway URL")
         deployments = self._require_deployments()

@@ -172,4 +172,31 @@ describe('Agents SDK', () => {
     expect(agent.gatewayToken).toBe('gw-fetched');
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
   });
+
+  it('resolveGatewayToken backfills missing gateway url through inferenceToken', async () => {
+    const http = {
+      get: vi.fn().mockResolvedValue({
+        agent_id: 'agent-123',
+        openclaw_url: 'wss://openclaw-test.hypercli.com',
+        gateway_token: 'gw-fetched',
+      }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      gateway_token: 'gw-inline',
+    });
+    agent._deployments = deployments;
+
+    const gatewayToken = await agent.resolveGatewayToken();
+
+    expect(gatewayToken).toBe('gw-fetched');
+    expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(agent.gatewayToken).toBe('gw-fetched');
+  });
 });
