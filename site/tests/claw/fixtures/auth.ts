@@ -26,6 +26,7 @@ const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
 const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
 const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
+const DEFAULT_TEST_API_BASE_URL = "https://api.dev.hypercli.com";
 const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
   process.env.TEST_PRIVY_AUTH_SETTLE_TIMEOUT_MS || "45000",
   10
@@ -128,6 +129,95 @@ function getAgentsApiBaseUrl(): string {
     getOptionalEnv("TEST_AGENTS_API_BASE_URL") ||
     DEFAULT_TEST_AGENTS_API_BASE_URL
   ).replace(/\/$/, "");
+}
+
+function getApiBaseUrl(): string {
+  return (
+    getOptionalEnv("TEST_API_BASE_URL") ||
+    DEFAULT_TEST_API_BASE_URL
+  ).replace(/\/$/, "");
+}
+
+async function fetchAdminAuthToken(
+  apiBaseUrl: string,
+  adminKey: string,
+  params: Record<string, string>
+): Promise<string> {
+  const url = new URL(`${apiBaseUrl}/admin/auth/login`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  const response = await fetch(url, {
+    headers: {
+      "X-BACKEND-API-KEY": adminKey,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Admin auth login failed: ${response.status} ${await response.text()}`);
+  }
+  const payload = (await response.json()) as { token?: string };
+  if (!payload.token) {
+    throw new Error("Admin auth login returned no token");
+  }
+  return payload.token;
+}
+
+async function installLocalAuthToken(
+  page: Page,
+  *,
+  baseUrl: string,
+  storageKey: "claw_auth_token" | "app_auth_token",
+  token: string,
+): Promise<void> {
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await page.evaluate(
+    ([key, value]) => {
+      window.localStorage.setItem(key, value);
+    },
+    [storageKey, token] as const
+  );
+}
+
+async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
+  const adminKey = getOptionalEnv("AGENTS_BACKEND_API_KEY") || getOptionalEnv("BACKEND_API_KEY");
+  if (!adminKey) {
+    return false;
+  }
+  const token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, {
+    email: getEnv("TEST_EMAIL"),
+  });
+  await installLocalAuthToken(page, {
+    baseUrl: getEnv("TEST_BASE_URL"),
+    storageKey: "claw_auth_token",
+    token,
+  });
+  await page.goto(`${getEnv("TEST_BASE_URL").replace(/\/$/, "")}/dashboard`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(() => page.url(), { timeout: 30_000 })
+    .toContain("/dashboard");
+  return true;
+}
+
+async function tryAdminLoginForConsole(page: Page, baseUrl: string): Promise<boolean> {
+  const adminKey = getOptionalEnv("BACKEND_API_KEY");
+  if (!adminKey) {
+    return false;
+  }
+  const token = await fetchAdminAuthToken(getApiBaseUrl(), adminKey, {
+    email: getEnv("TEST_EMAIL"),
+  });
+  await installLocalAuthToken(page, {
+    baseUrl,
+    storageKey: "app_auth_token",
+    token,
+  });
+  await page.goto(`${baseUrl.replace(/\/$/, "")}/dashboard`, { waitUntil: "domcontentloaded" });
+  await expect
+    .poll(() => page.url(), { timeout: 30_000 })
+    .toContain("/dashboard");
+  return true;
 }
 
 function privyImapEnv(): NodeJS.ProcessEnv {
@@ -467,6 +557,11 @@ async function logPrivyAuthState(page: Page, label: string): Promise<void> {
 }
 
 export async function loginWithPrivy(page: Page): Promise<void> {
+  if (await tryAdminLoginForClaw(page)) {
+    await captureStep(page, "00-admin-authenticated");
+    return;
+  }
+
   const email = getEnv("TEST_EMAIL");
   const privyModal = page.locator("#privy-modal-content").first();
 
@@ -591,6 +686,11 @@ export async function loginToConsoleWithPrivy(
   page: Page,
   baseUrl = getOptionalEnv("TEST_PROD_CONSOLE_BASE_URL") || "https://console.hypercli.com"
 ): Promise<void> {
+  if (await tryAdminLoginForConsole(page, baseUrl)) {
+    await captureStep(page, "console-00-admin-authenticated");
+    return;
+  }
+
   const email = getEnv("TEST_EMAIL");
   const privyModal = page.locator("#privy-modal-content").first();
 

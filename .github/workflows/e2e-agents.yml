@@ -16,6 +16,9 @@ jobs:
         shell: bash
     env:
       TEST_HOSTNAME: 127.0.0.1
+      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
+      AGENTS_BACKEND_API_KEY: ${{ secrets.AGENTS_BACKEND_API_KEY }}
+      TEST_API_BASE_URL: https://api.dev.hypercli.com
       TEST_EMAIL: ${{ vars.TEST_EMAIL }}
       TEST_IMAP_HOST: ${{ vars.TEST_IMAP_HOST }}
       TEST_IMAP_USER: ${{ vars.TEST_IMAP_USER }}
@@ -49,6 +52,9 @@ jobs:
           mkdir -p "${ARTIFACTS_DIR}"
           docker run --rm --init \
             -e TEST_HOSTNAME \
+            -e BACKEND_API_KEY \
+            -e AGENTS_BACKEND_API_KEY \
+            -e TEST_API_BASE_URL \
             -e TEST_EMAIL \
             -e TEST_IMAP_HOST \
             -e TEST_IMAP_USER \
