@@ -9,9 +9,8 @@ import {
   type OpenClawConfigSchemaResponse,
   normalizeGatewayChatMessage,
 } from "@hypercli.com/sdk/openclaw/gateway";
-import { API_BASE_URL } from "@/lib/api";
-import { getGatewayToken as getStoredGatewayToken, removeAgentState } from "@/lib/agent-store";
-import { refreshGatewayToken } from "@/lib/gateway-auth";
+import { OpenClawAgent } from "@hypercli.com/sdk/agents";
+import { createAgentClient } from "@/lib/agent-client";
 
 export type ChatAttachment = GatewayChatAttachmentPayload;
 
@@ -44,7 +43,6 @@ interface Agent {
   state: string;
   hostname: string | null;
   openclaw_url?: string | null;
-  gatewayToken?: string | null;
 }
 
 function maybeDecodeMojibake(text: string): string {
@@ -314,22 +312,13 @@ export function useGatewayChat(
         const authToken = await getTokenRef.current();
         if (cancelled) return;
 
+        const deployment = await createAgentClient(authToken).get(agent!.id);
         if (cancelled) return;
-        let gatewayToken = agent!.gatewayToken ?? getStoredGatewayToken(agent!.id) ?? undefined;
-        if (!gatewayToken) {
-          try {
-            gatewayToken = await refreshGatewayToken(agent!.id, authToken) ?? undefined;
-          } catch {
-            // Keep the SDK error if the gateway token is still unavailable.
-          }
+        if (!(deployment instanceof OpenClawAgent)) {
+          throw new Error("Selected deployment does not expose an OpenClaw gateway");
         }
-        if (cancelled) return;
-        gw = new GatewayClient({
-          url,
-          gatewayToken,
-          deploymentId: agent!.id,
-          apiKey: authToken,
-          apiBase: API_BASE_URL,
+
+        gw = await deployment.connect({
           autoApprovePairing: true,
           onHello: () => {
             if (cancelled) return;
@@ -341,20 +330,6 @@ export function useGatewayChat(
             if (cancelled) return;
             setConnected(false);
             setConnecting(true);
-            if (code !== 1000) {
-              void (async () => {
-                try {
-                  const freshAuthToken = await getTokenRef.current();
-                  if (cancelled || !gw || !agent?.id) return;
-                  const freshGatewayToken = await refreshGatewayToken(agent.id, freshAuthToken);
-                  if (freshGatewayToken) {
-                    gw.setGatewayToken(freshGatewayToken);
-                  }
-                } catch {
-                  // Reconnect will fall back to the last known token if refresh fails.
-                }
-              })();
-            }
             if (closeError?.message) {
               setError(closeError.message);
               return;
@@ -524,7 +499,6 @@ export function useGatewayChat(
           }
         });
 
-        await gw.connect();
         if (cancelled) { gw.close(); return; }
 
         setConnected(true);
@@ -607,9 +581,6 @@ export function useGatewayChat(
       gw?.close();
       gwRef.current?.close();
       gwRef.current = null;
-      if (agent?.id) {
-        removeAgentState(agent.id);
-      }
       setConnected(false);
       setConnecting(false);
       setMessages([]);

@@ -17,9 +17,8 @@ import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
-import { agentApiFetch } from "@/lib/api";
+import { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import { createAgentClient } from "@/lib/agent-client";
-import { getGatewayToken } from "@/lib/agent-store";
 import { isProtectedFile } from "@/lib/protected-files";
 
 type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
@@ -30,7 +29,6 @@ interface AgentDetail {
   state: AgentState;
   hostname: string | null;
   openclaw_url?: string | null;
-  gatewayToken?: string | null;
 }
 
 const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
@@ -57,23 +55,14 @@ export default function AgentFilesPage() {
     (async () => {
       try {
         const token = await getToken();
-        const data = await agentApiFetch<{
-          id: string;
-          name?: string;
-          state?: string;
-          hostname?: string | null;
-          openclaw_url?: string | null;
-          gatewayToken?: string | null;
-        }>(`/deployments/${agentId}`, token);
+        const deployment = await createAgentClient(token).get(agentId);
         if (cancelled) return;
-        const stored = getGatewayToken(agentId);
         setAgent({
-          id: data.id,
-          name: data.name ?? data.id,
-          state: ((data.state ?? "STOPPED").toUpperCase()) as AgentState,
-          hostname: data.hostname ?? null,
-          openclaw_url: data.openclaw_url ?? null,
-          gatewayToken: data.gatewayToken ?? stored ?? null,
+          id: deployment.id,
+          name: deployment.name ?? deployment.id,
+          state: ((deployment.state ?? "STOPPED").toUpperCase()) as AgentState,
+          hostname: deployment.hostname ?? null,
+          openclaw_url: deployment instanceof OpenClawAgent ? deployment.gatewayUrl ?? null : null,
         });
       } catch (e) {
         if (!cancelled) setAgentError(e instanceof Error ? e.message : String(e));

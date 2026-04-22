@@ -7,7 +7,6 @@ import {
   describeOpenClawConfigNode,
   normalizeOpenClawConfigSchemaNode,
 } from "@hypercli.com/sdk/openclaw/gateway";
-import { getGatewayToken, setGatewayToken, removeAgentState } from "@/lib/agent-store";
 import { FitAddon } from "@xterm/addon-fit";
 import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
@@ -137,7 +136,6 @@ export default function AgentsPage() {
   const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
   const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
-  const gatewayTokensRef = useRef<Record<string, string>>({});
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
   // Selection and tabs
@@ -242,7 +240,6 @@ export default function AgentsPage() {
         created_at: agent.created_at ?? null,
         updated_at: agent.updated_at ?? null,
         openclaw_url: agent.openclaw_url ?? null,
-        gatewayToken: agent.gatewayToken ?? null,
         meta: agent.meta ?? null,
       }));
       setAgents(items);
@@ -290,14 +287,10 @@ export default function AgentsPage() {
     prevStatesRef.current = next;
   }, [agents]);
 
-  const selectedAgent = useMemo(() => {
-    const agent = agents.find((item) => item.id === selectedAgentId) || null;
-    if (agent && !agent.gatewayToken) {
-      const token = gatewayTokensRef.current[agent.id] || getGatewayToken(agent.id);
-      if (token) return { ...agent, gatewayToken: token };
-    }
-    return agent;
-  }, [agents, selectedAgentId]);
+  const selectedAgent = useMemo(
+    () => agents.find((item) => item.id === selectedAgentId) || null,
+    [agents, selectedAgentId],
+  );
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
@@ -1232,18 +1225,9 @@ export default function AgentsPage() {
     }
     setStartingId(agentId);
     setError(null);
-    delete gatewayTokensRef.current[agentId];
-    removeAgentState(agentId);
     try {
       const token = await getToken();
-      const started = await startOpenClawAgent(token, agentId);
-      const gwToken = started && typeof started === "object" && "gatewayToken" in started
-        ? (started.gatewayToken as string | undefined)
-        : undefined;
-      if (gwToken) {
-        gatewayTokensRef.current[agentId] = gwToken;
-        setGatewayToken(agentId, gwToken);
-      }
+      await startOpenClawAgent(token, agentId);
       await fetchAgents();
     } catch (err) {
       const requestedTier = parseEntitlementSlotTier(err);
@@ -1284,19 +1268,10 @@ export default function AgentsPage() {
     setStartingId(agentId);
     setError(null);
     setTierSelection(null);
-    delete gatewayTokensRef.current[agentId];
-    removeAgentState(agentId);
     try {
       const token = await getToken();
       await createAgentClient(token).resize(agentId, { size: tier });
-      const started = await startOpenClawAgent(token, agentId);
-      const gwToken = started && typeof started === "object" && "gatewayToken" in started
-        ? (started.gatewayToken as string | undefined)
-        : undefined;
-      if (gwToken) {
-        gatewayTokensRef.current[agentId] = gwToken;
-        setGatewayToken(agentId, gwToken);
-      }
+      await startOpenClawAgent(token, agentId);
       await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resize and start agent");
@@ -1327,8 +1302,6 @@ export default function AgentsPage() {
     try {
       const token = await getToken();
       await createAgentClient(token).stop(agentId);
-      delete gatewayTokensRef.current[agentId];
-      removeAgentState(agentId);
       // Cooldown: disable Start for 5s while backend cleans up
       setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
       const existing = stoppedTimersRef.current.get(agentId);
@@ -1754,11 +1727,7 @@ export default function AgentsPage() {
         onClose={closeCreateDialog}
         initialStep={createDialogInitialStep}
         preferredTypeId={createDialogPreferredTier}
-        onCreated={(agentId, gwToken) => {
-          if (agentId && gwToken) {
-            gatewayTokensRef.current[agentId] = gwToken;
-            setGatewayToken(agentId, gwToken);
-          }
+        onCreated={() => {
           closeCreateDialog();
           fetchAgents();
         }}
@@ -1935,11 +1904,6 @@ export default function AgentsPage() {
                         size,
                         meta: { ui: { avatar: { icon_index: iconIndex } } },
                       });
-                      const gwToken = (created as { gatewayToken?: string }).gatewayToken;
-                      if (created.id && gwToken) {
-                        gatewayTokensRef.current[created.id] = gwToken;
-                        setGatewayToken(created.id, gwToken);
-                      }
                       await fetchAgents();
                       return created.id ?? null;
                     } catch (err) {
