@@ -2,7 +2,7 @@
 """Fetch Privy OTP code from IMAP inbox.
 
 Usage:
-  python3 e2e/fetch-otp.py [--timeout 30]
+  python3 e2e/fetch-otp.py [--timeout 30] [--after unix_epoch_seconds]
 
 Env:
   IMAP_HOST  (default: imap.fastmail.com)
@@ -24,6 +24,7 @@ IMAP_HOST = os.environ.get("IMAP_HOST", "imap.fastmail.com")
 IMAP_USER = os.environ.get("IMAP_USER", "agent@nedos.io")
 IMAP_PASS = os.environ.get("IMAP_PASS", "")
 TIMEOUT = int(sys.argv[sys.argv.index("--timeout") + 1]) if "--timeout" in sys.argv else 30
+AFTER = int(sys.argv[sys.argv.index("--after") + 1]) if "--after" in sys.argv else 0
 
 def mark_all_privy_seen():
     """Mark all existing Privy emails as seen so we only get fresh ones."""
@@ -36,6 +37,13 @@ def mark_all_privy_seen():
             mail.store(mid, "+FLAGS", "\\Seen")
         print(f"Marked {len(data[0].split())} old Privy emails as seen", file=sys.stderr)
     mail.logout()
+
+
+def _message_epoch(msg) -> int:
+    parsed = email.utils.parsedate_tz(msg.get("Date"))
+    if not parsed:
+        return 0
+    return int(email.utils.mktime_tz(parsed))
 
 
 def fetch_privy_otp() -> str | None:
@@ -57,6 +65,10 @@ def fetch_privy_otp() -> str | None:
     _, msg_data = mail.fetch(latest_id, "(RFC822)")
     raw = msg_data[0][1]
     msg = email.message_from_bytes(raw)
+
+    if AFTER and _message_epoch(msg) < AFTER:
+        mail.logout()
+        return None
 
     # Extract body
     body = ""

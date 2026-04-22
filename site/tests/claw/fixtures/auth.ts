@@ -206,6 +206,7 @@ function extractOtpFromText(text: string): string | null {
 export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   const fetchOtpScript = path.resolve(__dirname, "..", "..", "..", "e2e", "flows", "fetch-otp.py");
   const pollTimeoutSec = Math.max(5, Math.ceil(OTP_TIMEOUT_MS / 1000));
+  const submittedAfterEpoch = Math.floor(submittedAt.getTime() / 1000);
 
   try {
     execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
@@ -221,15 +222,19 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
     console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP poll");
   }
 
-  const output = execFileSync("python3", [fetchOtpScript, "--timeout", String(pollTimeoutSec)], {
-    env: {
-      ...process.env,
-      IMAP_HOST: getEnv("TEST_IMAP_HOST"),
-      IMAP_USER: getEnv("TEST_IMAP_USER"),
-      IMAP_PASS: getEnv("TEST_IMAP_PASS"),
-    },
-    encoding: "utf8",
-  });
+  const output = execFileSync(
+    "python3",
+    [fetchOtpScript, "--timeout", String(pollTimeoutSec), "--after", String(submittedAfterEpoch)],
+    {
+      env: {
+        ...process.env,
+        IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+        IMAP_USER: getEnv("TEST_IMAP_USER"),
+        IMAP_PASS: getEnv("TEST_IMAP_PASS"),
+      },
+      encoding: "utf8",
+    }
+  );
 
   const otp = output
     .trim()
@@ -241,11 +246,6 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
   if (!otp || !/^\d{6}$/.test(otp)) {
     throw new Error("Timed out waiting for a Privy OTP email");
   }
-
-  if (submittedAt) {
-    void submittedAt;
-  }
-
   return otp;
 }
 
@@ -373,47 +373,74 @@ interface PrivyAuthDebugState {
 }
 
 async function getPrivyAuthDebugState(page: Page): Promise<PrivyAuthDebugState> {
+  if (page.isClosed()) {
+    return {
+      url: "page-closed",
+      localStorageKeys: [],
+      hasClawAuthToken: false,
+      hasAppAuthToken: false,
+      hasAuthCookie: false,
+      cookieNames: [],
+      privyModalVisible: false,
+      otpInputCount: 0,
+      buttonLabels: [],
+    };
+  }
   const privyModal = page.locator("#privy-modal-content").first();
   const otpInputs = page.locator(
     'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
   );
   const visibleButtons = page.locator("button:visible");
 
-  const buttonLabels = await visibleButtons.evaluateAll((elements) =>
-    elements
-      .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
-      .filter(Boolean)
-      .slice(0, 10)
-  );
+  const buttonLabels = await visibleButtons
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 10)
+    )
+    .catch(() => []);
 
-  return page.evaluate(
-    ({ modalVisible, otpInputCount, buttonLabels }) => {
-      const cookieNames = document.cookie
-        .split("; ")
-        .map((entry) => entry.split("=")[0])
-        .filter(Boolean);
-      return {
-        url: window.location.href,
-        localStorageKeys: Object.keys(localStorage).sort(),
-        hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
-        hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
-        hasAuthCookie: cookieNames.includes("auth_token"),
-        cookieNames,
-        privyModalVisible: modalVisible,
-        otpInputCount,
+  return page
+    .evaluate(
+      ({ modalVisible, otpInputCount, buttonLabels }) => {
+        const cookieNames = document.cookie
+          .split("; ")
+          .map((entry) => entry.split("=")[0])
+          .filter(Boolean);
+        return {
+          url: window.location.href,
+          localStorageKeys: Object.keys(localStorage).sort(),
+          hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
+          hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
+          hasAuthCookie: cookieNames.includes("auth_token"),
+          cookieNames,
+          privyModalVisible: modalVisible,
+          otpInputCount,
+          buttonLabels,
+        };
+      },
+      {
+        modalVisible: await privyModal.isVisible().catch(() => false),
+        otpInputCount: await otpInputs.count().catch(() => 0),
         buttonLabels,
-      };
-    },
-    {
-      modalVisible: await privyModal.isVisible().catch(() => false),
-      otpInputCount: await otpInputs.count(),
-      buttonLabels,
-    }
-  );
+      }
+    )
+    .catch(() => ({
+      url: "page-closed",
+      localStorageKeys: [],
+      hasClawAuthToken: false,
+      hasAppAuthToken: false,
+      hasAuthCookie: false,
+      cookieNames: [],
+      privyModalVisible: false,
+      otpInputCount: 0,
+      buttonLabels: [],
+    }));
 }
 
 async function logPrivyAuthState(page: Page, label: string): Promise<void> {
-  const state = await getPrivyAuthDebugState(page);
+  const state = await getPrivyAuthDebugState(page).catch(() => null);
   console.log(`[privy-auth:${label}] ${JSON.stringify(state)}`);
 }
 
