@@ -15,7 +15,7 @@ type RequiredEnvKey =
 const SCREENSHOT_DIR = path.resolve(__dirname, "..", "screenshots");
 const SCREENSHOT_DELAY_MS = Number.parseInt(process.env.TEST_SCREENSHOT_DELAY_MS || "250", 10);
 const DEFAULT_IMAP_PORT = 993;
-const OTP_TIMEOUT_MS = 30_000;
+const OTP_TIMEOUT_MS = 60_000;
 const OTP_POLL_INTERVAL_MS = 5_000;
 const OTP_INITIAL_DELAY_MS = 2_500;
 const STRIPE_TEST_CARD_NUMBER = "4242424242424242";
@@ -222,31 +222,43 @@ export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
     console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP poll");
   }
 
-  const output = execFileSync(
-    "python3",
-    [fetchOtpScript, "--timeout", String(pollTimeoutSec), "--after", String(submittedAfterEpoch)],
-    {
-      env: {
-        ...process.env,
-        IMAP_HOST: getEnv("TEST_IMAP_HOST"),
-        IMAP_USER: getEnv("TEST_IMAP_USER"),
-        IMAP_PASS: getEnv("TEST_IMAP_PASS"),
-      },
-      encoding: "utf8",
+  await new Promise((resolve) => setTimeout(resolve, OTP_INITIAL_DELAY_MS));
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
+    try {
+      const output = execFileSync(
+        "python3",
+        [fetchOtpScript, "--timeout", String(pollTimeoutSec), "--after", String(submittedAfterEpoch)],
+        {
+          env: {
+            ...process.env,
+            IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+            IMAP_USER: getEnv("TEST_IMAP_USER"),
+            IMAP_PASS: getEnv("TEST_IMAP_PASS"),
+          },
+          encoding: "utf8",
+        }
+      );
+
+      const otp = output
+        .trim()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1);
+
+      if (otp && /^\d{6}$/.test(otp)) {
+        return otp;
+      }
+    } catch (error) {
+      if (attempt === 1) {
+        throw error;
+      }
+      console.log("[privy-auth:otp-poll] first OTP poll failed; retrying once");
     }
-  );
-
-  const otp = output
-    .trim()
-    .split("\n")
-    .map((line) => line.trim())
-    .filter(Boolean)
-    .at(-1);
-
-  if (!otp || !/^\d{6}$/.test(otp)) {
-    throw new Error("Timed out waiting for a Privy OTP email");
   }
-  return otp;
+
+  throw new Error("Timed out waiting for a Privy OTP email");
 }
 
 export async function fillOtp(page: Page, otp: string): Promise<void> {
