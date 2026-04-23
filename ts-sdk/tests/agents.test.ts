@@ -199,4 +199,38 @@ describe('Agents SDK', () => {
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
     expect(agent.gatewayToken).toBe('gw-fetched');
   });
+
+  it('waitForGatewayContext retries until both gateway url and token are ready', async () => {
+    const http = {
+      get: vi
+        .fn()
+        .mockResolvedValueOnce({
+          agent_id: 'agent-123',
+          openclaw_url: null,
+          gateway_token: 'gw-fetched',
+        })
+        .mockResolvedValueOnce({
+          agent_id: 'agent-123',
+          openclaw_url: 'wss://openclaw-test.hypercli.com',
+          gateway_token: 'gw-fetched',
+        }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+    });
+    agent._deployments = deployments;
+
+    const context = await agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 });
+
+    expect(context.gateway_token).toBe('gw-fetched');
+    expect(context.openclaw_url).toBe('wss://openclaw-test.hypercli.com');
+    expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(http.get).toHaveBeenCalledTimes(2);
+  });
 });

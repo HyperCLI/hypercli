@@ -232,7 +232,7 @@ describe('HyperClaw agents SDK', () => {
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('OpenClawAgent falls back to the root host for the gateway URL', () => {
+  it('OpenClawAgent does not synthesize a gateway URL from the hostname', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-root',
       user_id: 'user-1',
@@ -242,7 +242,7 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'agent-root.dev.hyperclaw.app',
     });
 
-    expect(agent.gatewayUrl).toBe('wss://agent-root.dev.hyperclaw.app');
+    expect(agent.gatewayUrl).toBeNull();
   });
 
   it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', () => {

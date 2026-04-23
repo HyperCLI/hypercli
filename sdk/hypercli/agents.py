@@ -473,34 +473,63 @@ class OpenClawAgent(Agent):
     def from_dict(cls, data: dict) -> "OpenClawAgent":
         return cls(
             **_agent_kwargs_from_dict(data),
-            gateway_url=(
-                data.get("openclaw_url")
-                or data.get("gateway_url")
-                or (f"wss://{data['hostname']}" if data.get("hostname") else None)
-            ),
+            gateway_url=(data.get("openclaw_url") or data.get("gateway_url")),
             gateway_token=data.get("gateway_token"),
         )
 
-    def resolve_gateway_token(self) -> str | None:
-        """Resolve the gateway token. Fetches from pod env if not set locally."""
+    def wait_for_gateway_context(self, timeout: float = 30.0, retry_interval: float = 1.0) -> dict[str, Any]:
+        """
+        Resolve gateway context through `/deployments/{id}/inference/token`.
+
+        Agent startup is eventually consistent: the deployment record can lag
+        behind hostname assignment, and public route/DNS propagation can lag
+        behind both. Clients must not synthesize gateway URLs from hostnames,
+        since an early NXDOMAIN can be cached. Treat the inference-token
+        endpoint as the only safe source of truth.
+        """
         if self.gateway_token and self.gateway_url:
-            return self.gateway_token
-        token_data = self._require_deployments().inference_token(self.id)
+            return {
+                "agent_id": self.id,
+                "openclaw_url": self.gateway_url,
+                "gateway_token": self.gateway_token,
+            }
+        deadline = time.monotonic() + timeout
+        last_error: Exception | None = None
+        while True:
+            try:
+                token_data = self._require_deployments().inference_token(self.id)
+                gateway_token = token_data.get("gateway_token")
+                gateway_url = token_data.get("openclaw_url")
+                if gateway_token and gateway_url:
+                    self.gateway_token = gateway_token
+                    self.gateway_url = gateway_url
+                    return token_data
+                last_error = RuntimeError("missing gateway context")
+            except Exception as exc:
+                last_error = exc
+            if time.monotonic() >= deadline:
+                if last_error is not None:
+                    raise last_error
+                raise RuntimeError("Timed out waiting for OpenClaw gateway context")
+            time.sleep(retry_interval)
+
+    def resolve_gateway_token(self) -> str | None:
+        """Resolve the gateway token through the inference-token endpoint."""
+        token_data = self.wait_for_gateway_context()
         self.gateway_token = token_data.get("gateway_token")
-        self.gateway_url = token_data.get("openclaw_url") or self.gateway_url
         return self.gateway_token
 
     def gateway(self, **kwargs) -> "GatewayClient":
         """Create a GatewayClient for this OpenClaw agent."""
         from .gateway import GatewayClient
         if not self.gateway_url:
-            self.resolve_gateway_token()
+            self.wait_for_gateway_context()
         if not self.gateway_url:
             raise ValueError("Agent has no OpenClaw gateway URL")
         deployments = self._require_deployments()
         if "gateway_token" not in kwargs:
             if not self.gateway_token:
-                self.resolve_gateway_token()
+                self.wait_for_gateway_context()
             if self.gateway_token:
                 kwargs["gateway_token"] = self.gateway_token
         kwargs.setdefault("deployment_id", self.id)
@@ -533,6 +562,8 @@ class OpenClawAgent(Agent):
         probe: str = "config",
         **kwargs,
     ) -> dict:
+        if not self.gateway_url or ("gateway_token" not in kwargs and not self.gateway_token):
+            self.wait_for_gateway_context()
         gw = self.gateway(**kwargs)
         try:
             return await gw.wait_ready(timeout=timeout, retry_interval=retry_interval, probe=probe)

@@ -122,7 +122,7 @@ def test_openclaw_agent_from_dict():
     assert agent.entrypoint == ["/bin/sh", "-c"]
 
 
-def test_openclaw_agent_from_dict_falls_back_to_root_gateway_host():
+def test_openclaw_agent_from_dict_does_not_guess_gateway_url_from_hostname():
     agent = OpenClawAgent.from_dict(
         {
             "id": "agent-123",
@@ -134,7 +134,7 @@ def test_openclaw_agent_from_dict_falls_back_to_root_gateway_host():
         }
     )
 
-    assert agent.gateway_url == "wss://test.hypercli.com"
+    assert agent.gateway_url is None
 
 
 def test_openclaw_agent_gateway_requires_url():
@@ -1097,6 +1097,37 @@ def test_openclaw_agent_resolve_gateway_token_uses_inference_endpoint():
     assert agent.gateway_token == "gw-fetched"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
     manager.inference_token.assert_called_once_with("agent-123")
+
+
+def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch):
+    manager = Mock()
+    manager.inference_token.side_effect = [
+        {
+            "openclaw_url": None,
+            "gateway_token": "gw-fetched",
+        },
+        {
+            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "gateway_token": "gw-fetched",
+        },
+    ]
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        _deployments=manager,
+    )
+    monkeypatch.setattr("hypercli.agents.time.sleep", lambda _seconds: None)
+
+    context = agent.wait_for_gateway_context(timeout=0.1, retry_interval=0)
+
+    assert context["gateway_token"] == "gw-fetched"
+    assert context["openclaw_url"] == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_token == "gw-fetched"
+    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    assert manager.inference_token.call_count == 2
 
 
 def test_openclaw_agent_gateway_resolves_missing_url_via_inference_endpoint():

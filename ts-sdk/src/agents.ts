@@ -43,6 +43,11 @@ export interface AgentInferenceTokenResponse {
   gateway_token?: string | null;
 }
 
+export interface GatewayContextWaitOptions {
+  timeoutMs?: number;
+  retryIntervalMs?: number;
+}
+
 export interface AgentShellTokenResponse {
   agent_id?: string;
   jwt: string;
@@ -776,21 +781,58 @@ export class OpenClawAgent extends Agent {
   static override fromDict(data: AgentHydrationData): OpenClawAgent {
     return new OpenClawAgent({
       ...agentStateFromDict(data),
-      gatewayUrl: data.openclaw_url ?? data.gateway_url ?? (data.hostname ? `wss://${data.hostname}` : null),
+      gatewayUrl: data.openclaw_url ?? data.gateway_url ?? null,
       gatewayToken: data.gateway_token ?? null,
     });
   }
 
   /**
-   * Resolve the gateway token. If not set locally (e.g. page refresh),
-   * fetches from the pod's runtime env via the backend.
+   * Resolve gateway context through `/deployments/{id}/inference/token`.
+   *
+   * Agent startup is eventually consistent: the deployment record may lag
+   * behind hostname assignment, and public route/DNS propagation can lag
+   * behind both. Clients must not synthesize gateway URLs from hostnames,
+   * since an early NXDOMAIN can be cached by the browser stack. Treat the
+   * inference-token endpoint as the only safe source of truth.
    */
+  async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentInferenceTokenResponse> {
+    if (this.gatewayToken && this.gatewayUrl) {
+      return {
+        agent_id: this.id,
+        openclaw_url: this.gatewayUrl,
+        gateway_token: this.gatewayToken,
+      };
+    }
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const retryIntervalMs = options.retryIntervalMs ?? 1_000;
+    const deployments = this.requireDeployments();
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown = null;
+    while (true) {
+      try {
+        const tokenData = await deployments.inferenceToken(this.id);
+        const gatewayToken = tokenData.gateway_token ?? null;
+        const gatewayUrl = tokenData.openclaw_url ?? null;
+        if (gatewayToken && gatewayUrl) {
+          this.gatewayToken = gatewayToken;
+          this.gatewayUrl = gatewayUrl;
+          return { ...tokenData, gateway_token: gatewayToken, openclaw_url: gatewayUrl };
+        }
+        lastError = new Error('missing gateway context');
+      } catch (error) {
+        lastError = error;
+      }
+      if (Date.now() >= deadline) {
+        if (lastError instanceof Error) throw lastError;
+        throw new Error('Timed out waiting for OpenClaw gateway context');
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+    }
+  }
+
   async resolveGatewayToken(): Promise<string | null> {
-    if (this.gatewayToken && this.gatewayUrl) return this.gatewayToken;
-    const tokenData = await this.requireDeployments().inferenceToken(this.id);
-    this.gatewayToken = tokenData.gateway_token ?? null;
-    this.gatewayUrl = tokenData.openclaw_url ?? this.gatewayUrl;
-    return this.gatewayToken;
+    const tokenData = await this.waitForGatewayContext();
+    return tokenData.gateway_token ?? null;
   }
 
   gateway(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): GatewayClient {
@@ -824,9 +866,8 @@ export class OpenClawAgent extends Agent {
   }
 
   async connect(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewayClient> {
-    // Auto-resolve gateway context if missing from the deployment payload.
     if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
-      await this.resolveGatewayToken();
+      await this.waitForGatewayContext();
     }
     const client = this.gateway(options);
     await client.connect();
@@ -846,6 +887,9 @@ export class OpenClawAgent extends Agent {
     timeoutMs = 300_000,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWaitReadyOptions = {},
   ): Promise<Record<string, any>> {
+    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
+      await this.waitForGatewayContext();
+    }
     const client = this.gateway(options);
     try {
       return await client.waitReady(timeoutMs, {
