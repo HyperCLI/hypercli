@@ -42,7 +42,6 @@ interface Agent {
   name: string;
   state: string;
   hostname: string | null;
-  openclaw_url?: string | null;
 }
 
 function maybeDecodeMojibake(text: string): string {

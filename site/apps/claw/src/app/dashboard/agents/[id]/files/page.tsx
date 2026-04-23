@@ -17,7 +17,6 @@ import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
-import { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import { createAgentClient } from "@/lib/agent-client";
 import { isProtectedFile } from "@/lib/protected-files";
 
@@ -28,7 +27,6 @@ interface AgentDetail {
   name: string;
   state: AgentState;
   hostname: string | null;
-  openclaw_url?: string | null;
 }
 
 const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
@@ -62,7 +60,6 @@ export default function AgentFilesPage() {
           name: deployment.name ?? deployment.id,
           state: ((deployment.state ?? "STOPPED").toUpperCase()) as AgentState,
           hostname: deployment.hostname ?? null,
-          openclaw_url: deployment instanceof OpenClawAgent ? deployment.gatewayUrl ?? null : null,
         });
       } catch (e) {
         if (!cancelled) setAgentError(e instanceof Error ? e.message : String(e));

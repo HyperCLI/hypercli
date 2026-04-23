@@ -339,5 +339,5 @@ useHyperCLI (accesses context)
 
 useGatewayChat (unchanged core, uses useHyperCLI for token)
     ├── GatewayClient from @hypercli.com/sdk/gateway
-    └── SDK-managed gateway token resolution via `/deployments/{id}/inference/token`
+    └── SDK-managed gateway token resolution via `/deployments/{id}` + `/deployments/{id}/env`
 ```

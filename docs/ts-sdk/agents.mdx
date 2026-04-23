@@ -367,7 +367,7 @@ Important additions:
 - `injectNumCtxForOpenAICompat`
 - `models`
 
-`resolveGatewayToken()` now uses `GET /api/deployments/{id}/inference/token`, which is the supported path for scoped agent access.
+`resolveGatewayToken()` now uses `GET /api/deployments/{id}` plus `GET /api/deployments/{id}/env`, which is the supported path for scoped agent access.
 
 To mint a child key for one exact agent:
 
@@ -378,7 +378,7 @@ console.log(scoped.api_key);
 
 ### Gateway URL Semantics
 
-If the backend does not explicitly send `openclaw_url` / `gateway_url`, the SDK falls back to:
+The SDK derives gateway connection context from:
 
 ```ts
 `wss://${agent.hostname}`

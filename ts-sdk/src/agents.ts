@@ -37,9 +37,9 @@ export interface AgentTokenResponse {
   expires_at?: string | null;
 }
 
-export interface AgentInferenceTokenResponse {
+export interface AgentGatewayContext {
   agent_id?: string;
-  openclaw_url?: string | null;
+  hostname?: string | null;
   gateway_token?: string | null;
 }
 
@@ -347,6 +347,15 @@ function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>):
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isOpenClawHydrationData(data: AgentHydrationData): boolean {
+  const routes = data.routes;
+  if (routes && typeof routes === 'object' && !Array.isArray(routes) && routes.openclaw) {
+    return true;
+  }
+  const launchRoutes = data.launch_config?.routes;
+  return !!(launchRoutes && typeof launchRoutes === 'object' && !Array.isArray(launchRoutes) && launchRoutes.openclaw);
 }
 
 function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListing {
@@ -781,25 +790,39 @@ export class OpenClawAgent extends Agent {
   static override fromDict(data: AgentHydrationData): OpenClawAgent {
     return new OpenClawAgent({
       ...agentStateFromDict(data),
-      gatewayUrl: data.openclaw_url ?? data.gateway_url ?? null,
+      gatewayUrl: null,
       gatewayToken: data.gateway_token ?? null,
     });
   }
 
+  private static gatewayUrlFromHostname(hostname: string | null | undefined): string | null {
+    const trimmed = String(hostname ?? '').trim();
+    return trimmed ? `wss://${trimmed}` : null;
+  }
+
+  private currentGatewayHostname(): string | null {
+    if (this.hostname) return this.hostname;
+    if (!this.gatewayUrl) return null;
+    try {
+      return new URL(this.gatewayUrl).hostname || null;
+    } catch {
+      return this.gatewayUrl.replace(/^wss?:\/\//, '').split('/')[0] || null;
+    }
+  }
+
   /**
-   * Resolve gateway context through `/deployments/{id}/inference/token`.
+   * Resolve gateway context through the deployment record plus `/env`.
    *
    * Agent startup is eventually consistent: the deployment record may lag
-   * behind hostname assignment, and public route/DNS propagation can lag
-   * behind both. Clients must not synthesize gateway URLs from hostnames,
-   * since an early NXDOMAIN can be cached by the browser stack. Treat the
-   * inference-token endpoint as the only safe source of truth.
+   * behind hostname attachment, and runtime env can lag behind both. The SDK
+   * derives the gateway URL from the attached hostname and reads the gateway
+   * token from `OPENCLAW_GATEWAY_TOKEN` in the agent env route.
    */
-  async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentInferenceTokenResponse> {
+  async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
     if (this.gatewayToken && this.gatewayUrl) {
       return {
         agent_id: this.id,
-        openclaw_url: this.gatewayUrl,
+        hostname: this.currentGatewayHostname(),
         gateway_token: this.gatewayToken,
       };
     }
@@ -810,13 +833,15 @@ export class OpenClawAgent extends Agent {
     let lastError: unknown = null;
     while (true) {
       try {
-        const tokenData = await deployments.inferenceToken(this.id);
-        const gatewayToken = tokenData.gateway_token ?? null;
-        const gatewayUrl = tokenData.openclaw_url ?? null;
+        const refreshed = await deployments.get(this.id);
+        const hostname = refreshed.hostname ?? null;
+        const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(hostname);
+        const envData = await deployments.env(this.id);
+        const gatewayToken = envData.env?.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
         if (gatewayToken && gatewayUrl) {
           this.gatewayToken = gatewayToken;
           this.gatewayUrl = gatewayUrl;
-          return { ...tokenData, gateway_token: gatewayToken, openclaw_url: gatewayUrl };
+          return { agent_id: this.id, gateway_token: gatewayToken, hostname };
         }
         lastError = new Error('missing gateway context');
       } catch (error) {
@@ -831,8 +856,8 @@ export class OpenClawAgent extends Agent {
   }
 
   async resolveGatewayToken(): Promise<string | null> {
-    const tokenData = await this.waitForGatewayContext();
-    return tokenData.gateway_token ?? null;
+    const context = await this.waitForGatewayContext();
+    return context.gateway_token ?? null;
   }
 
   gateway(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): GatewayClient {
@@ -1369,7 +1394,7 @@ export class Deployments {
 
   private hydrateAgent(data: AgentHydrationData): Agent {
     const agent =
-      data.openclaw_url || data.gateway_url
+      isOpenClawHydrationData(data)
         ? OpenClawAgent.fromDict(data)
         : Agent.fromDict(data);
     return bindAgent(agent, this);
@@ -1529,10 +1554,6 @@ export class Deployments {
 
   async refreshToken(agentId: string): Promise<AgentTokenResponse> {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
-  }
-
-  async inferenceToken(agentId: string): Promise<AgentInferenceTokenResponse> {
-    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/inference/token`);
   }
 
   async createScopedKey(agentId: string, name?: string): Promise<Record<string, any>> {

@@ -43,7 +43,7 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL, agentApiFetch } from "@/lib/api";
+import { API_BASE_URL } from "@/lib/api";
 import { createAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
@@ -220,10 +220,26 @@ export default function AgentsPage() {
       const token = await getToken();
       const agentClient = createAgentClient(token);
       const [listedAgents, budgetData] = await Promise.all([
-        agentApiFetch<AgentListResponse | AgentListItem[]>("/deployments", token),
+        agentClient.list(),
         agentClient.budget().catch(() => null),
       ]);
-      const rawItems: AgentListItem[] = Array.isArray(listedAgents) ? listedAgents : listedAgents.items || [];
+      const rawItems: AgentListItem[] = listedAgents.map((agent) => ({
+        id: agent.id,
+        name: agent.name ?? agent.id,
+        user_id: agent.userId,
+        pod_id: agent.podId || null,
+        pod_name: agent.podName || null,
+        state: (agent.state || "STOPPED").toUpperCase() as AgentState,
+        cpu: agent.cpu,
+        memory: agent.memory,
+        hostname: agent.hostname ?? null,
+        started_at: agent.startedAt?.toISOString() ?? null,
+        stopped_at: agent.stoppedAt?.toISOString() ?? null,
+        last_error: agent.lastError ?? null,
+        created_at: agent.createdAt?.toISOString() ?? null,
+        updated_at: agent.updatedAt?.toISOString() ?? null,
+        meta: agent.meta ?? null,
+      }));
       const items = rawItems.map((agent) => ({
         id: agent.id,
         name: agent.name || agent.id,
@@ -239,7 +255,6 @@ export default function AgentsPage() {
         last_error: agent.last_error ?? null,
         created_at: agent.created_at ?? null,
         updated_at: agent.updated_at ?? null,
-        openclaw_url: agent.openclaw_url ?? null,
         meta: agent.meta ?? null,
       }));
       setAgents(items);
@@ -910,7 +925,7 @@ export default function AgentsPage() {
   const issueAgentAccessToken = useCallback(
     async (agentId: string, hostname: string): Promise<string> => {
       const authToken = await getToken();
-      const tokenData = await agentApiFetch<AgentDesktopTokenResponse>(`/deployments/${agentId}/token`, authToken);
+      const tokenData = await createAgentClient(authToken).refreshToken(agentId) as AgentDesktopTokenResponse;
       return `https://desktop-${hostname}/_jwt_auth?jwt=${encodeURIComponent(tokenData.token)}`;
     },
     [getToken]

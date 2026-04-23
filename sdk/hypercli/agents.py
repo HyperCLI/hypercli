@@ -296,6 +296,18 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     }
 
 
+def _is_openclaw_agent_data(data: dict) -> bool:
+    routes = data.get("routes")
+    if isinstance(routes, dict) and routes.get("openclaw"):
+        return True
+    launch_config = data.get("launch_config")
+    if isinstance(launch_config, dict):
+        launch_routes = launch_config.get("routes")
+        if isinstance(launch_routes, dict) and launch_routes.get("openclaw"):
+            return True
+    return False
+
+
 @dataclass
 class Agent:
     """Generic agent returned by the HyperClaw backend."""
@@ -473,37 +485,59 @@ class OpenClawAgent(Agent):
     def from_dict(cls, data: dict) -> "OpenClawAgent":
         return cls(
             **_agent_kwargs_from_dict(data),
-            gateway_url=(data.get("openclaw_url") or data.get("gateway_url")),
+            gateway_url=None,
             gateway_token=data.get("gateway_token"),
         )
 
+    @staticmethod
+    def _gateway_url_from_hostname(hostname: str | None) -> str | None:
+        value = str(hostname or "").strip()
+        return f"wss://{value}" if value else None
+
+    def _current_gateway_hostname(self) -> str | None:
+        if self.hostname:
+            return self.hostname
+        if not self.gateway_url:
+            return None
+        raw = str(self.gateway_url).strip().replace("wss://", "").replace("ws://", "")
+        return raw.split("/", 1)[0] or None
+
     def wait_for_gateway_context(self, timeout: float = 30.0, retry_interval: float = 1.0) -> dict[str, Any]:
         """
-        Resolve gateway context through `/deployments/{id}/inference/token`.
+        Resolve gateway context through the deployment record plus `/env`.
 
         Agent startup is eventually consistent: the deployment record can lag
-        behind hostname assignment, and public route/DNS propagation can lag
-        behind both. Clients must not synthesize gateway URLs from hostnames,
-        since an early NXDOMAIN can be cached. Treat the inference-token
-        endpoint as the only safe source of truth.
+        behind hostname attachment, and runtime env can lag behind both. The
+        SDK derives the gateway URL from the attached hostname and reads the
+        gateway token from `OPENCLAW_GATEWAY_TOKEN` in the env route.
         """
         if self.gateway_token and self.gateway_url:
             return {
                 "agent_id": self.id,
-                "openclaw_url": self.gateway_url,
+                "hostname": self._current_gateway_hostname(),
                 "gateway_token": self.gateway_token,
             }
         deadline = time.monotonic() + timeout
         last_error: Exception | None = None
         while True:
             try:
-                token_data = self._require_deployments().inference_token(self.id)
-                gateway_token = token_data.get("gateway_token")
-                gateway_url = token_data.get("openclaw_url")
+                refreshed = self._require_deployments().get(self.id)
+                hostname = getattr(refreshed, "hostname", None)
+                gateway_url = self._gateway_url_from_hostname(hostname)
+                env_data = self._require_deployments().env(self.id)
+                gateway_token = (
+                    (env_data.get("env") or {}).get("OPENCLAW_GATEWAY_TOKEN", "").strip()
+                    if isinstance(env_data, dict)
+                    else None
+                )
                 if gateway_token and gateway_url:
                     self.gateway_token = gateway_token
                     self.gateway_url = gateway_url
-                    return token_data
+                    return {
+                        "agent_id": self.id,
+                        "hostname": hostname,
+                        "gateway_token": gateway_token,
+                    }
                 last_error = RuntimeError("missing gateway context")
             except Exception as exc:
                 last_error = exc
@@ -514,7 +548,7 @@ class OpenClawAgent(Agent):
             time.sleep(retry_interval)
 
     def resolve_gateway_token(self) -> str | None:
-        """Resolve the gateway token through the inference-token endpoint."""
+        """Resolve the gateway token through the deployment env route."""
         token_data = self.wait_for_gateway_context()
         self.gateway_token = token_data.get("gateway_token")
         return self.gateway_token
@@ -966,7 +1000,7 @@ class Deployments:
         )
 
     def _hydrate_agent(self, data: dict) -> Agent:
-        if data.get("openclaw_url") or data.get("gateway_url"):
+        if _is_openclaw_agent_data(data):
             agent = OpenClawAgent.from_dict(data)
         else:
             agent = Agent.from_dict(data)
@@ -1374,10 +1408,6 @@ class Deployments:
             Dict with agent_id, pod_id, token, expires_at.
         """
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/token")
-
-    def inference_token(self, agent_id: str) -> dict:
-        """Fetch the scoped OpenClaw gateway token for an agent."""
-        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/inference/token")
 
     def create_scoped_key(self, agent_id: str, name: str | None = None) -> dict:
         payload = {"name": name} if name is not None else {}

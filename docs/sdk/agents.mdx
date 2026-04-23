@@ -387,7 +387,7 @@ When the backend includes gateway metadata, the SDK hydrates `OpenClawAgent`.
 - `discord_upsert()`
 - `cron_list()`
 
-`resolve_gateway_token()` now uses `GET /api/deployments/{id}/inference/token`. Use that endpoint for scoped agent keys instead of reading `OPENCLAW_GATEWAY_TOKEN` from `/env`.
+`resolve_gateway_token()` now uses `GET /api/deployments/{id}` plus `GET /api/deployments/{id}/env`. Use those endpoints for scoped agent access.
 
 To mint a child key for one exact agent:
 
@@ -400,7 +400,7 @@ print(scoped["api_key"])
 
 The SDK now treats the root host as the default gateway host.
 
-If the backend does not explicitly return `openclaw_url` / `gateway_url`, `OpenClawAgent` falls back to:
+`OpenClawAgent` now derives gateway connection context from:
 
 ```python
 f"wss://{agent.hostname}"

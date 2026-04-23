@@ -19,7 +19,6 @@ export interface Agent {
   last_error: string | null;
   created_at: string | null;
   updated_at: string | null;
-  openclaw_url?: string | null;
   gatewayToken?: string | null;
   meta?: AgentMeta | null;
 }
@@ -59,7 +58,6 @@ export interface AgentListItem {
   last_error: string | null;
   created_at: string | null;
   updated_at: string | null;
-  openclaw_url?: string | null;
   gatewayToken?: string | null;
   meta?: AgentMeta | null;
 }
