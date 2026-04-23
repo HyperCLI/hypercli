@@ -164,10 +164,15 @@ async function fetchAdminAuthToken(
 
 async function installLocalAuthToken(
   page: Page,
-  *,
-  baseUrl: string,
-  storageKey: "claw_auth_token" | "app_auth_token",
-  token: string,
+  {
+    baseUrl,
+    storageKey,
+    token,
+  }: {
+    baseUrl: string;
+    storageKey: "claw_auth_token" | "app_auth_token";
+    token: string;
+  },
 ): Promise<void> {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.evaluate(
