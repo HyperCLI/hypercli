@@ -338,7 +338,8 @@ export default function AgentsPage() {
   // ── Gateway Chat hook ──
   const chat = useGatewayChat(
     selectedAgent && isSelectedRunning ? selectedAgent : null,
-    getToken
+    getToken,
+    mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",
   );
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") return "connected" as const;
@@ -1028,7 +1029,7 @@ export default function AgentsPage() {
 
   // ── Shell WebSocket ──
   useEffect(() => {
-    if (!selectedAgentId || selectedAgentState !== "RUNNING") {
+    if (mainTab !== "shell" || !selectedAgentId || selectedAgentState !== "RUNNING") {
       setShellStatus("disconnected");
       return;
     }

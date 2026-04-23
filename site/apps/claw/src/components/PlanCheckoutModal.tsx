@@ -4,8 +4,98 @@ import { useState } from "react";
 import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { createHyperAgentClient } from "@/lib/agent-client";
-import { connectWallet, getWalletState, x402Subscribe } from "@/lib/x402";
 import { formatTokens } from "@/lib/format";
+import { createWalletClient, custom, type WalletClient } from "viem";
+import { base } from "viem/chains";
+
+interface EthereumProvider {
+  request: (args: { method: string; params?: unknown[] }) => Promise<unknown>;
+}
+
+interface WalletState {
+  client: WalletClient;
+  address: string;
+}
+
+let walletState: WalletState | null = null;
+
+function getProvider(): EthereumProvider {
+  const win = window as Window & { ethereum?: EthereumProvider };
+  if (!win.ethereum) {
+    throw new Error("Please install MetaMask or another Ethereum wallet");
+  }
+  return win.ethereum;
+}
+
+async function connectWallet(): Promise<WalletState> {
+  if (walletState) return walletState;
+
+  const provider = getProvider();
+  const accounts = (await provider.request({
+    method: "eth_requestAccounts",
+  })) as string[];
+
+  if (!accounts?.length) throw new Error("No accounts found");
+
+  const chainId = (await provider.request({ method: "eth_chainId" })) as string;
+  if (chainId !== "0x2105") {
+    try {
+      await provider.request({
+        method: "wallet_switchEthereumChain",
+        params: [{ chainId: "0x2105" }],
+      });
+    } catch (err: any) {
+      if (err?.code === 4902) {
+        await provider.request({
+          method: "wallet_addEthereumChain",
+          params: [
+            {
+              chainId: "0x2105",
+              chainName: "Base",
+              nativeCurrency: { name: "Ethereum", symbol: "ETH", decimals: 18 },
+              rpcUrls: ["https://mainnet.base.org"],
+              blockExplorerUrls: ["https://basescan.org"],
+            },
+          ],
+        });
+      } else {
+        throw err;
+      }
+    }
+  }
+
+  const client = createWalletClient({
+    account: accounts[0] as `0x${string}`,
+    chain: base,
+    transport: custom(provider as any),
+  });
+
+  walletState = { client, address: accounts[0] };
+  return walletState;
+}
+
+function getWalletState(): WalletState | null {
+  return walletState;
+}
+
+function walletClientToX402Signer(wallet: WalletClient) {
+  return {
+    address: wallet.account!.address,
+    signTypedData: (params: {
+      domain: Record<string, unknown>;
+      types: Record<string, unknown>;
+      primaryType: string;
+      message: Record<string, unknown>;
+    }) =>
+      wallet.signTypedData({
+        account: wallet.account!,
+        domain: params.domain as any,
+        types: params.types as any,
+        primaryType: params.primaryType,
+        message: params.message as any,
+      }),
+  };
+}
 
 interface PlanCheckoutModalProps {
   plan: {
@@ -95,7 +185,14 @@ export function PlanCheckoutModal({
     setError(null);
     try {
       const token = await getToken();
-      await x402Subscribe(plan.id, plan.bundle, token, plan.price, 1);
+      const hyperAgent = createHyperAgentClient(token);
+      const wallet = await connectWallet();
+      await hyperAgent.purchaseViaX402WithSigner(plan.id, {
+        bundle: plan.bundle,
+        quantity: 1,
+        signer: walletClientToX402Signer(wallet.client),
+        amountUsd: plan.price,
+      });
       setSuccess(true);
       setTimeout(() => {
         onSuccess();

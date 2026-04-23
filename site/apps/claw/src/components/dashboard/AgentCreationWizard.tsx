@@ -17,7 +17,7 @@ import { formatTokens, type SlotInventory } from "@/lib/format";
 interface AgentCreationWizardProps {
   open: boolean;
   onClose: () => void;
-  onCreated: (agentId?: string, gatewayToken?: string) => void;
+  onCreated: (agentId?: string) => void;
   initialStep?: number;
   preferredTypeId?: string | null;
   budget?: {
@@ -271,7 +271,7 @@ export function AgentCreationWizard({
           },
         },
       });
-      onCreated(created.id, (created as any).gatewayToken ?? undefined);
+      onCreated(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to create agent");
     } finally {

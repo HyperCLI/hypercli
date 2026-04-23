@@ -246,7 +246,8 @@ function normalizeLiveToolResult(
  */
 export function useGatewayChat(
   agent: Agent | null,
-  getToken: () => Promise<string>
+  getToken: () => Promise<string>,
+  enabled: boolean = true,
 ) {
   const gwRef = useRef<GatewayClient | null>(null);
   const getTokenRef = useRef(getToken);
@@ -293,13 +294,7 @@ export function useGatewayChat(
   }, [getToken]);
 
   useEffect(() => {
-    if (!agent || agent.state !== "RUNNING" || !agent.hostname) return;
-
-    const url = agent.openclaw_url || `wss://${agent.hostname}`;
-    if (!url) {
-      setError("No gateway URL available");
-      return;
-    }
+    if (!enabled || !agent || agent.state !== "RUNNING") return;
 
     let cancelled = false;
     let gw: GatewayClient | null = null;
@@ -598,6 +593,7 @@ export function useGatewayChat(
       setActivityFeed([]);
     };
   }, [
+    enabled,
     agent?.hostname,
     agent?.id,
     agent?.state,
