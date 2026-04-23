@@ -258,6 +258,8 @@ export function useGatewayChat(
   const [input, setInput] = useState("");
   const [pendingInput, setPendingInput] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
+  const [hasChatTimeoutOccurred, setHasChatTimeoutOccurred] = useState(false);
+  const [hasChatErrorOccured, setHasChatErrorOccured] = useState(false);
 
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
@@ -453,6 +455,7 @@ export function useGatewayChat(
             }
           } else if (event === "chat.error") {
             setSending(false);
+            setHasChatErrorOccured(true);
             setMessages((prev) => [
               ...prev,
               {
@@ -617,6 +620,49 @@ export function useGatewayChat(
     }
   }, [sending, pendingInput]);
 
+  // useEffect calls for detecting chat-timeout
+  useEffect(() => {
+    if (!sending) return;
+
+    // reset timeout when a new send starts
+    setHasChatTimeoutOccurred(false);
+
+    let timeoutId: NodeJS.Timeout;
+
+    const scheduleTimeout = () => {
+      clearTimeout(timeoutId);
+
+      timeoutId = setTimeout(() => {
+        setHasChatTimeoutOccurred(true);
+      }, 5 * 60 * 1000); // 5 minutes
+    };
+
+    // run once initially
+    scheduleTimeout();
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [sending]);
+
+  // second useEffect hook for resetting chat timeout timer based on last message changes
+  useEffect(() => {
+    if (!sending) return;
+
+    // every time messages update, reset timeout
+    setHasChatTimeoutOccurred(false);
+
+    const timeoutId = setTimeout(() => {
+      setHasChatTimeoutOccurred(true);
+    }, 5 * 60 * 1000);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [messages, sending]);
+
+  
+
   const addAttachments = useCallback((files: FileList) => {
     Array.from(files).forEach((file) => {
       if (!file.type.startsWith("image/")) return;
@@ -689,6 +735,8 @@ export function useGatewayChat(
     setPendingAttachments([]);
     setPendingFiles([]);
     setSending(true);
+    setHasChatTimeoutOccurred(false);
+    setHasChatErrorOccured(false);
 
     const userMsg: ChatMessage = { role: "user", content: msg, timestamp: Date.now() };
     if (attachments.length > 0) {
@@ -727,6 +775,23 @@ export function useGatewayChat(
       setSending(false);
     }
   }, [input, sending, pendingAttachments, pendingFiles, appendActivity]);
+
+  const retryMessage = useCallback(() => {
+    if (!messages.length) return;
+
+    // find last user message from the end
+    const lastUserMessage = [...messages]
+        .reverse()
+        .find((msg) => msg.role === "user" && msg.content?.trim());
+
+      if (!lastUserMessage) return;
+
+      // reset timeout/error state if needed (optional but recommended)
+      setHasChatTimeoutOccurred(false);
+      setHasChatErrorOccured(false);
+
+      sendMessage(lastUserMessage.content);
+  }, [messages]);
 
   // File operations
   const openFile = useCallback(
@@ -825,11 +890,14 @@ export function useGatewayChat(
   return {
     messages,
     sendMessage,
+    retryMessage,
     input,
     setInput,
     pendingInput,
     addPendingMessage,
     sending,
+    hasChatTimeoutOccurred,
+    hasChatErrorOccured,
     connected,
     connecting,
     error,

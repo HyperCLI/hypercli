@@ -47,7 +47,7 @@ import { API_BASE_URL } from "@/lib/api";
 import { createAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
-import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
+import { ChatMessageBubble, ChatStateIndicator } from "@/components/dashboard/ChatMessage";
 import { useGatewayChat } from "@/hooks/useGatewayChat";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
@@ -2239,7 +2239,12 @@ export default function AgentsPage() {
                           (last.content && last.content.trim().length > 0) ||
                           (last.toolCalls && last.toolCalls.length > 0)
                         );
-                        return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
+                        return hasContent ? null : <ChatStateIndicator 
+                          variant="v2"
+                          hasErrorOccured={chat.hasChatErrorOccured}
+                          hasTimeoutOccured={chat.hasChatTimeoutOccurred}
+                          retryMessage={chat.retryMessage}
+                        />;
                       })()}
 
                       <div ref={chatEndRef} />

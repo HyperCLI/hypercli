@@ -1,7 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Loader2, 
+  Paperclip, Pause, Play, Wrench, ClockFading, TriangleAlert, RotateCcw } from "lucide-react";
 import Markdown from "react-markdown";
 import { motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
@@ -590,8 +591,48 @@ export function ChatMessageBubble({
   );
 }
 
-export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVariant } = {}) {
-  void variant; // accepted for future style options
+interface ChatStateIndicatorProps{
+  variant?: FeatureVariant; 
+  hasTimeoutOccured: boolean; 
+  hasErrorOccured: boolean; 
+  retryMessage: () => void;
+}
+
+export function ChatStateIndicator({
+  hasErrorOccured,
+  hasTimeoutOccured,
+  retryMessage,
+  variant = "off",
+}: ChatStateIndicatorProps) {
+  void variant;
+
+  const isError = hasErrorOccured;
+  const isTimeout = !isError && hasTimeoutOccured;
+  const isThinking = !isError && !isTimeout;
+
+  let Icon = Brain;
+  let text = "Thinking";
+  let iconColor = "text-[#38D39F]";
+  let textColor = "text-text-secondary";
+  let borderColor = "border-[#38D39F]/20";
+  let shimmerColor = "via-[#38D39F]/8";
+
+  if (isError) {
+    Icon = TriangleAlert;
+    text = "Error occurred";
+    iconColor = "text-red-500";
+    textColor = "text-red-400";
+    borderColor = "border-red-500/20";
+    shimmerColor = "via-red-500/10";
+  } else if (isTimeout) {
+    Icon = ClockFading;
+    text = "Timeout occurred";
+    iconColor = "text-gray-400";
+    textColor = "text-gray-400";
+    borderColor = "border-gray-400/20";
+    shimmerColor = "via-gray-400/10";
+  }
+
   return (
     <motion.div
       className="flex justify-start"
@@ -600,39 +641,66 @@ export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVa
       exit={{ opacity: 0 }}
       transition={{ duration: 0.18 }}
     >
-      <div className="relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-2.5 border border-[#38D39F]/20 overflow-hidden">
-        {/* Subtle shimmer background */}
+      <div
+        className={`relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-3 border overflow-hidden ${borderColor}`}
+      >
+        {/* Shimmer only for thinking */}
+        {isThinking && (
+          <motion.div
+            aria-hidden
+            className={`absolute inset-0 -z-10 bg-gradient-to-r from-transparent ${shimmerColor} to-transparent`}
+            animate={{ x: ["-100%", "100%"] }}
+            transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
+            style={{ width: "60%" }}
+          />
+        )}
+
+        {/* Icon */}
         <motion.div
-          aria-hidden
-          className="absolute inset-0 -z-10 bg-gradient-to-r from-transparent via-[#38D39F]/8 to-transparent"
-          animate={{ x: ["-100%", "100%"] }}
-          transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
-          style={{ width: "60%" }}
-        />
-        <motion.div
-          animate={{ scale: [1, 1.08, 1] }}
-          transition={{ repeat: Infinity, duration: 1.4, ease: "easeInOut" }}
+          animate={isThinking ? { scale: [1, 1.08, 1] } : {}}
+          transition={
+            isThinking
+              ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" }
+              : {}
+          }
         >
-          <Brain className="w-4 h-4 text-[#38D39F]" />
+          <Icon className={`w-4 h-4 ${iconColor}`} />
         </motion.div>
-        <span className="text-xs font-medium text-text-secondary">Thinking</span>
-        <span className="flex items-center gap-1">
-          <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
-            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
-            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut" }}
-          />
-          <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
-            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
-            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.18 }}
-          />
-          <motion.span
-            className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
-            animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
-            transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.36 }}
-          />
-        </span>
+
+        {/* Text */}
+        <span className={`text-xs font-medium ${textColor}`}>{text}</span>
+
+        {/* Thinking dots */}
+        {isThinking && (
+          <span className="flex items-center gap-1">
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+              transition={{ repeat: Infinity, duration: 1.2 }}
+            />
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+              transition={{ repeat: Infinity, duration: 1.2, delay: 0.18 }}
+            />
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+              transition={{ repeat: Infinity, duration: 1.2, delay: 0.36 }}
+            />
+          </span>
+        )}
+
+        {/* Retry button for error/timeout */}
+        {(isError || isTimeout) && (
+          <button
+            onClick={retryMessage}
+            className="ml-2 flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md border border-white/10 hover:bg-white/5 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        )}
       </div>
     </motion.div>
   );
