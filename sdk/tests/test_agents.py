@@ -195,6 +195,39 @@ def test_openclaw_agent_gateway_ignores_jwt_and_uses_bound_tokens():
     assert gw.api_base == "https://api.test.hypercli.com"
 
 
+def test_openclaw_agent_wait_running_still_delegates_to_deployments():
+    manager = Mock()
+    ready = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-ready",
+        pod_name="ready-pod",
+        state="running",
+        hostname="ready.hypercli.com",
+    )
+    ready._deployments = manager
+    manager.wait_running.return_value = ready
+
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-pending",
+        pod_name="pending-pod",
+        state="starting",
+        hostname="ready.hypercli.com",
+        _deployments=manager,
+    )
+    agent.wait_for_gateway_context = Mock(side_effect=AssertionError("wait_for_gateway_context should not be used by wait_running"))
+
+    result = agent.wait_running(timeout=42, poll_interval=1.5)
+
+    manager.wait_running.assert_called_once_with("agent-123", timeout=42, poll_interval=1.5)
+    agent.wait_for_gateway_context.assert_not_called()
+    assert result is agent
+    assert agent.state == "running"
+    assert agent.pod_id == "pod-ready"
+
+
 def test_agent_wait_running_delegates_to_deployments():
     manager = Mock()
     ready = Agent(

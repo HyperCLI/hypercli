@@ -714,6 +714,42 @@ describe('HyperClaw agents SDK', () => {
     expect(close).toHaveBeenCalledTimes(11);
   });
 
+  it('OpenClawAgent waitRunning still delegates to Deployments.waitRunning', async () => {
+    const deployments = new Deployments(
+      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+    const ready = OpenClawAgent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-ready',
+      pod_name: 'pod-ready',
+      state: 'running',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+      hostname: 'agent-ready.hypercli.app',
+    });
+    vi.spyOn(deployments, 'waitRunning').mockResolvedValue(ready);
+
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-pending',
+      pod_name: 'pod-pending',
+      state: 'starting',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+      hostname: 'agent-ready.hypercli.app',
+    });
+    (agent as any)._deployments = deployments;
+    const gateway = vi.spyOn(agent, 'waitForGatewayContext');
+
+    const result = await agent.waitRunning(42_000, 250);
+
+    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250);
+    expect(gateway).not.toHaveBeenCalled();
+    expect(result).toBe(ready);
+  });
+
   it('Agent waitRunning delegates to Deployments.waitRunning', async () => {
     const deployments = new Deployments(
       { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,

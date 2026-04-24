@@ -1371,12 +1371,8 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   expect(created.id).toBeTruthy();
   await captureStep(page, "agents-11-created");
 
-  await expect
-    .poll(async () => {
-      const latest = await deployments.get(created.id);
-      return latest.state ?? null;
-    }, { timeout, intervals: [2_000, 5_000, 10_000] })
-    .toBe("RUNNING");
+  const running = await deployments.waitRunning(created.id, timeout, 5_000);
+  expect(running.state).toBe("RUNNING");
 
   const composer = page.getByPlaceholder("Message agent...");
   await expect(composer).toBeVisible({ timeout: 60_000 });
