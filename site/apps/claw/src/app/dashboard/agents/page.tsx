@@ -303,6 +303,18 @@ export default function AgentsPage() {
     () => (selectedAgent ? inferAgentTier(selectedAgent, budget) : null),
     [selectedAgent, budget],
   );
+  useEffect(() => {
+    if (!selectedAgentId || !selectedAgentState || !["PENDING", "STARTING", "STOPPING"].includes(selectedAgentState)) {
+      return;
+    }
+
+    const timer = setInterval(() => {
+      void fetchAgents();
+    }, 2000);
+
+    return () => clearInterval(timer);
+  }, [fetchAgents, selectedAgentId, selectedAgentState]);
+
   const selectedAgentStartGuidance = useMemo(
     () =>
       selectedAgent && (selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED")
