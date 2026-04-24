@@ -49,7 +49,6 @@ import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
-import { useAgent } from "@/hooks/useAgent";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -64,7 +63,9 @@ import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWiz
 import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
 import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { encodePath } from "@/lib/image-tools";
-import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentListItem, AgentListResponse, AgentState, JsonObject, LogEvent } from "./types";
+import type { SdkAgent } from "@/types";
+import type { OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject, LogEvent } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -103,6 +104,26 @@ const WS_RETRY_INTERVAL_MS = 15000;
 const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
 const AGENT_TRANSITION_REFRESH_MS = 3000;
 type MainTab = AgentMainTab;
+
+function toDashboardAgent(agent: SdkAgent): Agent {
+  return {
+    id: agent.id,
+    name: agent.name ?? agent.id,
+    user_id: agent.userId,
+    pod_id: agent.podId || null,
+    pod_name: agent.podName || null,
+    state: (agent.state || "STOPPED").toUpperCase() as AgentState,
+    cpu_millicores: Math.round((agent.cpu || 0) * 1000),
+    memory_mib: Math.round((agent.memory || 0) * 1024),
+    hostname: agent.hostname ?? null,
+    started_at: agent.startedAt?.toISOString() ?? null,
+    stopped_at: agent.stoppedAt?.toISOString() ?? null,
+    last_error: agent.lastError ?? null,
+    created_at: agent.createdAt?.toISOString() ?? null,
+    updated_at: agent.updatedAt?.toISOString() ?? null,
+    meta: agent.meta ?? null,
+  };
+}
 // Shell now routes through backend WebSocket via lagoon → K8s exec
 
 // ── Main component ──
@@ -117,7 +138,7 @@ export default function AgentsPage() {
   });
 
   // Agent data
-  const [agents, setAgents] = useState<Agent[]>([]);
+  const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -224,55 +245,21 @@ export default function AgentsPage() {
         agentClient.list(),
         agentClient.budget().catch(() => null),
       ]);
-      const rawItems: AgentListItem[] = listedAgents.map((agent) => ({
-        id: agent.id,
-        name: agent.name ?? agent.id,
-        user_id: agent.userId,
-        pod_id: agent.podId || null,
-        pod_name: agent.podName || null,
-        state: (agent.state || "STOPPED").toUpperCase() as AgentState,
-        cpu: agent.cpu,
-        memory: agent.memory,
-        hostname: agent.hostname ?? null,
-        started_at: agent.startedAt?.toISOString() ?? null,
-        stopped_at: agent.stoppedAt?.toISOString() ?? null,
-        last_error: agent.lastError ?? null,
-        created_at: agent.createdAt?.toISOString() ?? null,
-        updated_at: agent.updatedAt?.toISOString() ?? null,
-        meta: agent.meta ?? null,
-      }));
-      const items = rawItems.map((agent) => ({
-        id: agent.id,
-        name: agent.name || agent.id,
-        user_id: agent.user_id,
-        pod_id: agent.pod_id || null,
-        pod_name: agent.pod_name || null,
-        state: (agent.state || "STOPPED").toUpperCase() as AgentState,
-        cpu_millicores: Math.round((agent.cpu || 0) * 1000),
-        memory_mib: Math.round((agent.memory || 0) * 1024),
-        hostname: agent.hostname ?? null,
-        started_at: agent.started_at ?? null,
-        stopped_at: agent.stopped_at ?? null,
-        last_error: agent.last_error ?? null,
-        created_at: agent.created_at ?? null,
-        updated_at: agent.updated_at ?? null,
-        meta: agent.meta ?? null,
-      }));
-      setAgents(items);
+      setSdkAgents(listedAgents);
       setBudget((budgetData as AgentBudget | null) || null);
       setAgentClusterUnavailable(false);
       const currentId = selectedAgentIdRef.current;
-      if (!currentId && items.length > 0) {
-        setSelectedAgentId(items[0].id);
+      if (!currentId && listedAgents.length > 0) {
+        setSelectedAgentId(listedAgents[0].id);
       }
-      if (currentId && !items.find((item) => item.id === currentId)) {
-        setSelectedAgentId(items[0]?.id || null);
+      if (currentId && !listedAgents.find((item) => item.id === currentId)) {
+        setSelectedAgentId(listedAgents[0]?.id || null);
       }
     } catch (err) {
       const described = describeAgentsPageError(err);
       setError(described.message);
       setAgentClusterUnavailable(described.clusterUnavailable);
-      setAgents([]);
+      setSdkAgents([]);
       setBudget(null);
     } finally {
       setLoading(false);
@@ -280,6 +267,8 @@ export default function AgentsPage() {
   }, [getToken]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
+
+  const agents = useMemo(() => sdkAgents.map(toDashboardAgent), [sdkAgents]);
 
   // Fast polling during transitions
   const hasTransitioning = agents.some(a => ["PENDING", "STARTING", "STOPPING"].includes(a.state));
@@ -307,7 +296,16 @@ export default function AgentsPage() {
     () => agents.find((item) => item.id === selectedAgentId) || null,
     [agents, selectedAgentId],
   );
-  const { agent: selectedSdkAgent } = useAgent(selectedAgentId);
+  const selectedSdkAgent = useMemo(
+    () => (selectedAgentId ? sdkAgents.find((agent) => agent.id === selectedAgentId) ?? null : null),
+    [sdkAgents, selectedAgentId],
+  );
+  const selectedOpenClawAgent = useMemo(
+    () => (selectedSdkAgent && typeof (selectedSdkAgent as { connect?: unknown }).connect === "function"
+      ? (selectedSdkAgent as SdkOpenClawAgent)
+      : null),
+    [selectedSdkAgent],
+  );
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
@@ -354,7 +352,7 @@ export default function AgentsPage() {
 
   // ── Gateway Chat hook ──
   const chat = useOpenClawSession(
-    selectedAgent && isSelectedRunning && selectedSdkAgent ? (selectedSdkAgent as typeof selectedSdkAgent & { name?: string | null; hostname?: string | null }) : null,
+    selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",
   );
   const activeConnectionStatus = useMemo(() => {

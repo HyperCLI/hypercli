@@ -17,17 +17,9 @@ import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import { createAgentClient } from "@/lib/agent-client";
 import { isProtectedFile } from "@/lib/protected-files";
-
-type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
-
-interface AgentDetail {
-  id: string;
-  name: string;
-  state: AgentState;
-  hostname: string | null;
-}
 
 const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
   { key: "name", label: "Name" },
@@ -43,7 +35,7 @@ export default function AgentFilesPage() {
   const { getToken } = useAgentAuth();
 
   // Agent metadata
-  const [agent, setAgent] = useState<AgentDetail | null>(null);
+  const [agent, setAgent] = useState<OpenClawAgent | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentLoading, setAgentLoading] = useState(true);
 
@@ -55,12 +47,7 @@ export default function AgentFilesPage() {
         const token = await getToken();
         const deployment = await createAgentClient(token).get(agentId);
         if (cancelled) return;
-        setAgent({
-          id: deployment.id,
-          name: deployment.name ?? deployment.id,
-          state: ((deployment.state ?? "STOPPED").toUpperCase()) as AgentState,
-          hostname: deployment.hostname ?? null,
-        });
+        setAgent(typeof (deployment as { connect?: unknown }).connect === "function" ? (deployment as OpenClawAgent) : null);
       } catch (e) {
         if (!cancelled) setAgentError(e instanceof Error ? e.message : String(e));
       } finally {

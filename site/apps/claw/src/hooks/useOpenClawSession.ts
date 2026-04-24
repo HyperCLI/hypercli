@@ -1,6 +1,7 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
+import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { GatewayClient, GatewayCloseInfo, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
   type ChatAttachment,
@@ -14,18 +15,10 @@ import {
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
 
-interface Agent {
-  id: string;
-  name?: string | null;
-  state: string;
-  hostname?: string | null;
-  connect?: (options?: Record<string, unknown>) => Promise<import("@hypercli.com/sdk/openclaw/gateway").GatewayClient>;
-}
-
 type ActivityKind = "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
 
 export function useOpenClawSession(
-  agent: Agent | null,
+  agent: OpenClawAgent | null,
   enabled: boolean = true,
 ) {
   const [gateway, setGateway] = useState<GatewayClient | null>(null);
