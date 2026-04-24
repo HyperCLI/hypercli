@@ -92,30 +92,9 @@ import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
-
-// ── Constants ──
+import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 
 type MainTab = AgentMainTab;
-
-function toDashboardAgent(agent: SdkAgent): Agent {
-  return {
-    id: agent.id,
-    name: agent.name ?? agent.id,
-    user_id: agent.userId,
-    pod_id: agent.podId || null,
-    pod_name: agent.podName || null,
-    state: (agent.state || "STOPPED").toUpperCase() as AgentState,
-    cpu_millicores: Math.round((agent.cpu || 0) * 1000),
-    memory_mib: Math.round((agent.memory || 0) * 1024),
-    hostname: agent.hostname ?? null,
-    started_at: agent.startedAt?.toISOString() ?? null,
-    stopped_at: agent.stoppedAt?.toISOString() ?? null,
-    last_error: agent.lastError ?? null,
-    created_at: agent.createdAt?.toISOString() ?? null,
-    updated_at: agent.updatedAt?.toISOString() ?? null,
-    meta: agent.meta ?? null,
-  };
-}
 
 function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   const index = prev.findIndex((agent) => agent.id === nextAgent.id);
@@ -194,10 +173,10 @@ export default function AgentsPage() {
 
   // Files panel
 
-  // Right sidebar (AgentView)
-  const [agentViewTab, setAgentViewTab] = useState<AgentViewTabId>("overview");
+  // Right sidebar inspector
+  const [inspectorTab, setInspectorTab] = useState<AgentViewTabId>("overview");
   const [channelsData, setChannelsData] = useState<Record<string, unknown> | null>(null);
-  const [agentViewSheetOpen, setAgentViewSheetOpen] = useState(false);
+  const [inspectorSheetOpen, setInspectorSheetOpen] = useState(false);
 
   // Modal overlays for gear dropdown items
   const [showOpenclawModal, setShowOpenclawModal] = useState(false);
@@ -270,7 +249,7 @@ export default function AgentsPage() {
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
-  const agents = useMemo(() => sdkAgents.map(toDashboardAgent), [sdkAgents]);
+  const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -291,7 +270,7 @@ export default function AgentsPage() {
     [sdkAgents, selectedAgentId],
   );
   const selectedAgent = useMemo(
-    () => (selectedSdkAgent ? toDashboardAgent(selectedSdkAgent) : null),
+    () => (selectedSdkAgent ? toAgentViewModel(selectedSdkAgent) : null),
     [selectedSdkAgent],
   );
   const selectedOpenClawAgent = useMemo(
@@ -433,7 +412,7 @@ export default function AgentsPage() {
     openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
   }, [activeOpenclawSection, mainTab]);
 
-  // ── AgentView right-sidebar data wiring ──
+  // ── Agent inspector data wiring ──
 
   // Probe channel status when gateway connects, and refresh after config save
   useEffect(() => {
@@ -484,7 +463,7 @@ export default function AgentsPage() {
   }), []);
 
   // One thread per agent, used by both the left ConversationsSidebar and the
-  // right AgentView (which needs `hasAgent` true to render content).
+  // right inspector (which needs `hasAgent` true to render content).
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
     return agents.map((agent) => ({
       id: agent.id,
@@ -1027,7 +1006,7 @@ export default function AgentsPage() {
 
   const handleStart = async (agentId: string) => {
     const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
-    const agent = sdkAgent ? toDashboardAgent(sdkAgent) : null;
+    const agent = sdkAgent ? toAgentViewModel(sdkAgent) : null;
     const guidance = describeAgentTierStartGuidance(agent, budget);
     if (guidance) {
       if (guidance.availableTiers.length > 0) {
@@ -1677,7 +1656,7 @@ export default function AgentsPage() {
               setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
             }
           }}
-          onShowInspector={() => setAgentViewSheetOpen(true)}
+          onShowInspector={() => setInspectorSheetOpen(true)}
           onStart={() => {
             if (selectedAgent) {
               void handleStart(selectedAgent.id);
@@ -1694,12 +1673,12 @@ export default function AgentsPage() {
 
         <AgentInspector
           isDesktopViewport={isDesktopViewport}
-          open={agentViewSheetOpen}
-          setOpen={setAgentViewSheetOpen}
+          open={inspectorSheetOpen}
+          setOpen={setInspectorSheetOpen}
           selectedAgent={selectedAgent}
           isSelectedRunning={Boolean(isSelectedRunning)}
-          activeTab={agentViewTab}
-          onTabChange={setAgentViewTab}
+          activeTab={inspectorTab}
+          onTabChange={setInspectorTab}
           viewProps={{
             ...agentViewVariants,
             showActiveSessions: true,
