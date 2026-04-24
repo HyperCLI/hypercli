@@ -275,6 +275,19 @@ export function useGatewayChat(
   }>>([]);
 
   type ActivityKind = "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
+
+const GATEWAY_RECONNECT_PAUSED_CODES = new Set([
+  "PAIRING_REQUIRED",
+  "AUTH_RATE_LIMITED",
+  "AUTH_TOKEN_MISMATCH",
+]);
+
+function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean {
+  if (code === 1000) return false;
+  if (!closeError || typeof closeError !== "object") return true;
+  const value = (closeError as { code?: unknown }).code;
+  return !(typeof value === "string" && GATEWAY_RECONNECT_PAUSED_CODES.has(value));
+}
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => {
       const next = [...prev, {
@@ -323,7 +336,7 @@ export function useGatewayChat(
           onClose: ({ error: closeError, code, reason }) => {
             if (cancelled) return;
             setConnected(false);
-            setConnecting(true);
+            setConnecting(shouldShowGatewayConnecting(closeError, code));
             if (closeError?.message) {
               setError(closeError.message);
               return;
