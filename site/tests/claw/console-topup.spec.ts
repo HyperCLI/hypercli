@@ -37,7 +37,7 @@ test("tops up the Console balance by $10 and verifies the updated dashboard bala
   await payButton.click();
 
   const checkoutSubmittedAt = new Date();
-  await completeStripeCheckout(page);
+  await completeStripeCheckout(page, consoleBaseUrl);
   await captureStep(page, "console-06-checkout-submitted");
 
   const settlement = await waitForTopUpSettlement(initialBalance, checkoutSubmittedAt, 10, initialTransactionIds);
