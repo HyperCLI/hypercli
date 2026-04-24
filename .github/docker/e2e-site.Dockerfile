@@ -11,6 +11,7 @@ RUN npm run build
 
 WORKDIR /workspace
 COPY .github /workspace/.github/
+COPY notify /workspace/notify/
 COPY site /workspace/site/
 
 WORKDIR /workspace/site

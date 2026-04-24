@@ -44,6 +44,7 @@ mkdir -p "${BUILD_CTX}/.github/docker"
 cp "${REPO_ROOT}/.github/docker/e2e-site.Dockerfile" "${BUILD_CTX}/.github/docker/e2e-site.Dockerfile"
 
 copy_src "${REPO_ROOT}/.github" "${BUILD_CTX}/.github"
+copy_src "${REPO_ROOT}/notify" "${BUILD_CTX}/notify"
 copy_src "${REPO_ROOT}/ts-sdk" "${BUILD_CTX}/ts-sdk"
 copy_src "${REPO_ROOT}/site" "${BUILD_CTX}/site"
 

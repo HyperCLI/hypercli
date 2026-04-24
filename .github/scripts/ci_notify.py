@@ -1,14 +1,17 @@
 #!/usr/bin/env python3
-"""Send structured CI notifications to the HyperCLI notify webhook."""
+"""Send structured CI notifications via notify/notify_client.py."""
 
 from __future__ import annotations
 
 import argparse
-import json
 import os
 import sys
-import urllib.error
-import urllib.request
+from pathlib import Path
+
+
+REPO_ROOT = Path(__file__).resolve().parents[2]
+sys.path.insert(0, str(REPO_ROOT / "notify"))
+from notify_client import notify_sync  # type: ignore
 
 
 def normalize_status(status: str) -> str:
@@ -48,53 +51,58 @@ def build_message(phase: str, status: str, explicit_message: str) -> str:
     return f"{phase or 'ci'} {norm or 'unknown'}"
 
 
+def build_lines(
+    *,
+    category: str,
+    phase: str,
+    status: str,
+    message: str,
+    repo: str,
+    ref: str,
+    sha: str,
+    workflow: str,
+    actor: str,
+    run_url: str,
+) -> list[str]:
+    lines = [f"<b>{category.upper()}</b> <code>{normalize_status(status)}</code>", message]
+    details: list[str] = []
+    if repo:
+        details.append(f"Repo: <code>{repo}</code>")
+    if ref:
+        details.append(f"Ref: <code>{ref}</code>")
+    if sha:
+        details.append(f"SHA: <code>{sha[:7]}</code>")
+    if workflow:
+        details.append(f"Workflow: <code>{workflow}</code>")
+    if actor:
+        details.append(f"Actor: <code>{actor}</code>")
+    if phase:
+        details.append(f"Phase: <code>{phase}</code>")
+    if details:
+        lines.extend(["", *details])
+    if run_url:
+        lines.extend(["", f"<a href=\"{run_url}\">GitHub Actions run</a>"])
+    return lines
+
+
 def send_notification(args: argparse.Namespace) -> None:
-    webhook_url = os.getenv(
-        "NOTIFY_URL",
-        os.getenv("NOTIFY_WEBHOOK_URL", "https://api.hypercli.com/notify"),
-    )
-    api_key = os.getenv("NOTIFY_API_KEY", "")
-    if not api_key:
-        raise RuntimeError("NOTIFY_API_KEY is required")
-
     status = normalize_status(args.status)
-    payload = {
-        "category": args.category,
-        "channel": args.channel,
-        "severity": severity_for_status(status),
-        "message": build_message(args.phase, status, args.message),
-        "meta": {
-            "repo": args.repo,
-            "ref": args.ref,
-            "sha": args.sha,
-            "run_id": args.run_id,
-            "run_url": args.run_url,
-            "actor": args.actor,
-            "workflow": args.workflow,
-            "status": status,
-            "phase": args.phase,
-            "event": args.event,
-        },
-    }
-
-    request = urllib.request.Request(
-        webhook_url,
-        data=json.dumps(payload).encode("utf-8"),
-        headers={
-            "Content-Type": "application/json",
-            "X-BACKEND-API-KEY": api_key,
-        },
-        method="POST",
+    notify_sync(
+        args.category,
+        build_lines(
+            category=args.category,
+            phase=args.phase,
+            status=status,
+            message=build_message(args.phase, status, args.message),
+            repo=args.repo,
+            ref=args.ref,
+            sha=args.sha,
+            workflow=args.workflow,
+            actor=args.actor,
+            run_url=args.run_url,
+        ),
+        severity=severity_for_status(status),
     )
-
-    try:
-        with urllib.request.urlopen(request, timeout=15) as response:
-            response.read()
-    except urllib.error.HTTPError as exc:
-        detail = exc.read().decode("utf-8", "replace")
-        raise RuntimeError(f"notify failed with HTTP {exc.code}: {detail}") from exc
-    except urllib.error.URLError as exc:
-        raise RuntimeError(f"notify failed: {exc.reason}") from exc
 
 
 def build_parser() -> argparse.ArgumentParser:
