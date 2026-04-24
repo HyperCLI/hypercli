@@ -153,6 +153,14 @@ async function fetchAdminAuthToken(
   adminKey: string,
   params: Record<string, string>
 ): Promise<string> {
+  return (await fetchAdminAuthLogin(apiBaseUrl, adminKey, params)).token;
+}
+
+async function fetchAdminAuthLogin(
+  apiBaseUrl: string,
+  adminKey: string,
+  params: Record<string, string>
+): Promise<{ token: string; user_id?: string; orchestra_user_id?: string }> {
   const url = new URL(`${apiBaseUrl}/admin/auth/login`);
   for (const [key, value] of Object.entries(params)) {
     url.searchParams.set(key, value);
@@ -165,11 +173,44 @@ async function fetchAdminAuthToken(
   if (!response.ok) {
     throw new Error(`Admin auth login failed: ${response.status} ${await response.text()}`);
   }
-  const payload = (await response.json()) as { token?: string };
+  const payload = (await response.json()) as { token?: string; user_id?: string; orchestra_user_id?: string };
   if (!payload.token) {
     throw new Error("Admin auth login returned no token");
   }
-  return payload.token;
+  return {
+    token: payload.token,
+    user_id: payload.user_id,
+    orchestra_user_id: payload.orchestra_user_id,
+  };
+}
+
+async function ensureClawAdminLoginUserLinked(
+  adminKey: string,
+  email: string,
+): Promise<string> {
+  const orchestraLogin = await fetchAdminAuthLogin(getApiBaseUrl(), adminKey, { email });
+  const orchestraUserId = orchestraLogin.user_id;
+  if (!orchestraUserId) {
+    throw new Error("Orchestra admin auth login returned no user_id");
+  }
+
+  const response = await fetch(`${getAgentsApiBaseUrl()}/admin/users`, {
+    method: "POST",
+    headers: {
+      "X-BACKEND-API-KEY": adminKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: orchestraUserId,
+      external_id: orchestraUserId,
+      orchestra_user_id: orchestraUserId,
+      email,
+    }),
+  });
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`Agents admin user ensure failed: ${response.status} ${await response.text()}`);
+  }
+  return orchestraUserId;
 }
 
 async function installLocalAuthToken(
@@ -201,9 +242,21 @@ async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
   if (!adminKey) {
     return false;
   }
-  const token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, {
-    email: getEnv("TEST_EMAIL"),
-  });
+  const email = getEnv("TEST_EMAIL");
+  let token: string;
+  try {
+    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, { email });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("User has no linked Orchestra identity")) {
+      throw error;
+    }
+    const orchestraUserId = await ensureClawAdminLoginUserLinked(adminKey, email);
+    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, {
+      orchestra_user_id: orchestraUserId,
+      email,
+    });
+  }
   await installLocalAuthToken(page, {
     baseUrl: getEnv("TEST_BASE_URL"),
     storageKey: "claw_auth_token",
