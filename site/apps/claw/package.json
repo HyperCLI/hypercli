@@ -16,7 +16,7 @@
     "build-storybook": "storybook build"
   },
   "dependencies": {
-    "@hypercli.com/sdk": "2026.4.22",
+    "@hypercli.com/sdk": "2026.4.24",
     "@hypercli/shared-ui": "*",
     "@privy-io/react-auth": "^3.13.1",
     "@tanstack/react-query": "^5.90.10",
