@@ -1,15 +1,14 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useHyperCLI } from "./useHyperCLI";
+import type { Deployments } from "@hypercli.com/sdk/agents";
 
 const MAX_LOG_LINES = 1500;
 const RECONNECT_INTERVAL = 15_000;
 
 type LogsStatus = "connected" | "connecting" | "disconnected";
 
-export function useAgentLogs(agentId: string | null, enabled: boolean = true) {
-  const { deployments, ready } = useHyperCLI();
+export function useAgentLogs(deployments: Deployments | null, agentId: string | null, enabled: boolean = true) {
   const [logs, setLogs] = useState<string[]>([]);
   const [status, setStatus] = useState<LogsStatus>("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
@@ -75,13 +74,13 @@ export function useAgentLogs(agentId: string | null, enabled: boolean = true) {
   }, [deployments, agentId, cleanup]);
 
   useEffect(() => {
-    if (ready && enabled && agentId) {
+    if (deployments && enabled && agentId) {
       connect();
     } else {
       cleanup();
     }
     return cleanup;
-  }, [ready, enabled, agentId, connect, cleanup]);
+  }, [deployments, enabled, agentId, connect, cleanup]);
 
   const clearLogs = useCallback(() => setLogs([]), []);
 
