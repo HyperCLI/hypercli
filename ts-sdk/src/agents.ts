@@ -1639,7 +1639,7 @@ export class Deployments {
     content: Uint8Array | ArrayBuffer | string,
   ): Promise<Record<string, any>> {
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodeFilePath(path)}`, {
-      method: 'PUT',
+      method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: toUint8Array(content),
     });

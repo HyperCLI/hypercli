@@ -1528,7 +1528,7 @@ class Deployments:
         """Write raw bytes to an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
-            resp = client.put(
+            resp = client.post(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),
                 content=content,
