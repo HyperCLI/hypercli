@@ -126,7 +126,7 @@ export function useOpenClawSession(
   }, [gateway, appendActivity]);
 
   useEffect(() => {
-    if (!gateway) return;
+    if (!gateway || status !== "connected") return;
     let cancelled = false;
     void (async () => {
       const hydrated = await hydrateOpenClawSession(gateway);
@@ -141,7 +141,7 @@ export function useOpenClawSession(
       setModels(hydrated.models);
     })();
     return () => { cancelled = true; };
-  }, [gateway]);
+  }, [gateway, status]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
