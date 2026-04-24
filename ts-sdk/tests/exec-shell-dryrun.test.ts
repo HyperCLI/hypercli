@@ -942,23 +942,23 @@ describe('HyperClaw agents SDK', () => {
   it('file operations use the path-based deployment file API', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/deployments/agent-1/files/workspace')) {
+      if (url.endsWith('/deployments/agent-1/files/workspace?source=auto')) {
         return new Response(JSON.stringify({
           directories: [{ name: 'dir', path: 'workspace/dir/', type: 'directory' }],
           files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
         }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && (!init || !init.method)) {
+      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt?source=auto') && (!init || !init.method)) {
         return new Response(new Uint8Array([104, 101, 108, 108, 111]), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'PUT') {
+      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt?destination=auto') && init?.method === 'POST') {
         expect(init.body).toBeInstanceOf(Uint8Array);
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
       if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/.openclaw') && (!init || !init.method)) {
+      if (url.endsWith('/deployments/agent-1/files/.openclaw?source=auto') && (!init || !init.method)) {
         return new Response(JSON.stringify({
           type: 'directory',
           prefix: '.openclaw/',
