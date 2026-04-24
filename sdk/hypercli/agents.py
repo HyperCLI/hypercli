@@ -1485,7 +1485,7 @@ class Deployments:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
 
-    def files_list(self, pod: Agent | str, path: str = "") -> list[dict]:
+    def files_list(self, pod: Agent | str, path: str = "", source: str = "auto") -> list[dict]:
         """List files on an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
@@ -1494,19 +1494,21 @@ class Deployments:
                 if path
                 else f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files",
                 headers=self._file_headers(),
+                params={"source": source},
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         payload = resp.json()
         return [*(payload.get("directories") or []), *(payload.get("files") or [])]
 
-    def file_read_bytes(self, pod: Agent | str, path: str) -> bytes:
+    def file_read_bytes(self, pod: Agent | str, path: str, source: str = "auto") -> bytes:
         """Read a file from an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
+                params={"source": source},
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
@@ -1520,9 +1522,9 @@ class Deployments:
                 raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
         return resp.content
 
-    def file_read(self, pod: Agent | str, path: str) -> str:
+    def file_read(self, pod: Agent | str, path: str, source: str = "auto") -> str:
         """Read a UTF-8 text file from an agent."""
-        return self.file_read_bytes(pod, path).decode(errors="replace")
+        return self.file_read_bytes(pod, path, source=source).decode(errors="replace")
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
         """Write raw bytes to an agent via the backend file API."""
@@ -1531,6 +1533,7 @@ class Deployments:
             resp = client.post(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),
+                params={"destination": destination},
                 content=content,
             )
         if resp.status_code >= 400:

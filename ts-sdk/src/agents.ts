@@ -740,12 +740,12 @@ export class Agent {
     return this.requireDeployments().health(this);
   }
 
-  async filesList(path: string = ''): Promise<AgentFileEntry[]> {
-    return this.requireDeployments().filesList(this, path);
+  async filesList(path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {
+    return this.requireDeployments().filesList(this, path, source);
   }
 
-  async fileReadBytes(path: string): Promise<Uint8Array> {
-    return this.requireDeployments().fileReadBytes(this, path);
+  async fileReadBytes(path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
+    return this.requireDeployments().fileReadBytes(this, path, source);
   }
 
   async fileRead(path: string): Promise<string> {
@@ -1599,17 +1599,19 @@ export class Deployments {
     return (await response.json()) as Record<string, any>;
   }
 
-  async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {
+  async filesList(target: Agent | string, path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {
     const encodedPath = encodeFilePath(path);
     const suffix = encodedPath ? `/${encodedPath}` : '';
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}`);
+    const params = new URLSearchParams({ source });
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}?${params.toString()}`);
     const payload = (await response.json()) as AgentDirectoryListing;
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
 
-  async fileReadBytes(target: Agent | string, path: string): Promise<Uint8Array> {
+  async fileReadBytes(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
     const encodedPath = encodeFilePath(path);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}`, {
+    const params = new URLSearchParams({ source });
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
       redirect: 'follow',
     });
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -1629,16 +1631,19 @@ export class Deployments {
     return bytes;
   }
 
-  async fileRead(target: Agent | string, path: string): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(target, path));
+  async fileRead(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<string> {
+    return decodeUtf8(await this.fileReadBytes(target, path, source));
   }
 
   async fileWriteBytes(
     target: Agent | string,
     path: string,
     content: Uint8Array | ArrayBuffer | string,
+    destination: 'auto' | 'pod' | 's3' = 'auto',
   ): Promise<Record<string, any>> {
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodeFilePath(path)}`, {
+    const encodedPath = encodeFilePath(path);
+    const params = new URLSearchParams({ destination });
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: toUint8Array(content),
@@ -1646,8 +1651,8 @@ export class Deployments {
     return (await response.json()) as Record<string, any>;
   }
 
-  async fileWrite(target: Agent | string, path: string, content: string): Promise<Record<string, any>> {
-    return this.fileWriteBytes(target, path, content);
+  async fileWrite(target: Agent | string, path: string, content: string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+    return this.fileWriteBytes(target, path, content, destination);
   }
 
   async fileDelete(
