@@ -49,6 +49,8 @@ import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import { useAgentLogs } from "@/hooks/useAgentLogs";
+import { useAgentShell } from "@/hooks/useAgentShell";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -99,8 +101,6 @@ import { AgentEmptyState, AgentSettingsModal, AgentSidebarPane, AgentTierSelecti
 
 // ── Constants ──
 
-const MAX_LOG_LINES = 1500;
-const WS_RETRY_INTERVAL_MS = 15000;
 type MainTab = AgentMainTab;
 
 function toDashboardAgent(agent: SdkAgent): Agent {
@@ -161,7 +161,6 @@ export default function AgentsPage() {
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("chat");
-  const [reconnectNonce, setReconnectNonce] = useState(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
@@ -175,14 +174,10 @@ export default function AgentsPage() {
   }, [sidebarCollapsed]);
 
   // Logs
-  const [wsStatus, setWsStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
-  const [logs, setLogs] = useState<string[]>([]);
   const logBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Shell
-  const [shellStatus, setShellStatus] = useState<"disconnected" | "connecting" | "connected">("disconnected");
   const shellBoxRef = useRef<HTMLDivElement | null>(null);
-  const shellWsRef = useRef<WebSocket | null>(null);
   const shellTerminalRef = useRef<Terminal | null>(null);
   const shellFitAddonRef = useRef<FitAddon | null>(null);
   const shellSessionAgentRef = useRef<string | null>(null);
@@ -353,6 +348,29 @@ export default function AgentsPage() {
   }, [mainTab, selectedAgentId, isDesktopViewport]);
 
   // ── Gateway Chat hook ──
+  const handleShellData = useCallback((text: string) => {
+    if (!text) return;
+    shellBufferRef.current.push(text);
+    shellTerminalRef.current?.write(text);
+  }, []);
+
+  const {
+    logs,
+    status: wsStatus,
+    reconnect: reconnectLogs,
+  } = useAgentLogs(selectedAgentId, mainTab === "logs" && selectedAgentState === "RUNNING");
+
+  const {
+    status: shellStatus,
+    send: sendShell,
+    resize: resizeShell,
+    reconnect: reconnectShell,
+  } = useAgentShell({
+    agentId: selectedAgentId,
+    enabled: mainTab === "shell" && selectedAgentState === "RUNNING",
+    onData: handleShellData,
+  });
+
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",
@@ -932,239 +950,12 @@ export default function AgentsPage() {
     [getToken]
   );
 
-  // ── Logs WebSocket ──
-  useEffect(() => {
-    if (mainTab !== "logs") { setWsStatus("disconnected"); return; }
-    if (!selectedAgentId || selectedAgentState !== "RUNNING") { setWsStatus("disconnected"); setLogs([]); return; }
-    const agentId = selectedAgentId;
-    let ws: WebSocket | null = null;
-    let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let reconnectScheduled = false;
-    setLogs([]);
-    const scheduleReconnect = () => {
-      if (cancelled || reconnectScheduled) return;
-      reconnectScheduled = true;
-      setWsStatus("connecting");
-      reconnectTimer = setTimeout(() => { reconnectScheduled = false; if (!cancelled) void connect(); }, WS_RETRY_INTERVAL_MS);
-    };
-    const connect = async () => {
-      try {
-        setWsStatus("connecting");
-        const token = await getToken();
-        if (cancelled) return;
-        const liveWs = await createAgentClient(token).logsConnect(agentId, { container: "reef", tailLines: 400 });
-        ws = liveWs;
-        if (cancelled) {
-          liveWs.close();
-          return;
-        }
-        reconnectScheduled = false;
-        setWsStatus("connected");
-        void fetchAgents();
-        liveWs.onmessage = (event) => {
-          if (cancelled) return;
-          try {
-            const msg = JSON.parse(event.data as string) as LogEvent;
-            if (msg.event === "log" && msg.log) {
-              setLogs((prev) => { const next = [...prev, msg.log as string]; return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next; });
-              return;
-            }
-            if (msg.event === "error") {
-              const line = `[stream-error] ${msg.status || ""} ${msg.detail || "unknown"}`.trim();
-              setLogs((prev) => [...prev, line]);
-            }
-          } catch {
-            setLogs((prev) => { const next = [...prev, String(event.data ?? "")]; return next.length > MAX_LOG_LINES ? next.slice(next.length - MAX_LOG_LINES) : next; });
-          }
-        };
-        liveWs.onclose = () => { if (!cancelled) scheduleReconnect(); };
-        liveWs.onerror = () => { if (!cancelled) scheduleReconnect(); };
-      } catch { if (!cancelled) scheduleReconnect(); }
-    };
-    void connect();
-    return () => {
-      cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-      if (ws && (ws.readyState === WebSocket.OPEN || ws.readyState === WebSocket.CONNECTING)) ws.close();
-    };
-  }, [mainTab, selectedAgentId, selectedAgentState, getToken, reconnectNonce, fetchAgents]);
-
   useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
-
-  // ── Shell terminal setup (Phase 4 fix: requestAnimationFrame + resize events) ──
-  useEffect(() => {
-    if (!shellBoxRef.current) return;
-    if (shellTerminalRef.current) return; // ✅ prevent re-init
-
-    const term = new Terminal({
-      convertEol: false, cursorBlink: true, cursorStyle: "bar",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
-      fontSize: 12, lineHeight: 1.45, scrollback: 3000,
-      theme: { background: "#0c1016", foreground: "#d8dde7", cursor: "#d8dde7", selectionBackground: "#2a3445" },
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-
-    term.open(shellBoxRef.current);
-
-    requestAnimationFrame(() => {
-      fitAddon.fit();
-      term.focus();
-    });
-
-    const disposable = term.onData((data) => {
-      const ws = shellWsRef.current;
-      if (ws?.readyState === WebSocket.OPEN) ws.send(data);
-    });
-
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      const ws = shellWsRef.current;
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(`\x1b[8;${rows};${cols}t`);
-      }
-    });
-
-    const onResize = () => fitAddon.fit();
-    window.addEventListener("resize", onResize);
-
-    shellTerminalRef.current = term;
-    shellFitAddonRef.current = fitAddon;
-
-    return () => {
-      window.removeEventListener("resize", onResize);
-      resizeDisposable.dispose();
-      disposable.dispose();
-      term.dispose();
-      shellTerminalRef.current = null;
-      shellFitAddonRef.current = null;
-      shellSessionAgentRef.current = null;
-    };
-  }, []);
-
-  // ── Shell WebSocket ──
-  useEffect(() => {
-    if (mainTab !== "shell" || !selectedAgentId || selectedAgentState !== "RUNNING") {
-      setShellStatus("disconnected");
-      return;
-    }
-
-    if (shellWsRef.current?.readyState === WebSocket.OPEN) return;
-
-    const agentId = selectedAgentId;
-    let cancelled = false;
-    let reconnectTimer: ReturnType<typeof setTimeout> | null = null;
-    let reconnectScheduled = false;
-
-    const term = shellTerminalRef.current;
-    if (term && shellSessionAgentRef.current !== agentId) {
-      term.reset();
-      shellSessionAgentRef.current = agentId;
-    }
-
-    const scheduleReconnect = () => {
-      if (cancelled || reconnectScheduled) return;
-      reconnectScheduled = true;
-      setShellStatus("connecting");
-      reconnectTimer = setTimeout(() => {
-        reconnectScheduled = false;
-        if (!cancelled) void connect();
-      }, WS_RETRY_INTERVAL_MS);
-    };
-
-    const connect = async () => {
-      try {
-        setShellStatus("connecting");
-
-        const authToken = await getToken();
-        if (cancelled) return;
-
-        const ws = await createAgentClient(authToken).shellConnect(agentId);
-
-        if (cancelled) {
-          ws.close();
-          return;
-        }
-
-        shellWsRef.current = ws;
-        reconnectScheduled = false;
-        setShellStatus("connected");
-
-        shellFitAddonRef.current?.fit();
-        shellTerminalRef.current?.focus();
-
-        const dims = shellFitAddonRef.current?.proposeDimensions();
-        if (dims) {
-          ws.send(`\x1b[8;${dims.rows};${dims.cols}t`);
-        }
-
-        ws.onmessage = (event) => {
-          if (cancelled) return;
-
-          const text = typeof event.data === "string"
-            ? event.data
-            : String(event.data ?? "");
-
-          if (!text) return;
-
-          // ✅ store in buffer
-          shellBufferRef.current.push(text);
-
-          // ✅ write if terminal exists
-          shellTerminalRef.current?.write(text);
-        };
-
-        ws.onclose = () => {
-          if (!cancelled) {
-            setShellStatus("disconnected");
-            scheduleReconnect();
-          }
-        };
-
-        ws.onerror = () => {
-          if (!cancelled) {
-            setShellStatus("disconnected");
-            scheduleReconnect();
-          }
-        };
-
-      } catch {
-        if (!cancelled) scheduleReconnect();
-      }
-    };
-
-    void connect();
-
-    return () => {
-      cancelled = true;
-      if (reconnectTimer) clearTimeout(reconnectTimer);
-    };
-
-  }, [selectedAgentId, selectedAgentState, reconnectNonce, getToken]);
-
-  useEffect(() => {
-    const term = shellTerminalRef.current;
-    const fitAddon = shellFitAddonRef.current;
-    const container = shellBoxRef.current;
-
-    if (!term || !fitAddon || !container) return;
-
-    // ensure DOM is fully mounted
-    const timer = setTimeout(() => {
-      term.open(container); // ✅ container is not null
-      fitAddon.fit();
-      term.focus();
-    }, 0);
-
-    return () => clearTimeout(timer);
-  }, [mainTab]);
 
   useEffect(() => {
     if (mainTab !== "shell") return;
     if (!shellBoxRef.current) return;
 
-    // ❗ ALWAYS recreate terminal UI
     const term = new Terminal({
       convertEol: false,
       cursorBlink: true,
@@ -1190,30 +981,26 @@ export default function AgentsPage() {
       term.focus();
     });
 
-    // ✅ restore previous output
+    if (shellSessionAgentRef.current !== selectedAgentId) {
+      shellBufferRef.current = [];
+      shellSessionAgentRef.current = selectedAgentId;
+    }
+
     for (const chunk of shellBufferRef.current) {
       term.write(chunk);
     }
 
-    // ✅ hook input to EXISTING websocket
     const disposable = term.onData((data) => {
-      const ws = shellWsRef.current;
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(data);
-      }
+      sendShell(data);
     });
 
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      const ws = shellWsRef.current;
-      if (ws?.readyState === WebSocket.OPEN) {
-        ws.send(`\x1b[8;${rows};${cols}t`);
-      }
+      resizeShell(rows, cols);
     });
 
     const onResize = () => fitAddon.fit();
     window.addEventListener("resize", onResize);
 
-    // replace old terminal
     shellTerminalRef.current = term;
     shellFitAddonRef.current = fitAddon;
 
@@ -1221,11 +1008,11 @@ export default function AgentsPage() {
       window.removeEventListener("resize", onResize);
       resizeDisposable.dispose();
       disposable.dispose();
-
-      // ❗ DO NOT clear buffer
       term.dispose();
+      shellTerminalRef.current = null;
+      shellFitAddonRef.current = null;
     };
-  }, [mainTab]);
+  }, [mainTab, resizeShell, selectedAgentId, sendShell]);
 
   // ── Actions ──
 
@@ -1679,7 +1466,8 @@ export default function AgentsPage() {
                     {(mainTab === "logs" || mainTab === "shell") && (
                       <button
                         onClick={() => {
-                          setReconnectNonce((value) => value + 1);
+                          if (mainTab === "logs") reconnectLogs();
+                          if (mainTab === "shell") reconnectShell();
                           setMobileAgentMenuOpen(false);
                         }}
                         className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
@@ -1929,7 +1717,7 @@ export default function AgentsPage() {
 
                       {(mainTab === "logs" || mainTab === "shell") && (
                         <button
-                          onClick={() => setReconnectNonce((n) => n + 1)}
+                          onClick={() => { if (mainTab === "logs") reconnectLogs(); if (mainTab === "shell") reconnectShell(); }}
                           className="p-1 text-text-muted hover:text-foreground transition-colors"
                           title="Reconnect"
                         >

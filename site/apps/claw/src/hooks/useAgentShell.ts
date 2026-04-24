@@ -47,6 +47,7 @@ export function useAgentShell({ agentId, enabled = true, onData }: UseAgentShell
     try {
       const ws = await deployments.shellConnect(agentId);
       wsRef.current = ws;
+      setStatus("connected");
 
       ws.onopen = () => {
         setStatus("connected");

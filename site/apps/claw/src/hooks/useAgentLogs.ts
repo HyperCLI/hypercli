@@ -41,6 +41,7 @@ export function useAgentLogs(agentId: string | null, enabled: boolean = true) {
     try {
       const ws = await deployments.logsConnect(agentId);
       wsRef.current = ws;
+      setStatus("connected");
 
       ws.onopen = () => {
         setStatus("connected");
