@@ -1856,6 +1856,13 @@ export class GatewayClient {
               code: "PAIRING_APPROVED",
               message: "Pairing approved, reconnecting",
             };
+            this.connectSent = false;
+            if (!this.ws || !isSocketOpen(this.ws)) {
+              this.openSocket();
+              return;
+            }
+            this.ws.close(RECONNECT_CLOSE_CODE, "pairing approved");
+            return;
           } catch (approvalError) {
             this.pendingConnectError = toCloseError(approvalError);
             this.updatePairingState({

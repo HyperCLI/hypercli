@@ -1378,7 +1378,9 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     }, { timeout, intervals: [2_000, 5_000, 10_000] })
     .toBe("RUNNING");
 
-  await expect(page.getByPlaceholder("Type a message...")).toBeVisible({ timeout: 60_000 });
+  const composer = page.getByPlaceholder("Message agent...");
+  await expect(composer).toBeVisible({ timeout: 60_000 });
+  await expect(composer).toBeEnabled({ timeout: 60_000 });
   await expect(page.getByText("Send a message to start chatting with your agent", { exact: true })).toBeVisible({
     timeout: 60_000,
   });

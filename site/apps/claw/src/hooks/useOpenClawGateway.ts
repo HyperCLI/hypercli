@@ -1,8 +1,7 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { OpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { GatewayClient } from "@hypercli.com/sdk/openclaw/gateway";
+import type { GatewayClient, GatewayCloseInfo, GatewayPairingState } from "@hypercli.com/sdk/openclaw/gateway";
 import { createAgentClient } from "@/lib/agent-client";
 
 interface Agent {
@@ -10,6 +9,10 @@ interface Agent {
   state: string;
   hostname: string | null;
 }
+
+type OpenClawConnectable = {
+  connect: (options?: Record<string, unknown>) => Promise<GatewayClient>;
+};
 
 const GATEWAY_RECONNECT_PAUSED_CODES = new Set([
   "PAIRING_REQUIRED",
@@ -30,7 +33,7 @@ export function useOpenClawGateway(
   enabled: boolean = true,
 ) {
   const getTokenRef = useRef(getToken);
-  const gatewayRef = useRef<GatewayClient | null>(null);
+  const attemptRef = useRef(0);
   const [gateway, setGateway] = useState<GatewayClient | null>(null);
   const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
   const [error, setError] = useState<string | null>(null);
@@ -40,36 +43,50 @@ export function useOpenClawGateway(
   }, [getToken]);
 
   useEffect(() => {
-    if (!enabled || !agent || agent.state !== "RUNNING") return;
-
-    let cancelled = false;
+    const attempt = ++attemptRef.current;
+    let active = true;
     let localGateway: GatewayClient | null = null;
 
-    async function connect() {
-      if (cancelled) return;
-      setStatus("connecting");
+    const isCurrentAttempt = () => active && attemptRef.current === attempt;
+
+    if (!enabled || !agent || agent.state !== "RUNNING") {
+      setGateway(null);
+      setStatus("disconnected");
       setError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    const agentId = agent.id;
+
+    setGateway(null);
+    setStatus("connecting");
+    setError(null);
+
+    async function connect() {
       try {
         const authToken = await getTokenRef.current();
-        if (cancelled) return;
+        if (!isCurrentAttempt()) return;
 
-        const agentId = agent?.id;
-        if (!agentId) return;
         const deployment = await createAgentClient(authToken).get(agentId);
-        if (cancelled) return;
-        if (!(deployment instanceof OpenClawAgent)) {
+        if (!isCurrentAttempt()) return;
+
+        const maybeConnectable = deployment as unknown as { connect?: unknown };
+        if (typeof maybeConnectable.connect !== "function") {
           throw new Error("Selected deployment does not expose an OpenClaw gateway");
         }
 
-        localGateway = await deployment.connect({
+        const connectable = deployment as unknown as OpenClawConnectable;
+        localGateway = await connectable.connect({
           autoApprovePairing: true,
           onHello: () => {
-            if (cancelled) return;
+            if (!isCurrentAttempt()) return;
             setStatus("connected");
             setError(null);
           },
-          onClose: ({ error: closeError, code, reason }) => {
-            if (cancelled) return;
+          onClose: ({ error: closeError, code, reason }: GatewayCloseInfo) => {
+            if (!isCurrentAttempt()) return;
             setStatus(shouldShowGatewayConnecting(closeError, code) ? "connecting" : "disconnected");
             if (closeError?.message) {
               setError(closeError.message);
@@ -77,14 +94,16 @@ export function useOpenClawGateway(
             }
             if (code !== 1000 && reason) {
               setError(`Disconnected: ${reason}`);
+              return;
             }
+            setError(null);
           },
-          onGap: ({ expected, received }) => {
-            if (cancelled) return;
+          onGap: ({ expected, received }: { expected: number; received: number }) => {
+            if (!isCurrentAttempt()) return;
             setError(`Gateway event gap detected (expected ${expected}, got ${received})`);
           },
-          onPairing: (pairing) => {
-            if (cancelled || !pairing) return;
+          onPairing: (pairing: GatewayPairingState | null) => {
+            if (!isCurrentAttempt() || !pairing) return;
             if (pairing.status === "failed" && pairing.error) {
               setStatus("disconnected");
               setError(pairing.error);
@@ -95,37 +114,29 @@ export function useOpenClawGateway(
           },
         });
 
-        if (cancelled) {
+        if (!isCurrentAttempt()) {
           localGateway.close();
           return;
         }
 
-        gatewayRef.current = localGateway;
         setGateway(localGateway);
         setStatus("connected");
         setError(null);
       } catch (e: unknown) {
-        if (!cancelled) {
-          setGateway(null);
-          gatewayRef.current = null;
-          setStatus("disconnected");
-          setError(e instanceof Error ? e.message : String(e));
-        }
+        if (!isCurrentAttempt()) return;
+        setGateway(null);
+        setStatus("disconnected");
+        setError(e instanceof Error ? e.message : String(e));
       }
     }
 
     void connect();
 
     return () => {
-      cancelled = true;
+      active = false;
       localGateway?.close();
-      gatewayRef.current?.close();
-      gatewayRef.current = null;
-      setGateway(null);
-      setStatus("disconnected");
-      setError(null);
     };
-  }, [enabled, agent?.id, agent?.state, agent?.hostname]);
+  }, [enabled, agent?.id, agent?.state]);
 
   return {
     gateway,

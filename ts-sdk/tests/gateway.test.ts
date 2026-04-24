@@ -1013,4 +1013,69 @@ describe("GatewayClient", () => {
     expect(client.pendingPairing).toBeNull();
     expect(fetchMock).toHaveBeenCalledTimes(1);
   });
+
+  it("reconnects when pairing approval succeeds after the first socket already closed", async () => {
+    let resolveFetch: ((value: unknown) => void) | null = null;
+    const fetchMock = vi.fn().mockImplementation(() => new Promise((resolve) => {
+      resolveFetch = resolve;
+    }));
+    vi.stubGlobal("fetch", fetchMock as any);
+
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+      deploymentId: "deployment-123",
+      apiKey: "app-token",
+      apiBase: "https://api.dev.hypercli.com",
+      autoApprovePairing: true,
+    });
+
+    const connectPromise = client.connect();
+    await flushMicrotasks();
+
+    const firstSocket = MockWebSocket.instances.at(-1);
+    if (!firstSocket) throw new Error("Missing first websocket instance");
+    firstSocket.emitChallenge("nonce-pair");
+    await waitForSentFrame(firstSocket);
+    const firstRequest = JSON.parse(firstSocket.sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, any>;
+    };
+    firstSocket.emitConnectError(
+      firstRequest.id,
+      "PAIRING_REQUIRED",
+      "pairing required",
+      { code: "PAIRING_REQUIRED", requestId: "pairing-req-late-approval", reason: "not-paired" },
+    );
+    await flushMicrotasks();
+    firstSocket.close(1008, "pairing required");
+    await flushMicrotasks();
+
+    expect(fetchMock).toHaveBeenCalledTimes(1);
+    if (!resolveFetch) throw new Error("Missing pending approval request");
+    resolveFetch({
+      ok: true,
+      json: async () => ({ exit_code: 0, stdout: "approved", stderr: "" }),
+    });
+    await flushMicrotasks(8);
+
+    const secondSocket = MockWebSocket.instances.at(-1);
+    if (!secondSocket || secondSocket === firstSocket) {
+      throw new Error("Missing reconnect websocket instance after late approval");
+    }
+    secondSocket.emitChallenge("nonce-reconnect");
+    await waitForSentFrame(secondSocket);
+    const secondRequest = JSON.parse(secondSocket.sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, any>;
+    };
+    secondSocket.emitHello(secondRequest.id, "device-token-after-late-approval");
+    await connectPromise;
+
+    expect(client.isConnected).toBe(true);
+    expect(client.pendingPairing).toBeNull();
+  });
+
 });
