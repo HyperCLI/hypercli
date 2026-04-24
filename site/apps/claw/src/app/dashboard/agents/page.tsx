@@ -48,7 +48,7 @@ import { createAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/li
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
-import { useGatewayChat } from "@/hooks/useGatewayChat";
+import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -351,7 +351,7 @@ export default function AgentsPage() {
   }, [mainTab, selectedAgentId, isDesktopViewport]);
 
   // ── Gateway Chat hook ──
-  const chat = useGatewayChat(
+  const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedAgent : null,
     getToken,
     mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",

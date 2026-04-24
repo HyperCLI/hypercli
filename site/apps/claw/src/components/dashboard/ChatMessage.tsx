@@ -4,7 +4,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import { motion, type HTMLMotionProps } from "framer-motion";
-import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
+import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/lib/openclaw-chat";
 import { getStoredToken, API_BASE_URL } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { agentAvatar } from "@/lib/avatar";

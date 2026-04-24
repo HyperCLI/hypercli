@@ -16,7 +16,7 @@ import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryT
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { useGatewayChat } from "@/hooks/useGatewayChat";
+import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { createAgentClient } from "@/lib/agent-client";
 import { isProtectedFile } from "@/lib/protected-files";
 
@@ -71,7 +71,7 @@ export default function AgentFilesPage() {
   }, [agentId, getToken]);
 
   // Connect to gateway when agent is RUNNING (matches main page pattern)
-  const chat = useGatewayChat(agent && agent.state === "RUNNING" ? agent : null, getToken);
+  const chat = useOpenClawSession(agent && agent.state === "RUNNING" ? agent : null, getToken);
 
   // Map gateway WorkspaceFile[] → FileEntry[] (gateway only returns files, not directories)
   const files: FileEntry[] = useMemo(
