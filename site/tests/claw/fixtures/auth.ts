@@ -132,10 +132,11 @@ function getAgentsApiBaseUrl(): string {
 }
 
 function getApiBaseUrl(): string {
-  return (
+  const base = (
     getOptionalEnv("TEST_API_BASE_URL") ||
     DEFAULT_TEST_API_BASE_URL
   ).replace(/\/$/, "");
+  return base.endsWith("/api") ? base : `${base}/api`;
 }
 
 async function fetchAdminAuthToken(
