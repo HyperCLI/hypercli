@@ -38,7 +38,7 @@ test.describe.serial("Agents subscription", () => {
         await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
         await payWithCardButton.click();
 
-        await completeStripeCheckout(page);
+        await completeStripeCheckout(page, process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003");
         await captureStep(page, "agents-07-checkout-submitted");
 
         await expect

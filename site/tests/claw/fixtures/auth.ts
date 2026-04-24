@@ -139,6 +139,15 @@ function getApiBaseUrl(): string {
   return base.endsWith("/api") ? base : `${base}/api`;
 }
 
+function getProductApiBaseUrl(): string {
+  const base = (
+    getOptionalEnv("TEST_API_BASE_URL") ||
+    getOptionalEnv("TEST_API_BASE") ||
+    DEFAULT_TEST_API_BASE_URL
+  ).replace(/\/$/, "");
+  return base.endsWith("/api") ? base.slice(0, -4) : base;
+}
+
 async function fetchAdminAuthToken(
   apiBaseUrl: string,
   adminKey: string,
@@ -168,19 +177,22 @@ async function installLocalAuthToken(
   {
     baseUrl,
     storageKey,
+    cookieName = "auth_token",
     token,
   }: {
     baseUrl: string;
     storageKey: "claw_auth_token" | "app_auth_token";
+    cookieName?: string;
     token: string;
   },
 ): Promise<void> {
   await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
   await page.evaluate(
-    ([key, value]) => {
+    ([key, cookie, value]) => {
       window.localStorage.setItem(key, value);
+      document.cookie = `${cookie}=${value}; path=/; samesite=lax`;
     },
-    [storageKey, token] as const
+    [storageKey, cookieName, token] as const
   );
 }
 
@@ -870,6 +882,9 @@ async function anyVisibleStripeLocator(page: Page, selectors: string[]): Promise
 
 export async function completeStripeCheckout(
   page: Page,
+  returnBaseUrl: string = getOptionalEnv("TEST_TOPUP_CONSOLE_BASE_URL") ||
+    getOptionalEnv("TEST_CONSOLE_BASE_URL") ||
+    "http://127.0.0.1:4001",
 ): Promise<void> {
   const stripeCheckoutPattern = /^https:\/\/checkout\.stripe\.com\//i;
 
@@ -986,6 +1001,25 @@ export async function completeStripeCheckout(
   console.log(`Stripe submit button text: ${(await stripeSubmitButton.textContent())?.trim() || "<empty>"}`);
   await stripeSubmitButton.click();
   await captureStep(page, "console-05e-stripe-submit-clicked");
+
+  await expect
+    .poll(() => page.url(), { timeout: 60_000 })
+    .not.toMatch(stripeCheckoutPattern);
+
+  const redirectedUrl = page.url();
+  const redirectedHost = new URL(redirectedUrl).host.toLowerCase();
+  if (
+    redirectedHost === "console.dev.hypercli.com" ||
+    redirectedHost === "console.hypercli.com" ||
+    redirectedHost === "agents.dev.hypercli.com" ||
+    redirectedHost === "agents.hypercli.com"
+  ) {
+    const localDashboardUrl = `${returnBaseUrl.replace(/\/$/, "")}/dashboard`;
+    console.log(`Stripe redirected to hosted console (${redirectedUrl}); returning to local dashboard ${localDashboardUrl}`);
+    await page.goto(localDashboardUrl, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    await captureStep(page, "console-05f-returned-to-local-dashboard");
+  }
 }
 
 async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
@@ -1011,7 +1045,7 @@ async function getTopUpApiClient(): Promise<TopUpApiClientLike> {
     const { HyperCLI } = await import("@hypercli.com/sdk");
     topUpApiClient = new HyperCLI({
       apiKey: requireEnvValue("TEST_API_KEY"),
-      apiUrl: requireEnvValue("TEST_API_BASE_URL"),
+      apiUrl: getProductApiBaseUrl(),
     });
   }
   return topUpApiClient;
