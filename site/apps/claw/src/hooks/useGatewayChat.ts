@@ -250,8 +250,7 @@ export function useGatewayChat(
 ) {
   const gwRef = useRef<GatewayClient | null>(null);
   const getTokenRef = useRef(getToken);
-  const [connected, setConnected] = useState(false);
-  const [connecting, setConnecting] = useState(false);
+  const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
   const [error, setError] = useState<string | null>(null);
 
   const [messages, setMessages] = useState<ChatMessage[]>([]);
@@ -313,7 +312,7 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
 
     async function connect() {
       if (cancelled) return;
-      setConnecting(true);
+      setStatus("connecting");
       setError(null);
       try {
         const authToken = await getTokenRef.current();
@@ -329,14 +328,12 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
           autoApprovePairing: true,
           onHello: () => {
             if (cancelled) return;
-            setConnected(true);
-            setConnecting(false);
+            setStatus("connected");
             setError(null);
           },
           onClose: ({ error: closeError, code, reason }) => {
             if (cancelled) return;
-            setConnected(false);
-            setConnecting(shouldShowGatewayConnecting(closeError, code));
+            setStatus(shouldShowGatewayConnecting(closeError, code) ? "connecting" : "disconnected");
             if (closeError?.message) {
               setError(closeError.message);
               return;
@@ -355,7 +352,7 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
               setError(pairing.error);
               return;
             }
-            setConnecting(true);
+            setStatus("connecting");
             setError(null);
           },
         });
@@ -508,8 +505,7 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
 
         if (cancelled) { gw.close(); return; }
 
-        setConnected(true);
-        setConnecting(false);
+        setStatus("connected");
         setError(null);
 
         {
@@ -576,7 +572,7 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
       } catch (e: unknown) {
         if (!cancelled) {
           setError(e instanceof Error ? e.message : String(e));
-          setConnecting(false);
+          setStatus("disconnected");
         }
       }
     }
@@ -588,8 +584,7 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
       gw?.close();
       gwRef.current?.close();
       gwRef.current = null;
-      setConnected(false);
-      setConnecting(false);
+      setStatus("disconnected");
       setMessages([]);
       setFiles([]);
       setConfig(null);
@@ -835,6 +830,9 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
     return gw.cronRun(jobId);
   }, [appendActivity]);
 
+  const connected = status === "connected";
+  const connecting = status === "connecting";
+
   return {
     messages,
     sendMessage,
@@ -843,6 +841,7 @@ function shouldShowGatewayConnecting(closeError: unknown, code: number): boolean
     pendingInput,
     addPendingMessage,
     sending,
+    status,
     connected,
     connecting,
     error,
