@@ -1,8 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
-import { useOpenClawGateway } from "@/hooks/useOpenClawGateway";
+import type { GatewayClient, GatewayCloseInfo, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
   type ChatAttachment,
   type ChatMessage,
@@ -17,20 +16,21 @@ import {
 
 interface Agent {
   id: string;
-  name: string;
+  name?: string | null;
   state: string;
-  hostname: string | null;
+  hostname?: string | null;
+  connect?: (options?: Record<string, unknown>) => Promise<import("@hypercli.com/sdk/openclaw/gateway").GatewayClient>;
 }
 
 type ActivityKind = "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
 
 export function useOpenClawSession(
   agent: Agent | null,
-  getToken: () => Promise<string>,
   enabled: boolean = true,
 ) {
-  const gatewayState = useOpenClawGateway(agent, getToken, enabled);
-  const gateway = gatewayState.gateway;
+  const [gateway, setGateway] = useState<GatewayClient | null>(null);
+  const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
+  const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [input, setInput] = useState("");
   const [pendingInput, setPendingInput] = useState<string[]>([]);
@@ -51,6 +51,71 @@ export function useOpenClawSession(
   }>>([]);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
+
+  useEffect(() => {
+    let active = true;
+    let localGateway: GatewayClient | null = null;
+
+    if (!enabled || !agent || typeof agent.connect !== "function" || String(agent.state).toUpperCase() !== "RUNNING") {
+      setGateway(null);
+      setStatus("disconnected");
+      setError(null);
+      return () => {
+        active = false;
+      };
+    }
+
+    setGateway(null);
+    setStatus("connecting");
+    setError(null);
+
+    const connect = agent.connect;
+
+    void (async () => {
+      try {
+        localGateway = await connect({
+          autoApprovePairing: true,
+          onHello: () => {
+            if (!active) return;
+            setStatus("connected");
+            setError(null);
+          },
+          onClose: ({ error: closeError, code, reason }: GatewayCloseInfo) => {
+            if (!active) return;
+            setStatus("disconnected");
+            if (closeError?.message) {
+              setError(closeError.message);
+              return;
+            }
+            if (code !== 1000 && reason) {
+              setError(`Disconnected: ${reason}`);
+              return;
+            }
+            setError(null);
+          },
+        });
+
+        if (!active) {
+          localGateway.close();
+          return;
+        }
+
+        setGateway(localGateway);
+        setStatus("connected");
+        setError(null);
+      } catch (e: unknown) {
+        if (!active) return;
+        setGateway(null);
+        setStatus("disconnected");
+        setError(e instanceof Error ? e.message : String(e));
+      }
+    })();
+
+    return () => {
+      active = false;
+      localGateway?.close();
+    };
+  }, [enabled, agent]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => {
@@ -188,7 +253,7 @@ export function useOpenClawSession(
   }, [gateway]);
 
   useEffect(() => {
-    if (gatewayState.status !== "disconnected") return;
+    if (status !== "disconnected") return;
     setMessages([]);
     setFiles([]);
     setConfig(null);
@@ -201,7 +266,7 @@ export function useOpenClawSession(
     setCronJobs([]);
     setModels([]);
     setActivityFeed([]);
-  }, [gatewayState.status]);
+  }, [status]);
 
   const addPendingMessage = useCallback((message: string) => {
     setPendingInput((prev) => [...prev, message]);
@@ -353,7 +418,11 @@ export function useOpenClawSession(
   }, [gateway, appendActivity]);
 
   return {
-    ...gatewayState,
+    gateway,
+    status,
+    error,
+    connected: status === "connected",
+    connecting: status === "connecting",
     messages,
     sendMessage,
     input,

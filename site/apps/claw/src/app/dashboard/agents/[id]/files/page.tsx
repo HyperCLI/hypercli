@@ -71,7 +71,7 @@ export default function AgentFilesPage() {
   }, [agentId, getToken]);
 
   // Connect to gateway when agent is RUNNING (matches main page pattern)
-  const chat = useOpenClawSession(agent && agent.state === "RUNNING" ? agent : null, getToken);
+  const chat = useOpenClawSession(agent && agent.state === "RUNNING" ? agent : null);
 
   // Map gateway WorkspaceFile[] → FileEntry[] (gateway only returns files, not directories)
   const files: FileEntry[] = useMemo(

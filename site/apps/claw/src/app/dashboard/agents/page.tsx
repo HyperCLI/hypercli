@@ -49,6 +49,7 @@ import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import { useAgent } from "@/hooks/useAgent";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
@@ -306,6 +307,7 @@ export default function AgentsPage() {
     () => agents.find((item) => item.id === selectedAgentId) || null,
     [agents, selectedAgentId],
   );
+  const { agent: selectedSdkAgent } = useAgent(selectedAgentId);
   const selectedAgentState = selectedAgent?.state ?? null;
   const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
@@ -352,8 +354,7 @@ export default function AgentsPage() {
 
   // ── Gateway Chat hook ──
   const chat = useOpenClawSession(
-    selectedAgent && isSelectedRunning ? selectedAgent : null,
-    getToken,
+    selectedAgent && isSelectedRunning && selectedSdkAgent ? (selectedSdkAgent as typeof selectedSdkAgent & { name?: string | null; hostname?: string | null }) : null,
     mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",
   );
   const activeConnectionStatus = useMemo(() => {
