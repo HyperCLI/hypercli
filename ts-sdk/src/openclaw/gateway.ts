@@ -105,6 +105,8 @@ export interface GatewayCloseInfo {
   error?: GatewayErrorShape | null;
 }
 
+export type GatewayConnectionState = "disconnected" | "connecting" | "connected";
+
 export interface GatewayWaitReadyOptions {
   retryIntervalMs?: number;
   probe?: "config" | "status";
@@ -149,6 +151,7 @@ export interface OpenClawConfigNodeDescriptor {
 }
 
 export type GatewayEventHandler = (event: GatewayEvent) => void;
+export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
 
 type PendingRequest = {
   resolve: (value: any) => void;
@@ -1367,7 +1370,9 @@ export class GatewayClient {
   private ws: GatewaySocket | null = null;
   private pending = new Map<string, PendingRequest>();
   private eventHandlers = new Set<GatewayEventHandler>();
+  private connectionStateHandlers = new Set<GatewayConnectionStateHandler>();
   private connected = false;
+  private connectionState: GatewayConnectionState = "disconnected";
   private closed = false;
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null;
   private connectTimer: ReturnType<typeof setTimeout> | null = null;
@@ -1436,8 +1441,29 @@ export class GatewayClient {
     return this.connected;
   }
 
+  get state() {
+    return this.connectionState;
+  }
+
   get pendingPairing() {
     return this.pairingState;
+  }
+
+  onConnectionState(handler: GatewayConnectionStateHandler): () => void {
+    this.connectionStateHandlers.add(handler);
+    return () => this.connectionStateHandlers.delete(handler);
+  }
+
+  private setConnectionState(state: GatewayConnectionState): void {
+    if (this.connectionState === state) return;
+    this.connectionState = state;
+    for (const handler of this.connectionStateHandlers) {
+      try {
+        handler(state);
+      } catch {
+        // state handlers are isolated from socket lifecycle
+      }
+    }
   }
 
   /** Update the gateway token for subsequent connect attempts. */
@@ -1465,6 +1491,7 @@ export class GatewayClient {
     if (this.connected) {
       return Promise.resolve();
     }
+    this.setConnectionState("connecting");
     if (!this.connectPromise) {
       this.connectPromise = new Promise<void>((resolve, reject) => {
         this.resolveConnectPromise = resolve;
@@ -1483,6 +1510,7 @@ export class GatewayClient {
   stop(): void {
     this.closed = true;
     this.connected = false;
+    this.setConnectionState("disconnected");
     this.connectSent = false;
     this.connectNonce = null;
     this.pendingConnectError = null;
@@ -1641,6 +1669,7 @@ export class GatewayClient {
     if (this.closed || this.reconnectTimer) {
       return;
     }
+    this.setConnectionState("connecting");
     const delay = this.backoffMs;
     this.backoffMs = Math.min(this.backoffMs * BACKOFF_MULTIPLIER, MAX_BACKOFF_MS);
     this.reconnectTimer = setTimeout(() => {
@@ -1663,6 +1692,7 @@ export class GatewayClient {
     }
     this.ws = null;
     this.connected = false;
+    this.setConnectionState("disconnected");
     this.connectSent = false;
     this.connectNonce = null;
     if (this.connectTimer) {
@@ -1793,6 +1823,7 @@ export class GatewayClient {
       this._version = hello?.server?.version ?? hello?.version ?? null;
       this._protocol = hello?.protocol ?? null;
       this.connected = true;
+      this.setConnectionState("connected");
       this.pendingConnectError = null;
       this.backoffMs = INITIAL_BACKOFF_MS;
       this.authTokenMismatchRetried = false;

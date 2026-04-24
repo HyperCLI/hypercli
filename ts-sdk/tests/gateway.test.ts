@@ -161,6 +161,35 @@ describe("GatewayClient", () => {
     return { client, ws, request };
   }
 
+
+  it("exposes connection state transitions", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const seen: string[] = [];
+    const unsubscribe = client.onConnectionState((state) => seen.push(state));
+
+    const connectPromise = client.connect();
+    expect(client.state).toBe("connecting");
+    await flushMicrotasks();
+
+    const ws = MockWebSocket.instances.at(-1);
+    if (!ws) throw new Error("Missing websocket instance");
+    ws.emitChallenge();
+    const request = await parseFirstRequest(ws);
+    ws.emitHello(request.id);
+    await connectPromise;
+
+    expect(client.state).toBe("connected");
+    ws.close(1000, "bye");
+    await flushMicrotasks();
+    expect(seen).toContain("connecting");
+    expect(seen).toContain("connected");
+    expect(seen).toContain("disconnected");
+    expect(["connecting", "disconnected"]).toContain(client.state);
+    unsubscribe();
+  });
   it("sends the CLI gateway handshake and stores the issued device token", async () => {
     const { client, request } = await connectClient();
 

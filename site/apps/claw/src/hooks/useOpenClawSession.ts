@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { GatewayClient, GatewayCloseInfo, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type { GatewayClient, GatewayCloseInfo, GatewayConnectionState, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
   type ChatAttachment,
   type ChatMessage,
@@ -42,8 +42,9 @@ export function useOpenClawSession(
   useEffect(() => {
     let active = true;
     let localGateway: GatewayClient | null = null;
+    let unsubscribeConnectionState: (() => void) | null = null;
 
-    if (!enabled || !agent || typeof agent.connect !== "function" || String(agent.state).toUpperCase() !== "RUNNING") {
+    if (!enabled || !agent || typeof agent.connect !== "function") {
       setGateway(null);
       setStatus("disconnected");
       setError(null);
@@ -56,20 +57,13 @@ export function useOpenClawSession(
     setStatus("connecting");
     setError(null);
 
-    const connect = agent.connect;
-
     void (async () => {
       try {
-        localGateway = await connect({
+        await agent.waitForGatewayContext();
+        const client = agent.gateway({
           autoApprovePairing: true,
-          onHello: () => {
-            if (!active) return;
-            setStatus("connected");
-            setError(null);
-          },
           onClose: ({ error: closeError, code, reason }: GatewayCloseInfo) => {
             if (!active) return;
-            setStatus("disconnected");
             if (closeError?.message) {
               setError(closeError.message);
               return;
@@ -81,15 +75,22 @@ export function useOpenClawSession(
             setError(null);
           },
         });
-
+        localGateway = client;
+        const applyState = (nextState: GatewayConnectionState) => {
+          if (!active) return;
+          setStatus(nextState);
+          if (nextState === "connected") {
+            setError(null);
+          }
+        };
+        applyState(client.state);
+        unsubscribeConnectionState = client.onConnectionState(applyState);
+        setGateway(client);
+        await client.connect();
         if (!active) {
-          localGateway.close();
+          client.close();
           return;
         }
-
-        setGateway(localGateway);
-        setStatus("connected");
-        setError(null);
       } catch (e: unknown) {
         if (!active) return;
         setGateway(null);
@@ -100,6 +101,7 @@ export function useOpenClawSession(
 
     return () => {
       active = false;
+      unsubscribeConnectionState?.();
       localGateway?.close();
     };
   }, [enabled, agent]);

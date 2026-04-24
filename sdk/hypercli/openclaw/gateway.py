@@ -71,6 +71,9 @@ def _storage_scope_key(scope: str, role: str) -> str:
     return f"{scope.strip()}|{role.strip()}"
 
 
+GatewayConnectionState = Literal["disconnected", "connecting", "connected"]
+
+
 @dataclass
 class DeviceTokenEntry:
     token: str
@@ -763,8 +766,10 @@ class GatewayClient:
         self._pending: dict[str, asyncio.Future] = {}
         self._event_queue: asyncio.Queue[dict[str, Any]] = asyncio.Queue()
         self._event_handlers: set[Callable[[dict[str, Any]], None]] = set()
+        self._connection_state_handlers: set[Callable[[GatewayConnectionState], None]] = set()
         self._reader_task: asyncio.Task | None = None
         self._connected = False
+        self._connection_state: GatewayConnectionState = "disconnected"
         self._closed = False
         self._version: str | None = None
         self._protocol: int | None = None
@@ -785,8 +790,26 @@ class GatewayClient:
         return self._connected
 
     @property
+    def connection_state(self) -> GatewayConnectionState:
+        return self._connection_state
+
+    @property
     def pending_pairing(self) -> GatewayPairingState | None:
         return self._pending_pairing
+
+    def on_connection_state(self, handler: Callable[[GatewayConnectionState], None]) -> Callable[[], None]:
+        self._connection_state_handlers.add(handler)
+        return lambda: self._connection_state_handlers.discard(handler)
+
+    def _set_connection_state(self, state: GatewayConnectionState) -> None:
+        if self._connection_state == state:
+            return
+        self._connection_state = state
+        for handler in list(self._connection_state_handlers):
+            try:
+                handler(state)
+            except Exception:
+                pass
 
     def set_gateway_token(self, token: str | None) -> None:
         self.gateway_token = token.strip() if isinstance(token, str) and token.strip() else None
@@ -870,6 +893,7 @@ class GatewayClient:
             )
         finally:
             self._connected = False
+            self._set_connection_state("disconnected")
             self._ws = None
             close_error = close_info.error if close_info and close_info.error else GatewayError(
                 "UNAVAILABLE",
@@ -1002,6 +1026,7 @@ class GatewayClient:
         self._closed = False
         if self._connected:
             return
+        self._set_connection_state("connecting")
 
         delay = INITIAL_RECONNECT_DELAY
         deadline = asyncio.get_running_loop().time() + max(self.timeout, 30.0)
@@ -1026,6 +1051,7 @@ class GatewayClient:
                 self._version = hello.get("server", {}).get("version") or hello.get("version")
                 self._protocol = hello.get("protocol")
                 self._connected = True
+                self._set_connection_state("connected")
                 self._update_pairing_state(None)
                 self._last_seq = None
                 self._reader_task = asyncio.create_task(self._reader_loop())
@@ -1142,6 +1168,7 @@ class GatewayClient:
     async def close(self) -> None:
         self._closed = True
         self._connected = False
+        self._set_connection_state("disconnected")
         reader = self._reader_task
         self._reader_task = None
         if reader:

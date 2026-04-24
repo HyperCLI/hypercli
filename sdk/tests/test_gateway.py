@@ -36,6 +36,63 @@ class MockConnection:
         return await self.recv()
 
 
+
+
+@pytest.mark.asyncio
+async def test_connection_state_transitions(monkeypatch: pytest.MonkeyPatch) -> None:
+    sockets: list[MockConnection] = []
+
+    async def fake_connect(*args, **kwargs):
+        conn = MockConnection()
+        sockets.append(conn)
+        return conn
+
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
+
+    client = GatewayClient(
+        url="wss://openclaw-agent.example",
+        token="jwt-token",
+        gateway_token="gw-token",
+    )
+    seen: list[str] = []
+    unsubscribe = client.on_connection_state(lambda state: seen.append(state))
+
+    connect_task = asyncio.create_task(client.connect())
+    assert client.connection_state == "connecting"
+
+    while not sockets:
+        await asyncio.sleep(0)
+
+    first = sockets[0]
+    first.push({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-1"}})
+    while not first.sent:
+        await asyncio.sleep(0)
+    connect_request = first.sent[0]
+    first.push({
+        "type": "res",
+        "id": connect_request["id"],
+        "ok": True,
+        "payload": {
+            "protocol": 3,
+            "server": {"version": "test"},
+            "auth": {
+                "deviceToken": "device-token-1",
+                "role": "operator",
+                "scopes": ["operator.admin"],
+            },
+        },
+    })
+
+    await connect_task
+    assert client.connection_state == "connected"
+
+    await client.close()
+    assert client.connection_state == "disconnected"
+    assert "connecting" in seen
+    assert "connected" in seen
+    assert "disconnected" in seen
+    unsubscribe()
+
 @pytest.mark.asyncio
 async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.MonkeyPatch) -> None:
     sockets: list[MockConnection] = []
