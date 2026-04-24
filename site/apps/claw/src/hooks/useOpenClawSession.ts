@@ -2,20 +2,20 @@
 
 import { useCallback, useEffect, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { GatewayClient, GatewayCloseInfo, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type { GatewayClient, GatewayCloseInfo, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
   type ChatAttachment,
   type ChatMessage,
   type ChatPendingFile,
   type WorkspaceFile,
-  maybeDecodeMojibake,
-  normalizeHistoryMessage,
-  normalizeLiveToolCall,
-  normalizeLiveToolResult,
-  upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
-
-type ActivityKind = "message" | "tool" | "connection" | "skill" | "cron" | "error" | "system";
+import {
+  type ActivityEntry,
+  type ActivityKind,
+  appendActivityEntry,
+  handleOpenClawSessionEvent,
+  hydrateOpenClawSession,
+} from "@/lib/openclaw-session";
 
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
@@ -35,13 +35,7 @@ export function useOpenClawSession(
   const [sessions, setSessions] = useState<Array<Record<string, unknown>>>([]);
   const [cronJobs, setCronJobs] = useState<Array<Record<string, unknown>>>([]);
   const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
-  const [activityFeed, setActivityFeed] = useState<Array<{
-    id: string;
-    type: ActivityKind;
-    action: string;
-    detail: string;
-    timestamp: number;
-  }>>([]);
+  const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>([]);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
 
@@ -111,96 +105,20 @@ export function useOpenClawSession(
   }, [enabled, agent]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
-    setActivityFeed((prev) => {
-      const next = [...prev, {
-        type: entry.type,
-        action: entry.action,
-        detail: entry.detail ?? "",
-        id: entry.id ?? `${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
-        timestamp: entry.timestamp ?? Date.now(),
-      }];
-      return next.length > 500 ? next.slice(next.length - 500) : next;
-    });
+    setActivityFeed((prev) => appendActivityEntry(prev, entry));
   }, []);
 
   useEffect(() => {
     if (!gateway) return;
-    const unsubscribe = gateway.onEvent((gatewayEvent: GatewayEvent) => {
-      const event = gatewayEvent.event;
-      const payload = gatewayEvent.payload ?? {};
-
-      if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
-        const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;
-        if (data) {
-          const phase = data.phase as string;
-          const toolName = (data.name as string) || "";
-          const toolCallId = data.toolCallId as string | undefined;
-          if (phase === "start" && toolName) {
-            const args = data.args == null ? "" : typeof data.args === "string" ? maybeDecodeMojibake(data.args) : JSON.stringify(data.args, null, 2);
-            setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }], timestamp: Date.now() }));
-          } else if (phase === "result" && toolName) {
-            const meta = (data.meta as string) || "";
-            const isError = Boolean(data.isError);
-            const resultText = isError ? `Error: ${meta}` : meta;
-            if (resultText) {
-              setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }], timestamp: Date.now() }));
-            }
-          }
-        }
-      }
-
-      if (event === "chat") {
-        const normalized = normalizeHistoryMessage((payload as Record<string, unknown>).message);
-        if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
-        if ((payload as Record<string, unknown>).state === "final") setSending(false);
-      } else if (event === "chat.content") {
-        const text = maybeDecodeMojibake((payload as Record<string, unknown>).text as string ?? "");
-        if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
-      } else if (event === "chat.thinking") {
-        const text = maybeDecodeMojibake((payload as Record<string, unknown>).text as string ?? "");
-        if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
-      } else if (event === "chat.tool_call") {
-        const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
-        if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }));
-      } else if (event === "chat.tool_result") {
-        const toolResult = normalizeLiveToolResult(payload as Record<string, unknown>);
-        if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
-      } else if (event === "chat.done") {
-        setSending(false);
-        void gateway.sessionsList().then((list) => setSessions(list as Array<Record<string, unknown>>)).catch(() => {});
-      } else if (event === "sessions.updated") {
-        const list = (payload as Record<string, unknown>).sessions;
-        if (Array.isArray(list)) setSessions(list as Array<Record<string, unknown>>);
-      } else if (event === "chat.error") {
-        setSending(false);
-        setMessages((prev) => [...prev, { role: "system", content: `Error: ${(payload as Record<string, unknown>).message ?? "Unknown error"}`, timestamp: Date.now() }]);
-      }
-
-      const isActivityKind = (v: unknown): v is ActivityKind => v === "message" || v === "tool" || v === "connection" || v === "skill" || v === "cron" || v === "error" || v === "system";
-      if (event === "chat.tool_call") {
-        const tc = normalizeLiveToolCall(payload as Record<string, unknown>);
-        if (tc) appendActivity({ type: "tool", action: tc.name, detail: tc.args || "" });
-      } else if (event === "chat.tool_result") {
-        const tc = normalizeLiveToolResult(payload as Record<string, unknown>);
-        if (tc?.result) appendActivity({ type: "tool", action: `${tc.name} → result`, detail: tc.result });
-      } else if (event === "chat.done") {
-        appendActivity({ type: "message", action: "Assistant response complete" });
-      } else if (event === "chat.error") {
-        appendActivity({ type: "error", action: "Error", detail: String((payload as Record<string, unknown>).message ?? "Unknown error") });
-      } else if (event === "activity.log") {
-        const entry = payload as Record<string, unknown>;
-        appendActivity({
-          type: isActivityKind(entry.type) ? entry.type : "system",
-          action: typeof entry.action === "string" ? entry.action : "Activity",
-          detail: typeof entry.detail === "string" ? entry.detail : "",
-          id: typeof entry.id === "string" ? entry.id : undefined,
-          timestamp: typeof entry.timestamp === "number" ? entry.timestamp : undefined,
-        });
-      } else if (event === "sessions.updated") {
-        const sessionsList = (payload as Record<string, unknown>).sessions;
-        const count = Array.isArray(sessionsList) ? sessionsList.length : 0;
-        appendActivity({ type: "system", action: "Sessions updated", detail: `${count} active` });
-      }
+    const unsubscribe = gateway.onEvent((gatewayEvent) => {
+      handleOpenClawSessionEvent({
+        gateway,
+        gatewayEvent,
+        setMessages,
+        setSending,
+        setSessions,
+        appendActivity,
+      });
     });
     return unsubscribe;
   }, [gateway, appendActivity]);
@@ -209,38 +127,16 @@ export function useOpenClawSession(
     if (!gateway) return;
     let cancelled = false;
     void (async () => {
-      const [cfgResult, schemaResult, historyResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
-        gateway.configGet(),
-        gateway.configSchema(),
-        gateway.chatHistory("main", 200),
-        gateway.agentsList(),
-        gateway.sessionsList(),
-        gateway.cronList(),
-        gateway.modelsList(),
-      ]);
+      const hydrated = await hydrateOpenClawSession(gateway);
       if (cancelled) return;
-      if (cfgResult.status === "fulfilled") setConfig(cfgResult.value); else setConfig({});
-      if (schemaResult.status === "fulfilled") setConfigSchema(schemaResult.value);
-      if (historyResult.status === "fulfilled") {
-        const hydrated = historyResult.value.map((message) => normalizeHistoryMessage(message)).filter((message): message is ChatMessage => message !== null);
-        setMessages(hydrated.length > 0 ? hydrated : []);
-      } else {
-        setMessages([]);
-      }
-      if (agentsResult.status === "fulfilled") {
-        const agents = agentsResult.value;
-        if (agents.length > 0) setGwAgentId(agents[0].id);
-        const agentIdForFiles = agents.length > 0 ? agents[0].id : "main";
-        try {
-          const filesList = await gateway.filesList(agentIdForFiles);
-          if (!cancelled) setFiles(filesList);
-        } catch {}
-      } else {
-        setFiles([]);
-      }
-      if (sessionsRes.status === "fulfilled") setSessions(sessionsRes.value as Array<Record<string, unknown>>);
-      if (cronRes.status === "fulfilled") setCronJobs(cronRes.value as Array<Record<string, unknown>>);
-      if (modelsRes.status === "fulfilled") setModels(modelsRes.value as Array<Record<string, unknown>>);
+      setConfig(hydrated.config);
+      setConfigSchema(hydrated.configSchema);
+      setMessages(hydrated.messages);
+      setFiles(hydrated.files);
+      setGwAgentId(hydrated.gwAgentId);
+      setSessions(hydrated.sessions);
+      setCronJobs(hydrated.cronJobs);
+      setModels(hydrated.models);
     })();
     return () => { cancelled = true; };
   }, [gateway]);
