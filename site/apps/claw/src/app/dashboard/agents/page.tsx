@@ -101,8 +101,6 @@ import {
 
 const MAX_LOG_LINES = 1500;
 const WS_RETRY_INTERVAL_MS = 15000;
-const AGENT_STATE_REFRESH_INTERVAL_MS = 60000;
-const AGENT_TRANSITION_REFRESH_MS = 3000;
 type MainTab = AgentMainTab;
 
 function toDashboardAgent(agent: SdkAgent): Agent {
@@ -269,14 +267,6 @@ export default function AgentsPage() {
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(() => sdkAgents.map(toDashboardAgent), [sdkAgents]);
-
-  // Fast polling during transitions
-  const hasTransitioning = agents.some(a => ["PENDING", "STARTING", "STOPPING"].includes(a.state));
-  useEffect(() => {
-    const ms = hasTransitioning ? AGENT_TRANSITION_REFRESH_MS : AGENT_STATE_REFRESH_INTERVAL_MS;
-    const timer = setInterval(() => { void fetchAgents(); }, ms);
-    return () => clearInterval(timer);
-  }, [fetchAgents, hasTransitioning]);
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
