@@ -115,6 +115,20 @@ function toDashboardAgent(agent: SdkAgent): Agent {
     meta: agent.meta ?? null,
   };
 }
+
+function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
+  const index = prev.findIndex((agent) => agent.id === nextAgent.id);
+  if (index === -1) {
+    return [...prev, nextAgent];
+  }
+  const next = [...prev];
+  next[index] = nextAgent;
+  return next;
+}
+
+function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
+  return prev.filter((agent) => agent.id !== agentId);
+}
 // Shell now routes through backend WebSocket via lagoon → K8s exec
 
 // ── Main component ──
@@ -273,13 +287,13 @@ export default function AgentsPage() {
     prevStatesRef.current = next;
   }, [agents]);
 
-  const selectedAgent = useMemo(
-    () => agents.find((item) => item.id === selectedAgentId) || null,
-    [agents, selectedAgentId],
-  );
   const selectedSdkAgent = useMemo(
     () => (selectedAgentId ? sdkAgents.find((agent) => agent.id === selectedAgentId) ?? null : null),
     [sdkAgents, selectedAgentId],
+  );
+  const selectedAgent = useMemo(
+    () => (selectedSdkAgent ? toDashboardAgent(selectedSdkAgent) : null),
+    [selectedSdkAgent],
   );
   const selectedOpenClawAgent = useMemo(
     () => (selectedSdkAgent && typeof (selectedSdkAgent as { connect?: unknown }).connect === "function"
@@ -1013,7 +1027,8 @@ export default function AgentsPage() {
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
-    const agent = agents.find((entry) => entry.id === agentId) ?? null;
+    const sdkAgent = sdkAgents.find((entry) => entry.id === agentId) ?? null;
+    const agent = sdkAgent ? toDashboardAgent(sdkAgent) : null;
     const guidance = describeAgentTierStartGuidance(agent, budget);
     if (guidance) {
       if (guidance.availableTiers.length > 0) {
@@ -1027,8 +1042,8 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await startOpenClawAgent(token, agentId);
-      await fetchAgents();
+      const startedAgent = await startOpenClawAgent(token, agentId);
+      setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
     } catch (err) {
       const requestedTier = parseEntitlementSlotTier(err);
       if (requestedTier) {
@@ -1070,15 +1085,17 @@ export default function AgentsPage() {
     setTierSelection(null);
     try {
       const token = await getToken();
-      await createAgentClient(token).resize(agentId, { size: tier });
-      await startOpenClawAgent(token, agentId);
-      await fetchAgents();
+      const agentClient = createAgentClient(token);
+      const resizedAgent = await agentClient.resize(agentId, { size: tier });
+      setSdkAgents((prev) => upsertSdkAgent(prev, resizedAgent));
+      const startedAgent = await startOpenClawAgent(token, agentId);
+      setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to resize and start agent");
     } finally {
       setStartingId(null);
     }
-  }, [fetchAgents, getToken]);
+  }, [getToken]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
@@ -1101,7 +1118,8 @@ export default function AgentsPage() {
     setError(null);
     try {
       const token = await getToken();
-      await createAgentClient(token).stop(agentId);
+      const stoppedAgent = await createAgentClient(token).stop(agentId);
+      setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
       // Cooldown: disable Start for 5s while backend cleans up
       setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
       const existing = stoppedTimersRef.current.get(agentId);
@@ -1110,7 +1128,6 @@ export default function AgentsPage() {
         setRecentlyStoppedIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
         stoppedTimersRef.current.delete(agentId);
       }, 10000));
-      await fetchAgents();
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
@@ -1125,7 +1142,7 @@ export default function AgentsPage() {
       const token = await getToken();
       await createAgentClient(token).delete(agentId);
       if (selectedAgentId === agentId) setSelectedAgentId(null);
-      await fetchAgents();
+      setSdkAgents((prev) => removeSdkAgent(prev, agentId));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to delete agent");
     } finally {
@@ -1141,8 +1158,8 @@ export default function AgentsPage() {
     setSavingName(true);
     try {
       const token = await getToken();
-      await createAgentClient(token).update(selectedAgent.id, { name: trimmed });
-      await fetchAgents();
+      const updatedAgent = await createAgentClient(token).update(selectedAgent.id, { name: trimmed });
+      setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to rename agent");
     } finally {
@@ -1584,7 +1601,8 @@ export default function AgentsPage() {
           setPendingAgentDelete={setPendingAgentDelete}
           updateAgentName={async (agentId, name) => {
             const token = await getToken();
-            await createAgentClient(token).update(agentId, { name });
+            const updatedAgent = await createAgentClient(token).update(agentId, { name });
+            setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
           }}
         />
 
