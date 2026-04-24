@@ -748,16 +748,16 @@ export class Agent {
     return this.requireDeployments().fileReadBytes(this, path, source);
   }
 
-  async fileRead(path: string): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(path));
+  async fileRead(path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<string> {
+    return decodeUtf8(await this.fileReadBytes(path, source));
   }
 
-  async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string): Promise<Record<string, any>> {
-    return this.requireDeployments().fileWriteBytes(this, path, content);
+  async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+    return this.requireDeployments().fileWriteBytes(this, path, content, destination);
   }
 
-  async fileWrite(path: string, content: string): Promise<Record<string, any>> {
-    return this.requireDeployments().fileWrite(this, path, content);
+  async fileWrite(path: string, content: string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+    return this.requireDeployments().fileWrite(this, path, content, destination);
   }
 
   async fileDelete(path: string, options: { recursive?: boolean } = {}): Promise<Record<string, any>> {

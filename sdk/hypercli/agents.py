@@ -440,20 +440,20 @@ class Agent:
     def health(self) -> dict:
         return self._require_deployments().health(self)
 
-    def files_list(self, path: str = "") -> list[dict]:
-        return self._require_deployments().files_list(self, path)
+    def files_list(self, path: str = "", source: str = "auto") -> list[dict]:
+        return self._require_deployments().files_list(self, path, source=source)
 
-    def file_read_bytes(self, path: str) -> bytes:
-        return self._require_deployments().file_read_bytes(self, path)
+    def file_read_bytes(self, path: str, source: str = "auto") -> bytes:
+        return self._require_deployments().file_read_bytes(self, path, source=source)
 
-    def file_read(self, path: str) -> str:
-        return self._require_deployments().file_read(self, path)
+    def file_read(self, path: str, source: str = "auto") -> str:
+        return self._require_deployments().file_read(self, path, source=source)
 
-    def file_write_bytes(self, path: str, content: bytes) -> dict:
-        return self._require_deployments().file_write_bytes(self, path, content)
+    def file_write_bytes(self, path: str, content: bytes, destination: str = "auto") -> dict:
+        return self._require_deployments().file_write_bytes(self, path, content, destination=destination)
 
-    def file_write(self, path: str, content: str) -> dict:
-        return self._require_deployments().file_write(self, path, content)
+    def file_write(self, path: str, content: str, destination: str = "auto") -> dict:
+        return self._require_deployments().file_write(self, path, content, destination=destination)
 
     def file_delete(self, path: str, recursive: bool = False) -> dict:
         return self._require_deployments().file_delete(self, path, recursive)
@@ -1526,7 +1526,7 @@ class Deployments:
         """Read a UTF-8 text file from an agent."""
         return self.file_read_bytes(pod, path, source=source).decode(errors="replace")
 
-    def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
+    def file_write_bytes(self, pod: Agent | str, path: str, content: bytes, destination: str = "auto") -> dict:
         """Write raw bytes to an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
@@ -1540,9 +1540,9 @@ class Deployments:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
 
-    def file_write(self, pod: Agent | str, path: str, content: str) -> dict:
+    def file_write(self, pod: Agent | str, path: str, content: str, destination: str = "auto") -> dict:
         """Write a UTF-8 text file to an agent."""
-        return self.file_write_bytes(pod, path, content.encode())
+        return self.file_write_bytes(pod, path, content.encode(), destination=destination)
 
     def file_delete(self, pod: Agent | str, path: str, recursive: bool = False) -> dict:
         """Delete a file or directory from an agent."""
