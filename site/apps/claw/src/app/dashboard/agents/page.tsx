@@ -95,7 +95,7 @@ import {
   TabLoadingState,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsModal, AgentTierSelectionModal, ErrorBanner, OpenClawConfigModal } from "@/components/dashboard/agents/AgentPanels";
+import { AgentEmptyState, AgentSettingsModal, AgentSidebarPane, AgentTierSelectionModal, ErrorBanner, OpenClawConfigModal } from "@/components/dashboard/agents/AgentPanels";
 
 // ── Constants ──
 
@@ -1769,143 +1769,39 @@ export default function AgentsPage() {
       {/* Main layout: Sidebar + Panel */}
       <div className="flex flex-1 min-h-0">
         {/* ── Agents / Channels Sidebar (left) ── */}
-        <motion.div
-          className={`flex-shrink-0 h-full overflow-hidden ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
-          animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
-          transition={{ type: "spring", stiffness: 360, damping: 32 }}
-        >
-          <AnimatePresence initial={false} mode="wait">
-            {sidebarCollapsed && isDesktopViewport ? (
-              <motion.div
-                key="rail"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="w-12 h-full flex flex-col items-center gap-2 border-r border-border bg-background py-3 overflow-y-auto"
-              >
-                <button
-                  onClick={() => setSidebarCollapsed(false)}
-                  title="Expand sidebar"
-                  className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-                >
-                  <PanelLeftOpen className="w-3.5 h-3.5" />
-                </button>
-                <div className="w-6 h-px bg-border my-1" />
-                {agents.map((a) => {
-                  const av = agentAvatar(a.name || a.id);
-                  const Icon = av.icon;
-                  const selected = selectedAgentId === a.id;
-                  return (
-                    <Tooltip key={a.id} delayDuration={300}>
-                      <TooltipTrigger asChild>
-                        <button
-                          onClick={() => {
-                            setSelectedAgentId(a.id);
-                            setMobileShowChat(true);
-                          }}
-                          className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-background" : ""}`}
-                          style={{ backgroundColor: av.bgColor }}
-                        >
-                          <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
-                        </button>
-                      </TooltipTrigger>
-                      <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
-                        <AgentCardTooltip agentName={a.name || a.id} />
-                      </TooltipContent>
-                    </Tooltip>
-                  );
-                })}
-              </motion.div>
-            ) : (
-              <motion.div
-                key="full"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                transition={{ duration: 0.15 }}
-                className="h-full"
-              >
-                <AgentsChannelsSidebar
-                  variant="v3"
-                  threads={syntheticThreads}
-                  selectedThreadId={selectedAgentId}
-                  showChannels={false}
-                  availableAgents={agents.map((a) => ({
-                    id: a.id,
-                    name: a.name || a.id,
-                    type: "agent" as const,
-                  }))}
-                  onSelectThread={(threadId) => {
-                    setSelectedAgentId(threadId);
-                    setMobileShowChat(true);
-                  }}
-                  onStartAgentChat={(agent) => {
-                    setSelectedAgentId(agent.id);
-                    setMobileShowChat(true);
-                  }}
-                  onCreateAgent={async ({ name, iconIndex, size }) => {
-                    try {
-                      const token = await getToken();
-                      const created = await createOpenClawAgent(token, {
-                        name: name || undefined,
-                        start: true,
-                        size,
-                        meta: { ui: { avatar: { icon_index: iconIndex } } },
-                      });
-                      await fetchAgents();
-                      return created.id ?? null;
-                    } catch (err) {
-                      setError(err instanceof Error ? err.message : "Failed to create agent");
-                      return null;
-                    }
-                  }}
-                  onNewThread={() => openCreateDialog()}
-                  openAgentCreatorSignal={sidebarCreatorSignal}
-                  onDeleteThread={(threadId) => {
-                    const a = agents.find((x) => x.id === threadId);
-                    if (a) setPendingAgentDelete({ id: a.id, name: a.name || a.id });
-                  }}
-                  onRenameThread={async (threadId, title) => {
-                    const a = agents.find((x) => x.id === threadId);
-                    if (!a) return;
-                    try {
-                      const token = await getToken();
-                      await createAgentClient(token).update(a.id, { name: title });
-                      await fetchAgents();
-                    } catch (e) {
-                      setError(e instanceof Error ? e.message : String(e));
-                    }
-                  }}
-                  onCollapse={isDesktopViewport ? () => setSidebarCollapsed(true) : undefined}
-                />
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </motion.div>
+        <AgentSidebarPane
+          sidebarCollapsed={sidebarCollapsed}
+          isDesktopViewport={isDesktopViewport}
+          mobileShowChat={mobileShowChat}
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          setSelectedAgentId={setSelectedAgentId}
+          setMobileShowChat={setMobileShowChat}
+          setSidebarCollapsed={setSidebarCollapsed}
+          syntheticThreads={syntheticThreads}
+          getToken={getToken}
+          createOpenClawAgent={createOpenClawAgent}
+          fetchAgents={fetchAgents}
+          setError={setError}
+          openCreateDialog={() => openCreateDialog()}
+          sidebarCreatorSignal={sidebarCreatorSignal}
+          setPendingAgentDelete={setPendingAgentDelete}
+          updateAgentName={async (agentId, name) => {
+            const token = await getToken();
+            await createAgentClient(token).update(agentId, { name });
+          }}
+        />
 
         {/* ── Main Panel ── */}
         <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
           {!selectedAgent ? (
-            <div className="flex-1 flex items-center justify-center">
-              <div className="text-center">
-                <Bot className="w-10 h-10 text-text-muted mx-auto mb-3" />
-                <p className="text-text-secondary mb-4">Select or create an agent to get started</p>
-                <motion.button
-                  whileHover={{ scale: 1.02, boxShadow: "0 0 16px rgba(56,211,159,0.12)" }}
-                  whileTap={{ scale: 0.97 }}
-                  onClick={() => {
-                    setSidebarCollapsed(false);
-                    setMobileShowChat(false);
-                    setSidebarCreatorSignal((v) => v + 1);
-                  }}
-                  className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#38D39F]/10 border border-[#38D39F]/20 hover:border-[#38D39F]/40 text-[#38D39F] transition-colors"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>Create new agent</span>
-                </motion.button>
-              </div>
-            </div>
+            <AgentEmptyState
+              onCreate={() => {
+                setSidebarCollapsed(false);
+                setMobileShowChat(false);
+                setSidebarCreatorSignal((v) => v + 1);
+              }}
+            />
           ) : (
             <>
               {/* Agent header + tabs */}
