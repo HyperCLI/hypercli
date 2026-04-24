@@ -445,7 +445,7 @@ export function AgentTierSelectionModal({
 }
 
 
-interface AgentSidebarPaneProps {
+interface AgentListProps {
   sidebarCollapsed: boolean;
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
@@ -465,7 +465,7 @@ interface AgentSidebarPaneProps {
   updateAgentName: (agentId: string, name: string) => Promise<void>;
 }
 
-export function AgentSidebarPane({
+export function AgentList({
   sidebarCollapsed,
   isDesktopViewport,
   mobileShowChat,
@@ -483,7 +483,7 @@ export function AgentSidebarPane({
   sidebarCreatorSignal,
   setPendingAgentDelete,
   updateAgentName,
-}: AgentSidebarPaneProps) {
+}: AgentListProps) {
   return (
     <motion.div
       className={`flex-shrink-0 h-full overflow-hidden ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
@@ -600,6 +600,8 @@ export function AgentSidebarPane({
     </motion.div>
   );
 }
+
+export { AgentList as AgentSidebarPane };
 
 export function AgentEmptyState({
   onCreate,
