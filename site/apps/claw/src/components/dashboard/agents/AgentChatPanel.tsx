@@ -5,7 +5,7 @@ import { Loader2, MessageSquare, Mic, Paperclip, Pause, Play, Send, Square, X } 
 import { API_BASE_URL } from "@/lib/api";
 import { encodePath } from "@/lib/image-tools";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
-import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
+import { ChatMessageBubble, ChatStateIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
 
@@ -22,6 +22,8 @@ interface AgentChatPanelProps {
   chatScrollRef: React.RefObject<HTMLDivElement | null>;
   handleChatScroll: (event: React.UIEvent<HTMLDivElement>) => void;
   chatEndRef: React.RefObject<HTMLDivElement | null>;
+  hasChatTimeoutOccured: boolean;
+  hasChatErrorOccured: boolean;
   recording: boolean;
   audioLevel: number;
   recordingDuration: number;
@@ -154,7 +156,12 @@ export function AgentChatPanel({
           if (!chat.sending) return null;
           const last = chat.messages[chat.messages.length - 1];
           const hasContent = last?.role === "assistant" && ((last.content && last.content.trim().length > 0) || (last.toolCalls && last.toolCalls.length > 0));
-          return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
+          return hasContent ? null : <ChatStateIndicator 
+            variant="v2"
+            hasErrorOccurred={chat.hasChatErrorOccurred}
+            hasTimeoutOccurred={chat.hasChatTimeoutOccurred}
+            retryMessage={chat.retryMessage}
+          />;
         })()}
 
         <div ref={chatEndRef} />

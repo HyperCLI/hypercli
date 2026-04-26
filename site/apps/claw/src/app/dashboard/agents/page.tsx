@@ -1609,6 +1609,8 @@ export default function AgentsPage() {
               chat={chat}
               selectedAgent={selectedAgent!}
               isSelectedRunning={Boolean(isSelectedRunning)}
+              hasChatErrorOccured={chat.hasChatErrorOccurred}
+              hasChatTimeoutOccured={chat.hasChatTimeoutOccurred}
               chatDragActive={chatDragActive}
               setChatDragActive={setChatDragActive}
               chatDragDepthRef={chatDragDepthRef}

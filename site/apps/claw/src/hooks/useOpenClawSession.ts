@@ -38,6 +38,8 @@ export function useOpenClawSession(
   const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>([]);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
+  const [hasChatTimeoutOccurred, setHasChatTimeoutOccurred] = useState(false);
+  const [hasChatErrorOccurred, setHasChatErrorOccurred] = useState(false);
 
   useEffect(() => {
     let active = true;
@@ -224,6 +226,8 @@ export function useOpenClawSession(
     setPendingAttachments([]);
     setPendingFiles([]);
     setSending(true);
+    setHasChatErrorOccurred(false);
+    setHasChatTimeoutOccurred(false);
 
     const userMsg: ChatMessage = { role: "user", content: msg, timestamp: Date.now() };
     if (attachments.length > 0) userMsg.attachments = attachments;
@@ -240,8 +244,26 @@ export function useOpenClawSession(
       setMessages((prev) => [...prev, { role: "system", content: `Error: ${errMsg}`, timestamp: Date.now() }]);
       appendActivity({ type: "error", action: "Send failed", detail: errMsg });
       setSending(false);
+      setHasChatErrorOccurred(true);
     }
   }, [gateway, input, pendingAttachments, pendingFiles, sending, appendActivity]);
+
+  const retryMessage = useCallback(() => {
+    if (!messages.length) return;
+
+    // find last user message from the end
+    const lastUserMessage = [...messages]
+      .reverse()
+      .find((msg) => msg.role === "user" && msg.content?.trim());
+
+    if (!lastUserMessage) return;
+
+    // reset timeout/error state if needed (optional but recommended)
+    setHasChatTimeoutOccurred(false);
+    setHasChatErrorOccurred(false);
+
+    sendMessage(lastUserMessage.content);
+  }, [messages, sendMessage]);
 
   useEffect(() => {
     if (!sending && pendingInput.length > 0) {
@@ -250,6 +272,48 @@ export function useOpenClawSession(
       void sendMessage(nextMessage);
     }
   }, [sending, pendingInput, sendMessage]);
+
+  // Detect chat-timeouts
+  // 1. Timer based timeout detection
+  useEffect(() => {
+    if (!sending) return;
+
+    // reset timeout when a new send starts
+    setHasChatTimeoutOccurred(false);
+
+    let timeoutId: NodeJS.Timeout;
+
+    const scheduleTimeout = () => {
+      clearTimeout(timeoutId);
+
+      timeoutId = setTimeout(() => {
+        setHasChatTimeoutOccurred(true);
+      }, 5 * 60 * 1000); // 5 minutes
+    };
+
+    // run once initially
+    scheduleTimeout();
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [sending]);
+
+  // 2. activity-based timeout detection
+  useEffect(() => {
+    if (!sending) return;
+
+    // every time messages update, reset timeout
+    setHasChatTimeoutOccurred(false);
+
+    const timeoutId = setTimeout(() => {
+      setHasChatTimeoutOccurred(true);
+    }, 5 * 60 * 1000);
+
+    return () => {
+      clearTimeout(timeoutId);
+    };
+  }, [messages, sending]);
 
   const openFile = useCallback(async (name: string): Promise<string> => {
     if (!gateway) throw new Error("Not connected");
@@ -316,9 +380,12 @@ export function useOpenClawSession(
     connecting: status === "connecting",
     messages,
     sendMessage,
+    retryMessage,
     input,
     setInput,
     pendingInput,
+    hasChatErrorOccurred,
+    hasChatTimeoutOccurred,
     addPendingMessage,
     sending,
     files,
