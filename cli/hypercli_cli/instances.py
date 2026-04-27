@@ -383,11 +383,10 @@ def launch(
                 if raw_tcp_ports:
                     console.print(f"  TCP:      raw TCP ports: {', '.join(map(str, raw_tcp_ports))}")
                 # Display cold boot status
-                import sys
                 if job.cold_boot:
-                    console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]", file=sys.stderr)
+                    console.print("[yellow]⏳ Cold boot — instance provisioning may take up to 15 minutes[/]")
                 else:
-                    console.print("[green]🚀 Warm instance available — should be ready in under a minute[/]", file=sys.stderr)
+                    console.print("[green]🚀 Warm instance available — should be ready in under a minute[/]")
             else:
                 success(f"Instance launched: {job.job_id}")
                 console.print(f"  State:    {job.state}")

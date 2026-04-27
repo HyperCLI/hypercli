@@ -19,7 +19,6 @@ export interface Agent {
   last_error: string | null;
   created_at: string | null;
   updated_at: string | null;
-  openclaw_url?: string | null;
   gatewayToken?: string | null;
   meta?: AgentMeta | null;
 }
@@ -44,26 +43,3 @@ export interface LogEvent {
   status?: number;
 }
 
-export interface AgentListItem {
-  id: string;
-  name: string;
-  user_id: string;
-  pod_id: string | null;
-  pod_name: string | null;
-  state: AgentState;
-  cpu: number;
-  memory: number;
-  hostname: string | null;
-  started_at: string | null;
-  stopped_at: string | null;
-  last_error: string | null;
-  created_at: string | null;
-  updated_at: string | null;
-  openclaw_url?: string | null;
-  gatewayToken?: string | null;
-  meta?: AgentMeta | null;
-}
-
-export interface AgentListResponse {
-  items?: AgentListItem[];
-}

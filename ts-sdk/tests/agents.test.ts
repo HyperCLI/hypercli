@@ -56,22 +56,6 @@ describe('Agents SDK', () => {
     });
   });
 
-  it('requests inference tokens from the dedicated endpoint', async () => {
-    const http = {
-      get: vi.fn().mockResolvedValue({
-        agent_id: 'agent-123',
-        openclaw_url: 'wss://openclaw-test.hypercli.com',
-        gateway_token: 'gw-inference',
-      }),
-    } as unknown as HTTPClient;
-
-    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
-    const token = await deployments.inferenceToken('agent-123');
-
-    expect(token.gateway_token).toBe('gw-inference');
-    expect((http.get as any).mock.calls[0][0]).toBe('/deployments/agent-123/inference/token');
-  });
-
   it('creates exact-agent scoped child keys', async () => {
     const http = {
       post: vi.fn().mockResolvedValue({
@@ -149,11 +133,22 @@ describe('Agents SDK', () => {
 
   it('resolves missing gateway tokens through inferenceToken', async () => {
     const http = {
-      get: vi.fn().mockResolvedValue({
-        agent_id: 'agent-123',
-        openclaw_url: 'wss://openclaw-test.hypercli.com',
-        gateway_token: 'gw-fetched',
-      }),
+      get: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'agent-123',
+          user_id: 'user-456',
+          pod_id: 'pod-789',
+          pod_name: 'pod-789',
+          state: 'running',
+          hostname: 'openclaw-test.hypercli.com',
+        })
+        .mockResolvedValueOnce({
+          agent_id: 'agent-123',
+          env: {
+            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
+          },
+        }),
     } as unknown as HTTPClient;
 
     const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
@@ -171,5 +166,95 @@ describe('Agents SDK', () => {
     expect(gatewayToken).toBe('gw-fetched');
     expect(agent.gatewayToken).toBe('gw-fetched');
     expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+  });
+
+  it('resolveGatewayToken backfills missing gateway url through hostname and env', async () => {
+    const http = {
+      get: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'agent-123',
+          user_id: 'user-456',
+          pod_id: 'pod-789',
+          pod_name: 'pod-789',
+          state: 'running',
+          hostname: 'openclaw-test.hypercli.com',
+        })
+        .mockResolvedValueOnce({
+          agent_id: 'agent-123',
+          env: {
+            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
+          },
+        }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+      gateway_token: 'gw-inline',
+    });
+    agent._deployments = deployments;
+
+    const gatewayToken = await agent.resolveGatewayToken();
+
+    expect(gatewayToken).toBe('gw-fetched');
+    expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(agent.gatewayToken).toBe('gw-fetched');
+  });
+
+  it('waitForGatewayContext retries until both gateway url and token are ready', async () => {
+    const http = {
+      get: vi
+        .fn()
+        .mockResolvedValueOnce({
+          id: 'agent-123',
+          user_id: 'user-456',
+          pod_id: 'pod-789',
+          pod_name: 'pod-789',
+          state: 'running',
+          hostname: null,
+        })
+        .mockResolvedValueOnce({
+          agent_id: 'agent-123',
+          env: {
+            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
+          },
+        })
+        .mockResolvedValueOnce({
+          id: 'agent-123',
+          user_id: 'user-456',
+          pod_id: 'pod-789',
+          pod_name: 'pod-789',
+          state: 'running',
+          hostname: 'openclaw-test.hypercli.com',
+        })
+        .mockResolvedValueOnce({
+          agent_id: 'agent-123',
+          env: {
+            OPENCLAW_GATEWAY_TOKEN: 'gw-fetched',
+          },
+        }),
+    } as unknown as HTTPClient;
+
+    const deployments = new Deployments(http, 'hyper_api_test', 'https://api.test.hypercli.com/agents');
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-123',
+      user_id: 'user-456',
+      pod_id: 'pod-789',
+      pod_name: 'pod-789',
+      state: 'running',
+    });
+    agent._deployments = deployments;
+
+    const context = await agent.waitForGatewayContext({ timeoutMs: 100, retryIntervalMs: 0 });
+
+    expect(context.gateway_token).toBe('gw-fetched');
+    expect(context.hostname).toBe('openclaw-test.hypercli.com');
+    expect(agent.gatewayUrl).toBe('wss://openclaw-test.hypercli.com');
+    expect(http.get).toHaveBeenCalledTimes(4);
   });
 });

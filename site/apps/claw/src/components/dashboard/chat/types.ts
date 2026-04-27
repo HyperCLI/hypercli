@@ -1,4 +1,4 @@
-import type { ChatMessage as ChatMessageType, ChatAttachment, ChatPendingFile } from "@/hooks/useGatewayChat";
+import type { ChatMessage as ChatMessageType, ChatAttachment, ChatPendingFile } from "@/lib/openclaw-chat";
 import type { HTMLMotionProps } from "framer-motion";
 
 // ── Variant types ──

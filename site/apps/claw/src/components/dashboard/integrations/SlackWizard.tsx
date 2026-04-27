@@ -21,6 +21,7 @@ export function SlackWizard({ onConnect, onChannelProbe, onClose, onVerified, in
   const [showAppToken, setShowAppToken] = useState(false);
   const [appTokenValid, setAppTokenValid] = useState(false);
   const [appTokenError, setAppTokenError] = useState<string | null>(null);
+  const [botTokenValid, setBotTokenValid] = useState(false);
   const [validating, setValidating] = useState(false);
   const [botName, setBotName] = useState<string | null>(initialBotName ?? null);
   const [tokenError, setTokenError] = useState<string | null>(null);
@@ -45,31 +46,13 @@ export function SlackWizard({ onConnect, onChannelProbe, onClose, onVerified, in
     }
     if (!trimmed.startsWith("xoxb-")) {
       setTokenError("Invalid token — Slack bot tokens start with xoxb-");
+      setBotTokenValid(false);
       setValidating(false);
       return;
     }
-    try {
-      const res = await fetch("https://slack.com/api/auth.test", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${trimmed}`,
-          "Content-Type": "application/x-www-form-urlencoded",
-        },
-      });
-      const data = await res.json();
-      if (data.ok && data.user) {
-        setBotName(data.user);
-      } else {
-        setTokenError(data.error === "invalid_auth"
-          ? "Invalid token — check that you copied it correctly"
-          : `Slack error: ${data.error || "unknown"}`);
-      }
-    } catch {
-      // CORS may block this call — fall back to format validation
-      setBotName(trimmed.slice(0, 20) + "...");
-    } finally {
-      setValidating(false);
-    }
+    setBotTokenValid(true);
+    setBotName(initialBotName ?? "Slack bot token accepted");
+    setValidating(false);
   };
 
   const verifyChannel = useCallback(async () => {
@@ -291,6 +274,7 @@ export function SlackWizard({ onConnect, onChannelProbe, onClose, onVerified, in
                     setToken(e.target.value);
                     setBotName(null);
                     setTokenError(null);
+                    setBotTokenValid(false);
                   }}
                   placeholder="xoxb-..."
                   className="w-full px-3 py-2 pr-10 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-sm text-foreground placeholder:text-text-tertiary focus:outline-none focus:border-[var(--primary)]/50"
@@ -312,7 +296,7 @@ export function SlackWizard({ onConnect, onChannelProbe, onClose, onVerified, in
             </div>
             {botName && (
               <p className="text-xs text-[var(--primary)] flex items-center gap-1">
-                <Check className="w-3 h-3" /> Verified: {botName}
+                <Check className="w-3 h-3" /> Format valid
               </p>
             )}
             {tokenError && <p className="text-xs text-[var(--error)]">{tokenError}</p>}
@@ -374,7 +358,7 @@ export function SlackWizard({ onConnect, onChannelProbe, onClose, onVerified, in
             </button>
             <button
               onClick={handleConnect}
-              disabled={!botName || !appTokenValid || connecting}
+              disabled={!botTokenValid || !appTokenValid || connecting}
               className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-40"
             >
               {connecting ? (
@@ -442,15 +426,14 @@ export function SlackWizard({ onConnect, onChannelProbe, onClose, onVerified, in
           <div className="text-center">
             <h3 className="text-base font-semibold text-foreground">Slack is live!</h3>
             <p className="text-sm text-text-secondary mt-1">
-              Your agent is now reachable as <strong>{botName}</strong> on Slack
+              Your agent is now reachable on Slack.
             </p>
           </div>
           <div className="glass-card p-4 space-y-2 text-sm text-text-secondary">
             <p className="font-medium text-foreground">Next steps:</p>
             <ol className="list-decimal list-inside space-y-1 text-text-secondary">
               <li>
-                Invite the bot to a channel:{" "}
-                <code className="px-2 py-1 bg-[var(--surface-high)] rounded text-xs font-mono">/invite @{botName}</code>
+                Invite the bot to a channel from your Slack workspace
               </li>
               <li>Mention the bot or send it a direct message</li>
               <li>Your agent will respond automatically</li>

@@ -36,6 +36,63 @@ class MockConnection:
         return await self.recv()
 
 
+
+
+@pytest.mark.asyncio
+async def test_connection_state_transitions(monkeypatch: pytest.MonkeyPatch) -> None:
+    sockets: list[MockConnection] = []
+
+    async def fake_connect(*args, **kwargs):
+        conn = MockConnection()
+        sockets.append(conn)
+        return conn
+
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
+
+    client = GatewayClient(
+        url="wss://openclaw-agent.example",
+        token="jwt-token",
+        gateway_token="gw-token",
+    )
+    seen: list[str] = []
+    unsubscribe = client.on_connection_state(lambda state: seen.append(state))
+
+    connect_task = asyncio.create_task(client.connect())
+    assert client.connection_state == "connecting"
+
+    while not sockets:
+        await asyncio.sleep(0)
+
+    first = sockets[0]
+    first.push({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-1"}})
+    while not first.sent:
+        await asyncio.sleep(0)
+    connect_request = first.sent[0]
+    first.push({
+        "type": "res",
+        "id": connect_request["id"],
+        "ok": True,
+        "payload": {
+            "protocol": 3,
+            "server": {"version": "test"},
+            "auth": {
+                "deviceToken": "device-token-1",
+                "role": "operator",
+                "scopes": ["operator.admin"],
+            },
+        },
+    })
+
+    await connect_task
+    assert client.connection_state == "connected"
+
+    await client.close()
+    assert client.connection_state == "disconnected"
+    assert "connecting" in seen
+    assert "connected" in seen
+    assert "disconnected" in seen
+    unsubscribe()
+
 @pytest.mark.asyncio
 async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.MonkeyPatch) -> None:
     sockets: list[MockConnection] = []
@@ -116,6 +173,93 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
     await connect_task
 
     assert approvals == [("deployment-123", "pairing-req-1")]
+    assert client.is_connected is True
+    assert client.pending_pairing is None
+
+    await client.close()
+
+
+@pytest.mark.asyncio
+async def test_connect_treats_unknown_request_id_as_concurrent_pairing_approval(monkeypatch: pytest.MonkeyPatch) -> None:
+    sockets: list[MockConnection] = []
+
+    async def fake_connect(*args, **kwargs):
+        conn = MockConnection()
+        sockets.append(conn)
+        return conn
+
+    approvals: list[tuple[str, str]] = []
+
+    async def fake_approve(self: GatewayClient, request_id: str) -> None:
+        approvals.append((self.deployment_id or "", request_id))
+        raise RuntimeError("unknown requestId")
+
+    monkeypatch.setattr("hypercli.openclaw.gateway.websockets.connect", fake_connect)
+    monkeypatch.setattr(GatewayClient, "_approve_pairing_request", fake_approve)
+
+    client = GatewayClient(
+        url="wss://openclaw-agent.example",
+        token="jwt-token",
+        gateway_token="gw-token",
+        deployment_id="deployment-123",
+        api_key="agent-key",
+        api_base="https://api.dev.hypercli.com/agents",
+        auto_approve_pairing=True,
+    )
+
+    connect_task = asyncio.create_task(client.connect())
+    while not sockets:
+        await asyncio.sleep(0)
+
+    first = sockets[0]
+    first.push({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-1"}})
+    while not first.sent:
+        await asyncio.sleep(0)
+    connect_request = first.sent[0]
+    first.push(
+        {
+            "type": "res",
+            "id": connect_request["id"],
+            "ok": False,
+            "error": {
+                "code": "INVALID_REQUEST",
+                "message": "pairing required",
+                "details": {
+                    "code": "PAIRING_REQUIRED",
+                    "requestId": "pairing-req-race",
+                },
+            },
+        }
+    )
+
+    while len(sockets) < 2:
+        await asyncio.sleep(0.05)
+
+    second = sockets[1]
+    second.push({"type": "event", "event": "connect.challenge", "payload": {"nonce": "nonce-2"}})
+    while not second.sent:
+        await asyncio.sleep(0)
+    reconnect_request = second.sent[0]
+    second.push(
+        {
+            "type": "res",
+            "id": reconnect_request["id"],
+            "ok": True,
+            "payload": {
+                "protocol": 3,
+                "server": {"version": "test"},
+                "auth": {
+                    "deviceToken": "device-token-race",
+                    "role": "operator",
+                    "scopes": ["operator.admin"],
+                },
+            },
+        }
+    )
+
+    await connect_task
+
+    assert approvals == [("deployment-123", "pairing-req-race")]
     assert client.is_connected is True
     assert client.pending_pairing is None
 

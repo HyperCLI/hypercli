@@ -1,11 +1,14 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench,
+  TriangleAlert, ClockFading, RotateCcw
+} from "lucide-react";
 import Markdown from "react-markdown";
 import { motion, type HTMLMotionProps } from "framer-motion";
-import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/hooks/useGatewayChat";
+import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/lib/openclaw-chat";
 import { getStoredToken, API_BASE_URL } from "@/lib/api";
+import { createAgentClient } from "@/lib/agent-client";
 import { agentAvatar } from "@/lib/avatar";
 
 // ── Helpers ──
@@ -167,6 +170,31 @@ export function AuthImage({ src, alt, className }: { src: string; alt: string; c
   const [failed, setFailed] = useState(false);
   const blobRef = useRef<string | null>(null);
 
+  function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+    return bytes.buffer.slice(
+      bytes.byteOffset,
+      bytes.byteOffset + bytes.byteLength,
+    ) as ArrayBuffer;
+  }
+
+  function parseAgentFileUrl(rawSrc: string): { agentId: string; path: string } | null {
+    try {
+      const url = new URL(rawSrc, typeof window !== "undefined" ? window.location.origin : "https://agents.hypercli.com");
+      const match = url.pathname.match(/\/deployments\/([^/]+)\/files\/(.+)$/);
+      if (!match) return null;
+      const [, agentId, encodedPath] = match;
+      const path = encodedPath
+        .split("/")
+        .filter(Boolean)
+        .map((part) => decodeURIComponent(part))
+        .join("/");
+      if (!agentId || !path) return null;
+      return { agentId, path };
+    } catch {
+      return null;
+    }
+  }
+
   useEffect(() => {
     setBlobUrl(null);
     setFailed(false);
@@ -174,24 +202,21 @@ export function AuthImage({ src, alt, className }: { src: string; alt: string; c
 
     const token = getStoredToken();
     if (!token) { setFailed(true); return; }
+    const target = parseAgentFileUrl(src);
+    if (!target) { setFailed(true); return; }
 
-    const controller = new AbortController();
-    fetch(src, { headers: { Authorization: `Bearer ${token}` }, signal: controller.signal })
-      .then((res) => {
-        if (!res.ok) throw new Error(`${res.status}`);
-        return res.blob();
-      })
-      .then((blob) => {
+    createAgentClient(token).fileReadBytes(target.agentId, target.path)
+      .then((bytes) => {
+        const blob = new Blob([toArrayBuffer(bytes)]);
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setBlobUrl(url);
       })
-      .catch((err) => {
-        if (err?.name !== "AbortError") setFailed(true);
+      .catch(() => {
+        setFailed(true);
       });
 
     return () => {
-      controller.abort();
       if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
     };
   }, [src]);
@@ -610,6 +635,121 @@ export function ChatThinkingIndicator({ variant = "off" }: { variant?: FeatureVa
             transition={{ repeat: Infinity, duration: 1.2, ease: "easeInOut", delay: 0.36 }}
           />
         </span>
+      </div>
+    </motion.div>
+  );
+}
+
+interface ChatStateIndicatorProps{
+  hasErrorOccurred: boolean;
+  hasTimeoutOccurred: boolean;
+  retryMessage: () => void;
+  variant?: string;
+}
+
+export function ChatStateIndicator({
+  hasErrorOccurred,
+  hasTimeoutOccurred,
+  retryMessage,
+  variant = "off",
+}: ChatStateIndicatorProps) {
+  void variant;
+
+  const isError = hasErrorOccurred;
+  const isTimeout = !isError && hasTimeoutOccurred;
+  const isThinking = !isError && !isTimeout;
+
+  let Icon = Brain;
+  let text = "Thinking";
+  let iconColor = "text-[#38D39F]";
+  let textColor = "text-text-secondary";
+  let borderColor = "border-[#38D39F]/20";
+  let shimmerColor = "via-[#38D39F]/8";
+
+  if (isError) {
+    Icon = TriangleAlert;
+    text = "Error occurred";
+    iconColor = "text-red-500";
+    textColor = "text-red-400";
+    borderColor = "border-red-500/20";
+    shimmerColor = "via-red-500/10";
+  } else if (isTimeout) {
+    Icon = ClockFading;
+    text = "Timeout occurred";
+    iconColor = "text-gray-400";
+    textColor = "text-gray-400";
+    borderColor = "border-gray-400/20";
+    shimmerColor = "via-gray-400/10";
+  }
+
+  return (
+    <motion.div
+      className="flex justify-start"
+      initial={{ opacity: 0, y: 6 }}
+      animate={{ opacity: 1, y: 0 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.18 }}
+    >
+      <div
+        className={`relative bg-surface-low/60 backdrop-blur-sm rounded-2xl px-4 py-2.5 flex items-center gap-3 border overflow-hidden ${borderColor}`}
+      >
+        {/* Shimmer only for thinking */}
+        {isThinking && (
+          <motion.div
+            aria-hidden
+            className={`absolute inset-0 -z-10 bg-gradient-to-r from-transparent ${shimmerColor} to-transparent`}
+            animate={{ x: ["-100%", "100%"] }}
+            transition={{ repeat: Infinity, duration: 1.8, ease: "linear" }}
+            style={{ width: "60%" }}
+          />
+        )}
+
+        {/* Icon */}
+        <motion.div
+          animate={isThinking ? { scale: [1, 1.08, 1] } : {}}
+          transition={
+            isThinking
+              ? { repeat: Infinity, duration: 1.4, ease: "easeInOut" }
+              : {}
+          }
+        >
+          <Icon className={`w-4 h-4 ${iconColor}`} />
+        </motion.div>
+
+        {/* Text */}
+        <span className={`text-xs font-medium ${textColor}`}>{text}</span>
+
+        {/* Thinking dots */}
+        {isThinking && (
+          <span className="flex items-center gap-1">
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+              transition={{ repeat: Infinity, duration: 1.2 }}
+            />
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+              transition={{ repeat: Infinity, duration: 1.2, delay: 0.18 }}
+            />
+            <motion.span
+              className="w-1.5 h-1.5 rounded-full bg-[#38D39F]"
+              animate={{ opacity: [0.3, 1, 0.3], scale: [0.85, 1, 0.85] }}
+              transition={{ repeat: Infinity, duration: 1.2, delay: 0.36 }}
+            />
+          </span>
+        )}
+
+        {/* Retry button for error/timeout */}
+        {(isError || isTimeout) && (
+          <button
+            onClick={retryMessage}
+            className="ml-2 flex items-center gap-1 text-xs font-medium px-2 py-1 rounded-md border border-white/10 hover:bg-white/5 transition-colors"
+          >
+            <RotateCcw className="w-3.5 h-3.5" />
+            Retry
+          </button>
+        )}
       </div>
     </motion.div>
   );

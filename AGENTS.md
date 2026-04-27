@@ -98,6 +98,12 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   checkout. Netlify/npm production builds resolve `@hypercli.com/sdk` from
   npm/package-lock instead, so local checkout changes do not show up there
   until the packaged dependency path is updated.
+- For OpenClaw or other app-specific gateway features, frontend code may call
+  app-level WebSocket/gateway methods exposed by the SDK. Do not add frontend
+  connection management, reconnect logic, session lifecycle management, or
+  other transport state machines when that behavior already exists in the SDK.
+  The frontend should compose SDK primitives and render SDK state, not recreate
+  connection/session authority locally.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.

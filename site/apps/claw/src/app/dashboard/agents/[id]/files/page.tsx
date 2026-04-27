@@ -16,22 +16,10 @@ import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryT
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { useGatewayChat } from "@/hooks/useGatewayChat";
-import { agentApiFetch } from "@/lib/api";
+import { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import { createAgentClient } from "@/lib/agent-client";
-import { getGatewayToken } from "@/lib/agent-store";
 import { isProtectedFile } from "@/lib/protected-files";
-
-type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
-
-interface AgentDetail {
-  id: string;
-  name: string;
-  state: AgentState;
-  hostname: string | null;
-  openclaw_url?: string | null;
-  gatewayToken?: string | null;
-}
 
 const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
   { key: "name", label: "Name" },
@@ -47,7 +35,7 @@ export default function AgentFilesPage() {
   const { getToken } = useAgentAuth();
 
   // Agent metadata
-  const [agent, setAgent] = useState<AgentDetail | null>(null);
+  const [agent, setAgent] = useState<OpenClawAgent | null>(null);
   const [agentError, setAgentError] = useState<string | null>(null);
   const [agentLoading, setAgentLoading] = useState(true);
 
@@ -57,24 +45,9 @@ export default function AgentFilesPage() {
     (async () => {
       try {
         const token = await getToken();
-        const data = await agentApiFetch<{
-          id: string;
-          name?: string;
-          state?: string;
-          hostname?: string | null;
-          openclaw_url?: string | null;
-          gatewayToken?: string | null;
-        }>(`/deployments/${agentId}`, token);
+        const deployment = await createAgentClient(token).get(agentId);
         if (cancelled) return;
-        const stored = getGatewayToken(agentId);
-        setAgent({
-          id: data.id,
-          name: data.name ?? data.id,
-          state: ((data.state ?? "STOPPED").toUpperCase()) as AgentState,
-          hostname: data.hostname ?? null,
-          openclaw_url: data.openclaw_url ?? null,
-          gatewayToken: data.gatewayToken ?? stored ?? null,
-        });
+        setAgent(typeof (deployment as { connect?: unknown }).connect === "function" ? (deployment as OpenClawAgent) : null);
       } catch (e) {
         if (!cancelled) setAgentError(e instanceof Error ? e.message : String(e));
       } finally {
@@ -85,7 +58,7 @@ export default function AgentFilesPage() {
   }, [agentId, getToken]);
 
   // Connect to gateway when agent is RUNNING (matches main page pattern)
-  const chat = useGatewayChat(agent && agent.state === "RUNNING" ? agent : null, getToken);
+  const chat = useOpenClawSession(agent && agent.state === "RUNNING" ? agent : null);
 
   // Map gateway WorkspaceFile[] → FileEntry[] (gateway only returns files, not directories)
   const files: FileEntry[] = useMemo(

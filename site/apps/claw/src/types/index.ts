@@ -1,7 +1,5 @@
 // ── Re-exports from SDK ──
 
-import type { Agent as SdkAgentType } from "@hypercli.com/sdk/agents";
-
 export type {
   Agent as SdkAgent,
   AgentTokenResponse,
@@ -17,14 +15,6 @@ export type {
   OpenClawStartAgentOptions,
 } from "@hypercli.com/sdk/agents";
 
-export interface AgentListResponse {
-  items?: SdkAgentType[];
-  budget?: {
-    remaining?: number;
-    total?: number;
-    used?: number;
-  } | null;
-}
 
 export type {
   HyperAgentPlan,

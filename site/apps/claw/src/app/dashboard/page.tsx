@@ -17,10 +17,9 @@ import {
   Loader2,
 } from "lucide-react";
 import Link from "next/link";
+import { useRouter } from "next/navigation";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient, startOpenClawAgent } from "@/lib/agent-client";
-import { removeAgentState } from "@/lib/agent-store";
-import { refreshGatewayToken } from "@/lib/gateway-auth";
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
@@ -217,6 +216,7 @@ function normalizeAgent(agent: SdkAgent): Agent {
 // ── Main component ──
 
 export default function DashboardPage() {
+  const router = useRouter();
   const { getToken, user } = useAgentAuth();
   const [plan, setPlan] = useState<PlanInfo | null>(null);
   const [usage, setUsage] = useState<UsageInfo | null>(null);
@@ -260,7 +260,6 @@ export default function DashboardPage() {
 
   const handleStartAgent = async (agentId: string) => {
     setStartingId(agentId);
-    removeAgentState(agentId);
     try {
       const token = await getToken();
       await startOpenClawAgent(token, agentId);
@@ -275,36 +274,22 @@ export default function DashboardPage() {
     try {
       const token = await getToken();
       await createAgentClient(token).stop(agentId);
-      removeAgentState(agentId);
       await fetchData();
     } catch { /* handled silently */ } finally {
       setStoppingId(null);
     }
   };
 
-  const handleOpenGateway = useCallback(async (agentId: string, hostname: string) => {
-    const popup = window.open("about:blank", "_blank");
-    if (popup) popup.opener = null;
+  const handleOpenGateway = useCallback(async (agentId: string) => {
     setOpeningGatewayId(agentId);
     try {
-      const token = await getToken();
-      const gatewayToken = await refreshGatewayToken(agentId, token);
-      if (!gatewayToken) {
-        throw new Error("Missing OPENCLAW_GATEWAY_TOKEN");
-      }
-      const gatewayUrl = `https://${hostname}/#token=${encodeURIComponent(gatewayToken)}`;
-      if (popup) {
-        popup.location.href = gatewayUrl;
-      } else {
-        const fallback = window.open(gatewayUrl, "_blank");
-        if (fallback) fallback.opener = null;
-      }
+      router.push(`/dashboard/agents?agentId=${encodeURIComponent(agentId)}`);
     } catch {
-      if (popup) popup.close();
+      // no-op
     } finally {
       setOpeningGatewayId(null);
     }
-  }, [getToken]);
+  }, [router]);
 
   const showOnboarding = !loading && usage && usage.total_tokens === 0 && usage.active_keys === 0 && agents.length === 0;
 
@@ -458,7 +443,7 @@ export default function DashboardPage() {
                     )}
                     {isRunning && agent.hostname && (
                       <button
-                        onClick={() => void handleOpenGateway(agent.id, agent.hostname!)}
+                        onClick={() => void handleOpenGateway(agent.id)}
                         disabled={openingGatewayId === agent.id}
                         className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
                       >

@@ -123,7 +123,8 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-1',
       pod_name: 'pod-1',
       state: 'starting',
-      openclaw_url: 'wss://agent.dev.hypercli.com',
+      hostname: 'agent.dev.hypercli.com',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     });
     const deployments = new Deployments(
       { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
@@ -177,7 +178,8 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-1',
       pod_name: 'pod-1',
       state: 'starting',
-      openclaw_url: 'wss://agent.dev.hypercli.com',
+      hostname: 'agent.dev.hypercli.com',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     });
     const deployments = new Deployments(
       { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
@@ -215,8 +217,8 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-2',
       pod_name: 'pod-name-2',
       state: 'running',
-      hostname: 'agent2.dev.hyperclaw.app',
-      openclaw_url: 'wss://openclaw-agent2.dev.hyperclaw.app',
+      hostname: 'openclaw-agent2.dev.hyperclaw.app',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       gateway_token: 'gw-123',
       jwt_token: 'jwt-123',
       command: ['sleep', '3600'],
@@ -226,13 +228,13 @@ describe('HyperClaw agents SDK', () => {
     expect(generic.publicUrl).toBe('https://agent.dev.hyperclaw.app');
     expect(generic.desktopUrl).toBe('https://desktop-agent.dev.hyperclaw.app');
     expect(generic.shellUrl).toBeNull();
-    expect(openclaw.gatewayUrl).toBe('wss://openclaw-agent2.dev.hyperclaw.app');
+    expect(openclaw.gatewayUrl).toBeNull();
     expect(openclaw.gatewayToken).toBe('gw-123');
     expect(openclaw.command).toEqual(['sleep', '3600']);
     expect(openclaw.entrypoint).toEqual(['/bin/sh', '-c']);
   });
 
-  it('OpenClawAgent falls back to the root host for the gateway URL', () => {
+  it('OpenClawAgent does not synthesize a gateway URL from the hostname', () => {
     const agent = OpenClawAgent.fromDict({
       id: 'agent-root',
       user_id: 'user-1',
@@ -242,12 +244,27 @@ describe('HyperClaw agents SDK', () => {
       hostname: 'agent-root.dev.hyperclaw.app',
     });
 
-    expect(agent.gatewayUrl).toBe('wss://agent-root.dev.hyperclaw.app');
+    expect(agent.gatewayUrl).toBeNull();
   });
 
-  it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', () => {
+  it('OpenClawAgent gateway forwards deployment pairing context without using jwt query auth', async () => {
+    const get = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'agent-ctx',
+        user_id: 'user-1',
+        pod_id: 'pod-ctx',
+        pod_name: 'pod-ctx',
+        state: 'running',
+        hostname: 'openclaw-agent.dev.hypercli.com',
+        routes: { openclaw: { port: 18789, auth: false } },
+      })
+      .mockResolvedValueOnce({
+        env: {
+          OPENCLAW_GATEWAY_TOKEN: 'gw-ctx',
+        },
+      });
     const deployments = new Deployments(
-      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
       'https://api.dev.hypercli.com',
     );
@@ -257,15 +274,16 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-ctx',
       pod_name: 'pod-ctx',
       state: 'running',
-      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
-      gateway_token: 'gw-ctx',
       jwt_token: 'jwt-ctx',
+      hostname: 'openclaw-agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false } },
     });
     (agent as any)._deployments = deployments;
 
+    await agent.waitForGatewayContext();
     const gateway = agent.gateway({ clientId: 'openclaw-control-ui', clientMode: 'webchat' }) as any;
 
+    expect(gateway.url).toBe('wss://openclaw-agent.dev.hypercli.com');
     expect(gateway.deploymentId).toBe('agent-ctx');
     expect(gateway.apiKey).toBe('sk-hyper-test');
     expect(gateway.apiBase).toBe('https://api.dev.hypercli.com/agents');
@@ -274,9 +292,24 @@ describe('HyperClaw agents SDK', () => {
     expect(gateway.token).toBeUndefined();
   });
 
-  it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', () => {
+  it('OpenClawAgent gateway allows jwt-less connect when openclaw route auth is disabled', async () => {
+    const get = vi.fn()
+      .mockResolvedValueOnce({
+        id: 'agent-jwtless',
+        user_id: 'user-1',
+        pod_id: 'pod-jwtless',
+        pod_name: 'pod-jwtless',
+        state: 'running',
+        hostname: 'openclaw-agent.dev.hypercli.com',
+        routes: { openclaw: { port: 18789, auth: false } },
+      })
+      .mockResolvedValueOnce({
+        env: {
+          OPENCLAW_GATEWAY_TOKEN: 'gw-jwtless',
+        },
+      });
     const deployments = new Deployments(
-      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      { post: vi.fn(), get, delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
       'sk-hyper-test',
       'https://api.dev.hypercli.com',
     );
@@ -286,12 +319,12 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-jwtless',
       pod_name: 'pod-jwtless',
       state: 'running',
-      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
-      gateway_token: 'gw-jwtless',
+      hostname: 'openclaw-agent.dev.hypercli.com',
       routes: { openclaw: { port: 18789, auth: false } },
     });
     (agent as any)._deployments = deployments;
 
+    await agent.waitForGatewayContext();
     const gateway = agent.gateway() as any;
 
     expect(gateway.token).toBeUndefined();
@@ -561,10 +594,12 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-ready',
       pod_name: 'pod-ready',
       state: 'running',
-      openclaw_url: 'wss://openclaw-agent.dev.hypercli.com/ws',
+      hostname: 'openclaw-agent.dev.hypercli.com',
+      routes: { openclaw: { port: 18789, auth: false } },
       gateway_token: 'gw-ready',
       jwt_token: 'jwt-ready',
     });
+    agent.gatewayUrl = 'wss://openclaw-agent.dev.hypercli.com';
 
     const waitReady = vi.fn().mockResolvedValue({ gateway: { mode: 'local' } });
     const close = vi.fn();
@@ -679,6 +714,42 @@ describe('HyperClaw agents SDK', () => {
     expect(close).toHaveBeenCalledTimes(11);
   });
 
+  it('OpenClawAgent waitRunning still delegates to Deployments.waitRunning', async () => {
+    const deployments = new Deployments(
+      { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
+      'sk-hyper-test',
+      'https://api.dev.hypercli.com',
+    );
+    const ready = OpenClawAgent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-ready',
+      pod_name: 'pod-ready',
+      state: 'running',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+      hostname: 'agent-ready.hypercli.app',
+    });
+    vi.spyOn(deployments, 'waitRunning').mockResolvedValue(ready);
+
+    const agent = OpenClawAgent.fromDict({
+      id: 'agent-ready',
+      user_id: 'user-1',
+      pod_id: 'pod-pending',
+      pod_name: 'pod-pending',
+      state: 'starting',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
+      hostname: 'agent-ready.hypercli.app',
+    });
+    (agent as any)._deployments = deployments;
+    const gateway = vi.spyOn(agent, 'waitForGatewayContext');
+
+    const result = await agent.waitRunning(42_000, 250);
+
+    expect(deployments.waitRunning).toHaveBeenCalledWith('agent-ready', 42_000, 250);
+    expect(gateway).not.toHaveBeenCalled();
+    expect(result).toBe(ready);
+  });
+
   it('Agent waitRunning delegates to Deployments.waitRunning', async () => {
     const deployments = new Deployments(
       { post: vi.fn(), get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
@@ -716,7 +787,8 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-1',
       pod_name: 'pod-name',
       state: 'starting',
-      openclaw_url: 'wss://openclaw-pod-name.dev.hyperclaw.app',
+      hostname: 'openclaw-pod-name.dev.hyperclaw.app',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
     });
     const agents = new Deployments({ post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any, 'sk-hyper-test', 'https://api.dev.hyperclaw.app');
 
@@ -755,6 +827,8 @@ describe('HyperClaw agents SDK', () => {
       pod_id: 'pod-2',
       pod_name: 'pod-name-2',
       state: 'starting',
+      hostname: 'openclaw-pod-name-2.dev.hyperclaw.app',
+      routes: { openclaw: { port: 18789, auth: false, prefix: '' } },
       meta: {
         ui: {
           avatar: {
@@ -763,7 +837,6 @@ describe('HyperClaw agents SDK', () => {
           },
         },
       },
-      openclaw_url: 'wss://openclaw-pod-name-2.dev.hyperclaw.app',
     });
     const agents = new Deployments(
       { post, get: vi.fn(), delete: vi.fn(), apiKey: 'hyper_api_test' } as any,
@@ -905,23 +978,23 @@ describe('HyperClaw agents SDK', () => {
   it('file operations use the path-based deployment file API', async () => {
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
-      if (url.endsWith('/deployments/agent-1/files/workspace')) {
+      if (url.endsWith('/deployments/agent-1/files/workspace?source=auto')) {
         return new Response(JSON.stringify({
           directories: [{ name: 'dir', path: 'workspace/dir/', type: 'directory' }],
           files: [{ name: 'a.txt', path: 'workspace/a.txt', type: 'file' }],
         }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && (!init || !init.method)) {
+      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt?source=auto') && (!init || !init.method)) {
         return new Response(new Uint8Array([104, 101, 108, 108, 111]), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'PUT') {
+      if (url.endsWith('/deployments/agent-1/files/workspace/a.txt?destination=auto') && init?.method === 'POST') {
         expect(init.body).toBeInstanceOf(Uint8Array);
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
       if (url.endsWith('/deployments/agent-1/files/workspace/a.txt') && init?.method === 'DELETE') {
         return new Response(JSON.stringify({ status: 'ok', target: 'pod' }), { status: 200 });
       }
-      if (url.endsWith('/deployments/agent-1/files/.openclaw') && (!init || !init.method)) {
+      if (url.endsWith('/deployments/agent-1/files/.openclaw?source=auto') && (!init || !init.method)) {
         return new Response(JSON.stringify({
           type: 'directory',
           prefix: '.openclaw/',

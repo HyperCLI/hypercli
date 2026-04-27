@@ -37,10 +37,15 @@ export interface AgentTokenResponse {
   expires_at?: string | null;
 }
 
-export interface AgentInferenceTokenResponse {
+export interface AgentGatewayContext {
   agent_id?: string;
-  openclaw_url?: string | null;
+  hostname?: string | null;
   gateway_token?: string | null;
+}
+
+export interface GatewayContextWaitOptions {
+  timeoutMs?: number;
+  retryIntervalMs?: number;
 }
 
 export interface AgentShellTokenResponse {
@@ -342,6 +347,15 @@ function deepMergeConfig(base: Record<string, any>, patch: Record<string, any>):
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function isOpenClawHydrationData(data: AgentHydrationData): boolean {
+  const routes = data.routes;
+  if (routes && typeof routes === 'object' && !Array.isArray(routes) && routes.openclaw) {
+    return true;
+  }
+  const launchRoutes = data.launch_config?.routes;
+  return !!(launchRoutes && typeof launchRoutes === 'object' && !Array.isArray(launchRoutes) && launchRoutes.openclaw);
 }
 
 function isDirectoryListingPayload(value: unknown): value is AgentDirectoryListing {
@@ -726,24 +740,24 @@ export class Agent {
     return this.requireDeployments().health(this);
   }
 
-  async filesList(path: string = ''): Promise<AgentFileEntry[]> {
-    return this.requireDeployments().filesList(this, path);
+  async filesList(path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {
+    return this.requireDeployments().filesList(this, path, source);
   }
 
-  async fileReadBytes(path: string): Promise<Uint8Array> {
-    return this.requireDeployments().fileReadBytes(this, path);
+  async fileReadBytes(path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
+    return this.requireDeployments().fileReadBytes(this, path, source);
   }
 
-  async fileRead(path: string): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(path));
+  async fileRead(path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<string> {
+    return decodeUtf8(await this.fileReadBytes(path, source));
   }
 
-  async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string): Promise<Record<string, any>> {
-    return this.requireDeployments().fileWriteBytes(this, path, content);
+  async fileWriteBytes(path: string, content: Uint8Array | ArrayBuffer | string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+    return this.requireDeployments().fileWriteBytes(this, path, content, destination);
   }
 
-  async fileWrite(path: string, content: string): Promise<Record<string, any>> {
-    return this.requireDeployments().fileWrite(this, path, content);
+  async fileWrite(path: string, content: string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+    return this.requireDeployments().fileWrite(this, path, content, destination);
   }
 
   async fileDelete(path: string, options: { recursive?: boolean } = {}): Promise<Record<string, any>> {
@@ -776,21 +790,74 @@ export class OpenClawAgent extends Agent {
   static override fromDict(data: AgentHydrationData): OpenClawAgent {
     return new OpenClawAgent({
       ...agentStateFromDict(data),
-      gatewayUrl: data.openclaw_url ?? data.gateway_url ?? (data.hostname ? `wss://${data.hostname}` : null),
+      gatewayUrl: null,
       gatewayToken: data.gateway_token ?? null,
     });
   }
 
+  private static gatewayUrlFromHostname(hostname: string | null | undefined): string | null {
+    const trimmed = String(hostname ?? '').trim();
+    return trimmed ? `wss://${trimmed}` : null;
+  }
+
+  private currentGatewayHostname(): string | null {
+    if (this.hostname) return this.hostname;
+    if (!this.gatewayUrl) return null;
+    try {
+      return new URL(this.gatewayUrl).hostname || null;
+    } catch {
+      return this.gatewayUrl.replace(/^wss?:\/\//, '').split('/')[0] || null;
+    }
+  }
+
   /**
-   * Resolve the gateway token. If not set locally (e.g. page refresh),
-   * fetches from the pod's runtime env via the backend.
+   * Resolve gateway context through the deployment record plus `/env`.
+   *
+   * Agent startup is eventually consistent: the deployment record may lag
+   * behind hostname attachment, and runtime env can lag behind both. The SDK
+   * derives the gateway URL from the attached hostname and reads the gateway
+   * token from `OPENCLAW_GATEWAY_TOKEN` in the agent env route.
    */
+  async waitForGatewayContext(options: GatewayContextWaitOptions = {}): Promise<AgentGatewayContext> {
+    if (this.gatewayToken && this.gatewayUrl) {
+      return {
+        agent_id: this.id,
+        hostname: this.currentGatewayHostname(),
+        gateway_token: this.gatewayToken,
+      };
+    }
+    const timeoutMs = options.timeoutMs ?? 30_000;
+    const retryIntervalMs = options.retryIntervalMs ?? 1_000;
+    const deployments = this.requireDeployments();
+    const deadline = Date.now() + timeoutMs;
+    let lastError: unknown = null;
+    while (true) {
+      try {
+        const refreshed = await deployments.get(this.id);
+        const hostname = refreshed.hostname ?? null;
+        const gatewayUrl = OpenClawAgent.gatewayUrlFromHostname(hostname);
+        const envData = await deployments.env(this.id);
+        const gatewayToken = envData.env?.OPENCLAW_GATEWAY_TOKEN?.trim() || null;
+        if (gatewayToken && gatewayUrl) {
+          this.gatewayToken = gatewayToken;
+          this.gatewayUrl = gatewayUrl;
+          return { agent_id: this.id, gateway_token: gatewayToken, hostname };
+        }
+        lastError = new Error('missing gateway context');
+      } catch (error) {
+        lastError = error;
+      }
+      if (Date.now() >= deadline) {
+        if (lastError instanceof Error) throw lastError;
+        throw new Error('Timed out waiting for OpenClaw gateway context');
+      }
+      await new Promise((resolve) => setTimeout(resolve, retryIntervalMs));
+    }
+  }
+
   async resolveGatewayToken(): Promise<string | null> {
-    if (this.gatewayToken) return this.gatewayToken;
-    const tokenData = await this.requireDeployments().inferenceToken(this.id);
-    this.gatewayToken = tokenData.gateway_token ?? null;
-    this.gatewayUrl = tokenData.openclaw_url ?? this.gatewayUrl;
-    return this.gatewayToken;
+    const context = await this.waitForGatewayContext();
+    return context.gateway_token ?? null;
   }
 
   gateway(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): GatewayClient {
@@ -824,9 +891,8 @@ export class OpenClawAgent extends Agent {
   }
 
   async connect(options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {}): Promise<GatewayClient> {
-    // Auto-resolve gateway token if missing
-    if (!this.gatewayToken && !options.gatewayToken) {
-      await this.resolveGatewayToken();
+    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
+      await this.waitForGatewayContext();
     }
     const client = this.gateway(options);
     await client.connect();
@@ -846,6 +912,9 @@ export class OpenClawAgent extends Agent {
     timeoutMs = 300_000,
     options: Omit<Partial<GatewayOptions>, 'url' | 'token'> & GatewayWaitReadyOptions = {},
   ): Promise<Record<string, any>> {
+    if (!this.gatewayUrl || (!this.gatewayToken && !options.gatewayToken)) {
+      await this.waitForGatewayContext();
+    }
     const client = this.gateway(options);
     try {
       return await client.waitReady(timeoutMs, {
@@ -1325,7 +1394,7 @@ export class Deployments {
 
   private hydrateAgent(data: AgentHydrationData): Agent {
     const agent =
-      data.openclaw_url || data.gateway_url
+      isOpenClawHydrationData(data)
         ? OpenClawAgent.fromDict(data)
         : Agent.fromDict(data);
     return bindAgent(agent, this);
@@ -1487,10 +1556,6 @@ export class Deployments {
     return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/token`);
   }
 
-  async inferenceToken(agentId: string): Promise<AgentInferenceTokenResponse> {
-    return this.agentHttp.get(`${DEPLOYMENTS_API_PREFIX}/${agentId}/inference/token`);
-  }
-
   async createScopedKey(agentId: string, name?: string): Promise<Record<string, any>> {
     const payload: Record<string, string> = {};
     if (name) payload.name = name;
@@ -1534,17 +1599,19 @@ export class Deployments {
     return (await response.json()) as Record<string, any>;
   }
 
-  async filesList(target: Agent | string, path: string = ''): Promise<AgentFileEntry[]> {
+  async filesList(target: Agent | string, path: string = '', source: 'auto' | 'pod' | 's3' = 'auto'): Promise<AgentFileEntry[]> {
     const encodedPath = encodeFilePath(path);
     const suffix = encodedPath ? `/${encodedPath}` : '';
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}`);
+    const params = new URLSearchParams({ source });
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files${suffix}?${params.toString()}`);
     const payload = (await response.json()) as AgentDirectoryListing;
     return [...(payload.directories ?? []), ...(payload.files ?? [])];
   }
 
-  async fileReadBytes(target: Agent | string, path: string): Promise<Uint8Array> {
+  async fileReadBytes(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<Uint8Array> {
     const encodedPath = encodeFilePath(path);
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}`, {
+    const params = new URLSearchParams({ source });
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
       redirect: 'follow',
     });
     const bytes = new Uint8Array(await response.arrayBuffer());
@@ -1564,25 +1631,28 @@ export class Deployments {
     return bytes;
   }
 
-  async fileRead(target: Agent | string, path: string): Promise<string> {
-    return decodeUtf8(await this.fileReadBytes(target, path));
+  async fileRead(target: Agent | string, path: string, source: 'auto' | 'pod' | 's3' = 'auto'): Promise<string> {
+    return decodeUtf8(await this.fileReadBytes(target, path, source));
   }
 
   async fileWriteBytes(
     target: Agent | string,
     path: string,
     content: Uint8Array | ArrayBuffer | string,
+    destination: 'auto' | 'pod' | 's3' = 'auto',
   ): Promise<Record<string, any>> {
-    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodeFilePath(path)}`, {
-      method: 'PUT',
+    const encodedPath = encodeFilePath(path);
+    const params = new URLSearchParams({ destination });
+    const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
+      method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
       body: toUint8Array(content),
     });
     return (await response.json()) as Record<string, any>;
   }
 
-  async fileWrite(target: Agent | string, path: string, content: string): Promise<Record<string, any>> {
-    return this.fileWriteBytes(target, path, content);
+  async fileWrite(target: Agent | string, path: string, content: string, destination: 'auto' | 'pod' | 's3' = 'auto'): Promise<Record<string, any>> {
+    return this.fileWriteBytes(target, path, content, destination);
   }
 
   async fileDelete(

@@ -97,7 +97,6 @@ def test_openclaw_agent_from_dict():
             "pod_name": "test-pod",
             "state": "running",
             "hostname": "test.hypercli.com",
-            "openclaw_url": "wss://openclaw-test.hypercli.com",
             "gateway_token": "gw123",
             "jwt_token": "jwt123",
             "jwt_expires_at": "2026-03-01T12:00:00Z",
@@ -111,7 +110,7 @@ def test_openclaw_agent_from_dict():
         }
     )
 
-    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_url is None
     assert agent.gateway_token == "gw123"
     assert agent.jwt_token == "jwt123"
     assert isinstance(agent.jwt_expires_at, datetime)
@@ -122,7 +121,7 @@ def test_openclaw_agent_from_dict():
     assert agent.entrypoint == ["/bin/sh", "-c"]
 
 
-def test_openclaw_agent_from_dict_falls_back_to_root_gateway_host():
+def test_openclaw_agent_from_dict_does_not_guess_gateway_url_from_hostname():
     agent = OpenClawAgent.from_dict(
         {
             "id": "agent-123",
@@ -134,7 +133,7 @@ def test_openclaw_agent_from_dict_falls_back_to_root_gateway_host():
         }
     )
 
-    assert agent.gateway_url == "wss://test.hypercli.com"
+    assert agent.gateway_url is None
 
 
 def test_openclaw_agent_gateway_requires_url():
@@ -145,7 +144,7 @@ def test_openclaw_agent_gateway_requires_url():
         pod_name="test-pod",
         state="running",
     )
-    with pytest.raises(ValueError, match="OpenClaw gateway URL"):
+    with pytest.raises(ValueError, match="Deployments client"):
         agent.gateway()
 
 def test_openclaw_agent_gateway_allows_jwtless_when_route_auth_disabled():
@@ -194,6 +193,39 @@ def test_openclaw_agent_gateway_ignores_jwt_and_uses_bound_tokens():
     assert gw.deployment_id == "agent-123"
     assert gw.api_key == "sk-hyper-test123"
     assert gw.api_base == "https://api.test.hypercli.com"
+
+
+def test_openclaw_agent_wait_running_still_delegates_to_deployments():
+    manager = Mock()
+    ready = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-ready",
+        pod_name="ready-pod",
+        state="running",
+        hostname="ready.hypercli.com",
+    )
+    ready._deployments = manager
+    manager.wait_running.return_value = ready
+
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-pending",
+        pod_name="pending-pod",
+        state="starting",
+        hostname="ready.hypercli.com",
+        _deployments=manager,
+    )
+    agent.wait_for_gateway_context = Mock(side_effect=AssertionError("wait_for_gateway_context should not be used by wait_running"))
+
+    result = agent.wait_running(timeout=42, poll_interval=1.5)
+
+    manager.wait_running.assert_called_once_with("agent-123", timeout=42, poll_interval=1.5)
+    agent.wait_for_gateway_context.assert_not_called()
+    assert result is agent
+    assert agent.state == "running"
+    assert agent.pod_id == "pod-ready"
 
 
 def test_agent_wait_running_delegates_to_deployments():
@@ -466,7 +498,8 @@ def test_create_openclaw_defaults_routes_when_omitted(agents_client):
             "pod_id": "pod-789",
             "pod_name": "test-pod",
             "state": "starting",
-            "openclaw_url": "wss://test.hypercli.com",
+            "hostname": "test.hypercli.com",
+            "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
@@ -560,7 +593,8 @@ def test_agents_create_returns_openclaw_agent(agents_client):
             "state": "starting",
             "cpu": 2,
             "memory": 8,
-            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "hostname": "openclaw-test.hypercli.com",
+            "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
@@ -606,7 +640,7 @@ def test_agents_create_returns_openclaw_agent(agents_client):
         assert posted_json["registry_auth"] == {"username": "u", "password": "p"}
         assert isinstance(agent, OpenClawAgent)
         assert agent.gateway_token == "gw-token-123"
-        assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+        assert agent.gateway_url is None
         assert agent.meta_ui is None
         assert agent._deployments is agents_client
 
@@ -622,7 +656,8 @@ def test_create_openclaw_defaults_sync_root(agents_client):
             "pod_id": "pod-789",
             "pod_name": "test-pod",
             "state": "starting",
-            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "hostname": "openclaw-test.hypercli.com",
+            "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
@@ -648,7 +683,8 @@ def test_start_openclaw_defaults_sync_root(agents_client):
             "pod_id": "pod-789",
             "pod_name": "test-pod",
             "state": "starting",
-            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "hostname": "openclaw-test.hypercli.com",
+            "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
@@ -711,14 +747,16 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
         def get(self, url, headers=None, params=None, follow_redirects=None):
             if url.endswith("/deployments/agent-123/files"):
-                assert params is None
+                assert params == {"source": "auto"}
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
             if url.endswith("/deployments/agent-123/files/workspace"):
-                assert params is None
+                assert params == {"source": "auto"}
                 return FakeResponse(json_data={"directories": [{"name": "dir", "type": "directory"}], "files": [{"name": "a.txt", "type": "file"}]})
             if url.endswith("/deployments/agent-123/files/workspace/a.txt"):
+                assert params == {"source": "auto"}
                 return FakeResponse(content=b"hello")
             if url.endswith("/deployments/agent-123/files/.openclaw"):
+                assert params == {"source": "auto"}
                 return FakeResponse(
                     json_data={
                         "type": "directory",
@@ -731,8 +769,9 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
                 )
             raise AssertionError(url)
 
-        def put(self, url, headers=None, content=None):
+        def post(self, url, headers=None, params=None, content=None):
             assert url.endswith("/deployments/agent-123/files/workspace/a.txt")
+            assert params == {"destination": "auto"}
             assert content == b"payload"
             return FakeResponse(json_data={"status": "ok"})
 
@@ -802,7 +841,8 @@ def test_agents_start_stop_delete(agents_client):
             "pod_id": "pod-789",
             "pod_name": "test-pod",
             "state": "starting",
-            "openclaw_url": "wss://openclaw-test.hypercli.com",
+            "hostname": "openclaw-test.hypercli.com",
+            "routes": {"openclaw": {"port": 18789, "auth": False, "prefix": ""}},
         }
         mock_client.post.return_value = mock_response
         mock_client.__enter__.return_value = mock_client
@@ -990,27 +1030,6 @@ def test_agents_refresh_token(agents_client):
         assert result["token"] == "jwt-new-token"
 
 
-def test_agents_inference_token(agents_client):
-    with patch("httpx.Client") as mock_client_class:
-        mock_client = MagicMock()
-        mock_response = Mock()
-        mock_response.status_code = 200
-        mock_response.json.return_value = {
-            "agent_id": "agent-123",
-            "openclaw_url": "wss://openclaw-test.hypercli.com",
-            "gateway_token": "gw-inference",
-        }
-        mock_client.get.return_value = mock_response
-        mock_client.__enter__.return_value = mock_client
-        mock_client.__exit__.return_value = False
-        mock_client_class.return_value = mock_client
-
-        result = agents_client.inference_token("agent-123")
-
-        assert result["gateway_token"] == "gw-inference"
-        assert mock_client.get.call_args[0][0].endswith("/deployments/agent-123/inference/token")
-
-
 def test_agents_create_scoped_key(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
@@ -1076,12 +1095,18 @@ def test_agents_redeem_grant_code(agents_client):
         assert mock_client.post.call_args[1]["json"] == {"code": "promo-123"}
 
 
-def test_openclaw_agent_resolve_gateway_token_uses_inference_endpoint():
+def test_openclaw_agent_resolve_gateway_token_uses_env_route():
     manager = Mock()
-    manager.inference_token.return_value = {
-        "openclaw_url": "wss://openclaw-test.hypercli.com",
-        "gateway_token": "gw-fetched",
-    }
+    manager.get.return_value = OpenClawAgent.from_dict({
+        "id": "agent-123",
+        "user_id": "user-456",
+        "pod_id": "pod-789",
+        "pod_name": "test-pod",
+        "state": "running",
+        "hostname": "openclaw-test.hypercli.com",
+        "routes": {"openclaw": {"port": 18789, "auth": False}},
+    })
+    manager.env.return_value = {"env": {"OPENCLAW_GATEWAY_TOKEN": "gw-fetched"}}
     agent = OpenClawAgent(
         id="agent-123",
         user_id="user-456",
@@ -1096,7 +1121,87 @@ def test_openclaw_agent_resolve_gateway_token_uses_inference_endpoint():
     assert token == "gw-fetched"
     assert agent.gateway_token == "gw-fetched"
     assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
-    manager.inference_token.assert_called_once_with("agent-123")
+    manager.get.assert_called_once_with("agent-123")
+    manager.env.assert_called_once_with("agent-123")
+
+
+def test_openclaw_agent_wait_for_gateway_context_retries_until_ready(monkeypatch):
+    manager = Mock()
+    manager.get.side_effect = [
+        OpenClawAgent.from_dict({
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "running",
+            "hostname": None,
+            "routes": {"openclaw": {"port": 18789, "auth": False}},
+        }),
+        OpenClawAgent.from_dict({
+            "id": "agent-123",
+            "user_id": "user-456",
+            "pod_id": "pod-789",
+            "pod_name": "test-pod",
+            "state": "running",
+            "hostname": "openclaw-test.hypercli.com",
+            "routes": {"openclaw": {"port": 18789, "auth": False}},
+        }),
+    ]
+    manager.env.side_effect = [
+        {"env": {"OPENCLAW_GATEWAY_TOKEN": "gw-fetched"}},
+        {"env": {"OPENCLAW_GATEWAY_TOKEN": "gw-fetched"}},
+    ]
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        _deployments=manager,
+    )
+    monkeypatch.setattr("hypercli.agents.time.sleep", lambda _seconds: None)
+
+    context = agent.wait_for_gateway_context(timeout=0.1, retry_interval=0)
+
+    assert context["gateway_token"] == "gw-fetched"
+    assert context["hostname"] == "openclaw-test.hypercli.com"
+    assert agent.gateway_token == "gw-fetched"
+    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    assert manager.get.call_count == 2
+    assert manager.env.call_count == 2
+
+
+def test_openclaw_agent_gateway_resolves_missing_url_via_env_route():
+    manager = Mock()
+    manager._api_key = "sk-hyper-test123"
+    manager._api_base = "https://api.test.hypercli.com"
+    manager.get.return_value = OpenClawAgent.from_dict({
+        "id": "agent-123",
+        "user_id": "user-456",
+        "pod_id": "pod-789",
+        "pod_name": "test-pod",
+        "state": "running",
+        "hostname": "openclaw-test.hypercli.com",
+        "routes": {"openclaw": {"port": 18789, "auth": False}},
+    })
+    manager.env.return_value = {"env": {"OPENCLAW_GATEWAY_TOKEN": "gw-fetched"}}
+    agent = OpenClawAgent(
+        id="agent-123",
+        user_id="user-456",
+        pod_id="pod-789",
+        pod_name="test-pod",
+        state="running",
+        gateway_token="gw-inline",
+        _deployments=manager,
+    )
+
+    gw = agent.gateway()
+
+    assert gw.url == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_url == "wss://openclaw-test.hypercli.com"
+    assert agent.gateway_token == "gw-fetched"
+    manager.get.assert_called_once_with("agent-123")
+    manager.env.assert_called_once_with("agent-123")
 
 
 def test_agents_api_error(agents_client):

@@ -77,16 +77,17 @@ wait_for_url() {
 notify_failure_screenshot() {
   python3 - <<'PY'
 import base64
-import json
 import os
-import urllib.request
+import sys
 from pathlib import Path
+
+sys.path.insert(0, "/workspace/notify")
+from notify_client import notify  # type: ignore
 
 notify_api_key = os.getenv("NOTIFY_API_KEY", "").strip()
 if not notify_api_key:
     raise SystemExit(0)
 
-endpoint = os.getenv("NOTIFY_URL", "https://api.hypercli.com/notify")
 run_url = os.getenv("GITHUB_RUN_URL", "").strip()
 screenshots = sorted((Path(os.getenv("SITE_ROOT", ".")) / "test-results").rglob("*.png"))
 if not screenshots:
@@ -94,25 +95,19 @@ if not screenshots:
 
 screenshot = screenshots[0]
 test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
-payload = {
-    "category": "frontend",
-    "severity": "error",
-    "message": f"Frontend E2E console failed\nTest: {test_name}\nWorkflow: E2E Console\nRun: {run_url or 'local docker run'}",
-    "image": base64.b64encode(screenshot.read_bytes()).decode("ascii"),
-    "image_filename": screenshot.name,
-    "channel": "frontend",
-}
-request = urllib.request.Request(
-    endpoint,
-    data=json.dumps(payload).encode("utf-8"),
-    headers={
-        "Content-Type": "application/json",
-        "X-BACKEND-API-KEY": notify_api_key,
-    },
-    method="POST",
+notify.send(
+    "frontend",
+    [
+        "<b>Frontend E2E Console Failed</b>",
+        "",
+        f"Test: <code>{test_name}</code>",
+        "Workflow: <code>E2E Console</code>",
+        f"Run: {run_url or 'local docker run'}",
+    ],
+    severity="error",
+    media=base64.b64encode(screenshot.read_bytes()).decode("ascii"),
+    media_filename=screenshot.name,
 )
-with urllib.request.urlopen(request, timeout=20) as response:
-    response.read()
 PY
 }
 

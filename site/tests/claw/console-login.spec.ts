@@ -9,7 +9,7 @@ const consoleBaseUrl = process.env.TEST_CONSOLE_BASE_URL?.trim() || "http://127.
 
 test("logs into Console with Privy email OTP and reaches the dashboard", async ({ page }) => {
   await loginToConsoleWithPrivy(page, consoleBaseUrl);
-  await expect(page.getByRole("heading", { name: /^balance$/i })).toBeVisible();
+  await expect(page.getByRole("heading", { name: /available balance/i })).toBeVisible();
   await expect(page.getByRole("button", { name: /^top up$/i })).toBeVisible();
   await captureStep(page, "console-04-post-login");
 });

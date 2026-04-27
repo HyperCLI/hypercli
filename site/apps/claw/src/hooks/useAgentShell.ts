@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useRef, useCallback } from "react";
-import { useHyperCLI } from "./useHyperCLI";
+import type { Deployments } from "@hypercli.com/sdk/agents";
 
 const RECONNECT_INTERVAL = 10_000;
 
@@ -13,8 +13,7 @@ interface UseAgentShellOptions {
   onData?: (data: string) => void;
 }
 
-export function useAgentShell({ agentId, enabled = true, onData }: UseAgentShellOptions) {
-  const { deployments, ready } = useHyperCLI();
+export function useAgentShell(deployments: Deployments | null, { agentId, enabled = true, onData }: UseAgentShellOptions) {
   const [status, setStatus] = useState<ShellStatus>("disconnected");
   const wsRef = useRef<WebSocket | null>(null);
   const reconnectTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -47,6 +46,7 @@ export function useAgentShell({ agentId, enabled = true, onData }: UseAgentShell
     try {
       const ws = await deployments.shellConnect(agentId);
       wsRef.current = ws;
+      setStatus("connected");
 
       ws.onopen = () => {
         setStatus("connected");
@@ -89,13 +89,13 @@ export function useAgentShell({ agentId, enabled = true, onData }: UseAgentShell
   }, [send]);
 
   useEffect(() => {
-    if (ready && enabled && agentId) {
+    if (deployments && enabled && agentId) {
       connect();
     } else {
       cleanup();
     }
     return cleanup;
-  }, [ready, enabled, agentId, connect, cleanup]);
+  }, [deployments, enabled, agentId, connect, cleanup]);
 
   const reconnect = useCallback(() => {
     cleanup();

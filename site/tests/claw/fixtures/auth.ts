@@ -1,6 +1,6 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { ImapFlow } from "imapflow";
+import { execFileSync } from "node:child_process";
 import { expect, type Frame, type Locator, type Page } from "@playwright/test";
 
 type RequiredEnvKey =
@@ -15,7 +15,7 @@ type RequiredEnvKey =
 const SCREENSHOT_DIR = path.resolve(__dirname, "..", "screenshots");
 const SCREENSHOT_DELAY_MS = Number.parseInt(process.env.TEST_SCREENSHOT_DELAY_MS || "250", 10);
 const DEFAULT_IMAP_PORT = 993;
-const OTP_TIMEOUT_MS = 30_000;
+const OTP_TIMEOUT_MS = 60_000;
 const OTP_POLL_INTERVAL_MS = 5_000;
 const OTP_INITIAL_DELAY_MS = 2_500;
 const STRIPE_TEST_CARD_NUMBER = "4242424242424242";
@@ -26,10 +26,15 @@ const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
 const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
 const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
+const DEFAULT_TEST_API_BASE_URL = "https://api.dev.hypercli.com";
 const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
   process.env.TEST_PRIVY_AUTH_SETTLE_TIMEOUT_MS || "45000",
   10
 );
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
 
 interface BillingBalanceSnapshot {
   availableBalance: number;
@@ -78,6 +83,19 @@ interface HyperAgentClientLike {
   currentPlan(): Promise<HyperAgentCurrentPlan>;
 }
 
+interface DeploymentRecord {
+  id: string;
+  name?: string | null;
+  state?: string | null;
+}
+
+interface DeploymentsClientLike {
+  list(): Promise<DeploymentRecord[]>;
+  get(agentId: string): Promise<DeploymentRecord>;
+  stop(agentId: string): Promise<unknown>;
+  delete(agentId: string): Promise<unknown>;
+}
+
 interface TopUpApiClientLike {
   billing: {
     balance(): Promise<unknown>;
@@ -113,12 +131,202 @@ function getAgentsApiBaseUrl(): string {
   ).replace(/\/$/, "");
 }
 
+function getApiBaseUrl(): string {
+  const base = (
+    getOptionalEnv("TEST_API_BASE_URL") ||
+    DEFAULT_TEST_API_BASE_URL
+  ).replace(/\/$/, "");
+  return base.endsWith("/api") ? base : `${base}/api`;
+}
+
+function getProductApiBaseUrl(): string {
+  const base = (
+    getOptionalEnv("TEST_API_BASE_URL") ||
+    getOptionalEnv("TEST_API_BASE") ||
+    DEFAULT_TEST_API_BASE_URL
+  ).replace(/\/$/, "");
+  return base.endsWith("/api") ? base.slice(0, -4) : base;
+}
+
+async function fetchAdminAuthToken(
+  apiBaseUrl: string,
+  adminKey: string,
+  params: Record<string, string>
+): Promise<string> {
+  return (await fetchAdminAuthLogin(apiBaseUrl, adminKey, params)).token;
+}
+
+async function fetchAdminAuthLogin(
+  apiBaseUrl: string,
+  adminKey: string,
+  params: Record<string, string>
+): Promise<{ token: string; user_id?: string; orchestra_user_id?: string }> {
+  const url = new URL(`${apiBaseUrl}/admin/auth/login`);
+  for (const [key, value] of Object.entries(params)) {
+    url.searchParams.set(key, value);
+  }
+  const response = await fetch(url, {
+    headers: {
+      "X-BACKEND-API-KEY": adminKey,
+    },
+  });
+  if (!response.ok) {
+    throw new Error(`Admin auth login failed: ${response.status} ${await response.text()}`);
+  }
+  const payload = (await response.json()) as { token?: string; user_id?: string; orchestra_user_id?: string };
+  if (!payload.token) {
+    throw new Error("Admin auth login returned no token");
+  }
+  return {
+    token: payload.token,
+    user_id: payload.user_id,
+    orchestra_user_id: payload.orchestra_user_id,
+  };
+}
+
+async function ensureClawAdminLoginUserLinked(
+  adminKey: string,
+  email: string,
+): Promise<string> {
+  const orchestraLogin = await fetchAdminAuthLogin(getApiBaseUrl(), adminKey, { email });
+  const orchestraUserId = orchestraLogin.user_id;
+  if (!orchestraUserId) {
+    throw new Error("Orchestra admin auth login returned no user_id");
+  }
+
+  const response = await fetch(`${getAgentsApiBaseUrl()}/admin/users`, {
+    method: "POST",
+    headers: {
+      "X-BACKEND-API-KEY": adminKey,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({
+      user_id: orchestraUserId,
+      external_id: orchestraUserId,
+      orchestra_user_id: orchestraUserId,
+      email,
+    }),
+  });
+  if (!response.ok && response.status !== 409) {
+    throw new Error(`Agents admin user ensure failed: ${response.status} ${await response.text()}`);
+  }
+  return orchestraUserId;
+}
+
+async function installLocalAuthToken(
+  page: Page,
+  {
+    baseUrl,
+    storageKey,
+    cookieName = "auth_token",
+    token,
+  }: {
+    baseUrl: string;
+    storageKey: "claw_auth_token" | "app_auth_token";
+    cookieName?: string;
+    token: string;
+  },
+): Promise<void> {
+  await page.goto(baseUrl, { waitUntil: "domcontentloaded" });
+  await page.evaluate(
+    ([key, cookie, value]) => {
+      window.localStorage.setItem(key, value);
+      document.cookie = `${cookie}=${value}; path=/; samesite=lax`;
+    },
+    [storageKey, cookieName, token] as const
+  );
+}
+
+async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
+  const adminKey = getOptionalEnv("AGENTS_BACKEND_API_KEY") || getOptionalEnv("BACKEND_API_KEY");
+  if (!adminKey) {
+    return false;
+  }
+  const email = getEnv("TEST_EMAIL");
+  let token: string;
+  try {
+    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, { email });
+  } catch (error) {
+    const message = error instanceof Error ? error.message : String(error);
+    if (!message.includes("User has no linked Orchestra identity")) {
+      throw error;
+    }
+    const orchestraUserId = await ensureClawAdminLoginUserLinked(adminKey, email);
+    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, {
+      orchestra_user_id: orchestraUserId,
+      email,
+    });
+  }
+  await installLocalAuthToken(page, {
+    baseUrl: getEnv("TEST_BASE_URL"),
+    storageKey: "claw_auth_token",
+    token,
+  });
+  await page.goto(`${getEnv("TEST_BASE_URL").replace(/\/$/, "")}/dashboard`, {
+    waitUntil: "domcontentloaded",
+  });
+  await expect
+    .poll(() => page.url(), { timeout: 30_000 })
+    .toContain("/dashboard");
+  return true;
+}
+
+async function tryAdminLoginForConsole(page: Page, baseUrl: string): Promise<boolean> {
+  const adminKey = getOptionalEnv("BACKEND_API_KEY");
+  if (!adminKey) {
+    return false;
+  }
+  const token = await fetchAdminAuthToken(getApiBaseUrl(), adminKey, {
+    email: getEnv("TEST_EMAIL"),
+  });
+  await installLocalAuthToken(page, {
+    baseUrl,
+    storageKey: "app_auth_token",
+    token,
+  });
+  await page.goto(`${baseUrl.replace(/\/$/, "")}/dashboard`, { waitUntil: "domcontentloaded" });
+  await expect
+    .poll(() => page.url(), { timeout: 30_000 })
+    .toContain("/dashboard");
+  return true;
+}
+
+function privyImapEnv(): NodeJS.ProcessEnv {
+  return {
+    ...process.env,
+    IMAP_HOST: getEnv("TEST_IMAP_HOST"),
+    IMAP_USER: getEnv("TEST_IMAP_USER"),
+    IMAP_PASS: getEnv("TEST_IMAP_PASS"),
+  };
+}
+
+function runFetchOtpScript(args: string[]): string {
+  return execFileSync("python3", args, {
+    env: privyImapEnv(),
+    encoding: "utf8",
+  });
+}
+
 async function getHyperAgentClient(token: string): Promise<HyperAgentClientLike> {
   const [{ HTTPClient }, { HyperAgent }] = await Promise.all([
     import("@hypercli.com/sdk/http"),
     import("@hypercli.com/sdk"),
   ]);
   return new HyperAgent(new HTTPClient(getAgentsApiBaseUrl(), token), token, true);
+}
+
+async function getDeploymentsClient(token: string): Promise<DeploymentsClientLike> {
+  const [{ HTTPClient }, { Deployments }] = await Promise.all([
+    import("@hypercli.com/sdk/http"),
+    import("@hypercli.com/sdk/agents"),
+  ]);
+  const agentsApiBaseUrl = getAgentsApiBaseUrl();
+  return new Deployments(
+    new HTTPClient(agentsApiBaseUrl, token),
+    token,
+    agentsApiBaseUrl,
+    getOptionalEnv("NEXT_PUBLIC_AGENTS_WS_URL") || undefined
+  );
 }
 
 async function ensureScreenshotDir(): Promise<void> {
@@ -135,10 +343,16 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     SCREENSHOT_DIR,
     `${new Date().toISOString().replace(/[:.]/g, "-")}-${slugifyStep(step)}.png`
   );
-  if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
-    await page.waitForTimeout(SCREENSHOT_DELAY_MS);
+  if (page.isClosed()) {
+    return filePath;
   }
-  await page.screenshot({ path: filePath, fullPage: true });
+  if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
+    await page.waitForTimeout(SCREENSHOT_DELAY_MS).catch(() => {});
+  }
+  if (page.isClosed()) {
+    return filePath;
+  }
+  await page.screenshot({ path: filePath, fullPage: true }).catch(() => {});
   return filePath;
 }
 
@@ -171,95 +385,48 @@ function extractOtpFromText(text: string): string | null {
 }
 
 export async function pollForPrivyOtp(submittedAt: Date): Promise<string> {
-  const client = new ImapFlow({
-    host: getEnv("TEST_IMAP_HOST"),
-    port: DEFAULT_IMAP_PORT,
-    secure: true,
-    auth: {
-      user: getEnv("TEST_IMAP_USER"),
-      pass: getEnv("TEST_IMAP_PASS"),
-    },
-    logger: false,
-  });
-
-  await client.connect();
+  const fetchOtpScript = path.resolve(__dirname, "..", "..", "..", "e2e", "flows", "fetch-otp.py");
+  const pollTimeoutSec = Math.max(5, Math.ceil(OTP_TIMEOUT_MS / 1000));
+  const submittedAfterEpoch = Math.floor(submittedAt.getTime() / 1000);
 
   try {
-    const lock = await client.getMailboxLock("INBOX");
+    execFileSync("python3", [fetchOtpScript, "--clear", "--timeout", "1"], {
+      env: privyImapEnv(),
+      stdio: "ignore",
+    });
+  } catch {
+    console.log("[privy-auth:otp-clear] mailbox clear failed; continuing to OTP poll");
+  }
+
+  await sleep(OTP_INITIAL_DELAY_MS);
+
+  for (let attempt = 0; attempt < 2; attempt += 1) {
     try {
-      const deadline = Date.now() + OTP_TIMEOUT_MS;
-      await new Promise((resolve) => setTimeout(resolve, OTP_INITIAL_DELAY_MS));
+      const output = runFetchOtpScript([
+        fetchOtpScript,
+        "--timeout",
+        String(pollTimeoutSec),
+        "--after",
+        String(submittedAfterEpoch),
+      ]);
 
-      while (Date.now() < deadline) {
-        const uids = (await client.search({ since: submittedAt }, { uid: true })) || [];
-        const candidateMessages: Array<{
-          internalDate: Date;
-          normalizedSource: string;
-        }> = [];
+      const otp = output
+        .trim()
+        .split("\n")
+        .map((line) => line.trim())
+        .filter(Boolean)
+        .at(-1);
 
-        for (const uid of uids) {
-          let message:
-            | {
-                envelope?: { from?: Array<{ address?: string | null }>; subject?: string | null };
-                source?: Buffer;
-                internalDate?: Date | string;
-              }
-            | null = null;
-
-          for await (const item of client.fetch(String(uid), {
-            uid: true,
-            envelope: true,
-            source: true,
-            internalDate: true,
-          }, { uid: true })) {
-            message = item as typeof message;
-            break;
-          }
-
-          if (!message) {
-            continue;
-          }
-
-          const fromValue = message?.envelope?.from?.map((entry) => entry.address || "").join(" ") || "";
-          const source = message?.source;
-          const internalDate = message?.internalDate ? new Date(message.internalDate) : null;
-          if (!source || !internalDate || internalDate <= submittedAt) {
-            continue;
-          }
-
-          const normalizedSource = decodeMessage(source);
-          const looksLikePrivy =
-            /privy\.io|privy/i.test(fromValue) ||
-            /privy/i.test(message?.envelope?.subject || "");
-
-          if (!looksLikePrivy) {
-            continue;
-          }
-
-          candidateMessages.push({
-            internalDate,
-            normalizedSource,
-          });
-        }
-
-        candidateMessages.sort(
-          (left, right) => right.internalDate.getTime() - left.internalDate.getTime()
-        );
-
-        for (const message of candidateMessages) {
-          const otp = extractOtpFromText(message.normalizedSource);
-          if (otp) {
-            return otp;
-          }
-        }
-
-        await new Promise((resolve) => setTimeout(resolve, OTP_POLL_INTERVAL_MS));
+      if (otp && /^\d{6}$/.test(otp)) {
+        return otp;
       }
-    } finally {
-      lock.release();
+    } catch (error) {
+      if (attempt === 1) {
+        throw error;
+      }
+      console.log("[privy-auth:otp-poll] first OTP poll failed; retrying once");
+      await sleep(OTP_POLL_INTERVAL_MS);
     }
-  } finally {
-    await client.logout().catch(() => client.close());
   }
 
   throw new Error("Timed out waiting for a Privy OTP email");
@@ -389,51 +556,83 @@ interface PrivyAuthDebugState {
 }
 
 async function getPrivyAuthDebugState(page: Page): Promise<PrivyAuthDebugState> {
+  if (page.isClosed()) {
+    return {
+      url: "page-closed",
+      localStorageKeys: [],
+      hasClawAuthToken: false,
+      hasAppAuthToken: false,
+      hasAuthCookie: false,
+      cookieNames: [],
+      privyModalVisible: false,
+      otpInputCount: 0,
+      buttonLabels: [],
+    };
+  }
   const privyModal = page.locator("#privy-modal-content").first();
   const otpInputs = page.locator(
     'input[autocomplete="one-time-code"], input[inputmode="numeric"], input[name*="code" i]'
   );
   const visibleButtons = page.locator("button:visible");
 
-  const buttonLabels = await visibleButtons.evaluateAll((elements) =>
-    elements
-      .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
-      .filter(Boolean)
-      .slice(0, 10)
-  );
+  const buttonLabels = await visibleButtons
+    .evaluateAll((elements) =>
+      elements
+        .map((element) => (element.textContent || "").replace(/\s+/g, " ").trim())
+        .filter(Boolean)
+        .slice(0, 10)
+    )
+    .catch(() => []);
 
-  return page.evaluate(
-    ({ modalVisible, otpInputCount, buttonLabels }) => {
-      const cookieNames = document.cookie
-        .split("; ")
-        .map((entry) => entry.split("=")[0])
-        .filter(Boolean);
-      return {
-        url: window.location.href,
-        localStorageKeys: Object.keys(localStorage).sort(),
-        hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
-        hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
-        hasAuthCookie: cookieNames.includes("auth_token"),
-        cookieNames,
-        privyModalVisible: modalVisible,
-        otpInputCount,
+  return page
+    .evaluate(
+      ({ modalVisible, otpInputCount, buttonLabels }) => {
+        const cookieNames = document.cookie
+          .split("; ")
+          .map((entry) => entry.split("=")[0])
+          .filter(Boolean);
+        return {
+          url: window.location.href,
+          localStorageKeys: Object.keys(localStorage).sort(),
+          hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
+          hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
+          hasAuthCookie: cookieNames.includes("auth_token"),
+          cookieNames,
+          privyModalVisible: modalVisible,
+          otpInputCount,
+          buttonLabels,
+        };
+      },
+      {
+        modalVisible: await privyModal.isVisible().catch(() => false),
+        otpInputCount: await otpInputs.count().catch(() => 0),
         buttonLabels,
-      };
-    },
-    {
-      modalVisible: await privyModal.isVisible().catch(() => false),
-      otpInputCount: await otpInputs.count(),
-      buttonLabels,
-    }
-  );
+      }
+    )
+    .catch(() => ({
+      url: "page-closed",
+      localStorageKeys: [],
+      hasClawAuthToken: false,
+      hasAppAuthToken: false,
+      hasAuthCookie: false,
+      cookieNames: [],
+      privyModalVisible: false,
+      otpInputCount: 0,
+      buttonLabels: [],
+    }));
 }
 
 async function logPrivyAuthState(page: Page, label: string): Promise<void> {
-  const state = await getPrivyAuthDebugState(page);
+  const state = await getPrivyAuthDebugState(page).catch(() => null);
   console.log(`[privy-auth:${label}] ${JSON.stringify(state)}`);
 }
 
 export async function loginWithPrivy(page: Page): Promise<void> {
+  if (await tryAdminLoginForClaw(page)) {
+    await captureStep(page, "00-admin-authenticated");
+    return;
+  }
+
   const email = getEnv("TEST_EMAIL");
   const privyModal = page.locator("#privy-modal-content").first();
 
@@ -558,6 +757,11 @@ export async function loginToConsoleWithPrivy(
   page: Page,
   baseUrl = getOptionalEnv("TEST_PROD_CONSOLE_BASE_URL") || "https://console.hypercli.com"
 ): Promise<void> {
+  if (await tryAdminLoginForConsole(page, baseUrl)) {
+    await captureStep(page, "console-00-admin-authenticated");
+    return;
+  }
+
   const email = getEnv("TEST_EMAIL");
   const privyModal = page.locator("#privy-modal-content").first();
 
@@ -731,6 +935,9 @@ async function anyVisibleStripeLocator(page: Page, selectors: string[]): Promise
 
 export async function completeStripeCheckout(
   page: Page,
+  returnBaseUrl: string = getOptionalEnv("TEST_TOPUP_CONSOLE_BASE_URL") ||
+    getOptionalEnv("TEST_CONSOLE_BASE_URL") ||
+    "http://127.0.0.1:4001",
 ): Promise<void> {
   const stripeCheckoutPattern = /^https:\/\/checkout\.stripe\.com\//i;
 
@@ -847,6 +1054,25 @@ export async function completeStripeCheckout(
   console.log(`Stripe submit button text: ${(await stripeSubmitButton.textContent())?.trim() || "<empty>"}`);
   await stripeSubmitButton.click();
   await captureStep(page, "console-05e-stripe-submit-clicked");
+
+  await expect
+    .poll(() => page.url(), { timeout: 60_000 })
+    .not.toMatch(stripeCheckoutPattern);
+
+  const redirectedUrl = page.url();
+  const redirectedHost = new URL(redirectedUrl).host.toLowerCase();
+  if (
+    redirectedHost === "console.dev.hypercli.com" ||
+    redirectedHost === "console.hypercli.com" ||
+    redirectedHost === "agents.dev.hypercli.com" ||
+    redirectedHost === "agents.hypercli.com"
+  ) {
+    const localDashboardUrl = `${returnBaseUrl.replace(/\/$/, "")}/dashboard`;
+    console.log(`Stripe redirected to hosted console (${redirectedUrl}); returning to local dashboard ${localDashboardUrl}`);
+    await page.goto(localDashboardUrl, { waitUntil: "domcontentloaded" });
+    await page.waitForLoadState("networkidle");
+    await captureStep(page, "console-05f-returned-to-local-dashboard");
+  }
 }
 
 async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
@@ -872,7 +1098,7 @@ async function getTopUpApiClient(): Promise<TopUpApiClientLike> {
     const { HyperCLI } = await import("@hypercli.com/sdk");
     topUpApiClient = new HyperCLI({
       apiKey: requireEnvValue("TEST_API_KEY"),
-      apiUrl: requireEnvValue("TEST_API_BASE_URL"),
+      apiUrl: getProductApiBaseUrl(),
     });
   }
   return topUpApiClient;
@@ -1075,6 +1301,106 @@ export async function waitForPaidClawPlan(
     .not.toBe("free");
 
   return latestPlan!;
+}
+
+export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<void> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  const existingAgents = await deployments.list();
+
+  for (const agent of existingAgents) {
+    const agentId = String(agent.id || "");
+    if (!agentId) continue;
+    try {
+      await deployments.delete(agentId);
+    } catch {
+      try {
+        await deployments.stop(agentId);
+      } catch {
+        // Keep going; delete polling below will surface any stuck agents.
+      }
+      try {
+        await deployments.delete(agentId);
+      } catch {
+        // Ignore individual delete errors here; the poll below is the real gate.
+      }
+    }
+  }
+
+  await expect
+    .poll(async () => {
+      const items = await deployments.list();
+      return items.length;
+    }, { timeout, intervals: [1_000, 2_000, 5_000] })
+    .toBe(0);
+}
+
+export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240_000): Promise<DeploymentRecord> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+
+  await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
+  await expect(page.getByRole("button", { name: /create new agent|new agent|create/i }).first()).toBeVisible({
+    timeout: 30_000,
+  });
+  await captureStep(page, "agents-10-dashboard");
+
+  const createButton = page.getByRole("button", { name: /create new agent|new agent|create/i }).first();
+  await createButton.click();
+
+  const nextButton = page.getByRole("button", { name: /^next$/i }).first();
+  await expect(nextButton).toBeVisible({ timeout: 10_000 });
+  await nextButton.click();
+
+  const secondNextButton = page.getByRole("button", { name: /^next$/i }).first();
+  if (await secondNextButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
+    await secondNextButton.click();
+  }
+
+  const createResponsePromise = page.waitForResponse((response) => {
+    return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
+  });
+
+  const launchButton = page.getByRole("button", { name: /create|launch|deploy/i }).first();
+  await expect(launchButton).toBeVisible({ timeout: 10_000 });
+  await launchButton.click();
+
+  const createResponse = await createResponsePromise;
+  expect(createResponse.ok()).toBeTruthy();
+  const created = (await createResponse.json()) as DeploymentRecord;
+  expect(created.id).toBeTruthy();
+  await captureStep(page, "agents-11-created");
+
+  const running = await deployments.waitRunning(created.id, timeout, 5_000);
+  expect(running.state).toBe("RUNNING");
+
+  const composer = page.getByPlaceholder("Message agent...");
+  await expect(composer).toBeVisible({ timeout: 60_000 });
+  await expect(composer).toBeEnabled({ timeout: 60_000 });
+  await expect(page.getByText("Send a message to start chatting with your agent", { exact: true })).toBeVisible({
+    timeout: 60_000,
+  });
+  await expect(
+    page.getByText("Connecting to gateway...", { exact: true }).first()
+  ).not.toBeVisible({ timeout: 60_000 });
+  await captureStep(page, "agents-12-gateway-connected");
+
+  return created;
+}
+
+export async function deleteClawAgent(page: Page, agentId: string): Promise<void> {
+  const token = await getClawAuthToken(page);
+  const deployments = await getDeploymentsClient(token);
+  try {
+    await deployments.delete(agentId);
+  } catch {
+    try {
+      await deployments.stop(agentId);
+    } catch {
+      // Best effort cleanup only.
+    }
+    await deployments.delete(agentId);
+  }
 }
 
 async function stripeApiRequest<T>(

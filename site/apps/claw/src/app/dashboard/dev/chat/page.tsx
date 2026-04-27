@@ -36,7 +36,7 @@ import { AgentsChannelsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, ty
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
 import { FilesDrawer } from "@/components/dashboard/files";
 import { FilesPanel } from "@/components/dashboard/files-panel";
-import type { ChatMessage } from "@/hooks/useGatewayChat";
+import type { ChatMessage } from "@/lib/openclaw-chat";
 import { agentAvatar } from "@/lib/avatar";
 
 type InputVariant = FeatureVariant;

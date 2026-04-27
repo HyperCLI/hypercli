@@ -3,13 +3,21 @@
 import { useState, useRef, useEffect, useCallback } from "react";
 import { Check, Loader2, Volume2, Square } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { VOICE_API_URL } from "@/lib/api";
+import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
+import { API_BASE_URL } from "@/lib/api";
 
 const SPEAKERS = [
   "Aria", "Ryan", "Luna", "Serena", "Daniel", "Ethan", "Nova", "Chelsie", "Aidan",
 ] as const;
 
 const FORMATS = ["opus", "mp3", "wav", "flac"] as const;
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
 
 interface TtsPanelProps {
   currentSpeaker?: string;
@@ -63,26 +71,18 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
 
     try {
       const token = await getToken();
-      const response = await fetch(`${VOICE_API_URL}/tts`, {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${token}`,
-          "Content-Type": "application/json",
-        },
-        body: JSON.stringify({
-          text: `Hi, my name is ${voiceName}. How can I help you today?`,
-          voice: voiceName,
-          language: "auto",
-          response_format: "mp3",
-        }),
-        signal: controller.signal,
+      const client = new BrowserHyperCLI({
+        apiUrl: API_BASE_URL,
+        token,
       });
-
-      if (!response.ok) {
-        throw new Error(`TTS request failed: ${response.status}`);
-      }
-
-      const blob = await response.blob();
+      const bytes = await client.voice.tts({
+        text: `Hi, my name is ${voiceName}. How can I help you today?`,
+        voice: voiceName,
+        language: "auto",
+        responseFormat: "mp3",
+      });
+      if (controller.signal.aborted) return;
+      const blob = new Blob([toArrayBuffer(bytes)], { type: "audio/mpeg" });
       const url = URL.createObjectURL(blob);
       blobUrlRef.current = url;
 

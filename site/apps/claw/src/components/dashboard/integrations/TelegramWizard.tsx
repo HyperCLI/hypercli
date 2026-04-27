@@ -33,6 +33,7 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
   const [showToken, setShowToken] = useState(false);
   const [validating, setValidating] = useState(false);
   const [botUsername, setBotUsername] = useState<string | null>(initialBotUsername ?? null);
+  const [tokenValid, setTokenValid] = useState(Boolean(initialBotUsername));
   const [tokenError, setTokenError] = useState<string | null>(null);
   const [dmPolicy, setDmPolicy] = useState<DmPolicy>("pairing");
   const [requireMention, setRequireMention] = useState(true);
@@ -49,19 +50,23 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
     setValidating(true);
     setTokenError(null);
     setBotUsername(null);
-    try {
-      const res = await fetch(`https://api.telegram.org/bot${token}/getMe`);
-      const data = await res.json();
-      if (data.ok && data.result?.username) {
-        setBotUsername(data.result.username);
-      } else {
-        setTokenError("Invalid token — check that you copied it correctly");
-      }
-    } catch {
-      setTokenError("Could not reach Telegram API — check your connection");
-    } finally {
+    const trimmed = token.trim();
+    if (!trimmed) {
+      setTokenError("Please enter a bot token");
+      setTokenValid(false);
       setValidating(false);
+      return;
     }
+    const looksLikeTelegramBotToken = /^\d+:[A-Za-z0-9_-]{20,}$/.test(trimmed);
+    if (!looksLikeTelegramBotToken) {
+      setTokenError("Invalid token format — check that you copied it correctly");
+      setTokenValid(false);
+      setValidating(false);
+      return;
+    }
+    setTokenValid(true);
+    setBotUsername(initialBotUsername ?? null);
+    setValidating(false);
   };
 
   const verifyChannel = useCallback(async () => {
@@ -264,6 +269,7 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
                     setToken(e.target.value);
                     setBotUsername(null);
                     setTokenError(null);
+                    setTokenValid(false);
                   }}
                   placeholder="Paste your bot token"
                   className="w-full px-3 py-2 pr-10 bg-[var(--surface-low)] border border-[var(--border)] rounded-lg text-sm text-foreground placeholder:text-text-tertiary focus:outline-none focus:border-[var(--primary)]/50"
@@ -286,6 +292,11 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
             {botUsername && (
               <p className="text-xs text-[var(--primary)] flex items-center gap-1">
                 <Check className="w-3 h-3" /> Verified: @{botUsername}
+              </p>
+            )}
+            {!botUsername && tokenValid && (
+              <p className="text-xs text-[var(--primary)] flex items-center gap-1">
+                <Check className="w-3 h-3" /> Format valid
               </p>
             )}
             {tokenError && <p className="text-xs text-[var(--error)]">{tokenError}</p>}
@@ -351,7 +362,7 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
             </button>
             <button
               onClick={handleConnect}
-              disabled={!botUsername || connecting}
+              disabled={!tokenValid || connecting}
               className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2 disabled:opacity-40"
             >
               {connecting ? (
@@ -419,15 +430,21 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
           <div className="text-center">
             <h3 className="text-base font-semibold text-foreground">Telegram is live!</h3>
             <p className="text-sm text-text-secondary mt-1">
-              Your agent is now reachable at{" "}
-              <a
-                href={`https://t.me/${botUsername}`}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="text-[var(--primary)] hover:underline"
-              >
-                @{botUsername}
-              </a>
+              {botUsername ? (
+                <>
+                  Your agent is now reachable at{" "}
+                  <a
+                    href={`https://t.me/${botUsername}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="text-[var(--primary)] hover:underline"
+                  >
+                    @{botUsername}
+                  </a>
+                </>
+              ) : (
+                "Your agent is now reachable on Telegram."
+              )}
             </p>
           </div>
           {dmPolicy === "pairing" && (
@@ -438,14 +455,16 @@ export function TelegramWizard({ onConnect, onChannelProbe, onClose, onVerified,
             </div>
           )}
           <div className="flex justify-center gap-3 pt-4">
-            <a
-              href={`https://t.me/${botUsername}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-primary px-4 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2"
-            >
-              Open in Telegram <ExternalLink className="w-4 h-4" />
-            </a>
+            {botUsername && (
+              <a
+                href={`https://t.me/${botUsername}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="btn-primary px-4 py-2 rounded-lg text-sm font-medium inline-flex items-center gap-2"
+              >
+                Open in Telegram <ExternalLink className="w-4 h-4" />
+              </a>
+            )}
             <button onClick={onClose} className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium">
               Done
             </button>

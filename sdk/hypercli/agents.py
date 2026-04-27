@@ -296,6 +296,18 @@ def _agent_kwargs_from_dict(data: dict) -> dict[str, Any]:
     }
 
 
+def _is_openclaw_agent_data(data: dict) -> bool:
+    routes = data.get("routes")
+    if isinstance(routes, dict) and routes.get("openclaw"):
+        return True
+    launch_config = data.get("launch_config")
+    if isinstance(launch_config, dict):
+        launch_routes = launch_config.get("routes")
+        if isinstance(launch_routes, dict) and launch_routes.get("openclaw"):
+            return True
+    return False
+
+
 @dataclass
 class Agent:
     """Generic agent returned by the HyperClaw backend."""
@@ -428,20 +440,20 @@ class Agent:
     def health(self) -> dict:
         return self._require_deployments().health(self)
 
-    def files_list(self, path: str = "") -> list[dict]:
-        return self._require_deployments().files_list(self, path)
+    def files_list(self, path: str = "", source: str = "auto") -> list[dict]:
+        return self._require_deployments().files_list(self, path, source=source)
 
-    def file_read_bytes(self, path: str) -> bytes:
-        return self._require_deployments().file_read_bytes(self, path)
+    def file_read_bytes(self, path: str, source: str = "auto") -> bytes:
+        return self._require_deployments().file_read_bytes(self, path, source=source)
 
-    def file_read(self, path: str) -> str:
-        return self._require_deployments().file_read(self, path)
+    def file_read(self, path: str, source: str = "auto") -> str:
+        return self._require_deployments().file_read(self, path, source=source)
 
-    def file_write_bytes(self, path: str, content: bytes) -> dict:
-        return self._require_deployments().file_write_bytes(self, path, content)
+    def file_write_bytes(self, path: str, content: bytes, destination: str = "auto") -> dict:
+        return self._require_deployments().file_write_bytes(self, path, content, destination=destination)
 
-    def file_write(self, path: str, content: str) -> dict:
-        return self._require_deployments().file_write(self, path, content)
+    def file_write(self, path: str, content: str, destination: str = "auto") -> dict:
+        return self._require_deployments().file_write(self, path, content, destination=destination)
 
     def file_delete(self, path: str, recursive: bool = False) -> dict:
         return self._require_deployments().file_delete(self, path, recursive)
@@ -473,32 +485,85 @@ class OpenClawAgent(Agent):
     def from_dict(cls, data: dict) -> "OpenClawAgent":
         return cls(
             **_agent_kwargs_from_dict(data),
-            gateway_url=(
-                data.get("openclaw_url")
-                or data.get("gateway_url")
-                or (f"wss://{data['hostname']}" if data.get("hostname") else None)
-            ),
+            gateway_url=None,
             gateway_token=data.get("gateway_token"),
         )
 
+    @staticmethod
+    def _gateway_url_from_hostname(hostname: str | None) -> str | None:
+        value = str(hostname or "").strip()
+        return f"wss://{value}" if value else None
+
+    def _current_gateway_hostname(self) -> str | None:
+        if self.hostname:
+            return self.hostname
+        if not self.gateway_url:
+            return None
+        raw = str(self.gateway_url).strip().replace("wss://", "").replace("ws://", "")
+        return raw.split("/", 1)[0] or None
+
+    def wait_for_gateway_context(self, timeout: float = 30.0, retry_interval: float = 1.0) -> dict[str, Any]:
+        """
+        Resolve gateway context through the deployment record plus `/env`.
+
+        Agent startup is eventually consistent: the deployment record can lag
+        behind hostname attachment, and runtime env can lag behind both. The
+        SDK derives the gateway URL from the attached hostname and reads the
+        gateway token from `OPENCLAW_GATEWAY_TOKEN` in the env route.
+        """
+        if self.gateway_token and self.gateway_url:
+            return {
+                "agent_id": self.id,
+                "hostname": self._current_gateway_hostname(),
+                "gateway_token": self.gateway_token,
+            }
+        deadline = time.monotonic() + timeout
+        last_error: Exception | None = None
+        while True:
+            try:
+                refreshed = self._require_deployments().get(self.id)
+                hostname = getattr(refreshed, "hostname", None)
+                gateway_url = self._gateway_url_from_hostname(hostname)
+                env_data = self._require_deployments().env(self.id)
+                gateway_token = (
+                    (env_data.get("env") or {}).get("OPENCLAW_GATEWAY_TOKEN", "").strip()
+                    if isinstance(env_data, dict)
+                    else None
+                )
+                if gateway_token and gateway_url:
+                    self.gateway_token = gateway_token
+                    self.gateway_url = gateway_url
+                    return {
+                        "agent_id": self.id,
+                        "hostname": hostname,
+                        "gateway_token": gateway_token,
+                    }
+                last_error = RuntimeError("missing gateway context")
+            except Exception as exc:
+                last_error = exc
+            if time.monotonic() >= deadline:
+                if last_error is not None:
+                    raise last_error
+                raise RuntimeError("Timed out waiting for OpenClaw gateway context")
+            time.sleep(retry_interval)
+
     def resolve_gateway_token(self) -> str | None:
-        """Resolve the gateway token. Fetches from pod env if not set locally."""
-        if self.gateway_token:
-            return self.gateway_token
-        token_data = self._require_deployments().inference_token(self.id)
+        """Resolve the gateway token through the deployment env route."""
+        token_data = self.wait_for_gateway_context()
         self.gateway_token = token_data.get("gateway_token")
-        self.gateway_url = token_data.get("openclaw_url") or self.gateway_url
         return self.gateway_token
 
     def gateway(self, **kwargs) -> "GatewayClient":
         """Create a GatewayClient for this OpenClaw agent."""
         from .gateway import GatewayClient
         if not self.gateway_url:
+            self.wait_for_gateway_context()
+        if not self.gateway_url:
             raise ValueError("Agent has no OpenClaw gateway URL")
         deployments = self._require_deployments()
         if "gateway_token" not in kwargs:
             if not self.gateway_token:
-                self.resolve_gateway_token()
+                self.wait_for_gateway_context()
             if self.gateway_token:
                 kwargs["gateway_token"] = self.gateway_token
         kwargs.setdefault("deployment_id", self.id)
@@ -531,6 +596,8 @@ class OpenClawAgent(Agent):
         probe: str = "config",
         **kwargs,
     ) -> dict:
+        if not self.gateway_url or ("gateway_token" not in kwargs and not self.gateway_token):
+            self.wait_for_gateway_context()
         gw = self.gateway(**kwargs)
         try:
             return await gw.wait_ready(timeout=timeout, retry_interval=retry_interval, probe=probe)
@@ -933,7 +1000,7 @@ class Deployments:
         )
 
     def _hydrate_agent(self, data: dict) -> Agent:
-        if data.get("openclaw_url") or data.get("gateway_url"):
+        if _is_openclaw_agent_data(data):
             agent = OpenClawAgent.from_dict(data)
         else:
             agent = Agent.from_dict(data)
@@ -1342,10 +1409,6 @@ class Deployments:
         """
         return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/token")
 
-    def inference_token(self, agent_id: str) -> dict:
-        """Fetch the scoped OpenClaw gateway token for an agent."""
-        return self._get(f"{AGENTS_API_PREFIX}/{agent_id}/inference/token")
-
     def create_scoped_key(self, agent_id: str, name: str | None = None) -> dict:
         payload = {"name": name} if name is not None else {}
         return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/keys", json=payload or None)
@@ -1422,7 +1485,7 @@ class Deployments:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
 
-    def files_list(self, pod: Agent | str, path: str = "") -> list[dict]:
+    def files_list(self, pod: Agent | str, path: str = "", source: str = "auto") -> list[dict]:
         """List files on an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
@@ -1431,19 +1494,21 @@ class Deployments:
                 if path
                 else f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files",
                 headers=self._file_headers(),
+                params={"source": source},
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         payload = resp.json()
         return [*(payload.get("directories") or []), *(payload.get("files") or [])]
 
-    def file_read_bytes(self, pod: Agent | str, path: str) -> bytes:
+    def file_read_bytes(self, pod: Agent | str, path: str, source: str = "auto") -> bytes:
         """Read a file from an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
             resp = client.get(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
+                params={"source": source},
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
@@ -1457,26 +1522,27 @@ class Deployments:
                 raise ValueError(f"Path is a directory: {path}. Use files_list(path) instead.")
         return resp.content
 
-    def file_read(self, pod: Agent | str, path: str) -> str:
+    def file_read(self, pod: Agent | str, path: str, source: str = "auto") -> str:
         """Read a UTF-8 text file from an agent."""
-        return self.file_read_bytes(pod, path).decode(errors="replace")
+        return self.file_read_bytes(pod, path, source=source).decode(errors="replace")
 
-    def file_write_bytes(self, pod: Agent | str, path: str, content: bytes) -> dict:
+    def file_write_bytes(self, pod: Agent | str, path: str, content: bytes, destination: str = "auto") -> dict:
         """Write raw bytes to an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
         with httpx.Client(timeout=10) as client:
-            resp = client.put(
+            resp = client.post(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),
+                params={"destination": destination},
                 content=content,
             )
         if resp.status_code >= 400:
             raise APIError(resp.status_code, resp.text)
         return resp.json()
 
-    def file_write(self, pod: Agent | str, path: str, content: str) -> dict:
+    def file_write(self, pod: Agent | str, path: str, content: str, destination: str = "auto") -> dict:
         """Write a UTF-8 text file to an agent."""
-        return self.file_write_bytes(pod, path, content.encode())
+        return self.file_write_bytes(pod, path, content.encode(), destination=destination)
 
     def file_delete(self, pod: Agent | str, path: str, recursive: bool = False) -> dict:
         """Delete a file or directory from an agent."""
