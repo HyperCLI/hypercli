@@ -4,6 +4,7 @@ import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
 import { Bot, Loader2, PanelLeftOpen, Plus, SlidersHorizontal, X } from "lucide-react";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import { List } from 'react-window'
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { IntegrationsPage } from "@/components/dashboard/integrations";
@@ -157,20 +158,34 @@ export function OpenClawConfigModal({
                       )}
                       {openclawDraft && (
                         <div className="space-y-4">
-                          {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
-                            const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                            const sectionDescription =
-                              sectionHint?.help?.trim() ||
-                              (typeof asObject(sectionSchema)?.description === "string"
-                                ? String(asObject(sectionSchema)?.description)
-                                : "");
-                            return (
-                              <div key={`modal-section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
-                                {sectionDescription && <p className="text-xs text-text-muted">{sectionDescription}</p>}
-                                {renderOpenclawField(sectionSchema, [sectionKey])}
-                              </div>
-                            );
-                          })}
+                          <List
+                            rowCount={visibleOpenclawSections.length}
+                            rowHeight={600}
+                            rowProps={{}}   // ✅ REQUIRED in v2
+                            rowComponent={({ index, style }) => {
+                              const [sectionKey, sectionSchema] = visibleOpenclawSections[index];
+
+                              const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
+                              const sectionDescription =
+                                sectionHint?.help?.trim() ||
+                                (typeof asObject(sectionSchema)?.description === "string"
+                                  ? String(asObject(sectionSchema)?.description)
+                                  : "");
+
+                              return (
+                                <div style={style} className="p-2">
+                                  <div className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
+                                    {sectionDescription && (
+                                      <p className="text-xs text-text-muted">
+                                        {sectionDescription}
+                                      </p>
+                                    )}
+                                    {renderOpenclawField(sectionSchema, [sectionKey])}
+                                  </div>
+                                </div>
+                              );
+                            }}
+                          />
                         </div>
                       )}
                     </div>
