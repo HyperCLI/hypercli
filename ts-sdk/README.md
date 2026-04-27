@@ -107,6 +107,7 @@ ws.close();
 
 ```typescript
 const models = await client.agent.models();
+const activation = await client.agent.redeemGrantCode('PROMO123');
 
 // Execute command in a hypercli-openclaw agent container
 const agentExec = await client.agents.exec(agentId, 'ls -la');
@@ -161,6 +162,8 @@ await gateway.sendChat('Already normalized', 'main', undefined, [
   },
 ]);
 ```
+
+`client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement.
 
 Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
 

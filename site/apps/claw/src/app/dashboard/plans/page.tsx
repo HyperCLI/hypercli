@@ -103,6 +103,9 @@ export default function PlansPage() {
   const [subscriptionTargets, setSubscriptionTargets] = useState<Record<string, string>>({});
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [showRedeemPanel, setShowRedeemPanel] = useState(false);
+  const [redeemCode, setRedeemCode] = useState("");
+  const [redeemingCode, setRedeemingCode] = useState(false);
 
   useEffect(() => {
     const fetchData = async () => {
@@ -235,6 +238,35 @@ export default function PlansPage() {
     return `${label} ${subscription.expiresAt.toLocaleDateString()}`;
   };
 
+  const handleRedeemCode = async () => {
+    const normalizedCode = redeemCode.trim();
+    if (!normalizedCode) {
+      setSubscriptionNotice(null);
+      setSubscriptionError("Enter a code to activate it.");
+      return;
+    }
+
+    setSubscriptionNotice(null);
+    setSubscriptionError(null);
+    setRedeemingCode(true);
+    try {
+      const agentClient = createHyperAgentClient(await getToken());
+      const result = await agentClient.redeemGrantCode(normalizedCode);
+      const planLabel = result.entitlement.planName || result.entitlement.planId;
+      const expiryLabel = result.entitlement.expiresAt
+        ? ` until ${result.entitlement.expiresAt.toLocaleDateString()}`
+        : "";
+      setSubscriptionNotice(`Code activated. ${planLabel} is now active${expiryLabel}.`);
+      setRedeemCode("");
+      setShowRedeemPanel(false);
+      await refreshPlan();
+    } catch (error) {
+      setSubscriptionError(error instanceof Error ? error.message : "Failed to activate code");
+    } finally {
+      setRedeemingCode(false);
+    }
+  };
+
 
   if (loading) {
     return (
@@ -265,13 +297,71 @@ export default function PlansPage() {
 
   return (
     <div>
-      <div className="mb-8">
-        <h1 className="text-3xl font-bold text-foreground mb-2">Plans</h1>
-        <p className="text-text-secondary">
-          Inference pools across all active entitlements. Agent capacity is tracked as exact-tier slots, so you can buy
-          another bundle whenever you need more agents.
-        </p>
+      <div className="mb-8 flex flex-col gap-4 lg:flex-row lg:items-start lg:justify-between">
+        <div>
+          <h1 className="text-3xl font-bold text-foreground mb-2">Plans</h1>
+          <p className="text-text-secondary">
+            Inference pools across all active entitlements. Agent capacity is tracked as exact-tier slots, so you can buy
+            another bundle whenever you need more agents.
+          </p>
+        </div>
+        <div className="w-full max-w-md glass-card p-4">
+          <div className="flex items-center justify-between gap-3">
+            <div>
+              <p className="text-sm font-semibold text-foreground">Have a promo code?</p>
+              <p className="text-xs text-text-secondary">Redeem an activation code to add a plan-backed entitlement.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setShowRedeemPanel((value) => !value)}
+              className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
+            >
+              {showRedeemPanel ? "Close" : "Activate a Code"}
+            </button>
+          </div>
+          {showRedeemPanel && (
+            <div className="mt-4 flex flex-col gap-3">
+              <input
+                type="text"
+                value={redeemCode}
+                onChange={(event) => setRedeemCode(event.target.value)}
+                onKeyDown={(event) => {
+                  if (event.key === "Enter") {
+                    event.preventDefault();
+                    void handleRedeemCode();
+                  }
+                }}
+                placeholder="Enter activation code"
+                autoCapitalize="characters"
+                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#38D39F]/70"
+              />
+              <div className="flex items-center justify-between gap-3">
+                <p className="text-xs text-text-muted">Codes are applied to the currently signed-in HyperClaw account.</p>
+                <button
+                  type="button"
+                  onClick={() => void handleRedeemCode()}
+                  disabled={redeemingCode}
+                  className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
+                >
+                  {redeemingCode ? "Activating..." : "Redeem"}
+                </button>
+              </div>
+            </div>
+          )}
+        </div>
       </div>
+
+      {subscriptionNotice && (
+        <div className="glass-card p-4 mb-6 border border-[#38D39F]/20">
+          <p className="text-sm text-[#B7F5DF]">{subscriptionNotice}</p>
+        </div>
+      )}
+
+      {subscriptionError && (
+        <div className="glass-card p-4 mb-6 border border-red-500/30">
+          <p className="text-sm text-red-200">{subscriptionError}</p>
+        </div>
+      )}
 
       {(summary || currentPlan) && (
         <div className="grid gap-4 md:grid-cols-4 mb-8">
@@ -325,11 +415,6 @@ export default function PlansPage() {
               subscription and external grant.
             </p>
           </div>
-          {subscriptionError && (
-            <div className="glass-card p-4 mb-4 border border-red-500/30">
-              <p className="text-sm text-red-200">{subscriptionError}</p>
-            </div>
-          )}
           <div className="grid gap-4 md:grid-cols-2">
             {billingSubscriptions.map((subscription) => {
               const bundleLabel = formatBundle(bundleFromSubscription(subscription)) || "Custom";

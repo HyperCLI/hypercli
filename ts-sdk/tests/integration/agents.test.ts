@@ -1,4 +1,10 @@
-import { createAgentWithAvailableTier, createIntegrationClient, agentsIt } from "./helpers.js";
+import {
+  TEST_API_BASE,
+  TEST_BACKEND_API_KEY,
+  createAgentWithAvailableTier,
+  createIntegrationClient,
+  agentsIt,
+} from "./helpers.js";
 import { HyperCLI } from "../../src/client.js";
 import { APIError } from "../../src/errors.js";
 
@@ -66,5 +72,37 @@ describe("TS SDK integration: agents", () => {
       await client.deployments.delete(agentA.id);
       await client.deployments.delete(agentB.id);
     }
+  });
+
+  (TEST_BACKEND_API_KEY ? agentsIt : it.skip)("redeems a grant code created via the admin billing route", async () => {
+    const tag = `suite=ts-redeem-${Math.random().toString(16).slice(2, 10)}`;
+    const createResponse = await fetch(`${TEST_API_BASE.replace(/\/$/, "")}/agents/admin/billing/grants/code`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-BACKEND-API-KEY": TEST_BACKEND_API_KEY,
+      },
+      body: JSON.stringify({
+        plan_id: "basic",
+        duration: 3600,
+        tags: [tag],
+      }),
+    });
+
+    expect(createResponse.ok).toBe(true);
+    const grant = await createResponse.json() as {
+      code: string;
+      plan_id: string;
+      tags?: string[];
+    };
+    expect(grant.code).toBeTruthy();
+    expect(grant.plan_id).toBe("basic");
+
+    const client = createIntegrationClient();
+    const redemption = await client.agent.redeemGrantCode(grant.code);
+
+    expect(redemption.grant.code).toBe(grant.code);
+    expect(redemption.entitlement.planId).toBe("basic");
+    expect(redemption.entitlement.tags).toContain(tag);
   });
 });

@@ -41,6 +41,7 @@ hyper flow text-to-image "a cinematic portrait" --x402
 # HyperClaw checkout/config
 hyper agent plans
 hyper agent subscribe basic
+hyper agent activate-code PROMO123
 hyper agent config env
 hyper agent exec <agent_id> "ls -la"
 hyper agent shell <agent_id>

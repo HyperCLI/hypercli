@@ -108,3 +108,32 @@ def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources(
     }
 
     assert agent_mod._extract_plan_purchase_url_from_discovery(discovery, "basic") is None
+
+
+def test_agent_activate_code_redeems_via_sdk(monkeypatch):
+    class _FakeAgent:
+        def redeem_grant_code(self, code: str):
+            assert code == "promo-123"
+            return {
+                "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123", "plan_id": "basic"},
+                "entitlement": {
+                    "id": "ent-1",
+                    "plan_id": "basic",
+                    "plan_name": "Basic",
+                    "starts_at": "2026-04-27T00:00:00Z",
+                    "expires_at": "2026-05-27T00:00:00Z",
+                    "tags": ["customer=acme"],
+                },
+            }
+
+    class _FakeClient:
+        agent = _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
+
+    result = runner.invoke(app, ["agent", "activate-code", "promo-123"])
+
+    assert result.exit_code == 0
+    assert "HyperClaw Code Activated" in result.output
+    assert "promo-123" in result.output
+    assert "Basic" in result.output

@@ -89,6 +89,7 @@ from openai import OpenAI
 
 sdk = HyperCLI(api_key="hyper_api_key", agent_api_key="sk-agent")
 plans = sdk.agent.plans()
+activation = sdk.agent.redeem_grant_code("PROMO123")
 
 client = OpenAI(
     api_key="your_hyperagent_api_key",
@@ -100,6 +101,8 @@ response = client.chat.completions.create(
     messages=[{"role": "user", "content": "Hello!"}]
 )
 ```
+
+`redeem_grant_code()` applies a promo/activation code to the current HyperClaw account and returns the created entitlement.
 
 ## OpenClaw Agents
 
