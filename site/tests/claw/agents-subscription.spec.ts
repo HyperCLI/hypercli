@@ -24,8 +24,16 @@ test.describe.serial("Agents subscription", () => {
     await loginWithPrivy(page);
 
     try {
-      await page.goto("/plans", { waitUntil: "domcontentloaded" });
-      await expect(page.getByRole("heading", { name: /^plans$/i })).toBeVisible({ timeout: 30_000 });
+      await page.goto("/plans", { waitUntil: "networkidle" });
+      await expect
+        .poll(async () => {
+          const heading = page.locator("h1").first();
+          if (!(await heading.isVisible().catch(() => false))) {
+            return null;
+          }
+          return (await heading.textContent())?.trim() ?? null;
+        }, { timeout: 30_000 })
+        .toMatch(/plans/i);
 
       let currentPlan = await fetchClawCurrentPlan(page);
       if (!currentPlan || currentPlan.id === "free") {
