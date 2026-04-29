@@ -75,6 +75,6 @@ hyper deploy --env production --config ./openclaw.json
 
 export const InlineCode: Story = {
   args: {
-    content: "Use the \`clawFetch()\` function to make authenticated API calls. The token is stored in \`localStorage\` under the key \`claw_auth_token\`.",
+    content: "Use the official SDK client methods for authenticated agent operations. The frontend must not call API endpoints directly.",
   },
 };

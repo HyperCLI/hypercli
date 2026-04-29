@@ -20,7 +20,7 @@ export const billingKeys = {
 };
 
 export function useBilling() {
-  const { token, ready } = useHyperCLI();
+  const { hyperAgent, ready } = useHyperCLI();
   const queryClient = useQueryClient();
 
   // ── Payments list ──
@@ -32,10 +32,10 @@ export function useBilling() {
   } = useQuery({
     queryKey: billingKeys.payments,
     queryFn: async () => {
-      if (!token) throw new Error("Not authenticated");
-      return getAgentPayments(token);
+      if (!hyperAgent) throw new Error("SDK not ready");
+      return getAgentPayments(hyperAgent);
     },
-    enabled: ready && !!token,
+    enabled: ready && !!hyperAgent,
   });
 
   // ── Billing profile ──
@@ -46,17 +46,17 @@ export function useBilling() {
   } = useQuery({
     queryKey: billingKeys.profile,
     queryFn: async () => {
-      if (!token) throw new Error("Not authenticated");
-      return getAgentBillingProfile(token);
+      if (!hyperAgent) throw new Error("SDK not ready");
+      return getAgentBillingProfile(hyperAgent);
     },
-    enabled: ready && !!token,
+    enabled: ready && !!hyperAgent,
   });
 
   // ── Update profile mutation ──
   const updateProfileMutation = useMutation({
     mutationFn: async (fields: AgentBillingProfileFields) => {
-      if (!token) throw new Error("Not authenticated");
-      return updateAgentBillingProfile(token, fields);
+      if (!hyperAgent) throw new Error("SDK not ready");
+      return updateAgentBillingProfile(hyperAgent, fields);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: billingKeys.profile });
@@ -66,10 +66,10 @@ export function useBilling() {
   // ── Get single payment ──
   const getPayment = useCallback(
     async (paymentId: string): Promise<AgentPayment> => {
-      if (!token) throw new Error("Not authenticated");
-      return getAgentPayment(token, paymentId);
+      if (!hyperAgent) throw new Error("SDK not ready");
+      return getAgentPayment(hyperAgent, paymentId);
     },
-    [token],
+    [hyperAgent],
   );
 
   const error = (paymentsError || profileError)

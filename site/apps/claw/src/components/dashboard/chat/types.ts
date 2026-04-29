@@ -12,9 +12,14 @@ export type AnimationVariant = FeatureVariant;
 export type ThemeVariant = FeatureVariant;
 export type StreamingVariant = FeatureVariant;
 
+export interface AgentFileReference {
+  agentId: string;
+  path: string;
+}
+
 export interface ChatMessageProps {
   message: ChatMessageType;
-  inlineAudioUrl?: string | null;
+  inlineAudioFile?: AgentFileReference | null;
   agentId?: string | null;
   timestampVariant?: TimestampVariant;
   nameVariant?: NameVariant;

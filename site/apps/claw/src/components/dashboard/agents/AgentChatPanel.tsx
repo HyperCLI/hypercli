@@ -2,8 +2,6 @@
 
 import React from "react";
 import { Loader2, MessageSquare, Mic, Paperclip, Pause, Play, Send, Square, X } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
-import { encodePath } from "@/lib/image-tools";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
@@ -129,14 +127,12 @@ export function AgentChatPanel({
 
         {chat.messages.map((msg, i) => {
           const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
-          const inlineAudioUrl = voicePath
-            ? `${API_BASE_URL}/deployments/${selectedAgent.id}/files/${encodePath(voicePath)}`
-            : null;
+          const inlineAudioFile = voicePath ? { agentId: selectedAgent.id, path: voicePath } : null;
           return (
             <ChatMessageBubble
               key={i}
               message={msg}
-              inlineAudioUrl={inlineAudioUrl}
+              inlineAudioFile={inlineAudioFile}
               agentId={selectedAgent.id}
               timestampVariant="v2"
               bubblesVariant="v2"

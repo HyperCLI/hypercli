@@ -295,7 +295,7 @@ export const MOCK_PROVIDERS = [
 
 export const MOCK_EXEC_QUEUE = [
   { id: "exec_1", command: "rm -rf /tmp/cache/*", requestedAt: Date.now() - 30000 },
-  { id: "exec_2", command: "npm install --save axios", requestedAt: Date.now() - 15000 },
+  { id: "exec_2", command: "npm install --save zod", requestedAt: Date.now() - 15000 },
 ];
 
 export const MOCK_AGENT_URLS = [

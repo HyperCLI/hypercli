@@ -17,7 +17,7 @@ import { TimestampDisplay } from "./TimestampDisplay";
 
 export function ChatMessageBubble({
   message,
-  inlineAudioUrl = null,
+  inlineAudioFile = null,
   agentId = null,
   timestampVariant = "off",
   nameVariant = "off",
@@ -31,7 +31,7 @@ export function ChatMessageBubble({
   isGroupChat = false,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
-  const { isPlaying: inlineAudioPlaying, toggle: toggleInlineAudio } = useInlineAudio(inlineAudioUrl);
+  const { isPlaying: inlineAudioPlaying, toggle: toggleInlineAudio } = useInlineAudio(inlineAudioFile);
 
   // Suppress content that's a JSON echo of tool results already shown in the tool call UI.
   const hasToolResults = message.toolCalls?.some((tc) => tc.result != null) ?? false;
@@ -134,7 +134,7 @@ export function ChatMessageBubble({
         </div>
 
         {/* Audio playback */}
-        {inlineAudioUrl && (
+        {inlineAudioFile && (
           <button
             type="button"
             onClick={toggleInlineAudio}

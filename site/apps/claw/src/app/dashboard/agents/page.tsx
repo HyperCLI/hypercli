@@ -1518,7 +1518,7 @@ export default function AgentsPage() {
         availableAgents={agents.map((a) => ({ id: a.id, name: a.name || a.id, type: "agent" as const }))}
         availableUsers={MOCK_PARTICIPANTS.filter((p) => p.type === "user")}
         onCreate={async (channel) => {
-          // TODO: backend endpoint for channel creation. For now, log and close.
+          // TODO: raise an SDK/API requirement for channel creation. For now, log and close.
           console.log("Create channel:", channel);
         }}
       />

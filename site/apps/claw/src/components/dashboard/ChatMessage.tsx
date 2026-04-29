@@ -4,8 +4,8 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import Markdown from "react-markdown";
 import { motion, type HTMLMotionProps } from "framer-motion";
-import type { ChatMessage as ChatMessageType, ChatAttachment } from "@/lib/openclaw-chat";
-import { getStoredToken, API_BASE_URL } from "@/lib/api";
+import type { ChatMessage as ChatMessageType } from "@/lib/openclaw-chat";
+import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -22,10 +22,6 @@ function extractImagePath(tc: { name: string; args: string; result?: string }): 
   return null;
 }
 
-function encodePath(path: string): string {
-  return path.split("/").filter(Boolean).map((part) => encodeURIComponent(part)).join("/");
-}
-
 // ── Variant types ──
 
 export type FeatureVariant = "off" | "v1" | "v2" | "v3";
@@ -39,7 +35,7 @@ export type StreamingVariant = FeatureVariant;
 
 interface ChatMessageProps {
   message: ChatMessageType;
-  inlineAudioUrl?: string | null;
+  inlineAudioFile?: AgentFileReference | null;
   agentId?: string | null;
   // Feature variants — all default to "off" (current production behavior, no change)
   timestampVariant?: TimestampVariant;
@@ -52,6 +48,11 @@ interface ChatMessageProps {
   agentName?: string;
   senderName?: string;
   isGroupChat?: boolean;
+}
+
+interface AgentFileReference {
+  agentId: string;
+  path: string;
 }
 
 const THINKING_PREVIEW_LINES = 2;
@@ -163,63 +164,62 @@ function toolCallSummary(tc: { name: string; args: string; result?: string }): s
   return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
 }
 
-export function AuthImage({ src, alt, className }: { src: string; alt: string; className?: string }) {
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): string | null {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const blobRef = useRef<string | null>(null);
-
-  function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
-    return bytes.buffer.slice(
-      bytes.byteOffset,
-      bytes.byteOffset + bytes.byteLength,
-    ) as ArrayBuffer;
-  }
-
-  function parseAgentFileUrl(rawSrc: string): { agentId: string; path: string } | null {
-    try {
-      const url = new URL(rawSrc, typeof window !== "undefined" ? window.location.origin : "https://agents.hypercli.com");
-      const match = url.pathname.match(/\/deployments\/([^/]+)\/files\/(.+)$/);
-      if (!match) return null;
-      const [, agentId, encodedPath] = match;
-      const path = encodedPath
-        .split("/")
-        .filter(Boolean)
-        .map((part) => decodeURIComponent(part))
-        .join("/");
-      if (!agentId || !path) return null;
-      return { agentId, path };
-    } catch {
-      return null;
-    }
-  }
 
   useEffect(() => {
     setBlobUrl(null);
     setFailed(false);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
+    if (!file) return;
     const token = getStoredToken();
     if (!token) { setFailed(true); return; }
-    const target = parseAgentFileUrl(src);
-    if (!target) { setFailed(true); return; }
+    let cancelled = false;
 
-    createAgentClient(token).fileReadBytes(target.agentId, target.path)
+    createAgentClient(token).fileReadBytes(file.agentId, file.path)
       .then((bytes) => {
+        if (cancelled) return;
         const blob = new Blob([toArrayBuffer(bytes)]);
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setBlobUrl(url);
       })
       .catch(() => {
+        if (cancelled) return;
         setFailed(true);
       });
 
     return () => {
+      cancelled = true;
       if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
     };
-  }, [src]);
+  }, [file?.agentId, file?.path]);
 
-  if (failed || !blobUrl) return null;
+  return failed ? null : blobUrl;
+}
+
+export function AuthImage({
+  file,
+  alt,
+  className,
+}: {
+  file: AgentFileReference;
+  alt: string;
+  className?: string;
+}) {
+  const blobUrl = useAgentFileObjectUrl(file);
+
+  if (!blobUrl) return null;
 
   return (
     <a href={blobUrl} target="_blank" rel="noopener noreferrer">
@@ -294,7 +294,7 @@ function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
 
 export function ChatMessageBubble({
   message,
-  inlineAudioUrl = null,
+  inlineAudioFile = null,
   agentId = null,
   timestampVariant = "off",
   nameVariant = "off",
@@ -311,6 +311,7 @@ export function ChatMessageBubble({
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
   const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
+  const inlineAudioUrl = useAgentFileObjectUrl(inlineAudioFile);
 
   useEffect(() => {
     if (!inlineAudioUrl) return;
@@ -428,9 +429,7 @@ export function ChatMessageBubble({
           const hasResult = Boolean(tc.result);
           const summary = toolCallSummary(tc);
           const imagePath = agentId ? extractImagePath(tc) : null;
-          const imageUrl = imagePath && agentId
-            ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
-            : null;
+          const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
           return (
             <div
               key={j}
@@ -469,10 +468,10 @@ export function ChatMessageBubble({
                   )}
                 </pre>
               )}
-              {imageUrl && (
+              {imageFile && (
                 <div className="px-2.5 py-2 border-t border-border">
                   <AuthImage
-                    src={imageUrl}
+                    file={imageFile}
                     alt={imagePath?.split("/").pop() || "generated image"}
                     className="max-w-[320px] max-h-[320px] rounded-md object-contain"
                   />

@@ -668,7 +668,7 @@ app.get('/api/agents/models', (req, res) => {
   res.json({ models });
 });
 
-// Same endpoint without /api prefix (used by landing page ModelsSection via NEXT_PUBLIC_HYPER_AGENT_MODELS_URL)
+// Same endpoint without /api prefix kept for mock-server compatibility.
 app.get('/agents/models', (req, res) => {
   const models = Array.from({ length: 12 }, () => generateModel());
   res.json({ models });

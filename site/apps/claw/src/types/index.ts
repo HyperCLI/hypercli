@@ -54,7 +54,7 @@ export interface KeyUsageEntry {
   output_tokens: number;
 }
 
-// ── Agent type catalog (from /types endpoint) ──
+// ── Agent type catalog (SDK-backed) ──
 
 export interface AgentTypePreset {
   id: string;

@@ -10,7 +10,11 @@
     "switch:feat": "cp .env.feat .env.local && echo '✅ Switched to REAL API'",
     "build": "next build",
     "start": "sh -lc 'next start --port ${PORT:-4003}'",
-    "lint": "eslint",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage",
+    "lint:api-boundary": "node scripts/check-api-boundary.mjs",
+    "lint": "npm run lint:api-boundary && eslint",
     "clean": "rm -rf .next",
     "storybook": "storybook dev -p 6006",
     "build-storybook": "storybook build"
@@ -41,6 +45,10 @@
     "@storybook/addon-vitest": "^10.3.5",
     "@storybook/nextjs-vite": "^10.3.5",
     "@tailwindcss/postcss": "*",
+    "@testing-library/jest-dom": "^6.9.1",
+    "@testing-library/react": "^16.3.0",
+    "@testing-library/user-event": "^14.6.1",
+    "@types/jest-axe": "^3.5.9",
     "@types/node": "*",
     "@types/react": "*",
     "@types/react-dom": "*",
@@ -50,16 +58,13 @@
     "eslint": "*",
     "eslint-config-next": "*",
     "eslint-plugin-storybook": "^10.3.5",
+    "jest-axe": "^10.0.0",
+    "jsdom": "^27.3.0",
     "null-loader": "^4.0.1",
     "storybook": "^10.3.5",
     "tailwindcss": "*",
     "typescript": "5.9.3",
     "vite": "^8.0.8",
     "vitest": "^4.1.4"
-  },
-  "eslintConfig": {
-    "extends": [
-      "plugin:storybook/recommended"
-    ]
   }
 }

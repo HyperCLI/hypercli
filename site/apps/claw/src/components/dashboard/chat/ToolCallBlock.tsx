@@ -1,9 +1,8 @@
 "use client";
 
 import { Check, ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react";
-import { API_BASE_URL } from "@/lib/api";
 import { getToolCallClass } from "./bubbleStyles";
-import { extractImagePath, encodePath, toolCallSummary } from "./helpers";
+import { extractImagePath, toolCallSummary } from "./helpers";
 import { AuthImage } from "./AuthImage";
 import type { ThemeVariant } from "./types";
 
@@ -20,9 +19,7 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
   const hasResult = Boolean(tc.result);
   const summary = toolCallSummary(tc);
   const imagePath = agentId ? extractImagePath(tc) : null;
-  const imageUrl = imagePath && agentId
-    ? `${API_BASE_URL}/deployments/${agentId}/files/${encodePath(imagePath)}`
-    : null;
+  const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
 
   return (
     <div className={getToolCallClass(themeVariant, hasResult)}>
@@ -57,10 +54,10 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
           )}
         </pre>
       )}
-      {imageUrl && (
+      {imageFile && (
         <div className="px-2.5 py-2 border-t border-border">
           <AuthImage
-            src={imageUrl}
+            file={imageFile}
             alt={imagePath?.split("/").pop() || "generated image"}
             className="max-w-[320px] max-h-[320px] rounded-md object-contain"
           />
