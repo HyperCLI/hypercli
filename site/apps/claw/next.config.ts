@@ -19,7 +19,20 @@ for (const envVar of requiredEnvVars) {
 }
 
 const nextConfig: NextConfig = {
-  // Only allow dev proxy origins in development — never in production builds
+  async headers() {
+    return [
+      {
+        source: "/dev/agent-setup/:path*",
+        headers: [
+          {
+            key: "Cross-Origin-Opener-Policy",
+            value: "same-origin-allow-popups",
+          },
+        ],
+      },
+    ];
+  },
+  // Only allow dev proxy origins in development; never in production builds.
   ...(process.env.NODE_ENV !== "production" && {
     allowedDevOrigins: [
       "gilfoyle.hypercli.com",

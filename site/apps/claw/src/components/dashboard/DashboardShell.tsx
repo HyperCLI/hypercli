@@ -48,7 +48,8 @@ export function DashboardShell({
   const isAgentsRoute =
     pathname === "/agents" ||
     pathname.startsWith("/agents/") ||
-    pathname.startsWith("/dashboard/agents");
+    pathname.startsWith("/dashboard/agents") ||
+    pathname.startsWith("/dev/agent-setup/agents");
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(min-width: 768px)").matches;
