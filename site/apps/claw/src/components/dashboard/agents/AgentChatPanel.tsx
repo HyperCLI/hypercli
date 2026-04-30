@@ -1,13 +1,24 @@
 "use client";
 
 import React from "react";
-import { Loader2, MessageSquare, Mic, Paperclip, Pause, Play, Send, Square, X } from "lucide-react";
+import { ArrowRight, Loader2, MessageSquare, Mic, Paperclip, Pause, Play, Send, Square, X, type LucideIcon } from "lucide-react";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import { MOCK_CONNECTIONS } from "@/components/dashboard/agentViewMockData";
+import { PLUGIN_REGISTRY } from "@/components/dashboard/integrations/plugin-registry";
 
 type ChatSession = ReturnType<typeof useOpenClawSession>;
+
+export interface ChatConnectionSuggestion {
+  id: string;
+  displayName: string;
+  description: string;
+  category: string;
+  Icon: LucideIcon;
+  directoryPluginId?: string;
+}
 
 interface AgentChatPanelProps {
   chat: ChatSession;
@@ -34,6 +45,104 @@ interface AgentChatPanelProps {
   startRecording: () => void;
   handleSendChat: () => void;
   formatDuration: (seconds: number) => string;
+  onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
+}
+
+const CONNECTION_ALIAS_OVERRIDES: Record<string, string[]> = {
+  "amazon-bedrock": ["aws bedrock", "bedrock"],
+  "cloudflare-ai-gateway": ["cloudflare", "cloudflare ai"],
+  duckduckgo: ["duck duck go", "ddg"],
+  "github-copilot": ["github copilot", "copilot"],
+  gcal: ["google calendar", "calendar", "gcal"],
+  gdrive: ["google drive", "drive", "gdrive"],
+  gmail: ["gmail", "google mail", "email"],
+  googlechat: ["google chat", "gchat"],
+  huggingface: ["hugging face", "hf"],
+  imessage: ["imessage", "i message"],
+  "microsoft": ["azure speech", "microsoft speech"],
+  "msteams": ["microsoft teams", "ms teams", "teams"],
+  "nextcloud-talk": ["nextcloud talk", "nextcloud"],
+  openai: ["open ai", "chatgpt"],
+  "openrouter": ["open router"],
+  "qwen-portal-auth": ["qwen", "qwen oauth"],
+  "synology-chat": ["synology chat", "synology"],
+  whatsapp: ["whats app"],
+  xai: ["x ai", "grok"],
+  zalouser: ["zalo personal"],
+};
+
+const WORKSPACE_CONNECTION_DIRECTORY_MAP: Record<string, string> = {
+  slack: "slack",
+  telegram: "telegram",
+  teams: "msteams",
+};
+
+const CHAT_CONNECTION_CATALOG: ChatConnectionSuggestion[] = (() => {
+  const suggestions = new Map<string, ChatConnectionSuggestion>();
+
+  for (const connection of MOCK_CONNECTIONS) {
+    suggestions.set(connection.id, {
+      id: connection.id,
+      displayName: connection.name,
+      description: connection.description,
+      category: connection.category,
+      Icon: connection.icon,
+      directoryPluginId: WORKSPACE_CONNECTION_DIRECTORY_MAP[connection.id],
+    });
+  }
+
+  for (const plugin of PLUGIN_REGISTRY) {
+    if (plugin.category === "built-in") continue;
+    if (Array.from(suggestions.values()).some((suggestion) => suggestion.directoryPluginId === plugin.id)) continue;
+    if (suggestions.has(plugin.id)) {
+      const existing = suggestions.get(plugin.id);
+      if (existing) suggestions.set(plugin.id, { ...existing, directoryPluginId: plugin.id });
+      continue;
+    }
+    suggestions.set(plugin.id, {
+      id: plugin.id,
+      displayName: plugin.displayName,
+      description: plugin.description,
+      category: plugin.category === "chat" ? "Communication" : plugin.category === "ai-providers" ? "Models" : "Tools",
+      Icon: plugin.icon,
+      directoryPluginId: plugin.id,
+    });
+  }
+
+  return Array.from(suggestions.values());
+})();
+
+function normalizeConnectionAlias(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+}
+
+function connectionAliases(suggestion: ChatConnectionSuggestion): string[] {
+  const baseAliases = [
+    suggestion.id,
+    suggestion.displayName,
+    normalizeConnectionAlias(suggestion.displayName).replace(/\s+/g, ""),
+    ...(suggestion.directoryPluginId ? [suggestion.directoryPluginId] : []),
+  ];
+  return Array.from(
+    new Set(
+      [...baseAliases, ...(CONNECTION_ALIAS_OVERRIDES[suggestion.id] ?? []), ...(suggestion.directoryPluginId ? CONNECTION_ALIAS_OVERRIDES[suggestion.directoryPluginId] ?? [] : [])]
+        .map(normalizeConnectionAlias)
+        .filter((alias) => alias.length >= 3),
+    ),
+  );
+}
+
+function aliasAppearsInInput(input: string, alias: string): boolean {
+  const compactInput = normalizeConnectionAlias(input);
+  if (!compactInput) return false;
+  const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
+  return new RegExp(`(^|\\s)${escapedAlias}(\\s|$)`, "i").test(compactInput);
+}
+
+function getConnectionSuggestions(input: string): ChatConnectionSuggestion[] {
+  const trimmed = input.trim();
+  if (trimmed.length < 3) return [];
+  return CHAT_CONNECTION_CATALOG.filter((suggestion) => connectionAliases(suggestion).some((alias) => aliasAppearsInInput(trimmed, alias))).slice(0, 3);
 }
 
 export function AgentChatPanel({
@@ -61,7 +170,10 @@ export function AgentChatPanel({
   startRecording,
   handleSendChat,
   formatDuration,
+  onConnectionCta,
 }: AgentChatPanelProps) {
+  const connectionSuggestions = React.useMemo(() => getConnectionSuggestions(chat.input), [chat.input]);
+
   return (
     <div
       className={`relative flex h-full min-h-0 flex-col ${chatDragActive ? "bg-surface-low/10" : ""}`}
@@ -157,6 +269,34 @@ export function AgentChatPanel({
       </div>
 
       <div className="flex-shrink-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3">
+        {!recording && !audioUrl && connectionSuggestions.length > 0 && (
+          <div className="mb-2 flex flex-col gap-2">
+            {connectionSuggestions.map((suggestion) => {
+              const Icon = suggestion.Icon;
+              return (
+                <div key={suggestion.id} className="flex items-center gap-3 rounded-2xl border border-[#38D39F]/20 bg-[#38D39F]/8 px-3 py-2 shadow-sm">
+                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-xl bg-[#38D39F]/15 text-[#38D39F]">
+                    <Icon className="h-4 w-4" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="truncate text-sm font-medium text-foreground">Connect {suggestion.displayName}</p>
+                    <p className="truncate text-xs text-text-muted">{suggestion.description}</p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => onConnectionCta?.(suggestion)}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-1.5 text-xs font-medium text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:opacity-50"
+                    disabled={!onConnectionCta}
+                    title={`Open ${suggestion.displayName} connection setup`}
+                  >
+                    Connect
+                    <ArrowRight className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              );
+            })}
+          </div>
+        )}
         {chat.pendingAttachments.length > 0 && (
           <div className="flex gap-2 mb-2 flex-wrap">
             {chat.pendingAttachments.map((att, i) => (

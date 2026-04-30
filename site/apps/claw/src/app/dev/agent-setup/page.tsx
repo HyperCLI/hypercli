@@ -1,32 +1,62 @@
 "use client";
 
-import { useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ComponentType, type CSSProperties, type ReactNode } from "react";
 import { useRouter } from "next/navigation";
 import {
+  Activity,
   AlertTriangle,
   ArrowRight,
   Bot,
+  CalendarClock,
   Check,
   Clock3,
+  Code2,
   CreditCard,
   Crown,
+  Gauge,
   Eye,
   EyeOff,
   FileText,
+  KeyRound,
   Loader2,
+  Mail,
+  MessageSquare,
   Pencil,
   Plug,
+  Plus,
   Rocket,
+  Settings,
   ShieldCheck,
+  TerminalSquare,
+  Trash2,
+  Users,
   UserRound,
   Wand2,
   type LucideIcon,
 } from "lucide-react";
 import { BRAND_ICONS } from "@/components/dashboard/BrandIcons";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createOpenClawAgent } from "@/lib/agent-client";
+import { createAgentClient, createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
+import type { OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 
-type StageId = "plan" | "agent" | "connect" | "files" | "ready";
+type StageId =
+  | "plan"
+  | "team-readiness"
+  | "invite-team"
+  | "agent"
+  | "team-context"
+  | "connect"
+  | "files"
+  | "collaboration"
+  | "control-center"
+  | "automation"
+  | "developer-access"
+  | "ready";
+type TeamInviteRole = "admin" | "member";
+interface TeamInviteRow {
+  email: string;
+  role: TeamInviteRole;
+}
 type PlanId = "starter" | "team" | "scale";
 type AgentTemplateId = "ops" | "support" | "builder";
 type ServiceId = "slack" | "telegram" | "teams";
@@ -101,6 +131,27 @@ interface InfoRequest {
   prompt: string;
   chips: string[];
   icon: LucideIcon;
+}
+
+interface TeamOnboardingState {
+  workspaceName: string;
+  priority: string;
+  systems: string;
+  vocabulary: string;
+  escalationOwner: string;
+  autonomyLevel: string;
+  trustedSources: string;
+  cadence: string;
+  previewAutomation: string;
+  developerAccess: string;
+}
+
+interface TeamAccountSnapshot {
+  teamId: string | null;
+  planName: string | null;
+  hasActiveSubscription: boolean | null;
+  activeAgents: number | null;
+  entitlementCount: number | null;
 }
 
 const plans: DevPlan[] = [
@@ -320,6 +371,55 @@ const initialFileStatus = setupFiles.reduce<Record<string, FileStatus>>((acc, fi
   return acc;
 }, {});
 
+const initialTeamOnboardingState: TeamOnboardingState = {
+  workspaceName: "Platform",
+  priority: "Reduce incident response time",
+  systems: "dashboard, billing, agents-api",
+  vocabulary: "AIU, grant, entitlement",
+  escalationOwner: "team lead",
+  autonomyLevel: "read and summarize",
+  trustedSources: "README files, runbooks, Slack pins",
+  cadence: "weekday mornings",
+  previewAutomation: "Weekly team summary",
+  developerAccess: "Scoped read-only key for agent status",
+};
+
+const teamCapabilityCards = [
+  { label: "Capacity", detail: "1 medium agent and 1 small helper slot", icon: Gauge, tone: "#7c8cff" },
+  { label: "Shared context", detail: "Team files, vocabulary, boundaries, and handoff rules", icon: FileText, tone: "#38D39F" },
+  { label: "Channels", detail: "Slack, Telegram, and Teams connection previews", icon: MessageSquare, tone: "#5059C9" },
+  { label: "Control", detail: "Logs, config, files, shell, desktop, sessions, and activity", icon: Settings, tone: "#f0c56c" },
+];
+
+const collaborationPreviews = [
+  "Summarize our team context and ask for anything important that is missing.",
+  "Draft a gentle weekly update with wins, blockers, and next steps.",
+  "Review the handoff policy and explain when you would bring in a human.",
+];
+
+const controlCenterPreviews = [
+  { label: "Logs", detail: "Inspect runtime activity without changing the agent.", icon: Activity },
+  { label: "Files", detail: "Read workspace context and starter docs.", icon: FileText },
+  { label: "Config", detail: "Review harmless metadata and channel draft settings.", icon: Settings },
+  { label: "Desktop", detail: "Open a visual workspace when a running agent exposes one.", icon: Gauge },
+  { label: "Shell", detail: "Available later for operators; no shell commands run in setup.", icon: TerminalSquare },
+  { label: "Sessions", detail: "See conversations and reset context when needed.", icon: MessageSquare },
+];
+
+const automationPreviews = [
+  "Weekly team summary",
+  "Weekday morning check-in",
+  "Incident closeout reminder",
+  "No proactive schedule yet",
+];
+
+const developerAccessPreviews = [
+  "Scoped read-only key for agent status",
+  "Scoped key for deployment automation",
+  "CLI setup later",
+  "Skip developer access for now",
+];
+
 function hexToRgba(hex: string, alpha: number) {
   const normalized = hex.replace("#", "");
   const value = parseInt(normalized.length === 3 ? normalized.split("").map((char) => char + char).join("") : normalized, 16);
@@ -375,6 +475,65 @@ function formatAgentProfile({
   return `Name: ${name}\nRole: ${role}\nTone: ${tone}\nPrimary promise: ${promise}`;
 }
 
+function buildTeamSummary(state: TeamOnboardingState, agent: ActiveAgentProfile | AgentTemplate, serviceName: string | null) {
+  return {
+    workspaceName: state.workspaceName,
+    priority: state.priority,
+    systems: state.systems.split(",").map((item) => item.trim()).filter(Boolean),
+    vocabulary: state.vocabulary.split(",").map((item) => item.trim()).filter(Boolean),
+    escalationOwner: state.escalationOwner,
+    autonomyLevel: state.autonomyLevel,
+    trustedSources: state.trustedSources,
+    cadence: state.cadence,
+    previewAutomation: state.previewAutomation,
+    developerAccess: state.developerAccess,
+    agentName: agent.name,
+    agentRole: agent.role,
+    serviceName,
+  };
+}
+
+function buildTeamSetupFiles(
+  state: TeamOnboardingState,
+  agent: ActiveAgentProfile | AgentTemplate,
+  serviceName: string | null,
+): SetupFile[] {
+  const summary = buildTeamSummary(state, agent, serviceName);
+  return [
+    {
+      ...setupFiles[0],
+      content: `# Agent Profile\n\n${agent.profile}\n\nWorkspace: ${state.workspaceName}\nTeam priority: ${state.priority}`,
+    },
+    {
+      ...setupFiles[1],
+      content:
+        `# Communication Rules\n\n` +
+        `- Start with warmth and make the next step clear.\n` +
+        `- Autonomy level: ${state.autonomyLevel}.\n` +
+        `- Trusted sources: ${state.trustedSources}.\n` +
+        `- Check-in cadence: ${state.cadence}.\n` +
+        `- Bring in ${state.escalationOwner} for sensitive decisions, billing, destructive changes, and production risk.\n` +
+        `- In ${serviceName ?? "the selected channel"}, summarize completed work with links and next steps.`,
+    },
+    {
+      ...setupFiles[2],
+      content: JSON.stringify(summary, null, 2),
+    },
+    {
+      ...setupFiles[3],
+      content:
+        `# Handoff Policy\n\n` +
+        `Escalation owner: ${state.escalationOwner}\n\n` +
+        `Ask before changing billing, rotating secrets, running shell commands, deleting files, resizing agents, or changing scheduled work.\n\n` +
+        `Safe during onboarding: write starter context, review files, preview config, and create the first agent.`,
+    },
+  ];
+}
+
+function canUseGateway(agent: unknown): agent is SdkOpenClawAgent {
+  return Boolean(agent && typeof (agent as { waitReady?: unknown }).waitReady === "function");
+}
+
 export default function DevAgentSetupPage() {
   const router = useRouter();
   const { getToken } = useAgentAuth();
@@ -409,18 +568,42 @@ export default function DevAgentSetupPage() {
   );
   const [answers, setAnswers] = useState<Partial<Record<RequestId, string>>>({});
   const [activeRequestId, setActiveRequestId] = useState<RequestId>("boundaries");
+  const [teamOnboardingState, setTeamOnboardingState] = useState<TeamOnboardingState>(initialTeamOnboardingState);
+  const [teamAccountSnapshot, setTeamAccountSnapshot] = useState<TeamAccountSnapshot>({
+    teamId: null,
+    planName: null,
+    hasActiveSubscription: null,
+    activeAgents: null,
+    entitlementCount: null,
+  });
+  const [teamSafeWriteWarning, setTeamSafeWriteWarning] = useState<string | null>(null);
+  const [teamInviteRows, setTeamInviteRows] = useState<TeamInviteRow[]>([
+    { email: "", role: "member" },
+    { email: "", role: "member" },
+    { email: "", role: "member" },
+  ]);
 
   const service = getService(selectedService);
   const selectedPlan = getPlan(selectedPlanId);
   const activePlan = activePlanId ? getPlan(activePlanId) : null;
   const selectedAgentTemplate = getAgentTemplate(selectedAgentTemplateId);
   const SelectedServiceIcon = service.icon;
-  const selectedFile = setupFiles.find((file) => file.id === selectedFileId) ?? setupFiles[0];
-  const readyFiles = Object.values(fileStatus).filter((status) => status === "ready").length;
-  const draftedFiles = Object.values(fileStatus).filter((status) => status !== "missing").length;
+  const isTeamPlanActive = activePlanId === "team";
+  const activeAgentForSetup = activeAgent ?? selectedAgentTemplate;
+  const activeSetupFiles = useMemo(
+    () =>
+      isTeamPlanActive
+        ? buildTeamSetupFiles(teamOnboardingState, activeAgentForSetup, connectedService ? getService(connectedService).name : null)
+        : setupFiles,
+    [activeAgentForSetup, connectedService, isTeamPlanActive, teamOnboardingState],
+  );
+  const selectedFile = activeSetupFiles.find((file) => file.id === selectedFileId) ?? activeSetupFiles[0];
+  const readyFiles = activeSetupFiles.filter((file) => fileStatus[file.id] === "ready").length;
+  const draftedFiles = activeSetupFiles.filter((file) => fileStatus[file.id] !== "missing").length;
   const answeredCount = Object.keys(answers).length;
   const activeRequest = infoRequests.find((request) => request.id === activeRequestId) ?? infoRequests[0];
   const allContextAnswered = answeredCount === infoRequests.length;
+  const launchContextComplete = isTeamPlanActive || allContextAnswered;
 
   const allFieldsFilled = service.fields.every(
     (field) => (serviceConfig[selectedService][field.key] ?? "").trim() !== "",
@@ -441,19 +624,16 @@ export default function DevAgentSetupPage() {
     },
     {
       label: "Starter files",
-      detail: `${readyFiles}/${setupFiles.length} ready`,
-      done: readyFiles === setupFiles.length,
+      detail: `${readyFiles}/${activeSetupFiles.length} ready`,
+      done: readyFiles === activeSetupFiles.length,
     },
     {
-      label: "Guidance answers",
-      detail: allContextAnswered ? "Everything is filled in" : `${answeredCount}/${infoRequests.length} answered`,
-      done: allContextAnswered,
+      label: isTeamPlanActive ? "Team discovery" : "Guidance answers",
+      detail: isTeamPlanActive
+        ? `${teamOnboardingState.workspaceName} context is ready`
+        : allContextAnswered ? "Everything is filled in" : `${answeredCount}/${infoRequests.length} answered`,
+      done: launchContextComplete,
     },
-  ];
-  const starterPrompts = [
-    `Hi ${activeAgent?.name ?? "there"}, introduce yourself and tell me how you can help in ${connectedService ? getService(connectedService).name : "this workspace"}.`,
-    `Summarize this setup and suggest the best next action for ${activeAgent?.name ?? "the agent"}.`,
-    `What extra context would help you be more useful right away?`,
   ];
   const customAgentPreviewProfile = useMemo(
     () =>
@@ -466,6 +646,117 @@ export default function DevAgentSetupPage() {
     [customAgentName, customAgentPromise, customAgentRole, customAgentTone],
   );
 
+  useEffect(() => {
+    if (activePlanId !== "team") return;
+    let cancelled = false;
+    const readTeamSnapshot = async () => {
+      try {
+        const token = await getToken();
+        const agentClient = createAgentClient(token);
+        const hyperAgent = createHyperAgentClient(token);
+        const [plan, entitlements, agents] = await Promise.allSettled([
+          hyperAgent.currentPlan(),
+          hyperAgent.entitlements(),
+          agentClient.list(),
+        ]);
+        if (cancelled) return;
+        setTeamAccountSnapshot({
+          teamId: null,
+          planName: plan.status === "fulfilled" ? plan.value.name ?? plan.value.id ?? null : null,
+          hasActiveSubscription: plan.status === "fulfilled" ? true : null,
+          activeAgents: agents.status === "fulfilled" ? agents.value.length : null,
+          entitlementCount:
+            entitlements.status === "fulfilled"
+              ? entitlements.value.activeEntitlementCount
+              : null,
+        });
+      } catch {
+        if (!cancelled) {
+          setTeamAccountSnapshot((prev) => prev);
+        }
+      }
+    };
+    void readTeamSnapshot();
+    return () => {
+      cancelled = true;
+    };
+  }, [activePlanId, getToken]);
+
+  const updateTeamField = (key: keyof TeamOnboardingState, value: string) => {
+    setTeamOnboardingState((prev) => ({ ...prev, [key]: value }));
+  };
+
+  const updateInviteRow = (index: number, patch: Partial<TeamInviteRow>) => {
+    setTeamInviteRows((rows) => rows.map((row, i) => (i === index ? { ...row, ...patch } : row)));
+  };
+
+  const addInviteRow = () => {
+    setTeamInviteRows((rows) => [...rows, { email: "", role: "member" }]);
+  };
+
+  const removeInviteRow = (index: number) => {
+    setTeamInviteRows((rows) => (rows.length > 1 ? rows.filter((_, i) => i !== index) : rows));
+  };
+
+  const teamInviteCount = teamInviteRows.filter((row) => row.email.trim().length > 0).length;
+
+  const resetSetupFiles = () => {
+    setFileStatus(
+      activeSetupFiles.reduce<Record<string, FileStatus>>((acc, file) => {
+        acc[file.id] = "missing";
+        return acc;
+      }, {}),
+    );
+    setFileEdits((prev) => ({
+      ...prev,
+      ...activeSetupFiles.reduce<Record<string, string>>((acc, file) => {
+        acc[file.id] = file.content;
+        return acc;
+      }, {}),
+    }));
+    setSelectedFileId(activeSetupFiles[0].id);
+  };
+
+  const safeWriteTeamStarterContext = async (token: string, agentId: string) => {
+    if (!isTeamPlanActive) return;
+    const agentClient = createAgentClient(token);
+    const runningAgent = await agentClient.waitRunning(agentId, 75_000, 3_000);
+    if (!canUseGateway(runningAgent)) {
+      throw new Error("The agent was created, but its workspace gateway was not ready for starter context.");
+    }
+    await runningAgent.waitReady(60_000, { probe: "config", retryIntervalMs: 3_000 });
+    const gateway = await runningAgent.connect({ clientId: "openclaw-control-ui", clientMode: "ui" });
+    try {
+      const agents = await gateway.agentsList();
+      const gatewayAgentId = agents[0]?.id ?? "main";
+      await Promise.all(
+        activeSetupFiles.map((file) =>
+          gateway.fileSet(gatewayAgentId, file.path, fileEdits[file.id] ?? file.content),
+        ),
+      );
+      await gateway.configPatch({
+        setup: {
+          source: "dev-agent-setup",
+          plan: "team",
+          team: buildTeamSummary(
+            teamOnboardingState,
+            activeAgentForSetup,
+            connectedService ? getService(connectedService).name : null,
+          ),
+          channelDraft: connectedService
+            ? {
+                service: connectedService,
+                status: "preview",
+                noSecretsWritten: true,
+              }
+            : null,
+        },
+      });
+    } finally {
+      gateway.close();
+    }
+  };
+
   const activatePlan = (planId: PlanId) => {
     setActivatingPlanId(planId);
     setCreatedSetupAgentId(null);
@@ -475,7 +766,7 @@ export default function DevAgentSetupPage() {
       window.sessionStorage.setItem("dev-agent-setup-plan", planId);
       setActivePlanId(planId);
       setActivatingPlanId(null);
-      setStage("agent");
+      setStage(planId === "team" ? "team-readiness" : "agent");
     }, 650);
   };
 
@@ -499,7 +790,7 @@ export default function DevAgentSetupPage() {
         ...prev,
         "agent-profile": `# Agent Profile\n\n${template.profile}`,
       }));
-      setStage("connect");
+      setStage(isTeamPlanActive ? "team-context" : "connect");
     }, 650);
   };
 
@@ -534,7 +825,7 @@ export default function DevAgentSetupPage() {
         ...prev,
         "agent-profile": `# Agent Profile\n\n${profile}`,
       }));
-      setStage("connect");
+      setStage(isTeamPlanActive ? "team-context" : "connect");
     }, 650);
   };
 
@@ -553,18 +844,28 @@ export default function DevAgentSetupPage() {
     window.setTimeout(() => {
       setConnectedService(selectedService);
       setConnectionStatus("connected");
+      if (isTeamPlanActive) {
+        resetSetupFiles();
+      }
       setStage("files");
     }, 550);
   };
 
   const draftAllFiles = () => {
     setFileStatus(
-      setupFiles.reduce<Record<string, FileStatus>>((acc, file) => {
+      activeSetupFiles.reduce<Record<string, FileStatus>>((acc, file) => {
         acc[file.id] = "draft";
         return acc;
       }, {}),
     );
-    setSelectedFileId(setupFiles[0].id);
+    setFileEdits((prev) => ({
+      ...prev,
+      ...activeSetupFiles.reduce<Record<string, string>>((acc, file) => {
+        acc[file.id] = file.content;
+        return acc;
+      }, {}),
+    }));
+    setSelectedFileId(activeSetupFiles[0].id);
   };
 
   const markSelectedFileReady = () => {
@@ -576,12 +877,12 @@ export default function DevAgentSetupPage() {
 
   const markAllFilesReady = () => {
     setFileStatus(
-      setupFiles.reduce<Record<string, FileStatus>>((acc, file) => {
+      activeSetupFiles.reduce<Record<string, FileStatus>>((acc, file) => {
         acc[file.id] = "ready";
         return acc;
       }, {}),
     );
-    setStage("ready");
+    setStage(isTeamPlanActive ? "collaboration" : "ready");
     setActiveRequestId(nextMissingRequest.id);
   };
 
@@ -601,6 +902,7 @@ export default function DevAgentSetupPage() {
     if (launchingWorkspace) return;
     setLaunchingWorkspace(true);
     setLaunchError(null);
+    setTeamSafeWriteWarning(null);
     try {
       const agentToCreate = activeAgent ?? {
         id: selectedAgentTemplate.id,
@@ -619,6 +921,7 @@ export default function DevAgentSetupPage() {
         name: agentToCreate.name,
         start: true,
         size: agentToCreate.tier,
+        tags: isTeamPlanActive ? ["setup=agent-onboarding", "plan=team"] : undefined,
         meta: {
           ui: {
             avatar: {
@@ -629,10 +932,35 @@ export default function DevAgentSetupPage() {
         },
       })).id;
 
+      if (isTeamPlanActive && !createdAgentId) {
+        try {
+          await safeWriteTeamStarterContext(token, finalAgentId);
+        } catch (writeErr) {
+          const warning = writeErr instanceof Error
+            ? writeErr.message
+            : "The agent was created, but starter context could not be written yet.";
+          setTeamSafeWriteWarning(warning);
+          window.sessionStorage.setItem("dev-agent-setup-safe-write-warning", warning);
+        }
+      }
+
       window.sessionStorage.setItem("dev-agent-setup-agent-name", agentToCreate.name);
       window.sessionStorage.setItem("dev-agent-setup-created-agent-id", finalAgentId);
       window.sessionStorage.setItem("dev-agent-setup-agent-profile", agentToCreate.profile);
       window.sessionStorage.setItem("dev-agent-setup-agent-tier", agentToCreate.tier);
+      if (isTeamPlanActive) {
+        window.sessionStorage.setItem(
+          "dev-agent-setup-team-summary",
+          JSON.stringify(buildTeamSummary(
+            teamOnboardingState,
+            agentToCreate,
+            connectedService ? getService(connectedService).name : null,
+          )),
+        );
+      } else {
+        window.sessionStorage.removeItem("dev-agent-setup-team-summary");
+        window.sessionStorage.removeItem("dev-agent-setup-safe-write-warning");
+      }
       setCreatedSetupAgentId(finalAgentId);
       router.push("/dev/agent-setup/agents");
     } catch (err) {
@@ -710,7 +1038,7 @@ export default function DevAgentSetupPage() {
                   </div>
                   <button
                     type="button"
-                    onClick={() => activePlanId === selectedPlan.id ? setStage(activeAgent ? "connect" : "agent") : activatePlan(selectedPlan.id)}
+                    onClick={() => activePlanId === selectedPlan.id ? setStage(selectedPlan.id === "team" ? "team-readiness" : activeAgent ? "connect" : "agent") : activatePlan(selectedPlan.id)}
                     disabled={Boolean(activatingPlanId)}
                     className="btn-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
                   >
@@ -728,6 +1056,186 @@ export default function DevAgentSetupPage() {
                         : `Use ${selectedPlan.name}`}
                   </button>
                 </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {stage === "team-readiness" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Set up your team workspace</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
+                  The Team plan gives your first agent a shared home: capacity, context, channels, controls, automation previews, and developer access when you need it.
+                </p>
+              </div>
+              <SummaryPill icon={Crown} label="Team plan active" />
+            </div>
+
+            <div className="grid gap-3 lg:grid-cols-4">
+              {teamCapabilityCards.map((item) => (
+                <CapabilityCard key={item.label} icon={item.icon} label={item.label} detail={item.detail} accent={item.tone} />
+              ))}
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="rounded-xl border border-white/8 bg-surface-low/80 p-5">
+                <p className="text-sm font-semibold text-foreground">Workspace snapshot</p>
+                <p className="mt-1 text-sm leading-6 text-text-secondary">
+                  We read safe account state so the setup feels anchored, then keep every sensitive operation as a preview.
+                </p>
+                <div className="mt-4 grid gap-3 sm:grid-cols-2">
+                  <ReadinessCard label="Team ID" detail={teamAccountSnapshot.teamId ?? "Available after auth check"} done={Boolean(teamAccountSnapshot.teamId)} />
+                  <ReadinessCard label="Plan" detail={teamAccountSnapshot.planName ?? "Team preview selected"} done />
+                  <ReadinessCard
+                    label="Subscription"
+                    detail={teamAccountSnapshot.hasActiveSubscription === null ? "Preview mode" : teamAccountSnapshot.hasActiveSubscription ? "Active" : "No active subscription reported"}
+                    done={teamAccountSnapshot.hasActiveSubscription !== false}
+                  />
+                  <ReadinessCard
+                    label="Agents"
+                    detail={teamAccountSnapshot.activeAgents === null ? "Will load in workspace" : `${teamAccountSnapshot.activeAgents} existing`}
+                    done
+                  />
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/8 bg-background/60 p-5">
+                <p className="text-sm font-semibold text-foreground">What stays preview-only</p>
+                <div className="mt-3 space-y-2">
+                  {["Billing purchases", "Grant redemption", "Cron mutations", "API key mutations", "Shell execution", "Stop, delete, or resize"].map((item) => (
+                    <div key={item} className="flex items-center gap-2 text-sm text-text-secondary">
+                      <ShieldCheck className="h-3.5 w-3.5 text-primary" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStage("invite-team")}
+                  className="btn-primary mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+                >
+                  Invite teammates
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {stage === "invite-team" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div className="text-left">
+                <h2 className="text-left text-lg font-semibold text-foreground">Invite your teammates</h2>
+                <p className="mt-1 max-w-2xl text-left text-sm leading-6 text-text-secondary">
+                  Add the people who should share this workspace with the agent. Nothing is sent during setup — invites are saved as a preview and you can change them later.
+                </p>
+              </div>
+              <SummaryPill icon={Users} label={teamInviteCount > 0 ? `${teamInviteCount} pending invite${teamInviteCount === 1 ? "" : "s"}` : "No invites yet"} />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_320px]">
+              <div className="rounded-xl border border-white/8 bg-surface-low/80 p-5">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-[0.14em] text-text-tertiary">Teammates</p>
+                <div className="space-y-2">
+                  {teamInviteRows.map((row, index) => (
+                    <div key={index} className="flex flex-wrap items-center gap-2 sm:flex-nowrap">
+                      <div className="relative min-w-0 flex-1">
+                        <Mail className="pointer-events-none absolute left-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
+                        <input
+                          type="email"
+                          value={row.email}
+                          onChange={(event) => updateInviteRow(index, { email: event.target.value })}
+                          placeholder="teammate@company.com"
+                          className="h-11 w-full rounded-lg border border-white/8 bg-background/60 pl-10 pr-3 text-sm text-foreground placeholder:text-text-muted transition-colors focus:border-primary/60 focus:bg-background focus:outline-none"
+                        />
+                      </div>
+                      <div className="flex gap-1">
+                        {(["member", "admin"] as TeamInviteRole[]).map((role) => (
+                          <button
+                            key={role}
+                            type="button"
+                            onClick={() => updateInviteRow(index, { role })}
+                            className={`rounded-lg border px-3 py-2 text-xs font-medium capitalize transition-colors ${
+                              row.role === role
+                                ? "border-primary/40 bg-primary/15 text-primary"
+                                : "border-white/8 bg-white/[0.03] text-text-secondary hover:border-white/15 hover:text-foreground"
+                            }`}
+                          >
+                            {role}
+                          </button>
+                        ))}
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => removeInviteRow(index)}
+                        disabled={teamInviteRows.length === 1}
+                        className="flex h-11 w-11 flex-shrink-0 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-white/[0.04] hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-transparent disabled:hover:text-text-muted"
+                        title="Remove row"
+                      >
+                        <Trash2 className="h-4 w-4" />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                <button
+                  type="button"
+                  onClick={addInviteRow}
+                  className="mt-4 inline-flex items-center gap-2 rounded-lg border border-dashed border-white/12 bg-white/[0.02] px-3 py-2 text-sm font-medium text-text-secondary transition-colors hover:border-primary/40 hover:bg-primary/[0.06] hover:text-foreground"
+                >
+                  <Plus className="h-4 w-4" />
+                  Add another teammate
+                </button>
+              </div>
+
+              <div className="space-y-4">
+                <div className="rounded-xl border border-white/8 bg-background/60 p-5">
+                  <p className="text-sm font-semibold text-foreground">What roles can do</p>
+                  <div className="mt-3 space-y-3 text-sm">
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-primary/15 text-primary ring-1 ring-primary/30">
+                        <ShieldCheck className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">Admin</p>
+                        <p className="mt-0.5 text-xs leading-5 text-text-secondary">Manage agents, billing, integrations, and team settings.</p>
+                      </div>
+                    </div>
+                    <div className="flex items-start gap-3">
+                      <div className="mt-0.5 flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg bg-white/[0.04] text-text-secondary ring-1 ring-white/10">
+                        <UserRound className="h-3.5 w-3.5" />
+                      </div>
+                      <div>
+                        <p className="font-medium text-foreground">Member</p>
+                        <p className="mt-0.5 text-xs leading-5 text-text-secondary">Chat with agents and read shared workspace context.</p>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <div className="flex gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setStage("agent")}
+                    className="btn-secondary inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-medium"
+                  >
+                    Skip for now
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setStage("agent")}
+                    className="btn-primary inline-flex flex-1 items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+                  >
+                    {teamInviteCount > 0 ? "Save and continue" : "Continue"}
+                    <ArrowRight className="h-4 w-4" />
+                  </button>
+                </div>
+                <p className="text-center text-xs text-text-tertiary">
+                  Nothing is sent during setup — these become a preview-only invite list.
+                </p>
               </div>
             </div>
           </section>
@@ -886,7 +1394,7 @@ export default function DevAgentSetupPage() {
                   </pre>
                   <button
                     type="button"
-                    onClick={() => activeAgentTemplateId === selectedAgentTemplate.id ? setStage("connect") : createAgent(selectedAgentTemplate.id)}
+                    onClick={() => activeAgentTemplateId === selectedAgentTemplate.id ? setStage(isTeamPlanActive ? "team-context" : "connect") : createAgent(selectedAgentTemplate.id)}
                     disabled={creatingAgent}
                     className="btn-primary mt-4 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold disabled:opacity-60"
                   >
@@ -904,6 +1412,61 @@ export default function DevAgentSetupPage() {
                         : `Create ${selectedAgentTemplate.name}`}
                   </button>
                 </div>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {stage === "team-context" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Teach {activeAgent?.name ?? "the agent"} how your team works</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
+                  This becomes starter context for files and a harmless setup config patch after the agent is created.
+                </p>
+              </div>
+              <SummaryPill icon={Users} label={teamOnboardingState.workspaceName || "Team workspace"} />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="rounded-xl border border-white/8 bg-surface-low/80 p-5">
+                <div className="grid gap-4 sm:grid-cols-2">
+                  <Field label="Workspace name" value={teamOnboardingState.workspaceName} onChange={(value) => updateTeamField("workspaceName", value)} placeholder="Platform" />
+                  <Field label="Top priority" value={teamOnboardingState.priority} onChange={(value) => updateTeamField("priority", value)} placeholder="Reduce incident response time" />
+                  <Field label="Systems" value={teamOnboardingState.systems} onChange={(value) => updateTeamField("systems", value)} placeholder="dashboard, billing, agents-api" />
+                  <Field label="Team vocabulary" value={teamOnboardingState.vocabulary} onChange={(value) => updateTeamField("vocabulary", value)} placeholder="AIU, grant, entitlement" />
+                  <Field label="Escalation owner" value={teamOnboardingState.escalationOwner} onChange={(value) => updateTeamField("escalationOwner", value)} placeholder="team lead" />
+                  <Field label="Trusted sources" value={teamOnboardingState.trustedSources} onChange={(value) => updateTeamField("trustedSources", value)} placeholder="README files, runbooks, Slack pins" />
+                </div>
+              </div>
+
+              <div className="space-y-4">
+                <ChoicePanel
+                  icon={ShieldCheck}
+                  label="Autonomy"
+                  value={teamOnboardingState.autonomyLevel}
+                  options={["draft only", "read and summarize", "create tasks", "suggest safe fixes"]}
+                  onChange={(value) => updateTeamField("autonomyLevel", value)}
+                />
+                <ChoicePanel
+                  icon={Clock3}
+                  label="Cadence"
+                  value={teamOnboardingState.cadence}
+                  options={["weekday mornings", "after deploys", "incident closeout", "never proactive"]}
+                  onChange={(value) => updateTeamField("cadence", value)}
+                />
+                <button
+                  type="button"
+                  onClick={() => {
+                    resetSetupFiles();
+                    setStage("connect");
+                  }}
+                  className="btn-primary inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+                >
+                  Choose the first channel
+                  <ArrowRight className="h-4 w-4" />
+                </button>
               </div>
             </div>
           </section>
@@ -1034,11 +1597,11 @@ export default function DevAgentSetupPage() {
                 <div className="border-b border-white/8 p-4">
                   <div className="flex items-center justify-between">
                     <p className="text-sm font-semibold text-foreground">Setup files</p>
-                    <span className="text-xs tabular-nums text-text-tertiary">{readyFiles}/{setupFiles.length} ready</span>
+                    <span className="text-xs tabular-nums text-text-tertiary">{readyFiles}/{activeSetupFiles.length} ready</span>
                   </div>
                 </div>
                 <div className="divide-y divide-white/[0.04]">
-                  {setupFiles.map((file) => (
+                  {activeSetupFiles.map((file) => (
                     <FileRow
                       key={file.id}
                       file={file}
@@ -1102,15 +1665,186 @@ export default function DevAgentSetupPage() {
           </section>
         )}
 
+        {stage === "collaboration" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
+              <div>
+                <h2 className="text-lg font-semibold text-foreground">Preview the first team conversation</h2>
+                <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
+                  These prompts show sessions, chat history, and team context without sending anything during setup.
+                </p>
+              </div>
+              <SummaryPill icon={MessageSquare} label="Chat preview" />
+            </div>
+
+            <div className="grid gap-4 lg:grid-cols-[minmax(0,1fr)_340px]">
+              <div className="overflow-hidden rounded-xl border border-white/8 bg-surface-low/80">
+                <div className="border-b border-white/8 p-4">
+                  <p className="text-sm font-semibold text-foreground">{activeAgentForSetup.name} starter prompts</p>
+                </div>
+                <div className="divide-y divide-white/[0.04]">
+                  {collaborationPreviews.map((prompt) => (
+                    <div key={prompt} className="p-4">
+                      <p className="text-sm leading-6 text-text-secondary">{prompt}</p>
+                      <div className="mt-3 flex flex-wrap gap-2">
+                        <Chip>Preview</Chip>
+                        <Chip>No message sent</Chip>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              <div className="rounded-xl border border-white/8 bg-background/60 p-5">
+                <p className="text-sm font-semibold text-foreground">What users discover</p>
+                <div className="mt-3 space-y-2">
+                  {["Streaming chat", "Session history", "Attachments later", "Tool-call visibility"].map((item) => (
+                    <div key={item} className="flex items-center gap-2 text-sm text-text-secondary">
+                      <Check className="h-3.5 w-3.5 text-primary" />
+                      <span>{item}</span>
+                    </div>
+                  ))}
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setStage("control-center")}
+                  className="btn-primary mt-5 inline-flex w-full items-center justify-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+                >
+                  Review controls
+                  <ArrowRight className="h-4 w-4" />
+                </button>
+              </div>
+            </div>
+          </section>
+        )}
+
+        {stage === "control-center" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Show the team they stay in control</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
+                This stage introduces observability and operator controls. Shell and destructive actions are shown as available later, but nothing runs here.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2 xl:grid-cols-3">
+              {controlCenterPreviews.map((item) => (
+                <CapabilityCard key={item.label} icon={item.icon} label={item.label} detail={item.detail} accent="#38D39F" />
+              ))}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStage("automation")}
+                className="btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+              >
+                Draft automation
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {stage === "automation" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Draft a helpful routine</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
+                Scheduled work is powerful, so setup only drafts the idea. The workspace can create or run cron jobs later.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {automationPreviews.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => updateTeamField("previewAutomation", item)}
+                  className={`rounded-xl border p-5 text-left transition-colors ${
+                    teamOnboardingState.previewAutomation === item
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-white/8 bg-surface-low/80 hover:border-white/15"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    <CalendarClock className="mt-0.5 h-5 w-5 text-primary" />
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{item}</p>
+                      <p className="mt-1 text-sm text-text-secondary">Preview only. No cron job is created during onboarding.</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStage("developer-access")}
+                className="btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+              >
+                Preview developer access
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </section>
+        )}
+
+        {stage === "developer-access" && isTeamPlanActive && (
+          <section className="space-y-5">
+            <div>
+              <h2 className="text-lg font-semibold text-foreground">Preview API access for the team</h2>
+              <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
+                Team members can automate later with scoped keys. This setup records the preference but does not create, disable, or rotate any key.
+              </p>
+            </div>
+
+            <div className="grid gap-3 md:grid-cols-2">
+              {developerAccessPreviews.map((item) => (
+                <button
+                  key={item}
+                  type="button"
+                  onClick={() => updateTeamField("developerAccess", item)}
+                  className={`rounded-xl border p-5 text-left transition-colors ${
+                    teamOnboardingState.developerAccess === item
+                      ? "border-primary/40 bg-primary/10"
+                      : "border-white/8 bg-surface-low/80 hover:border-white/15"
+                  }`}
+                >
+                  <div className="flex items-start gap-3">
+                    {item.includes("CLI") ? <Code2 className="mt-0.5 h-5 w-5 text-primary" /> : <KeyRound className="mt-0.5 h-5 w-5 text-primary" />}
+                    <div>
+                      <p className="text-sm font-semibold text-foreground">{item}</p>
+                      <p className="mt-1 text-sm text-text-secondary">Preview only. No API key mutation happens in setup.</p>
+                    </div>
+                  </div>
+                </button>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap justify-end gap-3">
+              <button
+                type="button"
+                onClick={() => setStage("ready")}
+                className="btn-primary inline-flex items-center gap-2 rounded-lg px-4 py-2.5 text-sm font-semibold"
+              >
+                Finish setup
+                <ArrowRight className="h-4 w-4" />
+              </button>
+            </div>
+          </section>
+        )}
+
         {stage === "ready" && (
           <section className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div className="text-left">
                 <h2 className="text-left text-lg font-semibold text-foreground">
-                  {allContextAnswered ? `${activeAgent?.name ?? "Your agent"} is ready` : "A few last decisions"}
+                  {launchContextComplete ? `${activeAgent?.name ?? "Your agent"} is ready` : "A few last decisions"}
                 </h2>
                 <p className="mt-1 text-left text-sm text-text-secondary">
-                  {allContextAnswered
+                  {launchContextComplete
                     ? "Everything is in place. Open the workspace to start the real conversation."
                     : "Tell the agent how it should operate. You can change any answer later from the workspace."}
                 </p>
@@ -1119,11 +1853,11 @@ export default function DevAgentSetupPage() {
                 <SummaryPill icon={CreditCard} label={activePlan ? `${activePlan.name} plan` : "No plan"} />
                 <SummaryPill icon={Bot} label={activeAgent ? activeAgent.name : "No agent"} />
                 <SummaryPill icon={Plug} label={connectedService ? getService(connectedService).name : "No service"} />
-                <SummaryPill icon={FileText} label={`${readyFiles}/${setupFiles.length} files`} />
+                <SummaryPill icon={FileText} label={`${readyFiles}/${activeSetupFiles.length} files`} />
               </div>
             </div>
 
-            {(!connectedService || readyFiles < setupFiles.length) && (
+            {(!connectedService || readyFiles < activeSetupFiles.length) && (
               <div className="flex items-start gap-3 rounded-xl border border-[#f0c56c]/25 bg-[#f0c56c]/[0.06] p-4">
                 <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#f0c56c]" />
                 <div>
@@ -1136,6 +1870,16 @@ export default function DevAgentSetupPage() {
                 </div>
               </div>
             )}
+
+            {teamSafeWriteWarning ? (
+              <div className="flex items-start gap-3 rounded-xl border border-[#f0c56c]/25 bg-[#f0c56c]/[0.06] p-4">
+                <AlertTriangle className="mt-0.5 h-4 w-4 flex-shrink-0 text-[#f0c56c]" />
+                <div>
+                  <p className="text-sm font-semibold text-foreground">Starter context may need a retry</p>
+                  <p className="mt-1 text-sm text-text-secondary">{teamSafeWriteWarning}</p>
+                </div>
+              </div>
+            ) : null}
 
             <div className="grid gap-3 lg:grid-cols-3">
               {setupReadiness.map((item) => (
@@ -1162,7 +1906,7 @@ export default function DevAgentSetupPage() {
                 </div>
 
                 <div className="flex flex-1 flex-col">
-                  {allContextAnswered ? (
+                  {launchContextComplete ? (
                     <LaunchReady
                       agentName={activeAgent?.name ?? "Your agent"}
                       creating={launchingWorkspace}
@@ -1179,7 +1923,7 @@ export default function DevAgentSetupPage() {
                   )}
                 </div>
 
-                {!allContextAnswered && (
+                {!launchContextComplete && (
                   <div className="border-t border-white/8 px-5 py-4">
                     <button
                       type="button"
@@ -1305,13 +2049,30 @@ function PlanCard({
   onActivate: () => void;
 }) {
   const PlanIcon = plan.icon;
+  const baseStyle = cardStyle(plan.accent, selected);
+  const cardStyles: CSSProperties =
+    plan.recommended && !selected
+      ? {
+          ...baseStyle,
+          boxShadow: `${baseStyle.boxShadow as string}, 0 0 0 1px ${hexToRgba(plan.accent, 0.22)}`,
+        }
+      : baseStyle;
 
   return (
     <div
       onClick={onSelect}
-      style={cardStyle(plan.accent, selected)}
+      style={cardStyles}
       className="group relative min-h-72 cursor-pointer overflow-hidden rounded-xl border p-5 text-left transition-all duration-300 ease-out hover:-translate-y-0.5"
     >
+      {plan.recommended && !active ? (
+        <div
+          aria-hidden
+          className="pointer-events-none absolute inset-x-0 top-0 h-px"
+          style={{
+            background: `linear-gradient(90deg, transparent 0%, ${hexToRgba(plan.accent, 0.55)} 50%, transparent 100%)`,
+          }}
+        />
+      ) : null}
       <div className="relative flex h-full flex-col">
         <div className="mb-5 flex items-start justify-between gap-3">
           <div
@@ -1323,7 +2084,17 @@ function PlanCard({
           {active ? (
             <Badge tone="primary" icon={Check}>Active</Badge>
           ) : plan.recommended ? (
-            <Badge>Recommended</Badge>
+            <span
+              className="inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold"
+              style={{
+                borderColor: hexToRgba(plan.accent, 0.45),
+                backgroundColor: hexToRgba(plan.accent, 0.16),
+                color: plan.accent,
+              }}
+            >
+              <Crown className="h-3 w-3" />
+              Recommended
+            </span>
           ) : null}
         </div>
 
@@ -1333,6 +2104,11 @@ function PlanCard({
           <span className="text-sm font-semibold text-foreground">{plan.price}</span>
         </div>
         <p className="mt-2 text-sm leading-6 text-text-secondary">{plan.promise}</p>
+        {plan.recommended ? (
+          <p className="mt-2 text-[11px] font-medium uppercase tracking-[0.14em]" style={{ color: hexToRgba(plan.accent, 0.85) }}>
+            Most teams start here
+          </p>
+        ) : null}
 
         <div className="my-4 flex flex-wrap gap-1.5">
           {Object.entries(plan.slots).map(([tier, count]) => (
@@ -1474,6 +2250,70 @@ function ServiceCard({
         </div>
       </div>
     </button>
+  );
+}
+
+function CapabilityCard({
+  icon: Icon,
+  label,
+  detail,
+  accent,
+}: {
+  icon: LucideIcon;
+  label: string;
+  detail: string;
+  accent: string;
+}) {
+  return (
+    <div className="rounded-xl border border-white/8 bg-surface-low/80 p-5">
+      <div
+        className="mb-4 flex h-11 w-11 items-center justify-center rounded-xl text-white ring-1 ring-white/15"
+        style={{ backgroundColor: accent }}
+      >
+        <Icon className="h-5 w-5" />
+      </div>
+      <p className="text-sm font-semibold text-foreground">{label}</p>
+      <p className="mt-2 text-sm leading-6 text-text-secondary">{detail}</p>
+    </div>
+  );
+}
+
+function ChoicePanel({
+  icon: Icon,
+  label,
+  value,
+  options,
+  onChange,
+}: {
+  icon: LucideIcon;
+  label: string;
+  value: string;
+  options: string[];
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="rounded-xl border border-white/8 bg-background/60 p-4">
+      <div className="mb-3 flex items-center gap-2">
+        <Icon className="h-4 w-4 text-primary" />
+        <p className="text-sm font-semibold text-foreground">{label}</p>
+      </div>
+      <div className="flex flex-wrap gap-2">
+        {options.map((option) => (
+          <button
+            key={option}
+            type="button"
+            onClick={() => onChange(option)}
+            className={`rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${
+              value === option
+                ? "border-primary/40 bg-primary/15 text-primary"
+                : "border-white/8 bg-white/[0.03] text-text-secondary hover:border-white/15 hover:text-foreground"
+            }`}
+          >
+            {option}
+          </button>
+        ))}
+      </div>
+    </div>
   );
 }
 

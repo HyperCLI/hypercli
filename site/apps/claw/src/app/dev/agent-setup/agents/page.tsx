@@ -12,6 +12,7 @@ import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
+  CheckCircle2,
   Key,
   CreditCard,
   ExternalLink,
@@ -55,7 +56,7 @@ import { AgentCardTooltip } from "@/components/dashboard/modules/AgentCardModule
 import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
-import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
+import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import type { SdkAgent } from "@/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "@/app/dashboard/agents/types";
@@ -87,78 +88,118 @@ import {
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsModal, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigModal } from "@/components/dashboard/agents/AgentPanels";
-import { AgentChatPanel } from "@/components/dashboard/agents/AgentChatPanel";
+import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { ShowoffCoach, ShowoffTarget, useShowoffCoach, type ShowoffStep } from "@/components/showoff";
 
 type MainTab = AgentMainTab;
 
-const devSetupPlanNames: Record<string, string> = {
-  starter: "Starter",
-  team: "Team",
-  scale: "Scale",
-};
+interface TeamSetupSummary {
+  workspaceName?: string;
+  priority?: string;
+  systems?: string[];
+  vocabulary?: string[];
+  escalationOwner?: string;
+  autonomyLevel?: string;
+  trustedSources?: string;
+  cadence?: string;
+  previewAutomation?: string;
+  developerAccess?: string;
+  agentName?: string;
+  agentRole?: string;
+  serviceName?: string | null;
+}
 
-const agentWorkspaceShowoffStepDefinitions: Array<Omit<ShowoffStep, "onAction">> = [
-  {
-    id: "select-agent-roster",
-    targetId: "agent-list",
-    eyebrow: "Roster",
-    title: "Meet your agent in the roster",
-    body: "This is where the setup lands after onboarding. Focus the first agent and we will explore its workspace together.",
-    actionLabel: "Show roster",
-    capabilities: ["list", "select", "entitlements"],
-  },
-  {
-    id: "open-chat",
-    targetId: "agent-main",
-    eyebrow: "Conversation",
-    title: "Open the workspace chat",
-    body: "Chat is the friendly home base. Status, logs, shell, files, desktop, and settings are nearby when the user needs them.",
-    actionLabel: "Open chat",
-    capabilities: ["sessions", "channels", "gateway"],
-  },
-  {
-    id: "draft-prompt",
-    targetId: "agent-tools",
-    eyebrow: "Prompt",
-    title: "Draft a gentle next prompt",
-    body: "Place a helpful starter question in the composer without sending it, so the user sees momentum while staying in control.",
-    actionLabel: "Draft prompt",
-    capabilities: ["chat", "safe draft", "no send"],
-  },
-  {
-    id: "open-files-context",
-    targetId: "agent-inspector",
-    eyebrow: "Files",
-    title: "Show the setup files",
-    body: "Open the inspector overview so the profile, rules, and workspace notes feel easy to find and review.",
-    actionLabel: "Show files",
-    capabilities: ["files", "workspace", "file read"],
-  },
-  {
-    id: "show-activity",
-    targetId: "agent-inspector",
-    eyebrow: "Activity",
-    title: "Review recent activity",
-    body: "Switch to activity so sessions, tool calls, and status updates feel understandable instead of mysterious.",
-    actionLabel: "Show activity",
-    capabilities: ["logs", "tool calls", "sessions"],
-  },
-  {
-    id: "capability-summary",
-    targetId: "agent-inspector",
-    eyebrow: "Next steps",
-    title: "See what is possible next",
-    body: "Finish by showing the larger capability map, while keeping this onboarding tour focused on safe, reversible actions.",
-    actionLabel: "Show overview",
-    capabilities: ["lifecycle", "desktop", "logs", "shell", "files", "config", "sessions", "channels", "cron", "billing"],
-  },
-];
+interface TeamSetupAction {
+  id: string;
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  body: string;
+  actionLabel: string;
+  onClick: () => void;
+}
+
+function readTeamSetupSummary(): TeamSetupSummary | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem("dev-agent-setup-team-summary");
+    if (!raw) return null;
+    const parsed = JSON.parse(raw) as TeamSetupSummary;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
+
+function teamSummaryValue(value: string | string[] | null | undefined, fallback: string) {
+  if (Array.isArray(value)) {
+    const joined = value.filter(Boolean).join(", ");
+    return joined || fallback;
+  }
+  return value?.trim() || fallback;
+}
+
+function buildTeamFirstPrompt(summary: TeamSetupSummary, selectedAgentName?: string | null) {
+  const workspaceName = teamSummaryValue(summary.workspaceName, "our team");
+  const priority = teamSummaryValue(summary.priority, "our top priority");
+  const trustedSources = teamSummaryValue(summary.trustedSources, "our trusted sources");
+  const escalationOwner = teamSummaryValue(summary.escalationOwner, "the escalation owner");
+  const agentName = teamSummaryValue(summary.agentName, selectedAgentName || "the agent");
+  return `Hi ${agentName}, use our onboarding context for ${workspaceName}. Summarize what you know, focus on "${priority}", name what you still need from ${trustedSources}, and suggest one safe next step. Escalate sensitive decisions to ${escalationOwner}.`;
+}
+
+function buildTeamStarterFiles(summary: TeamSetupSummary) {
+  const workspaceName = teamSummaryValue(summary.workspaceName, "Team workspace");
+  const priority = teamSummaryValue(summary.priority, "Clarify the next useful step");
+  const systems = teamSummaryValue(summary.systems, "dashboard, agents");
+  const vocabulary = teamSummaryValue(summary.vocabulary, "agent, workspace, setup");
+  const trustedSources = teamSummaryValue(summary.trustedSources, "README files and runbooks");
+  const escalationOwner = teamSummaryValue(summary.escalationOwner, "team lead");
+  const autonomyLevel = teamSummaryValue(summary.autonomyLevel, "read and summarize");
+  const cadence = teamSummaryValue(summary.cadence, "weekday mornings");
+  const serviceName = teamSummaryValue(summary.serviceName, "the selected channel");
+  const agentName = teamSummaryValue(summary.agentName, "Team agent");
+  const agentRole = teamSummaryValue(summary.agentRole, "Team helper");
+
+  return [
+    {
+      name: "agent/agent-profile.md",
+      content: `# Agent Profile\n\nName: ${agentName}\nRole: ${agentRole}\nWorkspace: ${workspaceName}\nTeam priority: ${priority}`,
+    },
+    {
+      name: "agent/communication-rules.md",
+      content:
+        `# Communication Rules\n\n` +
+        `- Start with warmth and make the next step clear.\n` +
+        `- Autonomy level: ${autonomyLevel}.\n` +
+        `- Trusted sources: ${trustedSources}.\n` +
+        `- Check-in cadence: ${cadence}.\n` +
+        `- Bring in ${escalationOwner} for sensitive decisions, billing, destructive changes, and production risk.\n` +
+        `- In ${serviceName}, summarize completed work with links and next steps.`,
+    },
+    {
+      name: "workspace/context.json",
+      content: JSON.stringify({
+        workspaceName,
+        priority,
+        systems: systems.split(",").map((item) => item.trim()).filter(Boolean),
+        vocabulary: vocabulary.split(",").map((item) => item.trim()).filter(Boolean),
+        trustedSources,
+        serviceName,
+      }, null, 2),
+    },
+    {
+      name: "agent/handoff-policy.md",
+      content:
+        `# Handoff Policy\n\n` +
+        `Escalation owner: ${escalationOwner}\n\n` +
+        `Ask before changing billing, rotating secrets, running shell commands, deleting files, resizing agents, or changing scheduled work.`,
+    },
+  ];
+}
 
 function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   const index = prev.findIndex((agent) => agent.id === nextAgent.id);
@@ -220,7 +261,11 @@ export default function DevAgentSetupAgentsPage() {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem("agents.sidebarCollapsed") === "1";
   });
-  const [devSetupPlanName, setDevSetupPlanName] = useState<string | null>(null);
+  const [teamSetupSummary, setTeamSetupSummary] = useState<TeamSetupSummary | null>(null);
+  const [teamSetupSafeWriteWarning, setTeamSetupSafeWriteWarning] = useState<string | null>(null);
+  const [teamSetupCompanionOpen, setTeamSetupCompanionOpen] = useState(true);
+  const [retryingTeamContext, setRetryingTeamContext] = useState(false);
+  const [isTeamPlanActive, setIsTeamPlanActive] = useState(false);
   useEffect(() => {
     if (typeof window === "undefined") return;
     window.localStorage.setItem("agents.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
@@ -228,7 +273,12 @@ export default function DevAgentSetupAgentsPage() {
   useEffect(() => {
     if (typeof window === "undefined") return;
     const storedPlan = window.sessionStorage.getItem("dev-agent-setup-plan");
-    setDevSetupPlanName(storedPlan ? devSetupPlanNames[storedPlan] ?? null : null);
+    const teamActive = storedPlan === "team";
+    setIsTeamPlanActive(teamActive);
+    setTeamSetupSummary(teamActive ? readTeamSetupSummary() : null);
+    setTeamSetupSafeWriteWarning(
+      teamActive ? window.sessionStorage.getItem("dev-agent-setup-safe-write-warning") : null,
+    );
   }, []);
 
   // Logs
@@ -254,6 +304,7 @@ export default function DevAgentSetupAgentsPage() {
   const [showChannelWizard, setShowChannelWizard] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
+  const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -283,6 +334,19 @@ export default function DevAgentSetupAgentsPage() {
   const chatDragDepthRef = useRef(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
+
+  const openConnectionSuggestion = useCallback((suggestion: ChatConnectionSuggestion) => {
+    if (suggestion.directoryPluginId) {
+      const category = getCategoryForPlugin(suggestion.directoryPluginId) ?? undefined;
+      setDirectoryCategory(category);
+      setDirectoryItemId(suggestion.directoryPluginId);
+      setDirectoryOpen(true);
+      return;
+    }
+
+    setInspectorTab("connections");
+    setInspectorSheetOpen(true);
+  }, []);
 
   const fetchAgents = useCallback(async () => {
     try {
@@ -437,79 +501,107 @@ export default function DevAgentSetupAgentsPage() {
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",
   );
-  const agentWorkspaceShowoffSteps = useMemo<ShowoffStep[]>(() => (
-    agentWorkspaceShowoffStepDefinitions.map((step) => {
-      if (step.id === "select-agent-roster") {
-        return {
-          ...step,
-          body: devSetupPlanName
-            ? `The ${devSetupPlanName} plan is ready from onboarding. This roster is where the new agent workspace begins.`
-            : step.body,
-          onAction: () => {
-            setSidebarCollapsed(false);
-            setMobileShowChat(false);
-            if (!selectedAgentId && agents[0]) {
-              setSelectedAgentId(agents[0].id);
-            }
-          },
-        };
-      }
+  const draftTeamPrompt = useCallback(() => {
+    if (!teamSetupSummary) return;
+    setMainTab("chat");
+    setMobileShowChat(true);
+    chat.setInput(buildTeamFirstPrompt(teamSetupSummary, selectedAgent?.name));
+  }, [chat, selectedAgent?.name, teamSetupSummary]);
 
-      if (step.id === "open-chat") {
-        return {
-          ...step,
-          onAction: () => {
-            setMainTab("chat");
-            setMobileShowChat(true);
-          },
-        };
+  const retryTeamStarterContext = useCallback(async () => {
+    if (!teamSetupSummary || !chat.connected) return;
+    setRetryingTeamContext(true);
+    try {
+      for (const file of buildTeamStarterFiles(teamSetupSummary)) {
+        await chat.saveFile(file.name, file.content);
       }
+      await chat.saveConfig({
+        setup: {
+          source: "dev-agent-setup",
+          plan: "team",
+          team: teamSetupSummary,
+          retriedFromWorkspace: true,
+        },
+      });
+      setTeamSetupSafeWriteWarning(null);
+      window.sessionStorage.removeItem("dev-agent-setup-safe-write-warning");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Starter context could not be written yet.";
+      setTeamSetupSafeWriteWarning(message);
+      window.sessionStorage.setItem("dev-agent-setup-safe-write-warning", message);
+    } finally {
+      setRetryingTeamContext(false);
+    }
+  }, [chat, teamSetupSummary]);
 
-      if (step.id === "draft-prompt") {
-        return {
-          ...step,
-          onAction: () => {
-            setMainTab("chat");
-            setMobileShowChat(true);
-            chat.setInput("Summarize this agent workspace and suggest one gentle, safe next step.");
-          },
-        };
-      }
-
-      if (step.id === "open-files-context") {
-        return {
-          ...step,
-          onAction: () => {
-            setInspectorTab("overview");
-            setInspectorSheetOpen(true);
-          },
-        };
-      }
-
-      if (step.id === "show-activity") {
-        return {
-          ...step,
-          onAction: () => {
-            setInspectorTab("activity");
-            setInspectorSheetOpen(true);
-          },
-        };
-      }
-
-      if (step.id === "capability-summary") {
-        return {
-          ...step,
-          onAction: () => {
-            setInspectorTab("overview");
-            setInspectorSheetOpen(true);
-          },
-        };
-      }
-
-      return step;
-    })
-  ), [agents, chat, devSetupPlanName, selectedAgentId]);
-  const showoff = useShowoffCoach({ steps: agentWorkspaceShowoffSteps, initiallyOpen: true });
+  const teamSetupActions = useMemo(() => {
+    if (!teamSetupSummary) return [];
+    return [
+      {
+        id: "chat",
+        icon: MessageSquare,
+        title: "Chat with team context",
+        body: "Draft the first message from the setup summary.",
+        actionLabel: "Draft prompt",
+        onClick: draftTeamPrompt,
+      },
+      {
+        id: "files",
+        icon: FolderOpen,
+        title: "Review starter files",
+        body: teamSetupSafeWriteWarning ? "Starter files may need a retry." : "Profile, rules, context, and handoff policy are ready.",
+        actionLabel: "Open context",
+        onClick: () => {
+          setInspectorTab("overview");
+          setInspectorSheetOpen(true);
+        },
+      },
+      {
+        id: "channels",
+        icon: Plug,
+        title: "Check channels",
+        body: `${teamSummaryValue(teamSetupSummary.serviceName, "The selected channel")} is ready to review from integrations.`,
+        actionLabel: "Open channels",
+        onClick: () => {
+          setDirectoryCategory("channels");
+          setDirectoryItemId(undefined);
+          setDirectoryOpen(true);
+        },
+      },
+      {
+        id: "activity",
+        icon: TerminalSquare,
+        title: "Watch logs and activity",
+        body: "Use logs and activity to keep team work explainable.",
+        actionLabel: "Open logs",
+        onClick: () => {
+          setMainTab("logs");
+          setMobileShowChat(true);
+          setInspectorTab("activity");
+          setInspectorSheetOpen(true);
+        },
+      },
+      {
+        id: "automation",
+        icon: Timer,
+        title: "Preview automation",
+        body: teamSummaryValue(teamSetupSummary.previewAutomation, "Scheduled routines stay preview-only until created deliberately."),
+        actionLabel: "Open cron",
+        onClick: () => {
+          setInspectorTab("cron");
+          setInspectorSheetOpen(true);
+        },
+      },
+      {
+        id: "developer-access",
+        icon: Key,
+        title: "Developer access later",
+        body: teamSummaryValue(teamSetupSummary.developerAccess, "Scoped keys can be set up later."),
+        actionLabel: "Open keys",
+        onClick: () => router.push("/keys"),
+      },
+    ];
+  }, [draftTeamPrompt, router, teamSetupSafeWriteWarning, teamSetupSummary]);
 
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") return "connected" as const;
@@ -1672,8 +1764,12 @@ export default function DevAgentSetupAgentsPage() {
       />
       <DirectoryModal
         open={directoryOpen}
-        onClose={() => setDirectoryOpen(false)}
+        onClose={() => {
+          setDirectoryOpen(false);
+          setDirectoryItemId(undefined);
+        }}
         initialCategory={directoryCategory}
+        initialItemId={directoryItemId}
         config={chat.config as Record<string, unknown> | null}
         channelsStatus={channelsData}
         connected={chat.connected}
@@ -1704,37 +1800,50 @@ export default function DevAgentSetupAgentsPage() {
         titleizeTier={titleizeTier}
       />
 
+      {teamSetupSummary ? (
+        <TeamSetupArrival
+          summary={teamSetupSummary}
+          agentName={selectedAgent?.name ?? teamSetupSummary.agentName ?? "Your agent"}
+          connected={chat.connected}
+          warning={teamSetupSafeWriteWarning}
+          retrying={retryingTeamContext}
+          onDraftPrompt={draftTeamPrompt}
+          onRetryContext={() => void retryTeamStarterContext()}
+          onOpenContext={() => {
+            setInspectorTab("overview");
+            setInspectorSheetOpen(true);
+          }}
+        />
+      ) : null}
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
-        <ShowoffTarget targetId="agent-list" activeTargetId={showoff.activeTargetId}>
-          <AgentList
-            sidebarCollapsed={sidebarCollapsed}
-            isDesktopViewport={isDesktopViewport}
-            mobileShowChat={mobileShowChat}
-            agents={agents}
-            selectedAgentId={selectedAgentId}
-            setSelectedAgentId={setSelectedAgentId}
-            setMobileShowChat={setMobileShowChat}
-            setSidebarCollapsed={setSidebarCollapsed}
-            syntheticThreads={syntheticThreads}
-            getToken={getToken}
-            createOpenClawAgent={createOpenClawAgent}
-            fetchAgents={fetchAgents}
-            setError={setError}
-            openCreateDialog={() => openCreateDialog()}
-            sidebarCreatorSignal={sidebarCreatorSignal}
-            setPendingAgentDelete={setPendingAgentDelete}
-            updateAgentName={async (agentId, name) => {
-              const token = await getToken();
-              const updatedAgent = await createAgentClient(token).update(agentId, { name });
-              setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
-            }}
-          />
-        </ShowoffTarget>
+        <AgentList
+          sidebarCollapsed={sidebarCollapsed}
+          isDesktopViewport={isDesktopViewport}
+          mobileShowChat={mobileShowChat}
+          agents={agents}
+          selectedAgentId={selectedAgentId}
+          setSelectedAgentId={setSelectedAgentId}
+          setMobileShowChat={setMobileShowChat}
+          setSidebarCollapsed={setSidebarCollapsed}
+          syntheticThreads={syntheticThreads}
+          getToken={getToken}
+          createOpenClawAgent={createOpenClawAgent}
+          fetchAgents={fetchAgents}
+          setError={setError}
+          openCreateDialog={() => openCreateDialog()}
+          sidebarCreatorSignal={sidebarCreatorSignal}
+          setPendingAgentDelete={setPendingAgentDelete}
+          updateAgentName={async (agentId, name) => {
+            const token = await getToken();
+            const updatedAgent = await createAgentClient(token).update(agentId, { name });
+            setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+          }}
+          showChannels={isTeamPlanActive}
+        />
 
-        <ShowoffTarget targetId={["agent-main", "agent-tools"]} activeTargetId={showoff.activeTargetId}>
-          <AgentMainPanel
+        <AgentMainPanel
             isDesktopViewport={isDesktopViewport}
             mobileShowChat={mobileShowChat}
             selectedAgent={selectedAgent}
@@ -1781,6 +1890,7 @@ export default function DevAgentSetupAgentsPage() {
                 startRecording={startRecording}
                 handleSendChat={handleSendChat}
                 formatDuration={formatDuration}
+                onConnectionCta={openConnectionSuggestion}
               />
             ) : mainTab === "logs" ? (
               <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -1821,10 +1931,8 @@ export default function DevAgentSetupAgentsPage() {
             onOpenConfig={() => setShowOpenclawModal(true)}
             onOpenSettings={() => setShowSettingsModal(true)}
           />
-        </ShowoffTarget>
 
-        <ShowoffTarget targetId="agent-inspector" activeTargetId={showoff.activeTargetId}>
-          <AgentInspector
+        <AgentInspector
             isDesktopViewport={isDesktopViewport}
             open={inspectorSheetOpen}
             setOpen={setInspectorSheetOpen}
@@ -1847,7 +1955,7 @@ export default function DevAgentSetupAgentsPage() {
               agentWorkspaceFiles: agentWorkspaceFilesForView,
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryOpen(true); },
+              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryOpen(true); },
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id))),
@@ -1863,7 +1971,6 @@ export default function DevAgentSetupAgentsPage() {
               selectedConversationThreadId: selectedAgent?.id ?? null,
             }}
           />
-        </ShowoffTarget>
       </div>
 
       <OpenClawConfigModal
@@ -1902,22 +2009,168 @@ export default function DevAgentSetupAgentsPage() {
         setPendingAgentDelete={setPendingAgentDelete}
       />
 
-      <ShowoffCoach
-        title="Agent Workspace"
-        steps={agentWorkspaceShowoffSteps}
-        open={showoff.open}
-        activeIndex={showoff.activeIndex}
-        completedIds={showoff.completedIds}
-        runningActionId={showoff.runningActionId}
-        error={showoff.error}
-        onOpen={showoff.openCoach}
-        onClose={showoff.close}
-        onRestart={showoff.restart}
-        onSelectStep={showoff.selectStep}
-        onBack={showoff.goBack}
-        onNext={showoff.goNext}
-        onRunAction={showoff.runStepAction}
-      />
+      {teamSetupSummary && teamSetupCompanionOpen ? (
+        <TeamSetupCompanion
+          summary={teamSetupSummary}
+          actions={teamSetupActions}
+          warning={teamSetupSafeWriteWarning}
+          connected={chat.connected}
+          retrying={retryingTeamContext}
+          onRetryContext={() => void retryTeamStarterContext()}
+          onClose={() => setTeamSetupCompanionOpen(false)}
+        />
+      ) : null}
     </div>
+  );
+}
+
+function TeamSetupArrival({
+  summary,
+  agentName,
+  connected,
+  warning,
+  retrying,
+  onDraftPrompt,
+  onRetryContext,
+  onOpenContext,
+}: {
+  summary: TeamSetupSummary;
+  agentName: string;
+  connected: boolean;
+  warning: string | null;
+  retrying: boolean;
+  onDraftPrompt: () => void;
+  onRetryContext: () => void;
+  onOpenContext: () => void;
+}) {
+  const workspaceName = teamSummaryValue(summary.workspaceName, "your team");
+  const priority = teamSummaryValue(summary.priority, "the team priority");
+  const serviceName = teamSummaryValue(summary.serviceName, "your selected channel");
+
+  return (
+    <section className="border-b border-border bg-background/95 px-4 py-3">
+      <div className="mx-auto flex max-w-[1440px] flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="inline-flex items-center gap-1.5 rounded-full border border-primary/25 bg-primary/10 px-2.5 py-1 text-xs font-semibold text-primary">
+              <CheckCircle2 className="h-3.5 w-3.5" />
+              Team setup
+            </span>
+            <span className="text-xs text-text-muted">{workspaceName}</span>
+          </div>
+          <p className="mt-1 text-sm font-semibold text-foreground">
+            {agentName} is ready. We brought over your Team setup context.
+          </p>
+          <p className="mt-0.5 truncate text-xs text-text-secondary">
+            Priority: {priority} · Channel: {serviceName} · Context: {warning ? "needs retry" : "ready"}
+          </p>
+        </div>
+        <div className="flex flex-wrap gap-2">
+          <button
+            type="button"
+            onClick={onDraftPrompt}
+            className="btn-primary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-semibold"
+          >
+            <MessageSquare className="h-3.5 w-3.5" />
+            Draft first prompt
+          </button>
+          <button
+            type="button"
+            onClick={warning ? onRetryContext : onOpenContext}
+            disabled={warning ? !connected || retrying : false}
+            className="btn-secondary inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-60"
+          >
+            {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <FolderOpen className="h-3.5 w-3.5" />}
+            {warning ? "Retry context" : "View context"}
+          </button>
+        </div>
+      </div>
+    </section>
+  );
+}
+
+function TeamSetupCompanion({
+  summary,
+  actions,
+  warning,
+  connected,
+  retrying,
+  onRetryContext,
+  onClose,
+}: {
+  summary: TeamSetupSummary;
+  actions: TeamSetupAction[];
+  warning: string | null;
+  connected: boolean;
+  retrying: boolean;
+  onRetryContext: () => void;
+  onClose: () => void;
+}) {
+  return (
+    <aside className="fixed bottom-5 right-5 z-40 max-h-[calc(100dvh-2rem)] w-[min(27rem,calc(100vw-2rem))] overflow-hidden rounded-xl border border-border bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]">
+      <div className="flex items-start justify-between gap-3 border-b border-border px-4 py-3">
+        <div>
+          <p className="text-xs font-semibold uppercase tracking-[0.14em] text-primary">Next helpful things</p>
+          <h2 className="mt-1 text-sm font-semibold text-foreground">{teamSummaryValue(summary.workspaceName, "Team workspace")}</h2>
+          <p className="mt-1 text-xs leading-5 text-text-secondary">
+            Use what setup collected without turning this into another tour.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onClose}
+          className="rounded-md p-1.5 text-text-muted hover:bg-surface-low hover:text-foreground"
+          aria-label="Close setup companion"
+        >
+          <X className="h-4 w-4" />
+        </button>
+      </div>
+
+      <div className="max-h-[calc(100dvh-9rem)] overflow-y-auto p-3">
+        <div className="grid gap-2">
+          {actions.map((action) => {
+            const Icon = action.icon;
+            return (
+              <button
+                key={action.id}
+                type="button"
+                onClick={action.onClick}
+                className="group rounded-lg border border-border bg-surface-low/50 p-3 text-left transition hover:border-primary/30 hover:bg-surface-low"
+              >
+                <div className="flex items-start gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-primary/10 text-primary ring-1 ring-primary/20">
+                    <Icon className="h-4 w-4" />
+                  </span>
+                  <span className="min-w-0 flex-1">
+                    <span className="block text-sm font-semibold text-foreground">{action.title}</span>
+                    <span className="mt-1 block text-xs leading-5 text-text-secondary">{action.body}</span>
+                    <span className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-primary">
+                      {action.actionLabel}
+                      <ExternalLink className="h-3 w-3 opacity-70 transition group-hover:translate-x-0.5" />
+                    </span>
+                  </span>
+                </div>
+              </button>
+            );
+          })}
+        </div>
+
+        {warning ? (
+          <div className="mt-3 rounded-lg border border-[#f0c56c]/25 bg-[#f0c56c]/10 p-3">
+            <p className="text-xs font-semibold text-foreground">Starter context may need a retry</p>
+            <p className="mt-1 text-xs leading-5 text-text-secondary">{warning}</p>
+            <button
+              type="button"
+              onClick={onRetryContext}
+              disabled={!connected || retrying}
+              className="btn-secondary mt-3 inline-flex items-center gap-2 rounded-lg px-3 py-2 text-xs font-medium disabled:opacity-60"
+            >
+              {retrying ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <RefreshCw className="h-3.5 w-3.5" />}
+              Retry safe context write
+            </button>
+          </div>
+        ) : null}
+      </div>
+    </aside>
   );
 }

@@ -55,7 +55,7 @@ import { AgentCardTooltip } from "@/components/dashboard/modules/AgentCardModule
 import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
-import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
+import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import type { SdkAgent } from "@/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "./types";
@@ -87,7 +87,7 @@ import {
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsModal, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigModal } from "@/components/dashboard/agents/AgentPanels";
-import { AgentChatPanel } from "@/components/dashboard/agents/AgentChatPanel";
+import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
@@ -184,6 +184,7 @@ export default function AgentsPage() {
   const [showChannelWizard, setShowChannelWizard] = useState(false);
   const [directoryOpen, setDirectoryOpen] = useState(false);
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
+  const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -211,6 +212,19 @@ export default function AgentsPage() {
   const [chatDragActive, setChatDragActive] = useState(false);
   const openclawPaneRef = useRef<HTMLDivElement | null>(null);
   const chatDragDepthRef = useRef(0);
+
+  const openConnectionSuggestion = useCallback((suggestion: ChatConnectionSuggestion) => {
+    if (suggestion.directoryPluginId) {
+      const category = getCategoryForPlugin(suggestion.directoryPluginId) ?? undefined;
+      setDirectoryCategory(category);
+      setDirectoryItemId(suggestion.directoryPluginId);
+      setDirectoryOpen(true);
+      return;
+    }
+
+    setInspectorTab("connections");
+    setInspectorSheetOpen(true);
+  }, []);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -1524,8 +1538,12 @@ export default function AgentsPage() {
       />
       <DirectoryModal
         open={directoryOpen}
-        onClose={() => setDirectoryOpen(false)}
+        onClose={() => {
+          setDirectoryOpen(false);
+          setDirectoryItemId(undefined);
+        }}
         initialCategory={directoryCategory}
+        initialItemId={directoryItemId}
         config={chat.config as Record<string, unknown> | null}
         channelsStatus={channelsData}
         connected={chat.connected}
@@ -1630,6 +1648,7 @@ export default function AgentsPage() {
               startRecording={startRecording}
               handleSendChat={handleSendChat}
               formatDuration={formatDuration}
+              onConnectionCta={openConnectionSuggestion}
             />
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -1694,7 +1713,7 @@ export default function AgentsPage() {
             agentWorkspaceFiles: agentWorkspaceFilesForView,
             onPromptClick: (prompt) => chat.setInput(prompt),
             onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-            onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryOpen(true); },
+            onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryOpen(true); },
             onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
             onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
             agentStarting: Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id))),

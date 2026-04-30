@@ -463,6 +463,11 @@ interface AgentListProps {
   sidebarCreatorSignal: number;
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
   updateAgentName: (agentId: string, name: string) => Promise<void>;
+  /**
+   * When true, surfaces the Channels section and the inline user/agent picker that lets
+   * teammates be added to a channel. Gated on the Team plan in agent-setup. Default: false.
+   */
+  showChannels?: boolean;
 }
 
 export function AgentList({
@@ -483,6 +488,7 @@ export function AgentList({
   sidebarCreatorSignal,
   setPendingAgentDelete,
   updateAgentName,
+  showChannels = false,
 }: AgentListProps) {
   return (
     <motion.div
@@ -546,7 +552,7 @@ export function AgentList({
               variant="v3"
               threads={syntheticThreads}
               selectedThreadId={selectedAgentId}
-              showChannels={false}
+              showChannels={showChannels}
               availableAgents={agents.map((a) => ({
                 id: a.id,
                 name: a.name || a.id,
