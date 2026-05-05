@@ -42,6 +42,7 @@ class BootstrapState:
     product_base: str
     orchestra_api_base: str
     agents_api_base: str
+    agents_admin_base: str
     orchestra_admin_key: str
     agents_admin_key: str
     orchestra_user_id: str
@@ -85,6 +86,33 @@ def _normalize_agents_api_base(raw: str, *, product_base: str) -> str:
             host = "api.dev.hypercli.com" if host == "api.agents.dev.hypercli.com" else "api.hypercli.com"
             path = "/agents"
 
+    return urlunsplit((parsed.scheme or "https", host, path, "", "")).rstrip("/")
+
+
+def _normalize_agents_admin_base(raw: str, *, product_base: str) -> str:
+    base = (raw or "").strip().rstrip("/")
+    if not base:
+        parsed = urlsplit(product_base if "://" in product_base else f"https://{product_base}")
+        host = parsed.netloc.lower()
+        if host in {"api.hypercli.com", "api.hyperclaw.app"}:
+            return "https://api.agents.hypercli.com"
+        if host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
+            return "https://api.agents.dev.hypercli.com"
+        return urlunsplit((parsed.scheme or "https", parsed.netloc, "", "", "")).rstrip("/")
+
+    parsed = urlsplit(base if "://" in base else f"https://{base}")
+    host = parsed.netloc.lower()
+    path = parsed.path.rstrip("/")
+    if host in {"api.hypercli.com", "api.hyperclaw.app"}:
+        host = "api.agents.hypercli.com"
+        path = ""
+    elif host in {"api.dev.hypercli.com", "api.dev.hyperclaw.app", "dev-api.hyperclaw.app"}:
+        host = "api.agents.dev.hypercli.com"
+        path = ""
+    elif path.endswith("/agents"):
+        path = path[:-7]
+    elif path.endswith("/api"):
+        path = path[:-4]
     return urlunsplit((parsed.scheme or "https", host, path, "", "")).rstrip("/")
 
 
@@ -164,13 +192,13 @@ def _ensure_orchestra_user(
 
 def _lookup_hyperclaw_user(
     *,
-    agents_api_base: str,
+    agents_admin_base: str,
     agents_admin_key: str,
     orchestra_user_id: str,
 ) -> dict[str, object]:
     response = _request(
         "GET",
-        f"{agents_api_base}/admin/users",
+        f"{agents_admin_base}/admin/users",
         headers=_headers(agents_admin_key),
         params={"orchestra_user_id": orchestra_user_id, "limit": 2, "offset": 0},
         expected=(200,),
@@ -183,14 +211,14 @@ def _lookup_hyperclaw_user(
 
 def _create_or_get_hyperclaw_user(
     *,
-    agents_api_base: str,
+    agents_admin_base: str,
     agents_admin_key: str,
     orchestra_user_id: str,
     email: str,
 ) -> dict[str, object]:
     response = _request(
         "POST",
-        f"{agents_api_base}/admin/users",
+        f"{agents_admin_base}/admin/users",
         headers=_headers(agents_admin_key),
         json={
             "user_id": orchestra_user_id,
@@ -203,7 +231,7 @@ def _create_or_get_hyperclaw_user(
     if response.status_code == 200:
         return dict(response.json())
     return _lookup_hyperclaw_user(
-        agents_api_base=agents_api_base,
+        agents_admin_base=agents_admin_base,
         agents_admin_key=agents_admin_key,
         orchestra_user_id=orchestra_user_id,
     )
@@ -214,6 +242,10 @@ def bootstrap() -> BootstrapState:
     orchestra_api_base = _normalize_orchestra_api_base(product_base)
     agents_api_base = _normalize_agents_api_base(
         os.getenv("HYPERCLAW_AGENTS_API_BASE") or os.getenv("AGENTS_API_BASE_URL") or "",
+        product_base=product_base,
+    )
+    agents_admin_base = _normalize_agents_admin_base(
+        os.getenv("HYPERCLAW_AGENTS_ADMIN_BASE") or os.getenv("AGENTS_ADMIN_BASE_URL") or "",
         product_base=product_base,
     )
 
@@ -265,7 +297,7 @@ def bootstrap() -> BootstrapState:
     test_api_key = str(orchestra_key_response.json()["api_key"])
 
     hyperclaw_user_response = _create_or_get_hyperclaw_user(
-        agents_api_base=agents_api_base,
+        agents_admin_base=agents_admin_base,
         agents_admin_key=agents_admin_key,
         orchestra_user_id=orchestra_user_id,
         email=email,
@@ -280,7 +312,7 @@ def bootstrap() -> BootstrapState:
     )
     hyperclaw_key_response = _request(
         "POST",
-        f"{agents_api_base}/admin/keys",
+        f"{agents_admin_base}/admin/keys",
         headers=_headers(agents_admin_key),
         json={"user_id": hyperclaw_user_id, "alias": f"sdk-int-agents-{suffix}"},
         expected=(200,),
@@ -298,6 +330,7 @@ def bootstrap() -> BootstrapState:
         product_base=product_base,
         orchestra_api_base=orchestra_api_base,
         agents_api_base=agents_api_base,
+        agents_admin_base=agents_admin_base,
         orchestra_admin_key=orchestra_admin_key,
         agents_admin_key=agents_admin_key,
         orchestra_user_id=orchestra_user_id,
@@ -312,7 +345,7 @@ def cleanup(state: BootstrapState) -> None:
     try:
         keys_response = _request(
             "GET",
-            f"{state.agents_api_base}/admin/keys",
+            f"{state.agents_admin_base}/admin/keys",
             headers=_headers(state.agents_admin_key),
             params={"user_id": state.hyperclaw_user_id, "hydrate": "true"},
             expected=(200,),
@@ -326,7 +359,7 @@ def cleanup(state: BootstrapState) -> None:
             )
             if token:
                 requests.delete(
-                    f"{state.agents_api_base}/admin/keys/{token}",
+                    f"{state.agents_admin_base}/admin/keys/{token}",
                     headers=_headers(state.agents_admin_key),
                     timeout=15,
                 )
@@ -335,7 +368,7 @@ def cleanup(state: BootstrapState) -> None:
 
     try:
         requests.delete(
-            f"{state.agents_api_base}/admin/users/{state.hyperclaw_user_id}",
+            f"{state.agents_admin_base}/admin/users/{state.hyperclaw_user_id}",
             headers=_headers(state.agents_admin_key),
             timeout=15,
         )
@@ -371,6 +404,8 @@ def _print_github_env(state: BootstrapState, state_file: str) -> None:
         "TEST_AGENT_API_KEY": state.test_agent_api_key,
         "EXPECTED_TEST_EMAIL": state.email,
         "HYPERCLAW_AGENTS_API_BASE": state.agents_api_base,
+        "HYPERCLAW_AGENTS_ADMIN_BASE": state.agents_admin_base,
+        "TEST_AGENTS_ADMIN_BASE": state.agents_admin_base,
         "BOOTSTRAP_STATE_FILE": state_file,
     }
     for key, value in fields.items():
