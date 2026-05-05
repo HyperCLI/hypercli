@@ -31,9 +31,9 @@ def normalize_status(status: str) -> str:
 def severity_for_status(status: str) -> str:
     value = normalize_status(status)
     if value in {"success", "running"}:
-      return "info"
+        return "info"
     if value in {"failure", "cancelled", "timed_out"}:
-      return "error"
+        return "error"
     return "warning"
 
 
@@ -51,6 +51,38 @@ def build_message(phase: str, status: str, explicit_message: str) -> str:
     return f"{phase or 'ci'} {norm or 'unknown'}"
 
 
+def title_for(category: str, workflow: str, status: str) -> str:
+    norm = normalize_status(status)
+    category_label = (category or "ci").strip().lower()
+    workflow_label = (workflow or "").strip().lower()
+
+    noun = "CI"
+    if category_label == "frontend":
+        noun = "Frontend"
+        if "agents" in workflow_label:
+            noun = "Frontend Agents"
+        elif "console" in workflow_label:
+            noun = "Frontend Console"
+    elif category_label == "sdk":
+        noun = "SDK"
+
+    icon = {
+        "success": "✅",
+        "failure": "❌",
+        "cancelled": "🛑",
+        "timed_out": "⏱️",
+        "running": "🚧",
+    }.get(norm, "ℹ️")
+    verb = {
+        "success": "Passed",
+        "failure": "Failed",
+        "cancelled": "Cancelled",
+        "timed_out": "Timed Out",
+        "running": "Running",
+    }.get(norm, norm.title() or "Update")
+    return f"<b>{icon} {noun} {verb}</b>"
+
+
 def build_lines(
     *,
     category: str,
@@ -64,24 +96,23 @@ def build_lines(
     actor: str,
     run_url: str,
 ) -> list[str]:
-    lines = [f"<b>{category.upper()}</b> <code>{normalize_status(status)}</code>", message]
-    details: list[str] = []
-    if repo:
-        details.append(f"Repo: <code>{repo}</code>")
-    if ref:
-        details.append(f"Ref: <code>{ref}</code>")
-    if sha:
-        details.append(f"SHA: <code>{sha[:7]}</code>")
+    lines = [title_for(category, workflow, status)]
     if workflow:
-        details.append(f"Workflow: <code>{workflow}</code>")
+        lines.append(f"🧪 Suite: <code>{workflow}</code>")
+    if message:
+        lines.append(f"📝 Summary: {message}")
+    if repo:
+        lines.append(f"📦 Repo: <code>{repo}</code>")
+    if ref:
+        lines.append(f"🌿 Ref: <code>{ref}</code>")
+    if sha:
+        lines.append(f"🧾 SHA: <code>{sha[:7]}</code>")
     if actor:
-        details.append(f"Actor: <code>{actor}</code>")
+        lines.append(f"👤 Actor: <code>{actor}</code>")
     if phase:
-        details.append(f"Phase: <code>{phase}</code>")
-    if details:
-        lines.extend(["", *details])
+        lines.append(f"📌 Phase: <code>{phase}</code>")
     if run_url:
-        lines.extend(["", f"<a href=\"{run_url}\">GitHub Actions run</a>"])
+        lines.append(f"🔗 <a href=\"{run_url}\">GitHub Actions run</a>")
     return lines
 
 
