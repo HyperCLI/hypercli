@@ -76,7 +76,7 @@ describe("TS SDK integration: agents", () => {
 
   (TEST_BACKEND_API_KEY ? agentsIt : it.skip)("redeems a grant code created via the admin billing route", async () => {
     const tag = `suite=ts-redeem-${Math.random().toString(16).slice(2, 10)}`;
-    const createResponse = await fetch(`${TEST_API_BASE.replace(/\/$/, "")}/agents/admin/billing/grants/code`, {
+    const createResponse = await fetch(`${TEST_API_BASE.replace(/\/$/, "")}/admin/billing/grants/code`, {
       method: "POST",
       headers: {
         "Content-Type": "application/json",
