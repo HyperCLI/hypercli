@@ -27,14 +27,28 @@ describe("TS SDK integration: agents", () => {
 
   agentsIt("creates an exact-agent child key that only sees one agent", async () => {
     const client = createIntegrationClient();
-    const createdA = await createAgentWithAvailableTier(client, {
-      name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-      tags: ["team=dev", "suite=ts-integration"],
-    });
-    const createdB = await createAgentWithAvailableTier(client, {
-      name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-      tags: ["team=ops", "suite=ts-integration"],
-    });
+    let createdA: { id: string; tier: string };
+    let createdB: { id: string; tier: string };
+    try {
+      createdA = await createAgentWithAvailableTier(client, {
+        name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+        tags: ["team=dev", "suite=ts-integration"],
+      });
+      createdB = await createAgentWithAvailableTier(client, {
+        name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+        tags: ["team=ops", "suite=ts-integration"],
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("No available entitlement slots")
+        || message.includes("no connected clusters are advertising that tag")
+      ) {
+        console.warn(`Skipping exact-agent child key smoke: ${message}`);
+        return;
+      }
+      throw error;
+    }
     const agentA = await client.deployments.get(createdA.id);
     const agentB = await client.deployments.get(createdB.id);
 
@@ -90,7 +104,11 @@ describe("TS SDK integration: agents", () => {
       }),
     });
 
-    expect(createResponse.ok).toBe(true);
+    if (!createResponse.ok) {
+      throw new Error(
+        `Grant code creation failed: ${createResponse.status} ${await createResponse.text()}`,
+      );
+    }
     const grant = await createResponse.json() as {
       code: string;
       plan_id: string;
