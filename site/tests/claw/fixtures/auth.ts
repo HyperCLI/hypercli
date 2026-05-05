@@ -26,6 +26,7 @@ const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
 const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
 const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
+const DEFAULT_TEST_AGENTS_ADMIN_BASE_URL = "https://api.agents.dev.hypercli.com";
 const DEFAULT_TEST_API_BASE_URL = "https://api.dev.hypercli.com";
 const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
   process.env.TEST_PRIVY_AUTH_SETTLE_TIMEOUT_MS || "45000",
@@ -131,6 +132,14 @@ function getAgentsApiBaseUrl(): string {
   ).replace(/\/$/, "");
 }
 
+function getAgentsAdminBaseUrl(): string {
+  return (
+    getOptionalEnv("TEST_AGENTS_ADMIN_BASE") ||
+    getOptionalEnv("AGENTS_ADMIN_BASE_URL") ||
+    DEFAULT_TEST_AGENTS_ADMIN_BASE_URL
+  ).replace(/\/$/, "");
+}
+
 function getApiBaseUrl(): string {
   const base = (
     getOptionalEnv("TEST_API_BASE_URL") ||
@@ -194,7 +203,8 @@ async function ensureClawAdminLoginUserLinked(
     throw new Error("Orchestra admin auth login returned no user_id");
   }
 
-  const response = await fetch(`${getAgentsApiBaseUrl()}/admin/users`, {
+  const agentsAdminBaseUrl = getAgentsAdminBaseUrl();
+  const response = await fetch(`${agentsAdminBaseUrl}/admin/users`, {
     method: "POST",
     headers: {
       "X-BACKEND-API-KEY": adminKey,
@@ -245,14 +255,14 @@ async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
   const email = getEnv("TEST_EMAIL");
   let token: string;
   try {
-    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, { email });
+    token = await fetchAdminAuthToken(getAgentsAdminBaseUrl(), adminKey, { email });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("User has no linked Orchestra identity")) {
       throw error;
     }
     const orchestraUserId = await ensureClawAdminLoginUserLinked(adminKey, email);
-    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, {
+    token = await fetchAdminAuthToken(getAgentsAdminBaseUrl(), adminKey, {
       orchestra_user_id: orchestraUserId,
       email,
     });
