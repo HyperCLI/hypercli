@@ -1,6 +1,6 @@
 import { PLUGIN_REGISTRY, type PluginMeta } from "../integrations/plugin-registry";
 
-export type DirectoryCategory = "intelligence" | "web" | "channels" | "tools" | "media";
+export type DirectoryCategory = "intelligence" | "web" | "channels" | "tools" | "media" | "skills";
 
 export interface DirectoryCategoryDef {
   id: DirectoryCategory;
@@ -14,6 +14,7 @@ export const DIRECTORY_CATEGORIES: DirectoryCategoryDef[] = [
   { id: "web", label: "Web", icon: "Globe", description: "Search and browse the internet" },
   { id: "channels", label: "Channels", icon: "MessageSquare", description: "Messaging platforms your agent can join" },
   { id: "tools", label: "Tools", icon: "Wrench", description: "Utilities, memory, code execution, and automation" },
+  { id: "skills", label: "Skills", icon: "Box", description: "App SKILL.md files available to this agent" },
   { id: "media", label: "Media", icon: "Palette", description: "Voice, vision, images, video, and 3D" },
 ];
 
@@ -31,6 +32,8 @@ export function getPluginsForCategory(category: DirectoryCategory): PluginMeta[]
       return PLUGIN_REGISTRY.filter((p) => p.category === "chat");
     case "tools":
       return PLUGIN_REGISTRY.filter((p) => p.category === "tools" && !WEB_PLUGIN_IDS.has(p.id));
+    case "skills":
+      return [];
     case "media":
       return PLUGIN_REGISTRY.filter((p) => p.category === "built-in");
     default:

@@ -62,9 +62,47 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
-/** Detect internal heartbeat poll prompts/replies that should never be shown to users. */
-function isHeartbeatMessage(content: string): boolean {
-  return content.includes("HEARTBEAT.md") || content.includes("HEARTBEAT_OK");
+const INTERNAL_HEARTBEAT_MARKERS = [/HEARTBEAT\.md/i, /HEARTBEAT_OK/i];
+const INTERNAL_HEARTBEAT_PRELUDE_MARKERS = [
+  /\bThe user wants me to read\b/i,
+  /\bLet me read the file first\b/i,
+];
+
+function containsInternalHeartbeatMarker(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") {
+    const text = maybeDecodeMojibake(value);
+    return INTERNAL_HEARTBEAT_MARKERS.some((marker) => marker.test(text));
+  }
+  if (typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((entry) => containsInternalHeartbeatMarker(entry));
+  }
+  return Object.values(value as Record<string, unknown>).some((entry) => containsInternalHeartbeatMarker(entry));
+}
+
+export function isInternalHeartbeatMessage(value: unknown): boolean {
+  if (containsInternalHeartbeatMarker(value)) return true;
+  if (typeof value !== "object" || value == null) return false;
+  const candidate = value as {
+    content?: unknown;
+    thinking?: unknown;
+    toolCalls?: unknown;
+  };
+  return (
+    containsInternalHeartbeatMarker(candidate.content) ||
+    containsInternalHeartbeatMarker(candidate.thinking) ||
+    containsInternalHeartbeatMarker(candidate.toolCalls)
+  );
+}
+
+function isLikelyInternalHeartbeatPrelude(message: ChatMessage): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.toolCalls?.length || message.mediaUrls?.length || message.attachments?.length || message.files?.length) {
+    return false;
+  }
+  const text = `${message.thinking ?? ""}\n${message.content ?? ""}`.trim();
+  return INTERNAL_HEARTBEAT_PRELUDE_MARKERS.some((marker) => marker.test(text));
 }
 
 function formatToolValue(value: unknown): string {
@@ -95,9 +133,11 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const normalized = normalizeGatewayChatMessage(message);
   if (!normalized) return null;
   const content = maybeDecodeMojibake(normalized.text);
-  if (isHeartbeatMessage(content)) return null;
   const thinking = maybeDecodeMojibake(normalized.thinking).trim();
-  const toolCalls = summarizeToolCalls(normalized.toolCalls);
+  if (isInternalHeartbeatMessage({ content, thinking })) return null;
+  const toolCalls = summarizeToolCalls(normalized.toolCalls)?.filter(
+    (toolCall) => !isInternalHeartbeatMessage({ toolCalls: [toolCall] }),
+  );
   const mediaUrls = normalized.mediaUrls;
   if (!content.trim() && !thinking && (!toolCalls || toolCalls.length === 0) && mediaUrls.length === 0) {
     return null;
@@ -188,11 +228,18 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
 }
 
 function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
-  const last = prev[prev.length - 1];
-  if (last?.role === "assistant") {
-    return [...prev.slice(0, -1), mergeAssistantMessage(last, incoming)];
+  if (isInternalHeartbeatMessage(incoming)) {
+    const last = prev[prev.length - 1];
+    return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
   }
-  return [...prev, incoming];
+  const last = prev[prev.length - 1];
+  let next: ChatMessage[];
+  if (last?.role === "assistant") {
+    next = [...prev.slice(0, -1), mergeAssistantMessage(last, incoming)];
+  } else {
+    next = [...prev, incoming];
+  }
+  return next.filter((message) => !isInternalHeartbeatMessage(message));
 }
 
 function normalizeLiveToolCall(

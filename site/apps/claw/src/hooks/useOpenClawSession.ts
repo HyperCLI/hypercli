@@ -25,6 +25,7 @@ export function useOpenClawSession(
   const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
+  const [hydrating, setHydrating] = useState(false);
   const [input, setInput] = useState("");
   const [pendingInput, setPendingInput] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
@@ -48,6 +49,7 @@ export function useOpenClawSession(
       setGateway(null);
       setStatus("disconnected");
       setError(null);
+      setHydrating(false);
       return () => {
         active = false;
       };
@@ -56,6 +58,7 @@ export function useOpenClawSession(
     setGateway(null);
     setStatus("connecting");
     setError(null);
+    setHydrating(false);
 
     void (async () => {
       try {
@@ -95,6 +98,7 @@ export function useOpenClawSession(
         if (!active) return;
         setGateway(null);
         setStatus("disconnected");
+        setHydrating(false);
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
@@ -128,23 +132,31 @@ export function useOpenClawSession(
   useEffect(() => {
     if (!gateway || status !== "connected") return;
     let cancelled = false;
+    setHydrating(true);
     void (async () => {
-      const hydrated = await hydrateOpenClawSession(gateway);
-      if (cancelled) return;
-      setConfig(hydrated.config);
-      setConfigSchema(hydrated.configSchema);
-      setMessages(hydrated.messages);
-      setFiles(hydrated.files);
-      setGwAgentId(hydrated.gwAgentId);
-      setSessions(hydrated.sessions);
-      setCronJobs(hydrated.cronJobs);
-      setModels(hydrated.models);
+      try {
+        const hydrated = await hydrateOpenClawSession(gateway);
+        if (cancelled) return;
+        setConfig(hydrated.config);
+        setConfigSchema(hydrated.configSchema);
+        setMessages(hydrated.messages);
+        setFiles(hydrated.files);
+        setGwAgentId(hydrated.gwAgentId);
+        setSessions(hydrated.sessions);
+        setCronJobs(hydrated.cronJobs);
+        setModels(hydrated.models);
+      } finally {
+        if (!cancelled) setHydrating(false);
+      }
     })();
-    return () => { cancelled = true; };
+    return () => {
+      cancelled = true;
+    };
   }, [gateway, status]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
+    setHydrating(false);
     setMessages([]);
     setFiles([]);
     setConfig(null);
@@ -267,8 +279,18 @@ export function useOpenClawSession(
   const saveConfig = useCallback(async (patch: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");
     await gateway.configPatch(patch);
+    try {
+      setConfig(await gateway.configGet());
+    } catch {}
     const keys = Object.keys(patch);
     appendActivity({ type: "system", action: "Config updated", detail: keys.length > 0 ? keys.slice(0, 3).join(", ") + (keys.length > 3 ? `, +${keys.length - 3}` : "") : "" });
+  }, [gateway, appendActivity]);
+
+  const saveFullConfig = useCallback(async (nextConfig: Record<string, unknown>) => {
+    if (!gateway) throw new Error("Not connected");
+    await gateway.configSet(nextConfig);
+    setConfig(nextConfig);
+    appendActivity({ type: "system", action: "openclaw.json updated", detail: "Saved full OpenClaw config" });
   }, [gateway, appendActivity]);
 
   const channelsStatus = useCallback(async (probe = false, timeoutMs?: number) => {
@@ -314,6 +336,7 @@ export function useOpenClawSession(
     error,
     connected: status === "connected",
     connecting: status === "connecting",
+    hydrating,
     messages,
     sendMessage,
     input,
@@ -327,6 +350,7 @@ export function useOpenClawSession(
     openFile,
     saveFile,
     saveConfig,
+    saveFullConfig,
     channelsStatus,
     pendingFiles,
     pendingAttachments,

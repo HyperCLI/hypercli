@@ -1,5 +1,6 @@
 import type { ChatMessage as ChatMessageType, ChatAttachment, ChatPendingFile } from "@/lib/openclaw-chat";
 import type { HTMLMotionProps } from "framer-motion";
+import type { AgentMeta } from "@/lib/avatar";
 
 // ── Variant types ──
 
@@ -29,6 +30,7 @@ export interface ChatMessageProps {
   streamingVariant?: StreamingVariant;
   isStreaming?: boolean;
   agentName?: string;
+  agentMeta?: AgentMeta | null;
   senderName?: string;
   isGroupChat?: boolean;
 }

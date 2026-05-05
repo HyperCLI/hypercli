@@ -10,6 +10,7 @@ import { useTypewriter } from "./useTypewriter";
 import { useInlineAudio } from "./useInlineAudio";
 import { MessageName } from "./MessageName";
 import { ToolCallBlock } from "./ToolCallBlock";
+import { shouldStackToolCalls, ToolCallStack } from "./ToolCallStack";
 import { AttachmentSection } from "./AttachmentSection";
 import { MarkdownContent } from "./MarkdownContent";
 import { StreamingIndicator } from "./StreamingIndicator";
@@ -27,6 +28,7 @@ export function ChatMessageBubble({
   streamingVariant = "off",
   isStreaming = false,
   agentName,
+  agentMeta,
   senderName,
   isGroupChat = false,
 }: ChatMessageProps) {
@@ -34,6 +36,7 @@ export function ChatMessageBubble({
   const { isPlaying: inlineAudioPlaying, toggle: toggleInlineAudio } = useInlineAudio(inlineAudioFile);
 
   // Suppress content that's a JSON echo of tool results already shown in the tool call UI.
+  const hasToolCalls = (message.toolCalls?.length ?? 0) > 0;
   const hasToolResults = message.toolCalls?.some((tc) => tc.result != null) ?? false;
   let contentIsJson = false;
   if (hasToolResults) {
@@ -46,6 +49,7 @@ export function ChatMessageBubble({
 
   const typewriterActive = isStreaming && message.role === "assistant" && streamingVariant === "v2";
   const displayedContent = useTypewriter(effectiveContent, typewriterActive);
+  const showStreamingIndicator = isStreaming && (!hasToolCalls || Boolean(displayedContent));
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -81,14 +85,14 @@ export function ChatMessageBubble({
     >
       {/* v2 name: avatar circle to the left */}
       {showV2Name && (
-        <MessageName variant="v2" placement="avatar-left" isUser={isUser} effectiveName={effectiveName} />
+        <MessageName variant="v2" placement="avatar-left" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} />
       )}
 
       <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "flex-1 min-w-0" : ""}`}>
 
         {/* v1 name: monogram above */}
         {showV1Name && (
-          <MessageName variant="v1" placement="above-bubble" isUser={isUser} effectiveName={effectiveName} />
+          <MessageName variant="v1" placement="above-bubble" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} />
         )}
 
         {/* v3 name: sparkle above */}
@@ -102,19 +106,29 @@ export function ChatMessageBubble({
         )}
 
         {/* ── Bubble ── */}
-        <div className={`${bubbleClass}${isStreaming && streamingVariant === "v3" ? " relative overflow-hidden" : ""}`}>
+        <div className={`${bubbleClass}${showStreamingIndicator && streamingVariant === "v3" ? " relative overflow-hidden" : ""}`}>
           {/* Tool calls */}
-          {message.toolCalls?.map((tc, j) => (
-            <ToolCallBlock
-              key={j}
-              toolCall={tc}
-              index={j}
-              isOpen={!!toolsOpen[j]}
-              onToggle={toggleToolCall}
+          {shouldStackToolCalls(message.toolCalls) ? (
+            <ToolCallStack
+              toolCalls={message.toolCalls ?? []}
               themeVariant={themeVariant}
               agentId={agentId}
+              isStreaming={isStreaming}
             />
-          ))}
+          ) : (
+            message.toolCalls?.map((tc, j) => (
+              <ToolCallBlock
+                key={j}
+                toolCall={tc}
+                index={j}
+                isOpen={!!toolsOpen[j]}
+                onToggle={toggleToolCall}
+                themeVariant={themeVariant}
+                agentId={agentId}
+                isStreaming={isStreaming}
+              />
+            ))
+          )}
 
           {/* Attachments */}
           <AttachmentSection
@@ -127,7 +141,7 @@ export function ChatMessageBubble({
           {displayedContent && <MarkdownContent content={displayedContent} />}
 
           {/* Streaming indicator */}
-          <StreamingIndicator variant={streamingVariant} isStreaming={isStreaming} isUser={isUser} />
+          <StreamingIndicator variant={streamingVariant} isStreaming={showStreamingIndicator} isUser={isUser} />
 
           {/* Timestamp inside bubble (v2) */}
           <TimestampDisplay timestamp={message.timestamp} variant={timestampVariant} placement="inside" isUser={isUser} />

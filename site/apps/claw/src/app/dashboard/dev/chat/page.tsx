@@ -36,6 +36,7 @@ import { AgentsChannelsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, ty
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
 import { FilesDrawer } from "@/components/dashboard/files";
 import { FilesPanel } from "@/components/dashboard/files-panel";
+import { InChatUxKitDemo } from "@/components/dashboard/chat/InChatUxKit";
 import type { ChatMessage } from "@/lib/openclaw-chat";
 import { agentAvatar } from "@/lib/avatar";
 
@@ -378,7 +379,7 @@ export default function DevChatPage() {
   const [connected, setConnected] = useState(true);
   const [streamingActive, setStreamingActive] = useState(false);
   const [selectedConnection, setSelectedConnection] = useState<any>(null);
-  const [devTab, setDevTab] = useState<"chat" | "agent-view" | "files">("chat");
+  const [devTab, setDevTab] = useState<"chat" | "agent-view" | "files" | "ux-kit">("chat");
   const [controlPanelOpen, setControlPanelOpen] = useState(false);
 
   // ── Agent View toggles ──
@@ -449,7 +450,7 @@ export default function DevChatPage() {
   const [streamingVariant, setStreamingVariant] = useState<StreamingVariant>("off");
 
   // ── Conversations Sidebar ──
-  const [conversationsSidebarVariant, setAgentsChannelsSidebarVariant] = useState<AgentsChannelsSidebarVariant | "off">("v3");
+  const [conversationsSidebarVariant, setAgentsChannelsSidebarVariant] = useState<AgentsChannelsSidebarVariant | "off">("off");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<typeof MOCK_CONVERSATION_THREADS>([]);
   const [addParticipantOpen, setAddParticipantOpen] = useState(false);
@@ -828,6 +829,16 @@ export default function DevChatPage() {
           >
             Files
           </button>
+          <button
+            onClick={() => setDevTab("ux-kit")}
+            className={`flex-1 px-3 py-2 text-xs font-medium transition-colors ${
+              devTab === "ux-kit"
+                ? "text-foreground border-b-2 border-[#38D39F]"
+                : "text-text-muted hover:text-text-secondary"
+            }`}
+          >
+            UX Kit
+          </button>
         </div>
 
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -1105,7 +1116,7 @@ export default function DevChatPage() {
         {/* Stats */}
         <div className="pt-2 border-t border-border text-xs text-text-muted space-y-1">
           <p>Messages: {messages.length}</p>
-          <p>Status: {connected ? "Connected" : connecting ? "Connecting..." : "Disconnected"}</p>
+          <p>Status: {connected ? "Connected" : connecting ? "Connecting gateway" : "Disconnected"}</p>
           <p>Sending: {sending ? "Yes" : "No"}</p>
         </div>
 
@@ -1657,6 +1668,38 @@ export default function DevChatPage() {
           </div>
         </>)}
 
+        {devTab === "ux-kit" && (<>
+          <div className="space-y-3">
+            <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider">In-chat UX Kit</h3>
+            <p className="text-xs text-text-muted">
+              Shows the full set of proposed in-chat workflow components in the main chat area.
+            </p>
+            <button
+              type="button"
+              onClick={() => {
+                setMessages([
+                  MOCK_MESSAGES.userSimple,
+                  MOCK_MESSAGES.assistantToolCall,
+                  MOCK_MESSAGES.assistantMultiTool,
+                ]);
+                setConnected(true);
+                setConnecting(false);
+                setSending(true);
+              }}
+              className="w-full rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-left text-xs font-medium text-[#38D39F] hover:bg-[#38D39F]/20"
+            >
+              Load mixed chat scenario
+            </button>
+            <button
+              type="button"
+              onClick={() => setSending(false)}
+              className="w-full rounded-lg border border-border px-3 py-2 text-left text-xs font-medium text-text-secondary hover:bg-surface-low hover:text-foreground"
+            >
+              Stop active demo state
+            </button>
+          </div>
+        </>)}
+
         </div>
           </div>
         </>
@@ -1768,7 +1811,7 @@ export default function DevChatPage() {
                 ? "Pick an agent from the sidebar or create a new one"
                 : selectedThread && groupThreadIds.has(selectedThread.id)
                 ? `Group · ${selectedThread.participants.length} participants`
-                : connected ? "Connected" : connecting ? "Connecting to gateway..." : "Disconnected"}
+                : connected ? "Connected" : connecting ? "Connecting gateway" : "Disconnected"}
             </p>
           </div>
 
@@ -1833,8 +1876,10 @@ export default function DevChatPage() {
 
         {/* Messages area */}
         <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
+          {devTab === "ux-kit" && <InChatUxKitDemo />}
+
           {/* Empty state: new conversation with only "You" */}
-          {selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
+          {devTab !== "ux-kit" && selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
             <div className="flex flex-col items-center justify-center h-full text-text-muted">
               <Users className="w-10 h-10 mb-3 text-text-muted/40" />
               <p className="text-sm font-medium text-foreground mb-1">New conversation</p>
@@ -1852,7 +1897,7 @@ export default function DevChatPage() {
           )}
 
           {/* Empty state: no thread selected */}
-          {!selectedThread && (
+          {devTab !== "ux-kit" && !selectedThread && (
             <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
               <MessageSquare className="w-8 h-8 opacity-30" />
               <p className="text-sm font-medium text-foreground">No Agent or Channel selected</p>
@@ -1863,13 +1908,13 @@ export default function DevChatPage() {
           )}
 
           {/* Empty state: thread selected but no messages */}
-          {selectedThread && messages.length === 0 && (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id)) && (
+          {devTab !== "ux-kit" && selectedThread && messages.length === 0 && (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id)) && (
             <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
               {connecting ? (
                 <>
                   <Loader2 className="w-8 h-8 animate-spin" />
-                  <p className="text-sm">Connecting to gateway...</p>
-                  <p className="text-xs text-text-muted/60">Retrying every 5s</p>
+                  <p className="text-sm">Connecting gateway</p>
+                  <p className="text-xs text-text-muted/60">Opening the agent session.</p>
                 </>
               ) : connected ? (
                 <>
@@ -1891,7 +1936,7 @@ export default function DevChatPage() {
             </div>
           )}
 
-          {(() => {
+          {devTab !== "ux-kit" && (() => {
             const isGroupThread = selectedThreadId !== null && groupThreadIds.has(selectedThreadId);
             const displayMessages: (ChatMessage & { senderId?: string; senderName?: string })[] =
               isGroupThread ? MOCK_GROUP_MESSAGES : messages;
@@ -1915,7 +1960,7 @@ export default function DevChatPage() {
             ));
           })()}
 
-          {sending && messages[messages.length - 1]?.role !== "assistant" && (
+          {devTab !== "ux-kit" && sending && messages[messages.length - 1]?.role !== "assistant" && (
             <ChatThinkingIndicator variant={thinkingVariant} />
           )}
 
@@ -1966,7 +2011,7 @@ export default function DevChatPage() {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 rows={1}
-                placeholder={connected ? `Message ${activeAgentName ?? "agent"}...` : "Waiting for gateway..."}
+                placeholder={connected ? `Message ${activeAgentName ?? "agent"}...` : "Connect gateway to message..."}
                 disabled={!connected || sending}
                 className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-12 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
               />
@@ -1990,7 +2035,7 @@ export default function DevChatPage() {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 rows={1}
-                placeholder={connected ? `Ask ${activeAgentName ?? "agent"} anything...` : "Waiting for gateway..."}
+                placeholder={connected ? `Ask ${activeAgentName ?? "agent"} anything...` : "Connect gateway to message..."}
                 disabled={!connected || sending}
                 className="flex-1 min-w-0 resize-none bg-transparent border-0 border-b border-border rounded-none px-1 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-[#38D39F] disabled:opacity-50 overflow-hidden transition-colors"
               />
@@ -2014,7 +2059,7 @@ export default function DevChatPage() {
                 }}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
                 rows={1}
-                placeholder={connected ? "Type a message... (Shift+Enter for newline)" : "Waiting for gateway..."}
+                placeholder={connected ? "Type a message... (Shift+Enter for newline)" : "Connect gateway to message..."}
                 disabled={!connected || sending}
                 className="flex-1 min-w-0 resize-none bg-surface-low border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#38D39F]/40 focus:border-[#38D39F]/60 disabled:opacity-50 overflow-hidden transition-all"
               />
@@ -2034,7 +2079,7 @@ export default function DevChatPage() {
                 value={input}
                 onChange={(e) => setInput(e.target.value)}
                 onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder={connected ? "Type a message..." : "Waiting for gateway..."}
+                placeholder={connected ? "Type a message..." : "Connect gateway to message..."}
                 disabled={!connected || sending}
                 className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
               />

@@ -28,7 +28,7 @@ function generateUser() {
 
 function generateAgent(overrides = {}) {
   const id = overrides.id || uuidv4();
-  const states = ['STOPPED', 'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'ERROR'];
+  const states = ['STOPPED', 'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'FAILED'];
   const state = overrides.state || faker.helpers.arrayElement(states);
   const tier = overrides.type || faker.helpers.arrayElement(['small', 'medium', 'large']);
   const tierPresets = { small: { cpu: 1, memory: 1 }, medium: { cpu: 2, memory: 2 }, large: { cpu: 4, memory: 4 } };

@@ -38,8 +38,10 @@ function buildAgentStatus(selectedAgent: Agent, isSelectedRunning: boolean): Age
   }
 
   return {
-    state: (selectedAgent.state === "PENDING" || selectedAgent.state === "FAILED"
-      ? "STOPPED"
+    state: (selectedAgent.state === "PENDING"
+      ? "STARTING"
+      : selectedAgent.state === "FAILED"
+        ? "STOPPED"
       : selectedAgent.state) as "RUNNING" | "STOPPED" | "STARTING" | "STOPPING",
     uptime: 0,
     cpu: 0,

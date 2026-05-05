@@ -2,36 +2,38 @@
 
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { Bot, Loader2, PanelLeftOpen, Plus, SlidersHorizontal, X } from "lucide-react";
+import { ArrowRight, Bot, PanelLeftOpen, SlidersHorizontal, Sparkles, X } from "lucide-react";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
-import { IntegrationsPage } from "@/components/dashboard/integrations";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
-import { AgentCardTooltip } from "@/components/dashboard/modules/AgentCardModule";
+import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { AgentsChannelsSidebar, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { FilePreview } from "@/components/dashboard/files/FilePreview";
+import type { FileEntry } from "@/components/dashboard/files/types";
 import { agentAvatar } from "@/lib/avatar";
-import { formatCpu, formatMemory } from "@/lib/format";
-import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
-import { OpenClawErrorBoundary } from "./page-helpers";
+import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
 
 interface SessionLike {
   connected: boolean;
   connecting: boolean;
   config: Record<string, unknown> | null;
   configSchema: OpenClawConfigSchemaResponse | null;
+  models: unknown[];
   saveConfig: (patch: Record<string, unknown>) => Promise<void>;
+  saveFullConfig: (config: Record<string, unknown>) => Promise<void>;
   channelsStatus: (probe?: boolean, timeoutMs?: number) => Promise<Record<string, any>>;
   activityFeed: ActivityEntry[];
   files: WorkspaceFile[];
 }
 
-interface OpenClawConfigModalProps {
-  open: boolean;
+interface OpenClawConfigPanelProps {
+  open?: boolean;
   agent: Agent | null;
-  onClose: () => void;
+  onClose?: () => void;
+  embedded?: boolean;
   openclawSections: Array<[string, unknown]>;
   openclawSchemaBundle: OpenClawConfigSchemaResponse | null;
   effectiveOpenclawSection: string | null;
@@ -49,305 +51,422 @@ interface OpenClawConfigModalProps {
   openclawPaneRef: React.RefObject<HTMLDivElement | null>;
 }
 
-export function OpenClawConfigModal({
-  open,
+export function OpenClawConfigPanel({
+  open = true,
   agent,
   onClose,
-  openclawSections,
-  openclawSchemaBundle,
-  effectiveOpenclawSection,
-  setActiveOpenclawSection,
-  activeOpenclawSectionLabel,
+  embedded = false,
   openclawSaving,
   openclawDraft,
   openclawError,
   openclawSuccess,
   chat,
-  visibleOpenclawSections,
-  renderOpenclawField,
-  saveOpenclawSection,
-  saveAllOpenclaw,
-  openclawPaneRef,
-}: OpenClawConfigModalProps) {
+}: OpenClawConfigPanelProps) {
+  const [localError, setLocalError] = React.useState<string | null>(null);
+  const [localSuccess, setLocalSuccess] = React.useState<string | null>(null);
+  const [localSaving, setLocalSaving] = React.useState(false);
+  const editorContent = React.useMemo(() => JSON.stringify(openclawDraft ?? {}, null, 2), [openclawDraft]);
+  const editorEntry = React.useMemo<FileEntry>(() => ({
+    name: "openclaw.json",
+    path: "openclaw.json",
+    type: "file",
+    size: editorContent.length,
+  }), [editorContent]);
+
+  React.useEffect(() => {
+    if (!open) {
+      setLocalError(null);
+      setLocalSuccess(null);
+      setLocalSaving(false);
+    }
+  }, [open]);
+
+  const saveOpenclawJson = React.useCallback(async (_path: string, content: string) => {
+    setLocalError(null);
+    setLocalSuccess(null);
+
+    if (!chat.connected) {
+      setLocalError("Gateway disconnected. Reconnect before editing openclaw.json.");
+      return;
+    }
+
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(content);
+    } catch (error) {
+      setLocalError(error instanceof Error ? `Invalid JSON: ${error.message}` : "Invalid JSON");
+      return;
+    }
+
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) {
+      setLocalError("openclaw.json must contain a JSON object.");
+      return;
+    }
+
+    setLocalSaving(true);
+    try {
+      await chat.saveFullConfig(parsed as Record<string, unknown>);
+      setLocalSuccess("Saved openclaw.json");
+    } catch (error) {
+      setLocalError(error instanceof Error ? error.message : "Failed to save openclaw.json");
+    } finally {
+      setLocalSaving(false);
+    }
+  }, [chat]);
+
+  const effectiveError = localError ?? openclawError;
+  const effectiveSuccess = localSuccess ?? openclawSuccess;
+  const saving = openclawSaving || localSaving;
+
+  if (!open || !agent) return null;
+
   return (
-    <AnimatePresence>
-      {open && agent && (
-        <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60 backdrop-blur-sm"
-          onClick={onClose}
-        >
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 400, damping: 35 }}
-            className="w-full max-w-2xl bg-background border-l border-border flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
+    <div className={`flex h-full min-h-0 flex-col bg-background ${embedded ? "rounded-lg border border-border" : ""}`}>
+      <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border px-4">
+        <SlidersHorizontal className="h-4 w-4 text-primary" />
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-foreground">OpenClaw Config</p>
+          <p className="text-[10px] text-text-muted">Editing openclaw.json</p>
+        </div>
+        <div className="flex-1" />
+        {saving && <p className="text-[10px] text-text-muted">Saving openclaw.json</p>}
+        {onClose && (
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+            title="Close OpenClaw config"
           >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">OpenClaw Config</h2>
-              <button onClick={onClose} className="text-text-muted hover:text-foreground transition-colors">
-                <X className="w-4 h-4" />
-              </button>
-            </div>
-            <div className="flex-1 overflow-y-auto">
-              <div className="h-full min-h-0 flex flex-row">
-                <aside className="w-[200px] shrink-0 border-r border-border bg-surface-low/20" style={{ minWidth: 160, maxWidth: 260 }}>
-                  <div className="h-full overflow-y-auto p-3">
-                    <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">Sections</p>
-                    <div className="space-y-0.5">
-                      {openclawSections.map(([sectionKey, sectionSchema]) => {
-                        const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                        const sectionLabel =
-                          sectionHint?.label?.trim() ||
-                          (typeof asObject(sectionSchema)?.title === "string"
-                            ? String(asObject(sectionSchema)?.title)
-                            : humanizeKey(sectionKey));
-                        return (
-                          <button
-                            key={`modal-nav-${sectionKey}`}
-                            onClick={() => setActiveOpenclawSection(sectionKey)}
-                            className={`block w-full rounded-md px-2.5 py-1.5 text-left text-xs transition-colors truncate ${
-                              effectiveOpenclawSection === sectionKey
-                                ? "bg-primary/15 text-foreground font-medium border-l-2 border-primary"
-                                : "text-text-muted hover:text-foreground hover:bg-surface-low/40"
-                            }`}
-                          >
-                            {sectionLabel}
-                          </button>
-                        );
-                      })}
-                    </div>
-                  </div>
-                </aside>
-                <div ref={openclawPaneRef} className="flex-1 min-w-0 overflow-y-auto p-6">
-                  <OpenClawErrorBoundary>
-                    <div className="mx-auto max-w-5xl space-y-4">
-                      <div className="flex flex-wrap items-center justify-between gap-3">
-                        <div>
-                          <h3 className="text-lg font-semibold text-foreground">
-                            {activeOpenclawSectionLabel ?? "OpenClaw Config"}
-                          </h3>
-                        </div>
-                        <button
-                          onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
-                          disabled={openclawSaving || !chat.connected || !openclawDraft}
-                          className="btn-primary px-3 py-2 rounded-lg text-sm disabled:opacity-50 inline-flex items-center gap-2"
-                        >
-                          {openclawSaving ? <Loader2 className="w-4 h-4 animate-spin" /> : <SlidersHorizontal className="w-4 h-4" />}
-                          {effectiveOpenclawSection ? "Save Section" : "Save All"}
-                        </button>
-                      </div>
-                      {openclawError && (
-                        <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">{openclawError}</div>
-                      )}
-                      {openclawSuccess && !openclawError && (
-                        <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">{openclawSuccess}</div>
-                      )}
-                      {!chat.connected && !chat.connecting && (
-                        <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">Connect the agent gateway to edit OpenClaw settings.</div>
-                      )}
-                      {chat.connecting && !chat.connected && (
-                        <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted inline-flex items-center gap-2">
-                          <Loader2 className="w-4 h-4 animate-spin" /> Connecting to gateway…
-                        </div>
-                      )}
-                      {openclawDraft && (
-                        <div className="space-y-4">
-                          {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
-                            const sectionHint = getOpenClawUiHint(openclawSchemaBundle, [sectionKey]);
-                            const sectionDescription =
-                              sectionHint?.help?.trim() ||
-                              (typeof asObject(sectionSchema)?.description === "string"
-                                ? String(asObject(sectionSchema)?.description)
-                                : "");
-                            return (
-                              <div key={`modal-section-${sectionKey}`} className="rounded-xl border border-border bg-surface-low/30 p-4 space-y-4">
-                                {sectionDescription && <p className="text-xs text-text-muted">{sectionDescription}</p>}
-                                {renderOpenclawField(sectionSchema, [sectionKey])}
-                              </div>
-                            );
-                          })}
-                        </div>
-                      )}
-                    </div>
-                  </OpenClawErrorBoundary>
-                </div>
-              </div>
-            </div>
-          </motion.div>
-        </motion.div>
+            <X className="h-3.5 w-3.5" />
+          </button>
+        )}
+      </div>
+      {(effectiveError || effectiveSuccess) && (
+        <div className="flex-shrink-0 space-y-2 border-b border-border px-4 py-3">
+          {effectiveError && (
+            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">{effectiveError}</div>
+          )}
+          {effectiveSuccess && !effectiveError && (
+            <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">{effectiveSuccess}</div>
+          )}
+        </div>
       )}
-    </AnimatePresence>
+      <div className="min-h-0 flex-1">
+        <FilePreview
+          key={agent.id}
+          entry={editorEntry}
+          content={editorContent}
+          loading={chat.connecting && !chat.connected}
+          error={null}
+          readOnly={!chat.connected}
+          readOnlyLabel="Disconnected"
+          readOnlyDescription="Reconnect the gateway before editing openclaw.json."
+          onClose={onClose ?? (() => {})}
+          showClose={Boolean(onClose)}
+          onSave={chat.connected ? saveOpenclawJson : undefined}
+        />
+      </div>
+    </div>
   );
 }
 
-interface AgentSettingsModalProps {
-  open: boolean;
+interface AgentSettingsPanelProps {
   agent: Agent | null;
-  onClose: () => void;
   settingsName: string;
   setSettingsName: (value: string) => void;
   savingName: boolean;
   handleSaveName: () => void;
-  selectedAgentTier: string | null;
   chat: SessionLike;
-  handleStop: (agentId: string) => void;
-  stoppingId: string | null;
-  setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
+  openclawConfig?: React.ReactNode;
 }
 
-export function AgentSettingsModal({
-  open,
-  agent,
-  onClose,
-  settingsName,
-  setSettingsName,
-  savingName,
-  handleSaveName,
-  selectedAgentTier,
-  chat,
-  handleStop,
-  stoppingId,
-  setPendingAgentDelete,
-}: AgentSettingsModalProps) {
+interface AgentSettingsRowProps {
+  id: string;
+  label: string;
+  description: string;
+  children: React.ReactNode;
+}
+
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : null;
+}
+
+function readString(value: unknown): string | null {
+  return typeof value === "string" && value.trim() ? value.trim() : null;
+}
+
+function readDefaultModel(config: Record<string, unknown> | null): string {
+  const root = asRecord(config);
+  const llm = asRecord(root?.llm);
+  const models = asRecord(root?.models);
+  return readString(llm?.model) ?? readString(models?.default) ?? "";
+}
+
+function buildDefaultModelPatch(config: Record<string, unknown> | null, model: string): Record<string, unknown> {
+  const root = asRecord(config);
+  const llm = asRecord(root?.llm);
+  const models = asRecord(root?.models);
+
+  if (models && typeof models.default === "string" && !llm) {
+    return { models: { ...models, default: model } };
+  }
+
+  return { llm: { ...(llm ?? {}), model } };
+}
+
+function addModelOption(options: Map<string, string>, id: unknown, label?: unknown) {
+  const value = readString(id);
+  if (!value || options.has(value)) return;
+  options.set(value, readString(label) ?? value);
+}
+
+function collectModelOptions(
+  config: Record<string, unknown> | null,
+  models: unknown[],
+  currentDefaultModel: string,
+): Array<{ value: string; label: string }> {
+  const options = new Map<string, string>();
+  addModelOption(options, currentDefaultModel);
+
+  for (const model of models) {
+    if (typeof model === "string") {
+      addModelOption(options, model);
+      continue;
+    }
+    const entry = asRecord(model);
+    addModelOption(options, entry?.id ?? entry?.model ?? entry?.name, entry?.name ?? entry?.label);
+  }
+
+  const configuredProviders = asRecord(asRecord(asRecord(config)?.models)?.providers);
+  for (const provider of Object.values(configuredProviders ?? {})) {
+    const providerModels = asRecord(provider)?.models;
+    if (!Array.isArray(providerModels)) continue;
+    for (const model of providerModels) {
+      if (typeof model === "string") {
+        addModelOption(options, model);
+        continue;
+      }
+      const entry = asRecord(model);
+      addModelOption(options, entry?.id ?? entry?.model ?? entry?.name, entry?.name ?? entry?.label);
+    }
+  }
+
+  return Array.from(options.entries()).map(([value, label]) => ({ value, label }));
+}
+
+function readAgentUiPreference(agent: Agent | null, key: string, fallback: string): string {
+  const ui = asRecord(agent?.meta?.ui);
+  return readString(ui?.[key]) ?? fallback;
+}
+
+function AgentSettingsRow({ id, label, description, children }: AgentSettingsRowProps) {
   return (
-    <AnimatePresence>
-      {open && agent && (
+    <div className="flex min-h-[52px] flex-col gap-3 rounded-lg border border-border bg-surface-low/30 px-3 py-3 sm:flex-row sm:items-center sm:justify-between">
+      <div className="min-w-0">
+        <label htmlFor={id} className="block text-sm font-semibold leading-5 text-foreground">
+          {label}
+        </label>
+        <p className="mt-0.5 text-[11px] leading-4 text-text-muted">{description}</p>
+      </div>
+      <div className="w-full shrink-0 sm:w-[180px]">{children}</div>
+    </div>
+  );
+}
+
+export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
+  const {
+    agent,
+    settingsName,
+    setSettingsName,
+    savingName,
+    handleSaveName,
+    chat,
+    openclawConfig,
+  } = props;
+  const currentDefaultModel = React.useMemo(() => readDefaultModel(chat.config), [chat.config]);
+  const modelOptions = React.useMemo(
+    () => collectModelOptions(chat.config, chat.models, currentDefaultModel),
+    [chat.config, chat.models, currentDefaultModel],
+  );
+  const [defaultModelDraft, setDefaultModelDraft] = React.useState("");
+  const [savedDefaultModel, setSavedDefaultModel] = React.useState("");
+  const [archiveDraft, setArchiveDraft] = React.useState("enabled");
+  const [savedPreferences, setSavedPreferences] = React.useState<Record<string, { archive: string }>>({});
+  const [savingSettings, setSavingSettings] = React.useState(false);
+  const [settingsError, setSettingsError] = React.useState<string | null>(null);
+
+  const agentId = agent?.id ?? null;
+  const agentPreferences = agentId ? savedPreferences[agentId] : undefined;
+  const currentVisibility = readAgentUiPreference(agent, "visibility", "just_me");
+  const currentArchive = agentPreferences?.archive ?? readAgentUiPreference(agent, "autoArchiveIdleConversations", "enabled");
+  const effectiveCurrentModel = savedDefaultModel || currentDefaultModel;
+  const canEditName = agent?.state === "STOPPED";
+  const trimmedName = settingsName.trim();
+  const nameChanged = Boolean(agent && canEditName && trimmedName && trimmedName !== (agent.name || ""));
+  const modelChanged = Boolean(defaultModelDraft && defaultModelDraft !== effectiveCurrentModel);
+  const preferencesChanged = Boolean(agent && archiveDraft !== currentArchive);
+  const canSaveModel = chat.connected && modelChanged;
+  const hasChanges = nameChanged || canSaveModel || preferencesChanged;
+  const saving = savingSettings || savingName;
+
+  const resetDraft = React.useCallback(() => {
+    if (!agentId) return;
+    const nextDefaultModel = currentDefaultModel || modelOptions[0]?.value || "";
+    setDefaultModelDraft(nextDefaultModel);
+    setSavedDefaultModel(currentDefaultModel);
+    setArchiveDraft(currentArchive);
+    setSettingsName(agent?.name || "");
+    setSettingsError(null);
+  }, [agent?.name, agentId, currentDefaultModel, currentArchive, modelOptions, setSettingsName]);
+
+  React.useEffect(() => {
+    resetDraft();
+  }, [resetDraft]);
+
+  const saveSettings = async () => {
+    if (!agent || saving) return;
+    setSavingSettings(true);
+    setSettingsError(null);
+    try {
+      if (nameChanged) {
+        await handleSaveName();
+      }
+      if (canSaveModel) {
+        await chat.saveConfig(buildDefaultModelPatch(chat.config, defaultModelDraft));
+        setSavedDefaultModel(defaultModelDraft);
+      }
+      if (preferencesChanged) {
+        setSavedPreferences((prev) => ({
+          ...prev,
+          [agent.id]: { archive: archiveDraft },
+        }));
+      }
+    } catch (error) {
+      setSettingsError(error instanceof Error ? error.message : "Failed to save settings");
+    } finally {
+      setSavingSettings(false);
+    }
+  };
+
+  if (!agent) return null;
+
+  return (
+    <div className="h-full overflow-y-auto bg-background">
+      <div className="mx-auto w-full max-w-[720px] px-4 py-5 sm:px-6">
         <motion.div
-          initial={{ opacity: 0 }}
-          animate={{ opacity: 1 }}
-          exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-stretch justify-end bg-black/60 backdrop-blur-sm"
-          onClick={onClose}
+          initial={{ opacity: 0, y: 8 }}
+          animate={{ opacity: 1, y: 0 }}
+          transition={{ type: "spring", stiffness: 420, damping: 34 }}
         >
-          <motion.div
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 400, damping: 35 }}
-            className="w-full max-w-lg bg-background border-l border-border flex flex-col overflow-hidden"
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div className="flex items-center justify-between px-4 py-3 border-b border-border">
-              <h2 className="text-sm font-semibold text-foreground">Settings</h2>
-              <button onClick={onClose} className="text-text-muted hover:text-foreground transition-colors">
-                <X className="w-4 h-4" />
-              </button>
+          <h2 className="mb-4 text-sm font-semibold text-foreground">Settings</h2>
+
+          <div className="space-y-2">
+            <AgentSettingsRow
+              id="agent-name"
+              label="Agent name"
+              description={canEditName ? "Shown in the sidebar and breadcrumbs" : "Stop the agent to change its name"}
+            >
+              <input
+                id="agent-name"
+                value={settingsName}
+                onChange={(event) => setSettingsName(event.target.value)}
+                disabled={!canEditName || saving}
+                placeholder="Agent name"
+                className="h-8 w-full rounded-md border border-border bg-background px-3 text-xs text-foreground transition-colors placeholder:text-text-muted focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              />
+            </AgentSettingsRow>
+
+            <AgentSettingsRow
+              id="default-model"
+              label="Default model"
+              description={chat.connected ? "Used when no override is set" : "Connect the agent gateway to edit"}
+            >
+              <select
+                id="default-model"
+                value={defaultModelDraft}
+                onChange={(event) => setDefaultModelDraft(event.target.value)}
+                disabled={!chat.connected || saving || modelOptions.length === 0}
+                className="h-8 w-full rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {modelOptions.length === 0 ? (
+                  <option value="">{chat.connecting ? "Loading models" : "No model loaded"}</option>
+                ) : (
+                  modelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))
+                )}
+              </select>
+            </AgentSettingsRow>
+
+            <AgentSettingsRow id="agent-visibility" label="Visibility" description="Visibility controls are currently disabled">
+              <select
+                id="agent-visibility"
+                value={currentVisibility}
+                disabled
+                className="h-8 w-full rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="just_me">Just me</option>
+                <option value="team">Team</option>
+                <option value="organization">Organization</option>
+              </select>
+            </AgentSettingsRow>
+
+            <AgentSettingsRow
+              id="auto-archive"
+              label="Auto-archive idle conversations"
+              description="After 30 days"
+            >
+              <select
+                id="auto-archive"
+                value={archiveDraft}
+                onChange={(event) => setArchiveDraft(event.target.value)}
+                disabled={saving}
+                className="h-8 w-full rounded-md border border-border bg-background px-3 text-xs font-semibold text-foreground focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                <option value="enabled">Enabled</option>
+                <option value="disabled">Disabled</option>
+              </select>
+            </AgentSettingsRow>
+          </div>
+
+          {settingsError && (
+            <div className="mt-3 rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-xs text-[#d05f5f]">
+              {settingsError}
             </div>
-            <div className="flex-1 overflow-y-auto p-4 sm:p-6 pb-8">
-              <div className="max-w-2xl w-full mx-auto space-y-8">
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-4">Agent Identity</h3>
-                  <div className="space-y-4">
-                    <div>
-                      <label className="block text-sm text-text-secondary mb-1">Name</label>
-                      <div className="flex items-center gap-2">
-                        <input
-                          value={settingsName}
-                          onChange={(e) => setSettingsName(e.target.value)}
-                          disabled={agent.state !== "STOPPED"}
-                          className={`flex-1 px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong ${agent.state !== "STOPPED" ? "opacity-50 cursor-not-allowed" : ""}`}
-                          placeholder="Agent name"
-                        />
-                        {agent.state === "STOPPED" && settingsName.trim() && settingsName.trim() !== (agent.name || "") && (
-                          <button
-                            onClick={handleSaveName}
-                            disabled={savingName}
-                            className="flex-shrink-0 px-3 py-2 rounded-lg text-sm bg-[#38D39F] text-[#0a0a0b] font-medium hover:bg-[#38D39F]/90 disabled:opacity-60"
-                          >
-                            {savingName ? "Saving..." : "Save"}
-                          </button>
-                        )}
-                      </div>
-                      {agent.state !== "STOPPED" && (
-                        <p className="text-xs text-text-muted mt-1">Stop the agent to change its name</p>
-                      )}
-                    </div>
-                  </div>
-                </div>
+          )}
 
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-4">Integrations</h3>
-                  <IntegrationsPage
-                    config={chat.config as Record<string, unknown> | null}
-                    configSchema={chat.configSchema}
-                    connected={chat.connected}
-                    onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
-                    onChannelProbe={async () => chat.channelsStatus(true)}
-                  />
-                </div>
+          <div className="mt-3 flex items-center justify-end gap-2">
+            <button
+              type="button"
+              onClick={resetDraft}
+              disabled={!hasChanges || saving}
+              className="rounded-lg border border-border bg-background px-3 py-2 text-xs font-medium text-foreground transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              Cancel
+            </button>
+            <button
+              type="button"
+              onClick={() => { void saveSettings(); }}
+              disabled={!hasChanges || saving}
+              className="rounded-lg bg-primary px-3 py-2 text-xs font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {saving ? "Saving..." : "Save changes"}
+            </button>
+          </div>
 
-                <div>
-                  <h3 className="text-lg font-semibold text-foreground mb-4">Information</h3>
-                  <div className="glass-card p-4 space-y-3">
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-text-secondary">Agent ID</span>
-                      <span className="text-sm text-text-tertiary font-mono truncate min-w-0">{agent.id.slice(0, 12)}...</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-text-secondary">Status</span>
-                      <span className={`text-sm font-medium ${
-                        agent.state === "RUNNING" ? "text-[#38D39F]" :
-                        agent.state === "FAILED" ? "text-[#d05f5f]" :
-                        agent.state === "STOPPED" ? "text-text-muted" :
-                        "text-[#f0c56c]"
-                      }`}>{agent.state}</span>
-                    </div>
-                    <div className="flex items-center justify-between">
-                      <span className="text-sm text-text-secondary">Resources</span>
-                      <span className="text-sm text-text-tertiary truncate min-w-0">{formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}</span>
-                    </div>
-                    {selectedAgentTier && (
-                      <div className="flex items-center justify-between">
-                        <span className="text-sm text-text-secondary">Tier</span>
-                        <span className="text-sm text-text-tertiary truncate min-w-0">{selectedAgentTier}</span>
-                      </div>
-                    )}
-                  </div>
-                </div>
-
-                <div>
-                  <h3 className="text-lg font-semibold text-[#d05f5f] mb-4">Danger Zone</h3>
-                  <div className="border border-[#d05f5f]/20 rounded-lg p-4 space-y-3">
-                    {agent.state === "RUNNING" && (
-                      <div className="flex items-center justify-between gap-3">
-                        <div className="min-w-0">
-                          <p className="text-sm font-medium text-foreground">Stop Agent</p>
-                          <p className="text-xs text-text-muted">Stop the running agent container</p>
-                        </div>
-                        <button
-                          onClick={() => { handleStop(agent.id); onClose(); }}
-                          disabled={stoppingId === agent.id}
-                          className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm border border-border text-foreground hover:bg-surface-low disabled:opacity-60"
-                        >
-                          {stoppingId === agent.id ? "Stopping..." : "Stop"}
-                        </button>
-                      </div>
-                    )}
-                    <div className="flex items-center justify-between gap-3">
-                      <div className="min-w-0">
-                        <p className="text-sm font-medium text-foreground">Delete Agent</p>
-                        <p className="text-xs text-text-muted">Permanently delete this agent and all its data</p>
-                      </div>
-                      <button
-                        onClick={() => { setPendingAgentDelete({ id: agent.id, name: agent.name || agent.id }); onClose(); }}
-                        className="flex-shrink-0 px-3 py-1.5 rounded-lg text-sm border border-[#d05f5f]/30 text-[#d05f5f] hover:bg-[#d05f5f]/10"
-                      >
-                        Delete
-                      </button>
-                    </div>
-                  </div>
-                </div>
+          {openclawConfig && (
+            <section className="mt-6">
+              <h3 className="mb-3 text-sm font-semibold text-foreground">OpenClaw settings</h3>
+              <div className="h-[560px] min-h-[420px] overflow-hidden">
+                {openclawConfig}
               </div>
-            </div>
-          </motion.div>
+            </section>
+          )}
         </motion.div>
-      )}
-    </AnimatePresence>
+      </div>
+    </div>
   );
 }
 
@@ -455,6 +574,7 @@ interface AgentListProps {
   setMobileShowChat: (value: boolean) => void;
   setSidebarCollapsed: (value: boolean) => void;
   syntheticThreads: ConversationThread[];
+  agentCardDataById?: Record<string, AgentCardTooltipData>;
   getToken: () => Promise<string>;
   createOpenClawAgent: (apiKey: string, options?: Record<string, unknown>) => Promise<{ id?: string | null }>;
   fetchAgents: () => Promise<void>;
@@ -470,6 +590,21 @@ interface AgentListProps {
   showChannels?: boolean;
 }
 
+function toAgentCardTooltipData(agent: Agent): AgentCardTooltipData {
+  return {
+    id: agent.id,
+    name: agent.name || agent.id,
+    state: agent.state,
+    cpuMillicores: agent.cpu_millicores,
+    memoryMib: agent.memory_mib,
+    hostname: agent.hostname,
+    startedAt: agent.started_at,
+    updatedAt: agent.updated_at,
+    lastError: agent.last_error,
+    meta: agent.meta,
+  };
+}
+
 export function AgentList({
   sidebarCollapsed,
   isDesktopViewport,
@@ -480,6 +615,7 @@ export function AgentList({
   setMobileShowChat,
   setSidebarCollapsed,
   syntheticThreads,
+  agentCardDataById,
   getToken,
   createOpenClawAgent,
   fetchAgents,
@@ -490,12 +626,25 @@ export function AgentList({
   updateAgentName,
   showChannels = false,
 }: AgentListProps) {
+  const mergedAgentCardDataById = React.useMemo(() => {
+    const next: Record<string, AgentCardTooltipData> = {};
+    for (const agent of agents) {
+      next[agent.id] = toAgentCardTooltipData(agent);
+    }
+    for (const [agentId, cardData] of Object.entries(agentCardDataById ?? {})) {
+      const existing = next[agentId];
+      next[agentId] = existing ? { ...existing, ...cardData } : cardData;
+    }
+    return next;
+  }, [agents, agentCardDataById]);
+
   return (
     <motion.div
-      className={`flex-shrink-0 h-full overflow-hidden ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      className={`relative flex-shrink-0 h-full overflow-hidden bg-background ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
       animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
       transition={{ type: "spring", stiffness: 360, damping: 32 }}
     >
+      <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-30 h-full w-px bg-border" />
       <AnimatePresence initial={false} mode="wait">
         {sidebarCollapsed && isDesktopViewport ? (
           <motion.div
@@ -504,40 +653,52 @@ export function AgentList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="w-12 h-full flex flex-col items-center gap-2 border-r border-border bg-background py-3 overflow-y-auto"
+            className="w-12 h-full flex flex-col bg-background overflow-hidden"
           >
-            <button
-              onClick={() => setSidebarCollapsed(false)}
-              title="Expand sidebar"
-              className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-            >
-              <PanelLeftOpen className="w-3.5 h-3.5" />
-            </button>
-            <div className="w-6 h-px bg-border my-1" />
-            {agents.map((a) => {
-              const av = agentAvatar(a.name || a.id);
-              const Icon = av.icon;
-              const selected = selectedAgentId === a.id;
-              return (
-                <Tooltip key={a.id} delayDuration={300}>
-                  <TooltipTrigger asChild>
-                    <button
-                      onClick={() => {
-                        setSelectedAgentId(a.id);
-                        setMobileShowChat(true);
-                      }}
-                      className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-background" : ""}`}
-                      style={{ backgroundColor: av.bgColor }}
-                    >
-                      <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
-                    </button>
-                  </TooltipTrigger>
-                  <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
-                    <AgentCardTooltip agentName={a.name || a.id} />
-                  </TooltipContent>
-                </Tooltip>
-              );
-            })}
+            <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
+              <button
+                onClick={() => setSidebarCollapsed(false)}
+                title="Expand sidebar"
+                className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              >
+                <PanelLeftOpen className="w-3.5 h-3.5" />
+              </button>
+            </div>
+            <div className="flex flex-1 flex-col items-center gap-2 overflow-y-auto py-3">
+              {agents.map((a) => {
+                const av = agentAvatar(a.name || a.id, a.meta);
+                const Icon = av.icon;
+                const selected = selectedAgentId === a.id;
+                return (
+                  <Tooltip key={a.id} delayDuration={300}>
+                    <TooltipTrigger asChild>
+                      <button
+                        onClick={() => {
+                          setSelectedAgentId(a.id);
+                          setMobileShowChat(true);
+                        }}
+                        aria-label={`Select ${a.name || a.id}`}
+                        className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-background" : ""}`}
+                        style={{ backgroundColor: av.bgColor }}
+                      >
+                        {av.imageUrl ? (
+                          <span
+                            aria-label={`${a.name || a.id} avatar`}
+                            className="h-full w-full rounded-full bg-cover bg-center"
+                            style={{ backgroundImage: `url(${JSON.stringify(av.imageUrl)})` }}
+                          />
+                        ) : (
+                          <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
+                        )}
+                      </button>
+                    </TooltipTrigger>
+                    <TooltipContent side="right" align="start" className="bg-transparent border-0 p-0 shadow-none">
+                      <AgentCardTooltip agentName={a.name || a.id} agent={mergedAgentCardDataById[a.id]} />
+                    </TooltipContent>
+                  </Tooltip>
+                );
+              })}
+            </div>
           </motion.div>
         ) : (
           <motion.div
@@ -550,6 +711,8 @@ export function AgentList({
           >
             <AgentsChannelsSidebar
               variant="v3"
+              showDivider={false}
+              fillParent
               threads={syntheticThreads}
               selectedThreadId={selectedAgentId}
               showChannels={showChannels}
@@ -557,7 +720,9 @@ export function AgentList({
                 id: a.id,
                 name: a.name || a.id,
                 type: "agent" as const,
+                meta: a.meta ?? null,
               }))}
+              agentCardDataById={mergedAgentCardDataById}
               onSelectThread={(threadId) => {
                 setSelectedAgentId(threadId);
                 setMobileShowChat(true);
@@ -611,22 +776,58 @@ export { AgentList as AgentSidebarPane };
 
 export function AgentEmptyState({
   onCreate,
+  onCreateAgent,
 }: {
   onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
 }) {
+  const [showWizard, setShowWizard] = React.useState(false);
+
+  if (showWizard) {
+    return (
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent ?? (async () => {
+          onCreate();
+          return null;
+        })}
+      />
+    );
+  }
+
   return (
-    <div className="flex-1 flex items-center justify-center">
-      <div className="text-center">
-        <Bot className="w-10 h-10 text-text-muted mx-auto mb-3" />
-        <p className="text-text-secondary mb-4">Select or create an agent to get started</p>
+    <div className="flex-1 flex items-center justify-center px-4 py-8">
+      <div className="w-full max-w-[560px] text-center">
+        <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-surface-low/70 px-3 py-1 text-[11px] font-medium text-text-secondary">
+          <Sparkles className="h-3.5 w-3.5 text-primary" />
+          <span>First agent setup</span>
+        </div>
+        <h1 className="text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
+          Launch your first agent
+        </h1>
+        <p className="mx-auto mt-3 max-w-[460px] text-sm leading-6 text-text-muted">
+          Create a focused agent, add useful context, and choose a plan.
+        </p>
         <motion.button
-          whileHover={{ scale: 1.02, boxShadow: "0 0 16px rgba(56,211,159,0.12)" }}
-          whileTap={{ scale: 0.97 }}
-          onClick={onCreate}
-          className="inline-flex items-center gap-2 px-3.5 py-2 rounded-lg text-xs font-medium bg-[#38D39F]/10 border border-[#38D39F]/20 hover:border-[#38D39F]/40 text-[#38D39F] transition-colors"
+          whileHover={{ y: -2, boxShadow: "0 16px 44px rgba(0,0,0,0.25), 0 0 22px rgba(56,211,159,0.07)" }}
+          whileTap={{ scale: 0.99 }}
+          type="button"
+          onClick={() => setShowWizard(true)}
+          className="group mx-auto mt-7 flex w-full max-w-[480px] items-center justify-between gap-4 rounded-lg border border-border bg-surface-low/80 px-4 py-4 text-left shadow-[0_14px_44px_rgba(0,0,0,0.22)] transition-colors hover:border-primary/35 hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <Plus className="w-3.5 h-3.5" />
-          <span>Create new agent</span>
+          <span className="flex min-w-0 items-center gap-3">
+            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border-medium bg-surface-high text-primary">
+              <Bot className="h-[18px] w-[18px]" />
+            </span>
+            <span className="min-w-0">
+              <span className="block text-base font-semibold leading-tight text-foreground">Create a first agent</span>
+              <span className="mt-1 block text-xs leading-5 text-text-muted">
+                Guided setup that creates the agent directly.
+              </span>
+            </span>
+          </span>
+          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors group-hover:bg-primary-hover">
+            <ArrowRight className="h-[18px] w-[18px]" />
+          </span>
         </motion.button>
       </div>
     </div>

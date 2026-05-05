@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   X,
@@ -29,7 +29,10 @@ interface FilePreviewProps {
   /** When true, the editor becomes read-only and the Save button is hidden.
    *  Used for core agent files that should be edited via download/re-upload. */
   readOnly?: boolean;
+  readOnlyLabel?: string;
+  readOnlyDescription?: ReactNode;
   onClose: () => void;
+  showClose?: boolean;
   onSave?: (path: string, content: string) => Promise<void>;
   onDownload?: (entry: FileEntry) => void;
 }
@@ -74,7 +77,10 @@ export function FilePreview({
   error,
   dirty = false,
   readOnly = false,
+  readOnlyLabel = "Read-only",
+  readOnlyDescription,
   onClose,
+  showClose = true,
   onSave,
   onDownload,
 }: FilePreviewProps) {
@@ -142,7 +148,7 @@ export function FilePreview({
               className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[#f0c56c] bg-[#f0c56c]/10 px-1.5 py-0.5 rounded"
             >
               <Lock className="w-2.5 h-2.5" />
-              Read-only
+              {readOnlyLabel}
             </span>
           )}
           {isEditable && onSave && !readOnly && (
@@ -175,12 +181,14 @@ export function FilePreview({
               <Download className="w-3 h-3" />
             </button>
           )}
-          <button
-            onClick={onClose}
-            className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-          >
-            <X className="w-3 h-3" />
-          </button>
+          {showClose && (
+            <button
+              onClick={onClose}
+              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            >
+              <X className="w-3 h-3" />
+            </button>
+          )}
         </div>
       </div>
 
@@ -189,7 +197,11 @@ export function FilePreview({
         <div className="flex items-start gap-2 px-3 py-2 border-b border-border bg-[#f0c56c]/5 text-[11px] text-[#f0c56c]">
           <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <p>
-            This is a core agent file. To make changes safely, <span className="font-semibold">download it</span>, edit locally, then <span className="font-semibold">re-upload</span> via the file browser.
+            {readOnlyDescription ?? (
+              <>
+                This is a core agent file. To make changes safely, <span className="font-semibold">download it</span>, edit locally, then <span className="font-semibold">re-upload</span> via the file browser.
+              </>
+            )}
           </p>
         </div>
       )}

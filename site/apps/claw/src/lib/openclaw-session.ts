@@ -3,6 +3,7 @@ import type { GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "
 import {
   type ChatMessage,
   type WorkspaceFile,
+  isInternalHeartbeatMessage,
   maybeDecodeMojibake,
   normalizeHistoryMessage,
   normalizeLiveToolCall,
@@ -104,10 +105,14 @@ export function handleOpenClawSessionEvent({
   const isActivityKind = (v: unknown): v is ActivityKind => v === "message" || v === "tool" || v === "connection" || v === "skill" || v === "cron" || v === "error" || v === "system";
   if (event === "chat.tool_call") {
     const tc = normalizeLiveToolCall(payload as Record<string, unknown>);
-    if (tc) appendActivity({ type: "tool", action: tc.name, detail: tc.args || "" });
+    if (tc && !isInternalHeartbeatMessage({ toolCalls: [tc] })) {
+      appendActivity({ type: "tool", action: tc.name, detail: tc.args || "" });
+    }
   } else if (event === "chat.tool_result") {
     const tc = normalizeLiveToolResult(payload as Record<string, unknown>);
-    if (tc?.result) appendActivity({ type: "tool", action: `${tc.name} → result`, detail: tc.result });
+    if (tc?.result && !isInternalHeartbeatMessage({ toolCalls: [tc] })) {
+      appendActivity({ type: "tool", action: `${tc.name} → result`, detail: tc.result });
+    }
   } else if (event === "chat.done") {
     appendActivity({ type: "message", action: "Assistant response complete" });
   } else if (event === "chat.error") {

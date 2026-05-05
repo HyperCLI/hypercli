@@ -1,25 +1,27 @@
 "use client";
 
 import React from "react";
-import { ExternalLink, FolderOpen, Gauge, Loader2, PanelLeft, Play, RefreshCw } from "lucide-react";
+import { FolderOpen, Gauge, Loader2, PanelLeft, Play, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { AgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
-import { AgentLaunchPrompt, ConnectionStatusIndicator, type CenterPanel, GearDropdown } from "@/components/dashboard/agents/page-helpers";
+import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel, GearDropdown } from "@/components/dashboard/agents/page-helpers";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
   selectedAgent: Agent | null;
+  loadingInitialAgents?: boolean;
   isSelectedTransitioning: boolean;
   isSelectedRunning: boolean;
   burstAgentId: string | null;
   onBurstComplete: () => void;
-  activeConnectionStatus: "connected" | "connecting" | "disconnected" | null;
-  chatConnected: boolean;
-  chatConnecting: boolean;
+  agentStatus?: AgentStatusChipModel | null;
+  activeConnectionStatus?: "connected" | "connecting" | "disconnected" | null;
+  chatConnected?: boolean;
+  chatConnecting?: boolean;
   fileCount: number;
   openingDesktopId: string | null;
   startingId: string | null;
@@ -32,15 +34,16 @@ interface AgentMainPanelProps {
   stoppedTabLabel: string;
   panelContent: React.ReactNode;
   onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
   onShowList: () => void;
   onOpenFiles: () => void;
   onOpenDesktop: () => void;
   onDelete: () => void;
   onShowInspector: () => void;
+  showInspectorButton?: boolean;
   onStart: () => void;
   onReconnect: () => void;
   onSelectPanel: (panel: CenterPanel) => void;
-  onOpenConfig: () => void;
   onOpenSettings: () => void;
 }
 
@@ -48,10 +51,12 @@ export function AgentMainPanel({
   isDesktopViewport,
   mobileShowChat,
   selectedAgent,
+  loadingInitialAgents = false,
   isSelectedTransitioning,
   isSelectedRunning,
   burstAgentId,
   onBurstComplete,
+  agentStatus,
   activeConnectionStatus,
   chatConnected,
   chatConnecting,
@@ -67,21 +72,95 @@ export function AgentMainPanel({
   stoppedTabLabel,
   panelContent,
   onCreate,
+  onCreateAgent,
   onShowList,
   onOpenFiles,
   onOpenDesktop,
   onDelete,
   onShowInspector,
+  showInspectorButton = true,
   onStart,
   onReconnect,
   onSelectPanel,
-  onOpenConfig,
   onOpenSettings,
 }: AgentMainPanelProps) {
+  const isStopping = selectedAgent?.state === "STOPPING";
+  const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
+    if (!selectedAgent) return null;
+    if (selectedAgent.state === "FAILED") {
+      return {
+        label: "Failed",
+        detail: selectedAgent.last_error || "Needs attention before it can run.",
+        tone: "failed",
+      };
+    }
+    if (selectedAgent.state === "STOPPED") {
+      return {
+        label: "Stopped",
+        detail: "Start the agent to chat.",
+        tone: "stopped",
+      };
+    }
+    if (selectedAgent.state === "PENDING") {
+      return {
+        label: "Provisioning",
+        detail: "Reserving compute and preparing the workspace.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "STARTING") {
+      return {
+        label: "Booting",
+        detail: "Starting the container and OpenClaw services.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "STOPPING") {
+      return {
+        label: "Stopping",
+        detail: "Stopping the runtime and cleaning up the workspace.",
+        tone: "stopping",
+        loading: true,
+      };
+    }
+    return null;
+  })();
+  const connectionAgentStatus: AgentStatusChipModel | null = activeConnectionStatus
+    ? {
+        label: activeConnectionStatus === "connected" ? "Ready" : activeConnectionStatus === "connecting" ? "Connecting" : "Disconnected",
+        detail: activeConnectionStatus === "connected"
+          ? "Gateway connected."
+          : activeConnectionStatus === "connecting" || chatConnecting
+            ? "Opening the gateway connection."
+            : chatConnected === false
+              ? "Gateway disconnected."
+              : "Gateway is not connected yet.",
+        tone: activeConnectionStatus === "connected" ? "ready" : activeConnectionStatus === "connecting" ? "connecting" : "disconnected",
+        loading: activeConnectionStatus === "connecting",
+      }
+    : null;
+  const effectiveAgentStatus = agentStatus ?? lifecycleAgentStatus ?? connectionAgentStatus;
+  const legacyConnectionStatus = activeConnectionStatus ?? null;
+  const shouldShowStartupAnimation =
+    (isSelectedTransitioning && (selectedAgent?.state === "PENDING" || selectedAgent?.state === "STARTING")) ||
+    (selectedAgent?.state === "RUNNING" && burstAgentId === selectedAgent.id);
+  const canUsePanelWhileStopped = currentPanel === "files" || currentPanel === "settings";
+
   return (
     <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
-      {!selectedAgent ? (
-        <AgentEmptyState onCreate={onCreate} />
+      {loadingInitialAgents && !selectedAgent ? (
+        <div className="flex-1 min-h-0">
+          <AgentLoadingState
+            title="Loading agents"
+            detail="Checking your workspace before selecting an agent."
+            tone="loading"
+            stage="complete"
+          />
+        </div>
+      ) : !selectedAgent ? (
+        <AgentEmptyState onCreate={onCreate} onCreateAgent={onCreateAgent} />
       ) : (
         <>
           <div className="relative px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">
@@ -107,7 +186,13 @@ export function AgentMainPanel({
                   </div>
                 );
               })()}
-              {activeConnectionStatus && <ConnectionStatusIndicator status={activeConnectionStatus} />}
+              {effectiveAgentStatus ? (
+                <AgentStatusChip status={effectiveAgentStatus} />
+              ) : legacyConnectionStatus ? (
+                <ConnectionStatusIndicator status={legacyConnectionStatus} />
+              ) : (
+                null
+              )}
             </div>
 
             <div className="flex-1 min-w-0 text-center">
@@ -116,14 +201,14 @@ export function AgentMainPanel({
               </p>
               {!chatConnected && (
                 <p className="text-xs text-text-muted">
-                  {chatConnecting ? "Connecting to gateway..." : selectedAgent.state === "RUNNING" ? "Disconnected" : selectedAgent.state}
+                  {chatConnecting ? "Connecting gateway" : selectedAgent.state === "RUNNING" ? "Gateway disconnected" : selectedAgent.state}
                 </p>
               )}
             </div>
 
             <button
               onClick={onOpenFiles}
-              className="relative z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-muted hover:text-foreground hover:border-text-muted/30 hover:bg-surface-low transition-all flex-shrink-0"
+              className="relative z-10 flex items-center gap-2 rounded-full border border-border px-3 py-1.5 text-xs font-medium text-text-muted transition-all hover:border-text-muted/30 hover:bg-surface-low hover:text-foreground flex-shrink-0"
               title="Open workspace files"
             >
               <FolderOpen className="w-4 h-4" />
@@ -141,7 +226,7 @@ export function AgentMainPanel({
                   <button
                     onClick={onStart}
                     disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) || selectedAgentLaunchBlocked}
-                    className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                    className="flex items-center gap-1 rounded-full border border-border-medium px-2.5 py-1 text-xs text-foreground hover:bg-surface-low disabled:opacity-60"
                     aria-label="Start agent"
                     title={selectedAgentStartGuidanceTitle || (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")}
                   >
@@ -157,7 +242,7 @@ export function AgentMainPanel({
                     <button
                       onClick={onStart}
                       disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) || selectedAgentLaunchBlocked}
-                      className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
+                      className="flex items-center gap-1 rounded-full border border-border-medium px-2.5 py-1 text-xs text-foreground hover:bg-surface-low disabled:opacity-60"
                       aria-label="Start agent"
                       title={selectedAgentStartGuidanceTitle || (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")}
                     >
@@ -169,7 +254,7 @@ export function AgentMainPanel({
                   {(currentPanel === "logs" || currentPanel === "shell") && (
                     <button
                       onClick={onReconnect}
-                      className="p-1 text-text-muted hover:text-foreground transition-colors"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
                       title="Reconnect"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
@@ -178,10 +263,10 @@ export function AgentMainPanel({
                 </div>
               </div>
 
-              {!isDesktopViewport && (
+              {!isDesktopViewport && showInspectorButton && (
                 <button
                   onClick={onShowInspector}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
                   title="Agent details"
                 >
                   <Gauge className="w-3.5 h-3.5" />
@@ -191,21 +276,28 @@ export function AgentMainPanel({
               <GearDropdown
                 currentPanel={currentPanel}
                 onSelectPanel={onSelectPanel}
-                onOpenConfig={onOpenConfig}
                 onOpenSettings={onOpenSettings}
               />
             </div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-hidden">
-            {(isSelectedTransitioning || burstAgentId === selectedAgent.id) ? (
+            {isStopping ? (
+              <div className="h-full flex items-center justify-center p-6">
+                <div className="max-w-md text-center">
+                  <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#f0c56c]" />
+                  <p className="text-base text-foreground">Stopping agent</p>
+                  <p className="mt-2 text-sm text-text-muted">Stopping the runtime and cleaning up the workspace.</p>
+                </div>
+              </div>
+            ) : shouldShowStartupAnimation ? (
               <div className="h-full flex items-center justify-center">
                 <AgentHatchAnimation
                   state={selectedAgent.state === "RUNNING" ? "RUNNING" : selectedAgent.state as "PENDING" | "STARTING"}
                   onBurstComplete={onBurstComplete}
                 />
               </div>
-            ) : !isSelectedRunning ? (
+            ) : !isSelectedRunning && !canUsePanelWhileStopped ? (
               <AgentLaunchPrompt
                 label={stoppedTabLabel}
                 launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}

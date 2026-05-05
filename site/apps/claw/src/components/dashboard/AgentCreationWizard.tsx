@@ -80,6 +80,27 @@ const FALLBACK_TYPES: AgentTypePreset[] = [
 const TYPE_ORDER = ["small", "medium", "large"];
 
 const TOTAL_STEPS = 3;
+const FIRST_AGENT_SETUP_DRAFT_KEY = "hypercli-first-agent-draft";
+
+interface FirstAgentSetupDraft {
+  name?: unknown;
+  description?: unknown;
+  size?: unknown;
+  iconIndex?: unknown;
+}
+
+function readFirstAgentSetupDraft(): FirstAgentSetupDraft | null {
+  if (typeof window === "undefined") return null;
+  try {
+    const raw = window.sessionStorage.getItem(FIRST_AGENT_SETUP_DRAFT_KEY);
+    if (!raw) return null;
+    window.sessionStorage.removeItem(FIRST_AGENT_SETUP_DRAFT_KEY);
+    const parsed = JSON.parse(raw) as FirstAgentSetupDraft;
+    return parsed && typeof parsed === "object" ? parsed : null;
+  } catch {
+    return null;
+  }
+}
 
 // ── Slide animation variants ──
 
@@ -163,14 +184,23 @@ export function AgentCreationWizard({
 
   useEffect(() => {
     if (open) {
+      const draft = readFirstAgentSetupDraft();
       const safeInitialStep = Math.max(0, Math.min(TOTAL_STEPS - 1, initialStep));
       setStep(safeInitialStep);
       setDirection(0);
-      setName("");
-      setSelectedIcon(0);
+      setName(typeof draft?.name === "string" ? draft.name : "");
+      setSelectedIcon(
+        typeof draft?.iconIndex === "number"
+          ? Math.max(0, Math.min(ICONS.length - 1, draft.iconIndex))
+          : 0,
+      );
       setCustomAvatar(null);
-      setDescription("");
-      setSelectedTypeId(preferredTypeId || "large");
+      setDescription(typeof draft?.description === "string" ? draft.description : "");
+      setSelectedTypeId(
+        preferredTypeId ||
+        (typeof draft?.size === "string" ? draft.size : null) ||
+        "large",
+      );
       setStartImmediately(true);
       setCreating(false);
       setError(null);

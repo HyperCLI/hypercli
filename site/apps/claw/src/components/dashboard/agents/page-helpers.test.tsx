@@ -2,7 +2,7 @@ import { screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
-import { AgentLaunchPrompt } from "./AgentLaunchPrompt";
+import { AgentLaunchPrompt, AgentLoadingState } from "./page-helpers";
 
 describe("AgentLaunchPrompt", () => {
   it("launches from the keyboard and has no obvious accessibility violations", async () => {
@@ -15,7 +15,7 @@ describe("AgentLaunchPrompt", () => {
     await expectNoA11yViolations(container);
 
     await user.tab();
-    expect(screen.getByRole("button", { name: /launch agent to use chat/i })).toHaveFocus();
+    expect(screen.getByRole("button", { name: /start agent to use chat/i })).toHaveFocus();
     await user.keyboard("{Enter}");
 
     expect(onLaunch).toHaveBeenCalledTimes(1);
@@ -34,7 +34,7 @@ describe("AgentLaunchPrompt", () => {
       />,
     );
 
-    expect(screen.getByRole("button", { name: /launch agent to use shell/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /start agent to use shell/i })).toBeDisabled();
     expect(screen.getByText("Launch blocked")).toBeInTheDocument();
     expect(screen.getByText("Stop another agent before launching this one.")).toBeInTheDocument();
 
@@ -48,9 +48,25 @@ describe("AgentLaunchPrompt", () => {
       <AgentLaunchPrompt label="Logs" launching={true} onLaunch={onLaunch} blockedTitle="Starting" />,
     );
 
-    const launchButton = screen.getByRole("button", { name: /launch agent to use logs/i });
+    const launchButton = screen.getByRole("button", { name: /start agent to use logs/i });
     expect(launchButton).toHaveAttribute("title", "Starting");
     await userEvent.click(launchButton);
     expect(onLaunch).not.toHaveBeenCalled();
+  });
+});
+
+describe("AgentLoadingState", () => {
+  it("shows gateway as the active lifecycle step while waiting", () => {
+    renderWithClient(
+      <AgentLoadingState
+        title="Waiting for gateway"
+        detail="The runtime is up. Reconnecting to the agent session."
+        tone="connecting"
+        stage="gateway"
+      />,
+    );
+
+    expect(screen.getByText("Waiting for gateway")).toBeInTheDocument();
+    expect(screen.getByLabelText(/runtime complete, agent complete, gateway active/i)).toBeInTheDocument();
   });
 });
