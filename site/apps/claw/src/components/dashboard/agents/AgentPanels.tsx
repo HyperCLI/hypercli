@@ -777,15 +777,24 @@ export { AgentList as AgentSidebarPane };
 export function AgentEmptyState({
   onCreate,
   onCreateAgent,
+  budget,
+  subscriptionSummary,
 }: {
   onCreate: () => void;
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: Record<string, { granted: number; used: number; available: number }>;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
 }) {
   const [showWizard, setShowWizard] = React.useState(false);
 
   if (showWizard) {
     return (
       <FirstAgentSetupWizard
+        budget={budget}
+        subscriptionSummary={subscriptionSummary}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
           return null;

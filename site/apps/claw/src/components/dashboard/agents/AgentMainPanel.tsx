@@ -4,10 +4,12 @@ import React from "react";
 import { FolderOpen, Gauge, Loader2, PanelLeft, Play, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
+import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { AgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel, GearDropdown } from "@/components/dashboard/agents/page-helpers";
+import type { SlotInventory } from "@/lib/format";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
@@ -35,6 +37,11 @@ interface AgentMainPanelProps {
   panelContent: React.ReactNode;
   onCreate: () => void;
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: SlotInventory;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   onShowList: () => void;
   onOpenFiles: () => void;
   onOpenDesktop: () => void;
@@ -73,6 +80,8 @@ export function AgentMainPanel({
   panelContent,
   onCreate,
   onCreateAgent,
+  budget,
+  subscriptionSummary,
   onShowList,
   onOpenFiles,
   onOpenDesktop,
@@ -160,7 +169,12 @@ export function AgentMainPanel({
           />
         </div>
       ) : !selectedAgent ? (
-        <AgentEmptyState onCreate={onCreate} onCreateAgent={onCreateAgent} />
+        <AgentEmptyState
+          onCreate={onCreate}
+          onCreateAgent={onCreateAgent}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+        />
       ) : (
         <>
           <div className="relative px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">

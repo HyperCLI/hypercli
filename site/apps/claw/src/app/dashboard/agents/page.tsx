@@ -2005,6 +2005,8 @@ export default function AgentsPage() {
             setSidebarCreatorSignal((v) => v + 1);
           }}
           onCreateAgent={handleCreateFirstAgent}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
           onShowList={() => setMobileShowChat(false)}
           onOpenFiles={() => {
             if (!selectedAgent) return;

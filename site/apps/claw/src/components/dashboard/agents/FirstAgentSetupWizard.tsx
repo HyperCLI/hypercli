@@ -2,6 +2,7 @@
 
 import React, { type ComponentType } from "react";
 import { motion } from "framer-motion";
+import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
   Bot,
   Brain,
@@ -14,9 +15,15 @@ import {
   Sparkles,
   Zap,
 } from "lucide-react";
+import type { SlotInventory } from "@/lib/format";
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: SlotInventory;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
 }
 
 type WizardStepId = "identity" | "knowledge" | "plan";
@@ -79,8 +86,8 @@ const agentNameSecondWords = [
   "window",
 ];
 
-const planOptions: Array<{
-  id: "free" | "simple" | "pro";
+const fallbackPlanOptions: Array<{
+  id: string;
   name: string;
   size: string;
   icon: ComponentType<{ className?: string }>;
@@ -130,6 +137,56 @@ const planOptions: Array<{
     features: ["Voice and audio", "Video understanding", "Browser actions", "10x token usage", "All chat channels", "Files up to 250 MB", "Priority support"],
   },
 ];
+
+function titleizeTier(value: string): string {
+  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function buildLaunchPlanOptions(
+  subscriptionSummary: HyperAgentSubscriptionSummary | null | undefined,
+  slotInventory: SlotInventory,
+): Array<{
+  id: string;
+  name: string;
+  size: string;
+  icon: ComponentType<{ className?: string }>;
+  description: string;
+  oldPrice?: string;
+  price?: string;
+  priceNote?: string;
+  cta: string;
+  accent?: boolean;
+  features: string[];
+}> {
+  const subscriptions = subscriptionSummary?.activeSubscriptions ?? [];
+  const mapped = subscriptions
+    .map((subscription) => {
+      const slotGrants = subscription.slotGrants ?? {};
+      const tier = ["large", "medium", "small"].find((candidate) => Number(slotGrants[candidate] || 0) > 0);
+      if (!tier) return null;
+      const granted = Math.max(Number(slotGrants[tier] || 0), 0);
+      const available = Math.max(slotInventory[tier]?.available ?? 0, 0);
+      return {
+        id: subscription.id,
+        name: subscription.planName || subscription.planId,
+        size: tier,
+        icon: tier === "large" ? Rocket : tier === "medium" ? Sparkles : Circle,
+        description: `${titleizeTier(tier)} launch slot from your active ${subscription.planName || subscription.planId} subscription`,
+        price: undefined,
+        priceNote: undefined,
+        cta: available > 0 ? "Launch agent" : "No free slots",
+        accent: tier === "large",
+        features: [
+          `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
+          `${available} free right now`,
+          "Uses your existing active subscription",
+        ],
+      };
+    })
+    .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
+
+  return mapped.length > 0 ? mapped : fallbackPlanOptions;
+}
 
 function cx(...classes: Array<string | false | null | undefined>) {
   return classes.filter(Boolean).join(" ");
@@ -181,13 +238,18 @@ function WizardButton({
   );
 }
 
-export function FirstAgentSetupWizard({ onCreateAgent }: FirstAgentSetupWizardProps) {
+export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSummary }: FirstAgentSetupWizardProps) {
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
   const [stepIndex, setStepIndex] = React.useState(0);
   const [agentName, setAgentName] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState("General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
-  const [selectedPlanId, setSelectedPlanId] = React.useState<(typeof planOptions)[number]["id"]>("free");
+  const slotInventory = budget?.slots ?? {};
+  const planOptions = React.useMemo(
+    () => buildLaunchPlanOptions(subscriptionSummary, slotInventory),
+    [slotInventory, subscriptionSummary],
+  );
+  const [selectedPlanId, setSelectedPlanId] = React.useState<string>(planOptions[0]?.id ?? "free");
   const [files, setFiles] = React.useState<File[]>([]);
   const [creating, setCreating] = React.useState(false);
   const [createError, setCreateError] = React.useState<string | null>(null);
@@ -205,6 +267,12 @@ export function FirstAgentSetupWizard({ onCreateAgent }: FirstAgentSetupWizardPr
     setDefaultAgentName(generatedName);
     setAgentName((currentName) => currentName.trim() ? currentName : generatedName);
   }, []);
+
+  React.useEffect(() => {
+    if (!planOptions.find((plan) => plan.id === selectedPlanId)) {
+      setSelectedPlanId(planOptions[0]?.id ?? "free");
+    }
+  }, [planOptions, selectedPlanId]);
 
   const goToStep = (nextStep: number) => {
     setStepIndex(Math.max(0, Math.min(steps.length - 1, nextStep)));
@@ -441,8 +509,14 @@ export function FirstAgentSetupWizard({ onCreateAgent }: FirstAgentSetupWizardPr
                       {plan.oldPrice && (
                         <span className="text-[24px] font-bold leading-none text-[#777777] line-through decoration-[2px] sm:text-[28px]">{plan.oldPrice}</span>
                       )}
-                      <span className="text-[28px] font-bold leading-none text-[#f7f7f7] sm:text-[34px]">{plan.price}</span>
-                      <span className="max-w-[96px] text-[11px] font-semibold leading-[1.08] text-[#f6f6f6] sm:text-[12px]">{plan.priceNote}</span>
+                      {plan.price ? (
+                        <>
+                          <span className="text-[28px] font-bold leading-none text-[#f7f7f7] sm:text-[34px]">{plan.price}</span>
+                          <span className="max-w-[96px] text-[11px] font-semibold leading-[1.08] text-[#f6f6f6] sm:text-[12px]">{plan.priceNote}</span>
+                        </>
+                      ) : (
+                        <span className="text-[18px] font-semibold leading-none text-[#baf5de] sm:text-[20px]">Already active</span>
+                      )}
                     </div>
 
                     <button
@@ -450,9 +524,11 @@ export function FirstAgentSetupWizard({ onCreateAgent }: FirstAgentSetupWizardPr
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedPlanId(plan.id);
-                        void saveDraftAndCreate(plan.id);
+                        if (plan.cta !== "No free slots") {
+                          void saveDraftAndCreate(plan.id);
+                        }
                       }}
-                      disabled={creating}
+                      disabled={creating || plan.cta === "No free slots"}
                       className={cx(
                         "mt-4 h-10 rounded-[12px] text-[14px] font-medium leading-tight transition-colors disabled:cursor-wait disabled:opacity-70 sm:h-11 sm:text-[15px]",
                         plan.accent
