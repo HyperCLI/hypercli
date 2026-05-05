@@ -30,6 +30,7 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
   const [speaker, setSpeaker] = useState(currentSpeaker || "Aria");
   const [format, setFormat] = useState(currentFormat || "opus");
   const [saving, setSaving] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [previewingVoice, setPreviewingVoice] = useState<string | null>(null);
   const [previewState, setPreviewState] = useState<"loading" | "playing" | null>(null);
   const audioRef = useRef<HTMLAudioElement | null>(null);
@@ -115,12 +116,15 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
   }, []);
 
   const handleSave = async () => {
+    setError(null);
     setSaving(true);
     try {
       await onSave({
         integrations: { voice: { speaker, format } },
       });
       onClose();
+    } catch {
+      setError("Failed to save voice preferences. Please try again.");
     } finally {
       setSaving(false);
     }
@@ -207,6 +211,10 @@ export function TtsPanel({ currentSpeaker, currentFormat, onSave, onClose }: Tts
           <span className="text-text-secondary">&quot;Say hello in Aria&apos;s voice&quot;</span>
         </p>
       </div>
+
+      {error && (
+        <p className="text-sm text-red-400">{error}</p>
+      )}
 
       <div className="flex justify-end gap-2 pt-2">
         <button onClick={onClose} className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium">
