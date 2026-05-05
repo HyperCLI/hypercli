@@ -11,6 +11,7 @@ import { Check } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
+import { ActivateCodeModal } from "@/components/ActivateCodeModal";
 import { formatTokens } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
@@ -103,8 +104,7 @@ export default function PlansPage() {
   const [subscriptionTargets, setSubscriptionTargets] = useState<Record<string, string>>({});
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
-  const [showRedeemPanel, setShowRedeemPanel] = useState(false);
-  const [redeemCode, setRedeemCode] = useState("");
+  const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemingCode, setRedeemingCode] = useState(false);
 
   useEffect(() => {
@@ -242,8 +242,8 @@ export default function PlansPage() {
     return `${label} ${subscription.expiresAt.toLocaleDateString()}`;
   };
 
-  const handleRedeemCode = async () => {
-    const normalizedCode = redeemCode.trim();
+  const handleRedeemCode = async (code: string) => {
+    const normalizedCode = code.trim();
     if (!normalizedCode) {
       setSubscriptionNotice(null);
       setSubscriptionError("Enter a code to activate it.");
@@ -261,8 +261,7 @@ export default function PlansPage() {
         ? ` until ${result.entitlement.expiresAt.toLocaleDateString()}`
         : "";
       setSubscriptionNotice(`Code activated. ${planLabel} is now active${expiryLabel}.`);
-      setRedeemCode("");
-      setShowRedeemPanel(false);
+      setShowRedeemModal(false);
       await refreshPlan();
     } catch (error) {
       setSubscriptionError(error instanceof Error ? error.message : "Failed to activate code");
@@ -317,41 +316,15 @@ export default function PlansPage() {
             </div>
             <button
               type="button"
-              onClick={() => setShowRedeemPanel((value) => !value)}
+              onClick={() => {
+                setSubscriptionError(null);
+                setShowRedeemModal(true);
+              }}
               className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium"
             >
-              {showRedeemPanel ? "Close" : "Activate a Code"}
+              Activate a Code
             </button>
           </div>
-          {showRedeemPanel && (
-            <div className="mt-4 flex flex-col gap-3">
-              <input
-                type="text"
-                value={redeemCode}
-                onChange={(event) => setRedeemCode(event.target.value)}
-                onKeyDown={(event) => {
-                  if (event.key === "Enter") {
-                    event.preventDefault();
-                    void handleRedeemCode();
-                  }
-                }}
-                placeholder="Enter activation code"
-                autoCapitalize="characters"
-                className="w-full rounded-lg border border-white/10 bg-black/20 px-3 py-2 text-sm text-foreground outline-none transition focus:border-[#38D39F]/70"
-              />
-              <div className="flex items-center justify-between gap-3">
-                <p className="text-xs text-text-muted">Codes are applied to the currently signed-in HyperClaw account.</p>
-                <button
-                  type="button"
-                  onClick={() => void handleRedeemCode()}
-                  disabled={redeemingCode}
-                  className="btn-secondary px-4 py-2 rounded-lg text-sm font-medium disabled:opacity-50"
-                >
-                  {redeemingCode ? "Activating..." : "Redeem"}
-                </button>
-              </div>
-            </div>
-          )}
         </div>
       </div>
 
@@ -573,6 +546,14 @@ export default function PlansPage() {
           getToken={getToken}
         />
       )}
+
+      <ActivateCodeModal
+        isOpen={showRedeemModal}
+        processing={redeemingCode}
+        error={subscriptionError}
+        onClose={() => setShowRedeemModal(false)}
+        onSubmit={handleRedeemCode}
+      />
     </div>
   );
 }
