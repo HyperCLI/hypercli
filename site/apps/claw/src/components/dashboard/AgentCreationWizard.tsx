@@ -2,6 +2,7 @@
 
 import { useState, useRef, useCallback, useEffect } from "react";
 import { motion, AnimatePresence } from "framer-motion";
+import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
   Bot, Brain, Cat, Crown, Dog, Eye, Flame, Globe, Heart, Leaf,
   Moon, Rocket, Shield, Sparkles, Star, Zap,
@@ -24,6 +25,7 @@ interface AgentCreationWizardProps {
     slots: SlotInventory;
     pooled_tpd: number;
   } | null;
+  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
 }
 
 interface AgentTypePreset {
@@ -47,6 +49,17 @@ interface AgentTypePlan {
 interface AgentTypeCatalogResponse {
   types: AgentTypePreset[];
   plans: AgentTypePlan[];
+}
+
+interface LaunchSourceOption {
+  id: string;
+  label: string;
+  planName: string;
+  tierIds: string[];
+  slotSummary: string;
+  inferenceOnly: boolean;
+  availableCount: number;
+  statusLabel: string;
 }
 
 // ── Constants ──
@@ -133,6 +146,7 @@ export function AgentCreationWizard({
   initialStep = 0,
   preferredTypeId = null,
   budget,
+  subscriptionSummary = null,
 }: AgentCreationWizardProps) {
   const { getToken } = useAgentAuth();
 
@@ -149,6 +163,7 @@ export function AgentCreationWizard({
 
   // Step 2: Configuration
   const [selectedTypeId, setSelectedTypeId] = useState("large");
+  const [selectedLaunchSourceId, setSelectedLaunchSourceId] = useState<string | null>(null);
   const [startImmediately, setStartImmediately] = useState(true);
   const [typeCatalog, setTypeCatalog] = useState<AgentTypeCatalogResponse | null>(null);
 
@@ -168,6 +183,38 @@ export function AgentCreationWizard({
   const slotInventory = budget?.slots ?? {};
   const selectedAvailability = slotInventory[selectedType.id]?.available ?? 0;
   const totalAvailableSlots = Object.values(slotInventory).reduce((sum, entry) => sum + Math.max(0, entry.available), 0);
+  const activeSubscriptions = subscriptionSummary?.activeSubscriptions ?? [];
+  const launchSources: LaunchSourceOption[] = activeSubscriptions.map((subscription) => {
+    const slotGrants = subscription.slotGrants ?? {};
+    const tierIds = Object.entries(slotGrants)
+      .filter(([, granted]) => Math.max(Number(granted || 0), 0) > 0)
+      .map(([tier]) => tier)
+      .sort((a, b) => TYPE_ORDER.indexOf(a) - TYPE_ORDER.indexOf(b));
+    const slotSummary = tierIds.length > 0
+      ? tierIds
+          .map((tier) => `${Math.max(Number(slotGrants[tier] || 0), 0)} ${tier}`)
+          .join(" + ")
+      : "No launchable slots";
+    const inferenceOnly = tierIds.length === 0;
+    const availableCount = tierIds.reduce((sum, tier) => sum + Math.max(slotInventory[tier]?.available ?? 0, 0), 0);
+    const statusLabel = inferenceOnly
+      ? "Inference only"
+      : availableCount > 0
+        ? `${availableCount} launchable slot${availableCount === 1 ? "" : "s"}`
+        : "No free slots";
+    return {
+      id: subscription.id,
+      label: subscription.planName || subscription.planId,
+      planName: subscription.planName || subscription.planId,
+      tierIds,
+      slotSummary,
+      inferenceOnly,
+      availableCount,
+      statusLabel,
+    };
+  });
+  const launchableSources = launchSources.filter((source) => !source.inferenceOnly);
+  const selectedLaunchSource = launchSources.find((source) => source.id === selectedLaunchSourceId) ?? null;
 
   // ── Keyboard ──
 
@@ -201,6 +248,7 @@ export function AgentCreationWizard({
         (typeof draft?.size === "string" ? draft.size : null) ||
         "large",
       );
+      setSelectedLaunchSourceId(null);
       setStartImmediately(true);
       setCreating(false);
       setError(null);
@@ -240,6 +288,34 @@ export function AgentCreationWizard({
       setSelectedTypeId(sizeOptions[0].id);
     }
   }, [open, selectedTypeId, sizeOptions, slotInventory]);
+
+  useEffect(() => {
+    if (!open) return;
+    if (launchSources.length === 0) {
+      setSelectedLaunchSourceId(null);
+      return;
+    }
+    const existing = launchSources.find((source) => source.id === selectedLaunchSourceId);
+    if (existing && (existing.inferenceOnly || existing.tierIds.includes(selectedTypeId))) {
+      return;
+    }
+    const preferredSource =
+      launchableSources.find((source) => source.tierIds.includes(selectedTypeId)) ||
+      launchableSources[0] ||
+      launchSources[0];
+    setSelectedLaunchSourceId(preferredSource?.id ?? null);
+  }, [launchSources, launchableSources, open, selectedLaunchSourceId, selectedTypeId]);
+
+  useEffect(() => {
+    if (!open || !selectedLaunchSource || selectedLaunchSource.inferenceOnly) return;
+    if (selectedLaunchSource.tierIds.includes(selectedTypeId) && (slotInventory[selectedTypeId]?.available ?? 0) > 0) {
+      return;
+    }
+    const matchingTier = selectedLaunchSource.tierIds.find((tier) => (slotInventory[tier]?.available ?? 0) > 0);
+    if (matchingTier) {
+      setSelectedTypeId(matchingTier);
+    }
+  }, [open, selectedLaunchSource, selectedTypeId, slotInventory]);
 
   // ── Navigation ──
 
@@ -458,6 +534,51 @@ export function AgentCreationWizard({
 
   const renderStep1 = () => (
     <div className="space-y-6">
+      {launchSources.length > 0 && (
+        <div>
+          <label className="block text-sm text-text-secondary mb-3">Launch from existing plan</label>
+          <div className="space-y-2">
+            {launchSources.map((source) => {
+              const isSelected = source.id === selectedLaunchSourceId;
+              const isSelectable = !source.inferenceOnly;
+              return (
+                <button
+                  key={source.id}
+                  type="button"
+                  disabled={!isSelectable}
+                  onClick={() => {
+                    if (!isSelectable) return;
+                    setSelectedLaunchSourceId(source.id);
+                    const nextTier = source.tierIds.find((tier) => (slotInventory[tier]?.available ?? 0) > 0) || source.tierIds[0];
+                    if (nextTier) setSelectedTypeId(nextTier);
+                  }}
+                  className={`w-full rounded-xl border p-3 text-left transition-all ${
+                    !isSelectable
+                      ? "opacity-50 cursor-not-allowed border-border bg-surface-low text-text-secondary"
+                      : isSelected
+                        ? "border-primary bg-primary/10 text-foreground"
+                        : "border-border bg-surface-low text-text-secondary hover:border-text-muted"
+                  }`}
+                >
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <div className="text-sm font-semibold text-foreground">{source.label}</div>
+                      <div className="mt-1 text-xs text-text-muted">{source.slotSummary}</div>
+                    </div>
+                    <span className="shrink-0 rounded-full border border-border px-2 py-0.5 text-[11px] text-text-secondary">
+                      {source.statusLabel}
+                    </span>
+                  </div>
+                </button>
+              );
+            })}
+          </div>
+          <p className="mt-2 text-xs text-text-muted">
+            Legacy plans without slot grants still add inference capacity, but only slot-backed plans can launch agents here.
+          </p>
+        </div>
+      )}
+
       {/* Size picker */}
       <div>
         <label className="block text-sm text-text-secondary mb-3">Size</label>
@@ -465,7 +586,10 @@ export function AgentCreationWizard({
           {sizeOptions.map((option) => {
             const availability = slotInventory[option.id]?.available ?? 0;
             const granted = slotInventory[option.id]?.granted ?? 0;
-            const isSelectable = !budget || availability > 0;
+            const sourceAllowsTier = !selectedLaunchSource || selectedLaunchSource.inferenceOnly || selectedLaunchSource.tierIds.length === 0
+              ? true
+              : selectedLaunchSource.tierIds.includes(option.id);
+            const isSelectable = (!budget || availability > 0) && sourceAllowsTier;
             const isSelected = selectedType.id === option.id;
             return (
               <button
@@ -487,6 +611,9 @@ export function AgentCreationWizard({
                 <div className="text-xs text-text-muted mt-1">
                   {option.cpu} vCPU · {option.memory} GiB
                 </div>
+                {selectedLaunchSource && !selectedLaunchSource.inferenceOnly && !selectedLaunchSource.tierIds.includes(option.id) && (
+                  <div className="text-[11px] text-text-muted mt-2">Not granted by selected plan</div>
+                )}
                 {budget && (
                   <div className="text-[11px] text-text-muted mt-2">
                     {availability} free / {granted} total
@@ -583,6 +710,12 @@ export function AgentCreationWizard({
             <div className="flex items-center justify-between text-sm">
               <span className="text-text-muted">Slots remaining</span>
               <span className="text-foreground">{selectedAvailability}</span>
+            </div>
+          )}
+          {selectedLaunchSource && (
+            <div className="flex items-center justify-between text-sm">
+              <span className="text-text-muted">Launch source</span>
+              <span className="text-foreground">{selectedLaunchSource.planName}</span>
             </div>
           )}
         </div>

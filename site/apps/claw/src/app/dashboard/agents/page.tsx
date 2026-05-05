@@ -57,6 +57,7 @@ import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/componen
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "./types";
 import {
   describeAgentTierStartGuidance,
@@ -144,6 +145,7 @@ export default function AgentsPage() {
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
   const [planName, setPlanName] = useState<string | null>(null);
+  const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [tokenUsage, setTokenUsage] = useState<number | null>(null);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
@@ -248,15 +250,17 @@ export default function AgentsPage() {
         setDeployments(agentClient);
       }
       const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, budgetData, currentPlan, usageSummary] = await Promise.all([
+      const [listedAgents, budgetData, currentPlan, summaryData, usageSummary] = await Promise.all([
         agentClient.list(),
         agentClient.budget().catch(() => null),
         hyperAgent.currentPlan().catch(() => null),
+        hyperAgent.subscriptionSummary().catch(() => null),
         hyperAgent.usageSummary().catch(() => null),
       ]);
       setSdkAgents(listedAgents);
       setBudget((budgetData as AgentBudget | null) || null);
       setPlanName(currentPlan?.name ?? currentPlan?.id ?? null);
+      setSubscriptionSummary((summaryData as HyperAgentSubscriptionSummary | null) || null);
       setTokenUsage(usageSummary?.totalTokens ?? null);
       setAgentClusterUnavailable(false);
       setSelectedAgentId((currentId) => {
@@ -1775,6 +1779,7 @@ export default function AgentsPage() {
           fetchAgents();
         }}
         budget={budget}
+        subscriptionSummary={subscriptionSummary}
       />
       <ChannelCreationWizard
         open={showChannelWizard}

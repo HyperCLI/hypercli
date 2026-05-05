@@ -163,6 +163,10 @@ export default function PlansPage() {
 
   const displayProducts = useMemo(() => buildDisplayProducts(), []);
   const paidProducts = useMemo(() => displayProducts.filter((product) => product.id !== "free"), [displayProducts]);
+  const legacySubscriptions = useMemo(() => {
+    const knownPlanIds = new Set(displayProducts.map((product) => product.id));
+    return (summary?.activeSubscriptions ?? []).filter((subscription) => !knownPlanIds.has(subscription.planId));
+  }, [displayProducts, summary?.activeSubscriptions]);
 
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
   const activeEntitlementCount =
@@ -461,6 +465,41 @@ export default function PlansPage() {
                 </div>
               );
             })}
+          </div>
+        </div>
+      )}
+
+      {legacySubscriptions.length > 0 && (
+        <div className="mb-8">
+          <div className="mb-4">
+            <h2 className="text-xl font-semibold text-foreground">Legacy Active Plans</h2>
+            <p className="text-sm text-text-secondary">
+              These subscriptions still contribute inference capacity, but they do not map to the current launchable slot catalog.
+            </p>
+          </div>
+          <div className="grid gap-4 md:grid-cols-2">
+            {legacySubscriptions.map((subscription) => (
+              <div key={subscription.id} className="glass-card p-5">
+                <div className="flex items-start justify-between gap-4">
+                  <div>
+                    <p className="text-lg font-semibold text-foreground">{subscription.planName || subscription.planId}</p>
+                    <p className="text-sm text-text-secondary mt-1">Inference only legacy entitlement</p>
+                  </div>
+                  <div className="text-right">
+                    <p className="text-xs uppercase tracking-[0.18em] text-text-muted">{subscription.provider}</p>
+                    <p className="text-sm text-foreground mt-1">{subscription.status.toLowerCase()}</p>
+                  </div>
+                </div>
+                <div className="mt-4 space-y-2 text-sm text-text-secondary">
+                  <p>{formatSubscriptionDate(subscription)}</p>
+                  <p>
+                    TPM {formatTokens(subscription.planTpmLimit)} · RPM {formatTokens(subscription.planRpmLimit)} · TPD{" "}
+                    {formatTokens(subscription.planTpd)}
+                  </p>
+                </div>
+                <div className="mt-4 text-xs text-text-muted">{subscription.id}</div>
+              </div>
+            ))}
           </div>
         </div>
       )}
