@@ -211,11 +211,17 @@ def _lookup_hyperclaw_user(
 
 def _create_or_get_hyperclaw_user(
     *,
-    agents_admin_base: str,
+    agents_admin_base: str | None = None,
+    agents_api_base: str | None = None,
     agents_admin_key: str,
     orchestra_user_id: str,
     email: str,
 ) -> dict[str, object]:
+    if not agents_admin_base:
+        if not agents_api_base:
+            raise TypeError("agents_admin_base or agents_api_base is required")
+        agents_admin_base = _normalize_agents_admin_base(agents_api_base, product_base=DEFAULT_PRODUCT_BASE)
+
     response = _request(
         "POST",
         f"{agents_admin_base}/admin/users",

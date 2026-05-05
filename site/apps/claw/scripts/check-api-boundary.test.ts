@@ -25,6 +25,8 @@ describe("check-api-boundary", () => {
       navigator.sendBeacon("/analytics", "ok");
       await clawFetch("/usage", token);
       await agentApiFetch("/billing/payments", token);
+      new WebSocket("/gateway");
+      new EventSource("/events");
     `;
 
     expect(scanSourceText(source).map((violation) => violation.rule)).toEqual([
@@ -37,6 +39,18 @@ describe("check-api-boundary", () => {
       "sendBeacon",
       "clawFetch",
       "agentApiFetch",
+      "raw WebSocket",
+      "raw EventSource",
     ]);
+  });
+
+  it("ignores forbidden call names inside comments and strings", () => {
+    const source = `
+      // await fetch("/agents/plans");
+      const sample = "new WebSocket(this.url)";
+      const block = \`new EventSource("/events")\`;
+    `;
+
+    expect(scanSourceText(source)).toEqual([]);
   });
 });
