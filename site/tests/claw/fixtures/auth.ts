@@ -1460,8 +1460,12 @@ export async function waitForPaidClawPlan(
     await expect
       .poll(
         async () => {
-          latestPlan = await fetchClawCurrentPlan(page);
-          return latestPlan?.id ?? "free";
+          [latestPlan, latestSummary] = await Promise.all([
+            fetchClawCurrentPlan(page),
+            fetchClawSubscriptionSummary(page),
+          ]);
+          latestPaidPlanId = paidPlanIdFromSummary(latestSummary);
+          return latestPaidPlanId ?? latestPlan?.id ?? "free";
         },
         { timeout, intervals: [1_000, 2_000, 5_000] }
       )
