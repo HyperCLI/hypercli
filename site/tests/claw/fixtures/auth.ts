@@ -88,10 +88,38 @@ interface HyperAgentCurrentPlan {
   rpmLimit: number;
   expiresAt: Date | null;
   cancelAtPeriodEnd: boolean;
+  pooledTpd?: number;
+  slotInventory?: Record<string, { granted: number; used: number; available?: number }>;
+}
+
+interface HyperAgentSubscription {
+  id: string;
+  planId: string;
+  planName: string;
+  status: string;
+  expiresAt: Date | null;
+  cancelAtPeriodEnd: boolean;
+}
+
+interface HyperAgentSubscriptionSummary {
+  effectivePlanId: string;
+  pooledTpmLimit: number;
+  pooledRpmLimit: number;
+  pooledTpd: number;
+  slotInventory: Record<string, { granted: number; used: number; available?: number }>;
+  activeSubscriptionCount: number;
+  activeEntitlementCount: number;
+  entitlements?: {
+    effectivePlanId?: string;
+    activeEntitlementCount?: number;
+    slotInventory?: Record<string, { granted: number; used: number; available?: number }>;
+  };
+  activeSubscriptions: HyperAgentSubscription[];
 }
 
 interface HyperAgentClientLike {
   currentPlan(): Promise<HyperAgentCurrentPlan>;
+  subscriptionSummary(): Promise<HyperAgentSubscriptionSummary>;
 }
 
 interface DeploymentRecord {
@@ -103,6 +131,7 @@ interface DeploymentRecord {
 interface DeploymentsClientLike {
   list(): Promise<DeploymentRecord[]>;
   get(agentId: string): Promise<DeploymentRecord>;
+  waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number): Promise<DeploymentRecord>;
   stop(agentId: string): Promise<unknown>;
   delete(agentId: string): Promise<unknown>;
 }
@@ -367,12 +396,12 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     return filePath;
   }
   if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
-    await page.waitForTimeout(SCREENSHOT_DELAY_MS).catch(() => {});
+    await page.waitForTimeout(SCREENSHOT_DELAY_MS).catch(() => { });
   }
   if (page.isClosed()) {
     return filePath;
   }
-  await page.screenshot({ path: filePath, fullPage: true }).catch(() => {});
+  await page.screenshot({ path: filePath, fullPage: true }).catch(() => { });
   return filePath;
 }
 
@@ -505,7 +534,7 @@ async function submitPrivyOtp(page: Page): Promise<void> {
   );
   if (await otpInputs.last().isVisible().catch(() => false)) {
     console.log("[privy-auth:otp-submit] pressing Enter on otp input");
-    await otpInputs.last().press("Enter").catch(() => {});
+    await otpInputs.last().press("Enter").catch(() => { });
     await page.waitForTimeout(750);
   }
 
@@ -555,12 +584,12 @@ async function submitPrivyOtp(page: Page): Promise<void> {
 
   if (await otpInputs.last().isVisible().catch(() => false)) {
     console.log("[privy-auth:otp-submit] pressing Enter on otp input");
-    await otpInputs.last().press("Enter").catch(() => {});
+    await otpInputs.last().press("Enter").catch(() => { });
     return;
   }
 
   console.log("[privy-auth:otp-submit] pressing Enter on page");
-  await page.keyboard.press("Enter").catch(() => {});
+  await page.keyboard.press("Enter").catch(() => { });
 }
 
 interface PrivyAuthDebugState {
@@ -756,7 +785,7 @@ export async function loginWithPrivy(page: Page): Promise<void> {
     .toContain("/dashboard");
 
   if (await privyModal.isVisible().catch(() => false)) {
-    await page.keyboard.press("Escape").catch(() => {});
+    await page.keyboard.press("Escape").catch(() => { });
 
     const closeButton = page
       .locator(
@@ -764,10 +793,10 @@ export async function loginWithPrivy(page: Page): Promise<void> {
       )
       .first();
     if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click().catch(() => {});
+      await closeButton.click().catch(() => { });
     }
 
-    await expect(privyModal).toBeHidden({ timeout: 10_000 }).catch(() => {});
+    await expect(privyModal).toBeHidden({ timeout: 10_000 }).catch(() => { });
   }
 
   await captureStep(page, "06-authenticated");
@@ -1072,12 +1101,12 @@ export async function completeStripeCheckout(
     (await submitButton.isVisible().catch(() => false))
       ? submitButton
       : await findVisibleStripeField(page, [
-          ".SubmitButton",
-          "button[type='submit']",
-          "button[aria-label='Pay']",
-          "button:has-text('Pay')",
-          "button:has-text('Donate')",
-        ]);
+        ".SubmitButton",
+        "button[type='submit']",
+        "button[aria-label='Pay']",
+        "button:has-text('Pay')",
+        "button:has-text('Donate')",
+      ]);
   await expect(stripeSubmitButton).toBeVisible({ timeout: 15_000 });
   console.log(`Stripe submit button text: ${(await stripeSubmitButton.textContent())?.trim() || "<empty>"}`);
   await stripeSubmitButton.click();
@@ -1213,7 +1242,7 @@ export async function waitForTopUpSettlement(
 
   throw new Error(
     `Timed out waiting for top-up settlement. Available balance stayed at $${latestBalance.availableBalanceText} ` +
-      `from initial $${previousBalance.availableBalanceText} after checkout at ${submittedAt.toISOString()}`
+    `from initial $${previousBalance.availableBalanceText} after checkout at ${submittedAt.toISOString()}`
   );
 }
 
@@ -1296,6 +1325,93 @@ export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurren
   }
 }
 
+export async function fetchClawSubscriptionSummary(page: Page): Promise<HyperAgentSubscriptionSummary | null> {
+  const token = await getClawAuthToken(page);
+  const client = await getHyperAgentClient(token);
+  try {
+    return await client.subscriptionSummary();
+  } catch (error) {
+    if (error instanceof Error && /404/.test(error.message)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function isPaidClawPlanId(planId: string | null | undefined): planId is string {
+  return Boolean(planId && planId.trim() && planId.trim().toLowerCase() !== "free");
+}
+
+function isActiveSubscription(subscription: HyperAgentSubscription): boolean {
+  return ["active", "trialing", "past_due"].includes(subscription.status.toLowerCase());
+}
+
+function paidPlanIdFromSummary(summary: HyperAgentSubscriptionSummary | null): string | null {
+  if (!summary) return null;
+
+  const activeCount = Math.max(
+    Number(summary.activeEntitlementCount || 0),
+    Number(summary.entitlements?.activeEntitlementCount || 0),
+    Number(summary.activeSubscriptionCount || 0)
+  );
+  const activePaidSubscription = summary.activeSubscriptions.find(
+    (subscription) => isPaidClawPlanId(subscription.planId) && isActiveSubscription(subscription)
+  );
+
+  if (activeCount > 0 && isPaidClawPlanId(summary.effectivePlanId)) {
+    return summary.effectivePlanId;
+  }
+  if (activeCount > 0 && isPaidClawPlanId(summary.entitlements?.effectivePlanId)) {
+    return summary.entitlements.effectivePlanId;
+  }
+  if (activePaidSubscription) {
+    return activePaidSubscription.planId;
+  }
+
+  return null;
+}
+
+function planFromSummary(
+  summary: HyperAgentSubscriptionSummary,
+  planId: string,
+  currentPlan: HyperAgentCurrentPlan | null
+): HyperAgentCurrentPlan {
+  const subscription = summary.activeSubscriptions.find(
+    (item) => item.planId === planId && isActiveSubscription(item)
+  );
+
+  return {
+    id: planId,
+    name: subscription?.planName || currentPlan?.name || planId,
+    price: currentPlan?.price ?? 0,
+    aiu: currentPlan?.aiu,
+    agents: currentPlan?.agents,
+    tpmLimit: summary.pooledTpmLimit || currentPlan?.tpmLimit || 0,
+    rpmLimit: summary.pooledRpmLimit || currentPlan?.rpmLimit || 0,
+    expiresAt: subscription?.expiresAt ?? currentPlan?.expiresAt ?? null,
+    cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? currentPlan?.cancelAtPeriodEnd ?? false,
+    pooledTpd: summary.pooledTpd || currentPlan?.pooledTpd || 0,
+    slotInventory: summary.slotInventory || summary.entitlements?.slotInventory || currentPlan?.slotInventory,
+  };
+}
+
+export async function fetchClawEffectivePlan(page: Page): Promise<HyperAgentCurrentPlan | null> {
+  const [currentPlan, summary] = await Promise.all([
+    fetchClawCurrentPlan(page),
+    fetchClawSubscriptionSummary(page),
+  ]);
+  const summaryPlanId = paidPlanIdFromSummary(summary);
+
+  if (summary && summaryPlanId) {
+    if (currentPlan && currentPlan.id === summaryPlanId) {
+      return currentPlan;
+    }
+    return planFromSummary(summary, summaryPlanId, currentPlan);
+  }
+
+  return currentPlan;
+}
+
 export async function waitForClawPlanId(
   page: Page,
   expectedPlanId: string,
@@ -1303,13 +1419,17 @@ export async function waitForClawPlanId(
 ): Promise<HyperAgentCurrentPlan> {
   const startedAt = logWaitStart(`claw plan id=${expectedPlanId}`);
   let latestPlan: HyperAgentCurrentPlan | null = null;
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
 
   try {
     await expect
       .poll(
         async () => {
-          latestPlan = await fetchClawCurrentPlan(page);
-          return latestPlan?.id ?? null;
+          [latestPlan, latestSummary] = await Promise.all([
+            fetchClawCurrentPlan(page),
+            fetchClawSubscriptionSummary(page),
+          ]);
+          return paidPlanIdFromSummary(latestSummary) ?? latestPlan?.id ?? null;
         },
         { timeout, intervals: [1_000, 2_000, 5_000] }
       )
@@ -1318,6 +1438,12 @@ export async function waitForClawPlanId(
     logWaitEnd(`claw plan id=${expectedPlanId}`, startedAt);
   }
 
+  if (latestPlan && latestPlan.id === expectedPlanId) {
+    return latestPlan;
+  }
+  if (latestSummary && isPaidClawPlanId(expectedPlanId)) {
+    return planFromSummary(latestSummary, expectedPlanId, latestPlan);
+  }
   return latestPlan!;
 }
 
@@ -1327,6 +1453,8 @@ export async function waitForPaidClawPlan(
 ): Promise<HyperAgentCurrentPlan> {
   const startedAt = logWaitStart("claw paid plan");
   let latestPlan: HyperAgentCurrentPlan | null = null;
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
+  let latestPaidPlanId: string | null = null;
 
   try {
     await expect
@@ -1342,6 +1470,12 @@ export async function waitForPaidClawPlan(
     logWaitEnd("claw paid plan", startedAt);
   }
 
+  if (latestPlan && latestPlan.id === latestPaidPlanId) {
+    return latestPlan;
+  }
+  if (latestSummary && latestPaidPlanId) {
+    return planFromSummary(latestSummary, latestPaidPlanId, latestPlan);
+  }
   return latestPlan!;
 }
 

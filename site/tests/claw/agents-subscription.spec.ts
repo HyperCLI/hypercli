@@ -6,7 +6,7 @@ import {
   cleanupClawAgents,
   captureStep,
   deleteClawAgent,
-  fetchClawCurrentPlan,
+  fetchClawEffectivePlan,
   launchClawAgentAndWaitForGateway,
   completeStripeCheckout,
   loginWithPrivy,
@@ -35,7 +35,7 @@ test.describe.serial("Agents subscription", () => {
         }, { timeout: 30_000 })
         .toMatch(/plans/i);
 
-      let currentPlan = await fetchClawCurrentPlan(page);
+      let currentPlan = await fetchClawEffectivePlan(page);
       if (!currentPlan || currentPlan.id === "free") {
         const subscribeButton = page.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
         await expect(subscribeButton).toBeVisible({ timeout: 20_000 });
