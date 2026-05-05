@@ -37,6 +37,16 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function logWaitStart(label: string): number {
+  const startedAt = Date.now();
+  console.log(`[wait:start] ${label}`);
+  return startedAt;
+}
+
+function logWaitEnd(label: string, startedAt: number): void {
+  console.log(`[wait:end] ${label} (${Date.now() - startedAt}ms)`);
+}
+
 interface BillingBalanceSnapshot {
   availableBalance: number;
   availableBalanceText: string;
@@ -951,23 +961,31 @@ export async function completeStripeCheckout(
 ): Promise<void> {
   const stripeCheckoutPattern = /^https:\/\/checkout\.stripe\.com\//i;
 
-  await expect
-    .poll(() => page.url(), { timeout: 45_000 })
-    .toMatch(stripeCheckoutPattern);
+  {
+    const startedAt = logWaitStart("stripe redirect");
+    await expect
+      .poll(() => page.url(), { timeout: 45_000 })
+      .toMatch(stripeCheckoutPattern);
+    logWaitEnd("stripe redirect", startedAt);
+  }
   await page.waitForLoadState("domcontentloaded");
-  await expect
-    .poll(
-      () =>
-        anyVisibleStripeLocator(page, [
-          "#cardNumber",
-          "input[name='cardNumber']",
-          "#Field-numberInput",
-          "input[name='cardnumber']",
-          "input[aria-label='Card number']",
-        ]),
-      { timeout: 60_000, message: "Waiting for Stripe checkout fields to load" }
-    )
-    .toBeTruthy();
+  {
+    const startedAt = logWaitStart("stripe fields visible");
+    await expect
+      .poll(
+        () =>
+          anyVisibleStripeLocator(page, [
+            "#cardNumber",
+            "input[name='cardNumber']",
+            "#Field-numberInput",
+            "input[name='cardnumber']",
+            "input[aria-label='Card number']",
+          ]),
+        { timeout: 60_000, message: "Waiting for Stripe checkout fields to load" }
+      )
+      .toBeTruthy();
+    logWaitEnd("stripe fields visible", startedAt);
+  }
   await logStripeFrameState(page, "loaded");
   await captureStep(page, "console-05-stripe-checkout");
 
@@ -1065,9 +1083,13 @@ export async function completeStripeCheckout(
   await stripeSubmitButton.click();
   await captureStep(page, "console-05e-stripe-submit-clicked");
 
-  await expect
-    .poll(() => page.url(), { timeout: 60_000 })
-    .not.toMatch(stripeCheckoutPattern);
+  {
+    const startedAt = logWaitStart("stripe exit redirect");
+    await expect
+      .poll(() => page.url(), { timeout: 60_000 })
+      .not.toMatch(stripeCheckoutPattern);
+    logWaitEnd("stripe exit redirect", startedAt);
+  }
 
   const redirectedUrl = page.url();
   const redirectedHost = new URL(redirectedUrl).host.toLowerCase();
@@ -1279,17 +1301,22 @@ export async function waitForClawPlanId(
   expectedPlanId: string,
   timeout = CLAW_PLAN_POLL_TIMEOUT_MS
 ): Promise<HyperAgentCurrentPlan> {
+  const startedAt = logWaitStart(`claw plan id=${expectedPlanId}`);
   let latestPlan: HyperAgentCurrentPlan | null = null;
 
-  await expect
-    .poll(
-      async () => {
-        latestPlan = await fetchClawCurrentPlan(page);
-        return latestPlan?.id ?? null;
-      },
-      { timeout, intervals: [1_000, 2_000, 5_000] }
-    )
-    .toBe(expectedPlanId);
+  try {
+    await expect
+      .poll(
+        async () => {
+          latestPlan = await fetchClawCurrentPlan(page);
+          return latestPlan?.id ?? null;
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBe(expectedPlanId);
+  } finally {
+    logWaitEnd(`claw plan id=${expectedPlanId}`, startedAt);
+  }
 
   return latestPlan!;
 }
@@ -1298,17 +1325,22 @@ export async function waitForPaidClawPlan(
   page: Page,
   timeout = CLAW_PLAN_POLL_TIMEOUT_MS
 ): Promise<HyperAgentCurrentPlan> {
+  const startedAt = logWaitStart("claw paid plan");
   let latestPlan: HyperAgentCurrentPlan | null = null;
 
-  await expect
-    .poll(
-      async () => {
-        latestPlan = await fetchClawCurrentPlan(page);
-        return latestPlan?.id ?? "free";
-      },
-      { timeout, intervals: [1_000, 2_000, 5_000] }
-    )
-    .not.toBe("free");
+  try {
+    await expect
+      .poll(
+        async () => {
+          latestPlan = await fetchClawCurrentPlan(page);
+          return latestPlan?.id ?? "free";
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .not.toBe("free");
+  } finally {
+    logWaitEnd("claw paid plan", startedAt);
+  }
 
   return latestPlan!;
 }
