@@ -1,5 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import { resolveOpenClawSessionKey } from "./openclaw-session-key";
 import {
   type ChatMessage,
   type WorkspaceFile,
@@ -144,11 +145,17 @@ export interface HydratedOpenClawSession {
   models: Array<Record<string, unknown>>;
 }
 
-export async function hydrateOpenClawSession(gateway: GatewayClient): Promise<HydratedOpenClawSession> {
+export async function hydrateOpenClawSession(
+  gateway: GatewayClient,
+  preferredAgentId?: string | null,
+): Promise<HydratedOpenClawSession> {
+  const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
+  const gwAgentId = normalizedPreferredAgentId || "main";
+  const sessionKey = resolveOpenClawSessionKey(gwAgentId);
   const [cfgResult, schemaResult, historyResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
     gateway.configGet(),
     gateway.configSchema(),
-    gateway.chatHistory("main", 200),
+    gateway.chatHistory(sessionKey, 200),
     gateway.agentsList(),
     gateway.sessionsList(),
     gateway.cronList(),
@@ -156,11 +163,11 @@ export async function hydrateOpenClawSession(gateway: GatewayClient): Promise<Hy
   ]);
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
-  const gwAgentId = agents.length > 0 ? agents[0].id : "main";
+  const resolvedGatewayAgentId = normalizedPreferredAgentId || agents[0]?.id || "main";
   let files: WorkspaceFile[] = [];
   if (agentsResult.status === "fulfilled") {
     try {
-      files = await gateway.filesList(gwAgentId);
+      files = await gateway.filesList(resolvedGatewayAgentId);
     } catch {}
   }
 
@@ -171,7 +178,7 @@ export async function hydrateOpenClawSession(gateway: GatewayClient): Promise<Hy
       ? historyResult.value.map((message) => normalizeHistoryMessage(message)).filter((message): message is ChatMessage => message !== null)
       : [],
     files,
-    gwAgentId,
+    gwAgentId: resolvedGatewayAgentId,
     sessions: sessionsRes.status === "fulfilled" ? sessionsRes.value as Array<Record<string, unknown>> : [],
     cronJobs: cronRes.status === "fulfilled" ? cronRes.value as Array<Record<string, unknown>> : [],
     models: modelsRes.status === "fulfilled" ? modelsRes.value as Array<Record<string, unknown>> : [],

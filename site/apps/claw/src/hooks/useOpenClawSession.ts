@@ -16,6 +16,7 @@ import {
   handleOpenClawSessionEvent,
   hydrateOpenClawSession,
 } from "@/lib/openclaw-session";
+import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
@@ -135,7 +136,7 @@ export function useOpenClawSession(
     setHydrating(true);
     void (async () => {
       try {
-        const hydrated = await hydrateOpenClawSession(gateway);
+        const hydrated = await hydrateOpenClawSession(gateway, agent?.id);
         if (cancelled) return;
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
@@ -246,14 +247,19 @@ export function useOpenClawSession(
     appendActivity({ type: "message", action: "User message sent", detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : "") });
 
     try {
-      await gateway.sendChat(agentMessage || "What's in this image?", "main", undefined, attachments.length > 0 ? attachments : undefined);
+      await gateway.sendChat(
+        agentMessage || "What's in this image?",
+        resolveOpenClawSessionKey(agent?.id),
+        undefined,
+        attachments.length > 0 ? attachments : undefined,
+      );
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       setMessages((prev) => [...prev, { role: "system", content: `Error: ${errMsg}`, timestamp: Date.now() }]);
       appendActivity({ type: "error", action: "Send failed", detail: errMsg });
       setSending(false);
     }
-  }, [gateway, input, pendingAttachments, pendingFiles, sending, appendActivity]);
+  }, [gateway, input, pendingAttachments, pendingFiles, sending, appendActivity, agent?.id]);
 
   useEffect(() => {
     if (!sending && pendingInput.length > 0) {

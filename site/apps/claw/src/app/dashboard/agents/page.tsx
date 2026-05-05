@@ -79,6 +79,7 @@ import {
   setPathValue,
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
+import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import {
   type AgentStatusChipModel,
   type CenterPanel,
@@ -623,7 +624,7 @@ export default function AgentsPage() {
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
     return agents.map((agent) => ({
       id: agent.id,
-      sessionKey: "main",
+      sessionKey: resolveOpenClawSessionKey(agent.id),
       participants: [
         { id: "user", name: "You", type: "user" as const },
         { id: agent.id, name: agent.name || agent.id, type: "agent" as const, meta: agent.meta ?? null },

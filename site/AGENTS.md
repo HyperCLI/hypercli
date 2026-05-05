@@ -100,6 +100,14 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   - run `npm --prefix ts-sdk pack`
   - inspect the packed `dist/*.js` for the intended runtime behavior before `npm publish`
 - Netlify builds the site from the published npm package pinned in `site/package-lock.json`, not from the sibling `ts-sdk/` checkout.
+- For Claw agent chat, do not hardcode the bare gateway session key `"main"`
+  for agent-scoped pages. Use
+  `site/apps/claw/src/lib/openclaw-session.ts:resolveOpenClawSessionKey()` so
+  agent dashboards use `agent:<agentId>:main` and only fall back to `"main"`
+  for the default/root agent session.
+- Claw plans/billing views should come from the SDK (`HyperAgent.currentPlan()`,
+  `subscriptionSummary()`, `plans()`, `agentTypes()`), not ad hoc frontend
+  plan state.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.
