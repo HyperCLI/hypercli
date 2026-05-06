@@ -28,8 +28,6 @@ function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMain
     activeConnectionStatus: null,
     chatConnected: false,
     chatConnecting: false,
-    fileCount: 0,
-    openingDesktopId: null,
     startingId: null,
     recentlyStoppedIds: new Set(),
     selectedAgentLaunchBlocked: false,
@@ -38,14 +36,9 @@ function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMain
     panelContent: <div>Chat panel</div>,
     onCreate: vi.fn(),
     onShowList: vi.fn(),
-    onOpenFiles: vi.fn(),
-    onOpenDesktop: vi.fn(),
-    onDelete: vi.fn(),
     onShowInspector: vi.fn(),
     onStart: vi.fn(),
     onReconnect: vi.fn(),
-    onSelectPanel: vi.fn(),
-    onOpenSettings: vi.fn(),
     ...overrides,
   };
 
@@ -105,5 +98,20 @@ describe("AgentMainPanel", () => {
 
     expect(screen.getByText("Files panel")).toBeInTheDocument();
     expect(screen.queryByText("Start Agent to Use Files")).not.toBeInTheDocument();
+  });
+
+  it("does not render files, settings, or start actions in the header", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+      panelContent: <div>Files panel</div>,
+    });
+
+    expect(screen.queryByTitle("Open workspace files")).not.toBeInTheDocument();
+    expect(screen.queryByTitle("Settings")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Files panel")).toBeInTheDocument();
   });
 });

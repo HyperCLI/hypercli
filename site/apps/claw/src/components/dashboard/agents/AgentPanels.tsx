@@ -2,13 +2,13 @@
 
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Bot, PanelLeftOpen, SlidersHorizontal, Sparkles, X } from "lucide-react";
+import { ArrowRight, Bot, Loader2, PanelLeftOpen, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
-import { AgentsChannelsSidebar, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import { agentAvatar } from "@/lib/avatar";
@@ -177,6 +177,12 @@ interface AgentSettingsPanelProps {
   savingName: boolean;
   handleSaveName: () => void;
   chat: SessionLike;
+  onStartAgent?: () => void;
+  onStopAgent?: () => void;
+  agentStarting?: boolean;
+  agentStopping?: boolean;
+  agentStartBlocked?: boolean;
+  agentStartBlockedReason?: string | null;
   openclawConfig?: React.ReactNode;
 }
 
@@ -281,6 +287,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     savingName,
     handleSaveName,
     chat,
+    onStartAgent,
+    onStopAgent,
+    agentStarting = false,
+    agentStopping = false,
+    agentStartBlocked = false,
+    agentStartBlockedReason = null,
     openclawConfig,
   } = props;
   const currentDefaultModel = React.useMemo(() => readDefaultModel(chat.config), [chat.config]);
@@ -308,6 +320,18 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const canSaveModel = chat.connected && modelChanged;
   const hasChanges = nameChanged || canSaveModel || preferencesChanged;
   const saving = savingSettings || savingName;
+  const canStartAgent = agent?.state === "STOPPED" || agent?.state === "FAILED";
+  const canStopAgent = agent?.state === "RUNNING";
+  const lifecycleBusy = agentStarting || agentStopping || agent?.state === "PENDING" || agent?.state === "STARTING" || agent?.state === "STOPPING";
+  const lifecycleDescription = canStopAgent
+    ? "Pause compute and disconnect the gateway"
+    : canStartAgent
+      ? (agentStartBlockedReason ?? "Start compute and reconnect the gateway")
+      : agent?.state === "PENDING" || agent?.state === "STARTING"
+        ? "Agent is starting"
+        : agent?.state === "STOPPING"
+          ? "Agent is stopping"
+          : "Lifecycle controls are unavailable";
 
   const resetDraft = React.useCallback(() => {
     if (!agentId) return;
@@ -361,6 +385,39 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           <h2 className="mb-4 text-sm font-semibold text-foreground">Settings</h2>
 
           <div className="space-y-2">
+            <AgentSettingsRow
+              id="agent-lifecycle"
+              label="Agent runtime"
+              description={lifecycleDescription}
+            >
+              {canStopAgent ? (
+                <button
+                  id="agent-lifecycle"
+                  type="button"
+                  aria-label="Stop agent"
+                  onClick={onStopAgent}
+                  disabled={!onStopAgent || lifecycleBusy}
+                  className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-[#d05f5f]/40 bg-[#d05f5f]/10 px-3 text-xs font-semibold text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {agentStopping ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Square className="h-3.5 w-3.5" />}
+                  {agentStopping ? "Stopping..." : "Stop agent"}
+                </button>
+              ) : (
+                <button
+                  id="agent-lifecycle"
+                  type="button"
+                  aria-label="Start agent"
+                  onClick={onStartAgent}
+                  disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
+                  title={agentStartBlockedReason ?? undefined}
+                  className="inline-flex h-8 w-full items-center justify-center gap-2 rounded-md border border-[#38D39F]/40 bg-[#38D39F]/10 px-3 text-xs font-semibold text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:cursor-not-allowed disabled:opacity-60"
+                >
+                  {agentStarting || agent?.state === "PENDING" || agent?.state === "STARTING" ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : <Play className="h-3.5 w-3.5" />}
+                  {agentStarting || agent?.state === "PENDING" || agent?.state === "STARTING" ? "Starting..." : "Start agent"}
+                </button>
+              )}
+            </AgentSettingsRow>
+
             <AgentSettingsRow
               id="agent-name"
               label="Agent name"
@@ -699,6 +756,7 @@ export function AgentList({
                 );
               })}
             </div>
+            <AgentsSidebarDashboardLinks compact />
           </motion.div>
         ) : (
           <motion.div

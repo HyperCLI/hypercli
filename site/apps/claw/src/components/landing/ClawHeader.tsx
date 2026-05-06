@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -89,12 +90,7 @@ export function ClawHeader() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center h-16 gap-6">
             {/* Logo */}
-            <a href="/" className="flex items-center gap-2">
-              <span className="text-xl font-bold">
-                <span className="text-foreground">Hyper</span>
-                <span className="text-primary">Claw</span>
-              </span>
-            </a>
+            <HyperClawLogoLink className="h-[34px] w-[114px]" priority />
 
             {/* Desktop Nav */}
             <div className="claw-header-desktop flex-1 justify-center">

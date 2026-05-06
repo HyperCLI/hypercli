@@ -20,6 +20,7 @@ import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -32,7 +33,6 @@ interface AgentWorkspaceSidebarProps {
   tokenLimit?: number | null;
   disabled?: boolean;
   disabledReason?: string;
-  mobileShowChat: boolean;
   isDesktopViewport: boolean;
   onSelectChat: () => void;
   onOpenFiles: () => void;
@@ -123,7 +123,6 @@ export function AgentWorkspaceSidebar({
   tokenLimit,
   disabled = false,
   disabledReason = "Workspace is loading",
-  mobileShowChat,
   isDesktopViewport,
   onSelectChat,
   onOpenFiles,
@@ -190,37 +189,17 @@ export function AgentWorkspaceSidebar({
       animate={{ opacity: 1, x: 0 }}
       exit={{ opacity: 0, x: -8 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
-      className={`${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} ${
+      className={`flex ${
         isCollapsed ? "w-12" : "w-52"
       } relative h-full shrink-0 flex-col border-r border-border bg-background transition-[width] duration-200 ease-out`}
     >
-      {disabled && (
-        <div
-          className="absolute inset-0 z-50 flex items-center justify-center bg-background/70 px-3 text-center backdrop-blur-[1px]"
-          role="status"
-          aria-live="polite"
-          onPointerDown={(event) => event.stopPropagation()}
-          onClick={(event) => event.stopPropagation()}
-        >
-          {!isCollapsed && (
-            <div className="rounded-xl border border-[#f0c56c]/25 bg-[#f0c56c]/10 px-3 py-2">
-              <p className="text-xs font-medium text-[#f0c56c]">Workspace loading</p>
-              <p className="mt-1 text-[11px] leading-snug text-text-muted">{disabledReason}</p>
-            </div>
-          )}
-        </div>
-      )}
       <div
         className={`flex h-14 shrink-0 items-center border-b border-border ${
           isCollapsed ? "justify-center px-0" : "justify-between px-4"
         }`}
       >
         {!isCollapsed && (
-          <div className="min-w-0">
-            <p className="truncate text-sm font-semibold text-foreground">
-              {selectedAgent?.name || selectedAgent?.pod_name || "Agent name"}
-            </p>
-          </div>
+          <HyperClawLogoLink className="h-[31px] min-w-0 flex-1 max-w-[109px]" />
         )}
         <Tooltip delayDuration={300}>
           <TooltipTrigger asChild>
@@ -243,7 +222,6 @@ export function AgentWorkspaceSidebar({
         {!isCollapsed && (
           <div className="mb-2 flex items-center justify-between gap-2 px-3">
             <p className="text-xs text-text-muted">Workspace</p>
-            {disabled && <p className="truncate text-[10px] text-[#f0c56c]">Loading</p>}
           </div>
         )}
         <nav className={`space-y-1 ${isCollapsed ? "flex flex-col items-center" : ""}`}>
@@ -313,9 +291,16 @@ export function AgentWorkspaceSidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={onUpgrade}
+                onClick={disabled ? undefined : onUpgrade}
+                disabled={disabled}
+                aria-disabled={disabled}
                 aria-label="Upgrade plan"
-                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                title={disabled ? disabledReason : undefined}
+                className={`flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background transition-colors ${
+                  disabled
+                    ? "cursor-not-allowed text-text-muted/45"
+                    : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                }`}
               >
                 <Sparkles className="h-4 w-4" />
               </button>
@@ -336,8 +321,15 @@ export function AgentWorkspaceSidebar({
             </div>
             <button
               type="button"
-              onClick={onUpgrade}
-              className="flex h-8 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-xs font-medium text-foreground transition-colors hover:bg-surface-low"
+              onClick={disabled ? undefined : onUpgrade}
+              disabled={disabled}
+              aria-disabled={disabled}
+              title={disabled ? disabledReason : undefined}
+              className={`flex h-8 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-xs font-medium transition-colors ${
+                disabled
+                  ? "cursor-not-allowed text-text-muted/45"
+                  : "text-foreground hover:bg-surface-low"
+              }`}
             >
               <Sparkles className="h-3.5 w-3.5" />
               Upgrade

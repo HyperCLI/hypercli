@@ -19,7 +19,6 @@ import {
   Loader2,
   Plus,
   MessageSquare,
-  Play,
   RefreshCw,
   TerminalSquare,
   Trash2,
@@ -81,12 +80,7 @@ import {
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
-import {
-  AgentLaunchPrompt,
-  ConnectionStatusIndicator,
-  GearDropdown,
-  type CenterPanel,
-} from "@/components/dashboard/agents/page-helpers";
+import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
@@ -94,6 +88,7 @@ import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalP
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -1772,11 +1767,8 @@ export default function DevAgentSetupAgentsPage() {
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2 text-xl font-bold">
-            <span aria-label="HyperClaw brand">
-              <span className="text-foreground">Hyper</span>
-              <span className="text-primary">Claw</span>
-            </span>
+          <div className="flex items-center gap-2">
+            <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <button
@@ -1988,8 +1980,6 @@ export default function DevAgentSetupAgentsPage() {
             activeConnectionStatus={activeConnectionStatus}
             chatConnected={chat.connected}
             chatConnecting={chat.connecting}
-            fileCount={chat.files?.length ?? 0}
-            openingDesktopId={openingDesktopId}
             startingId={startingId}
             recentlyStoppedIds={recentlyStoppedIds}
             selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
@@ -2049,6 +2039,16 @@ export default function DevAgentSetupAgentsPage() {
                 savingName={savingName}
                 handleSaveName={handleSaveName}
                 chat={chat}
+                onStartAgent={() => {
+                  if (selectedAgent) void handleStart(selectedAgent.id);
+                }}
+                onStopAgent={() => {
+                  if (selectedAgent) void handleStop(selectedAgent.id);
+                }}
+                agentStarting={Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)))}
+                agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
+                agentStartBlocked={selectedAgentLaunchBlocked}
+                agentStartBlockedReason={selectedAgentStartGuidance?.title}
                 openclawConfig={
                   <OpenClawConfigPanel
                     embedded
@@ -2082,20 +2082,6 @@ export default function DevAgentSetupAgentsPage() {
             }}
             onCreateAgent={handleCreateFirstAgent}
             onShowList={() => setMobileShowChat(false)}
-            onOpenFiles={() => {
-              if (!selectedAgent) return;
-              router.push(`/dashboard/agents/${selectedAgent.id}/files`);
-            }}
-            onOpenDesktop={() => {
-              if (selectedAgent) {
-                void handleOpenDesktop(selectedAgent);
-              }
-            }}
-            onDelete={() => {
-              if (selectedAgent) {
-                setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
-              }
-            }}
             onShowInspector={() => setInspectorSheetOpen(true)}
             onStart={() => {
               if (selectedAgent) {
@@ -2105,11 +2091,6 @@ export default function DevAgentSetupAgentsPage() {
             onReconnect={() => {
               if (mainTab === "logs") reconnectLogs();
               if (mainTab === "shell") reconnectShell();
-            }}
-            onSelectPanel={(panel) => setMainTab(panel)}
-            onOpenSettings={() => {
-              setMainTab("settings");
-              setMobileShowChat(true);
             }}
           />
 

@@ -12,6 +12,7 @@ import {
   UserRound,
   type LucideIcon,
 } from "lucide-react";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 type SignupState = "idle" | "submitting" | "complete";
 
@@ -46,10 +47,7 @@ export default function DevAgentSetupSignupPage() {
           }}
         >
           <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
-            <div className="text-base font-bold">
-              <span className="text-foreground">Hyper</span>
-              <span className="text-primary">Claw</span>
-            </div>
+            <HyperClawLogoLink className="h-[31px] w-[102px]" />
             <nav className="hidden items-center gap-6 text-sm font-medium text-text-tertiary md:flex">
               <span>Features</span>
               <span>Pricing</span>

@@ -1,6 +1,8 @@
 "use client";
 
 import { useState, useMemo, useCallback, useRef, useEffect } from "react";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   MessageSquare,
@@ -18,6 +20,9 @@ import {
   PenLine,
   Hash,
   PanelLeftClose,
+  Key,
+  CreditCard,
+  Settings,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
@@ -115,6 +120,24 @@ export interface AgentsChannelsSidebarProps {
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
+}
+
+const DASHBOARD_LINKS = [
+  { label: "Dashboard", href: "/dashboard", icon: Bot },
+  { label: "API Keys", href: "/keys", icon: Key },
+  { label: "Plans", href: "/plans", icon: CreditCard },
+  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+  { label: "Settings", href: "/dashboard/settings", icon: Settings },
+];
+
+function isDashboardLinkActive(pathname: string, href: string) {
+  const alternateHref = href.startsWith("/dashboard") ? href : `/dashboard${href}`;
+  return (
+    pathname === href ||
+    pathname.startsWith(`${href}/`) ||
+    pathname === alternateHref ||
+    pathname.startsWith(`${alternateHref}/`)
+  );
 }
 
 // ── Mock Data ──
@@ -638,6 +661,91 @@ function SidebarHeader({
           </motion.div>
         )}
       </AnimatePresence>
+    </div>
+  );
+}
+
+export function AgentsSidebarDashboardLinks({ compact = false }: { compact?: boolean }) {
+  const pathname = usePathname() ?? "";
+  const [open, setOpen] = useState(false);
+  const ref = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    if (!open) return;
+    const handler = (e: MouseEvent) => {
+      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
+    };
+    document.addEventListener("mousedown", handler);
+    return () => document.removeEventListener("mousedown", handler);
+  }, [open]);
+
+  return (
+    <div ref={ref} className={`relative flex-shrink-0 border-t border-border ${compact ? "px-2 py-2" : "px-3 py-2"}`}>
+      <AnimatePresence>
+        {open && (
+          <motion.div
+            initial={{ opacity: 0, y: compact ? 0 : 6, x: compact ? -4 : 0, scale: 0.96 }}
+            animate={{ opacity: 1, y: 0, x: 0, scale: 1 }}
+            exit={{ opacity: 0, y: compact ? 0 : 6, x: compact ? -4 : 0, scale: 0.96 }}
+            transition={{ duration: 0.12 }}
+            className={`absolute z-50 overflow-hidden rounded-lg border border-border bg-[#1a1a1c] py-1 shadow-xl ${
+              compact ? "bottom-2 left-full ml-2 w-44 origin-bottom-left" : "bottom-full left-3 right-3 mb-2 origin-bottom"
+            }`}
+            role="menu"
+          >
+            {DASHBOARD_LINKS.map((item) => {
+              const Icon = item.icon;
+              const active = isDashboardLinkActive(pathname, item.href);
+
+              return (
+                <Link
+                  key={item.href}
+                  href={item.href}
+                  onClick={() => setOpen(false)}
+                  role="menuitem"
+                  className={`flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                    active
+                      ? "bg-surface-low text-foreground"
+                      : "text-text-secondary hover:bg-surface-low hover:text-foreground"
+                  }`}
+                >
+                  <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                  <span className="text-[11px] font-medium">{item.label}</span>
+                </Link>
+              );
+            })}
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <button
+        type="button"
+        onClick={() => setOpen((value) => !value)}
+        title="Account links"
+        className={`flex items-center rounded-md transition-colors ${
+          compact
+            ? `h-8 w-8 justify-center ${
+                open
+                  ? "bg-surface-low text-foreground"
+                  : "text-text-muted hover:bg-surface-low hover:text-foreground"
+              }`
+            : `h-8 w-full justify-between px-2 text-left ${
+                open
+                  ? "bg-surface-low text-foreground"
+                  : "text-text-muted hover:bg-surface-low hover:text-foreground"
+              }`
+        }`}
+        aria-expanded={open}
+        aria-haspopup="menu"
+      >
+        <span className={`flex items-center ${compact ? "" : "min-w-0 gap-2"}`}>
+          <Settings className="h-3.5 w-3.5 flex-shrink-0" />
+          {!compact && <span className="truncate text-[11px] font-medium">Account</span>}
+        </span>
+        {!compact && (
+          <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+        )}
+      </button>
     </div>
   );
 }
@@ -2083,6 +2191,7 @@ export function AgentsChannelsSidebar({
           newDisabled={newDisabled}
         />
       )}
+      <AgentsSidebarDashboardLinks />
     </div>
   );
 }

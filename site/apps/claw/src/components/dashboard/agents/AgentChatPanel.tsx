@@ -290,158 +290,160 @@ export function AgentChatPanel({
       </div>
 
       <div className="flex-shrink-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3">
-        {!recording && !audioUrl && connectionSuggestions.length > 0 && (
-          <div className="mb-2 flex flex-col gap-2">
-            {connectionSuggestions.map((suggestion) => {
-              const Icon = suggestion.Icon;
-              return (
-                <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-3 py-2 shadow-sm">
-                  <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#38D39F]/15 text-[#38D39F]">
-                    <Icon className="h-4 w-4" />
+        <div className="mx-auto flex w-3/4 max-w-[75%] min-w-0 flex-col">
+          {!recording && !audioUrl && connectionSuggestions.length > 0 && (
+            <div className="mb-2 flex flex-col gap-2">
+              {connectionSuggestions.map((suggestion) => {
+                const Icon = suggestion.Icon;
+                return (
+                  <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-3 py-2 shadow-sm">
+                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#38D39F]/15 text-[#38D39F]">
+                      <Icon className="h-4 w-4" />
+                    </div>
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-medium text-foreground">Connect {suggestion.displayName}</p>
+                      <p className="truncate text-xs text-text-muted">{suggestion.description}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => onConnectionCta?.(suggestion)}
+                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-1.5 text-xs font-medium text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:opacity-50"
+                      disabled={!onConnectionCta}
+                      title={`Open ${suggestion.displayName} connection setup`}
+                    >
+                      Connect
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
                   </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-medium text-foreground">Connect {suggestion.displayName}</p>
-                    <p className="truncate text-xs text-text-muted">{suggestion.description}</p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => onConnectionCta?.(suggestion)}
-                    className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-1.5 text-xs font-medium text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:opacity-50"
-                    disabled={!onConnectionCta}
-                    title={`Open ${suggestion.displayName} connection setup`}
-                  >
-                    Connect
-                    <ArrowRight className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        )}
-        {chat.pendingAttachments.length > 0 && (
-          <div className="flex gap-2 mb-2 flex-wrap">
-            {chat.pendingAttachments.map((att, i) => (
-              <div key={i} className="relative group">
-                <img src={`data:${att.mimeType};base64,${att.content}`} alt={att.fileName || "attachment"} className="w-16 h-16 rounded-md object-cover border border-border" />
-                <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                  <X className="w-3 h-3 text-white" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        {chat.pendingFiles.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {chat.pendingFiles.map((file, i) => (
-              <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
-                <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
-                <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-[#d05f5f]" title="Remove attachment">
-                  <X className="h-3.5 w-3.5" />
-                </button>
-              </div>
-            ))}
-          </div>
-        )}
-        <div className="flex gap-2 items-center">
-          {recording ? (
-            <>
-              <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
-                <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75" style={{ transform: `scale(${1 + audioLevel * 1.5})` }} />
-                <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
-                <div className="flex items-center gap-0.5 flex-1">
-                  {Array.from({ length: 20 }).map((_, i) => (
-                    <div
-                      key={i}
-                      className="w-1 rounded-full transition-all duration-75"
-                      style={{
-                        height: `${Math.max(4, Math.min(20, audioLevel * 24 * (0.5 + Math.random() * 0.5)))}px`,
-                        backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
-                      }}
-                    />
-                  ))}
-                </div>
-              </div>
-              <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors">
-                <Square className="w-4 h-4" />
-              </button>
-            </>
-          ) : audioUrl ? (
-            <>
-              <div className="min-w-0 flex-1 flex items-center gap-1 rounded-full border border-border bg-surface-low px-2 py-1.5">
-                <button onClick={toggleAudioPreviewPlayback} type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border text-text-muted hover:text-foreground hover:bg-background/50" title={audioPreviewPlaying ? "Pause" : "Play"}>
-                  {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                </button>
-                <span className="min-w-0 truncate text-xs font-mono text-text-secondary">{formatDuration(audioPreviewDuration || recordingDuration)}</span>
-              </div>
-              <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
-                <X className="w-4 h-4" />
-              </button>
-              <button onClick={sendAudio} disabled={!chat.connected || chat.sending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
-                {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-              </button>
-            </>
-          ) : (
-            <div className="relative flex-1 min-w-0">
-              <textarea
-                value={chat.input}
-                onChange={(e) => {
-                  chat.setInput(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter" && !e.shiftKey) {
-                    e.preventDefault();
-                    handleSendChat();
-                  }
-                }}
-                onPaste={(e) => {
-                  const items = e.clipboardData?.items;
-                  if (!items) return;
-                  const imageFiles: File[] = [];
-                  for (const item of Array.from(items)) {
-                    if (item.type.startsWith("image/")) {
-                      const file = item.getAsFile();
-                      if (file) imageFiles.push(file);
-                    }
-                  }
-                  if (imageFiles.length > 0) {
-                    e.preventDefault();
-                    const dt = new DataTransfer();
-                    imageFiles.forEach((f) => dt.items.add(f));
-                    chat.addAttachments(dt.files);
-                  }
-                }}
-                rows={1}
-                placeholder={chat.connected ? "Message agent..." : "Connect gateway to message..."}
-                disabled={composerDisabled}
-                className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
-              />
-              <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
-                <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">
-                  <Paperclip className="w-4 h-4" />
-                  <input
-                    type="file"
-                    multiple
-                    className="hidden"
-                    onChange={(e) => {
-                      if (e.target.files?.length) {
-                        void handleChatFileDrop(e.target.files);
-                        e.target.value = "";
-                      }
-                    }}
-                  />
-                </label>
-                <button onClick={startRecording} disabled={!chat.connected || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 hover:text-[#38D39F] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#38D39F]/15" title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
-                  <Mic className="w-4 h-4" />
-                </button>
-                <button onClick={handleSendChat} disabled={!chat.connected || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
-                  <Send className="w-3.5 h-3.5" />
-                </button>
-              </div>
+                );
+              })}
             </div>
           )}
+          {chat.pendingAttachments.length > 0 && (
+            <div className="flex gap-2 mb-2 flex-wrap">
+              {chat.pendingAttachments.map((att, i) => (
+                <div key={i} className="relative group">
+                  <img src={`data:${att.mimeType};base64,${att.content}`} alt={att.fileName || "attachment"} className="w-16 h-16 rounded-md object-cover border border-border" />
+                  <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                    <X className="w-3 h-3 text-white" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          {chat.pendingFiles.length > 0 && (
+            <div className="mb-2 flex flex-wrap gap-2">
+              {chat.pendingFiles.map((file, i) => (
+                <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{file.name}</span>
+                  <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-[#d05f5f]" title="Remove attachment">
+                    <X className="h-3.5 w-3.5" />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+          <div className="flex gap-2 items-center">
+            {recording ? (
+              <>
+                <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
+                  <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75" style={{ transform: `scale(${1 + audioLevel * 1.5})` }} />
+                  <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
+                  <div className="flex items-center gap-0.5 flex-1">
+                    {Array.from({ length: 20 }).map((_, i) => (
+                      <div
+                        key={i}
+                        className="w-1 rounded-full transition-all duration-75"
+                        style={{
+                          height: `${Math.max(4, Math.min(20, audioLevel * 24 * (0.5 + Math.random() * 0.5)))}px`,
+                          backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
+                        }}
+                      />
+                    ))}
+                  </div>
+                </div>
+                <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors">
+                  <Square className="w-4 h-4" />
+                </button>
+              </>
+            ) : audioUrl ? (
+              <>
+                <div className="min-w-0 flex-1 flex items-center gap-1 rounded-full border border-border bg-surface-low px-2 py-1.5">
+                  <button onClick={toggleAudioPreviewPlayback} type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border text-text-muted hover:text-foreground hover:bg-background/50" title={audioPreviewPlaying ? "Pause" : "Play"}>
+                    {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                  </button>
+                  <span className="min-w-0 truncate text-xs font-mono text-text-secondary">{formatDuration(audioPreviewDuration || recordingDuration)}</span>
+                </div>
+                <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
+                  <X className="w-4 h-4" />
+                </button>
+                <button onClick={sendAudio} disabled={!chat.connected || chat.sending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                  {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                </button>
+              </>
+            ) : (
+              <div className="relative flex-1 min-w-0">
+                <textarea
+                  value={chat.input}
+                  onChange={(e) => {
+                    chat.setInput(e.target.value);
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                  }}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter" && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSendChat();
+                    }
+                  }}
+                  onPaste={(e) => {
+                    const items = e.clipboardData?.items;
+                    if (!items) return;
+                    const imageFiles: File[] = [];
+                    for (const item of Array.from(items)) {
+                      if (item.type.startsWith("image/")) {
+                        const file = item.getAsFile();
+                        if (file) imageFiles.push(file);
+                      }
+                    }
+                    if (imageFiles.length > 0) {
+                      e.preventDefault();
+                      const dt = new DataTransfer();
+                      imageFiles.forEach((f) => dt.items.add(f));
+                      chat.addAttachments(dt.files);
+                    }
+                  }}
+                  rows={1}
+                  placeholder={chat.connected ? "Message agent..." : "Connect gateway to message..."}
+                  disabled={composerDisabled}
+                  className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
+                />
+                <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
+                  <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">
+                    <Paperclip className="w-4 h-4" />
+                    <input
+                      type="file"
+                      multiple
+                      className="hidden"
+                      onChange={(e) => {
+                        if (e.target.files?.length) {
+                          void handleChatFileDrop(e.target.files);
+                          e.target.value = "";
+                        }
+                      }}
+                    />
+                  </label>
+                  <button onClick={startRecording} disabled={!chat.connected || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 hover:text-[#38D39F] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#38D39F]/15" title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
+                    <Mic className="w-4 h-4" />
+                  </button>
+                  <button onClick={handleSendChat} disabled={!chat.connected || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
+                    <Send className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
         </div>
       </div>
     </div>

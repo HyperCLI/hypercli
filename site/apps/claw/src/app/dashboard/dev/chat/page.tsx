@@ -1999,99 +1999,101 @@ export default function DevChatPage() {
 
         {/* Input area */}
         <div className="flex-shrink-0 border-t border-border p-3 z-10">
-          {inputVariant === "v2" ? (
-            /* Alt 2 — pill shape, send button pinned inside bottom-right */
-            <div className="relative">
-              <textarea
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                rows={1}
-                placeholder={connected ? `Message ${activeAgentName ?? "agent"}...` : "Connect gateway to message..."}
-                disabled={!connected || sending}
-                className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-12 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
-              />
-              <button
-                onClick={handleSend}
-                disabled={!connected || sending || !input.trim()}
-                className="absolute right-2 bottom-2 w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center"
-              >
-                <Send className="w-3.5 h-3.5" />
-              </button>
-            </div>
-          ) : inputVariant === "v3" ? (
-            /* Alt 3 — minimal, bottom-border only, full width */
-            <div className="flex gap-2 items-end">
-              <textarea
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                rows={1}
-                placeholder={connected ? `Ask ${activeAgentName ?? "agent"} anything...` : "Connect gateway to message..."}
-                disabled={!connected || sending}
-                className="flex-1 min-w-0 resize-none bg-transparent border-0 border-b border-border rounded-none px-1 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-[#38D39F] disabled:opacity-50 overflow-hidden transition-colors"
-              />
-              <button
-                onClick={handleSend}
-                disabled={!connected || sending || !input.trim()}
-                className="flex-shrink-0 btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center mb-0.5"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          ) : inputVariant === "v1" ? (
-            /* Alt 1 — auto-growing textarea, rounded-xl, focus ring */
-            <div className="flex gap-2 items-end">
-              <textarea
-                value={input}
-                onChange={(e) => {
-                  setInput(e.target.value);
-                  e.target.style.height = "auto";
-                  e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-                }}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                rows={1}
-                placeholder={connected ? "Type a message... (Shift+Enter for newline)" : "Connect gateway to message..."}
-                disabled={!connected || sending}
-                className="flex-1 min-w-0 resize-none bg-surface-low border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#38D39F]/40 focus:border-[#38D39F]/60 disabled:opacity-50 overflow-hidden transition-all"
-              />
-              <button
-                onClick={handleSend}
-                disabled={!connected || sending || !input.trim()}
-                className="flex-shrink-0 btn-primary px-3 py-3 rounded-xl disabled:opacity-50 flex items-center justify-center"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          ) : (
-            /* Off — original single-line input */
-            <div className="flex gap-2 items-center">
-              <input
-                type="text"
-                value={input}
-                onChange={(e) => setInput(e.target.value)}
-                onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
-                placeholder={connected ? "Type a message..." : "Connect gateway to message..."}
-                disabled={!connected || sending}
-                className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
-              />
-              <button
-                onClick={handleSend}
-                disabled={!connected || sending || !input.trim()}
-                className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
-              >
-                <Send className="w-4 h-4" />
-              </button>
-            </div>
-          )}
+          <div className="mx-auto w-3/4 max-w-[75%] min-w-0">
+            {inputVariant === "v2" ? (
+              /* Alt 2 — pill shape, send button pinned inside bottom-right */
+              <div className="relative">
+                <textarea
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  rows={1}
+                  placeholder={connected ? `Message ${activeAgentName ?? "agent"}...` : "Connect gateway to message..."}
+                  disabled={!connected || sending}
+                  className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-12 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!connected || sending || !input.trim()}
+                  className="absolute right-2 bottom-2 w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center"
+                >
+                  <Send className="w-3.5 h-3.5" />
+                </button>
+              </div>
+            ) : inputVariant === "v3" ? (
+              /* Alt 3 — minimal, bottom-border only */
+              <div className="flex gap-2 items-end">
+                <textarea
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  rows={1}
+                  placeholder={connected ? `Ask ${activeAgentName ?? "agent"} anything...` : "Connect gateway to message..."}
+                  disabled={!connected || sending}
+                  className="flex-1 min-w-0 resize-none bg-transparent border-0 border-b border-border rounded-none px-1 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-[#38D39F] disabled:opacity-50 overflow-hidden transition-colors"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!connected || sending || !input.trim()}
+                  className="flex-shrink-0 btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center mb-0.5"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            ) : inputVariant === "v1" ? (
+              /* Alt 1 — auto-growing textarea, rounded-xl, focus ring */
+              <div className="flex gap-2 items-end">
+                <textarea
+                  value={input}
+                  onChange={(e) => {
+                    setInput(e.target.value);
+                    e.target.style.height = "auto";
+                    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                  }}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  rows={1}
+                  placeholder={connected ? "Type a message... (Shift+Enter for newline)" : "Connect gateway to message..."}
+                  disabled={!connected || sending}
+                  className="flex-1 min-w-0 resize-none bg-surface-low border border-border rounded-xl px-4 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:ring-2 focus:ring-[#38D39F]/40 focus:border-[#38D39F]/60 disabled:opacity-50 overflow-hidden transition-all"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!connected || sending || !input.trim()}
+                  className="flex-shrink-0 btn-primary px-3 py-3 rounded-xl disabled:opacity-50 flex items-center justify-center"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            ) : (
+              /* Off — original single-line input */
+              <div className="flex gap-2 items-center">
+                <input
+                  type="text"
+                  value={input}
+                  onChange={(e) => setInput(e.target.value)}
+                  onKeyDown={(e) => { if (e.key === "Enter" && !e.shiftKey) { e.preventDefault(); handleSend(); } }}
+                  placeholder={connected ? "Type a message..." : "Connect gateway to message..."}
+                  disabled={!connected || sending}
+                  className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={!connected || sending || !input.trim()}
+                  className="flex-shrink-0 btn-primary px-3 py-2 rounded-lg disabled:opacity-50 flex items-center justify-center"
+                >
+                  <Send className="w-4 h-4" />
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </div>
 

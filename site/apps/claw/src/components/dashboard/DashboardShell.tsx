@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useLayoutEffect, useState } from "react";
+import { useEffect } from "react";
 import { useRouter, usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -50,21 +50,7 @@ export function DashboardShell({
     pathname.startsWith("/agents/") ||
     pathname.startsWith("/dashboard/agents") ||
     pathname.startsWith("/dev/agent-setup/agents");
-  const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
-    if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 768px)").matches;
-  });
-
-  useLayoutEffect(() => {
-    if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 768px)");
-    const apply = () => setIsDesktopViewport(mediaQuery.matches);
-    apply();
-    mediaQuery.addEventListener("change", apply);
-    return () => mediaQuery.removeEventListener("change", apply);
-  }, []);
-
-  const showDashboardNav = !isAgentsRoute || isDesktopViewport;
+  const showDashboardNav = !isAgentsRoute;
   const hasTopNavOffset = showDashboardNav;
 
   useEffect(() => {

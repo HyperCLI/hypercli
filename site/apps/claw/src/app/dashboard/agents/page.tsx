@@ -18,7 +18,6 @@ import {
   Loader2,
   Plus,
   MessageSquare,
-  Play,
   RefreshCw,
   TerminalSquare,
   Trash2,
@@ -93,6 +92,7 @@ import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalP
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 
 type MainTab = AgentMainTab;
@@ -1652,11 +1652,8 @@ export default function AgentsPage() {
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2 text-xl font-bold">
-            <span aria-label="HyperClaw brand">
-              <span className="text-foreground">Hyper</span>
-              <span className="text-primary">Claw</span>
-            </span>
+          <div className="flex items-center gap-2">
+            <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <button
@@ -1842,7 +1839,7 @@ export default function AgentsPage() {
           }}
         />
 
-        {selectedAgent && !chat.connecting && !chat.hydrating && (
+        {selectedAgent && (
           <AgentWorkspaceSidebar
             selectedAgent={selectedAgent}
             activeTab={mainTab}
@@ -1850,13 +1847,14 @@ export default function AgentsPage() {
             planName={planName}
             tokenUsed={tokenUsage}
             tokenLimit={budget?.pooled_tpd ?? null}
-	            mobileShowChat={mobileShowChat}
-	            isDesktopViewport={isDesktopViewport}
-	            onSelectChat={() => setMainTab("chat")}
-	            onOpenFiles={() => {
-	              setMainTab("files");
-	              setMobileShowChat(true);
-	            }}
+            disabled={chat.connecting || chat.hydrating}
+            disabledReason={chat.connecting ? "Opening the gateway connection." : "Fetching messages, files, and config."}
+            isDesktopViewport={isDesktopViewport}
+            onSelectChat={() => setMainTab("chat")}
+            onOpenFiles={() => {
+              setMainTab("files");
+              setMobileShowChat(true);
+            }}
             onOpenIntegrations={() => {
               setDirectoryCategory(undefined);
               setDirectoryItemId(undefined);
@@ -1896,8 +1894,6 @@ export default function AgentsPage() {
           activeConnectionStatus={activeConnectionStatus}
           chatConnected={chat.connected}
           chatConnecting={chat.connecting}
-          fileCount={chat.files?.length ?? 0}
-          openingDesktopId={openingDesktopId}
           startingId={startingId}
           recentlyStoppedIds={recentlyStoppedIds}
           selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
@@ -1973,6 +1969,16 @@ export default function AgentsPage() {
               savingName={savingName}
               handleSaveName={handleSaveName}
               chat={chat}
+              onStartAgent={() => {
+                if (selectedAgent) void handleStart(selectedAgent.id);
+              }}
+              onStopAgent={() => {
+                if (selectedAgent) void handleStop(selectedAgent.id);
+              }}
+              agentStarting={Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)))}
+              agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
+              agentStartBlocked={selectedAgentLaunchBlocked}
+              agentStartBlockedReason={selectedAgentStartGuidance?.title}
               openclawConfig={
                 <OpenClawConfigPanel
                   embedded
@@ -2008,21 +2014,6 @@ export default function AgentsPage() {
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           onShowList={() => setMobileShowChat(false)}
-          onOpenFiles={() => {
-            if (!selectedAgent) return;
-            setMainTab("files");
-            setMobileShowChat(true);
-          }}
-          onOpenDesktop={() => {
-            if (selectedAgent) {
-              void handleOpenDesktop(selectedAgent);
-            }
-          }}
-          onDelete={() => {
-            if (selectedAgent) {
-              setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
-            }
-          }}
           onShowInspector={() => setInspectorSheetOpen(true)}
           showInspectorButton={SHOW_AGENT_INSPECTOR}
           onStart={() => {
@@ -2033,11 +2024,6 @@ export default function AgentsPage() {
           onReconnect={() => {
             if (mainTab === "logs") reconnectLogs();
             if (mainTab === "shell") reconnectShell();
-          }}
-          onSelectPanel={(panel) => setMainTab(panel)}
-          onOpenSettings={() => {
-            setMainTab("settings");
-            setMobileShowChat(true);
           }}
         />
 

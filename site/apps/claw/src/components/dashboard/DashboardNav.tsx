@@ -22,6 +22,7 @@ import {
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 const dropdownNavItems = [
   { label: "API Keys", href: "/keys", icon: Key },
@@ -79,17 +80,9 @@ export function DashboardNav() {
       <header className="fixed top-0 left-0 right-0 z-50 bg-background/80 backdrop-blur-lg border-b border-border">
         <div className="max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-14">
-            {/* Logo + Dashboard badge */}
-            <div className="flex items-center space-x-12">
-              <Link href="/" className="flex items-center gap-2">
-                <span className="text-lg font-bold">
-                  <span className="text-foreground">Hyper</span>
-                  <span className="text-primary">Claw</span>
-                </span>
-              </Link>
-              <Link href="/dashboard" className="text-md font-medium text-text-tertiary hover:text-foreground transition-colors">
-                Dashboard
-              </Link>
+            {/* Logo */}
+            <div className="flex items-center">
+              <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
             </div>
 
             {/* Right side — avatar dropdown + mobile hamburger */}

@@ -1,5 +1,7 @@
 "use client";
 
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+
 const footerLinks = {
   Product: [
     { label: "Features", href: "#features" },
@@ -24,10 +26,7 @@ export function ClawFooter() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <span className="text-lg font-bold">
-              <span className="text-foreground">Hyper</span>
-              <span className="text-primary">Claw</span>
-            </span>
+            <HyperClawLogoLink className="h-[31px] w-[102px]" />
             <p className="text-sm text-text-muted mt-2 leading-relaxed">
               Unlimited agent inference.
               <br />

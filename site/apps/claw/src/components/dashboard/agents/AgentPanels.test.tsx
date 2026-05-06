@@ -15,7 +15,7 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-import { AgentList } from "./AgentPanels";
+import { AgentList, AgentSettingsPanel } from "./AgentPanels";
 
 const agent: Agent = {
   id: "agent-1",
@@ -75,6 +75,32 @@ function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = 
   return props;
 }
 
+function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof AgentSettingsPanel>> = {}) {
+  const props: ComponentProps<typeof AgentSettingsPanel> = {
+    agent,
+    settingsName: agent.name,
+    setSettingsName: vi.fn(),
+    savingName: false,
+    handleSaveName: vi.fn(),
+    chat: {
+      connected: true,
+      connecting: false,
+      config: null,
+      configSchema: null,
+      models: ["gpt-test"],
+      saveConfig: vi.fn(async () => undefined),
+      saveFullConfig: vi.fn(async () => undefined),
+      channelsStatus: vi.fn(async () => ({})),
+      activityFeed: [],
+      files: [],
+    },
+    ...overrides,
+  };
+
+  renderWithClient(<AgentSettingsPanel {...props} />);
+  return props;
+}
+
 describe("AgentList", () => {
   it("keeps the agents/channels sidebar collapsed until the explicit expand control is used", () => {
     const props = renderAgentList();
@@ -91,5 +117,30 @@ describe("AgentList", () => {
 
     fireEvent.click(screen.getByTitle("Collapse sidebar"));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
+  });
+});
+
+describe("AgentSettingsPanel", () => {
+  it("stops a running agent from settings", () => {
+    const onStopAgent = vi.fn();
+    renderAgentSettingsPanel({ onStopAgent });
+
+    const rows = screen.getAllByText(/Agent runtime|Agent name|Default model|Visibility|Auto-archive idle conversations/);
+    expect(rows[0]).toHaveTextContent("Agent runtime");
+    fireEvent.click(screen.getByRole("button", { name: /stop agent/i }));
+    expect(onStopAgent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("starts a stopped agent from settings", () => {
+    const onStartAgent = vi.fn();
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "STOPPED", stopped_at: "2026-05-05T01:00:00Z" },
+      onStartAgent,
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: /start agent/i }));
+    expect(onStartAgent).toHaveBeenCalledTimes(1);
+    expect(screen.queryByRole("button", { name: /stop agent/i })).not.toBeInTheDocument();
   });
 });
