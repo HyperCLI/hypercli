@@ -3,16 +3,17 @@
 import React, { useEffect, useState } from "react";
 import { motion } from "framer-motion";
 import {
-  Box,
+  Blocks,
   CalendarClock,
   ChevronUp,
+  Codepen,
   FolderOpen,
   MessageSquare,
   PanelLeft,
   PanelRight,
-  Plug,
   Settings,
   Sparkles,
+  SlidersHorizontal,
   TerminalSquare,
 } from "lucide-react";
 
@@ -41,6 +42,7 @@ interface AgentWorkspaceSidebarProps {
   onOpenScheduled: () => void;
   onOpenLogs: () => void;
   onOpenShell: () => void;
+  onOpenOpenClaw: () => void;
   onOpenSettings: () => void;
   onUpgrade: () => void;
 }
@@ -131,10 +133,11 @@ export function AgentWorkspaceSidebar({
   onOpenScheduled,
   onOpenLogs,
   onOpenShell,
+  onOpenOpenClaw,
   onOpenSettings,
   onUpgrade,
 }: AgentWorkspaceSidebarProps) {
-  const [advancedOpen, setAdvancedOpen] = useState(true);
+  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(selectedAgent));
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(WORKSPACE_COLLAPSED_KEY) === "1";
@@ -154,13 +157,18 @@ export function AgentWorkspaceSidebar({
     : `${tokensUsed == null ? "0" : formatTokens(tokensUsed)} / --`;
 
   const agentState: AgentState | undefined = selectedAgent?.state;
+  const noSelectedAgent = !selectedAgent;
   const agentNotRunning = agentState !== "RUNNING";
   const stoppedReason = "Agent must be running";
+  const emptyStateReason = "Select or create an agent first.";
+
+  useEffect(() => {
+    if (noSelectedAgent) {
+      setAdvancedOpen(false);
+    }
+  }, [noSelectedAgent]);
 
   const disabledItemProps = disabled ? { disabled: true, disabledReason } : {};
-  const unavailableItemProps = disabled
-    ? disabledItemProps
-    : { disabled: true, disabledReason: "Coming soon" };
   const workspaceItems: WorkspaceItem[] = [
     { id: "chat", label: "Chat", icon: MessageSquare, active: activeTab === "chat", onClick: onSelectChat, ...disabledItemProps },
     {
@@ -169,18 +177,27 @@ export function AgentWorkspaceSidebar({
       icon: FolderOpen,
       active: activeTab === "files",
       onClick: onOpenFiles,
-      ...(disabled ? disabledItemProps : agentNotRunning ? { disabled: true, disabledReason: stoppedReason } : {}),
+      ...disabledItemProps,
     },
-    { id: "integrations", label: "Integrations", icon: Plug, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },
-    { id: "skills", label: "Skills", icon: Box, active: skillsActive, onClick: onOpenSkills, ...disabledItemProps },
-    { id: "scheduled", label: "Scheduled", icon: CalendarClock, onClick: onOpenScheduled, ...unavailableItemProps },
+    { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },
+    { id: "skills", label: "Skills", icon: Codepen, active: skillsActive, onClick: onOpenSkills, ...disabledItemProps },
+    { id: "scheduled", label: "Scheduled", icon: CalendarClock, active: activeTab === "scheduled", onClick: onOpenScheduled, ...disabledItemProps },
   ];
 
-  const advancedDisabled = disabled ? disabledItemProps : agentNotRunning ? { disabled: true, disabledReason: stoppedReason } : {};
+  const advancedDropdownDisabled = disabled || noSelectedAgent;
+  const advancedDropdownDisabledReason = disabled ? disabledReason : emptyStateReason;
+  const advancedDisabled = disabled
+    ? disabledItemProps
+    : noSelectedAgent
+      ? { disabled: true, disabledReason: emptyStateReason }
+      : agentNotRunning
+        ? { disabled: true, disabledReason: stoppedReason }
+        : {};
   const advancedItems: WorkspaceItem[] = [
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
-    { id: "settings", label: "Settings", icon: Settings, active: activeTab === "settings", onClick: onOpenSettings, ...disabledItemProps },
+    { id: "openclaw", label: "OpenClaw settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
+    { id: "settings", label: "Settings", icon: Settings, active: activeTab === "settings", onClick: onOpenSettings, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
   ];
 
   return (
@@ -242,12 +259,12 @@ export function AgentWorkspaceSidebar({
           <>
             <button
               type="button"
-              onClick={disabled ? undefined : () => setAdvancedOpen((open) => !open)}
-              disabled={disabled}
-              aria-disabled={disabled}
-              title={disabled ? disabledReason : undefined}
+              onClick={advancedDropdownDisabled ? undefined : () => setAdvancedOpen((open) => !open)}
+              disabled={advancedDropdownDisabled}
+              aria-disabled={advancedDropdownDisabled}
+              title={advancedDropdownDisabled ? advancedDropdownDisabledReason : undefined}
               className={`flex h-9 w-full items-center justify-between rounded-full px-3 text-sm transition-colors ${
-                disabled
+                advancedDropdownDisabled
                   ? "cursor-not-allowed text-text-muted/45"
                   : "text-foreground hover:bg-surface-low/60"
               }`}

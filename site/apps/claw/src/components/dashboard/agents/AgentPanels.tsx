@@ -2,10 +2,11 @@
 
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowRight, Bot, Loader2, PanelLeftOpen, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, Blocks, CalendarClock, Codepen, FolderOpen, Loader2, MessageSquare, PanelLeftOpen, Play, SlidersHorizontal, Square, X } from "lucide-react";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
+import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
@@ -14,6 +15,7 @@ import type { FileEntry } from "@/components/dashboard/files/types";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
+import { OpenClawErrorBoundary } from "./page-helpers";
 import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
 
 interface SessionLike {
@@ -49,6 +51,7 @@ interface OpenClawConfigPanelProps {
   saveOpenclawSection: (sectionKey: string) => Promise<void>;
   saveAllOpenclaw: () => Promise<void>;
   openclawPaneRef: React.RefObject<HTMLDivElement | null>;
+  isDesktopViewport?: boolean;
 }
 
 export function OpenClawConfigPanel({
@@ -167,6 +170,265 @@ export function OpenClawConfigPanel({
         />
       </div>
     </div>
+  );
+}
+
+function openclawSectionLabel(
+  schemaBundle: OpenClawConfigSchemaResponse | null,
+  sectionKey: string,
+  sectionSchema: unknown,
+): string {
+  const hint = getOpenClawUiHint(schemaBundle, [sectionKey]);
+  return hint?.label?.trim() ||
+    (typeof asObject(sectionSchema)?.title === "string"
+      ? String(asObject(sectionSchema)?.title)
+      : humanizeKey(sectionKey));
+}
+
+function openclawSectionDescription(
+  schemaBundle: OpenClawConfigSchemaResponse | null,
+  sectionKey: string,
+  sectionSchema: unknown,
+  fallback = "",
+): string {
+  const hint = getOpenClawUiHint(schemaBundle, [sectionKey]);
+  return hint?.help?.trim() ||
+    (typeof asObject(sectionSchema)?.description === "string"
+      ? String(asObject(sectionSchema)?.description)
+      : fallback);
+}
+
+export function OpenClawSettingsPanel({
+  open = true,
+  agent,
+  onClose,
+  openclawSections,
+  openclawSchemaBundle,
+  effectiveOpenclawSection,
+  setActiveOpenclawSection,
+  activeOpenclawSectionLabel,
+  openclawSaving,
+  openclawDraft,
+  openclawError,
+  openclawSuccess,
+  chat,
+  visibleOpenclawSections,
+  renderOpenclawField,
+  saveOpenclawSection,
+  saveAllOpenclaw,
+  openclawPaneRef,
+  isDesktopViewport = true,
+}: OpenClawConfigPanelProps) {
+  const [mobileSectionsOpen, setMobileSectionsOpen] = React.useState(true);
+  const hasSections = openclawSections.length > 0;
+  const saveLabel = effectiveOpenclawSection ? "Save Section" : "Save All";
+
+  React.useEffect(() => {
+    if (isDesktopViewport) setMobileSectionsOpen(false);
+  }, [isDesktopViewport]);
+
+  if (!open || !agent) return null;
+
+  const sectionList = (
+    <div className="space-y-1">
+      {openclawSections.map(([sectionKey, sectionSchema]) => {
+        const sectionLabel = openclawSectionLabel(openclawSchemaBundle, sectionKey, sectionSchema);
+        const sectionDescription = openclawSectionDescription(openclawSchemaBundle, sectionKey, sectionSchema, sectionKey);
+        const selected = effectiveOpenclawSection === sectionKey;
+        return (
+          <button
+            key={`openclaw-section-${sectionKey}`}
+            type="button"
+            onClick={() => {
+              setActiveOpenclawSection(sectionKey);
+              setMobileSectionsOpen(false);
+            }}
+            className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
+              selected
+                ? "border-l-2 border-primary bg-primary/15 font-medium text-foreground"
+                : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
+            }`}
+            title={sectionDescription}
+          >
+            <span className="block truncate">{sectionLabel}</span>
+          </button>
+        );
+      })}
+    </div>
+  );
+
+  const statusMessages = (
+    <>
+      {openclawError && (
+        <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+          {openclawError}
+        </div>
+      )}
+      {openclawSuccess && !openclawError && (
+        <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+          {openclawSuccess}
+        </div>
+      )}
+      {!chat.connected && !chat.connecting && (
+        <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+          Connect the agent gateway to edit OpenClaw settings.
+        </div>
+      )}
+      {chat.connecting && !chat.connected && (
+        <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          Connecting to gateway...
+        </div>
+      )}
+      {chat.connected && !hasSections && (
+        <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+          No config schema available from gateway.
+        </div>
+      )}
+    </>
+  );
+
+  const editorContent = (
+    <OpenClawErrorBoundary>
+      <div className={isDesktopViewport ? "mx-auto max-w-5xl space-y-4" : "mx-auto max-w-xl space-y-4"}>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <div className="min-w-0">
+            {!isDesktopViewport && (
+              <button
+                type="button"
+                onClick={() => setMobileSectionsOpen(true)}
+                className="mb-3 inline-flex items-center gap-2 text-sm text-text-muted transition-colors hover:text-foreground"
+              >
+                <ArrowLeft className="h-4 w-4" />
+                Back
+              </button>
+            )}
+            <h3 className="truncate text-lg font-semibold text-foreground">
+              {activeOpenclawSectionLabel ?? "OpenClaw Config"}
+            </h3>
+            {openclawSchemaBundle?.version && (
+              <p className="mt-1 text-xs text-text-muted">
+                Schema version <span className="font-mono">{openclawSchemaBundle.version}</span>
+              </p>
+            )}
+          </div>
+          <button
+            type="button"
+            onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
+            disabled={openclawSaving || !chat.connected || !openclawDraft}
+            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            {openclawSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
+            {saveLabel}
+          </button>
+          {onClose && (
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+              title="Close OpenClaw settings"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          )}
+        </div>
+
+        {statusMessages}
+
+        {hasSections && openclawDraft && (
+          <div className="space-y-4">
+            {visibleOpenclawSections.map(([sectionKey, sectionSchema]) => {
+              const sectionDescription = openclawSectionDescription(openclawSchemaBundle, sectionKey, sectionSchema);
+              return (
+                <section key={`openclaw-editor-${sectionKey}`} className="space-y-4 rounded-xl border border-border bg-surface-low/30 p-4">
+                  {sectionDescription && (
+                    <p className="text-xs leading-5 text-text-muted">{sectionDescription}</p>
+                  )}
+                  {renderOpenclawField(sectionSchema, [sectionKey])}
+                </section>
+              );
+            })}
+          </div>
+        )}
+      </div>
+    </OpenClawErrorBoundary>
+  );
+
+  if (!isDesktopViewport && mobileSectionsOpen) {
+    return (
+      <div className="flex h-full min-h-0 flex-col bg-background">
+        <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
+          <SlidersHorizontal className="h-4 w-4 text-primary" />
+          <div className="min-w-0">
+            <p className="truncate text-sm font-semibold text-foreground">OpenClaw settings</p>
+            <p className="text-[10px] text-text-muted">Choose a section to edit</p>
+          </div>
+        </div>
+        <div className="min-h-0 flex-1 overflow-y-auto p-4">
+          <div className="mx-auto max-w-xl rounded-xl border border-border bg-surface-low/20 p-4">
+            <h3 className="text-lg font-semibold text-foreground">OpenClaw Sections</h3>
+            <p className="mt-1 text-sm text-text-muted">Choose a section to edit.</p>
+            <div className="mt-4">{sectionList}</div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className={`flex h-full min-h-0 bg-background ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
+      {isDesktopViewport && (
+        <aside className="w-[200px] min-w-[160px] max-w-[260px] shrink-0 border-r border-border bg-surface-low/20">
+          <div className="h-full overflow-y-auto p-3">
+            <p className="mb-2 text-[10px] font-medium uppercase tracking-[0.18em] text-text-muted">Sections</p>
+            {sectionList}
+          </div>
+        </aside>
+      )}
+      <div ref={openclawPaneRef} className={`min-w-0 flex-1 overflow-y-auto ${isDesktopViewport ? "p-6" : "p-4"}`}>
+        {editorContent}
+      </div>
+    </div>
+  );
+}
+
+export function OpenClawSettingsDrawer({
+  open,
+  onClose,
+  isDesktopViewport = true,
+  ...panelProps
+}: OpenClawConfigPanelProps & { open: boolean; onClose: () => void }) {
+  return (
+    <AnimatePresence>
+      {open && (
+        <div className="fixed inset-0 z-50 flex justify-end">
+          <motion.button
+            type="button"
+            aria-label="Close OpenClaw settings"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+            onClick={onClose}
+            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+          />
+          <motion.aside
+            initial={{ x: "100%" }}
+            animate={{ x: 0 }}
+            exit={{ x: "100%" }}
+            transition={{ type: "spring", stiffness: 360, damping: 34 }}
+            className="relative z-10 h-full w-full max-w-[920px] border-l border-border bg-background shadow-2xl sm:w-[min(920px,calc(100vw-3rem))]"
+          >
+            <OpenClawSettingsPanel
+              {...panelProps}
+              open
+              onClose={onClose}
+              isDesktopViewport={isDesktopViewport}
+            />
+          </motion.aside>
+        </div>
+      )}
+    </AnimatePresence>
   );
 }
 
@@ -864,40 +1126,246 @@ export function AgentEmptyState({
     );
   }
 
+  const examples = [
+    "Ask questions across Slack, email, docs, and CRM data in one place.",
+    "Get instant answers with company-specific context instead of hunting across tabs.",
+    "Trigger actions like drafting replies, updating records, or creating follow-ups directly from chat.",
+  ];
+
   return (
-    <div className="flex-1 flex items-center justify-center px-4 py-8">
-      <div className="w-full max-w-[560px] text-center">
-        <div className="mx-auto mb-4 inline-flex items-center gap-2 rounded-full border border-border bg-surface-low/70 px-3 py-1 text-[11px] font-medium text-text-secondary">
-          <Sparkles className="h-3.5 w-3.5 text-primary" />
-          <span>First agent setup</span>
+    <LaunchAgentEmptyStateContent
+      icon={MessageSquare}
+      title="Your business, one chat"
+      description="Talk to your entire business like it is one system. Your agent understands your context, remembers your workflows, and takes action across your stack."
+      examples={examples}
+      onLaunch={() => setShowWizard(true)}
+    />
+  );
+}
+
+export function AgentFilesEmptyState({
+  onCreate,
+  onCreateAgent,
+  budget,
+  subscriptionSummary,
+}: {
+  onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: Record<string, { granted: number; used: number; available: number }>;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
+}) {
+  const [showWizard, setShowWizard] = React.useState(false);
+
+  if (showWizard) {
+    return (
+      <FirstAgentSetupWizard
+        budget={budget}
+        subscriptionSummary={subscriptionSummary}
+        onCreateAgent={onCreateAgent ?? (async () => {
+          onCreate();
+          return null;
+        })}
+      />
+    );
+  }
+
+  return (
+    <LaunchAgentEmptyStateContent
+      icon={FolderOpen}
+      title="Your files, working for you"
+      description="Your documents become usable intelligence. Your agent can search, understand, compare, summarize, and execute against your files instead of treating them like static uploads."
+      examples={[
+        "Search thousands of files using natural language instead of folder structures",
+        "Compare contracts, proposals, reports, or spreadsheets in seconds",
+        "Extract insights, summaries, action items, and data from PDFs, docs, and presentations automatically",
+      ]}
+      onLaunch={() => setShowWizard(true)}
+    />
+  );
+}
+
+export function AgentIntegrationsEmptyState({
+  onCreate,
+  onCreateAgent,
+  budget,
+  subscriptionSummary,
+}: {
+  onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: Record<string, { granted: number; used: number; available: number }>;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
+}) {
+  const [showWizard, setShowWizard] = React.useState(false);
+
+  if (showWizard) {
+    return (
+      <FirstAgentSetupWizard
+        budget={budget}
+        subscriptionSummary={subscriptionSummary}
+        onCreateAgent={onCreateAgent ?? (async () => {
+          onCreate();
+          return null;
+        })}
+      />
+    );
+  }
+
+  return (
+    <LaunchAgentEmptyStateContent
+      icon={Blocks}
+      title="Your stack, unified"
+      description="Connect the tools you already use. Unlike standalone LLMs, your agent works inside your real workflows - pulling from CRMs, Slack, email, databases, and internal systems in real time."
+      examples={[
+        "Pull live data from tools like HubSpot, Salesforce, Gmail, Slack, Notion, or databases",
+        "Update records, create tickets, send emails, and sync workflows without switching apps",
+        "Build cross-platform automations that work across your existing stack",
+      ]}
+      onLaunch={() => setShowWizard(true)}
+    />
+  );
+}
+
+export function AgentSkillsEmptyState({
+  onCreate,
+  onCreateAgent,
+  budget,
+  subscriptionSummary,
+}: {
+  onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: Record<string, { granted: number; used: number; available: number }>;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
+}) {
+  const [showWizard, setShowWizard] = React.useState(false);
+
+  if (showWizard) {
+    return (
+      <FirstAgentSetupWizard
+        budget={budget}
+        subscriptionSummary={subscriptionSummary}
+        onCreateAgent={onCreateAgent ?? (async () => {
+          onCreate();
+          return null;
+        })}
+      />
+    );
+  }
+
+  return (
+    <LaunchAgentEmptyStateContent
+      icon={Codepen}
+      title="Your expertise, reusable"
+      description="Turn repeatable work into reusable intelligence. Skills let your team package expertise, workflows, and automations so anyone can execute high-level tasks instantly."
+      examples={[
+        "Save repeatable workflows as reusable AI-powered playbooks",
+        "Let anyone on your team execute expert-level tasks with one command",
+        "Standardize onboarding, reporting, sales research, QA, support, and operations workflows",
+      ]}
+      onLaunch={() => setShowWizard(true)}
+    />
+  );
+}
+
+export function AgentScheduledEmptyState({
+  onCreate,
+  onCreateAgent,
+  budget,
+  subscriptionSummary,
+}: {
+  onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: Record<string, { granted: number; used: number; available: number }>;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
+}) {
+  const [showWizard, setShowWizard] = React.useState(false);
+
+  if (showWizard) {
+    return (
+      <FirstAgentSetupWizard
+        budget={budget}
+        subscriptionSummary={subscriptionSummary}
+        onCreateAgent={onCreateAgent ?? (async () => {
+          onCreate();
+          return null;
+        })}
+      />
+    );
+  }
+
+  return (
+    <LaunchAgentEmptyStateContent
+      icon={CalendarClock}
+      title="Your work, on autopilot"
+      description="Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows automatically on schedules - without waiting for someone to ask."
+      examples={[
+        "Schedule daily reports, summaries, and automated follow-ups",
+        "Monitor pipelines, inboxes, or KPIs and trigger actions automatically",
+        "Run recurring workflows without needing someone to manually prompt the AI",
+      ]}
+      onLaunch={() => setShowWizard(true)}
+    />
+  );
+}
+
+function LaunchAgentEmptyStateContent({
+  icon: Icon,
+  title,
+  description,
+  examples,
+  onLaunch,
+}: {
+  icon: React.ComponentType<{ className?: string }>;
+  title: string;
+  description: string;
+  examples: string[];
+  onLaunch: () => void;
+}) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
+      <div className="w-full max-w-[610px] text-left">
+        <div className="mb-4 flex h-8 w-8 items-center justify-center rounded-[7px] border border-border bg-surface-low text-foreground">
+          <Icon className="h-4 w-4" />
         </div>
-        <h1 className="text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
-          Launch your first agent
+
+        <h1 className="text-[18px] font-semibold leading-tight text-foreground sm:text-[20px]">
+          {title}
         </h1>
-        <p className="mx-auto mt-3 max-w-[460px] text-sm leading-6 text-text-muted">
-          Create a focused agent, add useful context, and choose a plan.
+        <p className="mt-4 max-w-[600px] text-[14px] leading-6 text-text-muted">
+          {description}
         </p>
+
+        <div className="mt-8 space-y-2">
+          {examples.map((example) => (
+            <div
+              key={example}
+              className="rounded-[9px] border border-foreground bg-background px-3 py-3 text-[13px] font-semibold leading-5 text-foreground"
+            >
+              {example}
+            </div>
+          ))}
+        </div>
+
         <motion.button
-          whileHover={{ y: -2, boxShadow: "0 16px 44px rgba(0,0,0,0.25), 0 0 22px rgba(56,211,159,0.07)" }}
-          whileTap={{ scale: 0.99 }}
+          whileHover={{ y: -1 }}
+          whileTap={{ scale: 0.98 }}
           type="button"
-          onClick={() => setShowWizard(true)}
-          className="group mx-auto mt-7 flex w-full max-w-[480px] items-center justify-between gap-4 rounded-lg border border-border bg-surface-low/80 px-4 py-4 text-left shadow-[0_14px_44px_rgba(0,0,0,0.22)] transition-colors hover:border-primary/35 hover:bg-surface-high focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          onClick={onLaunch}
+          className="mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
-          <span className="flex min-w-0 items-center gap-3">
-            <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg border border-border-medium bg-surface-high text-primary">
-              <Bot className="h-[18px] w-[18px]" />
-            </span>
-            <span className="min-w-0">
-              <span className="block text-base font-semibold leading-tight text-foreground">Create a first agent</span>
-              <span className="mt-1 block text-xs leading-5 text-text-muted">
-                Guided setup that creates the agent directly.
-              </span>
-            </span>
-          </span>
-          <span className="flex h-10 w-10 flex-shrink-0 items-center justify-center rounded-lg bg-primary text-primary-foreground transition-colors group-hover:bg-primary-hover">
-            <ArrowRight className="h-[18px] w-[18px]" />
-          </span>
+          Launch agent
+          <ArrowRight className="h-4 w-4" />
         </motion.button>
       </div>
     </div>

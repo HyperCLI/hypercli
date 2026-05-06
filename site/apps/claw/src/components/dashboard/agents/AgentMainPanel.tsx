@@ -7,7 +7,7 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
-import { AgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
+import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import type { SlotInventory } from "@/lib/format";
 
@@ -31,6 +31,7 @@ interface AgentMainPanelProps {
   blockedMessage?: string | null;
   suggestedTierActions?: Array<{ label: string; onSelect: () => void }>;
   currentPanel: CenterPanel;
+  skillsPanelActive?: boolean;
   stoppedTabLabel: string;
   panelContent: React.ReactNode;
   onCreate: () => void;
@@ -67,6 +68,7 @@ export function AgentMainPanel({
   blockedMessage,
   suggestedTierActions,
   currentPanel,
+  skillsPanelActive = false,
   stoppedTabLabel,
   panelContent,
   onCreate,
@@ -154,6 +156,36 @@ export function AgentMainPanel({
             stage="complete"
           />
         </div>
+      ) : !selectedAgent && currentPanel === "files" ? (
+        <AgentFilesEmptyState
+          onCreate={onCreate}
+          onCreateAgent={onCreateAgent}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+        />
+      ) : !selectedAgent && currentPanel === "scheduled" ? (
+        <AgentScheduledEmptyState
+          onCreate={onCreate}
+          onCreateAgent={onCreateAgent}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+        />
+      ) : !selectedAgent && currentPanel === "integrations" ? (
+        skillsPanelActive ? (
+          <AgentSkillsEmptyState
+            onCreate={onCreate}
+            onCreateAgent={onCreateAgent}
+            budget={budget}
+            subscriptionSummary={subscriptionSummary}
+          />
+        ) : (
+          <AgentIntegrationsEmptyState
+            onCreate={onCreate}
+            onCreateAgent={onCreateAgent}
+            budget={budget}
+            subscriptionSummary={subscriptionSummary}
+          />
+        )
       ) : !selectedAgent ? (
         <AgentEmptyState
           onCreate={onCreate}

@@ -123,7 +123,6 @@ const FILTERS: Array<{ id: IntegrationFilter; label: string }> = [
   { id: "channels", label: "Channels" },
   { id: "tools", label: "Tools" },
   { id: "media", label: "Media" },
-  { id: "skills", label: "Skills" },
 ];
 
 const SKILL_STATUS_FILTERS: Array<{ id: SkillStatusFilter; label: string }> = [

@@ -11,6 +11,18 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => ({
   AgentEmptyState: ({ onCreate }: { onCreate: () => void }) => (
     <button type="button" onClick={onCreate}>Create new agent</button>
   ),
+  AgentFilesEmptyState: ({ onCreate }: { onCreate: () => void }) => (
+    <button type="button" onClick={onCreate}>Launch files agent</button>
+  ),
+  AgentIntegrationsEmptyState: ({ onCreate }: { onCreate: () => void }) => (
+    <button type="button" onClick={onCreate}>Launch integrations agent</button>
+  ),
+  AgentSkillsEmptyState: ({ onCreate }: { onCreate: () => void }) => (
+    <button type="button" onClick={onCreate}>Launch skills agent</button>
+  ),
+  AgentScheduledEmptyState: ({ onCreate }: { onCreate: () => void }) => (
+    <button type="button" onClick={onCreate}>Launch scheduled agent</button>
+  ),
 }));
 
 function renderAgentMainPanel(overrides: Partial<ComponentProps<typeof AgentMainPanel>> = {}) {
@@ -53,6 +65,51 @@ describe("AgentMainPanel", () => {
     });
 
     expect(screen.getByText("Loading agents")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the files empty state when files is selected before an agent exists", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+    });
+
+    expect(screen.getByRole("button", { name: /launch files agent/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the integrations empty state when integrations is selected before an agent exists", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      currentPanel: "integrations",
+      stoppedTabLabel: "Integrations",
+    });
+
+    expect(screen.getByRole("button", { name: /launch integrations agent/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the skills empty state when skills is selected before an agent exists", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      currentPanel: "integrations",
+      skillsPanelActive: true,
+      stoppedTabLabel: "Integrations",
+    });
+
+    expect(screen.getByRole("button", { name: /launch skills agent/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /launch integrations agent/i })).not.toBeInTheDocument();
+  });
+
+  it("shows the scheduled empty state when scheduled is selected before an agent exists", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      currentPanel: "scheduled",
+      stoppedTabLabel: "Scheduled",
+    });
+
+    expect(screen.getByRole("button", { name: /launch scheduled agent/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /create new agent/i })).not.toBeInTheDocument();
   });
 

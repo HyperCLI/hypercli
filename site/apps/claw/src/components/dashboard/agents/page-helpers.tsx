@@ -3,10 +3,11 @@
 import React, { useEffect, useRef, useState } from "react";
 import { motion } from "framer-motion";
 import {
+  Blocks,
+  CalendarClock,
   FolderOpen,
   Loader2,
   MessageSquare,
-  Plug,
   ScrollText,
   Settings,
   TerminalSquare,
@@ -259,7 +260,7 @@ export function TabLoadingState({ label, detail, stage = "gateway" }: { label: s
 
 // ── Gear Dropdown — center-panel selector + modal openers ──
 
-export type CenterPanel = "chat" | "files" | "integrations" | "logs" | "shell" | "settings";
+export type CenterPanel = "chat" | "files" | "integrations" | "scheduled" | "logs" | "shell" | "settings";
 
 interface GearDropdownProps {
   currentPanel: CenterPanel;
@@ -294,7 +295,8 @@ export function GearDropdown({
   }> = [
     { key: "chat", label: "Chat", icon: MessageSquare, action: () => onSelectPanel("chat"), active: currentPanel === "chat" },
     { key: "files", label: "Files", icon: FolderOpen, action: () => onSelectPanel("files"), active: currentPanel === "files" },
-    { key: "integrations", label: "Integrations", icon: Plug, action: () => onSelectPanel("integrations"), active: currentPanel === "integrations" },
+    { key: "integrations", label: "Integrations", icon: Blocks, action: () => onSelectPanel("integrations"), active: currentPanel === "integrations" },
+    { key: "scheduled", label: "Scheduled", icon: CalendarClock, action: () => onSelectPanel("scheduled"), active: currentPanel === "scheduled" },
     { key: "logs", label: "Logs", icon: ScrollText, action: () => onSelectPanel("logs"), active: currentPanel === "logs" },
     { key: "shell", label: "Shell", icon: TerminalSquare, action: () => onSelectPanel("shell"), active: currentPanel === "shell" },
     { key: "div1", label: "", icon: Settings, action: () => {}, divider: true },

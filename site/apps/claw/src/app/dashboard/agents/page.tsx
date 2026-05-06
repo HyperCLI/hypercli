@@ -84,7 +84,7 @@ import {
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
+import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawSettingsDrawer } from "@/components/dashboard/agents/AgentPanels";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentFilesPanel } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
@@ -127,6 +127,21 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
 
 function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
   return prev.filter((agent) => agent.id !== agentId);
+}
+
+function getWorkspaceSidebarDisabledReason({
+  agentsLoading,
+  connecting,
+  hydrating,
+}: {
+  agentsLoading: boolean;
+  connecting: boolean;
+  hydrating: boolean;
+}): string {
+  if (agentsLoading) return "Loading agents.";
+  if (connecting) return "Opening the gateway connection.";
+  if (hydrating) return "Fetching messages, files, and config.";
+  return "Workspace is loading.";
 }
 // Shell now routes through backend WebSocket via lagoon → K8s exec
 
@@ -220,8 +235,11 @@ export default function AgentsPage() {
   const [openclawSaving, setOpenclawSaving] = useState(false);
   const [openclawError, setOpenclawError] = useState<string | null>(null);
   const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
+  const [openclawSettingsOpen, setOpenclawSettingsOpen] = useState(false);
   const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
   const [openclawMapDraftKeys, setOpenclawMapDraftKeys] = useState<Record<string, string>>({});
+  const [openclawJsonDrafts, setOpenclawJsonDrafts] = useState<Record<string, string>>({});
+  const [openclawJsonDraftErrors, setOpenclawJsonDraftErrors] = useState<Record<string, string>>({});
   const [chatDragActive, setChatDragActive] = useState(false);
   const openclawPaneRef = useRef<HTMLDivElement | null>(null);
   const chatDragDepthRef = useRef(0);
@@ -342,6 +360,7 @@ export default function AgentsPage() {
     chat: "Chat",
     files: "Files",
     integrations: "Integrations",
+    scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
     shell: "Shell",
@@ -401,9 +420,9 @@ export default function AgentsPage() {
     mainTab === "chat" ||
       mainTab === "files" ||
       mainTab === "workspace" ||
-      mainTab === "openclaw" ||
       mainTab === "integrations" ||
-      mainTab === "settings",
+      mainTab === "settings" ||
+      openclawSettingsOpen,
   );
   const activeConnectionStatus = useMemo(() => {
     if (!isSelectedRunning) return null;
@@ -414,7 +433,7 @@ export default function AgentsPage() {
     }
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations" || mainTab === "settings") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -556,6 +575,8 @@ export default function AgentsPage() {
   useEffect(() => {
     const cfg = asObject(chat.config);
     setOpenclawDraft(deepCloneJsonObject(cfg ?? {}));
+    setOpenclawJsonDrafts({});
+    setOpenclawJsonDraftErrors({});
     setOpenclawError(null);
     setOpenclawSuccess(null);
   }, [selectedAgentId, chat.config]);
@@ -570,9 +591,9 @@ export default function AgentsPage() {
   }, [openclawSections, activeOpenclawSection]);
 
   useEffect(() => {
-    if (mainTab !== "settings") return;
+    if (!openclawSettingsOpen) return;
     openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [activeOpenclawSection, mainTab]);
+  }, [activeOpenclawSection, openclawSettingsOpen]);
 
   // ── Agent inspector data wiring ──
 
@@ -817,6 +838,33 @@ export default function AgentsPage() {
     });
   }, []);
 
+  const setOpenclawJsonDraftError = useCallback((pathKey: string, message: string | null) => {
+    setOpenclawJsonDraftErrors((prev) => {
+      const next = { ...prev };
+      if (message) {
+        next[pathKey] = message;
+      } else {
+        delete next[pathKey];
+      }
+      return next;
+    });
+    if (message) {
+      setOpenclawError(message);
+    }
+  }, []);
+
+  const updateOpenclawJsonDraft = useCallback((path: string[], raw: string) => {
+    const pathKey = path.join(".");
+    setOpenclawJsonDrafts((prev) => ({ ...prev, [pathKey]: raw }));
+    try {
+      updateOpenclawPath(path, JSON.parse(raw));
+      setOpenclawJsonDraftError(pathKey, null);
+      setOpenclawError(null);
+    } catch {
+      setOpenclawJsonDraftError(pathKey, `Invalid JSON at ${path.join(".")}`);
+    }
+  }, [setOpenclawJsonDraftError, updateOpenclawPath]);
+
   const removeOpenclawPath = useCallback((path: string[]) => {
     setOpenclawDraft((prev) => {
       if (!prev || path.length === 0) return prev;
@@ -841,18 +889,29 @@ export default function AgentsPage() {
   }, [openclawMapDraftKeys, updateOpenclawPath]);
 
   const saveOpenclawPatch = useCallback(async (patch: JsonObject, successText: string) => {
+    if (!chat.connected) {
+      setOpenclawError("Gateway disconnected. Reconnect before saving OpenClaw settings.");
+      return;
+    }
+    const jsonDraftError = Object.values(openclawJsonDraftErrors)[0];
+    if (jsonDraftError) {
+      setOpenclawError(jsonDraftError);
+      return;
+    }
     setOpenclawSaving(true);
     setOpenclawError(null);
     setOpenclawSuccess(null);
     try {
       await chat.saveConfig(patch);
+      setOpenclawJsonDrafts({});
+      setOpenclawJsonDraftErrors({});
       setOpenclawSuccess(successText);
     } catch (err) {
       setOpenclawError(err instanceof Error ? err.message : "Failed to save OpenClaw config");
     } finally {
       setOpenclawSaving(false);
     }
-  }, [chat]);
+  }, [chat, openclawJsonDraftErrors]);
 
   const saveOpenclawSection = useCallback(async (sectionKey: string) => {
     if (!openclawDraft) return;
@@ -885,6 +944,7 @@ export default function AgentsPage() {
     const enumValues: unknown[] = Array.isArray(schema.enum) ? schema.enum : [];
     const currentValue = openclawDraft ? getPathValue(openclawDraft, path) : undefined;
     const key = path.join(".");
+    const fieldDisabled = !chat.connected || openclawSaving;
 
     const propertyKeys = descriptor.properties;
     const additionalSchema = descriptor.additionalPropertySchema;
@@ -900,25 +960,20 @@ export default function AgentsPage() {
         if (typeof console !== "undefined") {
           console.warn(`[OpenClaw] Section "${key}" has type "object" but no resolved properties. Schema may contain unresolved $ref.`, schema);
         }
-        const onFallbackChange = (raw: string) => {
-          try {
-            updateOpenclawPath(path, JSON.parse(raw));
-            setOpenclawError(null);
-          } catch {
-            setOpenclawError(`Invalid JSON at ${path.join(".")}`);
-          }
-        };
+        const fallbackValue = openclawJsonDrafts[key] ??
+          (typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2));
         return (
           <div key={key} className="space-y-1">
             <label className="block text-sm text-text-secondary">{title}</label>
             {description && <p className="text-xs text-text-muted">{description}</p>}
             <textarea
-              value={typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2)}
-              onChange={(e) => onFallbackChange(e.target.value)}
+              value={fallbackValue}
+              onChange={(e) => updateOpenclawJsonDraft(path, e.target.value)}
               rows={6}
               spellCheck={false}
               placeholder={placeholder}
-              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+              disabled={fieldDisabled}
+              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
         );
@@ -948,7 +1003,8 @@ export default function AgentsPage() {
                     <button
                       type="button"
                       onClick={() => removeOpenclawPath([...path, childKey])}
-                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f]"
+                      disabled={fieldDisabled}
+                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       Remove
@@ -963,12 +1019,14 @@ export default function AgentsPage() {
                   value={openclawMapDraftKeys[key] ?? ""}
                   onChange={(e) => setOpenclawMapDraftKeys((prev) => ({ ...prev, [key]: e.target.value }))}
                   placeholder={`Add ${title.toLowerCase()} key`}
-                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong"
+                  disabled={fieldDisabled}
+                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
                 />
                 <button
                   type="button"
                   onClick={() => addOpenclawMapEntry(path, additionalSchema ?? { type: "object" })}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
+                  disabled={fieldDisabled}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Plus className="h-4 w-4" />
                   Add Entry
@@ -980,14 +1038,10 @@ export default function AgentsPage() {
       );
     }
 
-    const onJsonValueChange = (raw: string) => {
-      try {
-        updateOpenclawPath(path, JSON.parse(raw));
-        setOpenclawError(null);
-      } catch {
-        setOpenclawError(`Invalid JSON at ${path.join(".")}`);
-      }
-    };
+    const jsonValue = openclawJsonDrafts[key] ??
+      (typeof currentValue === "undefined"
+        ? (type === "array" ? "[]" : type === "object" ? "{}" : "")
+        : JSON.stringify(currentValue, null, 2));
 
     return (
       <div key={key} className="space-y-1">
@@ -1016,7 +1070,8 @@ export default function AgentsPage() {
               const nextValue = enumValues.find((value) => JSON.stringify(value) === e.target.value);
               updateOpenclawPath(path, nextValue ?? e.target.value);
             }}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           >
             <option value="">(unset)</option>
             {enumValues.map((value) => (
@@ -1031,7 +1086,8 @@ export default function AgentsPage() {
               type="checkbox"
               checked={Boolean(currentValue)}
               onChange={(e) => updateOpenclawPath(path, e.target.checked)}
-              className="rounded border-border bg-surface-low"
+              disabled={fieldDisabled}
+              className="rounded border-border bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
             />
             Enabled
           </label>
@@ -1049,16 +1105,18 @@ export default function AgentsPage() {
               if (!Number.isNaN(parsed)) updateOpenclawPath(path, parsed);
             }}
             placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           />
         ) : type === "array" || type === "object" ? (
           <textarea
-            value={typeof currentValue === "undefined" ? "" : JSON.stringify(currentValue, null, 2)}
-            onChange={(e) => onJsonValueChange(e.target.value)}
+            value={jsonValue}
+            onChange={(e) => updateOpenclawJsonDraft(path, e.target.value)}
             rows={6}
             spellCheck={false}
             placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           />
         ) : (
           <input
@@ -1066,7 +1124,8 @@ export default function AgentsPage() {
             value={typeof currentValue === "string" ? currentValue : currentValue == null ? "" : String(currentValue)}
             onChange={(e) => updateOpenclawPath(path, e.target.value)}
             placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           />
         )}
       </div>
@@ -1080,7 +1139,7 @@ export default function AgentsPage() {
         </div>
       );
     }
-  }, [addOpenclawMapEntry, openclawDraft, openclawMapDraftKeys, openclawSchemaBundle, removeOpenclawPath, updateOpenclawPath]);
+  }, [addOpenclawMapEntry, chat.connected, openclawDraft, openclawJsonDrafts, openclawMapDraftKeys, openclawSaving, openclawSchemaBundle, removeOpenclawPath, updateOpenclawJsonDraft, updateOpenclawPath]);
 
   // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -1308,6 +1367,12 @@ export default function AgentsPage() {
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
+  const workspaceSidebarDisabled = agentsLoading || Boolean(selectedAgent && (chat.connecting || chat.hydrating));
+  const workspaceSidebarDisabledReason = getWorkspaceSidebarDisabledReason({
+    agentsLoading,
+    connecting: chat.connecting,
+    hydrating: chat.hydrating,
+  });
 
   const selectedAgentSuggestedTierActions = useMemo(
     () =>
@@ -1586,15 +1651,26 @@ export default function AgentsPage() {
   };
 
   const selectedCenterPanel: CenterPanel =
-    mainTab === "openclaw"
-      ? "settings"
-      : mainTab === "files" ||
-        mainTab === "integrations" ||
-        mainTab === "logs" ||
-        mainTab === "shell" ||
-        mainTab === "settings"
-        ? mainTab
-        : "chat";
+    mainTab === "files" ||
+    mainTab === "integrations" ||
+    mainTab === "scheduled" ||
+    mainTab === "logs" ||
+    mainTab === "shell" ||
+    mainTab === "settings"
+      ? mainTab
+      : "chat";
+
+  useEffect(() => {
+    if (selectedAgent && mainTab === "scheduled") {
+      setMainTab("chat");
+    }
+  }, [mainTab, selectedAgent]);
+
+  useEffect(() => {
+    if (!selectedAgent && openclawSettingsOpen) {
+      setOpenclawSettingsOpen(false);
+    }
+  }, [openclawSettingsOpen, selectedAgent]);
 
   useEffect(() => {
     if (!selectedAgent) {
@@ -1616,7 +1692,7 @@ export default function AgentsPage() {
           return;
         }
         if (tab === "openclaw") {
-          setMainTab("settings");
+          setOpenclawSettingsOpen(true);
           setMobileShowChat(true);
           return;
         }
@@ -1841,47 +1917,59 @@ export default function AgentsPage() {
           }}
         />
 
-        {selectedAgent && (
-          <AgentWorkspaceSidebar
-            selectedAgent={selectedAgent}
-            activeTab={mainTab}
-            skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
-            planName={planName}
-            tokenUsed={tokenUsage}
-            tokenLimit={budget?.pooled_tpd ?? null}
-            disabled={chat.connecting || chat.hydrating}
-            disabledReason={chat.connecting ? "Opening the gateway connection." : "Fetching messages, files, and config."}
-            isDesktopViewport={isDesktopViewport}
-            onSelectChat={() => setMainTab("chat")}
-            onOpenFiles={() => {
-              setMainTab("files");
+        <AgentWorkspaceSidebar
+          selectedAgent={selectedAgent}
+          activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+          skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
+          planName={planName}
+          tokenUsed={tokenUsage}
+          tokenLimit={budget?.pooled_tpd ?? null}
+          disabled={workspaceSidebarDisabled}
+          disabledReason={workspaceSidebarDisabledReason}
+          isDesktopViewport={isDesktopViewport}
+          onSelectChat={() => setMainTab("chat")}
+          onOpenFiles={() => {
+            setMainTab("files");
+            setMobileShowChat(true);
+          }}
+          onOpenIntegrations={() => {
+            setDirectoryCategory(undefined);
+            setDirectoryItemId(undefined);
+            setMainTab("integrations");
+            setMobileShowChat(true);
+          }}
+          onOpenSkills={() => {
+            setDirectoryCategory("skills");
+            setDirectoryItemId(undefined);
+            setMainTab("integrations");
+            setMobileShowChat(true);
+          }}
+          onOpenScheduled={() => {
+            if (!selectedAgent) {
+              setMainTab("scheduled");
               setMobileShowChat(true);
-            }}
-            onOpenIntegrations={() => {
-              setDirectoryCategory(undefined);
-              setDirectoryItemId(undefined);
-              setMainTab("integrations");
-              setMobileShowChat(true);
-            }}
-            onOpenSkills={() => {
-              setDirectoryCategory("skills");
-              setDirectoryItemId(undefined);
-              setMainTab("integrations");
-              setMobileShowChat(true);
-            }}
-            onOpenScheduled={() => {
-              chat.setInput("Help me draft a safe scheduled check-in for this agent.");
-              setMainTab("chat");
-            }}
-            onOpenLogs={() => setMainTab("logs")}
-            onOpenShell={() => setMainTab("shell")}
-            onOpenSettings={() => {
+              return;
+            }
+            chat.setInput("Help me draft a safe scheduled check-in for this agent.");
+            setMainTab("chat");
+          }}
+          onOpenLogs={() => setMainTab("logs")}
+          onOpenShell={() => setMainTab("shell")}
+          onOpenOpenClaw={() => {
+            if (!selectedAgent) {
               setMainTab("settings");
               setMobileShowChat(true);
-            }}
-            onUpgrade={() => router.push("/plans")}
-          />
-        )}
+              return;
+            }
+            setOpenclawSettingsOpen(true);
+            setMobileShowChat(true);
+          }}
+          onOpenSettings={() => {
+            setMainTab("settings");
+            setMobileShowChat(true);
+          }}
+          onUpgrade={() => router.push("/plans")}
+        />
 
         <AgentMainPanel
           isDesktopViewport={isDesktopViewport}
@@ -1902,8 +1990,9 @@ export default function AgentsPage() {
           selectedAgentStartGuidanceTitle={selectedAgentStartGuidance?.title}
           blockedMessage={selectedAgentStartGuidance?.message}
           suggestedTierActions={selectedAgentSuggestedTierActions}
-	          currentPanel={selectedCenterPanel}
-	          stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
+          currentPanel={selectedCenterPanel}
+          skillsPanelActive={directoryCategory === "skills"}
+          stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
           panelContent={mainTab === "chat" ? (
             <AgentChatPanel
               chat={chat}
@@ -1963,7 +2052,7 @@ export default function AgentsPage() {
               onListFiles={listAgentFiles}
               onReadFile={readAgentFile}
             />
-          ) : mainTab === "settings" || mainTab === "openclaw" ? (
+          ) : mainTab === "settings" ? (
             <AgentSettingsPanel
               agent={selectedAgent}
               settingsName={settingsName}
@@ -1981,27 +2070,6 @@ export default function AgentsPage() {
               agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
               agentStartBlocked={selectedAgentLaunchBlocked}
               agentStartBlockedReason={selectedAgentStartGuidance?.title}
-              openclawConfig={
-                <OpenClawConfigPanel
-                  embedded
-                  agent={selectedAgent}
-                  openclawSections={openclawSections}
-                  openclawSchemaBundle={openclawSchemaBundle}
-                  effectiveOpenclawSection={effectiveOpenclawSection}
-                  setActiveOpenclawSection={setActiveOpenclawSection}
-                  activeOpenclawSectionLabel={activeOpenclawSectionLabel}
-                  openclawSaving={openclawSaving}
-                  openclawDraft={openclawDraft}
-                  openclawError={openclawError}
-                  openclawSuccess={openclawSuccess}
-                  chat={chat}
-                  visibleOpenclawSections={visibleOpenclawSections}
-                  renderOpenclawField={renderOpenclawField}
-                  saveOpenclawSection={saveOpenclawSection}
-                  saveAllOpenclaw={saveAllOpenclaw}
-                  openclawPaneRef={openclawPaneRef}
-                />
-              }
             />
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -2071,6 +2139,28 @@ export default function AgentsPage() {
           />
         )}
       </div>
+
+      <OpenClawSettingsDrawer
+        open={openclawSettingsOpen && Boolean(selectedAgent)}
+        onClose={() => setOpenclawSettingsOpen(false)}
+        agent={selectedAgent}
+        openclawSections={openclawSections}
+        openclawSchemaBundle={openclawSchemaBundle}
+        effectiveOpenclawSection={effectiveOpenclawSection}
+        setActiveOpenclawSection={setActiveOpenclawSection}
+        activeOpenclawSectionLabel={activeOpenclawSectionLabel}
+        openclawSaving={openclawSaving}
+        openclawDraft={openclawDraft}
+        openclawError={openclawError}
+        openclawSuccess={openclawSuccess}
+        chat={chat}
+        visibleOpenclawSections={visibleOpenclawSections}
+        renderOpenclawField={renderOpenclawField}
+        saveOpenclawSection={saveOpenclawSection}
+        saveAllOpenclaw={saveAllOpenclaw}
+        openclawPaneRef={openclawPaneRef}
+        isDesktopViewport={isDesktopViewport}
+      />
 
     </div>
   );
