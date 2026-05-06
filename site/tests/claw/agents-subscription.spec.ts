@@ -37,7 +37,9 @@ test.describe.serial("Agents subscription", () => {
 
       let currentPlan = await fetchClawEffectivePlan(page);
       if (!currentPlan || currentPlan.id === "free") {
-        const subscribeButton = page.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
+        const proCard = page.locator(".glass-card").filter({ has: page.getByRole("heading", { name: "Pro" }) }).first();
+        await expect(proCard.getByRole("heading", { name: "Pro" })).toBeVisible({ timeout: 20_000 });
+        const subscribeButton = proCard.getByRole("button", { name: /purchase|add another|subscribe|upgrade/i }).first();
         await expect(subscribeButton).toBeVisible({ timeout: 20_000 });
         await subscribeButton.click();
 
@@ -46,7 +48,13 @@ test.describe.serial("Agents subscription", () => {
         await expect(payWithCardButton).toBeVisible({ timeout: 10_000 });
         await payWithCardButton.click();
 
-        await completeStripeCheckout(page, process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003");
+        const checkoutReturnUrl = await completeStripeCheckout(
+          page,
+          process.env.TEST_BASE_URL?.trim() || "http://127.0.0.1:4003"
+        );
+        console.log(`Agents checkout returned to: ${checkoutReturnUrl}`);
+        expect(checkoutReturnUrl).not.toContain("cancelled=true");
+        expect(checkoutReturnUrl).toContain("session_id=");
         await captureStep(page, "agents-07-checkout-submitted");
 
         await expect

@@ -159,8 +159,6 @@ export function AuthProvider({
   const [user, setUser] = useState<AuthUser | null>(null);
 
   useEffect(() => {
-    if (!ready) return;
-
     const cookieToken = getCookieToken(cookieName);
     const logoutMarked = hasAuthLogoutMarker();
     const activeToken =
@@ -171,6 +169,7 @@ export function AuthProvider({
     if (activeToken) {
       setStoredToken(activeToken, tokenStorageKey);
       setIsAuthenticated(true);
+      setIsLoading(false);
       if (privyUser) {
         setUser({
           id: privyUser.id,
@@ -178,13 +177,15 @@ export function AuthProvider({
           walletAddress: privyUser.wallet?.address,
         });
       }
-    } else {
+      return;
+    }
+
+    if (ready) {
       clearStoredToken(tokenStorageKey);
       setIsAuthenticated(false);
       setUser(null);
+      setIsLoading(false);
     }
-
-    setIsLoading(false);
   }, [cookieName, privyUser, ready, tokenStorageKey]);
 
   useEffect(() => {
