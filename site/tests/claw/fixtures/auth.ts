@@ -99,6 +99,12 @@ interface HyperAgentSubscription {
   status: string;
   expiresAt: Date | null;
   cancelAtPeriodEnd: boolean;
+  stripeSubscriptionId?: string | null;
+  meta?: {
+    checkout_session_id?: string | null;
+    plan_id?: string | null;
+    [key: string]: unknown;
+  };
 }
 
 interface HyperAgentSubscriptionSummary {
@@ -1495,6 +1501,68 @@ export async function waitForPaidClawPlan(
   return latestPlan!;
 }
 
+export async function waitForClawActiveSubscriptionCount(
+  page: Page,
+  expectedCount: number,
+  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
+): Promise<HyperAgentSubscriptionSummary> {
+  const startedAt = logWaitStart(`claw active subscriptions=${expectedCount}`);
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
+
+  try {
+    await expect
+      .poll(
+        async () => {
+          latestSummary = await fetchClawSubscriptionSummary(page);
+          return latestSummary?.activeSubscriptionCount ?? 0;
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBe(expectedCount);
+  } finally {
+    logWaitEnd(`claw active subscriptions=${expectedCount}`, startedAt);
+  }
+
+  if (!latestSummary) {
+    throw new Error(`Missing subscription summary while waiting for active subscription count ${expectedCount}`);
+  }
+  return latestSummary;
+}
+
+export async function waitForClawSubscriptionCreatedByCheckout(
+  page: Page,
+  checkoutSessionId: string,
+  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
+): Promise<HyperAgentSubscription> {
+  const startedAt = logWaitStart(`claw checkout session=${checkoutSessionId}`);
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
+  let latestSubscription: HyperAgentSubscription | null = null;
+
+  try {
+    await expect
+      .poll(
+        async () => {
+          latestSummary = await fetchClawSubscriptionSummary(page);
+          latestSubscription =
+            latestSummary?.activeSubscriptions.find(
+              (subscription) =>
+                subscription.meta?.checkout_session_id === checkoutSessionId && isActiveSubscription(subscription)
+            ) ?? null;
+          return latestSubscription?.id ?? null;
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .not.toBeNull();
+  } finally {
+    logWaitEnd(`claw checkout session=${checkoutSessionId}`, startedAt);
+  }
+
+  if (!latestSubscription) {
+    throw new Error(`No active subscription found for checkout session ${checkoutSessionId}`);
+  }
+  return latestSubscription;
+}
+
 export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<void> {
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
@@ -1532,12 +1600,11 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const deployments = await getDeploymentsClient(token);
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("button", { name: /create new agent|new agent|create/i }).first()).toBeVisible({
-    timeout: 30_000,
-  });
+  const createButton = page
+    .getByRole("button", { name: /create a first agent|create new agent|new agent|create/i })
+    .first();
+  await expect(createButton).toBeVisible({ timeout: 30_000 });
   await captureStep(page, "agents-10-dashboard");
-
-  const createButton = page.getByRole("button", { name: /create new agent|new agent|create/i }).first();
   await createButton.click();
 
   for (let i = 0; i < 6; i += 1) {
@@ -1565,9 +1632,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
       const composer = page.getByPlaceholder("Message agent...");
       await expect(composer).toBeVisible({ timeout: 60_000 });
       await expect(composer).toBeEnabled({ timeout: 60_000 });
-      await expect(page.getByText("Send a message to start chatting with your agent", { exact: true })).toBeVisible({
-        timeout: 60_000,
-      });
+      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
       await expect(
         page.getByText("Connecting to gateway...", { exact: true }).first()
       ).not.toBeVisible({ timeout: 60_000 });
@@ -1594,9 +1659,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
       const composer = page.getByPlaceholder("Message agent...");
       await expect(composer).toBeVisible({ timeout: 60_000 });
       await expect(composer).toBeEnabled({ timeout: 60_000 });
-      await expect(page.getByText("Send a message to start chatting with your agent", { exact: true })).toBeVisible({
-        timeout: 60_000,
-      });
+      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
       await expect(
         page.getByText("Connecting to gateway...", { exact: true }).first()
       ).not.toBeVisible({ timeout: 60_000 });
@@ -1697,6 +1760,32 @@ export async function cancelActiveClawStripeSubscriptionsForTestUser(): Promise<
   }
 
   return cancelled;
+}
+
+export async function cancelStripeSubscription(
+  subscriptionId: string,
+  refundLatestCharge = true
+): Promise<string> {
+  const invoices = await stripeApiRequest<{ data: StripeInvoice[] }>(
+    `/v1/invoices?subscription=${encodeURIComponent(subscriptionId)}&limit=10`
+  );
+
+  await stripeApiRequest(`/v1/subscriptions/${subscriptionId}`, { method: "DELETE" });
+
+  if (refundLatestCharge) {
+    const paidInvoice = (invoices.data || []).find((invoice) => invoice.status === "paid");
+    const paymentRef = paidInvoice?.payment_intent || paidInvoice?.charge || null;
+    if (paymentRef) {
+      await stripeApiRequest("/v1/refunds", {
+        method: "POST",
+        form: paidInvoice?.payment_intent
+          ? { payment_intent: paidInvoice.payment_intent }
+          : { charge: paidInvoice!.charge! },
+      }).catch(() => null);
+    }
+  }
+
+  return subscriptionId;
 }
 
 export function expectJwtShape(token: string): void {
