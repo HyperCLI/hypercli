@@ -120,6 +120,7 @@ export interface AgentsChannelsSidebarProps {
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
+  accountInitial?: string;
 }
 
 const DASHBOARD_LINKS = [
@@ -665,10 +666,17 @@ function SidebarHeader({
   );
 }
 
-export function AgentsSidebarDashboardLinks({ compact = false }: { compact?: boolean }) {
+export function AgentsSidebarDashboardLinks({
+  compact = false,
+  accountInitial = "?",
+}: {
+  compact?: boolean;
+  accountInitial?: string;
+}) {
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
+  const initial = accountInitial.trim()[0]?.toUpperCase() || "?";
 
   useEffect(() => {
     if (!open) return;
@@ -739,7 +747,9 @@ export function AgentsSidebarDashboardLinks({ compact = false }: { compact?: boo
         aria-haspopup="menu"
       >
         <span className={`flex items-center ${compact ? "" : "min-w-0 gap-2"}`}>
-          <Settings className="h-3.5 w-3.5 flex-shrink-0" />
+          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground">
+            {initial}
+          </span>
           {!compact && <span className="truncate text-[11px] font-medium">Account</span>}
         </span>
         {!compact && (
@@ -2105,6 +2115,7 @@ export function AgentsChannelsSidebar({
   agentCardDataById,
   onCreateAgent,
   openAgentCreatorSignal,
+  accountInitial,
 }: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -2191,7 +2202,7 @@ export function AgentsChannelsSidebar({
           newDisabled={newDisabled}
         />
       )}
-      <AgentsSidebarDashboardLinks />
+      <AgentsSidebarDashboardLinks accountInitial={accountInitial} />
     </div>
   );
 }

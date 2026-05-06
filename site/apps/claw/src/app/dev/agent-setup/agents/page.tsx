@@ -230,9 +230,10 @@ function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
 // ── Main component ──
 
 export default function DevAgentSetupAgentsPage() {
-  const { getToken } = useAgentAuth();
+  const { getToken, user } = useAgentAuth();
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
+  const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(min-width: 768px)").matches;
@@ -1961,6 +1962,7 @@ export default function DevAgentSetupAgentsPage() {
           openCreateDialog={() => openCreateDialog()}
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
+          accountInitial={accountInitial}
           updateAgentName={async (agentId, name) => {
             const token = await getToken();
             const updatedAgent = await createAgentClient(token).update(agentId, { name });

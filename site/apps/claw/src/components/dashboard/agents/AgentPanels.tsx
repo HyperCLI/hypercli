@@ -640,6 +640,7 @@ interface AgentListProps {
   sidebarCreatorSignal: number;
   setPendingAgentDelete: (value: { id: string; name: string } | null) => void;
   updateAgentName: (agentId: string, name: string) => Promise<void>;
+  accountInitial?: string;
   /**
    * When true, surfaces the Channels section and the inline user/agent picker that lets
    * teammates be added to a channel. Gated on the Team plan in agent-setup. Default: false.
@@ -681,6 +682,7 @@ export function AgentList({
   sidebarCreatorSignal,
   setPendingAgentDelete,
   updateAgentName,
+  accountInitial,
   showChannels = false,
 }: AgentListProps) {
   const mergedAgentCardDataById = React.useMemo(() => {
@@ -697,7 +699,7 @@ export function AgentList({
 
   return (
     <motion.div
-      className={`relative flex-shrink-0 h-full overflow-hidden bg-background ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      className={`relative flex-shrink-0 h-full overflow-visible bg-background ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
       animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
       transition={{ type: "spring", stiffness: 360, damping: 32 }}
     >
@@ -710,7 +712,7 @@ export function AgentList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="w-12 h-full flex flex-col bg-background overflow-hidden"
+            className="w-12 h-full flex flex-col bg-background overflow-visible"
           >
             <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
               <button
@@ -756,7 +758,7 @@ export function AgentList({
                 );
               })}
             </div>
-            <AgentsSidebarDashboardLinks compact />
+            <AgentsSidebarDashboardLinks compact accountInitial={accountInitial} />
           </motion.div>
         ) : (
           <motion.div
@@ -807,6 +809,7 @@ export function AgentList({
               }}
               onNewThread={openCreateDialog}
               openAgentCreatorSignal={sidebarCreatorSignal}
+              accountInitial={accountInitial}
               onDeleteThread={(threadId) => {
                 const a = agents.find((x) => x.id === threadId);
                 if (a) setPendingAgentDelete({ id: a.id, name: a.name || a.id });
