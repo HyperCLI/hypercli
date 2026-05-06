@@ -446,6 +446,7 @@ export default function DevAgentSetupAgentsPage() {
     chat: "Chat",
     files: "Files",
     integrations: "Integrations",
+    scheduled: "Scheduled",
     logs: "Logs",
     settings: "Settings",
     shell: "Shell",
