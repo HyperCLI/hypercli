@@ -1,6 +1,6 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import { renderWithClient } from "@/test/utils";
@@ -15,7 +15,41 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
+const sdkMocks = vi.hoisted(() => ({
+  userGet: vi.fn(),
+  userUpdate: vi.fn(),
+}));
+
+vi.mock("@hypercli.com/sdk/browser", () => ({
+  BrowserHyperCLI: vi.fn(function BrowserHyperCLI() {
+    return {
+      user: {
+        get: sdkMocks.userGet,
+        update: sdkMocks.userUpdate,
+      },
+    };
+  }),
+}));
+
 import { AgentList, AgentSettingsPanel } from "./AgentPanels";
+
+beforeEach(() => {
+  vi.clearAllMocks();
+  sdkMocks.userGet.mockResolvedValue({
+    userId: "user-1234567890abcdef",
+    email: "test@example.com",
+    name: "John Smith",
+    isActive: true,
+    createdAt: "2026-05-05T00:00:00Z",
+  });
+  sdkMocks.userUpdate.mockResolvedValue({
+    userId: "user-1234567890abcdef",
+    email: "test@example.com",
+    name: "John Smith",
+    isActive: true,
+    createdAt: "2026-05-05T00:00:00Z",
+  });
+});
 
 const agent: Agent = {
   id: "agent-1",
@@ -64,7 +98,6 @@ function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = 
     createOpenClawAgent: vi.fn(async () => ({ id: "created-agent" })),
     fetchAgents: vi.fn(),
     setError: vi.fn(),
-    openCreateDialog: vi.fn(),
     sidebarCreatorSignal: 0,
     setPendingAgentDelete: vi.fn(),
     updateAgentName: vi.fn(),
@@ -76,23 +109,64 @@ function renderAgentList(overrides: Partial<ComponentProps<typeof AgentList>> = 
 }
 
 function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof AgentSettingsPanel>> = {}) {
+  const billingResetAt = new Date("2026-05-21T00:00:00Z");
   const props: ComponentProps<typeof AgentSettingsPanel> = {
     agent,
-    settingsName: agent.name,
-    setSettingsName: vi.fn(),
-    savingName: false,
-    handleSaveName: vi.fn(),
-    chat: {
-      connected: true,
-      connecting: false,
-      config: null,
-      configSchema: null,
-      models: ["gpt-test"],
-      saveConfig: vi.fn(async () => undefined),
-      saveFullConfig: vi.fn(async () => undefined),
-      channelsStatus: vi.fn(async () => ({})),
-      activityFeed: [],
-      files: [],
+    user: {
+      id: "user-1234567890abcdef",
+      email: "test@example.com",
+      name: "John Smith",
+      walletAddress: "0x1234567890abcdef",
+    },
+    planName: "Pro Plan",
+    tokenUsage: 1200,
+    tokenLimit: 50000,
+    subscriptionSummary: {
+      effectivePlanId: "pro",
+      currentSubscriptionId: "sub_123",
+      currentEntitlementId: "ent_123",
+      pooledTpmLimit: 4000,
+      pooledRpmLimit: 120,
+      pooledTpd: 50000,
+      slotInventory: {},
+      billingResetAt,
+      activeSubscriptionCount: 1,
+      activeEntitlementCount: 1,
+      entitlements: {
+        effectivePlanId: "pro",
+        pooledTpmLimit: 4000,
+        pooledRpmLimit: 120,
+        pooledTpd: 50000,
+        slotInventory: {},
+        activeEntitlementCount: 1,
+        billingResetAt,
+      },
+      activeSubscriptions: [
+        {
+          id: "sub_123",
+          userId: "user-1234567890abcdef",
+          planId: "pro",
+          planName: "Pro Plan",
+          provider: "stripe",
+          status: "active",
+          quantity: 1,
+          expiresAt: billingResetAt,
+          updatedAt: null,
+          stripeSubscriptionId: "stripe_sub_123",
+          cancelAtPeriodEnd: false,
+          canCancel: true,
+          isCurrent: true,
+          meta: null,
+          planTpmLimit: 4000,
+          planRpmLimit: 120,
+          planTpd: 50000,
+          planAgentTier: null,
+          slotGrants: null,
+          entitlements: [],
+        },
+      ],
+      subscriptions: [],
+      user: {},
     },
     ...overrides,
   };
@@ -118,29 +192,120 @@ describe("AgentList", () => {
     fireEvent.click(screen.getByTitle("Collapse sidebar"));
     expect(props.setSidebarCollapsed).toHaveBeenCalledWith(true);
   });
+
+  it("opens the launch agent wizard from the expanded agents list button", () => {
+    renderAgentList({ sidebarCollapsed: false });
+
+    fireEvent.click(screen.getByRole("button", { name: /launch agent/i }));
+    expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+  });
+
+  it("shows the launch agent button in the collapsed rail", () => {
+    renderAgentList();
+
+    fireEvent.click(screen.getByRole("button", { name: /launch agent/i }));
+    expect(screen.getByText("First agent setup wizard")).toBeInTheDocument();
+  });
+
+  it("opens workspace settings from the agents sidebar account menu when provided", () => {
+    const onOpenSettings = vi.fn();
+    renderAgentList({ sidebarCollapsed: false, onOpenSettings });
+
+    fireEvent.click(screen.getByRole("button", { name: /account/i }));
+    fireEvent.click(screen.getByRole("menuitem", { name: /settings/i }));
+
+    expect(onOpenSettings).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("AgentSettingsPanel", () => {
-  it("stops a running agent from settings", () => {
-    const onStopAgent = vi.fn();
-    renderAgentSettingsPanel({ onStopAgent });
+  it("renders the settings sidebar with general content", () => {
+    renderAgentSettingsPanel();
 
-    const rows = screen.getAllByText(/Agent runtime|Agent name|Default model|Visibility|Auto-archive idle conversations/);
-    expect(rows[0]).toHaveTextContent("Agent runtime");
-    fireEvent.click(screen.getByRole("button", { name: /stop agent/i }));
-    expect(onStopAgent).toHaveBeenCalledTimes(1);
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: /settings sections/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "General" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Agent" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Billing" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Profile" })).toBeInTheDocument();
+    expect(screen.getByText("Full Name")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("John Smith")).toBeInTheDocument();
+    expect(screen.getByText("Email")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("test@example.com")).toBeDisabled();
+    expect(screen.getByText("Avatar")).toBeInTheDocument();
+    expect(screen.getByText("Upload Image")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Discard" })).toBeDisabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
+    expect(screen.queryByRole("heading", { name: "Agent Settings" })).not.toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("John Smith"), { target: { value: "Jane Smith" } });
+    expect(screen.getByRole("button", { name: "Discard" })).toBeEnabled();
+    expect(screen.getByRole("button", { name: "Save changes" })).toBeEnabled();
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    expect(screen.getByRole("button", { name: "Agent" })).toHaveAttribute("aria-current", "page");
+    expect(screen.queryByRole("heading", { name: "Profile" })).not.toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Agent Settings" })).toBeInTheDocument();
+    expect(screen.getByText("Agent Name")).toBeInTheDocument();
+    expect(screen.getByDisplayValue("Test Agent")).toBeInTheDocument();
+    expect(screen.getByText("Default model")).toBeInTheDocument();
+    expect(screen.getByText("Visibility")).toBeInTheDocument();
+    expect(screen.getByText("Auto-archive idle conversations")).toBeInTheDocument();
+    expect(screen.getByText("Agent runtime")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
   });
 
-  it("starts a stopped agent from settings", () => {
-    const onStartAgent = vi.fn();
-    renderAgentSettingsPanel({
-      agent: { ...agent, state: "STOPPED", stopped_at: "2026-05-05T01:00:00Z" },
-      onStartAgent,
+  it("loads and saves the profile name through the SDK", async () => {
+    const getToken = vi.fn(async () => "token");
+    sdkMocks.userGet.mockResolvedValueOnce({
+      userId: "user-1234567890abcdef",
+      email: "test@example.com",
+      name: "Server Name",
+      isActive: true,
+      createdAt: "2026-05-05T00:00:00Z",
+    });
+    sdkMocks.userUpdate.mockResolvedValueOnce({
+      userId: "user-1234567890abcdef",
+      email: "test@example.com",
+      name: "Jane Smith",
+      isActive: true,
+      createdAt: "2026-05-05T00:00:00Z",
     });
 
-    fireEvent.click(screen.getByRole("button", { name: /start agent/i }));
-    expect(onStartAgent).toHaveBeenCalledTimes(1);
-    expect(screen.queryByRole("button", { name: /stop agent/i })).not.toBeInTheDocument();
+    renderAgentSettingsPanel({ getToken });
+
+    expect(await screen.findByDisplayValue("Server Name")).toBeInTheDocument();
+
+    fireEvent.change(screen.getByDisplayValue("Server Name"), { target: { value: "Jane Smith" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(sdkMocks.userUpdate).toHaveBeenCalledWith({ name: "Jane Smith" });
+    });
+    expect(screen.getByText("Profile updated.")).toBeInTheDocument();
+  });
+
+  it("renders billing and usage sections when selected", () => {
+    renderAgentSettingsPanel();
+
+    fireEvent.click(screen.getByRole("button", { name: "Billing" }));
+    expect(screen.getByRole("button", { name: "Billing" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByText("Pro Plan").length).toBeGreaterThan(0);
+    expect(screen.getAllByText(/Renews May 21, 2026/i).length).toBeGreaterThan(0);
+    expect(screen.getByText("Payment method is managed by Stripe.")).toBeInTheDocument();
+    expect(screen.getByText("Plan limits")).toBeInTheDocument();
+    expect(screen.getByText("Subscriptions")).toBeInTheDocument();
+    expect(screen.getAllByText("Stripe").length).toBeGreaterThan(0);
+    expect(screen.getByText("Active")).toBeInTheDocument();
+    expect(screen.getByText("Cancellation")).toBeInTheDocument();
+    expect(screen.queryByRole("heading", { name: "Profile" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Usage" }));
+    expect(screen.getByRole("button", { name: "Usage" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Usage" })).toBeInTheDocument();
+    expect(screen.getByText("Usage dashboard")).toBeInTheDocument();
+    expect(screen.getByText("API keys")).toBeInTheDocument();
   });
 });

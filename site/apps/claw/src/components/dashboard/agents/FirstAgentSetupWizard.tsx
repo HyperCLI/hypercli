@@ -2,7 +2,7 @@
 
 import React, { type ComponentType } from "react";
 import { motion } from "framer-motion";
-import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
   Bot,
   Brain,
@@ -16,14 +16,17 @@ import {
   Zap,
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
+import { formatTokens } from "@/lib/format";
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  onOpenPlanCatalog?: () => void | Promise<void>;
   budget?: {
     slots: SlotInventory;
     pooled_tpd: number;
   } | null;
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
+  catalogPlans?: HyperAgentPlan[] | null;
 }
 
 type WizardStepId = "identity" | "knowledge" | "plan";
@@ -56,7 +59,7 @@ const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
   },
   plan: {
     title: "Choose your plan",
-    subtitle: "Start where you are - Free, Simple or Pro. Upgrade or downgrade any time.",
+    subtitle: "Choose from your active entitlements or the current SDK plan catalog.",
   },
 };
 
@@ -86,66 +89,9 @@ const agentNameSecondWords = [
   "window",
 ];
 
-const fallbackPlanOptions: Array<{
-  id: string;
-  name: string;
-  size: string;
-  icon: ComponentType<{ className?: string }>;
-  description: string;
-  oldPrice?: string;
-  price: string;
-  priceNote: string;
-  cta: string;
-  accent?: boolean;
-  features: string[];
-}> = [
-  {
-    id: "free",
-    name: "Free",
-    size: "small",
-    icon: Circle,
-    description: "Explore HyperCLI at your own pace",
-    price: "$0",
-    priceNote: "USD/month",
-    cta: "Continue",
-    features: ["1 small agent", "Limited usage"],
-  },
-  {
-    id: "simple",
-    name: "Simple",
-    size: "small",
-    icon: Sparkles,
-    description: "Advanced workflows and analytics",
-    oldPrice: "$39",
-    price: "$0",
-    priceNote: "USD/month per agent",
-    cta: "Try for free 7 days",
-    accent: true,
-    features: ["Text conversations", "1 chat channel", "Files up to 25 MB", "Standard tools", "Community support"],
-  },
-  {
-    id: "pro",
-    name: "Pro",
-    size: "medium",
-    icon: Rocket,
-    description: "Advanced workflows and analytics",
-    oldPrice: "$79",
-    price: "$0",
-    priceNote: "USD/month per agent",
-    cta: "Try for free 7 days",
-    accent: true,
-    features: ["Voice and audio", "Video understanding", "Browser actions", "10x token usage", "All chat channels", "Files up to 250 MB", "Priority support"],
-  },
-];
+type LaunchPlanAction = "launch" | "plans";
 
-function titleizeTier(value: string): string {
-  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
-}
-
-function buildLaunchPlanOptions(
-  subscriptionSummary: HyperAgentSubscriptionSummary | null | undefined,
-  slotInventory: SlotInventory,
-): Array<{
+type LaunchPlanOption = {
   id: string;
   name: string;
   size: string;
@@ -154,29 +100,170 @@ function buildLaunchPlanOptions(
   oldPrice?: string;
   price?: string;
   priceNote?: string;
+  statusText?: string;
   cta: string;
   accent?: boolean;
   features: string[];
-}> {
+  action: LaunchPlanAction;
+  disabled?: boolean;
+};
+
+type CatalogPlan = HyperAgentPlan & {
+  bundle?: Record<string, number> | null;
+  checkoutBundle?: Record<string, number> | null;
+  checkout_bundle?: Record<string, number> | null;
+  hidden?: boolean;
+  meta?: {
+    bundle?: Record<string, number> | null;
+    checkout_bundle?: Record<string, number> | null;
+    subtitle?: string | null;
+  } | null;
+  price_usd?: number;
+  slotGrants?: Record<string, number> | null;
+  slot_grants?: Record<string, number> | null;
+  subtitle?: string | null;
+};
+
+function titleizeTier(value: string): string {
+  return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeBundle(value: unknown): Record<string, number> {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  return Object.fromEntries(
+    Object.entries(value as Record<string, unknown>)
+      .map(([tier, count]) => [tier, Number(count)] as const)
+      .filter(([, count]) => Number.isFinite(count) && count > 0),
+  );
+}
+
+function firstBundle(...bundles: unknown[]): Record<string, number> {
+  for (const bundle of bundles) {
+    const normalized = normalizeBundle(bundle);
+    if (Object.keys(normalized).length > 0) return normalized;
+  }
+  return {};
+}
+
+function catalogSlotBundle(plan: HyperAgentPlan | null | undefined): Record<string, number> {
+  if (!plan) return {};
+  const catalogPlan = plan as CatalogPlan;
+  return firstBundle(
+    catalogPlan.slotGrants,
+    catalogPlan.slot_grants,
+    catalogPlan.bundle,
+    catalogPlan.checkoutBundle,
+    catalogPlan.checkout_bundle,
+    catalogPlan.meta?.bundle,
+    catalogPlan.meta?.checkout_bundle,
+  );
+}
+
+function primaryTierFromBundle(bundle: Record<string, number>): string | null {
+  return ["large", "medium", "small", "free"].find((tier) => Number(bundle[tier] || 0) > 0) ?? null;
+}
+
+function iconForTier(tier: string | null): ComponentType<{ className?: string }> {
+  if (tier === "large") return Rocket;
+  if (tier === "medium") return Sparkles;
+  return Circle;
+}
+
+function uniqueFeatureList(features: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const feature of features) {
+    const normalized = feature.trim();
+    if (!normalized || seen.has(normalized)) continue;
+    seen.add(normalized);
+    unique.push(normalized);
+  }
+  return unique;
+}
+
+function catalogDescription(plan: HyperAgentPlan): string {
+  const catalogPlan = plan as CatalogPlan;
+  const subtitle = catalogPlan.subtitle ?? catalogPlan.meta?.subtitle;
+  if (subtitle) return subtitle;
+  const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
+  const tpd = finiteNumber(limits.tpd);
+  const rpm = finiteNumber(limits.rpm ?? plan.rpmLimit);
+  if (tpd > 0 && rpm > 0) {
+    return `${formatTokens(tpd)} tokens/day with ${formatTokens(rpm)} RPM.`;
+  }
+  if (tpd > 0) {
+    return `${formatTokens(tpd)} tokens/day.`;
+  }
+  return "Plan details from the SDK catalog.";
+}
+
+function catalogFeatures(plan: HyperAgentPlan, tier: string | null, bundle: Record<string, number>): string[] {
+  const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
+  const features = [...(plan.features ?? [])];
+  const slotFeatures = Object.entries(bundle)
+    .filter(([, count]) => Number(count) > 0)
+    .map(([slotTier, count]) => `${count}x ${titleizeTier(slotTier)} launch slot${Number(count) === 1 ? "" : "s"}`);
+  const derived = [
+    finiteNumber(limits.tpd) > 0 ? `${formatTokens(finiteNumber(limits.tpd))} tokens/day` : null,
+    finiteNumber(limits.burstTpm ?? (limits as { burst_tpm?: number }).burst_tpm) > 0
+      ? `Up to ${formatTokens(finiteNumber(limits.burstTpm ?? (limits as { burst_tpm?: number }).burst_tpm))} TPM burst`
+      : null,
+    finiteNumber(limits.rpm ?? plan.rpmLimit) > 0 ? `${formatTokens(finiteNumber(limits.rpm ?? plan.rpmLimit))} RPM` : null,
+    tier && slotFeatures.length === 0 ? `${titleizeTier(tier)} launch capacity` : null,
+  ].filter((entry): entry is string => Boolean(entry));
+
+  return uniqueFeatureList([...slotFeatures, ...features, ...derived]).slice(0, 7);
+}
+
+function priceLabel(plan: HyperAgentPlan): string {
+  const price = finiteNumber((plan as CatalogPlan).priceUsd ?? (plan as CatalogPlan).price_usd ?? plan.price);
+  return `$${price}`;
+}
+
+function buildLaunchPlanOptions(
+  subscriptionSummary: HyperAgentSubscriptionSummary | null | undefined,
+  slotInventory: SlotInventory,
+  catalogPlans: HyperAgentPlan[] | null | undefined,
+): LaunchPlanOption[] {
+  const visibleCatalogPlans = (catalogPlans ?? []).filter((plan) => !(plan as CatalogPlan).hidden);
+  const catalogById = new Map(visibleCatalogPlans.map((plan) => [plan.id, plan]));
   const subscriptions = subscriptionSummary?.activeSubscriptions ?? [];
   const mapped = subscriptions
     .map((subscription) => {
       const slotGrants = subscription.slotGrants ?? {};
       const tier = ["large", "medium", "small"].find((candidate) => Number(slotGrants[candidate] || 0) > 0);
       if (!tier) return null;
+      const catalogPlan = catalogById.get(subscription.planId);
       const granted = Math.max(Number(slotGrants[tier] || 0), 0);
       const available = Math.max(slotInventory[tier]?.available ?? 0, 0);
+      const canLaunch = available > 0;
+      const planName = subscription.planName || catalogPlan?.name || subscription.planId;
       return {
         id: subscription.id,
-        name: subscription.planName || subscription.planId,
+        name: planName,
         size: tier,
-        icon: tier === "large" ? Rocket : tier === "medium" ? Sparkles : Circle,
-        description: `${titleizeTier(tier)} launch slot from your active ${subscription.planName || subscription.planId} subscription`,
+        icon: iconForTier(tier),
+        description: catalogPlan
+          ? catalogDescription(catalogPlan)
+          : `${titleizeTier(tier)} launch slot from your active ${planName} subscription`,
         price: undefined,
         priceNote: undefined,
-        cta: available > 0 ? "Launch agent" : "No free slots",
+        statusText: canLaunch ? "Already active" : "No slots available",
+        cta: canLaunch ? "Launch agent" : "Buy more slots",
         accent: tier === "large",
-        features: [
+        action: canLaunch ? ("launch" as const) : ("plans" as const),
+        disabled: false,
+        features: catalogPlan ? uniqueFeatureList([
+          ...catalogFeatures(catalogPlan, tier, slotGrants),
+          `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
+          `${available} free right now`,
+          "Uses your existing active subscription",
+        ]).slice(0, 7) : [
           `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
           `${available} free right now`,
           "Uses your existing active subscription",
@@ -185,7 +272,45 @@ function buildLaunchPlanOptions(
     })
     .filter((entry): entry is NonNullable<typeof entry> => Boolean(entry));
 
-  return mapped.length > 0 ? mapped : fallbackPlanOptions;
+  if (mapped.length > 0) return mapped;
+
+  const effectivePlanId = subscriptionSummary?.effectivePlanId ?? "";
+  const catalogOptions = visibleCatalogPlans.map((plan) => {
+    const bundle = catalogSlotBundle(plan);
+    const tier = primaryTierFromBundle(bundle);
+    const size = tier === "free" ? "small" : (tier ?? "small");
+    const available = tier ? Math.max(slotInventory[size]?.available ?? 0, 0) : 0;
+    const canLaunch = Boolean(effectivePlanId && effectivePlanId === plan.id && tier && available > 0);
+    return {
+      id: plan.id,
+      name: plan.name,
+      size,
+      icon: iconForTier(tier),
+      description: catalogDescription(plan),
+      price: priceLabel(plan),
+      priceNote: "USD/month",
+      cta: canLaunch ? "Launch agent" : "View plan",
+      accent: Boolean(plan.highlighted),
+      action: canLaunch ? ("launch" as const) : ("plans" as const),
+      features: catalogFeatures(plan, tier, bundle),
+    };
+  });
+
+  if (catalogOptions.length > 0) return catalogOptions;
+
+  return [
+    {
+      id: "plans",
+      name: "Plan catalog unavailable",
+      size: "small",
+      icon: Circle,
+      description: "The SDK did not return plan details for this workspace.",
+      statusText: "Open Plans",
+      cta: "Open plans",
+      action: "plans",
+      features: ["Refresh billing data or open the Plans page to choose a current option."],
+    },
+  ];
 }
 
 function cx(...classes: Array<string | false | null | undefined>) {
@@ -238,7 +363,7 @@ function WizardButton({
   );
 }
 
-export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSummary }: FirstAgentSetupWizardProps) {
+export function FirstAgentSetupWizard({ onCreateAgent, onOpenPlanCatalog, budget, subscriptionSummary, catalogPlans }: FirstAgentSetupWizardProps) {
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
   const [stepIndex, setStepIndex] = React.useState(0);
   const [agentName, setAgentName] = React.useState("");
@@ -246,8 +371,8 @@ export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSumma
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
   const slotInventory = budget?.slots ?? {};
   const planOptions = React.useMemo(
-    () => buildLaunchPlanOptions(subscriptionSummary, slotInventory),
-    [slotInventory, subscriptionSummary],
+    () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans),
+    [catalogPlans, slotInventory, subscriptionSummary],
   );
   const [selectedPlanId, setSelectedPlanId] = React.useState<string>(planOptions[0]?.id ?? "free");
   const [files, setFiles] = React.useState<File[]>([]);
@@ -283,11 +408,7 @@ export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSumma
     setFiles(Array.from(fileList).filter((file) => file.size <= MAX_FILE_SIZE).slice(0, 4));
   };
 
-  const saveDraftAndCreate = async (planId = selectedPlanId) => {
-    if (creating) return;
-    const plan = planOptions.find((option) => option.id === planId) ?? selectedPlan;
-    setCreating(true);
-    setCreateError(null);
+  const persistDraft = (plan: LaunchPlanOption) => {
     if (typeof window !== "undefined") {
       window.sessionStorage.setItem(
         FIRST_AGENT_SETUP_DRAFT_KEY,
@@ -303,6 +424,30 @@ export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSumma
         }),
       );
     }
+  };
+
+  const saveDraftAndCreate = async (planId = selectedPlanId) => {
+    if (creating) return;
+    const plan = planOptions.find((option) => option.id === planId) ?? selectedPlan;
+    setCreateError(null);
+    if (!plan) {
+      setCreateError("Plan catalog is unavailable right now.");
+      return;
+    }
+    persistDraft(plan);
+    if (plan.action === "plans") {
+      if (onOpenPlanCatalog) {
+        try {
+          await onOpenPlanCatalog();
+        } catch (error) {
+          setCreateError(error instanceof Error ? error.message : "Plan catalog is unavailable right now.");
+        }
+      } else if (typeof window !== "undefined") {
+        window.location.assign("/plans");
+      }
+      return;
+    }
+    setCreating(true);
     try {
       const createdId = await onCreateAgent({
         name: displayName,
@@ -515,7 +660,7 @@ export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSumma
                           <span className="max-w-[96px] text-[11px] font-semibold leading-[1.08] text-[#f6f6f6] sm:text-[12px]">{plan.priceNote}</span>
                         </>
                       ) : (
-                        <span className="text-[18px] font-semibold leading-none text-[#baf5de] sm:text-[20px]">Already active</span>
+                        <span className="text-[18px] font-semibold leading-none text-[#baf5de] sm:text-[20px]">{plan.statusText ?? "Already active"}</span>
                       )}
                     </div>
 
@@ -524,11 +669,9 @@ export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSumma
                       onClick={(event) => {
                         event.stopPropagation();
                         setSelectedPlanId(plan.id);
-                        if (plan.cta !== "No free slots") {
-                          void saveDraftAndCreate(plan.id);
-                        }
+                        void saveDraftAndCreate(plan.id);
                       }}
-                      disabled={creating || plan.cta === "No free slots"}
+                      disabled={creating || plan.disabled}
                       className={cx(
                         "mt-4 h-10 rounded-[12px] text-[14px] font-medium leading-tight transition-colors disabled:cursor-wait disabled:opacity-70 sm:h-11 sm:text-[15px]",
                         plan.accent
@@ -540,8 +683,8 @@ export function FirstAgentSetupWizard({ onCreateAgent, budget, subscriptionSumma
                     </button>
 
                     <div className="mt-5 space-y-2.5">
-                      {plan.features.map((feature) => (
-                        <div key={feature} className="flex items-center gap-2.5 text-[13px] leading-tight text-[#f2f2f2] sm:text-[14px]">
+                      {plan.features.map((feature, featureIndex) => (
+                        <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-center gap-2.5 text-[13px] leading-tight text-[#f2f2f2] sm:text-[14px]">
                           <Check className="h-4 w-4 flex-shrink-0 text-[#7d7d7d]" />
                           <span>{feature}</span>
                         </div>

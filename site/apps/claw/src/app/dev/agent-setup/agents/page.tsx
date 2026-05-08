@@ -38,14 +38,13 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
+import { createAgentClient, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { agentAvatar } from "@/lib/avatar";
-import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
@@ -57,6 +56,7 @@ import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/componen
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "@/app/dashboard/agents/types";
 import {
   describeAgentTierStartGuidance,
@@ -242,6 +242,10 @@ export default function DevAgentSetupAgentsPage() {
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
+  const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
+  const [planName, setPlanName] = useState<string | null>(null);
+  const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<number | null>(null);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const [, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -256,10 +260,6 @@ export default function DevAgentSetupAgentsPage() {
     return () => { stoppedTimersRef.current.forEach((t) => clearTimeout(t)); };
   }, []);
 
-  // Create dialog
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
-  const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -353,16 +353,26 @@ export default function DevAgentSetupAgentsPage() {
 
   const fetchAgents = useCallback(async () => {
     try {
-      const agentClient = deployments ?? createAgentClient(await getToken());
+      const token = await getToken();
+      const agentClient = deployments ?? createAgentClient(token);
       if (!deployments) {
         setDeployments(agentClient);
       }
-      const [listedAgents, budgetData] = await Promise.all([
+      const hyperAgent = createHyperAgentClient(token);
+      const [listedAgents, budgetData, catalogData, currentPlan, summaryData, usageSummary] = await Promise.all([
         agentClient.list(),
         agentClient.budget().catch(() => null),
+        hyperAgent.plans().catch(() => []),
+        hyperAgent.currentPlan().catch(() => null),
+        hyperAgent.subscriptionSummary().catch(() => null),
+        hyperAgent.usageSummary().catch(() => null),
       ]);
       setSdkAgents(listedAgents);
       setBudget((budgetData as AgentBudget | null) || null);
+      setCatalogPlans(Array.isArray(catalogData) ? catalogData : []);
+      setPlanName(currentPlan?.name ?? currentPlan?.id ?? null);
+      setSubscriptionSummary((summaryData as HyperAgentSubscriptionSummary | null) || null);
+      setTokenUsage(usageSummary?.totalTokens ?? null);
       setAgentClusterUnavailable(false);
       const setupCreatedAgentId = window.sessionStorage.getItem("dev-agent-setup-created-agent-id");
       setSelectedAgentId((currentId) => {
@@ -382,6 +392,7 @@ export default function DevAgentSetupAgentsPage() {
       setAgentClusterUnavailable(described.clusterUnavailable);
       setSdkAgents([]);
       setBudget(null);
+      setCatalogPlans([]);
       setDeployments(null);
     } finally {
       setLoading(false);
@@ -1367,18 +1378,6 @@ export default function DevAgentSetupAgentsPage() {
     }
   };
 
-  const openCreateDialog = useCallback((options?: { initialStep?: number; preferredTier?: string | null }) => {
-    setCreateDialogInitialStep(options?.initialStep ?? 0);
-    setCreateDialogPreferredTier(options?.preferredTier ?? null);
-    setShowCreateDialog(true);
-  }, []);
-
-  const closeCreateDialog = useCallback(() => {
-    setShowCreateDialog(false);
-    setCreateDialogInitialStep(0);
-    setCreateDialogPreferredTier(null);
-  }, []);
-
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size }: { name: string; iconIndex: number; size: string }) => {
     try {
       setError(null);
@@ -1800,16 +1799,6 @@ export default function DevAgentSetupAgentsPage() {
                     <span>{label}</span>
                   </button>
                 ))}
-                <button
-                  onClick={() => {
-                    openCreateDialog();
-                    setMobileAgentMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Agent</span>
-                </button>
               </div>
               {selectedAgent && (
                 <>
@@ -1883,17 +1872,6 @@ export default function DevAgentSetupAgentsPage() {
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      <AgentCreationWizard
-        open={showCreateDialog}
-        onClose={closeCreateDialog}
-        initialStep={createDialogInitialStep}
-        preferredTypeId={createDialogPreferredTier}
-        onCreated={() => {
-          closeCreateDialog();
-          fetchAgents();
-        }}
-        budget={budget}
-      />
       <ChannelCreationWizard
         open={showChannelWizard}
         onClose={() => setShowChannelWizard(false)}
@@ -1960,10 +1938,17 @@ export default function DevAgentSetupAgentsPage() {
           createOpenClawAgent={createOpenClawAgent}
           fetchAgents={fetchAgents}
           setError={setError}
-          openCreateDialog={() => openCreateDialog()}
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
           accountInitial={accountInitial}
+          onOpenSettings={() => {
+            setMainTab("settings");
+            setMobileShowChat(true);
+          }}
+          settingsActive={mainTab === "settings"}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
           updateAgentName={async (agentId, name) => {
             const token = await getToken();
             const updatedAgent = await createAgentClient(token).update(agentId, { name });
@@ -2037,11 +2022,8 @@ export default function DevAgentSetupAgentsPage() {
             ) : mainTab === "settings" || mainTab === "openclaw" ? (
               <AgentSettingsPanel
                 agent={selectedAgent}
-                settingsName={settingsName}
-                setSettingsName={setSettingsName}
-                savingName={savingName}
-                handleSaveName={handleSaveName}
-                chat={chat}
+                user={user}
+                getToken={getToken}
                 onStartAgent={() => {
                   if (selectedAgent) void handleStart(selectedAgent.id);
                 }}
@@ -2052,27 +2034,10 @@ export default function DevAgentSetupAgentsPage() {
                 agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
                 agentStartBlocked={selectedAgentLaunchBlocked}
                 agentStartBlockedReason={selectedAgentStartGuidance?.title}
-                openclawConfig={
-                  <OpenClawConfigPanel
-                    embedded
-                    agent={selectedAgent}
-                    openclawSections={openclawSections}
-                    openclawSchemaBundle={openclawSchemaBundle}
-                    effectiveOpenclawSection={effectiveOpenclawSection}
-                    setActiveOpenclawSection={setActiveOpenclawSection}
-                    activeOpenclawSectionLabel={activeOpenclawSectionLabel}
-                    openclawSaving={openclawSaving}
-                    openclawDraft={openclawDraft}
-                    openclawError={openclawError}
-                    openclawSuccess={openclawSuccess}
-                    chat={chat}
-                    visibleOpenclawSections={visibleOpenclawSections}
-                    renderOpenclawField={renderOpenclawField}
-                    saveOpenclawSection={saveOpenclawSection}
-                    saveAllOpenclaw={saveAllOpenclaw}
-                    openclawPaneRef={openclawPaneRef}
-                  />
-                }
+                planName={planName}
+                subscriptionSummary={subscriptionSummary}
+                tokenUsage={tokenUsage}
+                tokenLimit={budget?.pooled_tpd ?? null}
               />
             ) : mainTab === "logs" ? (
               <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -2084,6 +2049,9 @@ export default function DevAgentSetupAgentsPage() {
               setSidebarCreatorSignal((v) => v + 1);
             }}
             onCreateAgent={handleCreateFirstAgent}
+            budget={budget}
+            subscriptionSummary={subscriptionSummary}
+            catalogPlans={catalogPlans}
             onShowList={() => setMobileShowChat(false)}
             onShowInspector={() => setInspectorSheetOpen(true)}
             onStart={() => {

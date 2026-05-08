@@ -5,10 +5,10 @@ import {
   type ChatMessage,
   type WorkspaceFile,
   isInternalHeartbeatMessage,
-  maybeDecodeMojibake,
   normalizeHistoryMessage,
   normalizeLiveToolCall,
   normalizeLiveToolResult,
+  sanitizeChatDisplayText,
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
 
@@ -45,6 +45,16 @@ interface SessionEventContext {
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
+function formatSessionToolValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return sanitizeChatDisplayText(value);
+  try {
+    return sanitizeChatDisplayText(JSON.stringify(value, null, 2));
+  } catch {
+    return sanitizeChatDisplayText(String(value));
+  }
+}
+
 export function handleOpenClawSessionEvent({
   gateway,
   gatewayEvent,
@@ -63,12 +73,12 @@ export function handleOpenClawSessionEvent({
       const toolName = (data.name as string) || "";
       const toolCallId = data.toolCallId as string | undefined;
       if (phase === "start" && toolName) {
-        const args = data.args == null ? "" : typeof data.args === "string" ? maybeDecodeMojibake(data.args) : JSON.stringify(data.args, null, 2);
+        const args = formatSessionToolValue(data.args);
         setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }], timestamp: Date.now() }));
       } else if (phase === "result" && toolName) {
         const meta = (data.meta as string) || "";
         const isError = Boolean(data.isError);
-        const resultText = isError ? `Error: ${meta}` : meta;
+        const resultText = isError ? `Error: ${sanitizeChatDisplayText(meta)}` : sanitizeChatDisplayText(meta);
         if (resultText) {
           setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }], timestamp: Date.now() }));
         }
@@ -81,10 +91,10 @@ export function handleOpenClawSessionEvent({
     if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
     if ((payload as Record<string, unknown>).state === "final") setSending(false);
   } else if (event === "chat.content") {
-    const text = maybeDecodeMojibake((payload as Record<string, unknown>).text as string ?? "");
+    const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
     if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
   } else if (event === "chat.thinking") {
-    const text = maybeDecodeMojibake((payload as Record<string, unknown>).text as string ?? "");
+    const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
     if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
   } else if (event === "chat.tool_call") {
     const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);

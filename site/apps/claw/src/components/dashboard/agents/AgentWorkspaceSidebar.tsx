@@ -34,6 +34,8 @@ interface AgentWorkspaceSidebarProps {
   tokenLimit?: number | null;
   disabled?: boolean;
   disabledReason?: string;
+  scheduledDisabled?: boolean;
+  scheduledDisabledReason?: string;
   isDesktopViewport: boolean;
   onSelectChat: () => void;
   onOpenFiles: () => void;
@@ -125,6 +127,8 @@ export function AgentWorkspaceSidebar({
   tokenLimit,
   disabled = false,
   disabledReason = "Workspace is loading",
+  scheduledDisabled = false,
+  scheduledDisabledReason = "Scheduled workflows are not available yet.",
   isDesktopViewport,
   onSelectChat,
   onOpenFiles,
@@ -168,7 +172,11 @@ export function AgentWorkspaceSidebar({
     }
   }, [noSelectedAgent]);
 
-  const disabledItemProps = disabled ? { disabled: true, disabledReason } : {};
+  const disabledItemProps = disabled
+    ? { disabled: true, disabledReason }
+    : noSelectedAgent
+      ? { disabled: true, disabledReason: emptyStateReason }
+      : {};
   const workspaceItems: WorkspaceItem[] = [
     { id: "chat", label: "Chat", icon: MessageSquare, active: activeTab === "chat", onClick: onSelectChat, ...disabledItemProps },
     {
@@ -181,7 +189,14 @@ export function AgentWorkspaceSidebar({
     },
     { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },
     { id: "skills", label: "Skills", icon: Codepen, active: skillsActive, onClick: onOpenSkills, ...disabledItemProps },
-    { id: "scheduled", label: "Scheduled", icon: CalendarClock, active: activeTab === "scheduled", onClick: onOpenScheduled, ...disabledItemProps },
+    {
+      id: "scheduled",
+      label: "Scheduled",
+      icon: CalendarClock,
+      active: activeTab === "scheduled",
+      onClick: onOpenScheduled,
+      ...(scheduledDisabled ? { disabled: true, disabledReason: scheduledDisabledReason } : disabledItemProps),
+    },
   ];
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;
@@ -308,16 +323,9 @@ export function AgentWorkspaceSidebar({
             <TooltipTrigger asChild>
               <button
                 type="button"
-                onClick={disabled ? undefined : onUpgrade}
-                disabled={disabled}
-                aria-disabled={disabled}
+                onClick={onUpgrade}
                 aria-label="Upgrade plan"
-                title={disabled ? disabledReason : undefined}
-                className={`flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background transition-colors ${
-                  disabled
-                    ? "cursor-not-allowed text-text-muted/45"
-                    : "text-text-muted hover:bg-surface-low hover:text-foreground"
-                }`}
+                className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
               >
                 <Sparkles className="h-4 w-4" />
               </button>
@@ -338,15 +346,8 @@ export function AgentWorkspaceSidebar({
             </div>
             <button
               type="button"
-              onClick={disabled ? undefined : onUpgrade}
-              disabled={disabled}
-              aria-disabled={disabled}
-              title={disabled ? disabledReason : undefined}
-              className={`flex h-8 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-xs font-medium transition-colors ${
-                disabled
-                  ? "cursor-not-allowed text-text-muted/45"
-                  : "text-foreground hover:bg-surface-low"
-              }`}
+              onClick={onUpgrade}
+              className="flex h-8 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-xs font-medium text-foreground transition-colors hover:bg-surface-low"
             >
               <Sparkles className="h-3.5 w-3.5" />
               Upgrade

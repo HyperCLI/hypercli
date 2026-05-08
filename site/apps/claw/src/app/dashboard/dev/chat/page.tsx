@@ -498,25 +498,6 @@ export default function DevChatPage() {
     );
   }, [selectedThreadId]);
 
-  const handleNewThread = useCallback(() => {
-    const id = `t-new-${Date.now()}`;
-    const newThread: typeof threads[number] = {
-      id,
-      sessionKey: `session-${id}`,
-      participants: [{ id: "user-1", name: "You", type: "user" }],
-      kind: "user-agent",
-      lastMessage: "",
-      lastMessageBy: "user-1",
-      lastMessageAt: Date.now(),
-      messageCount: 0,
-      unreadCount: 0,
-      isActive: true,
-    };
-    setThreads((prev) => [newThread, ...prev]);
-    setSelectedThreadId(id);
-    setAddParticipantOpen(true);
-  }, []);
-
   const handleStartAgentChat = useCallback((agent: Participant) => {
     const id = `t-new-${Date.now()}`;
     const newThread: typeof threads[number] = {
@@ -1712,7 +1693,6 @@ export default function DevChatPage() {
           threads={threads}
           selectedThreadId={selectedThreadId}
           onSelectThread={setSelectedThreadId}
-          onNewThread={handleNewThread}
           onStartAgentChat={handleStartAgentChat}
           onCreateChannel={handleCreateChannel}
           onDeleteThread={handleDeleteThread}
@@ -1875,96 +1855,98 @@ export default function DevChatPage() {
         </div>
 
         {/* Messages area */}
-        <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4 space-y-4">
-          {devTab === "ux-kit" && <InChatUxKitDemo />}
+        <div ref={chatScrollRef} className="flex-1 overflow-y-auto p-4">
+          <div className="mx-auto flex min-h-full w-3/4 max-w-[75%] min-w-0 flex-col space-y-4">
+            {devTab === "ux-kit" && <InChatUxKitDemo />}
 
-          {/* Empty state: new conversation with only "You" */}
-          {devTab !== "ux-kit" && selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
-            <div className="flex flex-col items-center justify-center h-full text-text-muted">
-              <Users className="w-10 h-10 mb-3 text-text-muted/40" />
-              <p className="text-sm font-medium text-foreground mb-1">New conversation</p>
-              <p className="text-xs text-text-muted text-center max-w-[220px]">
-                Add agents or team members to start collaborating.
-              </p>
-              <button
-                onClick={() => setAddParticipantOpen(true)}
-                className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] text-xs font-medium hover:bg-[#38D39F]/20 transition-colors"
-              >
-                <Plus className="w-3 h-3" />
-                Add participants
-              </button>
-            </div>
-          )}
+            {/* Empty state: new conversation with only "You" */}
+            {devTab !== "ux-kit" && selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
+              <div className="flex min-h-full flex-col items-center justify-center text-text-muted">
+                <Users className="w-10 h-10 mb-3 text-text-muted/40" />
+                <p className="text-sm font-medium text-foreground mb-1">New conversation</p>
+                <p className="text-xs text-text-muted text-center max-w-[220px]">
+                  Add agents or team members to start collaborating.
+                </p>
+                <button
+                  onClick={() => setAddParticipantOpen(true)}
+                  className="mt-3 flex items-center gap-1.5 px-3 py-1.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] text-xs font-medium hover:bg-[#38D39F]/20 transition-colors"
+                >
+                  <Plus className="w-3 h-3" />
+                  Add participants
+                </button>
+              </div>
+            )}
 
-          {/* Empty state: no thread selected */}
-          {devTab !== "ux-kit" && !selectedThread && (
-            <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
-              <MessageSquare className="w-8 h-8 opacity-30" />
-              <p className="text-sm font-medium text-foreground">No Agent or Channel selected</p>
-              <p className="text-xs text-text-muted text-center max-w-[220px]">
-                Select an agent or channel to get started
-              </p>
-            </div>
-          )}
+            {/* Empty state: no thread selected */}
+            {devTab !== "ux-kit" && !selectedThread && (
+              <div className="flex min-h-full flex-col items-center justify-center text-text-muted gap-2">
+                <MessageSquare className="w-8 h-8 opacity-30" />
+                <p className="text-sm font-medium text-foreground">No Agent or Channel selected</p>
+                <p className="text-xs text-text-muted text-center max-w-[220px]">
+                  Select an agent or channel to get started
+                </p>
+              </div>
+            )}
 
-          {/* Empty state: thread selected but no messages */}
-          {devTab !== "ux-kit" && selectedThread && messages.length === 0 && (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id)) && (
-            <div className="flex flex-col items-center justify-center h-full text-text-muted gap-2">
-              {connecting ? (
-                <>
-                  <Loader2 className="w-8 h-8 animate-spin" />
-                  <p className="text-sm">Connecting gateway</p>
-                  <p className="text-xs text-text-muted/60">Opening the agent session.</p>
-                </>
-              ) : connected ? (
-                <>
-                  <MessageSquare className="w-8 h-8 opacity-30" />
-                  <p className="text-sm font-medium text-foreground">Start a conversation</p>
-                  <p className="text-xs text-text-muted text-center max-w-[220px]">
-                    Send a message to start chatting with {activeAgentName ?? "your agent"}
-                  </p>
-                </>
-              ) : (
-                <>
-                  <Bot className="w-8 h-8 opacity-30" />
-                  <p className="text-sm font-medium text-foreground">Agent offline</p>
-                  <p className="text-xs text-text-muted text-center max-w-[220px]">
-                    Start {activeAgentName ?? "the agent"} to begin chatting
-                  </p>
-                </>
-              )}
-            </div>
-          )}
+            {/* Empty state: thread selected but no messages */}
+            {devTab !== "ux-kit" && selectedThread && messages.length === 0 && (selectedThread.participants.length > 1 && !groupThreadIds.has(selectedThread.id)) && (
+              <div className="flex min-h-full flex-col items-center justify-center text-text-muted gap-2">
+                {connecting ? (
+                  <>
+                    <Loader2 className="w-8 h-8 animate-spin" />
+                    <p className="text-sm">Connecting gateway</p>
+                    <p className="text-xs text-text-muted/60">Opening the agent session.</p>
+                  </>
+                ) : connected ? (
+                  <>
+                    <MessageSquare className="w-8 h-8 opacity-30" />
+                    <p className="text-sm font-medium text-foreground">Start a conversation</p>
+                    <p className="text-xs text-text-muted text-center max-w-[220px]">
+                      Send a message to start chatting with {activeAgentName ?? "your agent"}
+                    </p>
+                  </>
+                ) : (
+                  <>
+                    <Bot className="w-8 h-8 opacity-30" />
+                    <p className="text-sm font-medium text-foreground">Agent offline</p>
+                    <p className="text-xs text-text-muted text-center max-w-[220px]">
+                      Start {activeAgentName ?? "the agent"} to begin chatting
+                    </p>
+                  </>
+                )}
+              </div>
+            )}
 
-          {devTab !== "ux-kit" && (() => {
-            const isGroupThread = selectedThreadId !== null && groupThreadIds.has(selectedThreadId);
-            const displayMessages: (ChatMessage & { senderId?: string; senderName?: string })[] =
-              isGroupThread ? MOCK_GROUP_MESSAGES : messages;
-            const effectiveNameVariant = isGroupThread && nameVariant === "off" ? "v2" as const : nameVariant;
+            {devTab !== "ux-kit" && (() => {
+              const isGroupThread = selectedThreadId !== null && groupThreadIds.has(selectedThreadId);
+              const displayMessages: (ChatMessage & { senderId?: string; senderName?: string })[] =
+                isGroupThread ? MOCK_GROUP_MESSAGES : messages;
+              const effectiveNameVariant = isGroupThread && nameVariant === "off" ? "v2" as const : nameVariant;
 
-            return displayMessages.map((msg, i) => (
-              <ChatMessageBubble
-                key={`${selectedThreadId ?? "default"}-${i}`}
-                message={msg}
-                timestampVariant={timestampVariant}
-                bubblesVariant={bubblesVariant}
-                nameVariant={effectiveNameVariant}
-                animationVariant={animationVariant}
-                themeVariant={themeVariant}
-                streamingVariant={streamingVariant}
-                isStreaming={!isGroupThread && sending && i === displayMessages.length - 1 && msg.role === "assistant"}
-                agentName={isGroupThread ? undefined : (activeAgentName ?? "Agent")}
-                senderName={(msg as GroupMessage).senderName}
-                isGroupChat={isGroupThread}
-              />
-            ));
-          })()}
+              return displayMessages.map((msg, i) => (
+                <ChatMessageBubble
+                  key={`${selectedThreadId ?? "default"}-${i}`}
+                  message={msg}
+                  timestampVariant={timestampVariant}
+                  bubblesVariant={bubblesVariant}
+                  nameVariant={effectiveNameVariant}
+                  animationVariant={animationVariant}
+                  themeVariant={themeVariant}
+                  streamingVariant={streamingVariant}
+                  isStreaming={!isGroupThread && sending && i === displayMessages.length - 1 && msg.role === "assistant"}
+                  agentName={isGroupThread ? undefined : (activeAgentName ?? "Agent")}
+                  senderName={(msg as GroupMessage).senderName}
+                  isGroupChat={isGroupThread}
+                />
+              ));
+            })()}
 
-          {devTab !== "ux-kit" && sending && messages[messages.length - 1]?.role !== "assistant" && (
-            <ChatThinkingIndicator variant={thinkingVariant} />
-          )}
+            {devTab !== "ux-kit" && sending && messages[messages.length - 1]?.role !== "assistant" && (
+              <ChatThinkingIndicator variant={thinkingVariant} />
+            )}
 
-          <div ref={chatEndRef} />
+            <div ref={chatEndRef} />
+          </div>
         </div>
 
         {/* Files Panel (bottom split) */}

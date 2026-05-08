@@ -4,6 +4,7 @@ import { useEffect, useMemo, useState } from "react";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
+  HyperAgentPlan,
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
@@ -35,7 +36,7 @@ interface DisplayProduct {
 interface CheckoutPlan {
   id: string;
   name: string;
-  bundle: Record<string, number>;
+  bundle?: Record<string, number>;
   price: number;
   limits: {
     tpd: number;
@@ -44,8 +45,48 @@ interface CheckoutPlan {
   };
 }
 
+type CatalogPlan = HyperAgentPlan & {
+  bundle?: Record<string, number> | null;
+  checkoutBundle?: Record<string, number> | null;
+  checkout_bundle?: Record<string, number> | null;
+  hidden?: boolean;
+  meta?: {
+    bundle?: Record<string, number> | null;
+    checkout_bundle?: Record<string, number> | null;
+    subtitle?: string | null;
+  } | null;
+  price_usd?: number;
+  slotGrants?: Record<string, number> | null;
+  slot_grants?: Record<string, number> | null;
+  subtitle?: string | null;
+};
+
+const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
+
 function titleizeTier(value: string): string {
   return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
+}
+
+function normalizeBundle(value: unknown): SlotBundle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) {
+    return {};
+  }
+
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([tier, count]) => [tier, Number(count)] as const)
+    .filter(([, count]) => Number.isFinite(count) && count > 0);
+
+  return Object.fromEntries(entries) as SlotBundle;
+}
+
+function firstBundle(...bundles: unknown[]): SlotBundle {
+  for (const bundle of bundles) {
+    const normalized = normalizeBundle(bundle);
+    if (Object.keys(normalized).length > 0) {
+      return normalized;
+    }
+  }
+  return {};
 }
 
 function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundle {
@@ -73,18 +114,50 @@ function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundl
   return {};
 }
 
-function buildDisplayProducts(): DisplayProduct[] {
-  return CLAW_PRODUCTS.filter((product) => !product.hidden).map((product) => ({
-    id: product.id,
-    name: product.name,
-    bundle: compactBundle(product.bundle),
-    price: product.price,
-    features: product.features ?? [],
-    highlighted: Boolean(product.highlighted),
-    limits: product.limits,
-    slotBundle: formatBundle(product.bundle),
-    subtitle: product.subtitle,
-  }));
+function finiteNumber(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] {
+  return catalogPlans
+    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .map((plan) => {
+      const catalogPlan = plan as CatalogPlan;
+      const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;
+      const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
+      const bundle = firstBundle(
+        catalogPlan.bundle,
+        catalogPlan.checkoutBundle,
+        catalogPlan.checkout_bundle,
+        catalogPlan.meta?.bundle,
+        catalogPlan.meta?.checkout_bundle,
+        catalogPlan.slotGrants,
+        catalogPlan.slot_grants,
+        fallbackBundle,
+      );
+      const tpd = finiteNumber(limits.tpd);
+      const burstTpm = finiteNumber(
+        limits.burstTpm ?? (limits as { burst_tpm?: number }).burst_tpm,
+      );
+      const rpm = finiteNumber(limits.rpm ?? plan.rpmLimit);
+
+      return {
+        id: plan.id,
+        name: plan.name,
+        bundle,
+        price: finiteNumber(catalogPlan.priceUsd ?? catalogPlan.price_usd ?? plan.price),
+        features: plan.features ?? [],
+        highlighted: Boolean(plan.highlighted),
+        limits: {
+          tpd,
+          burstTpm,
+          rpm,
+        },
+        slotBundle: formatBundle(bundle),
+        subtitle: catalogPlan.subtitle ?? catalogPlan.meta?.subtitle ?? undefined,
+      };
+    });
 }
 
 function formatEntitlementDate(entitlement: HyperAgentEntitlement): string {
@@ -96,6 +169,7 @@ function formatEntitlementDate(entitlement: HyperAgentEntitlement): string {
 
 export default function PlansPage() {
   const { getToken } = useAgentAuth();
+  const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<HyperAgentCurrentPlan | null>(null);
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [loading, setLoading] = useState(true);
@@ -104,6 +178,7 @@ export default function PlansPage() {
   const [subscriptionTargets, setSubscriptionTargets] = useState<Record<string, string>>({});
   const [subscriptionNotice, setSubscriptionNotice] = useState<string | null>(null);
   const [subscriptionError, setSubscriptionError] = useState<string | null>(null);
+  const [catalogError, setCatalogError] = useState<string | null>(null);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemingCode, setRedeemingCode] = useState(false);
 
@@ -112,10 +187,13 @@ export default function PlansPage() {
       try {
         const token = await getToken();
         const agentClient = createHyperAgentClient(token);
-        const [current, subscriptions] = await Promise.allSettled([
+        const [catalog, current, subscriptions] = await Promise.allSettled([
+          agentClient.plans(),
           agentClient.currentPlan(),
           agentClient.subscriptionSummary(),
         ]);
+        setCatalogPlans(catalog.status === "fulfilled" ? catalog.value : []);
+        setCatalogError(catalog.status === "fulfilled" ? null : "Plan catalog is unavailable right now.");
         setCurrentPlan(current.status === "fulfilled" ? current.value : null);
         setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
       } catch {
@@ -132,10 +210,13 @@ export default function PlansPage() {
     try {
       const token = await getToken();
       const agentClient = createHyperAgentClient(token);
-      const [current, subscriptions] = await Promise.allSettled([
+      const [catalog, current, subscriptions] = await Promise.allSettled([
+        agentClient.plans(),
         agentClient.currentPlan(),
         agentClient.subscriptionSummary(),
       ]);
+      setCatalogPlans(catalog.status === "fulfilled" ? catalog.value : []);
+      setCatalogError(catalog.status === "fulfilled" ? null : "Plan catalog is unavailable right now.");
       setCurrentPlan(current.status === "fulfilled" ? current.value : null);
       setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
     } catch {}
@@ -151,6 +232,15 @@ export default function PlansPage() {
     return entries;
   }, [summary]);
 
+  const ownedPlanCounts = useMemo(() => {
+    const entries = new Map<string, number>();
+    for (const subscription of summary?.activeSubscriptions ?? []) {
+      if (!subscription.planId) continue;
+      entries.set(subscription.planId, (entries.get(subscription.planId) ?? 0) + Math.max(subscription.quantity || 1, 1));
+    }
+    return entries;
+  }, [summary?.activeSubscriptions]);
+
   const slotInventoryEntries = useMemo(() => {
     return Object.entries(summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {}).sort(
       ([a], [b]) => a.localeCompare(b),
@@ -161,7 +251,7 @@ export default function PlansPage() {
     return summary?.subscriptions ?? [];
   }, [summary?.subscriptions]);
 
-  const displayProducts = useMemo(() => buildDisplayProducts(), []);
+  const displayProducts = useMemo(() => buildDisplayProducts(catalogPlans), [catalogPlans]);
   const paidProducts = useMemo(() => displayProducts.filter((product) => product.id !== "free"), [displayProducts]);
   const legacySubscriptions = useMemo(() => {
     const knownPlanIds = new Set(displayProducts.map((product) => product.id));
@@ -340,6 +430,12 @@ export default function PlansPage() {
         </div>
       )}
 
+      {catalogError && (
+        <div className="glass-card p-4 mb-6 border border-red-500/30">
+          <p className="text-sm text-red-200">{catalogError}</p>
+        </div>
+      )}
+
       {(summary || currentPlan) && (
         <div className="grid gap-4 md:grid-cols-4 mb-8">
           <div className="glass-card p-5">
@@ -477,69 +573,84 @@ export default function PlansPage() {
         </div>
       )}
 
-      <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
-        {displayProducts.map((product) => {
-          const ownedCount = ownedBundles.get(bundleKey(product.bundle)) ?? 0;
+      {displayProducts.length === 0 ? (
+        <div className="glass-card p-6">
+          <p className="text-sm text-text-secondary">No plans are available from the SDK catalog right now.</p>
+        </div>
+      ) : (
+        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {displayProducts.map((product) => {
+            const productBundleKey = bundleKey(product.bundle);
+            const ownedByBundle = productBundleKey === "{}" ? 0 : (ownedBundles.get(productBundleKey) ?? 0);
+            const ownedCount = Math.max(ownedPlanCounts.get(product.id) ?? 0, ownedByBundle);
+            const checkoutBundle = compactBundle(product.bundle) as Record<string, number>;
+            const hasCheckoutBundle = Object.keys(checkoutBundle).length > 0;
 
-          return (
-            <div key={product.id} className="glass-card p-6 flex flex-col">
-              {ownedCount > 0 ? (
-                <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
-                  You own {ownedCount}
-                </div>
-              ) : product.highlighted ? (
-                <div className="text-xs font-semibold text-foreground bg-white/5 px-3 py-1 rounded-full self-start mb-4">
-                  Popular
-                </div>
-              ) : null}
+            return (
+              <div key={product.id} className="glass-card p-6 flex flex-col">
+                {ownedCount > 0 ? (
+                  <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
+                    You own {ownedCount}
+                  </div>
+                ) : product.highlighted ? (
+                  <div className="text-xs font-semibold text-foreground bg-white/5 px-3 py-1 rounded-full self-start mb-4">
+                    Popular
+                  </div>
+                ) : null}
 
-              <h3 className="text-lg font-semibold text-foreground">{product.name}</h3>
-              <div className="mt-2 mb-1">
-                <span className="text-3xl font-bold text-foreground">${product.price}</span>
-                <span className="text-text-muted text-sm">/month</span>
+                <h3 className="text-lg font-semibold text-foreground">{product.name}</h3>
+                <div className="mt-2 mb-1">
+                  <span className="text-3xl font-bold text-foreground">${product.price}</span>
+                  <span className="text-text-muted text-sm">/month</span>
+                </div>
+                <p className="text-sm text-text-tertiary mb-1">{formatTokens(product.limits.tpd ?? 0)} tokens/day</p>
+                <p className="text-xs text-text-muted mb-2">
+                  Up to {formatTokens(product.limits.burstTpm)} TPM burst &middot; {formatTokens(product.limits.rpm)} RPM
+                </p>
+                {product.subtitle && <p className="text-xs text-text-muted mb-2">{product.subtitle}</p>}
+                {product.slotBundle && <p className="text-xs text-text-muted mb-6">{product.slotBundle}</p>}
+
+                <ul className="space-y-3 mb-8 flex-1">
+                  {(product.features ?? []).map((feature) => (
+                    <li key={feature} className="flex items-start gap-2 text-sm text-text-secondary">
+                      <Check className="w-4 h-4 text-text-secondary flex-shrink-0 mt-0.5" />
+                      <span>{feature}</span>
+                    </li>
+                  ))}
+                </ul>
+
+                <button
+                  onClick={() =>
+                    product.id !== "free"
+                      ? setCheckoutPlan({
+                          id: product.id,
+                          name: product.name,
+                          bundle: hasCheckoutBundle ? checkoutBundle : undefined,
+                          price: product.price,
+                          limits: product.limits,
+                        })
+                      : undefined
+                  }
+                  disabled={product.id === "free"}
+                  className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
+                >
+                  {product.id === "free" ? "Included" : ownedCount > 0 ? "Add Another" : "Purchase"}
+                </button>
               </div>
-              <p className="text-sm text-text-tertiary mb-1">{formatTokens(product.limits.tpd ?? 0)} tokens/day</p>
-              <p className="text-xs text-text-muted mb-2">
-                Up to {formatTokens(product.limits.burstTpm)} TPM burst &middot; {formatTokens(product.limits.rpm)} RPM
-              </p>
-              {product.subtitle && <p className="text-xs text-text-muted mb-2">{product.subtitle}</p>}
-              {product.slotBundle && <p className="text-xs text-text-muted mb-6">{product.slotBundle}</p>}
-
-              <ul className="space-y-3 mb-8 flex-1">
-                {(product.features ?? []).map((feature) => (
-                  <li key={feature} className="flex items-start gap-2 text-sm text-text-secondary">
-                    <Check className="w-4 h-4 text-text-secondary flex-shrink-0 mt-0.5" />
-                    <span>{feature}</span>
-                  </li>
-                ))}
-              </ul>
-
-              <button
-                onClick={() =>
-                  product.id !== "free"
-                    ? setCheckoutPlan({
-                        id: product.id,
-                        name: product.name,
-                        bundle: compactBundle(product.bundle) as Record<string, number>,
-                        price: product.price,
-                        limits: product.limits,
-                      })
-                    : undefined
-                }
-                disabled={product.id === "free"}
-                className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
-              >
-                {product.id === "free" ? "Included" : ownedCount > 0 ? "Add Another" : "Purchase"}
-              </button>
-            </div>
-          );
-        })}
-      </div>
+            );
+          })}
+        </div>
+      )}
 
       {checkoutPlan && (
         <PlanCheckoutModal
           plan={checkoutPlan}
-          ownedCount={ownedBundles.get(bundleKey(checkoutPlan.bundle)) ?? 0}
+          ownedCount={
+            Math.max(
+              ownedPlanCounts.get(checkoutPlan.id) ?? 0,
+              checkoutPlan.bundle ? (ownedBundles.get(bundleKey(checkoutPlan.bundle)) ?? 0) : 0,
+            )
+          }
           isOpen={!!checkoutPlan}
           onClose={() => setCheckoutPlan(null)}
           onSuccess={refreshPlan}

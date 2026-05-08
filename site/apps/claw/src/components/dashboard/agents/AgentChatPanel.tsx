@@ -218,75 +218,77 @@ export function AgentChatPanel({
           </div>
         </div>
       )}
-      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex-1 overflow-y-auto p-4 space-y-4">
-        {chat.messages.length === 0 && (
-          <div className="flex flex-col items-center justify-center h-full text-text-muted">
-            {chat.hydrating ? (
-              <AgentLoadingState
-                title="Loading workspace"
-                detail="Fetching messages, files, and config."
-                tone="loading"
-                stage="complete"
-              />
-            ) : chat.connecting ? (
-              <AgentLoadingState
-                title="Connecting gateway"
-                detail="Opening the agent session."
-                tone="connecting"
-                stage="gateway"
-              />
-            ) : chat.connected ? (
-              <AgentEmptyHistory
-                onPromptSelect={setChatInput}
-              />
-            ) : (
-              isSelectedRunning ? (
+      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 flex-1 overflow-y-auto p-4">
+        <div className="mx-auto flex min-h-full w-3/4 max-w-[75%] min-w-0 flex-1 flex-col space-y-4">
+          {chat.messages.length === 0 && (
+            <div className="flex min-h-full flex-1 flex-col items-center justify-center text-text-muted">
+              {chat.hydrating ? (
                 <AgentLoadingState
-                  title="Waiting for gateway"
-                  detail="The runtime is up. Reconnecting to the agent session."
+                  title="Loading workspace"
+                  detail="Fetching messages, files, and config."
+                  tone="loading"
+                  stage="complete"
+                />
+              ) : chat.connecting ? (
+                <AgentLoadingState
+                  title="Connecting gateway"
+                  detail="Opening the agent session."
                   tone="connecting"
                   stage="gateway"
                 />
+              ) : chat.connected ? (
+                <AgentEmptyHistory
+                  onPromptSelect={setChatInput}
+                />
               ) : (
-                <>
-                  <Sparkles className="w-8 h-8 mb-2" />
-                  <p className="text-sm">Start the agent to begin chatting.</p>
-                </>
-              )
-            )}
-          </div>
-        )}
+                isSelectedRunning ? (
+                  <AgentLoadingState
+                    title="Waiting for gateway"
+                    detail="The runtime is up. Reconnecting to the agent session."
+                    tone="connecting"
+                    stage="gateway"
+                  />
+                ) : (
+                  <>
+                    <Sparkles className="w-8 h-8 mb-2" />
+                    <p className="text-sm">Start the agent to begin chatting.</p>
+                  </>
+                )
+              )}
+            </div>
+          )}
 
-        {chat.messages.map((msg, i) => {
-          const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
-          const inlineAudioFile = voicePath ? { agentId: selectedAgent.id, path: voicePath } : null;
-          return (
-            <ChatMessageBubble
-              key={i}
-              message={msg}
-              inlineAudioFile={inlineAudioFile}
-              agentId={selectedAgent.id}
-              timestampVariant="v2"
-              bubblesVariant="v2"
-              nameVariant="v2"
-              animationVariant="v2"
-              themeVariant="v2"
-              streamingVariant="v2"
-              isStreaming={chat.sending && i === chat.messages.length - 1 && msg.role === "assistant"}
-              agentName={selectedAgent.name ?? "Agent"}
-              agentMeta={selectedAgent.meta}
-            />
-          );
-        })}
+          {chat.messages.map((msg, i) => {
+            const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
+            const inlineAudioFile = voicePath ? { agentId: selectedAgent.id, path: voicePath } : null;
+            return (
+              <ChatMessageBubble
+                key={i}
+                message={msg}
+                inlineAudioFile={inlineAudioFile}
+                agentId={selectedAgent.id}
+                timestampVariant="v2"
+                bubblesVariant="v2"
+                nameVariant="v2"
+                animationVariant="v2"
+                themeVariant="v2"
+                streamingVariant="v2"
+                isStreaming={chat.sending && i === chat.messages.length - 1 && msg.role === "assistant"}
+                agentName={selectedAgent.name ?? "Agent"}
+                agentMeta={selectedAgent.meta}
+              />
+            );
+          })}
 
-        {(() => {
-          if (!chat.sending) return null;
-          const last = chat.messages[chat.messages.length - 1];
-          const hasContent = last?.role === "assistant" && ((last.content && last.content.trim().length > 0) || (last.toolCalls && last.toolCalls.length > 0));
-          return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
-        })()}
+          {(() => {
+            if (!chat.sending) return null;
+            const last = chat.messages[chat.messages.length - 1];
+            const hasContent = last?.role === "assistant" && ((last.content && last.content.trim().length > 0) || (last.toolCalls && last.toolCalls.length > 0));
+            return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
+          })()}
 
-        <div ref={chatEndRef} />
+          <div ref={chatEndRef} />
+        </div>
       </div>
 
       <div className="flex-shrink-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3">

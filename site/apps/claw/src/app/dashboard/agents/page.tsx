@@ -12,6 +12,7 @@ import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
+  Check,
   Key,
   CreditCard,
   ExternalLink,
@@ -33,18 +34,18 @@ import {
   Zap,
   Timer,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory } from "@/lib/format";
+import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { agentAvatar } from "@/lib/avatar";
-import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
@@ -56,7 +57,7 @@ import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/componen
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "./types";
 import {
   describeAgentTierStartGuidance,
@@ -93,12 +94,309 @@ import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { bundleKey, CLAW_PRODUCTS, compactBundle, type SlotBundle } from "@/lib/subscriptions";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
 
 const SHOW_AGENT_INSPECTOR = false;
+const SCHEDULED_SECTION_ENABLED = false;
+const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
+
+interface UpgradeDisplayProduct {
+  id: string;
+  name: string;
+  bundle: SlotBundle;
+  price: number;
+  highlighted: boolean;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+}
+
+interface UpgradeCheckoutPlan {
+  id: string;
+  name: string;
+  bundle?: Record<string, number>;
+  price: number;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+}
+
+type CatalogPlan = HyperAgentPlan & {
+  bundle?: Record<string, number> | null;
+  checkoutBundle?: Record<string, number> | null;
+  checkout_bundle?: Record<string, number> | null;
+  hidden?: boolean;
+  meta?: {
+    bundle?: Record<string, number> | null;
+    checkout_bundle?: Record<string, number> | null;
+  } | null;
+  price_usd?: number;
+  slotGrants?: Record<string, number> | null;
+  slot_grants?: Record<string, number> | null;
+};
+
+const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeBundle(value: unknown): SlotBundle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([tier, count]) => [tier, Number(count)] as const)
+    .filter(([, count]) => Number.isFinite(count) && count > 0);
+  return Object.fromEntries(entries) as SlotBundle;
+}
+
+function firstBundle(...bundles: unknown[]): SlotBundle {
+  for (const bundle of bundles) {
+    const normalized = normalizeBundle(bundle);
+    if (Object.keys(normalized).length > 0) return normalized;
+  }
+  return {};
+}
+
+function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayProduct[] {
+  return catalogPlans
+    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .map((plan) => {
+      const catalogPlan = plan as CatalogPlan;
+      const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
+      const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;
+      return {
+        id: plan.id,
+        name: plan.name,
+        bundle: firstBundle(
+          catalogPlan.bundle,
+          catalogPlan.checkoutBundle,
+          catalogPlan.checkout_bundle,
+          catalogPlan.meta?.bundle,
+          catalogPlan.meta?.checkout_bundle,
+          catalogPlan.slotGrants,
+          catalogPlan.slot_grants,
+          fallbackBundle,
+        ),
+        price: finiteNumber(catalogPlan.priceUsd ?? catalogPlan.price_usd ?? plan.price),
+        highlighted: Boolean(plan.highlighted),
+        limits: {
+          tpd: finiteNumber(limits.tpd),
+          burstTpm: finiteNumber(limits.burstTpm ?? (limits as { burst_tpm?: number }).burst_tpm),
+          rpm: finiteNumber(limits.rpm ?? plan.rpmLimit),
+        },
+      };
+    });
+}
+
+function toUpgradeCheckoutPlan(product: UpgradeDisplayProduct): UpgradeCheckoutPlan {
+  const bundle = compactBundle(product.bundle) as Record<string, number>;
+  return {
+    id: product.id,
+    name: product.name,
+    bundle: Object.keys(bundle).length > 0 ? bundle : undefined,
+    price: product.price,
+    limits: product.limits,
+  };
+}
+
+function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundle {
+  const metaBundle = compactBundle(
+    (subscription.meta?.bundle as Record<string, number> | undefined) ??
+      (subscription.meta?.checkout_bundle as Record<string, number> | undefined),
+  );
+  if (Object.keys(metaBundle).length > 0) return metaBundle;
+
+  const derived: Record<string, number> = {};
+  for (const [tier, granted] of Object.entries(subscription.slotGrants ?? {})) {
+    const total = Math.max(Number(granted || 0), 0) * Math.max(subscription.quantity || 1, 1);
+    if (total > 0) derived[tier] = total;
+  }
+  if (Object.keys(derived).length > 0) return compactBundle(derived);
+  if (subscription.planId === "free") return { free: Math.max(subscription.quantity || 1, 1) };
+  return {};
+}
+
+function countOwnedCheckoutPlan(
+  summary: HyperAgentSubscriptionSummary | null,
+  checkoutPlan: UpgradeCheckoutPlan | null,
+): number {
+  if (!summary || !checkoutPlan) return 0;
+  const checkoutBundleKey = checkoutPlan.bundle ? bundleKey(checkoutPlan.bundle) : "{}";
+  let ownedCount = 0;
+
+  for (const subscription of summary.activeSubscriptions ?? []) {
+    if (subscription.planId === checkoutPlan.id) {
+      ownedCount += Math.max(subscription.quantity || 1, 1);
+      continue;
+    }
+    if (checkoutBundleKey !== "{}" && bundleKey(bundleFromSubscription(subscription)) === checkoutBundleKey) {
+      ownedCount += Math.max(subscription.quantity || 1, 1);
+    }
+  }
+
+  return ownedCount;
+}
+
+function countOwnedProduct(
+  summary: HyperAgentSubscriptionSummary | null,
+  product: UpgradeDisplayProduct,
+): number {
+  return countOwnedCheckoutPlan(summary, toUpgradeCheckoutPlan(product));
+}
+
+function UpgradePlanCatalogModal({
+  open,
+  products,
+  ownedCounts,
+  loading,
+  error,
+  onClose,
+  onSelectPlan,
+  onOpenPlans,
+}: {
+  open: boolean;
+  products: UpgradeDisplayProduct[];
+  ownedCounts: Record<string, number>;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSelectPlan: (product: UpgradeDisplayProduct) => void;
+  onOpenPlans: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-4xl overflow-hidden rounded-[14px] border border-border bg-background shadow-2xl"
+        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 420, damping: 34 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <h2 className="text-lg font-semibold text-foreground">Upgrade plan</h2>
+            </div>
+            <p className="mt-1 text-sm text-text-secondary">Choose a plan from the SDK catalog before checkout.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+            aria-label="Close upgrade modal"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(min(720px,100vh-2rem)-73px)] overflow-y-auto px-5 py-5">
+          {loading ? (
+            <div className="flex min-h-[220px] items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+            </div>
+          ) : error ? (
+            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#d05f5f]">
+              {error}
+              <button
+                type="button"
+                onClick={onOpenPlans}
+                className="ml-3 font-semibold text-foreground underline underline-offset-4"
+              >
+                Open plans page
+              </button>
+            </div>
+          ) : products.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface-low/30 px-4 py-3 text-sm text-text-secondary">
+              No paid plans returned by the SDK catalog.
+              <button
+                type="button"
+                onClick={onOpenPlans}
+                className="ml-3 font-semibold text-foreground underline underline-offset-4"
+              >
+                Open plans page
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {products.map((product) => {
+                const ownedCount = ownedCounts[product.id] ?? 0;
+                return (
+                  <div
+                    key={product.id}
+                    className="flex min-h-[280px] flex-col rounded-[10px] border border-border bg-surface-low/25 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-semibold text-foreground">{product.name}</h3>
+                        <p className="mt-1 text-sm text-text-muted">
+                          <span className="text-2xl font-semibold text-foreground">${product.price}</span>
+                          <span>/month</span>
+                        </p>
+                      </div>
+                      {ownedCount > 0 ? (
+                        <span className="shrink-0 rounded-full bg-[#38D39F]/10 px-2 py-1 text-[11px] font-semibold text-[#38D39F]">
+                          You own {ownedCount}
+                        </span>
+                      ) : product.highlighted ? (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
+                          Popular
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-sm text-text-secondary">
+                      <p className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                        {formatTokens(product.limits.tpd)} tokens/day
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                        Up to {formatTokens(product.limits.burstTpm)} TPM
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                        {formatTokens(product.limits.rpm)} RPM
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectPlan(product)}
+                      className="mt-auto flex h-9 w-full items-center justify-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+                    >
+                      {ownedCount > 0 ? "Add Another" : "Select plan"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
 
 function normalizeAgentFilePath(path: string): string {
   return path.replace(/^\/+/, "").replace(/\/+$/, "");
@@ -160,9 +458,14 @@ export default function AgentsPage() {
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
+  const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [planName, setPlanName] = useState<string | null>(null);
   const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
   const [tokenUsage, setTokenUsage] = useState<number | null>(null);
+  const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
+  const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
+  const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
+  const [upgradeCatalogLoading, setUpgradeCatalogLoading] = useState(false);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -177,10 +480,6 @@ export default function AgentsPage() {
     return () => { stoppedTimersRef.current.forEach((t) => clearTimeout(t)); };
   }, []);
 
-  // Create dialog
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
-  const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -269,15 +568,17 @@ export default function AgentsPage() {
         setDeployments(agentClient);
       }
       const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, budgetData, currentPlan, summaryData, usageSummary] = await Promise.all([
+      const [listedAgents, budgetData, catalogData, currentPlan, summaryData, usageSummary] = await Promise.all([
         agentClient.list(),
         agentClient.budget().catch(() => null),
+        hyperAgent.plans().catch(() => []),
         hyperAgent.currentPlan().catch(() => null),
         hyperAgent.subscriptionSummary().catch(() => null),
         hyperAgent.usageSummary().catch(() => null),
       ]);
       setSdkAgents(listedAgents);
       setBudget((budgetData as AgentBudget | null) || null);
+      setCatalogPlans(Array.isArray(catalogData) ? catalogData : []);
       setPlanName(currentPlan?.name ?? currentPlan?.id ?? null);
       setSubscriptionSummary((summaryData as HyperAgentSubscriptionSummary | null) || null);
       setTokenUsage(usageSummary?.totalTokens ?? null);
@@ -296,15 +597,52 @@ export default function AgentsPage() {
       setAgentClusterUnavailable(described.clusterUnavailable);
       setSdkAgents([]);
       setBudget(null);
+      setCatalogPlans([]);
       setDeployments(null);
     } finally {
       setAgentsLoading(false);
     }
   }, [deployments, getToken]);
 
+  const openUpgradeCatalog = useCallback(async () => {
+    if (upgradeCatalogLoading) return;
+
+    setUpgradeCatalogOpen(true);
+    setUpgradeCatalogError(null);
+    if (catalogPlans.length > 0) {
+      return;
+    }
+
+    setUpgradeCatalogLoading(true);
+    try {
+      const hyperAgent = createHyperAgentClient(await getToken());
+      const plans = await hyperAgent.plans();
+      setCatalogPlans(plans);
+      if (buildUpgradeProducts(plans).filter((product) => product.id !== "free" && product.price > 0).length === 0) {
+        setUpgradeCatalogError("No paid plans returned by the SDK catalog.");
+      }
+    } catch (error) {
+      setUpgradeCatalogError(error instanceof Error ? error.message : "Plan catalog is unavailable right now.");
+    } finally {
+      setUpgradeCatalogLoading(false);
+    }
+  }, [catalogPlans, getToken, upgradeCatalogLoading]);
+
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const upgradeProducts = useMemo(
+    () => buildUpgradeProducts(catalogPlans).filter((product) => product.id !== "free" && product.price > 0),
+    [catalogPlans],
+  );
+  const upgradeOwnedCounts = useMemo(
+    () => Object.fromEntries(upgradeProducts.map((product) => [product.id, countOwnedProduct(subscriptionSummary, product)])),
+    [subscriptionSummary, upgradeProducts],
+  );
+  const upgradeCheckoutOwnedCount = useMemo(
+    () => countOwnedCheckoutPlan(subscriptionSummary, upgradeCheckoutPlan),
+    [subscriptionSummary, upgradeCheckoutPlan],
+  );
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -1309,18 +1647,6 @@ export default function AgentsPage() {
     }
   };
 
-  const openCreateDialog = useCallback((options?: { initialStep?: number; preferredTier?: string | null }) => {
-    setCreateDialogInitialStep(options?.initialStep ?? 0);
-    setCreateDialogPreferredTier(options?.preferredTier ?? null);
-    setShowCreateDialog(true);
-  }, []);
-
-  const closeCreateDialog = useCallback(() => {
-    setShowCreateDialog(false);
-    setCreateDialogInitialStep(0);
-    setCreateDialogPreferredTier(null);
-  }, []);
-
   const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size }: { name: string; iconIndex: number; size: string }) => {
     try {
       setError(null);
@@ -1661,7 +1987,7 @@ export default function AgentsPage() {
       : "chat";
 
   useEffect(() => {
-    if (selectedAgent && mainTab === "scheduled") {
+    if ((!SCHEDULED_SECTION_ENABLED || selectedAgent) && mainTab === "scheduled") {
       setMainTab("chat");
     }
   }, [mainTab, selectedAgent]);
@@ -1705,6 +2031,11 @@ export default function AgentsPage() {
         }
         if (tab === "settings") {
           setMainTab("settings");
+          setMobileShowChat(true);
+          return;
+        }
+        if (tab === "scheduled" && !SCHEDULED_SECTION_ENABLED) {
+          setMainTab("chat");
           setMobileShowChat(true);
           return;
         }
@@ -1760,16 +2091,6 @@ export default function AgentsPage() {
                     <span>{label}</span>
                   </button>
                 ))}
-                <button
-                  onClick={() => {
-                    openCreateDialog();
-                    setMobileAgentMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Agent</span>
-                </button>
               </div>
               {selectedAgent && (
                 <>
@@ -1843,18 +2164,35 @@ export default function AgentsPage() {
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      <AgentCreationWizard
-        open={showCreateDialog}
-        onClose={closeCreateDialog}
-        initialStep={createDialogInitialStep}
-        preferredTypeId={createDialogPreferredTier}
-        onCreated={() => {
-          closeCreateDialog();
-          fetchAgents();
-        }}
-        budget={budget}
-        subscriptionSummary={subscriptionSummary}
-      />
+      <AnimatePresence>
+        {upgradeCatalogOpen && (
+          <UpgradePlanCatalogModal
+            open={upgradeCatalogOpen}
+            products={upgradeProducts}
+            ownedCounts={upgradeOwnedCounts}
+            loading={upgradeCatalogLoading}
+            error={upgradeCatalogError}
+            onClose={() => setUpgradeCatalogOpen(false)}
+            onOpenPlans={() => router.push("/plans")}
+            onSelectPlan={(product) => {
+              setUpgradeCatalogOpen(false);
+              setUpgradeCheckoutPlan(toUpgradeCheckoutPlan(product));
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {upgradeCheckoutPlan && (
+        <PlanCheckoutModal
+          plan={upgradeCheckoutPlan}
+          ownedCount={upgradeCheckoutOwnedCount}
+          isOpen={Boolean(upgradeCheckoutPlan)}
+          onClose={() => setUpgradeCheckoutPlan(null)}
+          onSuccess={() => { void fetchAgents(); }}
+          getToken={getToken}
+        />
+      )}
+
       <ChannelCreationWizard
         open={showChannelWizard}
         onClose={() => setShowChannelWizard(false)}
@@ -1906,10 +2244,18 @@ export default function AgentsPage() {
           createOpenClawAgent={createOpenClawAgent}
           fetchAgents={fetchAgents}
           setError={setError}
-          openCreateDialog={() => openCreateDialog()}
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
           accountInitial={accountInitial}
+          onOpenSettings={() => {
+            setMainTab("settings");
+            setMobileShowChat(true);
+          }}
+          settingsActive={mainTab === "settings"}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          onOpenPlanCatalog={openUpgradeCatalog}
           updateAgentName={async (agentId, name) => {
             const token = await getToken();
             const updatedAgent = await createAgentClient(token).update(agentId, { name });
@@ -1926,6 +2272,8 @@ export default function AgentsPage() {
           tokenLimit={budget?.pooled_tpd ?? null}
           disabled={workspaceSidebarDisabled}
           disabledReason={workspaceSidebarDisabledReason}
+          scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+          scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
           isDesktopViewport={isDesktopViewport}
           onSelectChat={() => setMainTab("chat")}
           onOpenFiles={() => {
@@ -1945,6 +2293,9 @@ export default function AgentsPage() {
             setMobileShowChat(true);
           }}
           onOpenScheduled={() => {
+            if (!SCHEDULED_SECTION_ENABLED) {
+              return;
+            }
             if (!selectedAgent) {
               setMainTab("scheduled");
               setMobileShowChat(true);
@@ -1968,7 +2319,7 @@ export default function AgentsPage() {
             setMainTab("settings");
             setMobileShowChat(true);
           }}
-          onUpgrade={() => router.push("/plans")}
+          onUpgrade={() => { void openUpgradeCatalog(); }}
         />
 
         <AgentMainPanel
@@ -2055,11 +2406,8 @@ export default function AgentsPage() {
           ) : mainTab === "settings" ? (
             <AgentSettingsPanel
               agent={selectedAgent}
-              settingsName={settingsName}
-              setSettingsName={setSettingsName}
-              savingName={savingName}
-              handleSaveName={handleSaveName}
-              chat={chat}
+              user={user}
+              getToken={getToken}
               onStartAgent={() => {
                 if (selectedAgent) void handleStart(selectedAgent.id);
               }}
@@ -2070,6 +2418,10 @@ export default function AgentsPage() {
               agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
               agentStartBlocked={selectedAgentLaunchBlocked}
               agentStartBlockedReason={selectedAgentStartGuidance?.title}
+              planName={planName}
+              subscriptionSummary={subscriptionSummary}
+              tokenUsage={tokenUsage}
+              tokenLimit={budget?.pooled_tpd ?? null}
             />
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -2083,6 +2435,8 @@ export default function AgentsPage() {
           onCreateAgent={handleCreateFirstAgent}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          onOpenPlanCatalog={openUpgradeCatalog}
           onShowList={() => setMobileShowChat(false)}
           onShowInspector={() => setInspectorSheetOpen(true)}
           showInspectorButton={SHOW_AGENT_INSPECTOR}

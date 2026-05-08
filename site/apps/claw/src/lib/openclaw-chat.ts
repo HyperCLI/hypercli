@@ -54,6 +54,34 @@ function maybeDecodeMojibake(text: string): string {
   return text;
 }
 
+const BINARY_CONTENT_OMITTED_MESSAGE = "[Binary file content omitted from chat preview.]";
+
+function looksLikeBinaryDisplayText(text: string): boolean {
+  const sample = text.slice(0, 4096);
+  if (/^\s*%PDF-\d+(?:\.\d+)?/.test(sample) || sample.slice(0, 1200).includes("%PDF-")) {
+    return true;
+  }
+  if (sample.includes("\u0000")) {
+    return true;
+  }
+
+  const replacementCount = sample.match(/\uFFFD/g)?.length ?? 0;
+  const controlCount = sample.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g)?.length ?? 0;
+  if (controlCount >= 3) {
+    return true;
+  }
+  return replacementCount >= 8 && replacementCount / Math.max(sample.length, 1) > 0.01;
+}
+
+function isBinaryOmittedText(text: string | undefined): boolean {
+  return text === BINARY_CONTENT_OMITTED_MESSAGE;
+}
+
+function sanitizeChatDisplayText(text: string): string {
+  const decoded = maybeDecodeMojibake(text);
+  return looksLikeBinaryDisplayText(decoded) ? BINARY_CONTENT_OMITTED_MESSAGE : decoded;
+}
+
 function normalizeChatRole(role: string): ChatMessage["role"] {
   const normalized = role.trim().toLowerCase();
   if (normalized === "user" || normalized === "assistant" || normalized === "system") {
@@ -107,11 +135,11 @@ function isLikelyInternalHeartbeatPrelude(message: ChatMessage): boolean {
 
 function formatToolValue(value: unknown): string {
   if (value == null) return "";
-  if (typeof value === "string") return maybeDecodeMojibake(value);
+  if (typeof value === "string") return sanitizeChatDisplayText(value);
   try {
-    return maybeDecodeMojibake(JSON.stringify(value, null, 2));
+    return sanitizeChatDisplayText(JSON.stringify(value, null, 2));
   } catch {
-    return maybeDecodeMojibake(String(value));
+    return sanitizeChatDisplayText(String(value));
   }
 }
 
@@ -132,8 +160,8 @@ function summarizeToolCalls(
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const normalized = normalizeGatewayChatMessage(message);
   if (!normalized) return null;
-  const content = maybeDecodeMojibake(normalized.text);
-  const thinking = maybeDecodeMojibake(normalized.thinking).trim();
+  const content = sanitizeChatDisplayText(normalized.text);
+  const thinking = sanitizeChatDisplayText(normalized.thinking).trim();
   if (isInternalHeartbeatMessage({ content, thinking })) return null;
   const toolCalls = summarizeToolCalls(normalized.toolCalls)?.filter(
     (toolCall) => !isInternalHeartbeatMessage({ toolCalls: [toolCall] }),
@@ -196,20 +224,30 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
   // text actually contains the current text as a prefix. The previous
   // length-based heuristic broke delta streams whenever a single chunk was
   // longer than the accumulated text, silently dropping prior content.
-  const mergedContent = incoming.content
+  const rawMergedContent = incoming.content
     ? (
       current.content && incoming.content.startsWith(current.content)
         ? incoming.content
         : `${current.content ?? ""}${incoming.content}`
     )
     : current.content;
-  const mergedThinking = incoming.thinking
+  const mergedContent = isBinaryOmittedText(current.content) && incoming.content
+    ? current.content
+    : sanitizeChatDisplayText(rawMergedContent);
+  const rawMergedThinking = incoming.thinking
     ? (
       current.thinking && incoming.thinking.startsWith(current.thinking)
         ? incoming.thinking
         : `${current.thinking ?? ""}${incoming.thinking}`
     )
     : current.thinking;
+  const mergedThinking = rawMergedThinking
+    ? (
+      isBinaryOmittedText(current.thinking) && incoming.thinking
+        ? current.thinking
+        : sanitizeChatDisplayText(rawMergedThinking)
+    )
+    : rawMergedThinking;
   const mergedMediaUrls = [
     ...(current.mediaUrls ?? []),
     ...((incoming.mediaUrls ?? []).filter((url) => !(current.mediaUrls ?? []).includes(url))),
@@ -227,17 +265,32 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
   };
 }
 
+function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
+  const toolCalls = message.toolCalls?.map((toolCall) => ({
+    ...toolCall,
+    args: sanitizeChatDisplayText(toolCall.args),
+    ...(toolCall.result !== undefined ? { result: sanitizeChatDisplayText(toolCall.result) } : {}),
+  }));
+  return {
+    ...message,
+    content: sanitizeChatDisplayText(message.content),
+    ...(message.thinking ? { thinking: sanitizeChatDisplayText(message.thinking) } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  };
+}
+
 function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
-  if (isInternalHeartbeatMessage(incoming)) {
+  const sanitizedIncoming = sanitizeAssistantMessage(incoming);
+  if (isInternalHeartbeatMessage(sanitizedIncoming)) {
     const last = prev[prev.length - 1];
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
   }
   const last = prev[prev.length - 1];
   let next: ChatMessage[];
   if (last?.role === "assistant") {
-    next = [...prev.slice(0, -1), mergeAssistantMessage(last, incoming)];
+    next = [...prev.slice(0, -1), mergeAssistantMessage(last, sanitizedIncoming)];
   } else {
-    next = [...prev, incoming];
+    next = [...prev, sanitizedIncoming];
   }
   return next.filter((message) => !isInternalHeartbeatMessage(message));
 }
@@ -284,4 +337,4 @@ function normalizeLiveToolResult(
 }
 
 
-export { maybeDecodeMojibake, normalizeHistoryMessage, normalizeLiveToolCall, normalizeLiveToolResult, upsertAssistantMessage };
+export { maybeDecodeMojibake, normalizeHistoryMessage, normalizeLiveToolCall, normalizeLiveToolResult, sanitizeChatDisplayText, upsertAssistantMessage };

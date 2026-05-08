@@ -18,7 +18,6 @@ import {
   Play,
   AlertTriangle,
   PenLine,
-  Hash,
   PanelLeftClose,
   Key,
   CreditCard,
@@ -96,10 +95,6 @@ export interface AgentsChannelsSidebarProps {
   threads: ConversationThread[];
   selectedThreadId: string | null;
   onSelectThread: (threadId: string) => void;
-  /** Trigger the "new agent" creation modal. */
-  onNewThread?: () => void;
-  /** Trigger the "new channel" creation modal. */
-  onNewChannel?: () => void;
   onStartAgentChat?: (agent: Participant) => void;
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onDeleteThread?: (threadId: string) => void;
@@ -118,9 +113,14 @@ export interface AgentsChannelsSidebarProps {
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   /** Create a real agent via the inline "New Agent" form. Must return the created agent id on success. */
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  /** Open the full launch-agent flow used by the empty agent state. */
+  onOpenAgentLauncher?: () => void;
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
+  /** When provided, the Settings account item opens the current agent workspace settings panel instead of routing. */
+  onOpenAgentSettings?: () => void;
+  agentSettingsActive?: boolean;
 }
 
 const DASHBOARD_LINKS = [
@@ -510,112 +510,18 @@ function ThreadRow({
   );
 }
 
-function NewThreadChooser({
-  onNewAgent,
-  onNewChannel,
-  showChannel = true,
-  disabled = false,
-}: {
-  onNewAgent?: () => void;
-  onNewChannel?: () => void;
-  showChannel?: boolean;
-  disabled?: boolean;
-}) {
-  // If only the Agent option is available, skip the chooser entirely and trigger directly.
-  if (!showChannel) {
-    return (
-      <button
-        onClick={disabled ? undefined : onNewAgent}
-        disabled={disabled}
-        title={disabled ? "Launch your first agent below" : "New Agent"}
-        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
-          disabled
-            ? "cursor-not-allowed text-text-muted/30"
-            : "text-text-muted hover:text-foreground hover:bg-surface-low"
-        }`}
-      >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
-    );
-  }
-  const [open, setOpen] = useState(false);
-  const ref = useRef<HTMLDivElement>(null);
-
-  useEffect(() => {
-    if (!open) return;
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) setOpen(false);
-    };
-    document.addEventListener("mousedown", handler);
-    return () => document.removeEventListener("mousedown", handler);
-  }, [open]);
-
-  return (
-    <div className="relative" ref={ref}>
-      <button
-        onClick={disabled ? undefined : () => setOpen((v) => !v)}
-        disabled={disabled}
-        title={disabled ? "Launch your first agent below" : "New"}
-        className={`w-7 h-7 rounded-md flex items-center justify-center transition-colors ${
-          disabled
-            ? "cursor-not-allowed text-text-muted/30"
-            : open
-              ? "text-foreground bg-surface-low"
-              : "text-text-muted hover:text-foreground hover:bg-surface-low"
-        }`}
-      >
-        <Plus className="w-3.5 h-3.5" />
-      </button>
-      <AnimatePresence>
-        {open && (
-          <motion.div
-            initial={{ opacity: 0, scale: 0.95, y: -4 }}
-            animate={{ opacity: 1, scale: 1, y: 0 }}
-            exit={{ opacity: 0, scale: 0.95, y: -4 }}
-            transition={{ duration: 0.12 }}
-            className="absolute right-0 top-full mt-1 z-50 w-44 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden py-1"
-          >
-            <button
-              onClick={() => { setOpen(false); onNewAgent?.(); }}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
-            >
-              <Bot className="w-3.5 h-3.5 text-[#38D39F]" />
-              <span className="text-[11px] text-foreground">New Agent</span>
-            </button>
-            <button
-              onClick={() => { setOpen(false); onNewChannel?.(); }}
-              className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
-            >
-              <Hash className="w-3.5 h-3.5 text-[#6b9eff]" />
-              <span className="text-[11px] text-foreground">New Channel</span>
-            </button>
-          </motion.div>
-        )}
-      </AnimatePresence>
-    </div>
-  );
-}
-
 function SidebarHeader({
   showSearch,
   searchQuery,
   onToggleSearch,
   onSearchChange,
-  onNewThread,
-  onNewChannel,
-  showChannels = true,
   onCollapse,
-  newDisabled = false,
 }: {
   showSearch: boolean;
   searchQuery: string;
   onToggleSearch: () => void;
   onSearchChange: (q: string) => void;
-  onNewThread?: () => void;
-  onNewChannel?: () => void;
-  showChannels?: boolean;
   onCollapse?: () => void;
-  newDisabled?: boolean;
 }) {
   return (
     <div className="flex-shrink-0 border-b border-border m-[-1px]">
@@ -628,7 +534,6 @@ function SidebarHeader({
           >
             {showSearch ? <X className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
           </button>
-          <NewThreadChooser onNewAgent={onNewThread} onNewChannel={onNewChannel} showChannel={showChannels} disabled={newDisabled} />
           {onCollapse && (
             <button
               onClick={onCollapse}
@@ -669,9 +574,13 @@ function SidebarHeader({
 export function AgentsSidebarDashboardLinks({
   compact = false,
   accountInitial = "?",
+  onOpenAgentSettings,
+  agentSettingsActive = false,
 }: {
   compact?: boolean;
   accountInitial?: string;
+  onOpenAgentSettings?: () => void;
+  agentSettingsActive?: boolean;
 }) {
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
@@ -703,7 +612,30 @@ export function AgentsSidebarDashboardLinks({
           >
             {DASHBOARD_LINKS.map((item) => {
               const Icon = item.icon;
-              const active = isDashboardLinkActive(pathname, item.href);
+              const opensAgentSettings = item.label === "Settings" && Boolean(onOpenAgentSettings);
+              const active = opensAgentSettings ? agentSettingsActive : isDashboardLinkActive(pathname, item.href);
+
+              if (opensAgentSettings) {
+                return (
+                  <button
+                    key={item.href}
+                    type="button"
+                    onClick={() => {
+                      setOpen(false);
+                      onOpenAgentSettings?.();
+                    }}
+                    role="menuitem"
+                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                      active
+                        ? "bg-surface-low text-foreground"
+                        : "text-text-secondary hover:bg-surface-low hover:text-foreground"
+                    }`}
+                  >
+                    <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                    <span className="text-[11px] font-medium">{item.label}</span>
+                  </button>
+                );
+              }
 
               return (
                 <Link
@@ -1744,11 +1676,11 @@ function HandoffThreadView({
   onStartAgentChat,
   onCreateChannel,
   onCreateAgent,
+  onOpenAgentLauncher,
   showChannels = true,
   availableAgents,
   agentCardDataById,
   openAgentCreatorSignal,
-  newDisabled = false,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
@@ -1758,11 +1690,11 @@ function HandoffThreadView({
   onStartAgentChat?: (agent: Participant) => void;
   onCreateChannel?: (name: string, agents: Participant[], users: Participant[]) => void;
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  onOpenAgentLauncher?: () => void;
   showChannels?: boolean;
   availableAgents?: Participant[];
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   openAgentCreatorSignal?: number;
-  newDisabled?: boolean;
 }) {
   const agentsList = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
@@ -1773,10 +1705,17 @@ function HandoffThreadView({
 
   useEffect(() => {
     if (openAgentCreatorSignal === undefined || openAgentCreatorSignal === 0) return;
+    if (onOpenAgentLauncher) {
+      onOpenAgentLauncher();
+      setShowAgentCreator(false);
+      setShowChannelCreator(false);
+      setMyAgentsOpen(true);
+      return;
+    }
     setShowAgentCreator(true);
     setShowChannelCreator(false);
     setMyAgentsOpen(true);
-  }, [openAgentCreatorSignal]);
+  }, [onOpenAgentLauncher, openAgentCreatorSignal]);
 
   const sortedThreads = useMemo(
     () => [...threads].sort((a, b) => b.lastMessageAt - a.lastMessageAt),
@@ -1795,33 +1734,20 @@ function HandoffThreadView({
   return (
     <div className="flex-1 overflow-y-auto">
       {/* ── My Agents section header ── */}
-      <button
-        onClick={() => setMyAgentsOpen((v) => !v)}
-        className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-surface-low/40 transition-colors"
-      >
-        <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${myAgentsOpen ? "" : "-rotate-90"}`} />
-        <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
-        <div className="flex-1 h-px bg-border/50" />
-        {privateThreads.length > 0 && (
-          <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
-        )}
-        <motion.div
-          whileHover={newDisabled ? {} : { scale: 1.05, boxShadow: "0 0 12px rgba(56,211,159,0.12)" }}
-          whileTap={newDisabled ? {} : { scale: 0.95 }}
-          onClick={newDisabled ? (e) => e.stopPropagation() : (e) => { e.stopPropagation(); setShowAgentCreator((v) => !v); setShowChannelCreator(false); setMyAgentsOpen(true); }}
-          title={newDisabled ? "Launch your first agent below" : undefined}
-          className={`flex items-center gap-1 px-1.5 py-0.5 rounded-md text-[10px] font-medium transition-colors ${
-            newDisabled
-              ? "cursor-not-allowed text-[#38D39F]/20 bg-[#38D39F]/5 border border-[#38D39F]/10"
-              : showAgentCreator
-                ? "text-[#38D39F] bg-[#38D39F]/15 border border-[#38D39F]/30 cursor-pointer"
-                : "text-[#38D39F]/80 bg-[#38D39F]/8 border border-[#38D39F]/15 hover:border-[#38D39F]/30 hover:text-[#38D39F] cursor-pointer"
-          }`}
+      <div className="w-full px-3 py-1.5 flex items-center gap-2 hover:bg-surface-low/40 transition-colors">
+        <button
+          type="button"
+          onClick={() => setMyAgentsOpen((v) => !v)}
+          className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
-          <Plus className="w-3 h-3" />
-          <span>New</span>
-        </motion.div>
-      </button>
+          <ChevronDown className={`w-3 h-3 flex-shrink-0 text-text-muted transition-transform ${myAgentsOpen ? "" : "-rotate-90"}`} />
+          <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
+          <div className="flex-1 h-px bg-border/50" />
+          {privateThreads.length > 0 && (
+            <span className="text-[10px] text-text-muted">{privateThreads.length}</span>
+          )}
+        </button>
+      </div>
 
       <AnimatePresence initial={false}>
         {myAgentsOpen && (
@@ -1832,6 +1758,36 @@ function HandoffThreadView({
             transition={{ duration: 0.18 }}
             className="overflow-hidden"
           >
+            <motion.button
+              type="button"
+              aria-label="Launch agent"
+              title="Launch agent"
+              initial={{ opacity: 0, y: -6 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ duration: 0.18 }}
+              whileHover={{ x: 2 }}
+              whileTap={{ scale: 0.98 }}
+              onClick={() => {
+                if (onOpenAgentLauncher) {
+                  onOpenAgentLauncher();
+                  return;
+                }
+                setShowAgentCreator((v) => !v);
+                setShowChannelCreator(false);
+                setMyAgentsOpen(true);
+              }}
+              className="group/agent flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-surface-low/60"
+            >
+              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#38D39F]/25 bg-[#38D39F]/10 text-[#38D39F] transition-colors group-hover/agent:border-[#38D39F]/45 group-hover/agent:bg-[#38D39F]/15">
+                <Plus className="h-3.5 w-3.5" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block truncate text-[11px] font-medium text-foreground">Launch agent</span>
+                <span className="block truncate text-[10px] text-text-muted">Create a new workspace</span>
+              </span>
+              <ChevronRight className="h-3 w-3 flex-shrink-0 text-text-muted/0 transition-colors group-hover/agent:text-text-muted" />
+            </motion.button>
+
             {/* Inline agent creator */}
             <QuickAgentCreator
               open={showAgentCreator}
@@ -1986,11 +1942,9 @@ const AVAILABLE_AGENTS = MOCK_PARTICIPANTS.filter((p) => p.type === "agent");
 
 function ConversationsEmptyPrompt({
   hasThreads,
-  onNewThread,
   onStartAgentChat,
 }: {
   hasThreads: boolean;
-  onNewThread?: () => void;
   onStartAgentChat?: (agent: Participant) => void;
 }) {
   const [showCreator, setShowCreator] = useState(false);
@@ -2101,8 +2055,6 @@ export function AgentsChannelsSidebar({
   threads,
   selectedThreadId,
   onSelectThread,
-  onNewThread,
-  onNewChannel,
   onStartAgentChat,
   onCreateChannel,
   onDeleteThread,
@@ -2114,12 +2066,14 @@ export function AgentsChannelsSidebar({
   availableAgents,
   agentCardDataById,
   onCreateAgent,
+  onOpenAgentLauncher,
   openAgentCreatorSignal,
   accountInitial,
+  onOpenAgentSettings,
+  agentSettingsActive,
 }: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
-  const newDisabled = threads.length === 0;
 
   const filtered = useMemo(() => {
     if (!searchQuery.trim()) return threads;
@@ -2143,11 +2097,7 @@ export function AgentsChannelsSidebar({
           if (showSearch) setSearchQuery("");
         }}
         onSearchChange={setSearchQuery}
-        onNewThread={onNewThread}
-        onNewChannel={onNewChannel}
-        showChannels={showChannels}
         onCollapse={onCollapse}
-        newDisabled={newDisabled}
       />
       <HandoffWidget />
 
@@ -2178,11 +2128,11 @@ export function AgentsChannelsSidebar({
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
+          onOpenAgentLauncher={onOpenAgentLauncher}
           showChannels={showChannels}
           availableAgents={availableAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
-          newDisabled={newDisabled}
         />
       )}
       {variant === "v3.1" && (
@@ -2195,14 +2145,18 @@ export function AgentsChannelsSidebar({
           onStartAgentChat={onStartAgentChat}
           onCreateChannel={onCreateChannel}
           onCreateAgent={onCreateAgent}
+          onOpenAgentLauncher={onOpenAgentLauncher}
           showChannels={showChannels}
           availableAgents={availableAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
-          newDisabled={newDisabled}
         />
       )}
-      <AgentsSidebarDashboardLinks accountInitial={accountInitial} />
+      <AgentsSidebarDashboardLinks
+        accountInitial={accountInitial}
+        onOpenAgentSettings={onOpenAgentSettings}
+        agentSettingsActive={agentSettingsActive}
+      />
     </div>
   );
 }

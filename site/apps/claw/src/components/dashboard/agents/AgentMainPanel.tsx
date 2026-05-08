@@ -4,10 +4,10 @@ import React from "react";
 import { Gauge, Loader2, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
-import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
-import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState } from "@/components/dashboard/agents/AgentPanels";
+import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import type { SlotInventory } from "@/lib/format";
 
@@ -41,6 +41,8 @@ interface AgentMainPanelProps {
     pooled_tpd: number;
   } | null;
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
+  catalogPlans?: HyperAgentPlan[] | null;
+  onOpenPlanCatalog?: () => void | Promise<void>;
   onShowList: () => void;
   onShowInspector: () => void;
   showInspectorButton?: boolean;
@@ -75,6 +77,8 @@ export function AgentMainPanel({
   onCreateAgent,
   budget,
   subscriptionSummary,
+  catalogPlans,
+  onOpenPlanCatalog,
   onShowList,
   onShowInspector,
   showInspectorButton = true,
@@ -143,7 +147,88 @@ export function AgentMainPanel({
   const shouldShowStartupAnimation =
     (isSelectedTransitioning && (selectedAgent?.state === "PENDING" || selectedAgent?.state === "STARTING")) ||
     (selectedAgent?.state === "RUNNING" && burstAgentId === selectedAgent.id);
-  const canUsePanelWhileStopped = currentPanel === "files" || currentPanel === "settings";
+  const stoppedLaunchBusy = Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)));
+  const stoppedEmptyStateProps = {
+    onCreate,
+    onCreateAgent,
+    budget,
+    subscriptionSummary,
+    catalogPlans,
+    onOpenPlanCatalog,
+    launchLabel: "Start agent",
+    launching: stoppedLaunchBusy,
+    onLaunchAction: onStart,
+  };
+  const stoppedPanelContent = (() => {
+    if (selectedAgent?.state !== "STOPPED") return null;
+    if (currentPanel === "chat") {
+      return <AgentEmptyState {...stoppedEmptyStateProps} />;
+    }
+    if (currentPanel === "files") {
+      return <AgentFilesEmptyState {...stoppedEmptyStateProps} />;
+    }
+    if (currentPanel === "integrations") {
+      return skillsPanelActive ? (
+        <AgentSkillsEmptyState {...stoppedEmptyStateProps} />
+      ) : (
+        <AgentIntegrationsEmptyState {...stoppedEmptyStateProps} />
+      );
+    }
+    if (currentPanel === "scheduled") {
+      return <AgentScheduledEmptyState {...stoppedEmptyStateProps} />;
+    }
+    return null;
+  })();
+  const renderSelectedPanelContent = () => {
+    const activeAgent = selectedAgent;
+    if (!activeAgent) return null;
+
+    if (isStopping) {
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className="max-w-md text-center">
+            <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#f0c56c]" />
+            <p className="text-base text-foreground">Stopping agent</p>
+            <p className="mt-2 text-sm text-text-muted">Stopping the runtime and cleaning up the workspace.</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (shouldShowStartupAnimation) {
+      return (
+        <div className="h-full flex items-center justify-center">
+          <AgentHatchAnimation
+            state={activeAgent.state === "RUNNING" ? "RUNNING" : activeAgent.state as "PENDING" | "STARTING"}
+            onBurstComplete={onBurstComplete}
+          />
+        </div>
+      );
+    }
+
+    if (stoppedPanelContent) {
+      return stoppedPanelContent;
+    }
+
+    if (currentPanel === "settings") {
+      return panelContent;
+    }
+
+    if (!isSelectedRunning) {
+      return (
+        <AgentLaunchPrompt
+          label={stoppedTabLabel}
+          launching={stoppedLaunchBusy}
+          onLaunch={onStart}
+          blockedTitle={selectedAgentStartGuidanceTitle}
+          blockedMessage={blockedMessage}
+          suggestedTierActions={suggestedTierActions}
+        />
+      );
+    }
+
+    return panelContent;
+  };
 
   return (
     <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
@@ -156,42 +241,14 @@ export function AgentMainPanel({
             stage="complete"
           />
         </div>
-      ) : !selectedAgent && currentPanel === "files" ? (
-        <AgentFilesEmptyState
-          onCreate={onCreate}
-          onCreateAgent={onCreateAgent}
-          budget={budget}
-          subscriptionSummary={subscriptionSummary}
-        />
-      ) : !selectedAgent && currentPanel === "scheduled" ? (
-        <AgentScheduledEmptyState
-          onCreate={onCreate}
-          onCreateAgent={onCreateAgent}
-          budget={budget}
-          subscriptionSummary={subscriptionSummary}
-        />
-      ) : !selectedAgent && currentPanel === "integrations" ? (
-        skillsPanelActive ? (
-          <AgentSkillsEmptyState
-            onCreate={onCreate}
-            onCreateAgent={onCreateAgent}
-            budget={budget}
-            subscriptionSummary={subscriptionSummary}
-          />
-        ) : (
-          <AgentIntegrationsEmptyState
-            onCreate={onCreate}
-            onCreateAgent={onCreateAgent}
-            budget={budget}
-            subscriptionSummary={subscriptionSummary}
-          />
-        )
       ) : !selectedAgent ? (
-        <AgentEmptyState
+        <LaunchFirstAgentEmptyState
           onCreate={onCreate}
           onCreateAgent={onCreateAgent}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          onOpenPlanCatalog={onOpenPlanCatalog}
         />
       ) : (
         <>
@@ -266,31 +323,7 @@ export function AgentMainPanel({
           </div>
 
           <div className="flex-1 min-h-0 overflow-hidden">
-            {isStopping ? (
-              <div className="h-full flex items-center justify-center p-6">
-                <div className="max-w-md text-center">
-                  <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#f0c56c]" />
-                  <p className="text-base text-foreground">Stopping agent</p>
-                  <p className="mt-2 text-sm text-text-muted">Stopping the runtime and cleaning up the workspace.</p>
-                </div>
-              </div>
-            ) : shouldShowStartupAnimation ? (
-              <div className="h-full flex items-center justify-center">
-                <AgentHatchAnimation
-                  state={selectedAgent.state === "RUNNING" ? "RUNNING" : selectedAgent.state as "PENDING" | "STARTING"}
-                  onBurstComplete={onBurstComplete}
-                />
-              </div>
-            ) : !isSelectedRunning && !canUsePanelWhileStopped ? (
-              <AgentLaunchPrompt
-                label={stoppedTabLabel}
-                launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
-                onLaunch={onStart}
-                blockedTitle={selectedAgentStartGuidanceTitle}
-                blockedMessage={blockedMessage}
-                suggestedTierActions={suggestedTierActions}
-              />
-            ) : panelContent}
+            {renderSelectedPanelContent()}
           </div>
         </>
       )}
