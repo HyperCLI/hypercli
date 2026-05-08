@@ -8,6 +8,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -24,6 +25,7 @@ const dropdownNavItems = [
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
 ];
+const POST_LOGIN_PATH = "/dashboard/agents";
 
 export function ClawHeader() {
   const [scrolled, setScrolled] = useState(false);
@@ -63,12 +65,12 @@ export function ClawHeader() {
     }
   }, [userMenuOpen]);
 
-  // Redirect to dashboard only when user just completed login
+  // Redirect to the agents dashboard only when user just completed login
   // (auth transitions from false → true), not on every page load
   const wasAuthenticated = useRef(isAuthenticated);
   useEffect(() => {
     if (!isLoading && isAuthenticated && !wasAuthenticated.current) {
-      router.push("/dashboard");
+      router.push(POST_LOGIN_PATH);
     }
     if (!isLoading) {
       wasAuthenticated.current = isAuthenticated;
@@ -89,12 +91,7 @@ export function ClawHeader() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center h-16 gap-6">
             {/* Logo */}
-            <a href="/" className="flex items-center gap-2">
-              <span className="text-xl font-bold">
-                <span className="text-foreground">Hyper</span>
-                <span className="text-primary">Claw</span>
-              </span>
-            </a>
+            <HyperClawLogoLink className="h-[34px] w-[114px]" priority />
 
             {/* Desktop Nav */}
             <div className="claw-header-desktop flex-1 justify-center">
@@ -119,7 +116,7 @@ export function ClawHeader() {
               {showAuthenticatedNav ? (
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => router.push("/dashboard")}
+                    onClick={() => router.push(POST_LOGIN_PATH)}
                     className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
                   >
                     Dashboard
@@ -240,7 +237,7 @@ export function ClawHeader() {
                     <button
                       onClick={() => {
                         setMobileOpen(false);
-                        router.push("/dashboard");
+                        router.push(POST_LOGIN_PATH);
                       }}
                       className="btn-primary px-4 py-2 rounded-lg text-sm font-medium w-full"
                     >
@@ -307,7 +304,7 @@ export function ClawHeader() {
         description="Please sign in to continue"
         apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
-        onSuccess={() => router.push("/dashboard")}
+        onSuccess={() => router.push(POST_LOGIN_PATH)}
       />
     </>
   );

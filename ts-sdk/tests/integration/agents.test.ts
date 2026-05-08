@@ -1,4 +1,11 @@
-import { createAgentWithAvailableTier, createIntegrationClient, agentsIt } from "./helpers.js";
+import {
+  TEST_API_BASE,
+  TEST_AGENTS_ADMIN_BASE,
+  TEST_BACKEND_API_KEY,
+  createAgentWithAvailableTier,
+  createIntegrationClient,
+  agentsIt,
+} from "./helpers.js";
 import { HyperCLI } from "../../src/client.js";
 import { APIError } from "../../src/errors.js";
 
@@ -20,14 +27,28 @@ describe("TS SDK integration: agents", () => {
 
   agentsIt("creates an exact-agent child key that only sees one agent", async () => {
     const client = createIntegrationClient();
-    const createdA = await createAgentWithAvailableTier(client, {
-      name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-      tags: ["team=dev", "suite=ts-integration"],
-    });
-    const createdB = await createAgentWithAvailableTier(client, {
-      name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
-      tags: ["team=ops", "suite=ts-integration"],
-    });
+    let createdA: { id: string; tier: string };
+    let createdB: { id: string; tier: string };
+    try {
+      createdA = await createAgentWithAvailableTier(client, {
+        name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+        tags: ["team=dev", "suite=ts-integration"],
+      });
+      createdB = await createAgentWithAvailableTier(client, {
+        name: `ts-scope-${Math.random().toString(16).slice(2, 10)}`,
+        tags: ["team=ops", "suite=ts-integration"],
+      });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      if (
+        message.includes("No available entitlement slots")
+        || message.includes("no connected clusters are advertising that tag")
+      ) {
+        console.warn(`Skipping exact-agent child key smoke: ${message}`);
+        return;
+      }
+      throw error;
+    }
     const agentA = await client.deployments.get(createdA.id);
     const agentB = await client.deployments.get(createdB.id);
 
@@ -66,5 +87,41 @@ describe("TS SDK integration: agents", () => {
       await client.deployments.delete(agentA.id);
       await client.deployments.delete(agentB.id);
     }
+  });
+
+  (TEST_BACKEND_API_KEY ? agentsIt : it.skip)("redeems a grant code created via the admin billing route", async () => {
+    const tag = `suite=ts-redeem-${Math.random().toString(16).slice(2, 10)}`;
+    const createResponse = await fetch(`${TEST_AGENTS_ADMIN_BASE.replace(/\/$/, "")}/admin/billing/grants/code`, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/json",
+        "X-BACKEND-API-KEY": TEST_BACKEND_API_KEY,
+      },
+      body: JSON.stringify({
+        plan_id: "basic",
+        duration: 3600,
+        tags: [tag],
+      }),
+    });
+
+    if (!createResponse.ok) {
+      throw new Error(
+        `Grant code creation failed: ${createResponse.status} ${await createResponse.text()}`,
+      );
+    }
+    const grant = await createResponse.json() as {
+      code: string;
+      plan_id: string;
+      tags?: string[];
+    };
+    expect(grant.code).toBeTruthy();
+    expect(grant.plan_id).toBe("basic");
+
+    const client = createIntegrationClient();
+    const redemption = await client.agent.redeemGrantCode(grant.code);
+
+    expect(redemption.grant.code).toBe(grant.code);
+    expect(redemption.entitlement.planId).toBe("basic");
+    expect(redemption.entitlement.tags).toContain(tag);
   });
 });

@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  createContext,
   useCallback,
   useEffect,
   useMemo,
@@ -9,27 +8,11 @@ import {
   useState,
   type ReactNode,
 } from "react";
-import type { Deployments } from "@hypercli.com/sdk/agents";
-import type { HyperAgent } from "@hypercli.com/sdk/agent";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
+import { HyperCLIContext, type HyperCLIContextValue } from "./HyperCLIContext";
 
 // ── Context shape ──
-
-export interface HyperCLIContextValue {
-  /** Deployments client (agents CRUD, file ops, logs, shell) */
-  deployments: Deployments | null;
-  /** HyperAgent client (AI plans, models, inference) */
-  hyperAgent: HyperAgent | null;
-  /** Current auth token for clawFetch calls during migration */
-  token: string | null;
-  /** Whether SDK clients are ready to use */
-  ready: boolean;
-  /** Force refresh token and recreate clients */
-  refreshClients: () => Promise<void>;
-}
-
-export const HyperCLIContext = createContext<HyperCLIContextValue | null>(null);
 
 // ── Provider ──
 

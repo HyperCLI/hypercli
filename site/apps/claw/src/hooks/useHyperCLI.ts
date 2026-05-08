@@ -1,5 +1,5 @@
 import { useContext } from "react";
-import { HyperCLIContext, type HyperCLIContextValue } from "@/providers/HyperCLIProvider";
+import { HyperCLIContext, type HyperCLIContextValue } from "@/providers/HyperCLIContext";
 
 export function useHyperCLI(): HyperCLIContextValue {
   const ctx = useContext(HyperCLIContext);

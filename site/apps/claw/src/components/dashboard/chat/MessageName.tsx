@@ -1,7 +1,7 @@
 "use client";
 
 import { Sparkles } from "lucide-react";
-import { agentAvatar } from "@/lib/avatar";
+import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import type { NameVariant } from "./types";
 
 interface MessageNameProps {
@@ -9,9 +9,38 @@ interface MessageNameProps {
   placement: "avatar-left" | "above-bubble" | "text-above";
   isUser: boolean;
   effectiveName: string;
+  agentMeta?: AgentMeta | null;
 }
 
-export function MessageName({ variant, placement, isUser, effectiveName }: MessageNameProps) {
+function AgentAvatarMark({
+  name,
+  meta,
+  sizeClass,
+  iconClass,
+}: {
+  name: string;
+  meta?: AgentMeta | null;
+  sizeClass: string;
+  iconClass: string;
+}) {
+  const avatar = agentAvatar(name, meta);
+  const AvatarIcon = avatar.icon;
+  return (
+    <div className={`${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
+      {avatar.imageUrl ? (
+        <span
+          aria-label={`${name} avatar`}
+          className="h-full w-full bg-cover bg-center"
+          style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+        />
+      ) : (
+        <AvatarIcon className={iconClass} style={{ color: avatar.fgColor }} />
+      )}
+    </div>
+  );
+}
+
+export function MessageName({ variant, placement, isUser, effectiveName, agentMeta }: MessageNameProps) {
   const initial = effectiveName[0]?.toUpperCase() ?? (isUser ? "Y" : "A");
 
   // v2: avatar circle to the left of the bubble
@@ -23,11 +52,13 @@ export function MessageName({ variant, placement, isUser, effectiveName }: Messa
         </div>
       );
     }
-    const av = agentAvatar(effectiveName);
     return (
-      <div className="mt-0.5 flex-shrink-0 w-7 h-7 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
-        <span className="text-[10px] font-bold" style={{ color: av.fgColor }}>{initial}</span>
-      </div>
+      <AgentAvatarMark
+        name={effectiveName}
+        meta={agentMeta}
+        sizeClass="mt-0.5 flex-shrink-0 w-7 h-7"
+        iconClass="w-3.5 h-3.5"
+      />
     );
   }
 
@@ -48,12 +79,9 @@ export function MessageName({ variant, placement, isUser, effectiveName }: Messa
         </div>
       );
     }
-    const av = agentAvatar(effectiveName);
     return (
       <div className="flex items-center gap-1.5 mb-1">
-        <div className="w-5 h-5 rounded-full flex items-center justify-center" style={{ backgroundColor: av.bgColor }}>
-          <span className="text-[9px] font-bold" style={{ color: av.fgColor }}>{initial}</span>
-        </div>
+        <AgentAvatarMark name={effectiveName} meta={agentMeta} sizeClass="w-5 h-5" iconClass="w-3 h-3" />
         <span className="text-[11px] text-text-muted">{effectiveName}</span>
       </div>
     );

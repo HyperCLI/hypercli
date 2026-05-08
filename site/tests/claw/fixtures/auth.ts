@@ -26,6 +26,7 @@ const STRIPE_TEST_ZIP = "10001";
 const TOP_UP_POLL_TIMEOUT_MS = 180_000;
 const CLAW_PLAN_POLL_TIMEOUT_MS = 180_000;
 const DEFAULT_TEST_AGENTS_API_BASE_URL = "https://api.dev.hypercli.com/agents";
+const DEFAULT_TEST_AGENTS_ADMIN_BASE_URL = "https://api.agents.dev.hypercli.com";
 const DEFAULT_TEST_API_BASE_URL = "https://api.dev.hypercli.com";
 const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
   process.env.TEST_PRIVY_AUTH_SETTLE_TIMEOUT_MS || "45000",
@@ -34,6 +35,16 @@ const PRIVY_AUTH_SETTLE_TIMEOUT_MS = Number.parseInt(
 
 function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function logWaitStart(label: string): number {
+  const startedAt = Date.now();
+  console.log(`[wait:start] ${label}`);
+  return startedAt;
+}
+
+function logWaitEnd(label: string, startedAt: number): void {
+  console.log(`[wait:end] ${label} (${Date.now() - startedAt}ms)`);
 }
 
 interface BillingBalanceSnapshot {
@@ -77,10 +88,44 @@ interface HyperAgentCurrentPlan {
   rpmLimit: number;
   expiresAt: Date | null;
   cancelAtPeriodEnd: boolean;
+  pooledTpd?: number;
+  slotInventory?: Record<string, { granted: number; used: number; available?: number }>;
+}
+
+interface HyperAgentSubscription {
+  id: string;
+  planId: string;
+  planName: string;
+  status: string;
+  expiresAt: Date | null;
+  cancelAtPeriodEnd: boolean;
+  stripeSubscriptionId?: string | null;
+  meta?: {
+    checkout_session_id?: string | null;
+    plan_id?: string | null;
+    [key: string]: unknown;
+  };
+}
+
+interface HyperAgentSubscriptionSummary {
+  effectivePlanId: string;
+  pooledTpmLimit: number;
+  pooledRpmLimit: number;
+  pooledTpd: number;
+  slotInventory: Record<string, { granted: number; used: number; available?: number }>;
+  activeSubscriptionCount: number;
+  activeEntitlementCount: number;
+  entitlements?: {
+    effectivePlanId?: string;
+    activeEntitlementCount?: number;
+    slotInventory?: Record<string, { granted: number; used: number; available?: number }>;
+  };
+  activeSubscriptions: HyperAgentSubscription[];
 }
 
 interface HyperAgentClientLike {
   currentPlan(): Promise<HyperAgentCurrentPlan>;
+  subscriptionSummary(): Promise<HyperAgentSubscriptionSummary>;
 }
 
 interface DeploymentRecord {
@@ -92,6 +137,7 @@ interface DeploymentRecord {
 interface DeploymentsClientLike {
   list(): Promise<DeploymentRecord[]>;
   get(agentId: string): Promise<DeploymentRecord>;
+  waitRunning(agentId: string, timeoutMs?: number, intervalMs?: number): Promise<DeploymentRecord>;
   stop(agentId: string): Promise<unknown>;
   delete(agentId: string): Promise<unknown>;
 }
@@ -128,6 +174,14 @@ function getAgentsApiBaseUrl(): string {
   return (
     getOptionalEnv("TEST_AGENTS_API_BASE_URL") ||
     DEFAULT_TEST_AGENTS_API_BASE_URL
+  ).replace(/\/$/, "");
+}
+
+function getAgentsAdminBaseUrl(): string {
+  return (
+    getOptionalEnv("TEST_AGENTS_ADMIN_BASE") ||
+    getOptionalEnv("AGENTS_ADMIN_BASE_URL") ||
+    DEFAULT_TEST_AGENTS_ADMIN_BASE_URL
   ).replace(/\/$/, "");
 }
 
@@ -194,7 +248,8 @@ async function ensureClawAdminLoginUserLinked(
     throw new Error("Orchestra admin auth login returned no user_id");
   }
 
-  const response = await fetch(`${getAgentsApiBaseUrl()}/admin/users`, {
+  const agentsAdminBaseUrl = getAgentsAdminBaseUrl();
+  const response = await fetch(`${agentsAdminBaseUrl}/admin/users`, {
     method: "POST",
     headers: {
       "X-BACKEND-API-KEY": adminKey,
@@ -245,14 +300,14 @@ async function tryAdminLoginForClaw(page: Page): Promise<boolean> {
   const email = getEnv("TEST_EMAIL");
   let token: string;
   try {
-    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, { email });
+    token = await fetchAdminAuthToken(getAgentsAdminBaseUrl(), adminKey, { email });
   } catch (error) {
     const message = error instanceof Error ? error.message : String(error);
     if (!message.includes("User has no linked Orchestra identity")) {
       throw error;
     }
     const orchestraUserId = await ensureClawAdminLoginUserLinked(adminKey, email);
-    token = await fetchAdminAuthToken(getAgentsApiBaseUrl(), adminKey, {
+    token = await fetchAdminAuthToken(getAgentsAdminBaseUrl(), adminKey, {
       orchestra_user_id: orchestraUserId,
       email,
     });
@@ -347,12 +402,12 @@ export async function captureStep(page: Page, step: string): Promise<string> {
     return filePath;
   }
   if (Number.isFinite(SCREENSHOT_DELAY_MS) && SCREENSHOT_DELAY_MS > 0) {
-    await page.waitForTimeout(SCREENSHOT_DELAY_MS).catch(() => {});
+    await page.waitForTimeout(SCREENSHOT_DELAY_MS).catch(() => { });
   }
   if (page.isClosed()) {
     return filePath;
   }
-  await page.screenshot({ path: filePath, fullPage: true }).catch(() => {});
+  await page.screenshot({ path: filePath, fullPage: true }).catch(() => { });
   return filePath;
 }
 
@@ -485,7 +540,7 @@ async function submitPrivyOtp(page: Page): Promise<void> {
   );
   if (await otpInputs.last().isVisible().catch(() => false)) {
     console.log("[privy-auth:otp-submit] pressing Enter on otp input");
-    await otpInputs.last().press("Enter").catch(() => {});
+    await otpInputs.last().press("Enter").catch(() => { });
     await page.waitForTimeout(750);
   }
 
@@ -535,12 +590,12 @@ async function submitPrivyOtp(page: Page): Promise<void> {
 
   if (await otpInputs.last().isVisible().catch(() => false)) {
     console.log("[privy-auth:otp-submit] pressing Enter on otp input");
-    await otpInputs.last().press("Enter").catch(() => {});
+    await otpInputs.last().press("Enter").catch(() => { });
     return;
   }
 
   console.log("[privy-auth:otp-submit] pressing Enter on page");
-  await page.keyboard.press("Enter").catch(() => {});
+  await page.keyboard.press("Enter").catch(() => { });
 }
 
 interface PrivyAuthDebugState {
@@ -628,7 +683,8 @@ async function logPrivyAuthState(page: Page, label: string): Promise<void> {
 }
 
 export async function loginWithPrivy(page: Page): Promise<void> {
-  if (await tryAdminLoginForClaw(page)) {
+  const allowAdminShortcut = getOptionalEnv("TEST_CLAW_ADMIN_LOGIN_SHORTCUT") === "1";
+  if (allowAdminShortcut && await tryAdminLoginForClaw(page)) {
     await captureStep(page, "00-admin-authenticated");
     return;
   }
@@ -736,7 +792,7 @@ export async function loginWithPrivy(page: Page): Promise<void> {
     .toContain("/dashboard");
 
   if (await privyModal.isVisible().catch(() => false)) {
-    await page.keyboard.press("Escape").catch(() => {});
+    await page.keyboard.press("Escape").catch(() => { });
 
     const closeButton = page
       .locator(
@@ -744,10 +800,10 @@ export async function loginWithPrivy(page: Page): Promise<void> {
       )
       .first();
     if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click().catch(() => {});
+      await closeButton.click().catch(() => { });
     }
 
-    await expect(privyModal).toBeHidden({ timeout: 10_000 }).catch(() => {});
+    await expect(privyModal).toBeHidden({ timeout: 10_000 }).catch(() => { });
   }
 
   await captureStep(page, "06-authenticated");
@@ -938,26 +994,34 @@ export async function completeStripeCheckout(
   returnBaseUrl: string = getOptionalEnv("TEST_TOPUP_CONSOLE_BASE_URL") ||
     getOptionalEnv("TEST_CONSOLE_BASE_URL") ||
     "http://127.0.0.1:4001",
-): Promise<void> {
+): Promise<string> {
   const stripeCheckoutPattern = /^https:\/\/checkout\.stripe\.com\//i;
 
-  await expect
-    .poll(() => page.url(), { timeout: 45_000 })
-    .toMatch(stripeCheckoutPattern);
+  {
+    const startedAt = logWaitStart("stripe redirect");
+    await expect
+      .poll(() => page.url(), { timeout: 45_000 })
+      .toMatch(stripeCheckoutPattern);
+    logWaitEnd("stripe redirect", startedAt);
+  }
   await page.waitForLoadState("domcontentloaded");
-  await expect
-    .poll(
-      () =>
-        anyVisibleStripeLocator(page, [
-          "#cardNumber",
-          "input[name='cardNumber']",
-          "#Field-numberInput",
-          "input[name='cardnumber']",
-          "input[aria-label='Card number']",
-        ]),
-      { timeout: 60_000, message: "Waiting for Stripe checkout fields to load" }
-    )
-    .toBeTruthy();
+  {
+    const startedAt = logWaitStart("stripe fields visible");
+    await expect
+      .poll(
+        () =>
+          anyVisibleStripeLocator(page, [
+            "#cardNumber",
+            "input[name='cardNumber']",
+            "#Field-numberInput",
+            "input[name='cardnumber']",
+            "input[aria-label='Card number']",
+          ]),
+        { timeout: 60_000, message: "Waiting for Stripe checkout fields to load" }
+      )
+      .toBeTruthy();
+    logWaitEnd("stripe fields visible", startedAt);
+  }
   await logStripeFrameState(page, "loaded");
   await captureStep(page, "console-05-stripe-checkout");
 
@@ -1044,20 +1108,24 @@ export async function completeStripeCheckout(
     (await submitButton.isVisible().catch(() => false))
       ? submitButton
       : await findVisibleStripeField(page, [
-          ".SubmitButton",
-          "button[type='submit']",
-          "button[aria-label='Pay']",
-          "button:has-text('Pay')",
-          "button:has-text('Donate')",
-        ]);
+        ".SubmitButton",
+        "button[type='submit']",
+        "button[aria-label='Pay']",
+        "button:has-text('Pay')",
+        "button:has-text('Donate')",
+      ]);
   await expect(stripeSubmitButton).toBeVisible({ timeout: 15_000 });
   console.log(`Stripe submit button text: ${(await stripeSubmitButton.textContent())?.trim() || "<empty>"}`);
   await stripeSubmitButton.click();
   await captureStep(page, "console-05e-stripe-submit-clicked");
 
-  await expect
-    .poll(() => page.url(), { timeout: 60_000 })
-    .not.toMatch(stripeCheckoutPattern);
+  {
+    const startedAt = logWaitStart("stripe exit redirect");
+    await expect
+      .poll(() => page.url(), { timeout: 60_000 })
+      .not.toMatch(stripeCheckoutPattern);
+    logWaitEnd("stripe exit redirect", startedAt);
+  }
 
   const redirectedUrl = page.url();
   const redirectedHost = new URL(redirectedUrl).host.toLowerCase();
@@ -1067,12 +1135,15 @@ export async function completeStripeCheckout(
     redirectedHost === "agents.dev.hypercli.com" ||
     redirectedHost === "agents.hypercli.com"
   ) {
-    const localDashboardUrl = `${returnBaseUrl.replace(/\/$/, "")}/dashboard`;
-    console.log(`Stripe redirected to hosted console (${redirectedUrl}); returning to local dashboard ${localDashboardUrl}`);
-    await page.goto(localDashboardUrl, { waitUntil: "domcontentloaded" });
+    const redirected = new URL(redirectedUrl);
+    const localReturnUrl = `${returnBaseUrl.replace(/\/$/, "")}${redirected.pathname}${redirected.search}${redirected.hash}`;
+    console.log(`Stripe redirected to hosted app (${redirectedUrl}); returning to local URL ${localReturnUrl}`);
+    await page.goto(localReturnUrl, { waitUntil: "domcontentloaded" });
     await page.waitForLoadState("networkidle");
-    await captureStep(page, "console-05f-returned-to-local-dashboard");
+    await captureStep(page, "console-05f-returned-to-local-app");
   }
+
+  return page.url();
 }
 
 async function fetchJsonWithApiKey<T>(path: string): Promise<T> {
@@ -1181,7 +1252,7 @@ export async function waitForTopUpSettlement(
 
   throw new Error(
     `Timed out waiting for top-up settlement. Available balance stayed at $${latestBalance.availableBalanceText} ` +
-      `from initial $${previousBalance.availableBalanceText} after checkout at ${submittedAt.toISOString()}`
+    `from initial $${previousBalance.availableBalanceText} after checkout at ${submittedAt.toISOString()}`
   );
 }
 
@@ -1264,23 +1335,133 @@ export async function fetchClawCurrentPlan(page: Page): Promise<HyperAgentCurren
   }
 }
 
+export async function fetchClawSubscriptionSummary(page: Page): Promise<HyperAgentSubscriptionSummary | null> {
+  const token = await getClawAuthToken(page);
+  const client = await getHyperAgentClient(token);
+  try {
+    return await client.subscriptionSummary();
+  } catch (error) {
+    if (error instanceof Error && /404/.test(error.message)) {
+      return null;
+    }
+    throw error;
+  }
+}
+
+function isPaidClawPlanId(planId: string | null | undefined): planId is string {
+  return Boolean(planId && planId.trim() && planId.trim().toLowerCase() !== "free");
+}
+
+function isActiveSubscription(subscription: HyperAgentSubscription): boolean {
+  return ["active", "trialing", "past_due"].includes(subscription.status.toLowerCase());
+}
+
+function paidPlanIdFromSummary(summary: HyperAgentSubscriptionSummary | null): string | null {
+  if (!summary) return null;
+
+  const activeCount = Math.max(
+    Number(summary.activeEntitlementCount || 0),
+    Number(summary.entitlements?.activeEntitlementCount || 0),
+    Number(summary.activeSubscriptionCount || 0)
+  );
+  const activePaidSubscription = summary.activeSubscriptions.find(
+    (subscription) => isPaidClawPlanId(subscription.planId) && isActiveSubscription(subscription)
+  );
+
+  if (activeCount > 0 && isPaidClawPlanId(summary.effectivePlanId)) {
+    return summary.effectivePlanId;
+  }
+  if (activeCount > 0 && isPaidClawPlanId(summary.entitlements?.effectivePlanId)) {
+    return summary.entitlements.effectivePlanId;
+  }
+  if (activePaidSubscription) {
+    return activePaidSubscription.planId;
+  }
+
+  return null;
+}
+
+function planFromSummary(
+  summary: HyperAgentSubscriptionSummary,
+  planId: string,
+  currentPlan: HyperAgentCurrentPlan | null
+): HyperAgentCurrentPlan {
+  const subscription = summary.activeSubscriptions.find(
+    (item) => item.planId === planId && isActiveSubscription(item)
+  );
+
+  return {
+    id: planId,
+    name: subscription?.planName || currentPlan?.name || planId,
+    price: currentPlan?.price ?? 0,
+    aiu: currentPlan?.aiu,
+    agents: currentPlan?.agents,
+    tpmLimit: summary.pooledTpmLimit || currentPlan?.tpmLimit || 0,
+    rpmLimit: summary.pooledRpmLimit || currentPlan?.rpmLimit || 0,
+    expiresAt: subscription?.expiresAt ?? currentPlan?.expiresAt ?? null,
+    cancelAtPeriodEnd: subscription?.cancelAtPeriodEnd ?? currentPlan?.cancelAtPeriodEnd ?? false,
+    pooledTpd: summary.pooledTpd || currentPlan?.pooledTpd || 0,
+    slotInventory: summary.slotInventory || summary.entitlements?.slotInventory || currentPlan?.slotInventory,
+  };
+}
+
+export async function fetchClawEffectivePlan(page: Page): Promise<HyperAgentCurrentPlan | null> {
+  const [currentPlan, summary] = await Promise.all([
+    fetchClawCurrentPlan(page),
+    fetchClawSubscriptionSummary(page),
+  ]);
+  const summaryPlanId = paidPlanIdFromSummary(summary);
+
+  if (summary && summaryPlanId) {
+    if (currentPlan && currentPlan.id === summaryPlanId) {
+      return currentPlan;
+    }
+    return planFromSummary(summary, summaryPlanId, currentPlan);
+  }
+
+  return currentPlan;
+}
+
 export async function waitForClawPlanId(
   page: Page,
   expectedPlanId: string,
   timeout = CLAW_PLAN_POLL_TIMEOUT_MS
 ): Promise<HyperAgentCurrentPlan> {
+  const startedAt = logWaitStart(`claw plan id=${expectedPlanId}`);
   let latestPlan: HyperAgentCurrentPlan | null = null;
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
 
-  await expect
-    .poll(
-      async () => {
-        latestPlan = await fetchClawCurrentPlan(page);
-        return latestPlan?.id ?? null;
-      },
-      { timeout, intervals: [1_000, 2_000, 5_000] }
-    )
-    .toBe(expectedPlanId);
+  try {
+    await expect
+      .poll(
+        async () => {
+          [latestPlan, latestSummary] = await Promise.all([
+            fetchClawCurrentPlan(page),
+            fetchClawSubscriptionSummary(page),
+          ]);
+          if (expectedPlanId === "free") {
+            return (
+              latestPlan?.id ??
+              latestSummary?.effectivePlanId ??
+              latestSummary?.entitlements?.effectivePlanId ??
+              null
+            );
+          }
+          return paidPlanIdFromSummary(latestSummary) ?? latestPlan?.id ?? null;
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBe(expectedPlanId);
+  } finally {
+    logWaitEnd(`claw plan id=${expectedPlanId}`, startedAt);
+  }
 
+  if (latestPlan && latestPlan.id === expectedPlanId) {
+    return latestPlan;
+  }
+  if (latestSummary && isPaidClawPlanId(expectedPlanId)) {
+    return planFromSummary(latestSummary, expectedPlanId, latestPlan);
+  }
   return latestPlan!;
 }
 
@@ -1288,19 +1469,98 @@ export async function waitForPaidClawPlan(
   page: Page,
   timeout = CLAW_PLAN_POLL_TIMEOUT_MS
 ): Promise<HyperAgentCurrentPlan> {
+  const startedAt = logWaitStart("claw paid plan");
   let latestPlan: HyperAgentCurrentPlan | null = null;
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
+  let latestPaidPlanId: string | null = null;
 
-  await expect
-    .poll(
-      async () => {
-        latestPlan = await fetchClawCurrentPlan(page);
-        return latestPlan?.id ?? "free";
-      },
-      { timeout, intervals: [1_000, 2_000, 5_000] }
-    )
-    .not.toBe("free");
+  try {
+    await expect
+      .poll(
+        async () => {
+          [latestPlan, latestSummary] = await Promise.all([
+            fetchClawCurrentPlan(page),
+            fetchClawSubscriptionSummary(page),
+          ]);
+          latestPaidPlanId = paidPlanIdFromSummary(latestSummary);
+          return latestPaidPlanId ?? latestPlan?.id ?? "free";
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .not.toBe("free");
+  } finally {
+    logWaitEnd("claw paid plan", startedAt);
+  }
 
+  if (latestPlan && latestPlan.id === latestPaidPlanId) {
+    return latestPlan;
+  }
+  if (latestSummary && latestPaidPlanId) {
+    return planFromSummary(latestSummary, latestPaidPlanId, latestPlan);
+  }
   return latestPlan!;
+}
+
+export async function waitForClawActiveSubscriptionCount(
+  page: Page,
+  expectedCount: number,
+  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
+): Promise<HyperAgentSubscriptionSummary> {
+  const startedAt = logWaitStart(`claw active subscriptions=${expectedCount}`);
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
+
+  try {
+    await expect
+      .poll(
+        async () => {
+          latestSummary = await fetchClawSubscriptionSummary(page);
+          return latestSummary?.activeSubscriptionCount ?? 0;
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBe(expectedCount);
+  } finally {
+    logWaitEnd(`claw active subscriptions=${expectedCount}`, startedAt);
+  }
+
+  if (!latestSummary) {
+    throw new Error(`Missing subscription summary while waiting for active subscription count ${expectedCount}`);
+  }
+  return latestSummary;
+}
+
+export async function waitForClawSubscriptionCreatedByCheckout(
+  page: Page,
+  checkoutSessionId: string,
+  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
+): Promise<HyperAgentSubscription> {
+  const startedAt = logWaitStart(`claw checkout session=${checkoutSessionId}`);
+  let latestSummary: HyperAgentSubscriptionSummary | null = null;
+  let latestSubscription: HyperAgentSubscription | null = null;
+
+  try {
+    await expect
+      .poll(
+        async () => {
+          latestSummary = await fetchClawSubscriptionSummary(page);
+          latestSubscription =
+            latestSummary?.activeSubscriptions.find(
+              (subscription) =>
+                subscription.meta?.checkout_session_id === checkoutSessionId && isActiveSubscription(subscription)
+            ) ?? null;
+          return latestSubscription?.id ?? null;
+        },
+        { timeout, intervals: [1_000, 2_000, 5_000] }
+      )
+      .not.toBeNull();
+  } finally {
+    logWaitEnd(`claw checkout session=${checkoutSessionId}`, startedAt);
+  }
+
+  if (!latestSubscription) {
+    throw new Error(`No active subscription found for checkout session ${checkoutSessionId}`);
+  }
+  return latestSubscription;
 }
 
 export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<void> {
@@ -1340,52 +1600,84 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const deployments = await getDeploymentsClient(token);
 
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
-  await expect(page.getByRole("button", { name: /create new agent|new agent|create/i }).first()).toBeVisible({
-    timeout: 30_000,
-  });
+  const createButton = page
+    .getByRole("button", { name: /create a first agent|create new agent|new agent|create/i })
+    .first();
+  await expect(createButton).toBeVisible({ timeout: 30_000 });
   await captureStep(page, "agents-10-dashboard");
-
-  const createButton = page.getByRole("button", { name: /create new agent|new agent|create/i }).first();
   await createButton.click();
 
-  const nextButton = page.getByRole("button", { name: /^next$/i }).first();
-  await expect(nextButton).toBeVisible({ timeout: 10_000 });
-  await nextButton.click();
+  for (let i = 0; i < 6; i += 1) {
+    const continueButton = page.getByRole("button", { name: /^continue$/i }).first();
+    if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await continueButton.click();
+      continue;
+    }
 
-  const secondNextButton = page.getByRole("button", { name: /^next$/i }).first();
-  if (await secondNextButton.isVisible({ timeout: 3_000 }).catch(() => false)) {
-    await secondNextButton.click();
+    const launchExistingPlanButton = page.getByRole("button", { name: /^launch agent$/i }).first();
+    if (await launchExistingPlanButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      const createResponsePromise = page.waitForResponse((response) => {
+        return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
+      });
+      await launchExistingPlanButton.click();
+      const createResponse = await createResponsePromise;
+      expect(createResponse.ok()).toBeTruthy();
+      const created = (await createResponse.json()) as DeploymentRecord;
+      expect(created.id).toBeTruthy();
+      await captureStep(page, "agents-11-created");
+
+      const running = await deployments.waitRunning(created.id, timeout, 5_000);
+      expect(running.state).toBe("RUNNING");
+
+      const composer = page.getByPlaceholder("Message agent...");
+      await expect(composer).toBeVisible({ timeout: 60_000 });
+      await expect(composer).toBeEnabled({ timeout: 60_000 });
+      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+      await expect(
+        page.getByText("Connecting to gateway...", { exact: true }).first()
+      ).not.toBeVisible({ timeout: 60_000 });
+      await captureStep(page, "agents-12-gateway-connected");
+
+      return created;
+    }
+
+    const createAgentButton = page.getByRole("button", { name: /^create agent$/i }).first();
+    if (await createAgentButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      const createResponsePromise = page.waitForResponse((response) => {
+        return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
+      });
+      await createAgentButton.click();
+      const createResponse = await createResponsePromise;
+      expect(createResponse.ok()).toBeTruthy();
+      const created = (await createResponse.json()) as DeploymentRecord;
+      expect(created.id).toBeTruthy();
+      await captureStep(page, "agents-11-created");
+
+      const running = await deployments.waitRunning(created.id, timeout, 5_000);
+      expect(running.state).toBe("RUNNING");
+
+      const composer = page.getByPlaceholder("Message agent...");
+      await expect(composer).toBeVisible({ timeout: 60_000 });
+      await expect(composer).toBeEnabled({ timeout: 60_000 });
+      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+      await expect(
+        page.getByText("Connecting to gateway...", { exact: true }).first()
+      ).not.toBeVisible({ timeout: 60_000 });
+      await captureStep(page, "agents-12-gateway-connected");
+
+      return created;
+    }
+
+    const nextButton = page.getByRole("button", { name: /^next$/i }).first();
+    if (await nextButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await nextButton.click();
+      continue;
+    }
+
+    break;
   }
 
-  const createResponsePromise = page.waitForResponse((response) => {
-    return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
-  });
-
-  const launchButton = page.getByRole("button", { name: /create|launch|deploy/i }).first();
-  await expect(launchButton).toBeVisible({ timeout: 10_000 });
-  await launchButton.click();
-
-  const createResponse = await createResponsePromise;
-  expect(createResponse.ok()).toBeTruthy();
-  const created = (await createResponse.json()) as DeploymentRecord;
-  expect(created.id).toBeTruthy();
-  await captureStep(page, "agents-11-created");
-
-  const running = await deployments.waitRunning(created.id, timeout, 5_000);
-  expect(running.state).toBe("RUNNING");
-
-  const composer = page.getByPlaceholder("Message agent...");
-  await expect(composer).toBeVisible({ timeout: 60_000 });
-  await expect(composer).toBeEnabled({ timeout: 60_000 });
-  await expect(page.getByText("Send a message to start chatting with your agent", { exact: true })).toBeVisible({
-    timeout: 60_000,
-  });
-  await expect(
-    page.getByText("Connecting to gateway...", { exact: true }).first()
-  ).not.toBeVisible({ timeout: 60_000 });
-  await captureStep(page, "agents-12-gateway-connected");
-
-  return created;
+  throw new Error("Agent launch flow did not reach a launchable state");
 }
 
 export async function deleteClawAgent(page: Page, agentId: string): Promise<void> {
@@ -1468,6 +1760,32 @@ export async function cancelActiveClawStripeSubscriptionsForTestUser(): Promise<
   }
 
   return cancelled;
+}
+
+export async function cancelStripeSubscription(
+  subscriptionId: string,
+  refundLatestCharge = true
+): Promise<string> {
+  const invoices = await stripeApiRequest<{ data: StripeInvoice[] }>(
+    `/v1/invoices?subscription=${encodeURIComponent(subscriptionId)}&limit=10`
+  );
+
+  await stripeApiRequest(`/v1/subscriptions/${subscriptionId}`, { method: "DELETE" });
+
+  if (refundLatestCharge) {
+    const paidInvoice = (invoices.data || []).find((invoice) => invoice.status === "paid");
+    const paymentRef = paidInvoice?.payment_intent || paidInvoice?.charge || null;
+    if (paymentRef) {
+      await stripeApiRequest("/v1/refunds", {
+        method: "POST",
+        form: paidInvoice?.payment_intent
+          ? { payment_intent: paidInvoice.payment_intent }
+          : { charge: paidInvoice!.charge! },
+      }).catch(() => null);
+    }
+  }
+
+  return subscriptionId;
 }
 
 export function expectJwtShape(token: string): void {

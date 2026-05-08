@@ -14,7 +14,10 @@ export function AgentTerminalPanel({ status, shellBoxRef }: AgentTerminalPanelPr
       <div ref={shellBoxRef} className={`h-full w-full ${status === "connected" ? "" : "invisible"}`} />
       {status !== "connected" && (
         <div className="absolute inset-0 p-4">
-          <TabLoadingState label={status === "connecting" ? "Connecting shell" : "Preparing shell"} />
+          <TabLoadingState
+            label={status === "connecting" ? "Connecting gateway" : "Waiting for gateway"}
+            detail={status === "connecting" ? "Opening the shell stream." : "Shell attaches after the runtime is reachable."}
+          />
         </div>
       )}
     </div>

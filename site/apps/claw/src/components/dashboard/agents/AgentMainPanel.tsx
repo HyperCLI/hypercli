@@ -1,27 +1,29 @@
 "use client";
 
 import React from "react";
-import { ExternalLink, FolderOpen, Gauge, Loader2, PanelLeft, Play, RefreshCw } from "lucide-react";
+import { Gauge, Loader2, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
+import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
-import { AgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
-import { AgentLaunchPrompt, ConnectionStatusIndicator, type CenterPanel, GearDropdown } from "@/components/dashboard/agents/page-helpers";
+import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
+import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
+import type { SlotInventory } from "@/lib/format";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
   selectedAgent: Agent | null;
+  loadingInitialAgents?: boolean;
   isSelectedTransitioning: boolean;
   isSelectedRunning: boolean;
   burstAgentId: string | null;
   onBurstComplete: () => void;
-  activeConnectionStatus: "connected" | "connecting" | "disconnected" | null;
-  chatConnected: boolean;
-  chatConnecting: boolean;
-  fileCount: number;
-  openingDesktopId: string | null;
+  agentStatus?: AgentStatusChipModel | null;
+  activeConnectionStatus?: "connected" | "connecting" | "disconnected" | null;
+  chatConnected?: boolean;
+  chatConnecting?: boolean;
   startingId: string | null;
   recentlyStoppedIds: Set<string>;
   selectedAgentLaunchBlocked: boolean;
@@ -29,34 +31,38 @@ interface AgentMainPanelProps {
   blockedMessage?: string | null;
   suggestedTierActions?: Array<{ label: string; onSelect: () => void }>;
   currentPanel: CenterPanel;
+  skillsPanelActive?: boolean;
   stoppedTabLabel: string;
   panelContent: React.ReactNode;
   onCreate: () => void;
+  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  budget?: {
+    slots: SlotInventory;
+    pooled_tpd: number;
+  } | null;
+  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
+  catalogPlans?: HyperAgentPlan[] | null;
+  onOpenPlanCatalog?: () => void | Promise<void>;
   onShowList: () => void;
-  onOpenFiles: () => void;
-  onOpenDesktop: () => void;
-  onDelete: () => void;
   onShowInspector: () => void;
+  showInspectorButton?: boolean;
   onStart: () => void;
   onReconnect: () => void;
-  onSelectPanel: (panel: CenterPanel) => void;
-  onOpenConfig: () => void;
-  onOpenSettings: () => void;
 }
 
 export function AgentMainPanel({
   isDesktopViewport,
   mobileShowChat,
   selectedAgent,
+  loadingInitialAgents = false,
   isSelectedTransitioning,
   isSelectedRunning,
   burstAgentId,
   onBurstComplete,
+  agentStatus,
   activeConnectionStatus,
   chatConnected,
   chatConnecting,
-  fileCount,
-  openingDesktopId,
   startingId,
   recentlyStoppedIds,
   selectedAgentLaunchBlocked,
@@ -64,30 +70,200 @@ export function AgentMainPanel({
   blockedMessage,
   suggestedTierActions,
   currentPanel,
+  skillsPanelActive = false,
   stoppedTabLabel,
   panelContent,
   onCreate,
+  onCreateAgent,
+  budget,
+  subscriptionSummary,
+  catalogPlans,
+  onOpenPlanCatalog,
   onShowList,
-  onOpenFiles,
-  onOpenDesktop,
-  onDelete,
   onShowInspector,
+  showInspectorButton = true,
   onStart,
   onReconnect,
-  onSelectPanel,
-  onOpenConfig,
-  onOpenSettings,
 }: AgentMainPanelProps) {
+  const isStopping = selectedAgent?.state === "STOPPING";
+  const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
+    if (!selectedAgent) return null;
+    if (selectedAgent.state === "FAILED") {
+      return {
+        label: "Failed",
+        detail: selectedAgent.last_error || "Needs attention before it can run.",
+        tone: "failed",
+      };
+    }
+    if (selectedAgent.state === "STOPPED") {
+      return {
+        label: "Stopped",
+        detail: "Start the agent to chat.",
+        tone: "stopped",
+      };
+    }
+    if (selectedAgent.state === "PENDING") {
+      return {
+        label: "Provisioning",
+        detail: "Reserving compute and preparing the workspace.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "STARTING") {
+      return {
+        label: "Booting",
+        detail: "Starting the container and OpenClaw services.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+    if (selectedAgent.state === "STOPPING") {
+      return {
+        label: "Stopping",
+        detail: "Stopping the runtime and cleaning up the workspace.",
+        tone: "stopping",
+        loading: true,
+      };
+    }
+    return null;
+  })();
+  const connectionAgentStatus: AgentStatusChipModel | null = activeConnectionStatus
+    ? {
+        label: activeConnectionStatus === "connected" ? "Ready" : activeConnectionStatus === "connecting" ? "Connecting" : "Disconnected",
+        detail: activeConnectionStatus === "connected"
+          ? "Gateway connected."
+          : activeConnectionStatus === "connecting" || chatConnecting
+            ? "Opening the gateway connection."
+            : chatConnected === false
+              ? "Gateway disconnected."
+              : "Gateway is not connected yet.",
+        tone: activeConnectionStatus === "connected" ? "ready" : activeConnectionStatus === "connecting" ? "connecting" : "disconnected",
+        loading: activeConnectionStatus === "connecting",
+      }
+    : null;
+  const effectiveAgentStatus = agentStatus ?? lifecycleAgentStatus ?? connectionAgentStatus;
+  const legacyConnectionStatus = activeConnectionStatus ?? null;
+  const shouldShowStartupAnimation =
+    (isSelectedTransitioning && (selectedAgent?.state === "PENDING" || selectedAgent?.state === "STARTING")) ||
+    (selectedAgent?.state === "RUNNING" && burstAgentId === selectedAgent.id);
+  const stoppedLaunchBusy = Boolean(selectedAgent && startingId === selectedAgent.id);
+  const stoppedLaunchCooldown = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
+  const stoppedLaunchBlocked = selectedAgentLaunchBlocked || stoppedLaunchCooldown;
+  const stoppedLaunchBlockedReason = stoppedLaunchCooldown
+    ? "Agent is finishing shutdown. Try again shortly."
+    : selectedAgentStartGuidanceTitle;
+  const stoppedEmptyStateProps = {
+    onCreate,
+    onCreateAgent,
+    budget,
+    subscriptionSummary,
+    catalogPlans,
+    onOpenPlanCatalog,
+    launchLabel: "Start agent",
+    launching: stoppedLaunchBusy,
+    launchBlocked: stoppedLaunchBlocked,
+    launchBlockedReason: stoppedLaunchBlockedReason,
+    onLaunchAction: onStart,
+  };
+  const stoppedPanelContent = (() => {
+    if (selectedAgent?.state !== "STOPPED") return null;
+    if (currentPanel === "chat") {
+      return <AgentEmptyState {...stoppedEmptyStateProps} />;
+    }
+    if (currentPanel === "files") {
+      return <AgentFilesEmptyState {...stoppedEmptyStateProps} />;
+    }
+    if (currentPanel === "integrations") {
+      return skillsPanelActive ? (
+        <AgentSkillsEmptyState {...stoppedEmptyStateProps} />
+      ) : (
+        <AgentIntegrationsEmptyState {...stoppedEmptyStateProps} />
+      );
+    }
+    return null;
+  })();
+  const renderSelectedPanelContent = () => {
+    const activeAgent = selectedAgent;
+    if (!activeAgent) return null;
+
+    if (isStopping) {
+      return (
+        <div className="h-full flex items-center justify-center p-6">
+          <div className="max-w-md text-center">
+            <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#f0c56c]" />
+            <p className="text-base text-foreground">Stopping agent</p>
+            <p className="mt-2 text-sm text-text-muted">Stopping the runtime and cleaning up the workspace.</p>
+          </div>
+        </div>
+      );
+    }
+
+    if (shouldShowStartupAnimation) {
+      return (
+        <div className="h-full flex items-center justify-center">
+          <AgentHatchAnimation
+            state={activeAgent.state === "RUNNING" ? "RUNNING" : activeAgent.state as "PENDING" | "STARTING"}
+            onBurstComplete={onBurstComplete}
+          />
+        </div>
+      );
+    }
+
+    if (currentPanel === "scheduled") {
+      return <AgentScheduledEmptyState {...stoppedEmptyStateProps} />;
+    }
+
+    if (stoppedPanelContent) {
+      return stoppedPanelContent;
+    }
+
+    if (currentPanel === "settings") {
+      return panelContent;
+    }
+
+    if (!isSelectedRunning) {
+      return (
+        <AgentLaunchPrompt
+          label={stoppedTabLabel}
+          launching={stoppedLaunchBusy}
+          onLaunch={onStart}
+          blockedTitle={selectedAgentStartGuidanceTitle}
+          blockedMessage={blockedMessage}
+          suggestedTierActions={suggestedTierActions}
+        />
+      );
+    }
+
+    return panelContent;
+  };
+
   return (
     <div className={`flex-1 flex-col min-w-0 ${!mobileShowChat && !isDesktopViewport ? "hidden" : "flex"}`}>
-      {!selectedAgent ? (
-        <AgentEmptyState onCreate={onCreate} />
+      {loadingInitialAgents && !selectedAgent ? (
+        <div className="flex-1 min-h-0">
+          <AgentLoadingState
+            title="Loading agents"
+            detail="Checking your workspace before selecting an agent."
+            tone="loading"
+            stage="complete"
+          />
+        </div>
+      ) : !selectedAgent ? (
+        <LaunchFirstAgentEmptyState
+          onCreate={onCreate}
+          onCreateAgent={onCreateAgent}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          onOpenPlanCatalog={onOpenPlanCatalog}
+        />
       ) : (
         <>
           <div className="relative px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">
             <button
               onClick={onShowList}
-              className={`${isDesktopViewport ? "hidden" : "block"} text-text-muted hover:text-foreground`}
+              className={`${isDesktopViewport ? "hidden" : "block"} relative z-10 flex-shrink-0 text-text-muted hover:text-foreground`}
               aria-label="Show agents list"
             >
               <PanelLeft className="w-5 h-5" />
@@ -107,69 +283,33 @@ export function AgentMainPanel({
                   </div>
                 );
               })()}
-              {activeConnectionStatus && <ConnectionStatusIndicator status={activeConnectionStatus} />}
+              {effectiveAgentStatus ? (
+                <AgentStatusChip status={effectiveAgentStatus} />
+              ) : legacyConnectionStatus ? (
+                <ConnectionStatusIndicator status={legacyConnectionStatus} />
+              ) : (
+                null
+              )}
             </div>
 
-            <div className="flex-1 min-w-0 text-center">
-              <p className="text-sm font-medium text-foreground truncate">
+            <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 flex w-[min(46vw,420px)] -translate-x-1/2 flex-col items-center justify-center px-2 text-center">
+              <p className="max-w-full truncate text-sm font-medium text-foreground">
                 {selectedAgent.name || selectedAgent.pod_name || "Agent"}
               </p>
               {!chatConnected && (
-                <p className="text-xs text-text-muted">
-                  {chatConnecting ? "Connecting to gateway..." : selectedAgent.state === "RUNNING" ? "Disconnected" : selectedAgent.state}
+                <p className="max-w-full truncate text-xs text-text-muted">
+                  {chatConnecting ? "Connecting gateway" : selectedAgent.state === "RUNNING" ? "Gateway disconnected" : selectedAgent.state}
                 </p>
               )}
             </div>
 
-            <button
-              onClick={onOpenFiles}
-              className="relative z-10 flex items-center gap-2 px-3 py-1.5 rounded-lg text-xs font-medium border border-border text-text-muted hover:text-foreground hover:border-text-muted/30 hover:bg-surface-low transition-all flex-shrink-0"
-              title="Open workspace files"
-            >
-              <FolderOpen className="w-4 h-4" />
-              <span className="hidden sm:inline">Files</span>
-              {fileCount > 0 && (
-                <span className="text-[9px] tabular-nums px-1.5 py-0.5 rounded-full bg-surface-low text-text-muted">
-                  {fileCount}
-                </span>
-              )}
-            </button>
-
             <div className="relative z-10 flex items-center gap-2 flex-shrink-0">
-              <div className={`${isDesktopViewport ? "hidden" : "flex"} items-center gap-1`}>
-                {(selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED") && (
-                  <button
-                    onClick={onStart}
-                    disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) || selectedAgentLaunchBlocked}
-                    className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                    aria-label="Start agent"
-                    title={selectedAgentStartGuidanceTitle || (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")}
-                  >
-                    {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                    <span className="hidden xl:inline">Start</span>
-                  </button>
-                )}
-              </div>
-
               <div className={`${isDesktopViewport ? "flex" : "hidden"} items-center gap-2`}>
                 <div className="flex items-center gap-1">
-                  {(selectedAgent.state === "STOPPED" || selectedAgent.state === "FAILED") && (
-                    <button
-                      onClick={onStart}
-                      disabled={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) || selectedAgentLaunchBlocked}
-                      className="px-2 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                      aria-label="Start agent"
-                      title={selectedAgentStartGuidanceTitle || (recentlyStoppedIds.has(selectedAgent.id) ? "Cleaning up…" : "Start")}
-                    >
-                      {startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id) ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                      <span className="hidden xl:inline">Start</span>
-                    </button>
-                  )}
-
                   {(currentPanel === "logs" || currentPanel === "shell") && (
                     <button
                       onClick={onReconnect}
-                      className="p-1 text-text-muted hover:text-foreground transition-colors"
+                      className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
                       title="Reconnect"
                     >
                       <RefreshCw className="w-3.5 h-3.5" />
@@ -178,43 +318,20 @@ export function AgentMainPanel({
                 </div>
               </div>
 
-              {!isDesktopViewport && (
+              {!isDesktopViewport && showInspectorButton && (
                 <button
                   onClick={onShowInspector}
-                  className="w-7 h-7 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                  className="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
                   title="Agent details"
                 >
                   <Gauge className="w-3.5 h-3.5" />
                 </button>
               )}
-
-              <GearDropdown
-                currentPanel={currentPanel}
-                onSelectPanel={onSelectPanel}
-                onOpenConfig={onOpenConfig}
-                onOpenSettings={onOpenSettings}
-              />
             </div>
           </div>
 
           <div className="flex-1 min-h-0 overflow-hidden">
-            {(isSelectedTransitioning || burstAgentId === selectedAgent.id) ? (
-              <div className="h-full flex items-center justify-center">
-                <AgentHatchAnimation
-                  state={selectedAgent.state === "RUNNING" ? "RUNNING" : selectedAgent.state as "PENDING" | "STARTING"}
-                  onBurstComplete={onBurstComplete}
-                />
-              </div>
-            ) : !isSelectedRunning ? (
-              <AgentLaunchPrompt
-                label={stoppedTabLabel}
-                launching={startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)}
-                onLaunch={onStart}
-                blockedTitle={selectedAgentStartGuidanceTitle}
-                blockedMessage={blockedMessage}
-                suggestedTierActions={suggestedTierActions}
-              />
-            ) : panelContent}
+            {renderSelectedPanelContent()}
           </div>
         </>
       )}

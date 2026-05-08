@@ -13,6 +13,7 @@ const codeSnippet = `curl https://api.hypercli.com/v1/chat/completions \\
     "model": "kimi-k2.5",
     "messages": [{"role": "user", "content": "Hello!"}]
   }'`;
+const POST_LOGIN_PATH = "/dashboard/agents";
 
 export function HeroSection() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -35,7 +36,7 @@ export function HeroSection() {
 
   const handleGetStarted = () => {
     if (isAuthenticated) {
-      window.location.href = "/dashboard";
+      window.location.href = POST_LOGIN_PATH;
     } else {
       setIsLoginModalOpen(true);
     }
@@ -173,7 +174,7 @@ export function HeroSection() {
         apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
         onSuccess={() => {
-          window.location.href = "/dashboard";
+          window.location.href = POST_LOGIN_PATH;
         }}
       />
     </>

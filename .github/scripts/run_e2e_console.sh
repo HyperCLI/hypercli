@@ -98,11 +98,10 @@ test_name = screenshot.parent.name if screenshot.parent.name != "test-results" e
 notify.send(
     "frontend",
     [
-        "<b>Frontend E2E Console Failed</b>",
-        "",
-        f"Test: <code>{test_name}</code>",
-        "Workflow: <code>E2E Console</code>",
-        f"Run: {run_url or 'local docker run'}",
+        "<b>❌ Frontend Console Failed</b>",
+        "🧪 Suite: <code>playwright-console</code>",
+        f"🧩 Test: <code>{test_name}</code>",
+        f"🔗 Run: {run_url or 'local docker run'}",
     ],
     severity="error",
     media=base64.b64encode(screenshot.read_bytes()).decode("ascii"),

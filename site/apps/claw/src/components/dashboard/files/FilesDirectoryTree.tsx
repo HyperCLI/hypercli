@@ -14,6 +14,7 @@ interface FilesDirectoryTreeProps {
   sortDir?: FileSortDir;
   showHidden?: boolean;
   onOpenFile: (entry: FileEntry) => void;
+  onOpenDirectory?: (entry: FileEntry) => void;
   onDeleteFile?: (entry: FileEntry) => void;
   onRenameFile?: (entry: FileEntry, newName: string) => void;
   onDownloadFile?: (entry: FileEntry) => void;
@@ -21,6 +22,10 @@ interface FilesDirectoryTreeProps {
 }
 
 // ── Helpers ──
+
+function normalizeTreePath(path: string): string {
+  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+}
 
 function buildTree(entries: FileEntry[]): TreeNode[] {
   const root: TreeNode[] = [];
@@ -33,10 +38,11 @@ function buildTree(entries: FileEntry[]): TreeNode[] {
   });
 
   for (const entry of sorted) {
-    const segments = entry.path.split("/").filter(Boolean);
+    const path = normalizeTreePath(entry.path);
+    const segments = path.split("/").filter(Boolean);
     const node: TreeNode = {
       name: entry.name,
-      path: entry.path,
+      path,
       type: entry.type,
       size: entry.size,
       lastModified: entry.lastModified,
@@ -57,7 +63,7 @@ function buildTree(entries: FileEntry[]): TreeNode[] {
     }
 
     if (entry.type === "directory") {
-      dirMap.set(entry.path, node);
+      dirMap.set(path, node);
     }
   }
 
@@ -107,6 +113,7 @@ function TreeLevel({
   onToggle,
   searchQuery,
   onOpenFile,
+  onOpenDirectory,
   onDeleteFile,
   onRenameFile,
   onDownloadFile,
@@ -118,6 +125,7 @@ function TreeLevel({
   onToggle: (path: string) => void;
   searchQuery?: string;
   onOpenFile: (entry: FileEntry) => void;
+  onOpenDirectory?: (entry: FileEntry) => void;
   onDeleteFile?: (entry: FileEntry) => void;
   onRenameFile?: (entry: FileEntry, newName: string) => void;
   onDownloadFile?: (entry: FileEntry) => void;
@@ -144,7 +152,11 @@ function TreeLevel({
               expanded={isDir ? isExpanded : undefined}
               searchQuery={searchQuery}
               onOpen={onOpenFile}
-              onToggle={() => isDir && onToggle(node.path)}
+              onToggle={() => {
+                if (!isDir) return;
+                if (onOpenDirectory) onOpenDirectory(entry);
+                else onToggle(node.path);
+              }}
               onDelete={onDeleteFile ? () => onDeleteFile(entry) : undefined}
               onRename={onRenameFile ? (_, name) => onRenameFile(entry, name) : undefined}
               onDownload={onDownloadFile ? () => onDownloadFile(entry) : undefined}
@@ -166,6 +178,7 @@ function TreeLevel({
                     onToggle={onToggle}
                     searchQuery={searchQuery}
                     onOpenFile={onOpenFile}
+                    onOpenDirectory={onOpenDirectory}
                     onDeleteFile={onDeleteFile}
                     onRenameFile={onRenameFile}
                     onDownloadFile={onDownloadFile}
@@ -190,6 +203,7 @@ export function FilesDirectoryTree({
   sortDir = "asc",
   showHidden = false,
   onOpenFile,
+  onOpenDirectory,
   onDeleteFile,
   onRenameFile,
   onDownloadFile,
@@ -214,7 +228,7 @@ export function FilesDirectoryTree({
       const flat = flattenForSearch(entries, searchQuery!);
       return flat.map((e): TreeNode => ({
         name: e.name,
-        path: e.path,
+        path: normalizeTreePath(e.path),
         type: e.type,
         size: e.size,
         lastModified: e.lastModified,
@@ -234,6 +248,7 @@ export function FilesDirectoryTree({
       onToggle={toggleExpand}
       searchQuery={isSearching ? searchQuery : undefined}
       onOpenFile={onOpenFile}
+      onOpenDirectory={onOpenDirectory}
       onDeleteFile={onDeleteFile}
       onRenameFile={onRenameFile}
       onDownloadFile={onDownloadFile}

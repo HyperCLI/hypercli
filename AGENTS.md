@@ -104,6 +104,19 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   other transport state machines when that behavior already exists in the SDK.
   The frontend should compose SDK primitives and render SDK state, not recreate
   connection/session authority locally.
+- For Claw agent chat, do not hardcode the bare gateway session key `"main"`
+  for agent-scoped UIs. Use
+  `site/apps/claw/src/lib/openclaw-session.ts:resolveOpenClawSessionKey()` so
+  agent dashboards use `agent:<agentId>:main` and only fall back to `"main"`
+  for the root/default agent. We have regressed this multiple times.
+- Claw plans/billing data should come from the SDK (`HyperAgent.currentPlan()`,
+  `subscriptionSummary()`, `plans()`, `agentTypes()`), not ad hoc frontend
+  fetches or duplicated plan state.
+- Do not expose implementation terms such as "SDK" in user-visible UI copy.
+  This includes headings, labels, helper text, empty states, button text,
+  modal titles/descriptions, toast messages, and similar visual elements.
+  Prefer product-facing language such as "plan catalog", "billing data",
+  "workspace", or "account" depending on context.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.

@@ -21,6 +21,7 @@ import { ConfirmDialog } from "../ConfirmDialog";
 import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel } from "./PluginConfigPanel";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
+import { AgentLoadingState } from "../agents/page-helpers";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 /** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
@@ -151,10 +152,13 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
 
   if (!connected && !applyingChanges) {
     return (
-      <div className="p-6">
-        <div className="rounded-lg border border-border bg-surface-low px-4 py-3 text-sm text-text-muted">
-          Waiting for gateway connection...
-        </div>
+      <div className="h-full min-h-[280px]">
+        <AgentLoadingState
+          title="Waiting for gateway"
+          detail="Integrations load after the gateway is reachable."
+          tone="connecting"
+          stage="gateway"
+        />
       </div>
     );
   }

@@ -54,6 +54,34 @@ function maybeDecodeMojibake(text: string): string {
   return text;
 }
 
+const BINARY_CONTENT_OMITTED_MESSAGE = "[Binary file content omitted from chat preview.]";
+
+function looksLikeBinaryDisplayText(text: string): boolean {
+  const sample = text.slice(0, 4096);
+  if (/^\s*%PDF-\d+(?:\.\d+)?/.test(sample) || sample.slice(0, 1200).includes("%PDF-")) {
+    return true;
+  }
+  if (sample.includes("\u0000")) {
+    return true;
+  }
+
+  const replacementCount = sample.match(/\uFFFD/g)?.length ?? 0;
+  const controlCount = sample.match(/[\x00-\x08\x0B\x0C\x0E-\x1F]/g)?.length ?? 0;
+  if (controlCount >= 3) {
+    return true;
+  }
+  return replacementCount >= 8 && replacementCount / Math.max(sample.length, 1) > 0.01;
+}
+
+function isBinaryOmittedText(text: string | undefined): boolean {
+  return text === BINARY_CONTENT_OMITTED_MESSAGE;
+}
+
+function sanitizeChatDisplayText(text: string): string {
+  const decoded = maybeDecodeMojibake(text);
+  return looksLikeBinaryDisplayText(decoded) ? BINARY_CONTENT_OMITTED_MESSAGE : decoded;
+}
+
 function normalizeChatRole(role: string): ChatMessage["role"] {
   const normalized = role.trim().toLowerCase();
   if (normalized === "user" || normalized === "assistant" || normalized === "system") {
@@ -62,18 +90,56 @@ function normalizeChatRole(role: string): ChatMessage["role"] {
   return "assistant";
 }
 
-/** Detect internal heartbeat poll prompts/replies that should never be shown to users. */
-function isHeartbeatMessage(content: string): boolean {
-  return content.includes("HEARTBEAT.md") || content.includes("HEARTBEAT_OK");
+const INTERNAL_HEARTBEAT_MARKERS = [/HEARTBEAT\.md/i, /HEARTBEAT_OK/i];
+const INTERNAL_HEARTBEAT_PRELUDE_MARKERS = [
+  /\bThe user wants me to read\b/i,
+  /\bLet me read the file first\b/i,
+];
+
+function containsInternalHeartbeatMarker(value: unknown): boolean {
+  if (value == null) return false;
+  if (typeof value === "string") {
+    const text = maybeDecodeMojibake(value);
+    return INTERNAL_HEARTBEAT_MARKERS.some((marker) => marker.test(text));
+  }
+  if (typeof value !== "object") return false;
+  if (Array.isArray(value)) {
+    return value.some((entry) => containsInternalHeartbeatMarker(entry));
+  }
+  return Object.values(value as Record<string, unknown>).some((entry) => containsInternalHeartbeatMarker(entry));
+}
+
+export function isInternalHeartbeatMessage(value: unknown): boolean {
+  if (containsInternalHeartbeatMarker(value)) return true;
+  if (typeof value !== "object" || value == null) return false;
+  const candidate = value as {
+    content?: unknown;
+    thinking?: unknown;
+    toolCalls?: unknown;
+  };
+  return (
+    containsInternalHeartbeatMarker(candidate.content) ||
+    containsInternalHeartbeatMarker(candidate.thinking) ||
+    containsInternalHeartbeatMarker(candidate.toolCalls)
+  );
+}
+
+function isLikelyInternalHeartbeatPrelude(message: ChatMessage): boolean {
+  if (message.role !== "assistant") return false;
+  if (message.toolCalls?.length || message.mediaUrls?.length || message.attachments?.length || message.files?.length) {
+    return false;
+  }
+  const text = `${message.thinking ?? ""}\n${message.content ?? ""}`.trim();
+  return INTERNAL_HEARTBEAT_PRELUDE_MARKERS.some((marker) => marker.test(text));
 }
 
 function formatToolValue(value: unknown): string {
   if (value == null) return "";
-  if (typeof value === "string") return maybeDecodeMojibake(value);
+  if (typeof value === "string") return sanitizeChatDisplayText(value);
   try {
-    return maybeDecodeMojibake(JSON.stringify(value, null, 2));
+    return sanitizeChatDisplayText(JSON.stringify(value, null, 2));
   } catch {
-    return maybeDecodeMojibake(String(value));
+    return sanitizeChatDisplayText(String(value));
   }
 }
 
@@ -94,10 +160,12 @@ function summarizeToolCalls(
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const normalized = normalizeGatewayChatMessage(message);
   if (!normalized) return null;
-  const content = maybeDecodeMojibake(normalized.text);
-  if (isHeartbeatMessage(content)) return null;
-  const thinking = maybeDecodeMojibake(normalized.thinking).trim();
-  const toolCalls = summarizeToolCalls(normalized.toolCalls);
+  const content = sanitizeChatDisplayText(normalized.text);
+  const thinking = sanitizeChatDisplayText(normalized.thinking).trim();
+  if (isInternalHeartbeatMessage({ content, thinking })) return null;
+  const toolCalls = summarizeToolCalls(normalized.toolCalls)?.filter(
+    (toolCall) => !isInternalHeartbeatMessage({ toolCalls: [toolCall] }),
+  );
   const mediaUrls = normalized.mediaUrls;
   if (!content.trim() && !thinking && (!toolCalls || toolCalls.length === 0) && mediaUrls.length === 0) {
     return null;
@@ -156,20 +224,30 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
   // text actually contains the current text as a prefix. The previous
   // length-based heuristic broke delta streams whenever a single chunk was
   // longer than the accumulated text, silently dropping prior content.
-  const mergedContent = incoming.content
+  const rawMergedContent = incoming.content
     ? (
       current.content && incoming.content.startsWith(current.content)
         ? incoming.content
         : `${current.content ?? ""}${incoming.content}`
     )
     : current.content;
-  const mergedThinking = incoming.thinking
+  const mergedContent = isBinaryOmittedText(current.content) && incoming.content
+    ? current.content
+    : sanitizeChatDisplayText(rawMergedContent);
+  const rawMergedThinking = incoming.thinking
     ? (
       current.thinking && incoming.thinking.startsWith(current.thinking)
         ? incoming.thinking
         : `${current.thinking ?? ""}${incoming.thinking}`
     )
     : current.thinking;
+  const mergedThinking = rawMergedThinking
+    ? (
+      isBinaryOmittedText(current.thinking) && incoming.thinking
+        ? current.thinking
+        : sanitizeChatDisplayText(rawMergedThinking)
+    )
+    : rawMergedThinking;
   const mergedMediaUrls = [
     ...(current.mediaUrls ?? []),
     ...((incoming.mediaUrls ?? []).filter((url) => !(current.mediaUrls ?? []).includes(url))),
@@ -187,12 +265,34 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
   };
 }
 
+function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
+  const toolCalls = message.toolCalls?.map((toolCall) => ({
+    ...toolCall,
+    args: sanitizeChatDisplayText(toolCall.args),
+    ...(toolCall.result !== undefined ? { result: sanitizeChatDisplayText(toolCall.result) } : {}),
+  }));
+  return {
+    ...message,
+    content: sanitizeChatDisplayText(message.content),
+    ...(message.thinking ? { thinking: sanitizeChatDisplayText(message.thinking) } : {}),
+    ...(toolCalls ? { toolCalls } : {}),
+  };
+}
+
 function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
-  const last = prev[prev.length - 1];
-  if (last?.role === "assistant") {
-    return [...prev.slice(0, -1), mergeAssistantMessage(last, incoming)];
+  const sanitizedIncoming = sanitizeAssistantMessage(incoming);
+  if (isInternalHeartbeatMessage(sanitizedIncoming)) {
+    const last = prev[prev.length - 1];
+    return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
   }
-  return [...prev, incoming];
+  const last = prev[prev.length - 1];
+  let next: ChatMessage[];
+  if (last?.role === "assistant") {
+    next = [...prev.slice(0, -1), mergeAssistantMessage(last, sanitizedIncoming)];
+  } else {
+    next = [...prev, sanitizedIncoming];
+  }
+  return next.filter((message) => !isInternalHeartbeatMessage(message));
 }
 
 function normalizeLiveToolCall(
@@ -237,4 +337,4 @@ function normalizeLiveToolResult(
 }
 
 
-export { maybeDecodeMojibake, normalizeHistoryMessage, normalizeLiveToolCall, normalizeLiveToolResult, upsertAssistantMessage };
+export { maybeDecodeMojibake, normalizeHistoryMessage, normalizeLiveToolCall, normalizeLiveToolResult, sanitizeChatDisplayText, upsertAssistantMessage };

@@ -1,6 +1,7 @@
 export { IntegrationCard } from "./IntegrationCard";
 export type { CardStatus } from "./IntegrationCard";
 export { IntegrationsPage } from "./IntegrationsPage";
+export { IntegrationsDirectoryPanel } from "./IntegrationsDirectoryPanel";
 export { TelegramWizard } from "./TelegramWizard";
 export { DiscordWizard } from "./DiscordWizard";
 export { SlackWizard } from "./SlackWizard";

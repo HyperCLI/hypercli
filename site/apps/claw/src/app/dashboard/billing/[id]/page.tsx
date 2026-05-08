@@ -16,6 +16,7 @@ import {
   type AgentBillingProfileFields,
   type AgentPayment,
 } from "@/lib/billing";
+import { createHyperAgentClient } from "@/lib/agent-client";
 
 function formatAgentsAmount(receipt: ReceiptRecord): string {
   const method = String(receipt.meta?.payment_method || "").toLowerCase();
@@ -82,10 +83,10 @@ export default function BillingDetailPage() {
       setLoading(true);
       setError(null);
       try {
-        const token = await getToken();
+        const hyperAgent = createHyperAgentClient(await getToken());
         const [payment, billing] = await Promise.all([
-          getAgentPayment(token, params.id),
-          getAgentBillingProfile(token),
+          getAgentPayment(hyperAgent, params.id),
+          getAgentBillingProfile(hyperAgent),
         ]);
         if (cancelled) {
           return;

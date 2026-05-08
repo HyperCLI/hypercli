@@ -9,6 +9,7 @@ import {
   Upload,
   RefreshCw,
 } from "lucide-react";
+import { AgentLifecycleSteps } from "@/components/dashboard/AgentLifecycleSteps";
 
 // ── Types ──
 
@@ -18,25 +19,36 @@ interface FilesEmptyStateProps {
   kind: EmptyStateKind;
   searchQuery?: string;
   errorMessage?: string;
+  title?: string;
+  description?: string;
   onRetry?: () => void;
 }
 
 // ── Skeleton loader ──
 
+const FILES_SKELETON_ROWS = [
+  { primary: 74, secondary: 42 },
+  { primary: 58, secondary: 36 },
+  { primary: 86, secondary: 48 },
+  { primary: 66, secondary: 32 },
+  { primary: 79, secondary: 44 },
+  { primary: 54, secondary: 38 },
+];
+
 function FilesSkeleton() {
   return (
     <div className="space-y-2 px-1">
-      {Array.from({ length: 6 }).map((_, i) => (
+      {FILES_SKELETON_ROWS.map((row, i) => (
         <div key={i} className="flex items-center gap-2.5 px-2 py-2">
           <div className="w-5 h-5 rounded bg-surface-low animate-pulse" />
           <div className="flex-1 space-y-1">
             <div
               className="h-3 rounded bg-surface-low animate-pulse"
-              style={{ width: `${50 + Math.random() * 40}%`, animationDelay: `${i * 80}ms` }}
+              style={{ width: `${row.primary}%`, animationDelay: `${i * 80}ms` }}
             />
             <div
               className="h-2 rounded bg-surface-low/60 animate-pulse"
-              style={{ width: `${30 + Math.random() * 20}%`, animationDelay: `${i * 80 + 40}ms` }}
+              style={{ width: `${row.secondary}%`, animationDelay: `${i * 80 + 40}ms` }}
             />
           </div>
         </div>
@@ -47,9 +59,43 @@ function FilesSkeleton() {
 
 // ── Component ──
 
-export function FilesEmptyState({ kind, searchQuery, errorMessage, onRetry }: FilesEmptyStateProps) {
+export function FilesEmptyState({ kind, searchQuery, errorMessage, title, description, onRetry }: FilesEmptyStateProps) {
   if (kind === "loading") {
-    return <FilesSkeleton />;
+    return (
+      <div className="space-y-5 py-6">
+        <div className="flex flex-col items-center gap-3 text-center">
+          <div className="relative h-16 w-16" aria-hidden="true">
+            <motion.span
+              className="absolute inset-0 rounded-full opacity-25"
+              animate={{ boxShadow: ["0 0 18px #38D39F", "0 0 34px #38D39F", "0 0 18px #38D39F"], scale: [0.96, 1.04, 0.96] }}
+              transition={{ duration: 2, repeat: Infinity, ease: "easeInOut" }}
+            />
+            <motion.span
+              className="absolute inset-1 rounded-full border-2 border-transparent border-t-[#38D39F] border-r-[#7ef7c9]"
+              animate={{ rotate: 360 }}
+              transition={{ duration: 1.8, repeat: Infinity, ease: "linear" }}
+            />
+            <motion.span
+              className="absolute inset-4 rounded-full border border-transparent border-b-[#7ef7c9] border-l-[#38D39F]"
+              animate={{ rotate: -360 }}
+              transition={{ duration: 1.15, repeat: Infinity, ease: "linear" }}
+            />
+            <motion.span
+              className="absolute inset-[1.35rem] rounded-full"
+              style={{ background: "radial-gradient(circle, #ffffff 0%, #38D39F 48%, #7ef7c9 100%)", boxShadow: "0 0 12px #38D39F" }}
+              animate={{ scale: [0.82, 1.12, 0.82], opacity: [0.72, 1, 0.72] }}
+              transition={{ duration: 1.1, repeat: Infinity, ease: "easeInOut" }}
+            />
+          </div>
+          <div className="space-y-1">
+            <p className="text-sm font-medium text-foreground">{title ?? "Loading workspace"}</p>
+            <p className="text-[11px] text-text-muted">{description ?? "Fetching files from the agent gateway."}</p>
+          </div>
+          <AgentLifecycleSteps stage="complete" />
+        </div>
+        <FilesSkeleton />
+      </div>
+    );
   }
 
   const config: Record<Exclude<EmptyStateKind, "loading">, {
@@ -103,9 +149,9 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, onRetry }: Fi
       </motion.div>
 
       <div className="text-center space-y-1">
-        <p className="text-sm font-medium text-foreground">{c.title}</p>
+        <p className="text-sm font-medium text-foreground">{title ?? c.title}</p>
         <p className="text-[11px] text-text-muted leading-relaxed max-w-[220px]">
-          {c.description}
+          {description ?? c.description}
         </p>
       </div>
 

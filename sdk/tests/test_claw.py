@@ -318,6 +318,23 @@ class TestHyperAgentClient:
             "https://api.hypercli.com/agents/subscriptions/sub-1/cancel",
             headers={"Authorization": "Bearer sk-hyper-test"},
         )
+
+    def test_redeem_grant_code(self, mock_http):
+        mock_http._session.post.return_value.json.return_value = {
+            "grant": {"id": "grant-1", "code": "promo-123"},
+            "entitlement": {"id": "ent-1", "plan_id": "basic"},
+        }
+        mock_http._session.post.return_value.raise_for_status = Mock()
+
+        agent = HyperAgent(mock_http, agent_api_key="sk-hyper-test", agents_api_base_url="https://api.hypercli.com/agents")
+        result = agent.redeem_grant_code("promo-123")
+
+        assert result["grant"]["code"] == "promo-123"
+        mock_http._session.post.assert_called_with(
+            "https://api.hypercli.com/agents/billing/grants/redeem",
+            headers={"Authorization": "Bearer sk-hyper-test"},
+            json={"code": "promo-123"},
+        )
     
     def test_openai_client_creation(self, mock_http):
         """Test that OpenAI client is created with correct config."""

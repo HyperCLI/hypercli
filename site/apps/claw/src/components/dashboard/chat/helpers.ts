@@ -69,4 +69,30 @@ export function toolCallSummary(tc: { name: string; args: string; result?: strin
   return extractReadableSummary(tc.args, 60);
 }
 
+export function formatToolDetail(raw: string, maxLen: number): { text: string; clipped: boolean } {
+  const trimmed = raw.trim();
+  if (!trimmed) return { text: "", clipped: false };
+
+  let display = trimmed;
+  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
+    try {
+      const parsed = JSON.parse(trimmed);
+      if (Array.isArray(parsed)) {
+        const textBlocks = parsed
+          .filter((entry: unknown) => (entry as Record<string, unknown>)?.type === "text" && typeof (entry as Record<string, unknown>)?.text === "string")
+          .map((entry: unknown) => (entry as Record<string, string>).text.trim())
+          .filter(Boolean);
+        display = textBlocks.length > 0 ? textBlocks.join("\n\n") : JSON.stringify(parsed, null, 2);
+      } else {
+        display = JSON.stringify(parsed, null, 2);
+      }
+    } catch {
+      display = trimmed;
+    }
+  }
+
+  if (display.length <= maxLen) return { text: display, clipped: false };
+  return { text: `${display.slice(0, maxLen).trimEnd()}\n... clipped`, clipped: true };
+}
+
 export const THINKING_PREVIEW_LINES = 2;

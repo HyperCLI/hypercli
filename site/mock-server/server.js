@@ -28,7 +28,7 @@ function generateUser() {
 
 function generateAgent(overrides = {}) {
   const id = overrides.id || uuidv4();
-  const states = ['STOPPED', 'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'ERROR'];
+  const states = ['STOPPED', 'PENDING', 'STARTING', 'RUNNING', 'STOPPING', 'FAILED'];
   const state = overrides.state || faker.helpers.arrayElement(states);
   const tier = overrides.type || faker.helpers.arrayElement(['small', 'medium', 'large']);
   const tierPresets = { small: { cpu: 1, memory: 1 }, medium: { cpu: 2, memory: 2 }, large: { cpu: 4, memory: 4 } };
@@ -668,7 +668,7 @@ app.get('/api/agents/models', (req, res) => {
   res.json({ models });
 });
 
-// Same endpoint without /api prefix (used by landing page ModelsSection via NEXT_PUBLIC_HYPER_AGENT_MODELS_URL)
+// Same endpoint without /api prefix kept for mock-server compatibility.
 app.get('/agents/models', (req, res) => {
   const models = Array.from({ length: 12 }, () => generateModel());
   res.json({ models });

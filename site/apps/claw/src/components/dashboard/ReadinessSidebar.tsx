@@ -8,6 +8,7 @@ import {
   MessageSquare,
   Wrench,
   Palette,
+  Box,
   Plus,
   ChevronDown,
   ChevronRight,
@@ -50,6 +51,7 @@ const MOCK_READINESS: Record<DirectoryCategory, { active: boolean; label: string
   web: { active: false, label: "Not configured", detail: "Your agent can\u2019t search the internet" },
   channels: { active: false, label: "Not connected", detail: "No messaging platforms" },
   tools: { active: true, label: "1 active", detail: "Memory (Core)" },
+  skills: { active: true, label: "Available", detail: "App skills directory" },
   media: { active: true, label: "Available", detail: "Requires HyperClaw balance" },
 };
 
@@ -60,6 +62,7 @@ const CATEGORY_ICONS: Record<DirectoryCategory, React.ElementType> = {
   web: Globe,
   channels: MessageSquare,
   tools: Wrench,
+  skills: Box,
   media: Palette,
 };
 
@@ -96,6 +99,7 @@ export function ReadinessSidebar({
       tools: connectedTools.length > 0
         ? { active: true, label: `${connectedTools.length} active`, detail: connectedTools.map((p) => p.displayName).join(", ") }
         : { active: false, label: "Minimal", detail: "Browse available tools" },
+      skills: { active: true, label: "Available", detail: "App skills directory" },
       media: { active: true, label: "Available", detail: "Requires HyperClaw balance" },
     } satisfies Record<DirectoryCategory, { active: boolean; label: string; detail: string }>;
   }, [config]);
@@ -120,6 +124,7 @@ export function ReadinessSidebar({
       case "web": return "Set up \u2192";
       case "channels": return "Connect \u2192";
       case "tools": return "Browse more \u2192";
+      case "skills": return "View \u2192";
       default: return "View \u2192";
     }
   };

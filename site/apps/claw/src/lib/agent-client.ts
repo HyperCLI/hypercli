@@ -44,6 +44,10 @@ export function createHyperAgentClient(apiKey: string): HyperAgent {
   return new HyperAgent(http, apiKey, false, resolvedApiBaseUrl);
 }
 
+export function createPublicHyperAgentClient(): HyperAgent {
+  return createHyperAgentClient("");
+}
+
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
   return createAgentClient(apiKey).createOpenClaw(options);
 }

@@ -1,12 +1,14 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import { resolveOpenClawSessionKey } from "./openclaw-session-key";
 import {
   type ChatMessage,
   type WorkspaceFile,
-  maybeDecodeMojibake,
+  isInternalHeartbeatMessage,
   normalizeHistoryMessage,
   normalizeLiveToolCall,
   normalizeLiveToolResult,
+  sanitizeChatDisplayText,
   upsertAssistantMessage,
 } from "@/lib/openclaw-chat";
 
@@ -43,6 +45,16 @@ interface SessionEventContext {
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
+function formatSessionToolValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string") return sanitizeChatDisplayText(value);
+  try {
+    return sanitizeChatDisplayText(JSON.stringify(value, null, 2));
+  } catch {
+    return sanitizeChatDisplayText(String(value));
+  }
+}
+
 export function handleOpenClawSessionEvent({
   gateway,
   gatewayEvent,
@@ -61,12 +73,12 @@ export function handleOpenClawSessionEvent({
       const toolName = (data.name as string) || "";
       const toolCallId = data.toolCallId as string | undefined;
       if (phase === "start" && toolName) {
-        const args = data.args == null ? "" : typeof data.args === "string" ? maybeDecodeMojibake(data.args) : JSON.stringify(data.args, null, 2);
+        const args = formatSessionToolValue(data.args);
         setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }], timestamp: Date.now() }));
       } else if (phase === "result" && toolName) {
         const meta = (data.meta as string) || "";
         const isError = Boolean(data.isError);
-        const resultText = isError ? `Error: ${meta}` : meta;
+        const resultText = isError ? `Error: ${sanitizeChatDisplayText(meta)}` : sanitizeChatDisplayText(meta);
         if (resultText) {
           setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }], timestamp: Date.now() }));
         }
@@ -79,10 +91,10 @@ export function handleOpenClawSessionEvent({
     if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
     if ((payload as Record<string, unknown>).state === "final") setSending(false);
   } else if (event === "chat.content") {
-    const text = maybeDecodeMojibake((payload as Record<string, unknown>).text as string ?? "");
+    const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
     if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
   } else if (event === "chat.thinking") {
-    const text = maybeDecodeMojibake((payload as Record<string, unknown>).text as string ?? "");
+    const text = sanitizeChatDisplayText((payload as Record<string, unknown>).text as string ?? "");
     if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
   } else if (event === "chat.tool_call") {
     const toolCall = normalizeLiveToolCall(payload as Record<string, unknown>);
@@ -104,10 +116,14 @@ export function handleOpenClawSessionEvent({
   const isActivityKind = (v: unknown): v is ActivityKind => v === "message" || v === "tool" || v === "connection" || v === "skill" || v === "cron" || v === "error" || v === "system";
   if (event === "chat.tool_call") {
     const tc = normalizeLiveToolCall(payload as Record<string, unknown>);
-    if (tc) appendActivity({ type: "tool", action: tc.name, detail: tc.args || "" });
+    if (tc && !isInternalHeartbeatMessage({ toolCalls: [tc] })) {
+      appendActivity({ type: "tool", action: tc.name, detail: tc.args || "" });
+    }
   } else if (event === "chat.tool_result") {
     const tc = normalizeLiveToolResult(payload as Record<string, unknown>);
-    if (tc?.result) appendActivity({ type: "tool", action: `${tc.name} → result`, detail: tc.result });
+    if (tc?.result && !isInternalHeartbeatMessage({ toolCalls: [tc] })) {
+      appendActivity({ type: "tool", action: `${tc.name} → result`, detail: tc.result });
+    }
   } else if (event === "chat.done") {
     appendActivity({ type: "message", action: "Assistant response complete" });
   } else if (event === "chat.error") {
@@ -139,11 +155,17 @@ export interface HydratedOpenClawSession {
   models: Array<Record<string, unknown>>;
 }
 
-export async function hydrateOpenClawSession(gateway: GatewayClient): Promise<HydratedOpenClawSession> {
+export async function hydrateOpenClawSession(
+  gateway: GatewayClient,
+  preferredAgentId?: string | null,
+): Promise<HydratedOpenClawSession> {
+  const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
+  const gwAgentId = normalizedPreferredAgentId || "main";
+  const sessionKey = resolveOpenClawSessionKey(gwAgentId);
   const [cfgResult, schemaResult, historyResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
     gateway.configGet(),
     gateway.configSchema(),
-    gateway.chatHistory("main", 200),
+    gateway.chatHistory(sessionKey, 200),
     gateway.agentsList(),
     gateway.sessionsList(),
     gateway.cronList(),
@@ -151,11 +173,11 @@ export async function hydrateOpenClawSession(gateway: GatewayClient): Promise<Hy
   ]);
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
-  const gwAgentId = agents.length > 0 ? agents[0].id : "main";
+  const resolvedGatewayAgentId = normalizedPreferredAgentId || agents[0]?.id || "main";
   let files: WorkspaceFile[] = [];
   if (agentsResult.status === "fulfilled") {
     try {
-      files = await gateway.filesList(gwAgentId);
+      files = await gateway.filesList(resolvedGatewayAgentId);
     } catch {}
   }
 
@@ -166,7 +188,7 @@ export async function hydrateOpenClawSession(gateway: GatewayClient): Promise<Hy
       ? historyResult.value.map((message) => normalizeHistoryMessage(message)).filter((message): message is ChatMessage => message !== null)
       : [],
     files,
-    gwAgentId,
+    gwAgentId: resolvedGatewayAgentId,
     sessions: sessionsRes.status === "fulfilled" ? sessionsRes.value as Array<Record<string, unknown>> : [],
     cronJobs: cronRes.status === "fulfilled" ? cronRes.value as Array<Record<string, unknown>> : [],
     models: modelsRes.status === "fulfilled" ? modelsRes.value as Array<Record<string, unknown>> : [],

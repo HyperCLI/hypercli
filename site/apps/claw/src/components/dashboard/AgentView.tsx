@@ -1003,14 +1003,16 @@ export function AgentView({
                 {recentToolCallsSource.length === 0 ? (
                   <div className="px-3 py-4 text-[10px] text-text-muted text-center">No tool calls yet</div>
                 ) : (
-                  recentToolCallsSource.map((tc, i) => (
-                    <motion.div
-                      key={tc.id}
-                      initial={{ opacity: 0, y: 8 }}
-                      animate={{ opacity: 1, y: 0 }}
-                      transition={{ duration: 0.2, delay: i * 0.04 }}
-                      className={`flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-low transition-colors ${isHighlighted(tc.id) ? "activity-flash" : ""}`}
-                    >
+                  recentToolCallsSource.map((tc, i) => {
+                    const renderKey = `${tc.id}:${tc.timestamp}:${i}`;
+                    return (
+                      <motion.div
+                        key={renderKey}
+                        initial={{ opacity: 0, y: 8 }}
+                        animate={{ opacity: 1, y: 0 }}
+                        transition={{ duration: 0.2, delay: i * 0.04 }}
+                        className={`flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-low transition-colors ${isHighlighted(tc.id) ? "activity-flash" : ""}`}
+                      >
                       <motion.div
                         animate={!tc.result ? { rotate: [0, 180, 360] } : {}}
                         transition={!tc.result ? { repeat: Infinity, duration: 2, ease: "linear" } : {}}
@@ -1040,8 +1042,9 @@ export function AgentView({
                         )}
                       </div>
                       <span className="text-[10px] text-text-muted whitespace-nowrap mt-0.5">{relativeTime(tc.timestamp)}</span>
-                    </motion.div>
-                  ))
+                      </motion.div>
+                    );
+                  })
                 )}
                 <div className="border-t border-border my-2" />
                 <div className="text-xs font-semibold text-text-secondary uppercase tracking-wider px-1 py-1.5">Activity Log</div>

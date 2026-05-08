@@ -1,9 +1,10 @@
 "use client";
 
-import { useRef, useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import { motion, useInView } from "framer-motion";
 import { Check, X } from "lucide-react";
-import { HYPER_AGENT_MODELS_URL } from "@/lib/api";
+import type { HyperAgentModel } from "@hypercli.com/sdk/agent";
+import { createPublicHyperAgentClient } from "@/lib/agent-client";
 
 interface ModelInfo {
   id: string;
@@ -37,46 +38,22 @@ const MODEL_DISPLAY: Record<
 };
 
 function fmtCtx(n: number | null): string {
-  if (!n) return "—";
+  if (!n) return "-";
   if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
   return `${Math.round(n / 1024)}K`;
 }
 
-
-function toNullableNumber(value: unknown): number | null {
-  if (typeof value === "number" && Number.isFinite(value)) return value;
-  if (typeof value === "string" && value.trim().length > 0) {
-    const parsed = Number(value);
-    if (Number.isFinite(parsed)) return parsed;
-  }
-  return null;
-}
-
-function toBool(value: unknown): boolean {
-  return value === true || value === "true" || value === 1 || value === "1";
-}
-
-function normalizeModel(raw: Record<string, unknown>): ModelInfo | null {
-  const id = typeof raw.id === "string" ? raw.id : "";
-  if (!id) return null;
-
-  const name = typeof raw.name === "string" && raw.name ? raw.name : id;
-  const inputModalities = Array.isArray(raw.input_modalities)
-    ? raw.input_modalities.filter(
-        (entry): entry is string => typeof entry === "string"
-      )
-    : [];
-
+function normalizeModel(model: HyperAgentModel): ModelInfo {
   return {
-    id,
-    name,
-    context_length: toNullableNumber(raw.context_length),
-    max_completion_tokens: toNullableNumber(raw.max_completion_tokens),
-    supports_vision: toBool(raw.supports_vision),
-    supports_tools: toBool(raw.supports_tools),
-    supports_structured_outputs: toBool(raw.supports_structured_outputs),
-    supports_reasoning: toBool(raw.supports_reasoning),
-    input_modalities: inputModalities,
+    id: model.id,
+    name: model.name,
+    context_length: model.contextLength,
+    max_completion_tokens: null,
+    supports_vision: model.supportsVision,
+    supports_tools: model.supportsFunctionCalling || model.supportsToolChoice,
+    supports_structured_outputs: model.supportsToolChoice,
+    supports_reasoning: false,
+    input_modalities: model.supportsVision ? ["text", "image"] : ["text"],
   };
 }
 
@@ -91,22 +68,16 @@ export function ModelsSection() {
   }, []);
 
   useEffect(() => {
-    fetch(HYPER_AGENT_MODELS_URL)
-      .then((res) => (res.ok ? res.json() : null))
+    let cancelled = false;
+    createPublicHyperAgentClient()
+      .models()
       .then((data) => {
-        if (!Array.isArray(data?.models)) return;
-        const normalizedModels = data.models
-          .map((entry: unknown) =>
-            entry && typeof entry === "object"
-              ? normalizeModel(entry as Record<string, unknown>)
-              : null
-          )
-          .filter((entry: ModelInfo | null): entry is ModelInfo => entry !== null);
-        setModels(normalizedModels);
+        if (!cancelled) setModels(data.map(normalizeModel));
       })
-      .catch((error) => {
-        console.error("Failed to load model cards", error);
-      });
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   if (models.length === 0) return null;
@@ -129,7 +100,6 @@ export function ModelsSection() {
       <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
 
       <div className="max-w-7xl mx-auto relative">
-        {/* Title */}
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           animate={reveal ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
@@ -145,7 +115,6 @@ export function ModelsSection() {
           </p>
         </motion.div>
 
-        {/* Model cards — same grid as pricing */}
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
           {models.map((model, index) => {
             const display = MODEL_DISPLAY[model.id] || {
@@ -169,12 +138,10 @@ export function ModelsSection() {
                     : ""
                 }`}
               >
-                {/* Model ID badge */}
                 <code className="text-xs text-text-tertiary bg-surface-low px-2.5 py-1 rounded font-mono self-start mb-4">
                   {model.id}
                 </code>
 
-                {/* Name + tagline */}
                 <h3 className="text-lg font-semibold text-foreground">
                   {display.title}
                 </h3>
@@ -182,7 +149,6 @@ export function ModelsSection() {
                   {display.tagline}
                 </p>
 
-                {/* Stats row */}
                 <div className="flex items-baseline gap-1 mt-auto mb-1">
                   <span className="text-3xl font-bold text-foreground">
                     {fmtCtx(model.context_length)}
@@ -190,7 +156,6 @@ export function ModelsSection() {
                   <span className="text-text-muted text-sm">context</span>
                 </div>
 
-                {/* Capabilities list — same style as pricing features */}
                 <ul className="space-y-3 mb-2">
                   {capabilities(model).map((cap) => (
                     <li
@@ -217,7 +182,6 @@ export function ModelsSection() {
           })}
         </div>
 
-        {/* Footnote */}
         <motion.p
           initial={{ opacity: 0 }}
           animate={reveal ? { opacity: 1 } : { opacity: 0 }}

@@ -102,7 +102,7 @@ interface PlanCheckoutModalProps {
     id: string;
     name: string;
     price: number;
-    bundle: Record<string, number>;
+    bundle?: Record<string, number>;
     limits: {
       tpd: number;
       burst_tpm?: number;
@@ -118,6 +118,10 @@ interface PlanCheckoutModalProps {
 }
 
 type PaymentMethod = "card" | "crypto";
+
+function hasBundle(bundle: Record<string, number> | undefined): bundle is Record<string, number> {
+  return Boolean(bundle && Object.values(bundle).some((count) => Number(count) > 0));
+}
 
 export function PlanCheckoutModal({
   plan,
@@ -149,12 +153,13 @@ export function PlanCheckoutModal({
     try {
       const token = await getToken();
       const hyperAgent = createHyperAgentClient(token);
+      const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
       const data = await hyperAgent.createStripeCheckout(
         {
-          bundle: plan.bundle,
           quantity: 1,
           successUrl: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
           cancelUrl: `${window.location.origin}/plans?cancelled=true`,
+          ...(planBundle ? { bundle: planBundle } : {}),
         },
         plan.id,
       );
@@ -187,9 +192,10 @@ export function PlanCheckoutModal({
       const token = await getToken();
       const hyperAgent = createHyperAgentClient(token);
       const wallet = await connectWallet();
+      const planBundle = hasBundle(plan.bundle) ? plan.bundle : undefined;
       await hyperAgent.purchaseViaX402WithSigner(plan.id, {
-        bundle: plan.bundle,
         quantity: 1,
+        ...(planBundle ? { bundle: planBundle } : {}),
         signer: walletClientToX402Signer(wallet.client),
         amountUsd: plan.price,
       });

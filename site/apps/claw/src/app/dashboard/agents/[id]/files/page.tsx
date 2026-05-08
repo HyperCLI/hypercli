@@ -137,10 +137,19 @@ export default function AgentFilesPage() {
   }, [files, searchQuery]);
 
   const connected = chat.connected;
-  const emptyKind: "offline" | "no-files" | "no-results" | null =
+  const agentState = agent?.state ?? null;
+  const filesLoading = agentState === "RUNNING" && (chat.connecting || chat.hydrating);
+  const filesDisconnected = agentState === "RUNNING" && !chat.connecting && !chat.hydrating && !connected;
+  const emptyKind: "offline" | "loading" | "error" | "no-files" | "no-results" | null =
+    filesLoading ? "loading" :
+    chat.error ? "error" :
     !connected ? "offline" :
     files.length === 0 ? "no-files" :
     searchQuery.trim() && searchResultCount === 0 ? "no-results" : null;
+  const offlineTitle = filesDisconnected ? "Gateway disconnected" : undefined;
+  const offlineDescription = filesDisconnected
+    ? "Reconnect the gateway to browse workspace files."
+    : undefined;
 
   const fileCount = files.filter((f) => f.type === "file").length;
   const dirCount = files.filter((f) => f.type === "directory").length;
@@ -171,7 +180,7 @@ export default function AgentFilesPage() {
     return (
       <div className="flex h-full items-center justify-center text-text-muted">
         <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading agent…
+        Loading agent record
       </div>
     );
   }
@@ -216,8 +225,16 @@ export default function AgentFilesPage() {
 
         {!connected && (
           <div className="flex items-center gap-1 text-[9px] text-[#f0c56c]">
-            <WifiOff className="w-3 h-3" />
-            <span>{agent.state === "RUNNING" ? "Connecting…" : agent.state}</span>
+            {filesLoading ? <Loader2 className="w-3 h-3 animate-spin" /> : <WifiOff className="w-3 h-3" />}
+            <span>
+              {filesLoading
+                ? "Loading workspace"
+                : chat.error
+                  ? "Gateway error"
+                  : agent.state === "RUNNING"
+                    ? "Disconnected"
+                    : agent.state}
+            </span>
           </div>
         )}
 
@@ -311,6 +328,9 @@ export default function AgentFilesPage() {
               <FilesEmptyState
                 kind={emptyKind}
                 searchQuery={searchQuery}
+                errorMessage={chat.error ?? undefined}
+                title={emptyKind === "loading" ? "Loading workspace" : emptyKind === "offline" ? offlineTitle : undefined}
+                description={emptyKind === "loading" ? "Fetching files from the agent gateway." : emptyKind === "offline" ? offlineDescription : undefined}
               />
             ) : (
               <FilesDirectoryTree

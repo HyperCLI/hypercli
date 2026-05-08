@@ -43,7 +43,7 @@ export function usePlans() {
     enabled: ready && !!hyperAgent,
   });
 
-  // ── Type catalog (from REST, not SDK) ──
+  // ── Type catalog ──
   const {
     data: typeCatalog,
     isLoading: typeCatalogLoading,

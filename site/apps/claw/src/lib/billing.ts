@@ -1,4 +1,9 @@
-import { agentApiFetch } from "@/lib/api";
+import type {
+  HyperAgent,
+  HyperAgentBillingProfileFields,
+  HyperAgentBillingProfileResponse,
+  HyperAgentPayment,
+} from "@hypercli.com/sdk/agent";
 
 export interface AgentBillingUser {
   id: string;
@@ -80,26 +85,124 @@ export interface AgentBillingProfileResponse {
   synced_stripe_customer_ids?: string[];
 }
 
-export async function getAgentPayments(token: string): Promise<AgentPaymentsResponse> {
-  return agentApiFetch<AgentPaymentsResponse>("/billing/payments", token);
+function isoDate(value: Date | null | undefined): string | null {
+  return value ? value.toISOString() : null;
 }
 
-export async function getAgentPayment(token: string, paymentId: string): Promise<AgentPayment> {
-  return agentApiFetch<AgentPayment>(`/billing/payments/${paymentId}`, token);
+function fromSdkProfileFields(profile: HyperAgentBillingProfileFields): AgentBillingProfileFields {
+  return {
+    billing_name: profile.billingName,
+    billing_company: profile.billingCompany,
+    billing_tax_id: profile.billingTaxId,
+    billing_line1: profile.billingLine1,
+    billing_line2: profile.billingLine2,
+    billing_city: profile.billingCity,
+    billing_state: profile.billingState,
+    billing_postal_code: profile.billingPostalCode,
+    billing_country: profile.billingCountry,
+  };
 }
 
-export async function getAgentBillingProfile(token: string): Promise<AgentBillingProfileResponse> {
-  return agentApiFetch<AgentBillingProfileResponse>("/billing/profile", token);
+function toSdkProfileFields(profile: AgentBillingProfileFields): HyperAgentBillingProfileFields {
+  return {
+    billingName: profile.billing_name,
+    billingCompany: profile.billing_company,
+    billingTaxId: profile.billing_tax_id,
+    billingLine1: profile.billing_line1,
+    billingLine2: profile.billing_line2,
+    billingCity: profile.billing_city,
+    billingState: profile.billing_state,
+    billingPostalCode: profile.billing_postal_code,
+    billingCountry: profile.billing_country,
+  };
+}
+
+function fromSdkBillingProfile(response: HyperAgentBillingProfileResponse): AgentBillingProfileResponse {
+  return {
+    company_billing: {
+      address: response.companyBilling.address,
+      email: response.companyBilling.email,
+    },
+    profile: response.profile ? fromSdkProfileFields(response.profile) : null,
+    synced_stripe_customer_ids: response.syncedStripeCustomerIds,
+  };
+}
+
+function fromSdkPayment(payment: HyperAgentPayment): AgentPayment {
+  return {
+    id: payment.id,
+    user_id: payment.userId,
+    subscription_id: payment.subscriptionId,
+    entitlement_id: payment.entitlementId,
+    provider: payment.provider,
+    status: payment.status,
+    amount: payment.amount,
+    currency: payment.currency,
+    external_payment_id: payment.externalPaymentId,
+    created_at: isoDate(payment.createdAt),
+    updated_at: isoDate(payment.updatedAt),
+    user: payment.user
+      ? {
+          id: payment.user.id,
+          email: payment.user.email,
+          wallet_address: payment.user.walletAddress,
+          team_id: payment.user.teamId,
+          plan_id: payment.user.planId,
+          billing_name: payment.user.billingName,
+          billing_company: payment.user.billingCompany,
+          billing_tax_id: payment.user.billingTaxId,
+          billing_line1: payment.user.billingLine1,
+          billing_line2: payment.user.billingLine2,
+          billing_city: payment.user.billingCity,
+          billing_state: payment.user.billingState,
+          billing_postal_code: payment.user.billingPostalCode,
+          billing_country: payment.user.billingCountry,
+        }
+      : null,
+    subscription: payment.subscription
+      ? {
+          id: payment.subscription.id,
+          plan_id: payment.subscription.planId,
+          provider: payment.subscription.provider,
+          status: payment.subscription.status,
+          current_period_end: isoDate(payment.subscription.currentPeriodEnd),
+          expires_at: isoDate(payment.subscription.currentPeriodEnd),
+          stripe_subscription_id: payment.subscription.stripeSubscriptionId,
+        }
+      : null,
+    entitlement: payment.entitlement
+      ? {
+          id: payment.entitlement.id,
+          plan_id: payment.entitlement.planId,
+          provider: payment.entitlement.provider,
+          status: payment.entitlement.status,
+          expires_at: isoDate(payment.entitlement.expiresAt),
+          agent_tier: payment.entitlement.agentTier,
+          features: payment.entitlement.features,
+          tags: payment.entitlement.tags,
+        }
+      : null,
+  };
+}
+
+export async function getAgentPayments(hyperAgent: HyperAgent): Promise<AgentPaymentsResponse> {
+  const response = await hyperAgent.payments();
+  return { items: response.items.map(fromSdkPayment) };
+}
+
+export async function getAgentPayment(hyperAgent: HyperAgent, paymentId: string): Promise<AgentPayment> {
+  return fromSdkPayment(await hyperAgent.payment(paymentId));
+}
+
+export async function getAgentBillingProfile(hyperAgent: HyperAgent): Promise<AgentBillingProfileResponse> {
+  return fromSdkBillingProfile(await hyperAgent.billingProfile());
 }
 
 export async function updateAgentBillingProfile(
-  token: string,
+  hyperAgent: HyperAgent,
   profile: AgentBillingProfileFields,
 ): Promise<AgentBillingProfileResponse> {
-  return agentApiFetch<AgentBillingProfileResponse>("/billing/profile", token, {
-    method: "PUT",
-    body: JSON.stringify(profile),
-  });
+  return fromSdkBillingProfile(await hyperAgent.updateBillingProfile(toSdkProfileFields(profile)));
 }
 
 export function resolveAgentPaymentPlanId(payment: AgentPayment): string | null {

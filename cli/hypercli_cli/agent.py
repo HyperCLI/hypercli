@@ -498,6 +498,34 @@ def subscription_summary(
         )
 
 
+@app.command("activate-code")
+def activate_code(
+    code: str = typer.Argument(..., help="Activation or promo code to redeem"),
+    dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Redeem a HyperClaw activation code for the current account."""
+    client = _get_agent_query_client(dev)
+    result = client.agent.redeem_grant_code(code)
+
+    if json_output:
+        console.print_json(json.dumps(result, indent=2, default=str))
+        return
+
+    grant = result.get("grant") or {}
+    entitlement = result.get("entitlement") or {}
+    console.print("\n[bold]HyperClaw Code Activated[/bold]\n")
+    console.print(f"Code: [bold]{grant.get('code') or code}[/bold]")
+    console.print(f"Plan: [bold]{entitlement.get('plan_name') or entitlement.get('plan_id') or grant.get('plan_id') or ''}[/bold]")
+    if entitlement.get("starts_at"):
+        console.print(f"Starts: {entitlement.get('starts_at')}")
+    if entitlement.get("expires_at"):
+        console.print(f"Expires: {entitlement.get('expires_at')}")
+    tags = entitlement.get("tags") or grant.get("tags") or []
+    if tags:
+        console.print(f"Tags: {', '.join(str(tag) for tag in tags)}")
+
+
 @app.command("models")
 def models(
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),

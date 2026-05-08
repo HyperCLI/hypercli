@@ -12,13 +12,13 @@ import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
+  Check,
   Key,
   CreditCard,
   ExternalLink,
   Loader2,
   Plus,
   MessageSquare,
-  Play,
   RefreshCw,
   TerminalSquare,
   Trash2,
@@ -34,30 +34,30 @@ import {
   Zap,
   Timer,
   FolderOpen,
+  Sparkles,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
-import { formatCpu, formatMemory } from "@/lib/format";
+import { createAgentClient, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
+import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { agentAvatar } from "@/lib/avatar";
-import { AgentCreationWizard } from "@/components/dashboard/AgentCreationWizard";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import { IntegrationsPage } from "@/components/dashboard/integrations";
+import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
-import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
-import { AgentCardTooltip } from "@/components/dashboard/modules/AgentCardModule";
-import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
-import { DirectoryModal } from "@/components/dashboard/DirectoryModal";
-import type { DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
-import type { SdkAgent } from "@/types";
+import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
+import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
+import type { AgentFileEntry, SdkAgent } from "@/types";
+import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
+import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "./types";
 import {
   describeAgentTierStartGuidance,
@@ -80,21 +80,339 @@ import {
   setPathValue,
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
+import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
+import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import {
-  AgentLaunchPrompt,
-  ConnectionStatusIndicator,
-  GearDropdown,
+  type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsModal, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigModal } from "@/components/dashboard/agents/AgentPanels";
-import { AgentChatPanel } from "@/components/dashboard/agents/AgentChatPanel";
+import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawSettingsDrawer } from "@/components/dashboard/agents/AgentPanels";
+import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
+import { AgentFilesPanel } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
+import { bundleKey, CLAW_PRODUCTS, compactBundle, type SlotBundle } from "@/lib/subscriptions";
 
 type MainTab = AgentMainTab;
+type AgentFileSource = "auto" | "pod" | "s3";
+
+const SHOW_AGENT_INSPECTOR = false;
+const SCHEDULED_SECTION_ENABLED = true;
+const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
+
+interface UpgradeDisplayProduct {
+  id: string;
+  name: string;
+  bundle: SlotBundle;
+  price: number;
+  highlighted: boolean;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+}
+
+interface UpgradeCheckoutPlan {
+  id: string;
+  name: string;
+  bundle?: Record<string, number>;
+  price: number;
+  limits: {
+    tpd: number;
+    burstTpm: number;
+    rpm: number;
+  };
+}
+
+type CatalogPlan = HyperAgentPlan & {
+  bundle?: Record<string, number> | null;
+  checkoutBundle?: Record<string, number> | null;
+  checkout_bundle?: Record<string, number> | null;
+  hidden?: boolean;
+  meta?: {
+    bundle?: Record<string, number> | null;
+    checkout_bundle?: Record<string, number> | null;
+  } | null;
+  price_usd?: number;
+  slotGrants?: Record<string, number> | null;
+  slot_grants?: Record<string, number> | null;
+};
+
+const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
+
+function finiteNumber(value: unknown, fallback = 0): number {
+  const numeric = Number(value);
+  return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function normalizeBundle(value: unknown): SlotBundle {
+  if (!value || typeof value !== "object" || Array.isArray(value)) return {};
+  const entries = Object.entries(value as Record<string, unknown>)
+    .map(([tier, count]) => [tier, Number(count)] as const)
+    .filter(([, count]) => Number.isFinite(count) && count > 0);
+  return Object.fromEntries(entries) as SlotBundle;
+}
+
+function firstBundle(...bundles: unknown[]): SlotBundle {
+  for (const bundle of bundles) {
+    const normalized = normalizeBundle(bundle);
+    if (Object.keys(normalized).length > 0) return normalized;
+  }
+  return {};
+}
+
+function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayProduct[] {
+  return catalogPlans
+    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .map((plan) => {
+      const catalogPlan = plan as CatalogPlan;
+      const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
+      const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;
+      return {
+        id: plan.id,
+        name: plan.name,
+        bundle: firstBundle(
+          catalogPlan.bundle,
+          catalogPlan.checkoutBundle,
+          catalogPlan.checkout_bundle,
+          catalogPlan.meta?.bundle,
+          catalogPlan.meta?.checkout_bundle,
+          catalogPlan.slotGrants,
+          catalogPlan.slot_grants,
+          fallbackBundle,
+        ),
+        price: finiteNumber(catalogPlan.priceUsd ?? catalogPlan.price_usd ?? plan.price),
+        highlighted: Boolean(plan.highlighted),
+        limits: {
+          tpd: finiteNumber(limits.tpd),
+          burstTpm: finiteNumber(limits.burstTpm ?? (limits as { burst_tpm?: number }).burst_tpm),
+          rpm: finiteNumber(limits.rpm ?? plan.rpmLimit),
+        },
+      };
+    });
+}
+
+function toUpgradeCheckoutPlan(product: UpgradeDisplayProduct): UpgradeCheckoutPlan {
+  const bundle = compactBundle(product.bundle) as Record<string, number>;
+  return {
+    id: product.id,
+    name: product.name,
+    bundle: Object.keys(bundle).length > 0 ? bundle : undefined,
+    price: product.price,
+    limits: product.limits,
+  };
+}
+
+function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundle {
+  const metaBundle = compactBundle(
+    (subscription.meta?.bundle as Record<string, number> | undefined) ??
+      (subscription.meta?.checkout_bundle as Record<string, number> | undefined),
+  );
+  if (Object.keys(metaBundle).length > 0) return metaBundle;
+
+  const derived: Record<string, number> = {};
+  for (const [tier, granted] of Object.entries(subscription.slotGrants ?? {})) {
+    const total = Math.max(Number(granted || 0), 0) * Math.max(subscription.quantity || 1, 1);
+    if (total > 0) derived[tier] = total;
+  }
+  if (Object.keys(derived).length > 0) return compactBundle(derived);
+  if (subscription.planId === "free") return { free: Math.max(subscription.quantity || 1, 1) };
+  return {};
+}
+
+function countOwnedCheckoutPlan(
+  summary: HyperAgentSubscriptionSummary | null,
+  checkoutPlan: UpgradeCheckoutPlan | null,
+): number {
+  if (!summary || !checkoutPlan) return 0;
+  const checkoutBundleKey = checkoutPlan.bundle ? bundleKey(checkoutPlan.bundle) : "{}";
+  let ownedCount = 0;
+
+  for (const subscription of summary.activeSubscriptions ?? []) {
+    if (subscription.planId === checkoutPlan.id) {
+      ownedCount += Math.max(subscription.quantity || 1, 1);
+      continue;
+    }
+    if (checkoutBundleKey !== "{}" && bundleKey(bundleFromSubscription(subscription)) === checkoutBundleKey) {
+      ownedCount += Math.max(subscription.quantity || 1, 1);
+    }
+  }
+
+  return ownedCount;
+}
+
+function countOwnedProduct(
+  summary: HyperAgentSubscriptionSummary | null,
+  product: UpgradeDisplayProduct,
+): number {
+  return countOwnedCheckoutPlan(summary, toUpgradeCheckoutPlan(product));
+}
+
+function UpgradePlanCatalogModal({
+  open,
+  products,
+  ownedCounts,
+  loading,
+  error,
+  onClose,
+  onSelectPlan,
+  onOpenPlans,
+}: {
+  open: boolean;
+  products: UpgradeDisplayProduct[];
+  ownedCounts: Record<string, number>;
+  loading: boolean;
+  error: string | null;
+  onClose: () => void;
+  onSelectPlan: (product: UpgradeDisplayProduct) => void;
+  onOpenPlans: () => void;
+}) {
+  if (!open) return null;
+
+  return (
+    <motion.div
+      className="fixed inset-0 z-[9998] flex items-center justify-center bg-black/70 p-4 backdrop-blur-sm"
+      initial={{ opacity: 0 }}
+      animate={{ opacity: 1 }}
+      exit={{ opacity: 0 }}
+      transition={{ duration: 0.16 }}
+      onClick={onClose}
+    >
+      <motion.div
+        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-4xl overflow-hidden rounded-[14px] border border-border bg-background shadow-2xl"
+        initial={{ opacity: 0, y: 10, scale: 0.98 }}
+        animate={{ opacity: 1, y: 0, scale: 1 }}
+        exit={{ opacity: 0, y: 10, scale: 0.98 }}
+        transition={{ type: "spring", stiffness: 420, damping: 34 }}
+        onClick={(event) => event.stopPropagation()}
+      >
+        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+          <div>
+            <div className="flex items-center gap-2">
+              <Sparkles className="h-4 w-4 text-primary" />
+              <h2 className="text-lg font-semibold text-foreground">Upgrade plan</h2>
+            </div>
+            <p className="mt-1 text-sm text-text-secondary">Choose a plan for checkout.</p>
+          </div>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+            aria-label="Close upgrade modal"
+          >
+            <X className="h-4 w-4" />
+          </button>
+        </div>
+
+        <div className="max-h-[calc(min(720px,100vh-2rem)-73px)] overflow-y-auto px-5 py-5">
+          {loading ? (
+            <div className="flex min-h-[220px] items-center justify-center">
+              <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+            </div>
+          ) : error ? (
+            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#d05f5f]">
+              {error}
+              <button
+                type="button"
+                onClick={onOpenPlans}
+                className="ml-3 font-semibold text-foreground underline underline-offset-4"
+              >
+                Open plans page
+              </button>
+            </div>
+          ) : products.length === 0 ? (
+            <div className="rounded-lg border border-border bg-surface-low/30 px-4 py-3 text-sm text-text-secondary">
+              No paid plans returned by the SDK catalog.
+              <button
+                type="button"
+                onClick={onOpenPlans}
+                className="ml-3 font-semibold text-foreground underline underline-offset-4"
+              >
+                Open plans page
+              </button>
+            </div>
+          ) : (
+            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+              {products.map((product) => {
+                const ownedCount = ownedCounts[product.id] ?? 0;
+                return (
+                  <div
+                    key={product.id}
+                    className="flex min-h-[280px] flex-col rounded-[10px] border border-border bg-surface-low/25 p-4"
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="min-w-0">
+                        <h3 className="truncate text-base font-semibold text-foreground">{product.name}</h3>
+                        <p className="mt-1 text-sm text-text-muted">
+                          <span className="text-2xl font-semibold text-foreground">${product.price}</span>
+                          <span>/month</span>
+                        </p>
+                      </div>
+                      {ownedCount > 0 ? (
+                        <span className="shrink-0 rounded-full bg-[#38D39F]/10 px-2 py-1 text-[11px] font-semibold text-[#38D39F]">
+                          You own {ownedCount}
+                        </span>
+                      ) : product.highlighted ? (
+                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
+                          Popular
+                        </span>
+                      ) : null}
+                    </div>
+
+                    <div className="mt-4 space-y-2 text-sm text-text-secondary">
+                      <p className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                        {formatTokens(product.limits.tpd)} tokens/day
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                        Up to {formatTokens(product.limits.burstTpm)} TPM
+                      </p>
+                      <p className="flex items-center gap-2">
+                        <Check className="h-4 w-4 shrink-0 text-primary" />
+                        {formatTokens(product.limits.rpm)} RPM
+                      </p>
+                    </div>
+
+                    <button
+                      type="button"
+                      onClick={() => onSelectPlan(product)}
+                      className="mt-auto flex h-9 w-full items-center justify-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+                    >
+                      {ownedCount > 0 ? "Add Another" : "Select plan"}
+                    </button>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      </motion.div>
+    </motion.div>
+  );
+}
+
+function normalizeAgentFilePath(path: string): string {
+  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+}
+
+function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
+  const path = normalizeAgentFilePath(entry.path);
+  return {
+    name: entry.name || path.split("/").filter(Boolean).pop() || entry.path,
+    path,
+    type: entry.type,
+    size: entry.size,
+    lastModified: entry.last_modified,
+  };
+}
 
 function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
   const index = prev.findIndex((agent) => agent.id === nextAgent.id);
@@ -109,14 +427,30 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
 function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
   return prev.filter((agent) => agent.id !== agentId);
 }
+
+function getWorkspaceSidebarDisabledReason({
+  agentsLoading,
+  connecting,
+  hydrating,
+}: {
+  agentsLoading: boolean;
+  connecting: boolean;
+  hydrating: boolean;
+}): string {
+  if (agentsLoading) return "Loading agents.";
+  if (connecting) return "Opening the gateway connection.";
+  if (hydrating) return "Fetching messages, files, and config.";
+  return "Workspace is loading.";
+}
 // Shell now routes through backend WebSocket via lagoon → K8s exec
 
 // ── Main component ──
 
 export default function AgentsPage() {
-  const { getToken } = useAgentAuth();
+  const { getToken, user } = useAgentAuth();
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
+  const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia("(min-width: 768px)").matches;
@@ -125,8 +459,16 @@ export default function AgentsPage() {
   // Agent data
   const [sdkAgents, setSdkAgents] = useState<SdkAgent[]>([]);
   const [budget, setBudget] = useState<AgentBudget | null>(null);
+  const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
+  const [planName, setPlanName] = useState<string | null>(null);
+  const [subscriptionSummary, setSubscriptionSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
+  const [tokenUsage, setTokenUsage] = useState<number | null>(null);
+  const [upgradeCatalogOpen, setUpgradeCatalogOpen] = useState(false);
+  const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
+  const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
+  const [upgradeCatalogLoading, setUpgradeCatalogLoading] = useState(false);
   const [deployments, setDeployments] = useState<Deployments | null>(null);
-  const [, setLoading] = useState(true);
+  const [agentsLoading, setAgentsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
   const [deletingId, setDeletingId] = useState<string | null>(null);
   const [startingId, setStartingId] = useState<string | null>(null);
@@ -139,10 +481,6 @@ export default function AgentsPage() {
     return () => { stoppedTimersRef.current.forEach((t) => clearTimeout(t)); };
   }, []);
 
-  // Create dialog
-  const [showCreateDialog, setShowCreateDialog] = useState(false);
-  const [createDialogInitialStep, setCreateDialogInitialStep] = useState(0);
-  const [createDialogPreferredTier, setCreateDialogPreferredTier] = useState<string | null>(null);
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -152,14 +490,7 @@ export default function AgentsPage() {
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
-  const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() => {
-    if (typeof window === "undefined") return false;
-    return window.localStorage.getItem("agents.sidebarCollapsed") === "1";
-  });
-  useEffect(() => {
-    if (typeof window === "undefined") return;
-    window.localStorage.setItem("agents.sidebarCollapsed", sidebarCollapsed ? "1" : "0");
-  }, [sidebarCollapsed]);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
   // Logs
   const logBoxRef = useRef<HTMLDivElement | null>(null);
@@ -178,12 +509,10 @@ export default function AgentsPage() {
   const [channelsData, setChannelsData] = useState<Record<string, unknown> | null>(null);
   const [inspectorSheetOpen, setInspectorSheetOpen] = useState(false);
 
-  // Modal overlays for gear dropdown items
-  const [showOpenclawModal, setShowOpenclawModal] = useState(false);
-  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  // Overlays for gear dropdown items
   const [showChannelWizard, setShowChannelWizard] = useState(false);
-  const [directoryOpen, setDirectoryOpen] = useState(false);
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
+  const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -198,7 +527,7 @@ export default function AgentsPage() {
     return () => mediaQuery.removeEventListener("change", apply);
   }, []);
 
-  // Settings modal state
+  // Settings panel state
   const [settingsName, setSettingsName] = useState("");
   const [, setAgentClusterUnavailable] = useState(false);
   const [savingName, setSavingName] = useState(false);
@@ -206,26 +535,54 @@ export default function AgentsPage() {
   const [openclawSaving, setOpenclawSaving] = useState(false);
   const [openclawError, setOpenclawError] = useState<string | null>(null);
   const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
+  const [openclawSettingsOpen, setOpenclawSettingsOpen] = useState(false);
   const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
   const [openclawMapDraftKeys, setOpenclawMapDraftKeys] = useState<Record<string, string>>({});
+  const [openclawJsonDrafts, setOpenclawJsonDrafts] = useState<Record<string, string>>({});
+  const [openclawJsonDraftErrors, setOpenclawJsonDraftErrors] = useState<Record<string, string>>({});
   const [chatDragActive, setChatDragActive] = useState(false);
   const openclawPaneRef = useRef<HTMLDivElement | null>(null);
   const chatDragDepthRef = useRef(0);
+
+  const openConnectionSuggestion = useCallback((suggestion: ChatConnectionSuggestion) => {
+    if (suggestion.directoryPluginId) {
+      const category = getCategoryForPlugin(suggestion.directoryPluginId) ?? undefined;
+      setDirectoryCategory(category);
+      setDirectoryItemId(suggestion.directoryPluginId);
+      setMainTab("integrations");
+      setMobileShowChat(true);
+      return;
+    }
+
+    if (!SHOW_AGENT_INSPECTOR) return;
+    setInspectorTab("connections");
+    setInspectorSheetOpen(true);
+  }, []);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   const fetchAgents = useCallback(async () => {
     try {
-      const agentClient = deployments ?? createAgentClient(await getToken());
+      const token = await getToken();
+      const agentClient = deployments ?? createAgentClient(token);
       if (!deployments) {
         setDeployments(agentClient);
       }
-      const [listedAgents, budgetData] = await Promise.all([
+      const hyperAgent = createHyperAgentClient(token);
+      const [listedAgents, budgetData, catalogData, currentPlan, summaryData, usageSummary] = await Promise.all([
         agentClient.list(),
         agentClient.budget().catch(() => null),
+        hyperAgent.plans().catch(() => []),
+        hyperAgent.currentPlan().catch(() => null),
+        hyperAgent.subscriptionSummary().catch(() => null),
+        hyperAgent.usageSummary().catch(() => null),
       ]);
       setSdkAgents(listedAgents);
       setBudget((budgetData as AgentBudget | null) || null);
+      setCatalogPlans(Array.isArray(catalogData) ? catalogData : []);
+      setPlanName(currentPlan?.name ?? currentPlan?.id ?? null);
+      setSubscriptionSummary((summaryData as HyperAgentSubscriptionSummary | null) || null);
+      setTokenUsage(usageSummary?.totalTokens ?? null);
       setAgentClusterUnavailable(false);
       setSelectedAgentId((currentId) => {
         if (!currentId) {
@@ -241,15 +598,52 @@ export default function AgentsPage() {
       setAgentClusterUnavailable(described.clusterUnavailable);
       setSdkAgents([]);
       setBudget(null);
+      setCatalogPlans([]);
       setDeployments(null);
     } finally {
-      setLoading(false);
+      setAgentsLoading(false);
     }
   }, [deployments, getToken]);
+
+  const openUpgradeCatalog = useCallback(async () => {
+    if (upgradeCatalogLoading) return;
+
+    setUpgradeCatalogOpen(true);
+    setUpgradeCatalogError(null);
+    if (catalogPlans.length > 0) {
+      return;
+    }
+
+    setUpgradeCatalogLoading(true);
+    try {
+      const hyperAgent = createHyperAgentClient(await getToken());
+      const plans = await hyperAgent.plans();
+      setCatalogPlans(plans);
+      if (buildUpgradeProducts(plans).filter((product) => product.id !== "free" && product.price > 0).length === 0) {
+        setUpgradeCatalogError("No paid plans returned by the SDK catalog.");
+      }
+    } catch (error) {
+      setUpgradeCatalogError(error instanceof Error ? error.message : "Plan catalog is unavailable right now.");
+    } finally {
+      setUpgradeCatalogLoading(false);
+    }
+  }, [catalogPlans, getToken, upgradeCatalogLoading]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
+  const upgradeProducts = useMemo(
+    () => buildUpgradeProducts(catalogPlans).filter((product) => product.id !== "free" && product.price > 0),
+    [catalogPlans],
+  );
+  const upgradeOwnedCounts = useMemo(
+    () => Object.fromEntries(upgradeProducts.map((product) => [product.id, countOwnedProduct(subscriptionSummary, product)])),
+    [subscriptionSummary, upgradeProducts],
+  );
+  const upgradeCheckoutOwnedCount = useMemo(
+    () => countOwnedCheckoutPlan(subscriptionSummary, upgradeCheckoutPlan),
+    [subscriptionSummary, upgradeCheckoutPlan],
+  );
 
   // Detect STARTING→RUNNING for burst
   useEffect(() => {
@@ -280,12 +674,8 @@ export default function AgentsPage() {
     [selectedSdkAgent],
   );
   const selectedAgentState = selectedAgent?.state ?? null;
-  const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING"].includes(selectedAgent.state);
+  const isSelectedTransitioning = selectedAgent && ["PENDING", "STARTING", "STOPPING"].includes(selectedAgent.state);
   const isSelectedRunning = selectedAgent?.state === "RUNNING";
-  const selectedAgentTier = useMemo(
-    () => (selectedAgent ? inferAgentTier(selectedAgent, budget) : null),
-    [selectedAgent, budget],
-  );
   useEffect(() => {
     if (!selectedAgentId || !selectedAgentState || !["PENDING", "STARTING", "STOPPING"].includes(selectedAgentState)) {
       return;
@@ -305,13 +695,19 @@ export default function AgentsPage() {
         : null,
     [selectedAgent, budget],
   );
-  const stoppedTabLabel: Record<"chat" | "logs" | "shell", string> = {
+  const stoppedTabLabel: Record<CenterPanel, string> = {
     chat: "Chat",
+    files: "Files",
+    integrations: "Integrations",
+    scheduled: "Scheduled",
     logs: "Logs",
+    settings: "Settings",
     shell: "Shell",
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
     { key: "chat", label: "Chat", icon: MessageSquare },
+    { key: "files", label: "Files", icon: FolderOpen },
+    { key: "scheduled", label: "Scheduled", icon: Timer },
     { key: "logs", label: "Logs", icon: TerminalSquare },
     { key: "shell", label: "Shell", icon: TerminalSquare },
   ];
@@ -361,20 +757,145 @@ export default function AgentsPage() {
 
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
-    mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations",
+    mainTab === "chat" ||
+      mainTab === "files" ||
+      mainTab === "workspace" ||
+      mainTab === "integrations" ||
+      mainTab === "settings" ||
+      openclawSettingsOpen,
   );
   const activeConnectionStatus = useMemo(() => {
-    if (mainTab === "files") return "connected" as const;
     if (!isSelectedRunning) return null;
+    if (mainTab === "files") {
+      if (chat.connected) return "connected" as const;
+      if (chat.connecting) return "connecting" as const;
+      return "disconnected" as const;
+    }
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "openclaw" || mainTab === "integrations") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
     }
     return null;
   }, [chat.connected, chat.connecting, isSelectedRunning, mainTab, shellStatus, wsStatus]);
+
+  const listAgentFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
+    if (!selectedAgentId) return [];
+    const token = await getToken();
+    const entries = await createAgentClient(token).filesList(
+      selectedAgentId,
+      normalizeAgentFilePath(path ?? ""),
+      source,
+    );
+    return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
+  }, [getToken, selectedAgentId]);
+
+  const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
+    if (!selectedAgentId) return "";
+    const token = await getToken();
+    return createAgentClient(token).fileRead(selectedAgentId, normalizeAgentFilePath(path), source);
+  }, [getToken, selectedAgentId]);
+
+  const loadAgentSkills = useCallback(async () => {
+    if (!selectedAgentId) return [];
+    const token = await getToken();
+    const result = await createAgentClient(token).exec(selectedAgentId, buildSkillsSnapshotCommand(), { timeout: 15_000 });
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || "Failed to read /app/skills from the agent.");
+    }
+    return parseSkillSnapshotOutput(result.stdout);
+  }, [getToken, selectedAgentId]);
+
+  const saveAgentFile = useCallback(async (path: string, content: string) => {
+    if (!selectedAgentId) return;
+    const token = await getToken();
+    await createAgentClient(token).fileWrite(selectedAgentId, normalizeAgentFilePath(path), content);
+  }, [getToken, selectedAgentId]);
+
+  const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
+    if (!selectedAgentId) return;
+    const token = await getToken();
+    await createAgentClient(token).fileDelete(selectedAgentId, normalizeAgentFilePath(path), options);
+  }, [getToken, selectedAgentId]);
+
+  const agentStatus = useMemo<AgentStatusChipModel | null>(() => {
+    if (!selectedAgent) return null;
+
+    if (selectedAgent.state === "FAILED") {
+      return {
+        label: "Failed",
+        detail: selectedAgent.last_error || "Needs attention before it can run.",
+        tone: "failed",
+      };
+    }
+
+    if (selectedAgent.state === "STOPPED") {
+      return {
+        label: "Stopped",
+        detail: "Start the agent to chat.",
+        tone: "stopped",
+      };
+    }
+
+    if (selectedAgent.state === "PENDING") {
+      return {
+        label: "Provisioning",
+        detail: "Reserving compute and preparing the workspace.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+
+    if (selectedAgent.state === "STARTING") {
+      return {
+        label: "Booting",
+        detail: "Starting the container and OpenClaw services.",
+        tone: "starting",
+        loading: true,
+      };
+    }
+
+    if (selectedAgent.state === "STOPPING") {
+      return {
+        label: "Stopping",
+        detail: "Stopping the runtime and cleaning up the workspace.",
+        tone: "stopping",
+        loading: true,
+      };
+    }
+
+    if (!isSelectedRunning) {
+      return {
+        label: "Disconnected",
+        detail: "Workspace is not connected yet.",
+        tone: "disconnected",
+      };
+    }
+
+    const panelLabel = mainTab === "logs" ? "logs" : mainTab === "shell" ? "shell" : "workspace";
+    if (activeConnectionStatus === "connecting") {
+      return {
+        label: "Connecting",
+        detail: panelLabel === "workspace" ? "Opening the gateway connection." : `Opening ${panelLabel} stream.`,
+        tone: "connecting",
+        loading: true,
+      };
+    }
+    if (activeConnectionStatus === "disconnected") {
+      return {
+        label: "Disconnected",
+        detail: panelLabel === "workspace" ? "Gateway disconnected." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} will reconnect when the gateway is reachable.`,
+        tone: "disconnected",
+      };
+    }
+    return {
+      label: "Ready",
+      detail: panelLabel === "workspace" ? "Gateway connected." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
+      tone: "ready",
+    };
+  }, [activeConnectionStatus, isSelectedRunning, mainTab, selectedAgent]);
 
   const openclawSchemaBundle = chat.configSchema;
   const openclawSchemaRoot = useMemo(
@@ -394,6 +915,8 @@ export default function AgentsPage() {
   useEffect(() => {
     const cfg = asObject(chat.config);
     setOpenclawDraft(deepCloneJsonObject(cfg ?? {}));
+    setOpenclawJsonDrafts({});
+    setOpenclawJsonDraftErrors({});
     setOpenclawError(null);
     setOpenclawSuccess(null);
   }, [selectedAgentId, chat.config]);
@@ -408,9 +931,9 @@ export default function AgentsPage() {
   }, [openclawSections, activeOpenclawSection]);
 
   useEffect(() => {
-    if (mainTab !== "openclaw") return;
+    if (!openclawSettingsOpen) return;
     openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [activeOpenclawSection, mainTab]);
+  }, [activeOpenclawSection, openclawSettingsOpen]);
 
   // ── Agent inspector data wiring ──
 
@@ -437,8 +960,9 @@ export default function AgentsPage() {
       const entry = asObject(val);
       return { name, enabled: entry?.enabled === true };
     });
+    const defaultModel = getOpenClawDefaultModel(cfg);
     return {
-      model: typeof llm.model === "string" ? llm.model : "unknown",
+      model: defaultModel || "unknown",
       systemPrompt: typeof llm.system === "string" ? llm.system : (typeof llm.systemPrompt === "string" ? llm.systemPrompt : ""),
       tools,
     };
@@ -467,10 +991,10 @@ export default function AgentsPage() {
   const syntheticThreads = useMemo<ConversationThread[]>(() => {
     return agents.map((agent) => ({
       id: agent.id,
-      sessionKey: "main",
+      sessionKey: resolveOpenClawSessionKey(agent.id),
       participants: [
         { id: "user", name: "You", type: "user" as const },
-        { id: agent.id, name: agent.name || agent.id, type: "agent" as const },
+        { id: agent.id, name: agent.name || agent.id, type: "agent" as const, meta: agent.meta ?? null },
       ],
       kind: "user-agent" as const,
       title: agent.name || agent.pod_name || agent.id,
@@ -579,6 +1103,48 @@ export default function AgentsPage() {
     });
   }, [channelsData]);
 
+  const agentCardDataById = useMemo(() => {
+    if (!selectedAgent) return {};
+    return {
+      [selectedAgent.id]: {
+        id: selectedAgent.id,
+        name: selectedAgent.name || selectedAgent.id,
+        state: selectedAgent.state,
+        cpuMillicores: selectedAgent.cpu_millicores,
+        memoryMib: selectedAgent.memory_mib,
+        hostname: selectedAgent.hostname,
+        startedAt: selectedAgent.started_at,
+        updatedAt: selectedAgent.updated_at,
+        lastError: selectedAgent.last_error,
+        meta: selectedAgent.meta,
+        config: agentConfigForView,
+        connections: agentConnectionsForView?.map((connection) => ({
+          id: connection.id,
+          name: connection.name,
+          connected: connection.connected,
+        })) ?? null,
+        sessions: agentSessionsForView?.map((session) => ({ key: session.key })) ?? null,
+        files: agentWorkspaceFilesForView?.map((file) => ({
+          name: file.name,
+          size: file.size,
+        })) ?? null,
+        activity: activityEntriesForView?.map((entry) => ({
+          id: entry.id,
+          action: entry.action,
+          detail: entry.detail,
+          timestamp: entry.timestamp,
+        })) ?? null,
+      },
+    };
+  }, [
+    activityEntriesForView,
+    agentConfigForView,
+    agentConnectionsForView,
+    agentSessionsForView,
+    agentWorkspaceFilesForView,
+    selectedAgent,
+  ]);
+
   const effectiveOpenclawSection = useMemo(
     () => (isDesktopViewport ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
     [activeOpenclawSection, isDesktopViewport, openclawSections]
@@ -613,6 +1179,33 @@ export default function AgentsPage() {
     });
   }, []);
 
+  const setOpenclawJsonDraftError = useCallback((pathKey: string, message: string | null) => {
+    setOpenclawJsonDraftErrors((prev) => {
+      const next = { ...prev };
+      if (message) {
+        next[pathKey] = message;
+      } else {
+        delete next[pathKey];
+      }
+      return next;
+    });
+    if (message) {
+      setOpenclawError(message);
+    }
+  }, []);
+
+  const updateOpenclawJsonDraft = useCallback((path: string[], raw: string) => {
+    const pathKey = path.join(".");
+    setOpenclawJsonDrafts((prev) => ({ ...prev, [pathKey]: raw }));
+    try {
+      updateOpenclawPath(path, JSON.parse(raw));
+      setOpenclawJsonDraftError(pathKey, null);
+      setOpenclawError(null);
+    } catch {
+      setOpenclawJsonDraftError(pathKey, `Invalid JSON at ${path.join(".")}`);
+    }
+  }, [setOpenclawJsonDraftError, updateOpenclawPath]);
+
   const removeOpenclawPath = useCallback((path: string[]) => {
     setOpenclawDraft((prev) => {
       if (!prev || path.length === 0) return prev;
@@ -637,18 +1230,29 @@ export default function AgentsPage() {
   }, [openclawMapDraftKeys, updateOpenclawPath]);
 
   const saveOpenclawPatch = useCallback(async (patch: JsonObject, successText: string) => {
+    if (!chat.connected) {
+      setOpenclawError("Gateway disconnected. Reconnect before saving OpenClaw settings.");
+      return;
+    }
+    const jsonDraftError = Object.values(openclawJsonDraftErrors)[0];
+    if (jsonDraftError) {
+      setOpenclawError(jsonDraftError);
+      return;
+    }
     setOpenclawSaving(true);
     setOpenclawError(null);
     setOpenclawSuccess(null);
     try {
       await chat.saveConfig(patch);
+      setOpenclawJsonDrafts({});
+      setOpenclawJsonDraftErrors({});
       setOpenclawSuccess(successText);
     } catch (err) {
       setOpenclawError(err instanceof Error ? err.message : "Failed to save OpenClaw config");
     } finally {
       setOpenclawSaving(false);
     }
-  }, [chat]);
+  }, [chat, openclawJsonDraftErrors]);
 
   const saveOpenclawSection = useCallback(async (sectionKey: string) => {
     if (!openclawDraft) return;
@@ -681,6 +1285,7 @@ export default function AgentsPage() {
     const enumValues: unknown[] = Array.isArray(schema.enum) ? schema.enum : [];
     const currentValue = openclawDraft ? getPathValue(openclawDraft, path) : undefined;
     const key = path.join(".");
+    const fieldDisabled = !chat.connected || openclawSaving;
 
     const propertyKeys = descriptor.properties;
     const additionalSchema = descriptor.additionalPropertySchema;
@@ -696,25 +1301,20 @@ export default function AgentsPage() {
         if (typeof console !== "undefined") {
           console.warn(`[OpenClaw] Section "${key}" has type "object" but no resolved properties. Schema may contain unresolved $ref.`, schema);
         }
-        const onFallbackChange = (raw: string) => {
-          try {
-            updateOpenclawPath(path, JSON.parse(raw));
-            setOpenclawError(null);
-          } catch {
-            setOpenclawError(`Invalid JSON at ${path.join(".")}`);
-          }
-        };
+        const fallbackValue = openclawJsonDrafts[key] ??
+          (typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2));
         return (
           <div key={key} className="space-y-1">
             <label className="block text-sm text-text-secondary">{title}</label>
             {description && <p className="text-xs text-text-muted">{description}</p>}
             <textarea
-              value={typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2)}
-              onChange={(e) => onFallbackChange(e.target.value)}
+              value={fallbackValue}
+              onChange={(e) => updateOpenclawJsonDraft(path, e.target.value)}
               rows={6}
               spellCheck={false}
               placeholder={placeholder}
-              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+              disabled={fieldDisabled}
+              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
             />
           </div>
         );
@@ -744,7 +1344,8 @@ export default function AgentsPage() {
                     <button
                       type="button"
                       onClick={() => removeOpenclawPath([...path, childKey])}
-                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f]"
+                      disabled={fieldDisabled}
+                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f] disabled:cursor-not-allowed disabled:opacity-60"
                     >
                       <Trash2 className="h-3.5 w-3.5" />
                       Remove
@@ -759,12 +1360,14 @@ export default function AgentsPage() {
                   value={openclawMapDraftKeys[key] ?? ""}
                   onChange={(e) => setOpenclawMapDraftKeys((prev) => ({ ...prev, [key]: e.target.value }))}
                   placeholder={`Add ${title.toLowerCase()} key`}
-                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong"
+                  disabled={fieldDisabled}
+                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
                 />
                 <button
                   type="button"
                   onClick={() => addOpenclawMapEntry(path, additionalSchema ?? { type: "object" })}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
+                  disabled={fieldDisabled}
+                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   <Plus className="h-4 w-4" />
                   Add Entry
@@ -776,14 +1379,10 @@ export default function AgentsPage() {
       );
     }
 
-    const onJsonValueChange = (raw: string) => {
-      try {
-        updateOpenclawPath(path, JSON.parse(raw));
-        setOpenclawError(null);
-      } catch {
-        setOpenclawError(`Invalid JSON at ${path.join(".")}`);
-      }
-    };
+    const jsonValue = openclawJsonDrafts[key] ??
+      (typeof currentValue === "undefined"
+        ? (type === "array" ? "[]" : type === "object" ? "{}" : "")
+        : JSON.stringify(currentValue, null, 2));
 
     return (
       <div key={key} className="space-y-1">
@@ -812,7 +1411,8 @@ export default function AgentsPage() {
               const nextValue = enumValues.find((value) => JSON.stringify(value) === e.target.value);
               updateOpenclawPath(path, nextValue ?? e.target.value);
             }}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           >
             <option value="">(unset)</option>
             {enumValues.map((value) => (
@@ -827,7 +1427,8 @@ export default function AgentsPage() {
               type="checkbox"
               checked={Boolean(currentValue)}
               onChange={(e) => updateOpenclawPath(path, e.target.checked)}
-              className="rounded border-border bg-surface-low"
+              disabled={fieldDisabled}
+              className="rounded border-border bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
             />
             Enabled
           </label>
@@ -845,16 +1446,18 @@ export default function AgentsPage() {
               if (!Number.isNaN(parsed)) updateOpenclawPath(path, parsed);
             }}
             placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           />
         ) : type === "array" || type === "object" ? (
           <textarea
-            value={typeof currentValue === "undefined" ? "" : JSON.stringify(currentValue, null, 2)}
-            onChange={(e) => onJsonValueChange(e.target.value)}
+            value={jsonValue}
+            onChange={(e) => updateOpenclawJsonDraft(path, e.target.value)}
             rows={6}
             spellCheck={false}
             placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           />
         ) : (
           <input
@@ -862,7 +1465,8 @@ export default function AgentsPage() {
             value={typeof currentValue === "string" ? currentValue : currentValue == null ? "" : String(currentValue)}
             onChange={(e) => updateOpenclawPath(path, e.target.value)}
             placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
+            disabled={fieldDisabled}
+            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
           />
         )}
       </div>
@@ -876,7 +1480,7 @@ export default function AgentsPage() {
         </div>
       );
     }
-  }, [addOpenclawMapEntry, openclawDraft, openclawMapDraftKeys, openclawSchemaBundle, removeOpenclawPath, updateOpenclawPath]);
+  }, [addOpenclawMapEntry, chat.connected, openclawDraft, openclawJsonDrafts, openclawMapDraftKeys, openclawSaving, openclawSchemaBundle, removeOpenclawPath, updateOpenclawJsonDraft, updateOpenclawPath]);
 
   // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -1046,17 +1650,32 @@ export default function AgentsPage() {
     }
   };
 
-  const openCreateDialog = useCallback((options?: { initialStep?: number; preferredTier?: string | null }) => {
-    setCreateDialogInitialStep(options?.initialStep ?? 0);
-    setCreateDialogPreferredTier(options?.preferredTier ?? null);
-    setShowCreateDialog(true);
-  }, []);
+  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size }: { name: string; iconIndex: number; size: string }) => {
+    try {
+      setError(null);
+      const token = await getToken();
+      const created = await createOpenClawAgent(token, {
+        name: name || undefined,
+        start: true,
+        size,
+        meta: { ui: { avatar: { icon_index: iconIndex } } },
+      });
+      await fetchAgents();
+      if (created.id) {
+        setSelectedAgentId(created.id);
+        setMainTab("chat");
+        setMobileShowChat(true);
+        return created.id;
+      }
+      setError("Agent was created, but no agent id was returned.");
+      return null;
+    } catch (err) {
+      const message = err instanceof Error ? err.message : "Failed to create agent";
+      setError(message);
+      throw err;
+    }
+  }, [fetchAgents, getToken]);
 
-  const closeCreateDialog = useCallback(() => {
-    setShowCreateDialog(false);
-    setCreateDialogInitialStep(0);
-    setCreateDialogPreferredTier(null);
-  }, []);
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
     setStartingId(agentId);
     setError(null);
@@ -1076,7 +1695,22 @@ export default function AgentsPage() {
   }, [getToken]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
-  const selectedAgentLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
+  const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
+  const selectedAgentTierLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
+  const selectedAgentLaunchBlocked = selectedAgentTierLaunchBlocked || selectedAgentRecentlyStopped;
+  const selectedAgentStartBlockedTitle = selectedAgentRecentlyStopped
+    ? "Agent is finishing shutdown"
+    : selectedAgentStartGuidance?.title;
+  const selectedAgentStartBlockedMessage = selectedAgentRecentlyStopped
+    ? "Wait a few seconds before starting this agent again."
+    : selectedAgentStartGuidance?.message;
+  const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
+  const workspaceSidebarDisabled = agentsLoading || Boolean(selectedAgent && (chat.connecting || chat.hydrating));
+  const workspaceSidebarDisabledReason = getWorkspaceSidebarDisabledReason({
+    agentsLoading,
+    connecting: chat.connecting,
+    hydrating: chat.hydrating,
+  });
 
   const selectedAgentSuggestedTierActions = useMemo(
     () =>
@@ -1354,6 +1988,28 @@ export default function AgentsPage() {
     chat.sendMessage();
   };
 
+  const selectedCenterPanel: CenterPanel =
+    mainTab === "files" ||
+    mainTab === "integrations" ||
+    mainTab === "scheduled" ||
+    mainTab === "logs" ||
+    mainTab === "shell" ||
+    mainTab === "settings"
+      ? mainTab
+      : "chat";
+
+  useEffect(() => {
+    if (!SCHEDULED_SECTION_ENABLED && mainTab === "scheduled") {
+      setMainTab("chat");
+    }
+  }, [mainTab]);
+
+  useEffect(() => {
+    if (!selectedAgent && openclawSettingsOpen) {
+      setOpenclawSettingsOpen(false);
+    }
+  }, [openclawSettingsOpen, selectedAgent]);
+
   useEffect(() => {
     if (!selectedAgent) {
       setAgentMenu(null);
@@ -1361,8 +2017,40 @@ export default function AgentsPage() {
     }
     setAgentMenu({
       selectedAgentId: selectedAgent.id,
-      activeTab: mainTab,
-      onSelectTab: (tab) => {
+	      activeTab: mainTab,
+	      onSelectTab: (tab) => {
+	        if (tab === "files") {
+	          setMainTab("files");
+	          setMobileShowChat(true);
+	          return;
+	        }
+        if (tab === "workspace") {
+          setMainTab("chat");
+          setMobileShowChat(true);
+          return;
+        }
+        if (tab === "openclaw") {
+          setOpenclawSettingsOpen(true);
+          setMobileShowChat(true);
+          return;
+        }
+        if (tab === "integrations") {
+          setDirectoryCategory(undefined);
+          setDirectoryItemId(undefined);
+          setMainTab("integrations");
+          setMobileShowChat(true);
+          return;
+        }
+        if (tab === "settings") {
+          setMainTab("settings");
+          setMobileShowChat(true);
+          return;
+        }
+        if (tab === "scheduled" && !SCHEDULED_SECTION_ENABLED) {
+          setMainTab("chat");
+          setMobileShowChat(true);
+          return;
+        }
         setMainTab(tab);
         setMobileShowChat(true);
       },
@@ -1375,7 +2063,7 @@ export default function AgentsPage() {
       deleting: deletingId === selectedAgent.id,
     });
     return () => setAgentMenu(null);
-  }, [selectedAgent, mainTab, deletingId, setAgentMenu]);
+  }, [selectedAgent, mainTab, deletingId, setAgentMenu, router]);
 
   // ── Render ──
 
@@ -1384,11 +2072,8 @@ export default function AgentsPage() {
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
-          <div className="flex items-center gap-2 text-xl font-bold">
-            <span aria-label="HyperClaw brand">
-              <span className="text-foreground">Hyper</span>
-              <span className="text-primary">Claw</span>
-            </span>
+          <div className="flex items-center gap-2">
+            <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <button
@@ -1418,16 +2103,6 @@ export default function AgentsPage() {
                     <span>{label}</span>
                   </button>
                 ))}
-                <button
-                  onClick={() => {
-                    openCreateDialog();
-                    setMobileAgentMenuOpen(false);
-                  }}
-                  className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                >
-                  <Plus className="w-4 h-4" />
-                  <span>Add Agent</span>
-                </button>
               </div>
               {selectedAgent && (
                 <>
@@ -1501,37 +2176,44 @@ export default function AgentsPage() {
 
       <ErrorBanner error={error} onDismiss={() => setError(null)} />
 
-      <AgentCreationWizard
-        open={showCreateDialog}
-        onClose={closeCreateDialog}
-        initialStep={createDialogInitialStep}
-        preferredTypeId={createDialogPreferredTier}
-        onCreated={() => {
-          closeCreateDialog();
-          fetchAgents();
-        }}
-        budget={budget}
-      />
+      <AnimatePresence>
+        {upgradeCatalogOpen && (
+          <UpgradePlanCatalogModal
+            open={upgradeCatalogOpen}
+            products={upgradeProducts}
+            ownedCounts={upgradeOwnedCounts}
+            loading={upgradeCatalogLoading}
+            error={upgradeCatalogError}
+            onClose={() => setUpgradeCatalogOpen(false)}
+            onOpenPlans={() => router.push("/plans")}
+            onSelectPlan={(product) => {
+              setUpgradeCatalogOpen(false);
+              setUpgradeCheckoutPlan(toUpgradeCheckoutPlan(product));
+            }}
+          />
+        )}
+      </AnimatePresence>
+
+      {upgradeCheckoutPlan && (
+        <PlanCheckoutModal
+          plan={upgradeCheckoutPlan}
+          ownedCount={upgradeCheckoutOwnedCount}
+          isOpen={Boolean(upgradeCheckoutPlan)}
+          onClose={() => setUpgradeCheckoutPlan(null)}
+          onSuccess={() => { void fetchAgents(); }}
+          getToken={getToken}
+        />
+      )}
+
       <ChannelCreationWizard
         open={showChannelWizard}
         onClose={() => setShowChannelWizard(false)}
         availableAgents={agents.map((a) => ({ id: a.id, name: a.name || a.id, type: "agent" as const }))}
         availableUsers={MOCK_PARTICIPANTS.filter((p) => p.type === "user")}
         onCreate={async (channel) => {
-          // TODO: backend endpoint for channel creation. For now, log and close.
+          // TODO: raise an SDK/API requirement for channel creation. For now, log and close.
           console.log("Create channel:", channel);
         }}
-      />
-      <DirectoryModal
-        open={directoryOpen}
-        onClose={() => setDirectoryOpen(false)}
-        initialCategory={directoryCategory}
-        config={chat.config as Record<string, unknown> | null}
-        channelsStatus={channelsData}
-        connected={chat.connected}
-        onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
-        onChannelProbe={async () => chat.channelsStatus(true)}
-        onOpenShell={() => { setMainTab("shell"); setDirectoryOpen(false); }}
       />
       <ConfirmDialog
         open={Boolean(pendingAgentDelete)}
@@ -1569,13 +2251,23 @@ export default function AgentsPage() {
           setMobileShowChat={setMobileShowChat}
           setSidebarCollapsed={setSidebarCollapsed}
           syntheticThreads={syntheticThreads}
+          agentCardDataById={agentCardDataById}
           getToken={getToken}
           createOpenClawAgent={createOpenClawAgent}
           fetchAgents={fetchAgents}
           setError={setError}
-          openCreateDialog={() => openCreateDialog()}
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
+          accountInitial={accountInitial}
+          onOpenSettings={() => {
+            setMainTab("settings");
+            setMobileShowChat(true);
+          }}
+          settingsActive={mainTab === "settings"}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          onOpenPlanCatalog={openUpgradeCatalog}
           updateAgentName={async (agentId, name) => {
             const token = await getToken();
             const updatedAgent = await createAgentClient(token).update(agentId, { name });
@@ -1583,27 +2275,82 @@ export default function AgentsPage() {
           }}
         />
 
+        <AgentWorkspaceSidebar
+          selectedAgent={selectedAgent}
+          activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+          skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
+          planName={planName}
+          tokenUsed={tokenUsage}
+          tokenLimit={budget?.pooled_tpd ?? null}
+          disabled={workspaceSidebarDisabled}
+          disabledReason={workspaceSidebarDisabledReason}
+          scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+          scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
+          isDesktopViewport={isDesktopViewport}
+          onSelectChat={() => setMainTab("chat")}
+          onOpenFiles={() => {
+            setMainTab("files");
+            setMobileShowChat(true);
+          }}
+          onOpenIntegrations={() => {
+            setDirectoryCategory(undefined);
+            setDirectoryItemId(undefined);
+            setMainTab("integrations");
+            setMobileShowChat(true);
+          }}
+          onOpenSkills={() => {
+            setDirectoryCategory("skills");
+            setDirectoryItemId(undefined);
+            setMainTab("integrations");
+            setMobileShowChat(true);
+          }}
+          onOpenScheduled={() => {
+            if (!SCHEDULED_SECTION_ENABLED) {
+              return;
+            }
+            setMainTab("scheduled");
+            setMobileShowChat(true);
+          }}
+          onOpenLogs={() => setMainTab("logs")}
+          onOpenShell={() => setMainTab("shell")}
+          onOpenOpenClaw={() => {
+            if (!selectedAgent) {
+              setMainTab("settings");
+              setMobileShowChat(true);
+              return;
+            }
+            setOpenclawSettingsOpen(true);
+            setMobileShowChat(true);
+          }}
+          onOpenSettings={() => {
+            setMainTab("settings");
+            setMobileShowChat(true);
+          }}
+          onUpgrade={() => { void openUpgradeCatalog(); }}
+        />
+
         <AgentMainPanel
           isDesktopViewport={isDesktopViewport}
           mobileShowChat={mobileShowChat}
           selectedAgent={selectedAgent}
+          loadingInitialAgents={agentsLoading}
           isSelectedTransitioning={Boolean(isSelectedTransitioning)}
           isSelectedRunning={Boolean(isSelectedRunning)}
           burstAgentId={burstAgentId}
           onBurstComplete={() => setBurstAgentId(null)}
+          agentStatus={agentStatus}
           activeConnectionStatus={activeConnectionStatus}
           chatConnected={chat.connected}
           chatConnecting={chat.connecting}
-          fileCount={chat.files?.length ?? 0}
-          openingDesktopId={openingDesktopId}
           startingId={startingId}
           recentlyStoppedIds={recentlyStoppedIds}
           selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
-          selectedAgentStartGuidanceTitle={selectedAgentStartGuidance?.title}
-          blockedMessage={selectedAgentStartGuidance?.message}
+          selectedAgentStartGuidanceTitle={selectedAgentStartBlockedTitle}
+          blockedMessage={selectedAgentStartBlockedMessage}
           suggestedTierActions={selectedAgentSuggestedTierActions}
-          currentPanel={(mainTab === "logs" || mainTab === "shell" ? mainTab : "chat") as CenterPanel}
-          stoppedTabLabel={stoppedTabLabel[(mainTab === "logs" || mainTab === "shell" ? mainTab : "chat") as "chat" | "logs" | "shell"]}
+          currentPanel={selectedCenterPanel}
+          skillsPanelActive={directoryCategory === "skills"}
+          stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
           panelContent={mainTab === "chat" ? (
             <AgentChatPanel
               chat={chat}
@@ -1630,6 +2377,61 @@ export default function AgentsPage() {
               startRecording={startRecording}
               handleSendChat={handleSendChat}
               formatDuration={formatDuration}
+              onConnectionCta={openConnectionSuggestion}
+            />
+          ) : mainTab === "files" ? (
+            <AgentFilesPanel
+              key={selectedAgent?.id ?? "no-agent"}
+              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              agentState={selectedAgent?.state ?? null}
+              rootPath={OPENCLAW_WORKSPACE_PREFIX}
+              connected={Boolean(selectedAgent)}
+              connecting={chat.connecting}
+              hydrating={chat.hydrating}
+              error={null}
+              onListFiles={listAgentFiles}
+              onOpenFile={readAgentFile}
+              onSaveFile={saveAgentFile}
+              onDeleteFile={deleteAgentFile}
+              onUploadFile={saveAgentFile}
+            />
+          ) : mainTab === "integrations" ? (
+            <IntegrationsDirectoryPanel
+              initialCategory={directoryCategory}
+              initialPluginId={directoryItemId}
+              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              config={chat.config as Record<string, unknown> | null}
+              configSchema={chat.configSchema}
+              connected={chat.connected}
+              onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
+              onChannelProbe={async () => chat.channelsStatus(true)}
+              onOpenShell={() => setMainTab("shell")}
+              onLoadSkills={loadAgentSkills}
+              onListFiles={listAgentFiles}
+              onReadFile={readAgentFile}
+            />
+          ) : mainTab === "settings" ? (
+            <AgentSettingsPanel
+              agent={selectedAgent}
+              user={user}
+              getToken={getToken}
+              onStartAgent={() => {
+                if (selectedAgent) void handleStart(selectedAgent.id);
+              }}
+              onStopAgent={() => {
+                if (selectedAgent) void handleStop(selectedAgent.id);
+              }}
+              agentStarting={selectedAgentStarting}
+              agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
+              agentStartBlocked={selectedAgentLaunchBlocked}
+              agentStartBlockedReason={selectedAgentStartBlockedTitle}
+              planName={planName}
+              subscriptionSummary={subscriptionSummary}
+              tokenUsage={tokenUsage}
+              tokenLimit={budget?.pooled_tpd ?? null}
+              openclawConfig={chat.config}
+              openclawModels={chat.models}
+              onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
             />
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -1637,26 +2439,17 @@ export default function AgentsPage() {
             <AgentTerminalPanel status={shellStatus} shellBoxRef={shellBoxRef} />
           ) : null}
           onCreate={() => {
-            setSidebarCollapsed(false);
             setMobileShowChat(false);
             setSidebarCreatorSignal((v) => v + 1);
           }}
+          onCreateAgent={handleCreateFirstAgent}
+          budget={budget}
+          subscriptionSummary={subscriptionSummary}
+          catalogPlans={catalogPlans}
+          onOpenPlanCatalog={openUpgradeCatalog}
           onShowList={() => setMobileShowChat(false)}
-          onOpenFiles={() => {
-            if (!selectedAgent) return;
-            router.push(`/dashboard/agents/${selectedAgent.id}/files`);
-          }}
-          onOpenDesktop={() => {
-            if (selectedAgent) {
-              void handleOpenDesktop(selectedAgent);
-            }
-          }}
-          onDelete={() => {
-            if (selectedAgent) {
-              setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
-            }
-          }}
           onShowInspector={() => setInspectorSheetOpen(true)}
+          showInspectorButton={SHOW_AGENT_INSPECTOR}
           onStart={() => {
             if (selectedAgent) {
               void handleStart(selectedAgent.id);
@@ -1666,56 +2459,55 @@ export default function AgentsPage() {
             if (mainTab === "logs") reconnectLogs();
             if (mainTab === "shell") reconnectShell();
           }}
-          onSelectPanel={(panel) => setMainTab(panel)}
-          onOpenConfig={() => setShowOpenclawModal(true)}
-          onOpenSettings={() => setShowSettingsModal(true)}
         />
 
-        <AgentInspector
-          isDesktopViewport={isDesktopViewport}
-          open={inspectorSheetOpen}
-          setOpen={setInspectorSheetOpen}
-          selectedAgent={selectedAgent}
-          isSelectedRunning={Boolean(isSelectedRunning)}
-          activeTab={inspectorTab}
-          onTabChange={setInspectorTab}
-          viewProps={{
-            ...agentViewVariants,
-            showActiveSessions: true,
-            showCronManager: true,
-            showRecentToolCalls: true,
-            tabBarStyle: "v1",
-            agentConfig: agentConfigForView,
-            agentConnections: agentConnectionsForView,
-            agentSessions: agentSessionsForView,
-            activityEntries: activityEntriesForView,
-            recentToolCalls: recentToolCallsForView,
-            agentCronJobs: agentCronJobsForView,
-            agentWorkspaceFiles: agentWorkspaceFilesForView,
-            onPromptClick: (prompt) => chat.setInput(prompt),
-            onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-            onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryOpen(true); },
-            onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
-            onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
-            agentStarting: Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id))),
-            agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
-            agentStartBlocked: selectedAgentLaunchBlocked,
-            agentStartBlockedReason: selectedAgentStartGuidance?.title,
-            onOpenFiles: (path) => {
-              if (!selectedAgent) return;
-              const base = `/dashboard/agents/${selectedAgent.id}/files`;
-              router.push(path ? `${base}?file=${encodeURIComponent(path)}` : base);
-            },
-            conversationThreads: syntheticThreads,
-            selectedConversationThreadId: selectedAgent?.id ?? null,
-          }}
-        />
+        {SHOW_AGENT_INSPECTOR && (
+          <AgentInspector
+            isDesktopViewport={isDesktopViewport}
+            open={inspectorSheetOpen}
+            setOpen={setInspectorSheetOpen}
+            selectedAgent={selectedAgent}
+            isSelectedRunning={Boolean(isSelectedRunning)}
+            activeTab={inspectorTab}
+            onTabChange={setInspectorTab}
+            viewProps={{
+              ...agentViewVariants,
+              showActiveSessions: true,
+              showCronManager: true,
+              showRecentToolCalls: true,
+              tabBarStyle: "v1",
+              agentConfig: agentConfigForView,
+              agentConnections: agentConnectionsForView,
+              agentSessions: agentSessionsForView,
+              activityEntries: activityEntriesForView,
+              recentToolCalls: recentToolCallsForView,
+              agentCronJobs: agentCronJobsForView,
+              agentWorkspaceFiles: agentWorkspaceFilesForView,
+              onPromptClick: (prompt) => chat.setInput(prompt),
+              onCronRemove: (jobId) => { void chat.removeCron(jobId); },
+              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setMainTab("integrations"); },
+              onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
+              onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
+              agentStarting: selectedAgentStarting,
+              agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
+              agentStartBlocked: selectedAgentLaunchBlocked,
+              agentStartBlockedReason: selectedAgentStartBlockedTitle,
+              onOpenFiles: (path) => {
+                if (!selectedAgent) return;
+                const base = `/dashboard/agents/${selectedAgent.id}/files`;
+                router.push(path ? `${base}?file=${encodeURIComponent(path)}` : base);
+              },
+              conversationThreads: syntheticThreads,
+              selectedConversationThreadId: selectedAgent?.id ?? null,
+            }}
+          />
+        )}
       </div>
 
-      <OpenClawConfigModal
-        open={showOpenclawModal}
+      <OpenClawSettingsDrawer
+        open={openclawSettingsOpen && Boolean(selectedAgent)}
+        onClose={() => setOpenclawSettingsOpen(false)}
         agent={selectedAgent}
-        onClose={() => setShowOpenclawModal(false)}
         openclawSections={openclawSections}
         openclawSchemaBundle={openclawSchemaBundle}
         effectiveOpenclawSection={effectiveOpenclawSection}
@@ -1731,22 +2523,9 @@ export default function AgentsPage() {
         saveOpenclawSection={saveOpenclawSection}
         saveAllOpenclaw={saveAllOpenclaw}
         openclawPaneRef={openclawPaneRef}
+        isDesktopViewport={isDesktopViewport}
       />
 
-      <AgentSettingsModal
-        open={showSettingsModal}
-        agent={selectedAgent}
-        onClose={() => setShowSettingsModal(false)}
-        settingsName={settingsName}
-        setSettingsName={setSettingsName}
-        savingName={savingName}
-        handleSaveName={handleSaveName}
-        selectedAgentTier={selectedAgentTier ? titleizeTier(selectedAgentTier) : null}
-        chat={chat}
-        handleStop={handleStop}
-        stoppingId={stoppingId}
-        setPendingAgentDelete={setPendingAgentDelete}
-      />
     </div>
   );
 }

@@ -4,9 +4,31 @@ import { useRef, useState, useEffect } from "react";
 import { motion, useInView } from "framer-motion";
 import { Check } from "lucide-react";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
+import type { HyperAgentPlan } from "@hypercli.com/sdk/agent";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { API_BASE_URL, AUTH_BASE_URL } from "@/lib/api";
+import { AUTH_BASE_URL } from "@/lib/api";
+import { createPublicHyperAgentClient } from "@/lib/agent-client";
 import { Plan, formatTokens } from "@/lib/format";
+
+function toDisplayPlan(plan: HyperAgentPlan): Plan {
+  return {
+    id: plan.id,
+    name: plan.name,
+    price: plan.price,
+    aiu: plan.aiu,
+    agents: plan.agents,
+    features: plan.features,
+    models: plan.models,
+    highlighted: plan.highlighted,
+    expires_at: plan.expiresAt?.toISOString() ?? null,
+    limits: {
+      tpd: plan.limits.tpd,
+      tpm: plan.limits.tpm,
+      burst_tpm: plan.limits.burstTpm,
+      rpm: plan.limits.rpm,
+    },
+  };
+}
 
 export function PricingSection() {
   const sectionRef = useRef<HTMLElement>(null);
@@ -16,10 +38,16 @@ export function PricingSection() {
   const [plans, setPlans] = useState<Plan[]>([]);
 
   useEffect(() => {
-    fetch(`${API_BASE_URL}/plans`)
-      .then((r) => r.json())
-      .then((data) => setPlans(data.plans ?? []))
+    let cancelled = false;
+    createPublicHyperAgentClient()
+      .plans()
+      .then((data) => {
+        if (!cancelled) setPlans(data.map(toDisplayPlan));
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, []);
 
   const handleSelect = () => {
