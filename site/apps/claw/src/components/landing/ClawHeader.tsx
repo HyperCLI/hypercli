@@ -25,6 +25,7 @@ const dropdownNavItems = [
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
 ];
+const POST_LOGIN_PATH = "/dashboard/agents";
 
 export function ClawHeader() {
   const [scrolled, setScrolled] = useState(false);
@@ -64,12 +65,12 @@ export function ClawHeader() {
     }
   }, [userMenuOpen]);
 
-  // Redirect to dashboard only when user just completed login
+  // Redirect to the agents dashboard only when user just completed login
   // (auth transitions from false → true), not on every page load
   const wasAuthenticated = useRef(isAuthenticated);
   useEffect(() => {
     if (!isLoading && isAuthenticated && !wasAuthenticated.current) {
-      router.push("/dashboard");
+      router.push(POST_LOGIN_PATH);
     }
     if (!isLoading) {
       wasAuthenticated.current = isAuthenticated;
@@ -115,7 +116,7 @@ export function ClawHeader() {
               {showAuthenticatedNav ? (
                 <div className="flex items-center gap-3">
                   <button
-                    onClick={() => router.push("/dashboard")}
+                    onClick={() => router.push(POST_LOGIN_PATH)}
                     className="btn-primary px-4 py-2 rounded-lg text-sm font-medium"
                   >
                     Dashboard
@@ -236,7 +237,7 @@ export function ClawHeader() {
                     <button
                       onClick={() => {
                         setMobileOpen(false);
-                        router.push("/dashboard");
+                        router.push(POST_LOGIN_PATH);
                       }}
                       className="btn-primary px-4 py-2 rounded-lg text-sm font-medium w-full"
                     >
@@ -303,7 +304,7 @@ export function ClawHeader() {
         description="Please sign in to continue"
         apiBaseUrl={AUTH_BASE_URL}
         storageMode="cookie"
-        onSuccess={() => router.push("/dashboard")}
+        onSuccess={() => router.push(POST_LOGIN_PATH)}
       />
     </>
   );

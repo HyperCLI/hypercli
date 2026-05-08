@@ -168,6 +168,31 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
       subscriptions: [],
       user: {},
     },
+    openclawConfig: {
+      agents: {
+        defaults: {
+          model: {
+            primary: "openai/gpt-5-mini",
+          },
+        },
+      },
+      models: {
+        providers: {
+          openai: {
+            name: "OpenAI",
+            models: [{ id: "gpt-5-mini", name: "GPT-5 Mini" }],
+          },
+          anthropic: {
+            name: "Anthropic",
+            models: [{ id: "claude-sonnet-4-5", name: "Claude Sonnet 4.5" }],
+          },
+        },
+      },
+    },
+    openclawModels: [
+      { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", providerId: "google", providerName: "Google" },
+    ],
+    onSaveOpenClawConfig: vi.fn(async () => undefined),
     ...overrides,
   };
 
@@ -285,6 +310,51 @@ describe("AgentSettingsPanel", () => {
       expect(sdkMocks.userUpdate).toHaveBeenCalledWith({ name: "Jane Smith" });
     });
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
+  });
+
+  it("lists OpenClaw models and saves the selected default model through config patch", async () => {
+    const onSaveOpenClawConfig = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onSaveOpenClawConfig });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    const modelSelect = screen.getByRole("combobox", { name: "Default model" });
+
+    expect(modelSelect).toHaveValue("openai/gpt-5-mini");
+    expect(screen.getByRole("option", { name: "GPT-5 Mini (OpenAI)" })).toHaveValue("openai/gpt-5-mini");
+    expect(screen.getByRole("option", { name: "Claude Sonnet 4.5 (Anthropic)" })).toHaveValue("anthropic/claude-sonnet-4-5");
+    expect(screen.getByRole("option", { name: "Gemini 2.5 Pro (Google)" })).toHaveValue("google/gemini-2.5-pro");
+
+    fireEvent.change(modelSelect, { target: { value: "google/gemini-2.5-pro" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onSaveOpenClawConfig).toHaveBeenCalledWith({
+        agents: {
+          defaults: {
+            model: {
+              primary: "google/gemini-2.5-pro",
+            },
+          },
+        },
+      });
+    });
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
+  it("renders a blocked stopped runtime as startable instead of starting", () => {
+    renderAgentSettingsPanel({
+      agent: { ...agent, state: "STOPPED" },
+      agentStarting: false,
+      agentStartBlocked: true,
+      agentStartBlockedReason: "Agent is finishing shutdown",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+
+    const startButton = screen.getByRole("button", { name: /start agent/i });
+    expect(startButton).toBeDisabled();
+    expect(startButton).toHaveTextContent("Start agent");
+    expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
 
   it("renders billing and usage sections when selected", () => {

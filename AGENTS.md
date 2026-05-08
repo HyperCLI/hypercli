@@ -112,6 +112,11 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
 - Claw plans/billing data should come from the SDK (`HyperAgent.currentPlan()`,
   `subscriptionSummary()`, `plans()`, `agentTypes()`), not ad hoc frontend
   fetches or duplicated plan state.
+- Do not expose implementation terms such as "SDK" in user-visible UI copy.
+  This includes headings, labels, helper text, empty states, button text,
+  modal titles/descriptions, toast messages, and similar visual elements.
+  Prefer product-facing language such as "plan catalog", "billing data",
+  "workspace", or "account" depending on context.
 
 ## Troubleshooting
 - Node version mismatches: use Node 22 (recommended) or Node 20+.

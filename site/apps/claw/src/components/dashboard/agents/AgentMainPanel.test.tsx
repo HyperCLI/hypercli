@@ -11,13 +11,23 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
   type EmptyStateMockProps = {
     onCreate: () => void;
     launchLabel?: string;
+    launching?: boolean;
+    launchBlocked?: boolean;
+    launchBlockedReason?: string | null;
     onLaunchAction?: () => void;
   };
   const emptyStateButton = (regionLabel: string, defaultButtonLabel: string) => {
-    function EmptyStateButton({ onCreate, launchLabel, onLaunchAction }: EmptyStateMockProps) {
+    function EmptyStateButton({ onCreate, launchLabel, launching, launchBlocked, launchBlockedReason, onLaunchAction }: EmptyStateMockProps) {
       return (
         <section aria-label={regionLabel}>
-          <button type="button" onClick={onLaunchAction ?? onCreate}>{launchLabel ?? defaultButtonLabel}</button>
+          <button
+            type="button"
+            onClick={onLaunchAction ?? onCreate}
+            disabled={Boolean(launching || launchBlocked)}
+            title={launchBlockedReason ?? undefined}
+          >
+            {launching ? "Starting agent" : launchLabel ?? defaultButtonLabel}
+          </button>
         </section>
       );
     }
@@ -205,6 +215,21 @@ describe("AgentMainPanel", () => {
 
     expect(screen.getByText("Settings panel")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
+  });
+
+  it("blocks restart cooldown without showing the stopped empty state as starting", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      recentlyStoppedIds: new Set([selectedAgent.id]),
+      currentPanel: "chat",
+      stoppedTabLabel: "Chat",
+    });
+
+    const startButton = screen.getByRole("button", { name: /^start agent$/i });
+    expect(startButton).toBeDisabled();
+    expect(startButton).toHaveAttribute("title", "Agent is finishing shutdown. Try again shortly.");
+    expect(screen.queryByRole("button", { name: /starting agent/i })).not.toBeInTheDocument();
   });
 
   it("does not render files or settings actions in the header", () => {

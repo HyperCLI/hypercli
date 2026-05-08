@@ -79,6 +79,7 @@ import {
   setPathValue,
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
+import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
@@ -727,8 +728,9 @@ export default function DevAgentSetupAgentsPage() {
       const entry = asObject(val);
       return { name, enabled: entry?.enabled === true };
     });
+    const defaultModel = getOpenClawDefaultModel(cfg);
     return {
-      model: typeof llm.model === "string" ? llm.model : "unknown",
+      model: defaultModel || "unknown",
       systemPrompt: typeof llm.system === "string" ? llm.system : (typeof llm.systemPrompt === "string" ? llm.systemPrompt : ""),
       tools,
     };
@@ -1423,7 +1425,16 @@ export default function DevAgentSetupAgentsPage() {
   }, [getToken]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
-  const selectedAgentLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
+  const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
+  const selectedAgentTierLaunchBlocked = Boolean(selectedAgentStartGuidance && !selectedAgentHasTierOptions);
+  const selectedAgentLaunchBlocked = selectedAgentTierLaunchBlocked || selectedAgentRecentlyStopped;
+  const selectedAgentStartBlockedTitle = selectedAgentRecentlyStopped
+    ? "Agent is finishing shutdown"
+    : selectedAgentStartGuidance?.title;
+  const selectedAgentStartBlockedMessage = selectedAgentRecentlyStopped
+    ? "Wait a few seconds before starting this agent again."
+    : selectedAgentStartGuidance?.message;
+  const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
 
   const selectedAgentSuggestedTierActions = useMemo(
     () =>
@@ -1971,8 +1982,8 @@ export default function DevAgentSetupAgentsPage() {
             startingId={startingId}
             recentlyStoppedIds={recentlyStoppedIds}
             selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
-            selectedAgentStartGuidanceTitle={selectedAgentStartGuidance?.title}
-            blockedMessage={selectedAgentStartGuidance?.message}
+            selectedAgentStartGuidanceTitle={selectedAgentStartBlockedTitle}
+            blockedMessage={selectedAgentStartBlockedMessage}
             suggestedTierActions={selectedAgentSuggestedTierActions}
             currentPanel={selectedCenterPanel}
             stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
@@ -2030,14 +2041,17 @@ export default function DevAgentSetupAgentsPage() {
                 onStopAgent={() => {
                   if (selectedAgent) void handleStop(selectedAgent.id);
                 }}
-                agentStarting={Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)))}
+                agentStarting={selectedAgentStarting}
                 agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
                 agentStartBlocked={selectedAgentLaunchBlocked}
-                agentStartBlockedReason={selectedAgentStartGuidance?.title}
+                agentStartBlockedReason={selectedAgentStartBlockedTitle}
                 planName={planName}
                 subscriptionSummary={subscriptionSummary}
                 tokenUsage={tokenUsage}
                 tokenLimit={budget?.pooled_tpd ?? null}
+                openclawConfig={chat.config}
+                openclawModels={chat.models}
+                onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
               />
             ) : mainTab === "logs" ? (
               <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
@@ -2091,10 +2105,10 @@ export default function DevAgentSetupAgentsPage() {
               onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setMainTab("integrations"); },
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
-              agentStarting: Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id))),
+              agentStarting: selectedAgentStarting,
               agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
               agentStartBlocked: selectedAgentLaunchBlocked,
-              agentStartBlockedReason: selectedAgentStartGuidance?.title,
+              agentStartBlockedReason: selectedAgentStartBlockedTitle,
               onOpenFiles: (path) => {
                 if (!selectedAgent) return;
                 const base = `/dashboard/agents/${selectedAgent.id}/files`;

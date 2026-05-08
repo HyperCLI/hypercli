@@ -147,7 +147,12 @@ export function AgentMainPanel({
   const shouldShowStartupAnimation =
     (isSelectedTransitioning && (selectedAgent?.state === "PENDING" || selectedAgent?.state === "STARTING")) ||
     (selectedAgent?.state === "RUNNING" && burstAgentId === selectedAgent.id);
-  const stoppedLaunchBusy = Boolean(selectedAgent && (startingId === selectedAgent.id || recentlyStoppedIds.has(selectedAgent.id)));
+  const stoppedLaunchBusy = Boolean(selectedAgent && startingId === selectedAgent.id);
+  const stoppedLaunchCooldown = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
+  const stoppedLaunchBlocked = selectedAgentLaunchBlocked || stoppedLaunchCooldown;
+  const stoppedLaunchBlockedReason = stoppedLaunchCooldown
+    ? "Agent is finishing shutdown. Try again shortly."
+    : selectedAgentStartGuidanceTitle;
   const stoppedEmptyStateProps = {
     onCreate,
     onCreateAgent,
@@ -157,6 +162,8 @@ export function AgentMainPanel({
     onOpenPlanCatalog,
     launchLabel: "Start agent",
     launching: stoppedLaunchBusy,
+    launchBlocked: stoppedLaunchBlocked,
+    launchBlockedReason: stoppedLaunchBlockedReason,
     onLaunchAction: onStart,
   };
   const stoppedPanelContent = (() => {

@@ -19,6 +19,12 @@ import type { FileEntry } from "@/components/dashboard/files/types";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
+import {
+  buildOpenClawDefaultModelPatch,
+  getOpenClawDefaultModel,
+  normalizeOpenClawModelOptions,
+  type OpenClawModelOption,
+} from "@/lib/openclaw-models";
 import { OpenClawErrorBoundary } from "./page-helpers";
 import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
 
@@ -458,6 +464,9 @@ interface AgentSettingsPanelProps {
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   tokenUsage?: number | null;
   tokenLimit?: number | null;
+  openclawConfig?: Record<string, unknown> | null;
+  openclawModels?: Array<Record<string, unknown>> | null;
+  onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
 }
 
 type AgentSettingsSection = "general" | "agent" | "billing" | "usage";
@@ -659,8 +668,14 @@ function AgentSectionSettingsContent({
   onAgentNameChange,
   onAgentAvatarSelect,
   onAgentAvatarRemove,
+  modelDraft,
+  modelOptions,
+  modelSelectionDisabled,
+  onModelChange,
   archiveDraft,
   onArchiveChange,
+  agentSettingsError,
+  agentSettingsSuccess,
   onStartAgent,
   onStopAgent,
   agentStarting,
@@ -674,8 +689,14 @@ function AgentSectionSettingsContent({
   onAgentNameChange: (value: string) => void;
   onAgentAvatarSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAgentAvatarRemove: () => void;
+  modelDraft: string;
+  modelOptions: OpenClawModelOption[];
+  modelSelectionDisabled?: boolean;
+  onModelChange: (value: string) => void;
   archiveDraft: string;
   onArchiveChange: (value: string) => void;
+  agentSettingsError?: string | null;
+  agentSettingsSuccess?: string | null;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
   agentStarting?: boolean;
@@ -702,6 +723,19 @@ function AgentSectionSettingsContent({
     <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
       <div className="mx-auto w-full max-w-[844px]">
         <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
+        {(agentSettingsError || agentSettingsSuccess) && (
+          <div className="mt-4">
+            {agentSettingsError ? (
+              <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+                {agentSettingsError}
+              </div>
+            ) : (
+              <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+                {agentSettingsSuccess}
+              </div>
+            )}
+          </div>
+        )}
 
         <section className="mt-7 divide-y divide-foreground border-b border-foreground">
           <AgentProfileSettingsRow label="Agent Name" description="Shown when users interact with this agent.">
@@ -773,31 +807,46 @@ function AgentSectionSettingsContent({
 
           <AgentProfileSettingsRow label="Default model" description="Model used by this agent.">
             <select
-              value=""
-              disabled
+              aria-label="Default model"
+              value={modelDraft}
+              onChange={(event) => onModelChange(event.target.value)}
+              disabled={modelSelectionDisabled || modelOptions.length === 0}
               className={SETTINGS_FIELD_CLASS}
             >
-              <option value="">Placeholder...</option>
+              {modelOptions.length === 0 ? (
+                <option value="">No models available</option>
+              ) : (
+                <>
+                  <option value="">Use OpenClaw default</option>
+                  {modelOptions.map((option) => (
+                    <option key={option.value} value={option.value}>
+                      {option.label}
+                    </option>
+                  ))}
+                </>
+              )}
             </select>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow label="Visibility" description="Who can access this agent.">
             <select
+              aria-label="Visibility"
               value=""
               disabled
               className={SETTINGS_FIELD_CLASS}
             >
-              <option value="">Placeholder...</option>
+              <option value="">Workspace members</option>
             </select>
           </AgentProfileSettingsRow>
 
           <AgentProfileSettingsRow label="Auto-archive idle conversations" description="Archive inactive chats automatically.">
             <select
+              aria-label="Auto-archive idle conversations"
               value={archiveDraft}
               onChange={(event) => onArchiveChange(event.target.value)}
               className={SETTINGS_FIELD_CLASS}
             >
-              <option value="placeholder">Placeholder...</option>
+              <option value="not-configured">Not configured</option>
               <option value="enabled">Enabled</option>
               <option value="disabled">Disabled</option>
             </select>
@@ -1180,6 +1229,9 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     subscriptionSummary = null,
     tokenUsage = null,
     tokenLimit = null,
+    openclawConfig = null,
+    openclawModels = null,
+    onSaveOpenClawConfig,
   } = props;
   const [activeSettingsSection, setActiveSettingsSection] = React.useState<AgentSettingsSection>("general");
   const [savedProfileName, setSavedProfileName] = React.useState(() => profileNameFromUser(user));
@@ -1193,8 +1245,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   const [agentNameDraft, setAgentNameDraft] = React.useState(() => agentSettingsName(agent));
   const [savedAgentAvatar, setSavedAgentAvatar] = React.useState<string | null>(() => agentSettingsAvatar(agent));
   const [agentAvatarDraft, setAgentAvatarDraft] = React.useState<string | null>(() => agentSettingsAvatar(agent));
-  const [savedArchiveDraft, setSavedArchiveDraft] = React.useState("placeholder");
-  const [archiveDraft, setArchiveDraft] = React.useState("placeholder");
+  const [savedArchiveDraft, setSavedArchiveDraft] = React.useState("not-configured");
+  const [archiveDraft, setArchiveDraft] = React.useState("not-configured");
+  const [savedModelDraft, setSavedModelDraft] = React.useState(() => getOpenClawDefaultModel(openclawConfig));
+  const [modelDraft, setModelDraft] = React.useState(() => getOpenClawDefaultModel(openclawConfig));
+  const [agentSettingsError, setAgentSettingsError] = React.useState<string | null>(null);
+  const [agentSettingsSuccess, setAgentSettingsSuccess] = React.useState<string | null>(null);
   const objectUrlsRef = React.useRef<string[]>([]);
 
   React.useEffect(() => {
@@ -1242,9 +1298,19 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentNameDraft(nextName);
     setSavedAgentAvatar(nextAvatar);
     setAgentAvatarDraft(nextAvatar);
-    setSavedArchiveDraft("placeholder");
-    setArchiveDraft("placeholder");
+    setSavedArchiveDraft("not-configured");
+    setArchiveDraft("not-configured");
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
   }, [agent]);
+
+  React.useEffect(() => {
+    const nextModel = getOpenClawDefaultModel(openclawConfig);
+    setSavedModelDraft(nextModel);
+    setModelDraft(nextModel);
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
+  }, [agent?.id, openclawConfig]);
 
   React.useEffect(() => () => {
     for (const url of objectUrlsRef.current) {
@@ -1253,8 +1319,15 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     objectUrlsRef.current = [];
   }, []);
 
+  const modelOptions = React.useMemo(
+    () => normalizeOpenClawModelOptions(openclawConfig, openclawModels, modelDraft),
+    [modelDraft, openclawConfig, openclawModels],
+  );
+
   const profileChanged = profileName !== savedProfileName;
-  const agentChanged = agentNameDraft !== savedAgentName || agentAvatarDraft !== savedAgentAvatar || archiveDraft !== savedArchiveDraft;
+  const agentProfileChanged = agentNameDraft !== savedAgentName || agentAvatarDraft !== savedAgentAvatar || archiveDraft !== savedArchiveDraft;
+  const modelChanged = modelDraft !== savedModelDraft;
+  const agentChanged = agentProfileChanged || modelChanged;
   const hasSettingsChanges = profileChanged || agentChanged;
 
   const discardProfileChanges = React.useCallback(() => {
@@ -1263,20 +1336,33 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentNameDraft(savedAgentName);
     setAgentAvatarDraft(savedAgentAvatar);
     setArchiveDraft(savedArchiveDraft);
-  }, [savedAgentAvatar, savedAgentName, savedArchiveDraft, savedProfileAvatar, savedProfileName]);
+    setModelDraft(savedModelDraft);
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
+  }, [savedAgentAvatar, savedAgentName, savedArchiveDraft, savedModelDraft, savedProfileAvatar, savedProfileName]);
 
   const saveProfileChanges = React.useCallback(async () => {
     setProfileError(null);
     setProfileSuccess(null);
+    setAgentSettingsError(null);
+    setAgentSettingsSuccess(null);
 
-    if (profileChanged) {
-      if (!getToken) {
-        setProfileError("Profile updates are unavailable without an authenticated SDK client.");
-        return;
-      }
+    if (!hasSettingsChanges) return;
 
-      setProfileSaving(true);
-      try {
+    if (profileChanged && !getToken) {
+      setProfileError("Profile updates are unavailable without an authenticated SDK client.");
+      return;
+    }
+
+    if (modelChanged && !onSaveOpenClawConfig) {
+      setAgentSettingsError("Model updates are unavailable until the agent gateway is connected.");
+      return;
+    }
+
+    setProfileSaving(true);
+    let savingModel = false;
+    try {
+      if (profileChanged && getToken) {
         const token = await getToken();
         const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
         const updated = await client.user.update({ name: profileName.trim() });
@@ -1284,19 +1370,42 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setSavedProfileName(nextName);
         setProfileName(nextName);
         setProfileSuccess("Profile updated.");
-      } catch (error) {
-        setProfileError(error instanceof Error ? error.message : "Failed to update profile.");
-        return;
-      } finally {
-        setProfileSaving(false);
       }
-    }
 
-    setSavedProfileAvatar(profileAvatar);
-    setSavedAgentName(agentNameDraft);
-    setSavedAgentAvatar(agentAvatarDraft);
-    setSavedArchiveDraft(archiveDraft);
-  }, [agentAvatarDraft, agentNameDraft, archiveDraft, getToken, profileAvatar, profileChanged, profileName]);
+      if (modelChanged && onSaveOpenClawConfig) {
+        savingModel = true;
+        await onSaveOpenClawConfig(buildOpenClawDefaultModelPatch(modelDraft));
+        setSavedModelDraft(modelDraft);
+        setAgentSettingsSuccess("Agent settings updated.");
+      }
+
+      setSavedProfileAvatar(profileAvatar);
+      setSavedAgentName(agentNameDraft);
+      setSavedAgentAvatar(agentAvatarDraft);
+      setSavedArchiveDraft(archiveDraft);
+    } catch (error) {
+      const message = error instanceof Error ? error.message : "Failed to save settings.";
+      if (savingModel) {
+        setAgentSettingsError(message);
+      } else {
+        setProfileError(message);
+      }
+    } finally {
+      setProfileSaving(false);
+    }
+  }, [
+    agentAvatarDraft,
+    agentNameDraft,
+    archiveDraft,
+    getToken,
+    hasSettingsChanges,
+    modelChanged,
+    modelDraft,
+    onSaveOpenClawConfig,
+    profileAvatar,
+    profileChanged,
+    profileName,
+  ]);
 
   const handleAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -1364,8 +1473,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAgentNameChange={setAgentNameDraft}
             onAgentAvatarSelect={handleAgentAvatarSelect}
             onAgentAvatarRemove={() => setAgentAvatarDraft(null)}
+            modelDraft={modelDraft}
+            modelOptions={modelOptions}
+            modelSelectionDisabled={!onSaveOpenClawConfig}
+            onModelChange={setModelDraft}
             archiveDraft={archiveDraft}
             onArchiveChange={setArchiveDraft}
+            agentSettingsError={agentSettingsError}
+            agentSettingsSuccess={agentSettingsSuccess}
             onStartAgent={onStartAgent}
             onStopAgent={onStopAgent}
             agentStarting={agentStarting}
@@ -1810,6 +1925,8 @@ type AgentEmptyStateProps = {
 type AgentLaunchActionProps = {
   launchLabel?: string;
   launching?: boolean;
+  launchBlocked?: boolean;
+  launchBlockedReason?: string | null;
   onLaunchAction?: () => void;
 };
 
@@ -1887,6 +2004,8 @@ export function AgentEmptyState({
   onOpenPlanCatalog,
   launchLabel,
   launching,
+  launchBlocked,
+  launchBlockedReason,
   onLaunchAction,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
@@ -1921,6 +2040,8 @@ export function AgentEmptyState({
       cardMinHeightClass="min-h-[118px]"
       launchLabel={launchLabel}
       launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
       onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
     />
   );
@@ -1935,6 +2056,8 @@ export function AgentFilesEmptyState({
   onOpenPlanCatalog,
   launchLabel,
   launching,
+  launchBlocked,
+  launchBlockedReason,
   onLaunchAction,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
@@ -1966,6 +2089,8 @@ export function AgentFilesEmptyState({
       ]}
       launchLabel={launchLabel}
       launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
       onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
     />
   );
@@ -1979,6 +2104,8 @@ function LaunchAgentCenteredEmptyStateContent({
   onLaunch,
   launchLabel = "Launch agent",
   launching = false,
+  launchBlocked = false,
+  launchBlockedReason,
   cardMinHeightClass = "min-h-[102px]",
 }: {
   icon: React.ComponentType<{ className?: string }>;
@@ -1988,9 +2115,12 @@ function LaunchAgentCenteredEmptyStateContent({
   onLaunch: () => void;
   launchLabel?: string;
   launching?: boolean;
+  launchBlocked?: boolean;
+  launchBlockedReason?: string | null;
   cardMinHeightClass?: "min-h-[102px]" | "min-h-[118px]";
 }) {
   const launchButtonLabel = launching ? "Starting agent" : launchLabel;
+  const launchDisabled = launching || launchBlocked;
 
   return (
     <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
@@ -2026,8 +2156,11 @@ function LaunchAgentCenteredEmptyStateContent({
           whileTap={{ scale: 0.98 }}
           type="button"
           onClick={onLaunch}
-          disabled={launching}
-          className="mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-wait disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          disabled={launchDisabled}
+          title={launchBlocked ? launchBlockedReason ?? "Start unavailable" : undefined}
+          className={`mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+            launching ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
+          }`}
         >
           {launchButtonLabel}
           {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <ArrowRight className="h-4 w-4" />}
@@ -2046,6 +2179,8 @@ export function AgentIntegrationsEmptyState({
   onOpenPlanCatalog,
   launchLabel,
   launching,
+  launchBlocked,
+  launchBlockedReason,
   onLaunchAction,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
@@ -2077,6 +2212,8 @@ export function AgentIntegrationsEmptyState({
       ]}
       launchLabel={launchLabel}
       launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
       onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
     />
   );
@@ -2091,6 +2228,8 @@ export function AgentSkillsEmptyState({
   onOpenPlanCatalog,
   launchLabel,
   launching,
+  launchBlocked,
+  launchBlockedReason,
   onLaunchAction,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
@@ -2122,6 +2261,8 @@ export function AgentSkillsEmptyState({
       ]}
       launchLabel={launchLabel}
       launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
       onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
     />
   );
@@ -2136,6 +2277,8 @@ export function AgentScheduledEmptyState({
   onOpenPlanCatalog,
   launchLabel,
   launching,
+  launchBlocked,
+  launchBlockedReason,
   onLaunchAction,
 }: AgentEmptyStateProps & AgentLaunchActionProps) {
   const [showWizard, setShowWizard] = React.useState(false);
@@ -2167,6 +2310,8 @@ export function AgentScheduledEmptyState({
       ]}
       launchLabel={launchLabel}
       launching={launching}
+      launchBlocked={launchBlocked}
+      launchBlockedReason={launchBlockedReason}
       onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
     />
   );
