@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, CalendarClock, Check, Codepen, FolderOpen, KeyRound, Loader2, MessageSquare, PanelLeftOpen, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, MessageSquare, PanelLeftOpen, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -2268,52 +2268,41 @@ export function AgentSkillsEmptyState({
   );
 }
 
-export function AgentScheduledEmptyState({
-  onCreate,
-  onCreateAgent,
-  budget,
-  subscriptionSummary,
-  catalogPlans,
-  onOpenPlanCatalog,
-  launchLabel,
-  launching,
-  launchBlocked,
-  launchBlockedReason,
-  onLaunchAction,
-}: AgentEmptyStateProps & AgentLaunchActionProps) {
-  const [showWizard, setShowWizard] = React.useState(false);
-
-  if (showWizard) {
-    return (
-      <FirstAgentSetupWizard
-        budget={budget}
-        subscriptionSummary={subscriptionSummary}
-        catalogPlans={catalogPlans}
-        onOpenPlanCatalog={onOpenPlanCatalog}
-        onCreateAgent={onCreateAgent ?? (async () => {
-          onCreate();
-          return null;
-        })}
-      />
-    );
-  }
-
+export function AgentScheduledEmptyState({}: AgentEmptyStateProps & AgentLaunchActionProps) {
   return (
-    <LaunchAgentCenteredEmptyStateContent
-      icon={CalendarClock}
-      title="Your work, on autopilot"
-      description="Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows automatically on schedules - without waiting for someone to ask."
-      examples={[
-        "Schedule daily reports, summaries, and automated follow-ups",
-        "Monitor pipelines, inboxes, or KPIs and trigger actions automatically",
-        "Run recurring workflows without needing someone to manually prompt the AI",
-      ]}
-      launchLabel={launchLabel}
-      launching={launching}
-      launchBlocked={launchBlocked}
-      launchBlockedReason={launchBlockedReason}
-      onLaunch={onLaunchAction ?? (() => setShowWizard(true))}
-    />
+    <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
+      <div className="flex w-full max-w-[700px] flex-col items-center text-center">
+        <div className="mb-3 inline-flex h-5 items-center rounded-full bg-primary px-3 text-[11px] font-semibold leading-none text-primary-foreground">
+          Coming Soon
+        </div>
+
+        <h1 className="text-[34px] font-semibold leading-none tracking-normal text-foreground sm:text-[38px]">
+          Your work, on autopilot
+        </h1>
+        <p className="mt-4 max-w-[630px] text-[13px] font-medium leading-5 text-text-muted sm:text-[14px]">
+          Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows automatically on schedules - without waiting for someone to ask.
+        </p>
+
+        <div className="mt-9 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+          {[
+            "Schedule daily reports, summaries, and automated follow-ups",
+            "Monitor pipelines, inboxes, or KPIs and trigger actions automatically",
+            "Run recurring workflows without needing someone to manually prompt the AI",
+          ].map((example, index) => (
+            <motion.div
+              key={example}
+              initial={{ opacity: 0, y: 8 }}
+              animate={{ opacity: 1, y: 0 }}
+              transition={{ delay: index * 0.05, duration: 0.18, ease: "easeOut" }}
+              className="flex min-h-[74px] flex-col items-center justify-center rounded-[7px] border border-foreground bg-background px-4 py-3 text-center text-[12px] font-semibold leading-4 text-text-muted"
+            >
+              <Check className="mb-3 h-4 w-4 text-foreground" />
+              <span>{example}</span>
+            </motion.div>
+          ))}
+        </div>
+      </div>
+    </div>
   );
 }
 

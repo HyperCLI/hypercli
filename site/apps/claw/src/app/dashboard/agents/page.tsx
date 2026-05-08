@@ -103,7 +103,7 @@ type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
 
 const SHOW_AGENT_INSPECTOR = false;
-const SCHEDULED_SECTION_ENABLED = false;
+const SCHEDULED_SECTION_ENABLED = true;
 const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
 
 interface UpgradeDisplayProduct {
@@ -707,6 +707,7 @@ export default function AgentsPage() {
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
     { key: "chat", label: "Chat", icon: MessageSquare },
     { key: "files", label: "Files", icon: FolderOpen },
+    { key: "scheduled", label: "Scheduled", icon: Timer },
     { key: "logs", label: "Logs", icon: TerminalSquare },
     { key: "shell", label: "Shell", icon: TerminalSquare },
   ];
@@ -1998,10 +1999,10 @@ export default function AgentsPage() {
       : "chat";
 
   useEffect(() => {
-    if ((!SCHEDULED_SECTION_ENABLED || selectedAgent) && mainTab === "scheduled") {
+    if (!SCHEDULED_SECTION_ENABLED && mainTab === "scheduled") {
       setMainTab("chat");
     }
-  }, [mainTab, selectedAgent]);
+  }, [mainTab]);
 
   useEffect(() => {
     if (!selectedAgent && openclawSettingsOpen) {
@@ -2307,13 +2308,8 @@ export default function AgentsPage() {
             if (!SCHEDULED_SECTION_ENABLED) {
               return;
             }
-            if (!selectedAgent) {
-              setMainTab("scheduled");
-              setMobileShowChat(true);
-              return;
-            }
-            chat.setInput("Help me draft a safe scheduled check-in for this agent.");
-            setMainTab("chat");
+            setMainTab("scheduled");
+            setMobileShowChat(true);
           }}
           onOpenLogs={() => setMainTab("logs")}
           onOpenShell={() => setMainTab("shell")}

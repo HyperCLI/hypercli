@@ -181,9 +181,6 @@ export function AgentMainPanel({
         <AgentIntegrationsEmptyState {...stoppedEmptyStateProps} />
       );
     }
-    if (currentPanel === "scheduled") {
-      return <AgentScheduledEmptyState {...stoppedEmptyStateProps} />;
-    }
     return null;
   })();
   const renderSelectedPanelContent = () => {
@@ -211,6 +208,10 @@ export function AgentMainPanel({
           />
         </div>
       );
+    }
+
+    if (currentPanel === "scheduled") {
+      return <AgentScheduledEmptyState {...stoppedEmptyStateProps} />;
     }
 
     if (stoppedPanelContent) {

@@ -39,7 +39,12 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     AgentFilesEmptyState: emptyStateButton("Files empty state", "Launch files agent"),
     AgentIntegrationsEmptyState: emptyStateButton("Integrations empty state", "Launch integrations agent"),
     AgentSkillsEmptyState: emptyStateButton("Skills empty state", "Launch skills agent"),
-    AgentScheduledEmptyState: emptyStateButton("Scheduled empty state", "Launch scheduled agent"),
+    AgentScheduledEmptyState: () => (
+      <section aria-label="Scheduled coming soon">
+        <p>Coming Soon</p>
+        <p>Your work, on autopilot</p>
+      </section>
+    ),
     LaunchFirstAgentEmptyState: emptyStateButton("First agent empty state", "Create an agent"),
   };
 });
@@ -185,7 +190,6 @@ describe("AgentMainPanel", () => {
     { currentPanel: "files" as const, skillsPanelActive: false, regionName: /files empty state/i },
     { currentPanel: "integrations" as const, skillsPanelActive: false, regionName: /integrations empty state/i },
     { currentPanel: "integrations" as const, skillsPanelActive: true, regionName: /skills empty state/i },
-    { currentPanel: "scheduled" as const, skillsPanelActive: false, regionName: /scheduled empty state/i },
   ])("shows the section empty state with a start CTA for a stopped agent", ({ currentPanel, skillsPanelActive, regionName }) => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
     const onStart = vi.fn();
@@ -202,6 +206,23 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByText("Live panel")).not.toBeInTheDocument();
     fireEvent.click(within(emptyState).getByRole("button", { name: /^start agent$/i }));
     expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("shows the scheduled coming soon panel without a start CTA", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "scheduled",
+      stoppedTabLabel: "Scheduled",
+      isSelectedRunning: true,
+      panelContent: <div>Live panel</div>,
+    });
+
+    expect(screen.getByRole("region", { name: /scheduled coming soon/i })).toBeInTheDocument();
+    expect(screen.getByText("Coming Soon")).toBeInTheDocument();
+    expect(screen.getByText("Your work, on autopilot")).toBeInTheDocument();
+    expect(screen.queryByText("Live panel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
   });
 
   it("keeps settings content available for a stopped agent", () => {

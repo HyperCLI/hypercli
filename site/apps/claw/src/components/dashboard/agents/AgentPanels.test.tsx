@@ -31,7 +31,7 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
   }),
 }));
 
-import { AgentList, AgentSettingsPanel } from "./AgentPanels";
+import { AgentList, AgentScheduledEmptyState, AgentSettingsPanel } from "./AgentPanels";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -377,5 +377,17 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("heading", { name: "Usage" })).toBeInTheDocument();
     expect(screen.getByText("Usage dashboard")).toBeInTheDocument();
     expect(screen.getByText("API keys")).toBeInTheDocument();
+  });
+});
+
+describe("AgentScheduledEmptyState", () => {
+  it("renders the coming soon scheduled work panel", () => {
+    renderWithClient(<AgentScheduledEmptyState onCreate={vi.fn()} />);
+
+    expect(screen.getByText("Coming Soon")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Your work, on autopilot" })).toBeInTheDocument();
+    expect(screen.getByText(/Make AI proactive instead of reactive/i)).toBeInTheDocument();
+    expect(screen.getByText("Schedule daily reports, summaries, and automated follow-ups")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
   });
 });

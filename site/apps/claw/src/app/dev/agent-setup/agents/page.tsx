@@ -465,6 +465,7 @@ export default function DevAgentSetupAgentsPage() {
   };
   const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
     { key: "chat", label: "Chat", icon: MessageSquare },
+    { key: "scheduled", label: "Scheduled", icon: Timer },
     { key: "logs", label: "Logs", icon: TerminalSquare },
     { key: "shell", label: "Shell", icon: TerminalSquare },
   ];
@@ -1717,6 +1718,7 @@ export default function DevAgentSetupAgentsPage() {
       ? "settings"
       : mainTab === "files" ||
         mainTab === "integrations" ||
+        mainTab === "scheduled" ||
         mainTab === "logs" ||
         mainTab === "shell" ||
         mainTab === "settings"
