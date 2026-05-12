@@ -74,10 +74,11 @@ wait_for_url() {
   return 1
 }
 
-notify_failure_screenshot() {
+notify_failure_artifact() {
   python3 - <<'PY'
 import base64
 import os
+import subprocess
 import sys
 from pathlib import Path
 
@@ -89,12 +90,49 @@ if not notify_api_key:
     raise SystemExit(0)
 
 run_url = os.getenv("GITHUB_RUN_URL", "").strip()
-screenshots = sorted((Path(os.getenv("SITE_ROOT", ".")) / "test-results").rglob("*.png"))
-if not screenshots:
+test_results = Path(os.getenv("SITE_ROOT", ".")) / "test-results"
+
+def newest(paths):
+    items = [path for path in paths if path.is_file()]
+    if not items:
+        return None
+    return max(items, key=lambda path: path.stat().st_mtime)
+
+def convert_webm_to_mp4(webm: Path) -> Path | None:
+    mp4 = Path("/tmp") / f"{webm.parent.name}-{webm.stem}.mp4"
+    try:
+        subprocess.run(
+            [
+                "ffmpeg",
+                "-y",
+                "-i",
+                str(webm),
+                "-vf",
+                "scale=trunc(iw/2)*2:trunc(ih/2)*2",
+                "-pix_fmt",
+                "yuv420p",
+                "-movflags",
+                "+faststart",
+                str(mp4),
+            ],
+            check=True,
+            stdout=subprocess.DEVNULL,
+            stderr=subprocess.DEVNULL,
+        )
+    except Exception:
+        return None
+    return mp4 if mp4.exists() and mp4.stat().st_size > 0 else None
+
+artifact = None
+video = newest(test_results.rglob("*.webm"))
+if video:
+    artifact = convert_webm_to_mp4(video)
+if artifact is None:
+    artifact = newest(test_results.rglob("*.png"))
+if artifact is None:
     raise SystemExit(0)
 
-screenshot = screenshots[0]
-test_name = screenshot.parent.name if screenshot.parent.name != "test-results" else screenshot.stem
+test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
 notify.send(
     "frontend",
     [
@@ -104,8 +142,8 @@ notify.send(
         f"🔗 Run: {run_url or 'local docker run'}",
     ],
     severity="error",
-    media=base64.b64encode(screenshot.read_bytes()).decode("ascii"),
-    media_filename=screenshot.name,
+    media=base64.b64encode(artifact.read_bytes()).decode("ascii"),
+    media_filename=artifact.name,
 )
 PY
 }
@@ -152,7 +190,7 @@ if [[ ${login_status} -ne 0 || ${topup_status} -ne 0 ]]; then
 fi
 
 if [[ ${status} -ne 0 ]]; then
-  notify_failure_screenshot || true
+  notify_failure_artifact || true
   show_logs
 fi
 
