@@ -2263,6 +2263,19 @@ export class GatewayClient {
         acceptedRunIds.add(serverRunId);
       }
 
+      const waitForHistoryText = async (timeoutMs = 10_000): Promise<string> => {
+        const historyDeadline = Date.now() + Math.min(timeoutMs, CHAT_TIMEOUT);
+        while (true) {
+          const historyText = latestHistoryAssistantText(
+            await this.chatHistory(sessionKey, 20),
+            acceptedRunIds,
+          );
+          if (historyText) return historyText;
+          if (Date.now() >= historyDeadline) return "";
+          await new Promise((resolve) => setTimeout(resolve, 500));
+        }
+      };
+
       let deadline = Date.now() + CHAT_TIMEOUT;
       while (Date.now() < deadline) {
         if (queuedEvents.length === 0) {
@@ -2345,10 +2358,14 @@ export class GatewayClient {
           const phase =
             typeof lifecyclePayload.phase === "string" ? lifecyclePayload.phase.toLowerCase() : "";
           if (phase === "end") {
-            const historyText = latestHistoryAssistantText(
-              await this.chatHistory(sessionKey, 20),
-              acceptedRunIds,
-            );
+            const hasNonTextActivity =
+              Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
+            const historyText =
+              hasNonTextActivity
+                ? ""
+                : streamedDisplayText || lastLegacyText
+                ? latestHistoryAssistantText(await this.chatHistory(sessionKey, 20), acceptedRunIds)
+                : await waitForHistoryText();
             if (historyText) {
               const streamed = streamDelta(lastLegacyText, historyText);
               lastLegacyText = streamed.nextText;
@@ -2402,6 +2419,14 @@ export class GatewayClient {
           continue;
         }
         if (evt.event === "chat.done") {
+          const hasNonTextActivity =
+            Boolean(lastThinkingText) || seenToolCallIds.size > 0 || seenToolResultIds.size > 0;
+          if (!streamedDisplayText && !lastLegacyText && !hasNonTextActivity) {
+            const historyText = await waitForHistoryText();
+            if (historyText) {
+              yield { type: "content", text: historyText, data: payload };
+            }
+          }
           yield { type: "done", data: payload };
           return;
         }
@@ -2484,10 +2509,7 @@ export class GatewayClient {
             yield { type: "done", data: payload };
             return;
           }
-          const historyText = latestHistoryAssistantText(
-            await this.chatHistory(sessionKey, 20),
-            acceptedRunIds,
-          );
+          const historyText = await waitForHistoryText();
           if (historyText) {
             yield { type: "content", text: historyText, data: payload };
           }

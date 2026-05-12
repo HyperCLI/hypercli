@@ -679,6 +679,54 @@ describe("GatewayClient", () => {
     expect(events[0]?.text).toBe("Recovered final answer");
   });
 
+  it("chatSend falls back to chat history when done has no streamed text", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "done-run-1" };
+      }
+      if (method === "chat.history") {
+        return {
+          messages: [
+            {
+              role: "assistant",
+              runId: "done-run-1",
+              content: [{ type: "text", text: "SMOKE_OK" }],
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Reply with exactly: SMOKE_OK", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: {
+        runId: "done-run-1",
+        sessionKey: "main",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+    expect(events[0]?.text).toBe("SMOKE_OK");
+  });
+
   it("chatSend forwards pre-normalized attachments in the chat.send request", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
