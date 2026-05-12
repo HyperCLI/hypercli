@@ -153,7 +153,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status]);
+  }, [gateway, status, agent?.id]);
 
   useEffect(() => {
     if (status !== "disconnected") return;

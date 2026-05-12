@@ -15,6 +15,7 @@ interface AgentMainPanelProps {
   isDesktopViewport: boolean;
   mobileShowChat: boolean;
   selectedAgent: Agent | null;
+  hasAgents?: boolean;
   loadingInitialAgents?: boolean;
   isSelectedTransitioning: boolean;
   isSelectedRunning: boolean;
@@ -43,6 +44,7 @@ interface AgentMainPanelProps {
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
+  pendingSlotReleases?: Record<string, number>;
   onShowList: () => void;
   onShowInspector: () => void;
   showInspectorButton?: boolean;
@@ -54,6 +56,7 @@ export function AgentMainPanel({
   isDesktopViewport,
   mobileShowChat,
   selectedAgent,
+  hasAgents = false,
   loadingInitialAgents = false,
   isSelectedTransitioning,
   isSelectedRunning,
@@ -79,6 +82,7 @@ export function AgentMainPanel({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
   onShowList,
   onShowInspector,
   showInspectorButton = true,
@@ -160,6 +164,7 @@ export function AgentMainPanel({
     subscriptionSummary,
     catalogPlans,
     onOpenPlanCatalog,
+    pendingSlotReleases,
     launchLabel: "Start agent",
     launching: stoppedLaunchBusy,
     launchBlocked: stoppedLaunchBlocked,
@@ -249,6 +254,15 @@ export function AgentMainPanel({
             stage="complete"
           />
         </div>
+      ) : !selectedAgent && hasAgents ? (
+        <div className="flex-1 min-h-0">
+          <AgentLoadingState
+            title="Selecting agent"
+            detail="Opening the next available agent."
+            tone="loading"
+            stage="complete"
+          />
+        </div>
       ) : !selectedAgent ? (
         <LaunchFirstAgentEmptyState
           onCreate={onCreate}
@@ -256,6 +270,7 @@ export function AgentMainPanel({
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}
+          pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={onOpenPlanCatalog}
         />
       ) : (

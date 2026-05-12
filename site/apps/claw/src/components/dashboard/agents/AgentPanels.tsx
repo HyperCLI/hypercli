@@ -1647,6 +1647,7 @@ interface AgentListProps {
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
+  pendingSlotReleases?: Record<string, number>;
   /**
    * When true, surfaces the Channels section and the inline user/agent picker that lets
    * teammates be added to a channel. Gated on the Team plan in agent-setup. Default: false.
@@ -1694,6 +1695,7 @@ export function AgentList({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
   showChannels = false,
 }: AgentListProps) {
   const [showAgentLauncher, setShowAgentLauncher] = React.useState(false);
@@ -1897,6 +1899,7 @@ export function AgentList({
                 budget={budget}
                 subscriptionSummary={subscriptionSummary}
                 catalogPlans={catalogPlans}
+                pendingSlotReleases={pendingSlotReleases}
                 onOpenPlanCatalog={onOpenPlanCatalog}
                 onCreateAgent={createAgentFromLauncher}
               />
@@ -1920,6 +1923,7 @@ type AgentEmptyStateProps = {
   subscriptionSummary?: import("@hypercli.com/sdk/agent").HyperAgentSubscriptionSummary | null;
   catalogPlans?: HyperAgentPlan[] | null;
   onOpenPlanCatalog?: () => void | Promise<void>;
+  pendingSlotReleases?: Record<string, number>;
 };
 
 type AgentLaunchActionProps = {
@@ -1937,6 +1941,7 @@ export function LaunchFirstAgentEmptyState({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
 }: AgentEmptyStateProps) {
   const [showWizard, setShowWizard] = React.useState(false);
 
@@ -1946,6 +1951,7 @@ export function LaunchFirstAgentEmptyState({
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
+        pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
@@ -2002,6 +2008,7 @@ export function AgentEmptyState({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
   launchLabel,
   launching,
   launchBlocked,
@@ -2016,6 +2023,7 @@ export function AgentEmptyState({
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
+        pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
@@ -2054,6 +2062,7 @@ export function AgentFilesEmptyState({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
   launchLabel,
   launching,
   launchBlocked,
@@ -2068,6 +2077,7 @@ export function AgentFilesEmptyState({
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
+        pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
@@ -2177,6 +2187,7 @@ export function AgentIntegrationsEmptyState({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
   launchLabel,
   launching,
   launchBlocked,
@@ -2191,6 +2202,7 @@ export function AgentIntegrationsEmptyState({
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
+        pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
@@ -2226,6 +2238,7 @@ export function AgentSkillsEmptyState({
   subscriptionSummary,
   catalogPlans,
   onOpenPlanCatalog,
+  pendingSlotReleases,
   launchLabel,
   launching,
   launchBlocked,
@@ -2240,6 +2253,7 @@ export function AgentSkillsEmptyState({
         budget={budget}
         subscriptionSummary={subscriptionSummary}
         catalogPlans={catalogPlans}
+        pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();

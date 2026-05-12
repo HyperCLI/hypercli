@@ -132,4 +132,59 @@ describe("AgentWorkspaceSidebar", () => {
     fireEvent.click(upgrade);
     expect(props.onUpgrade).toHaveBeenCalledTimes(1);
   });
+
+  it("shows the highest value purchased plan and lists all plans on hover", () => {
+    renderAgentWorkspaceSidebar({
+      planName: "Plus",
+      catalogPlans: [
+        { id: "plus", name: "Plus", price: 20, priceUsd: 20, limits: { tpd: 50_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
+        { id: "teams", name: "Teams", price: 100, priceUsd: 100, limits: { tpd: 500_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
+        { id: "enterprise", name: "Enterprise", price: 250, priceUsd: 250, limits: { tpd: 1_000_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
+      ] as any,
+      subscriptionSummary: {
+        activeSubscriptions: [
+          {
+            id: "sub-plus",
+            planId: "plus",
+            planName: "Plus",
+            quantity: 1,
+            slotGrants: { medium: 1 },
+            planTpd: 50_000_000,
+          },
+          {
+            id: "sub-teams",
+            planId: "teams",
+            planName: "Teams",
+            quantity: 1,
+            slotGrants: { large: 1 },
+            planTpd: 500_000_000,
+          },
+          {
+            id: "sub-enterprise",
+            planId: "enterprise",
+            planName: "Enterprise",
+            status: "canceled",
+            quantity: 1,
+            slotGrants: { large: 1 },
+            planTpd: 1_000_000_000,
+          },
+          {
+            id: "sub-empty",
+            planId: "empty",
+            planName: "Empty",
+            status: "active",
+            quantity: 1,
+            slotGrants: {},
+            planTpd: 2_000_000_000,
+          },
+        ],
+      } as any,
+    });
+
+    expect(screen.getAllByText("Teams plan").length).toBeGreaterThan(0);
+    expect(screen.getByText("Purchased plans")).toBeInTheDocument();
+    expect(screen.getAllByText("Plus plan").length).toBeGreaterThan(0);
+    expect(screen.queryByText("Enterprise plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Empty plan")).not.toBeInTheDocument();
+  });
 });

@@ -1,17 +1,9 @@
 /**
- * Claw agent UIs should talk to the OpenClaw gateway through the agent-scoped
- * main session, not the bare global "main" session.
- *
- * Examples:
- * - default gateway session: "main"
- * - agent-scoped session: "agent:<agentId>:main"
- *
- * We keep the bare "main" fallback only for the root/default agent case.
+ * Each HyperCLI deployment connects to its own OpenClaw gateway, so the
+ * gateway-local root session is already deployment scoped. Passing
+ * "agent:<deploymentId>:main" makes the gateway treat the deployment UUID as an
+ * internal OpenClaw agent and can create /workspace/<uuid>.
  */
-export function resolveOpenClawSessionKey(agentId: string | null | undefined): string {
-  const raw = (agentId ?? "").trim();
-  if (!raw || raw === "main") {
-    return "main";
-  }
-  return `agent:${raw}:main`;
+export function resolveOpenClawSessionKey(_agentId: string | null | undefined): string {
+  return "main";
 }

@@ -155,13 +155,26 @@ export interface HydratedOpenClawSession {
   models: Array<Record<string, unknown>>;
 }
 
+function isUuidLikeAgentId(value: unknown): boolean {
+  return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
+}
+
+function resolveGatewayAgentId(agents: Array<Record<string, unknown>>): string {
+  const mainAgent = agents.find((agent) => agent.id === "main")?.id;
+  if (typeof mainAgent === "string") return mainAgent;
+
+  const namedAgent = agents.find((agent) => typeof agent.id === "string" && !isUuidLikeAgentId(agent.id))?.id;
+  if (typeof namedAgent === "string") return namedAgent;
+
+  return "main";
+}
+
 export async function hydrateOpenClawSession(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
 ): Promise<HydratedOpenClawSession> {
   const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
-  const gwAgentId = normalizedPreferredAgentId || "main";
-  const sessionKey = resolveOpenClawSessionKey(gwAgentId);
+  const sessionKey = resolveOpenClawSessionKey(normalizedPreferredAgentId);
   const [cfgResult, schemaResult, historyResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
     gateway.configGet(),
     gateway.configSchema(),
@@ -173,7 +186,7 @@ export async function hydrateOpenClawSession(
   ]);
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
-  const resolvedGatewayAgentId = normalizedPreferredAgentId || agents[0]?.id || "main";
+  const resolvedGatewayAgentId = resolveGatewayAgentId(agents);
   let files: WorkspaceFile[] = [];
   if (agentsResult.status === "fulfilled") {
     try {

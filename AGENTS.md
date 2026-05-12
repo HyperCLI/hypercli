@@ -104,11 +104,13 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   other transport state machines when that behavior already exists in the SDK.
   The frontend should compose SDK primitives and render SDK state, not recreate
   connection/session authority locally.
-- For Claw agent chat, do not hardcode the bare gateway session key `"main"`
-  for agent-scoped UIs. Use
-  `site/apps/claw/src/lib/openclaw-session.ts:resolveOpenClawSessionKey()` so
-  agent dashboards use `agent:<agentId>:main` and only fall back to `"main"`
-  for the root/default agent. We have regressed this multiple times.
+- For Claw agent chat, use
+  `site/apps/claw/src/lib/openclaw-session-key.ts:resolveOpenClawSessionKey()`.
+  HyperCLI deployments already connect to separate OpenClaw gateways, so the
+  gateway-local `"main"` session is the correct workspace. Do not pass
+  deployment UUIDs into gateway session keys such as `agent:<agentId>:main`;
+  that can make OpenClaw create `/workspace/<uuid>` and hide the real workspace
+  from the agent.
 - Claw plans/billing data should come from the SDK (`HyperAgent.currentPlan()`,
   `subscriptionSummary()`, `plans()`, `agentTypes()`), not ad hoc frontend
   fetches or duplicated plan state.

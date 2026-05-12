@@ -30,6 +30,7 @@ function buildGateway() {
     cronList: vi.fn(async () => []),
     modelsList: vi.fn(async () => []),
     filesList: vi.fn(async () => []),
+    sendChat: vi.fn(async () => ({ runId: "run-1" })),
     configPatch: vi.fn(async () => undefined),
     configSet: vi.fn(async () => undefined),
     channelsStatus: vi.fn(async () => ({ channels: {} })),
@@ -68,6 +69,33 @@ describe("useOpenClawSession", () => {
 
     expect(agent.gateway).toHaveBeenCalledTimes(1);
     expect(gateway.connect).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("sends chat through the gateway root session without deployment id params", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("hello");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    expect(gateway.sendChat).toHaveBeenCalledWith("hello", "main", undefined, undefined);
     unmount();
   });
 });
