@@ -1603,69 +1603,59 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const createButton = page
     .getByRole("button", { name: /create a first agent|create new agent|new agent|create/i })
     .first();
-  await expect(createButton).toBeVisible({ timeout: 30_000 });
+  const launchFirstAgentButton = page.locator("main").getByRole("button", { name: /^launch agent$/i }).last();
+  const launcherEntryButton = (await createButton.isVisible({ timeout: 30_000 }).catch(() => false))
+    ? createButton
+    : launchFirstAgentButton;
+  await expect(launcherEntryButton).toBeVisible({ timeout: 30_000 });
   await captureStep(page, "agents-10-dashboard");
-  await createButton.click();
+  await launcherEntryButton.click();
 
-  for (let i = 0; i < 6; i += 1) {
+  const waitForCreatedAgent = async (button: Locator): Promise<DeploymentRecord> => {
+    const createResponsePromise = page.waitForResponse((response) => {
+      return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
+    });
+    await button.click();
+    const createResponse = await createResponsePromise;
+    expect(createResponse.ok()).toBeTruthy();
+    const created = (await createResponse.json()) as DeploymentRecord;
+    expect(created.id).toBeTruthy();
+    await captureStep(page, "agents-11-created");
+
+    const running = await deployments.waitRunning(created.id, timeout, 5_000);
+    expect(running.state).toBe("RUNNING");
+
+    const composer = page.getByPlaceholder("Message agent...");
+    await expect(composer).toBeVisible({ timeout: 60_000 });
+    await expect(composer).toBeEnabled({ timeout: 60_000 });
+    await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+    await expect(
+      page.getByText("Connecting to gateway...", { exact: true }).first()
+    ).not.toBeVisible({ timeout: 60_000 });
+    await captureStep(page, "agents-12-gateway-connected");
+
+    return created;
+  };
+
+  for (let i = 0; i < 8; i += 1) {
     const continueButton = page.getByRole("button", { name: /^continue$/i }).first();
     if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await continueButton.click();
       continue;
     }
 
-    const launchExistingPlanButton = page.getByRole("button", { name: /^launch agent$/i }).first();
-    if (await launchExistingPlanButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      const createResponsePromise = page.waitForResponse((response) => {
-        return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
-      });
-      await launchExistingPlanButton.click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.ok()).toBeTruthy();
-      const created = (await createResponse.json()) as DeploymentRecord;
-      expect(created.id).toBeTruthy();
-      await captureStep(page, "agents-11-created");
-
-      const running = await deployments.waitRunning(created.id, timeout, 5_000);
-      expect(running.state).toBe("RUNNING");
-
-      const composer = page.getByPlaceholder("Message agent...");
-      await expect(composer).toBeVisible({ timeout: 60_000 });
-      await expect(composer).toBeEnabled({ timeout: 60_000 });
-      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
-      await expect(
-        page.getByText("Connecting to gateway...", { exact: true }).first()
-      ).not.toBeVisible({ timeout: 60_000 });
-      await captureStep(page, "agents-12-gateway-connected");
-
-      return created;
+    const planHeading = page.getByRole("heading", { name: /choose your plan/i }).first();
+    const launchExistingPlanButton = page.getByRole("button", { name: /^launch agent$/i }).last();
+    if (
+      await planHeading.isVisible({ timeout: 500 }).catch(() => false) &&
+      await launchExistingPlanButton.isVisible({ timeout: 2_000 }).catch(() => false)
+    ) {
+      return await waitForCreatedAgent(launchExistingPlanButton);
     }
 
     const createAgentButton = page.getByRole("button", { name: /^create agent$/i }).first();
     if (await createAgentButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      const createResponsePromise = page.waitForResponse((response) => {
-        return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
-      });
-      await createAgentButton.click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.ok()).toBeTruthy();
-      const created = (await createResponse.json()) as DeploymentRecord;
-      expect(created.id).toBeTruthy();
-      await captureStep(page, "agents-11-created");
-
-      const running = await deployments.waitRunning(created.id, timeout, 5_000);
-      expect(running.state).toBe("RUNNING");
-
-      const composer = page.getByPlaceholder("Message agent...");
-      await expect(composer).toBeVisible({ timeout: 60_000 });
-      await expect(composer).toBeEnabled({ timeout: 60_000 });
-      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
-      await expect(
-        page.getByText("Connecting to gateway...", { exact: true }).first()
-      ).not.toBeVisible({ timeout: 60_000 });
-      await captureStep(page, "agents-12-gateway-connected");
-
-      return created;
+      return await waitForCreatedAgent(createAgentButton);
     }
 
     const nextButton = page.getByRole("button", { name: /^next$/i }).first();
