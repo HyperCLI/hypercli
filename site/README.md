@@ -113,9 +113,47 @@ pip install -e ".[dev]"
 pytest
 ```
 
+### Agents E2E Debugging
+
+For Claw agent launch and gateway failures, run the full checkout path and keep
+the failed container around for inspection. This test must verify Stripe
+redirects back to `/plans`, granted slots increase, and the purchased slot can
+launch/connect an agent. Cleanup is best-effort.
+
+```bash
+IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
+mkdir -p .e2e-artifacts-local-live
+docker run --init --name hypercli-e2e-agents-debug \
+  --env-file .env.agents \
+  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
+  -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
+  -e E2E_ARTIFACTS_DIR=/artifacts \
+  -v "$PWD/.e2e-artifacts-local-live:/artifacts" \
+  hypercli-e2e:local-agents-debug \
+  bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
+```
+
+If it fails, rerun the same spec inside the live container:
+
+```bash
+docker exec -it hypercli-e2e-agents-debug bash
+cd /workspace/site
+npx playwright test \
+  --config tests/claw/playwright.config.ts \
+  tests/claw/agents-subscription.spec.ts
+```
+
+`E2E_KEEP_ALIVE_ON_FAILURE=1` leaves the container and Next servers running.
+`TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1` uses admin auth instead of OTP when the admin
+keys are available. Keep secrets in `.env.agents`. The E2E image contains a
+copied workspace, so rebuild after source edits or bind-mount the specific test
+file you are iterating on.
+
 ### Frontend SDK Dependency
 
-The frontend in [`site/`](/home/ubuntu/dev/hypercli/site) is built and deployed as a self-contained workspace. The committed manifests should stay pinned to a published `@hypercli.com/sdk` version so Netlify builds do not depend on files outside `site/`.
+The frontend in [`site/`](/home/ubuntu/dev/hypercli/site) is built and deployed
+by CI as a workspace. Site builds should use the sibling `ts-sdk/` checkout so
+frontend changes are tested with the current SDK source.
 
 For normal frontend work:
 
@@ -137,7 +175,9 @@ npm run sdk:use-checkout
 npm run dev
 ```
 
-That checkout override is intentionally not committed. It symlinks the local SDK checkout into the workspace without changing the pinned package manifests, so Netlify can still use the published version from `package-lock.json`.
+That checkout override should remain local to the build/dev environment. CI
+uses the same sibling checkout during site build/publish; Netlify should only
+publish artifacts produced by CI, not build the repo itself.
 
 To remove the override and go back to the published package:
 

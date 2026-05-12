@@ -18,6 +18,26 @@ cleanup() {
   fi
 }
 
+keep_alive_on_failure() {
+  [[ "${E2E_KEEP_ALIVE_ON_FAILURE:-}" == "1" || "${E2E_KEEP_ALIVE_ON_FAILURE:-}" == "true" ]]
+}
+
+on_exit() {
+  local status=$?
+  sync_artifacts
+  if [[ ${status} -ne 0 ]] && keep_alive_on_failure; then
+    trap - EXIT
+    echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
+    echo "Console: ${TEST_CONSOLE_BASE_URL}" >&2
+    echo "Claw: ${TEST_BASE_URL}" >&2
+    echo "Run inside the container: cd ${SITE_ROOT} && npx playwright test --config tests/claw/playwright.config.ts tests/claw/agents-subscription.spec.ts" >&2
+    tail -f /dev/null
+  fi
+  cleanup
+  trap - EXIT
+  exit "${status}"
+}
+
 sync_artifacts() {
   local dest="${E2E_ARTIFACTS_DIR:-}"
   if [[ -z "${dest}" ]]; then
@@ -105,10 +125,13 @@ notify.send(
 PY
 }
 
-trap 'cleanup; sync_artifacts' EXIT
+trap on_exit EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
+if [[ -d "${WORKSPACE_ROOT}/ts-sdk" ]]; then
+  npm --prefix "${WORKSPACE_ROOT}/ts-sdk" run build
+fi
 npm run sdk:use-checkout
 rm -rf "${SITE_ROOT}/apps/console/.next" "${SITE_ROOT}/apps/claw/.next"
 npm run build --workspace @hypercli/console --workspace @hypercli/claw

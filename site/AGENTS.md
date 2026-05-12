@@ -58,6 +58,47 @@ endpoints. There is no backend service in this repo.
 
 Ports can be changed in `site/apps/*/package.json` if needed.
 
+## Agents E2E debugging
+The Claw agents E2E flow must cover auth, Stripe checkout, entitlement/slot
+polling, agent launch, and gateway readiness. Do not skip checkout in this
+spec: the critical contract is that Stripe redirects back to `/plans`, slots
+increase, and the purchased slot can launch an agent. Cleanup is best-effort.
+
+From the repo root:
+
+```bash
+IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
+mkdir -p .e2e-artifacts-local-live
+docker run --init --name hypercli-e2e-agents-debug \
+  --env-file .env.agents \
+  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
+  -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
+  -e E2E_ARTIFACTS_DIR=/artifacts \
+  -v "$PWD/.e2e-artifacts-local-live:/artifacts" \
+  hypercli-e2e:local-agents-debug \
+  bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
+```
+
+Then rerun the Playwright spec without rebuilding or reauthenticating from
+scratch:
+
+```bash
+docker exec -it hypercli-e2e-agents-debug bash
+cd /workspace/site
+npx playwright test \
+  --config tests/claw/playwright.config.ts \
+  tests/claw/agents-subscription.spec.ts
+```
+
+Rules for this mode:
+- Keep secrets in `.env.agents`; do not pass secret values with `docker run -e`.
+- Do not use `--rm` if you need to inspect the container after a failure.
+- `E2E_KEEP_ALIVE_ON_FAILURE=1` is local-debug only; CI should fail and exit.
+- The E2E image contains a copied workspace. Rebuild after editing source, or
+  bind-mount the specific file under test, for example
+  `-v "$PWD/site/tests/claw/agents-subscription.spec.ts:/workspace/site/tests/claw/agents-subscription.spec.ts:ro"`.
+- Remove the container with `docker rm -f hypercli-e2e-agents-debug` when done.
+
 ## Content generation (ComfyUI templates)
 The marketing site includes generated MDX content and thumbnails.
 
@@ -92,14 +133,15 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   (globalEnv list) to keep Turbo aware of changes.
 - Avoid editing generated content directly; use the Python generator.
 - For frontend testing against local SDK work, use the on-disk `ts-sdk/`
-  checkout. Netlify/npm production builds resolve `@hypercli.com/sdk` from
-  npm/package-lock instead, so local checkout changes do not show up there
-  until the packaged dependency path is updated.
+  checkout via `npm run sdk:use-checkout`. CI build/publish containers also use
+  the sibling checkout so the sites exercise current SDK source instead of a
+  separately published package.
 - For `@hypercli.com/sdk` releases, do not trust source changes alone. Always:
   - run `npm --prefix ts-sdk run build`
   - run `npm --prefix ts-sdk pack`
   - inspect the packed `dist/*.js` for the intended runtime behavior before `npm publish`
-- Netlify builds the site from the published npm package pinned in `site/package-lock.json`, not from the sibling `ts-sdk/` checkout.
+- Netlify should only receive artifacts from CI. Do not rely on Netlify to build
+  this monorepo or resolve the sibling `ts-sdk/` checkout.
 - For Claw agent chat, do not hardcode the bare gateway session key `"main"`
   for agent-scoped pages. Use
   `site/apps/claw/src/lib/openclaw-session.ts:resolveOpenClawSessionKey()` so

@@ -61,6 +61,72 @@ endpoints. There is no backend service in this repo.
 
 Ports can be changed in `site/apps/*/package.json` if needed.
 
+## Frontend E2E debugging
+The agents E2E flow intentionally covers Stripe checkout, entitlement/slot
+propagation, agent launch, and gateway readiness. Do not skip checkout in this
+spec: the critical regression surface is Stripe redirect back to `/plans`,
+slot count increasing, and the purchased slot being usable to launch an agent.
+Cleanup at the end should be best-effort only.
+
+Build the local E2E image:
+
+```bash
+cd ~/dev/hypercli
+IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
+```
+
+Start a persistent agents E2E container:
+
+```bash
+cd ~/dev/hypercli
+mkdir -p .e2e-artifacts-local-live
+docker run --init --name hypercli-e2e-agents-debug \
+  --env-file .env.agents \
+  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
+  -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
+  -e E2E_ARTIFACTS_DIR=/artifacts \
+  -v "$PWD/.e2e-artifacts-local-live:/artifacts" \
+  hypercli-e2e:local-agents-debug \
+  bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
+```
+
+Notes:
+- Do not use `--rm` while debugging if you want to inspect the failed container
+  after the first run.
+- `E2E_KEEP_ALIVE_ON_FAILURE=1` leaves the Next servers and container running
+  after a failure.
+- `TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1` uses the backend admin login path instead
+  of OTP when `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present.
+- Keep secrets in `.env.agents` or CI secrets. Do not pass secret values with
+  `docker run -e KEY=value`, because those values can leak through process
+  listings and shell history.
+- The E2E image contains a copied workspace. After editing tests or fixtures,
+  either rebuild the image or bind-mount the specific file you are changing,
+  for example
+  `-v "$PWD/site/tests/claw/fixtures/auth.ts:/workspace/site/tests/claw/fixtures/auth.ts:ro"`.
+
+Rerun the failing test inside the live container:
+
+```bash
+docker exec -it hypercli-e2e-agents-debug bash
+cd /workspace/site
+npx playwright test \
+  --config tests/claw/playwright.config.ts \
+  tests/claw/agents-subscription.spec.ts
+```
+
+Inspect artifacts from the host:
+
+```bash
+find .e2e-artifacts-local-live -maxdepth 5 -type f | sort
+```
+
+When the container is no longer needed:
+
+```bash
+docker rm -f hypercli-e2e-agents-debug
+```
+
 ## Content generation (ComfyUI templates)
 The marketing site includes generated MDX content and thumbnails.
 
@@ -95,9 +161,9 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   (globalEnv list) to keep Turbo aware of changes.
 - Avoid editing generated content directly; use the Python generator.
 - For frontend testing against local SDK work, use the on-disk `ts-sdk/`
-  checkout. Netlify/npm production builds resolve `@hypercli.com/sdk` from
-  npm/package-lock instead, so local checkout changes do not show up there
-  until the packaged dependency path is updated.
+  checkout via `npm run sdk:use-checkout`. CI build/publish containers also
+  install the sibling checkout so site builds exercise the current SDK source
+  instead of waiting for a published package.
 - For OpenClaw or other app-specific gateway features, frontend code may call
   app-level WebSocket/gateway methods exposed by the SDK. Do not add frontend
   connection management, reconnect logic, session lifecycle management, or
