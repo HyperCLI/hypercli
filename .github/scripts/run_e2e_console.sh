@@ -6,6 +6,8 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SITE_ROOT="${REPO_ROOT}/site"
 CONSOLE_LOG="/tmp/hypercli-console-e2e.log"
 CLAW_LOG="/tmp/hypercli-claw-e2e.log"
+FAILURE_NOTIFIED=0
+export SITE_ROOT
 
 source "${REPO_ROOT}/.github/scripts/allocate_e2e_env.sh"
 
@@ -32,6 +34,17 @@ sync_artifacts() {
     rm -rf "${dest}/test-results"
     cp -r "${SITE_ROOT}/test-results" "${dest}/test-results"
   fi
+}
+
+on_exit() {
+  local status=$?
+  cleanup
+  sync_artifacts
+  if [[ ${status} -ne 0 ]]; then
+    notify_failure_once || true
+  fi
+  trap - EXIT
+  exit "${status}"
 }
 
 show_logs() {
@@ -91,6 +104,8 @@ if not notify_api_key:
 
 run_url = os.getenv("GITHUB_RUN_URL", "").strip()
 test_results = Path(os.getenv("SITE_ROOT", ".")) / "test-results"
+console_log = Path("/tmp/hypercli-console-e2e.log")
+claw_log = Path("/tmp/hypercli-claw-e2e.log")
 
 def newest(paths):
     items = [path for path in paths if path.is_file()]
@@ -129,26 +144,49 @@ if video:
     artifact = convert_webm_to_mp4(video)
 if artifact is None:
     artifact = newest(test_results.rglob("*.png"))
-if artifact is None:
-    raise SystemExit(0)
 
-test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
+lines = [
+    "<b>❌ Frontend Console Failed</b>",
+    "🧪 Suite: <code>playwright-console</code>",
+    f"🔗 Run: {run_url or 'local docker run'}",
+]
+
+media = None
+media_filename = None
+if artifact is not None:
+    test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
+    lines.insert(2, f"🧩 Test: <code>{test_name}</code>")
+    media = base64.b64encode(artifact.read_bytes()).decode("ascii")
+    media_filename = artifact.name
+else:
+    log_lines = ["No Playwright video or screenshot was produced; failure happened before/during test startup."]
+    for label, path in [("console", console_log), ("claw", claw_log)]:
+        if path.exists():
+            log_lines.append(f"\n--- {label} log tail ---")
+            log_lines.extend(path.read_text(errors="replace").splitlines()[-120:])
+    log_text = "\n".join(log_lines).encode("utf-8")
+    media = base64.b64encode(log_text).decode("ascii")
+    media_filename = "playwright-console-failure.txt"
+
 notify.send(
     "frontend",
-    [
-        "<b>❌ Frontend Console Failed</b>",
-        "🧪 Suite: <code>playwright-console</code>",
-        f"🧩 Test: <code>{test_name}</code>",
-        f"🔗 Run: {run_url or 'local docker run'}",
-    ],
+    lines,
     severity="error",
-    media=base64.b64encode(artifact.read_bytes()).decode("ascii"),
-    media_filename=artifact.name,
+    media=media,
+    media_filename=media_filename,
 )
 PY
 }
 
-trap 'cleanup; sync_artifacts' EXIT
+notify_failure_once() {
+  if [[ "${FAILURE_NOTIFIED}" == "1" ]]; then
+    return 0
+  fi
+  FAILURE_NOTIFIED=1
+  notify_failure_artifact || true
+}
+
+trap on_exit EXIT
 
 cd "${SITE_ROOT}"
 ./scripts/setup-local-env.sh
@@ -190,7 +228,7 @@ if [[ ${login_status} -ne 0 || ${topup_status} -ne 0 ]]; then
 fi
 
 if [[ ${status} -ne 0 ]]; then
-  notify_failure_artifact || true
+  notify_failure_once || true
   show_logs
 fi
 

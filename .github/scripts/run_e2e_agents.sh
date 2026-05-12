@@ -6,6 +6,9 @@ REPO_ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 SITE_ROOT="${REPO_ROOT}/site"
 CONSOLE_LOG="/tmp/hypercli-console-e2e.log"
 CLAW_LOG="/tmp/hypercli-claw-e2e.log"
+WORKSPACE_ROOT="${WORKSPACE_ROOT:-${REPO_ROOT}}"
+FAILURE_NOTIFIED=0
+export SITE_ROOT
 
 source "${REPO_ROOT}/.github/scripts/allocate_e2e_env.sh"
 
@@ -25,6 +28,9 @@ keep_alive_on_failure() {
 on_exit() {
   local status=$?
   sync_artifacts
+  if [[ ${status} -ne 0 ]]; then
+    notify_failure_once || true
+  fi
   if [[ ${status} -ne 0 ]] && keep_alive_on_failure; then
     trap - EXIT
     echo "E2E_KEEP_ALIVE_ON_FAILURE is set; leaving this container alive for debugging." >&2
@@ -106,6 +112,8 @@ if not notify_api_key:
 
 run_url = os.getenv("GITHUB_RUN_URL", "").strip()
 test_results = Path(os.getenv("SITE_ROOT", ".")) / "test-results"
+console_log = Path("/tmp/hypercli-console-e2e.log")
+claw_log = Path("/tmp/hypercli-claw-e2e.log")
 
 def newest(paths):
     items = [path for path in paths if path.is_file()]
@@ -144,23 +152,46 @@ if video:
     artifact = convert_webm_to_mp4(video)
 if artifact is None:
     artifact = newest(test_results.rglob("*.png"))
-if artifact is None:
-    raise SystemExit(0)
 
-test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
+lines = [
+    "<b>❌ Frontend Agents Failed</b>",
+    "🧪 Suite: <code>playwright-agents</code>",
+    f"🔗 Run: {run_url or 'local docker run'}",
+]
+
+media = None
+media_filename = None
+if artifact is not None:
+    test_name = artifact.parent.name if artifact.parent.name != "test-results" else artifact.stem
+    lines.insert(2, f"🧩 Test: <code>{test_name}</code>")
+    media = base64.b64encode(artifact.read_bytes()).decode("ascii")
+    media_filename = artifact.name
+else:
+    log_lines = ["No Playwright video or screenshot was produced; failure happened before/during test startup."]
+    for label, path in [("console", console_log), ("claw", claw_log)]:
+        if path.exists():
+            log_lines.append(f"\n--- {label} log tail ---")
+            log_lines.extend(path.read_text(errors="replace").splitlines()[-120:])
+    log_text = "\n".join(log_lines).encode("utf-8")
+    media = base64.b64encode(log_text).decode("ascii")
+    media_filename = "playwright-agents-failure.txt"
+
 notify.send(
     "frontend",
-    [
-        "<b>❌ Frontend Agents Failed</b>",
-        "🧪 Suite: <code>playwright-agents</code>",
-        f"🧩 Test: <code>{test_name}</code>",
-        f"🔗 Run: {run_url or 'local docker run'}",
-    ],
+    lines,
     severity="error",
-    media=base64.b64encode(artifact.read_bytes()).decode("ascii"),
-    media_filename=artifact.name,
+    media=media,
+    media_filename=media_filename,
 )
 PY
+}
+
+notify_failure_once() {
+  if [[ "${FAILURE_NOTIFIED}" == "1" ]]; then
+    return 0
+  fi
+  FAILURE_NOTIFIED=1
+  notify_failure_artifact || true
 }
 
 trap on_exit EXIT
@@ -194,7 +225,7 @@ status=$?
 set -e
 
 if [[ ${status} -ne 0 ]]; then
-  notify_failure_artifact || true
+  notify_failure_once || true
   show_logs
 fi
 
