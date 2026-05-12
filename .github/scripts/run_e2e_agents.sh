@@ -111,12 +111,20 @@ if not notify_api_key:
     raise SystemExit(0)
 
 run_url = os.getenv("GITHUB_RUN_URL", "").strip()
-test_results = Path(os.getenv("SITE_ROOT", ".")) / "test-results"
+artifact_root = Path(os.getenv("E2E_ARTIFACTS_DIR", "")).resolve() if os.getenv("E2E_ARTIFACTS_DIR", "").strip() else None
+test_result_roots = [
+    Path(os.getenv("SITE_ROOT", ".")) / "test-results",
+]
+if artifact_root is not None:
+    test_result_roots.append(artifact_root / "test-results")
 console_log = Path("/tmp/hypercli-console-e2e.log")
 claw_log = Path("/tmp/hypercli-claw-e2e.log")
 
-def newest(paths):
-    items = [path for path in paths if path.is_file()]
+def newest(pattern: str):
+    items = []
+    for root in test_result_roots:
+        if root.exists():
+            items.extend(path for path in root.rglob(pattern) if path.is_file())
     if not items:
         return None
     return max(items, key=lambda path: path.stat().st_mtime)
@@ -142,16 +150,19 @@ def convert_webm_to_mp4(webm: Path) -> Path | None:
             stdout=subprocess.DEVNULL,
             stderr=subprocess.DEVNULL,
         )
-    except Exception:
+    except Exception as exc:
+        print(f"failed to convert Playwright video {webm} to mp4: {exc}", file=sys.stderr)
         return None
     return mp4 if mp4.exists() and mp4.stat().st_size > 0 else None
 
 artifact = None
-video = newest(test_results.rglob("*.webm"))
+video = newest("*.webm")
 if video:
     artifact = convert_webm_to_mp4(video)
+    if artifact is None:
+        artifact = video
 if artifact is None:
-    artifact = newest(test_results.rglob("*.png"))
+    artifact = newest("*.png")
 
 lines = [
     "<b>❌ Frontend Agents Failed</b>",
@@ -225,6 +236,7 @@ status=$?
 set -e
 
 if [[ ${status} -ne 0 ]]; then
+  sync_artifacts
   notify_failure_once || true
   show_logs
 fi

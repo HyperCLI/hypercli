@@ -2,6 +2,10 @@ FROM mcr.microsoft.com/playwright:v1.59.1-noble
 
 WORKDIR /workspace
 
+RUN apt-get update \
+  && apt-get install -y --no-install-recommends ffmpeg \
+  && rm -rf /var/lib/apt/lists/*
+
 COPY ts-sdk/package*.json /workspace/ts-sdk/
 WORKDIR /workspace/ts-sdk
 RUN npm ci
