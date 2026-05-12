@@ -1,15 +1,8 @@
-# Netlify Configuration for HyperCLI Monorepo
+# Netlify static artifact configuration for HyperCLI sites
 #
-# Environment is managed via env files, NOT here.
-# Each Netlify site sets its build command to load the right env:
-#   Prod:  cp env.prod .env.local && npm run build
-#   Dev:   cp env.dev .env.local && npm run build
-#
-# See env.prod, env.dev, env.sample for available variables.
-
-# Next.js Plugin for optimal performance and Edge Functions support
-[[plugins]]
-  package = "@netlify/plugin-nextjs"
+# GitHub CI builds each app in the Node container and publishes the assembled
+# artifact with `netlify deploy --no-build`. Netlify projects are deploy-only
+# and should not run repo builds or framework plugins.
 
 # Cache control headers for static assets
 [[headers]]

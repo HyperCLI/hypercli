@@ -5,7 +5,7 @@ on:
   workflow_call:
     inputs:
       deploy:
-        description: Deploy built Claw site to Netlify from the CI container.
+        description: Deploy built sites to Netlify from the CI container.
         required: false
         type: boolean
         default: false
@@ -17,7 +17,7 @@ on:
   workflow_dispatch:
     inputs:
       deploy:
-        description: Deploy built Claw site to Netlify from the CI container.
+        description: Deploy built sites to Netlify from the CI container.
         required: false
         type: boolean
         default: false
@@ -79,32 +79,57 @@ jobs:
             --phase build \
             --status "${status}" \
             --event "${{ github.event_name }}" \
-            --message "Claw site container build ${status}" \
+            --message "Site container build ${status}" \
             --workflow "build-site" \
             --channel frontend \
             --run-url "${GITHUB_RUN_URL}"
 
-      - name: Deploy Claw site from container
+      - name: Deploy sites from container
         id: site_deploy
         if: ${{ inputs.deploy }}
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_DEV_SITE_ID: ${{ secrets.NETLIFY_DEV_SITE_ID }}
-          NETLIFY_PROD_SITE_ID: ${{ secrets.NETLIFY_PROD_SITE_ID }}
+          NETLIFY_CLAW_DEV_SITE_ID: ${{ secrets.NETLIFY_CLAW_DEV_SITE_ID }}
+          NETLIFY_CLAW_PROD_SITE_ID: ${{ secrets.NETLIFY_CLAW_PROD_SITE_ID }}
+          NETLIFY_CONSOLE_DEV_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_DEV_SITE_ID }}
+          NETLIFY_CONSOLE_PROD_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_PROD_SITE_ID }}
+          NETLIFY_MAIN_DEV_SITE_ID: ${{ secrets.NETLIFY_MAIN_DEV_SITE_ID }}
+          NETLIFY_MAIN_PROD_SITE_ID: ${{ secrets.NETLIFY_MAIN_PROD_SITE_ID }}
         run: |
           set -euo pipefail
+
+          require_site_id() {
+            local value="$1"
+            local name="$2"
+            if [ -z "${value}" ]; then
+              echo "${name} is required for deploy_environment=${deploy_env}" >&2
+              exit 1
+            fi
+          }
 
           deploy_env="${{ inputs.deploy_environment }}"
           case "${deploy_env}" in
             prod)
-              site_id="${NETLIFY_PROD_SITE_ID:-}"
               env_file="site/env.prod"
               prod="true"
+              require_site_id "${NETLIFY_MAIN_PROD_SITE_ID:-}" "NETLIFY_MAIN_PROD_SITE_ID"
+              require_site_id "${NETLIFY_CONSOLE_PROD_SITE_ID:-}" "NETLIFY_CONSOLE_PROD_SITE_ID"
+              require_site_id "${NETLIFY_CLAW_PROD_SITE_ID:-}" "NETLIFY_CLAW_PROD_SITE_ID"
+              site_targets="$(printf '%s\n' \
+                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_PROD_SITE_ID}" \
+                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_PROD_SITE_ID}" \
+                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_PROD_SITE_ID}")"
               ;;
             dev)
-              site_id="${NETLIFY_DEV_SITE_ID:-}"
               env_file="site/env.dev"
               prod="true"
+              require_site_id "${NETLIFY_MAIN_DEV_SITE_ID:-}" "NETLIFY_MAIN_DEV_SITE_ID"
+              require_site_id "${NETLIFY_CONSOLE_DEV_SITE_ID:-}" "NETLIFY_CONSOLE_DEV_SITE_ID"
+              require_site_id "${NETLIFY_CLAW_DEV_SITE_ID:-}" "NETLIFY_CLAW_DEV_SITE_ID"
+              site_targets="$(printf '%s\n' \
+                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_DEV_SITE_ID}" \
+                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_DEV_SITE_ID}" \
+                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_DEV_SITE_ID}")"
               ;;
             *)
               echo "Unknown deploy_environment=${deploy_env}" >&2
@@ -116,15 +141,11 @@ jobs:
             echo "NETLIFY_AUTH_TOKEN is required for Netlify deploy" >&2
             exit 1
           fi
-          if [ -z "${site_id}" ]; then
-            echo "Netlify site ID secret is required for deploy_environment=${deploy_env}" >&2
-            exit 1
-          fi
 
           SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
           SITE_ACTION=deploy \
           SITE_ENV_FILE="${env_file}" \
-          NETLIFY_SITE_ID="${site_id}" \
+          SITE_TARGETS="${site_targets}" \
           NETLIFY_PROD="${prod}" \
           NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA}" \
             .github/scripts/run_site_image.sh
@@ -140,7 +161,7 @@ jobs:
             --phase publish \
             --status "${PUBLISH_STATUS}" \
             --event "${{ github.event_name }}" \
-            --message "Claw site Netlify publish ${{ inputs.deploy_environment }} ${PUBLISH_STATUS}" \
+            --message "Site Netlify publish ${{ inputs.deploy_environment }} ${PUBLISH_STATUS}" \
             --workflow "build-site" \
             --channel frontend \
             --run-url "${GITHUB_RUN_URL}"

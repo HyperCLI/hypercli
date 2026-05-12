@@ -4,10 +4,9 @@ set -euo pipefail
 
 cd /workspace/site
 
-site_workspace="${SITE_WORKSPACE:-@hypercli/claw}"
-site_app_dir="${SITE_APP_DIR:-apps/claw}"
-site_publish_dir="${SITE_PUBLISH_DIR:-.site-artifact/claw}"
 deploy_message="${NETLIFY_DEPLOY_MESSAGE:-CI deploy ${GITHUB_SHA:-local}}"
+default_site_targets=$'main|@hypercli/main|apps/main|.site-artifact/main|\nconsole|@hypercli/console|apps/console|.site-artifact/console|\nclaw|@hypercli/claw|apps/claw|.site-artifact/claw|'
+site_targets="${SITE_TARGETS:-${default_site_targets}}"
 
 if [[ "${AGENTS_WS_URL:-}" == '$NEXT_PUBLIC_AGENTS_WS_URL' ]]; then
   export AGENTS_WS_URL="${NEXT_PUBLIC_AGENTS_WS_URL:-}"
@@ -28,7 +27,12 @@ materialize_env_file apps/console/.env.local
 materialize_env_file apps/claw/.env.local
 
 build_site() {
-  npm run build -- --filter="${site_workspace}"
+  local name="$1"
+  local workspace="$2"
+
+  echo "::group::Build ${name} (${workspace})"
+  npm run build -- --filter="${workspace}"
+  echo "::endgroup::"
 }
 
 assemble_static_artifact() {
@@ -68,39 +72,65 @@ assemble_static_artifact() {
 REDIRECTS
 }
 
+deploy_artifact() {
+  local name="$1"
+  local publish_dir="$2"
+  local site_id="$3"
+
+  if [[ -z "${site_id}" ]]; then
+    echo "Netlify site ID is required for deploy target ${name}" >&2
+    exit 1
+  fi
+
+  echo "::group::Deploy ${name}"
+  pushd "${publish_dir}" >/dev/null
+  deploy_args=(
+    deploy
+    --no-build
+    --dir "."
+    --site "${site_id}"
+    --auth "${NETLIFY_AUTH_TOKEN}"
+    --message "${deploy_message}"
+    --timeout "${NETLIFY_DEPLOY_TIMEOUT:-900}"
+  )
+
+  if [[ "${NETLIFY_PROD:-false}" == "true" ]]; then
+    deploy_args+=(--prod)
+  fi
+
+  netlify "${deploy_args[@]}"
+  popd >/dev/null
+  echo "::endgroup::"
+}
+
+for_each_target() {
+  local mode="$1"
+
+  while IFS='|' read -r name workspace app_dir publish_dir site_id; do
+    if [[ -z "${name}" || "${name}" == \#* ]]; then
+      continue
+    fi
+
+    build_site "${name}" "${workspace}"
+    assemble_static_artifact "${app_dir}" "${publish_dir}"
+
+    if [[ "${mode}" == "deploy" ]]; then
+      deploy_artifact "${name}" "${publish_dir}" "${site_id}"
+    fi
+  done <<< "${site_targets}"
+}
+
 case "${SITE_ACTION:-build}" in
   build)
-    build_site
-    assemble_static_artifact "${site_app_dir}" "${site_publish_dir}"
+    for_each_target build
     ;;
   deploy)
     if [[ -z "${NETLIFY_AUTH_TOKEN:-}" ]]; then
       echo "NETLIFY_AUTH_TOKEN is required for SITE_ACTION=deploy" >&2
       exit 1
     fi
-    if [[ -z "${NETLIFY_SITE_ID:-}" ]]; then
-      echo "NETLIFY_SITE_ID is required for SITE_ACTION=deploy" >&2
-      exit 1
-    fi
 
-    build_site
-    assemble_static_artifact "${site_app_dir}" "${site_publish_dir}"
-
-    deploy_args=(
-      deploy
-      --no-build
-      --dir "${site_publish_dir}"
-      --site "${NETLIFY_SITE_ID}"
-      --auth "${NETLIFY_AUTH_TOKEN}"
-      --message "${deploy_message}"
-      --timeout "${NETLIFY_DEPLOY_TIMEOUT:-900}"
-    )
-
-    if [[ "${NETLIFY_PROD:-false}" == "true" ]]; then
-      deploy_args+=(--prod)
-    fi
-
-    netlify "${deploy_args[@]}"
+    for_each_target deploy
     ;;
   *)
     echo "Unknown SITE_ACTION=${SITE_ACTION}" >&2

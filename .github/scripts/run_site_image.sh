@@ -13,11 +13,8 @@ fi
 docker run --rm \
   "${env_file_args[@]}" \
   -e SITE_ACTION="${SITE_ACTION:-build}" \
-  -e SITE_WORKSPACE="${SITE_WORKSPACE:-@hypercli/claw}" \
-  -e SITE_APP_DIR="${SITE_APP_DIR:-apps/claw}" \
-  -e SITE_PUBLISH_DIR="${SITE_PUBLISH_DIR:-.site-artifact/claw}" \
+  -e SITE_TARGETS="${SITE_TARGETS:-}" \
   -e NETLIFY_AUTH_TOKEN="${NETLIFY_AUTH_TOKEN:-}" \
-  -e NETLIFY_SITE_ID="${NETLIFY_SITE_ID:-}" \
   -e NETLIFY_PROD="${NETLIFY_PROD:-false}" \
   -e NETLIFY_DEPLOY_MESSAGE="${NETLIFY_DEPLOY_MESSAGE:-}" \
   -e NETLIFY_DEPLOY_TIMEOUT="${NETLIFY_DEPLOY_TIMEOUT:-900}" \
