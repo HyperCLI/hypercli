@@ -1463,6 +1463,33 @@ class GatewayClient:
                         },
                     )
                 continue
+            if event_name == "agent" and str(payload.get("stream") or "").lower() == "lifecycle":
+                lifecycle_payload = payload.get("data") or {}
+                if not isinstance(lifecycle_payload, dict):
+                    continue
+                phase = str(lifecycle_payload.get("phase") or "").lower()
+                if phase == "end":
+                    deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                    history_text = _latest_history_assistant_text(
+                        await self.chat_history(resolved_session_key, limit=20),
+                        accepted_run_ids,
+                    )
+                    if history_text:
+                        delta_text, last_legacy_text = _stream_delta(last_legacy_text, history_text)
+                        if delta_text:
+                            streamed_display_text = True
+                            yield ChatEvent(type="content", text=delta_text, data=payload)
+                    yield ChatEvent(type="done", data=payload)
+                    return
+                if phase == "error":
+                    deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                    error_message = (
+                        lifecycle_payload.get("error")
+                        or payload.get("errorMessage")
+                        or phase
+                    )
+                    yield ChatEvent(type="error", text=str(error_message), data=payload)
+                    return
             if event_name == "chat.thinking":
                 text = str(payload.get("text") or "")
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout

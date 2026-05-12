@@ -40,8 +40,9 @@ copy_src() {
   fi
 }
 
-mkdir -p "${BUILD_CTX}/.github/docker"
+mkdir -p "${BUILD_CTX}/.github/docker" "${BUILD_CTX}/.github/scripts"
 cp "${REPO_ROOT}/.github/docker/build-site.Dockerfile" "${BUILD_CTX}/.github/docker/build-site.Dockerfile"
+cp "${REPO_ROOT}/.github/scripts/site_container_entrypoint.sh" "${BUILD_CTX}/.github/scripts/site_container_entrypoint.sh"
 
 copy_src "${REPO_ROOT}/ts-sdk" "${BUILD_CTX}/ts-sdk"
 copy_src "${REPO_ROOT}/site" "${BUILD_CTX}/site"

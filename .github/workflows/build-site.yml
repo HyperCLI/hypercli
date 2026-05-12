@@ -3,7 +3,38 @@ run-name: Build Site
 
 on:
   workflow_call:
+    inputs:
+      deploy:
+        description: Deploy built Claw site to Netlify from the CI container.
+        required: false
+        type: boolean
+        default: false
+      deploy_environment:
+        description: Netlify target environment.
+        required: false
+        type: string
+        default: dev
   workflow_dispatch:
+    inputs:
+      deploy:
+        description: Deploy built Claw site to Netlify from the CI container.
+        required: false
+        type: boolean
+        default: false
+      deploy_environment:
+        description: Netlify target environment.
+        required: false
+        type: choice
+        options:
+          - dev
+          - prod
+        default: dev
+
+env:
+  GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  NOTIFY_URL: ${{ vars.NOTIFY_URL }}
+  NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+  NOTIFY_CATEGORY: ${{ vars.NOTIFY_CATEGORY }}
 
 jobs:
   build:
@@ -23,7 +54,93 @@ jobs:
           IMAGE_TAG="${GITHUB_SHA}" .github/scripts/build_site_image.sh
 
       - name: Run site build in container
+        id: site_build
         run: |
           set -euo pipefail
           SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
             .github/scripts/run_site_image.sh
+
+      - name: Notify site build result
+        if: always()
+        continue-on-error: true
+        env:
+          IMAGE_STATUS: ${{ steps.build_site.outcome }}
+          BUILD_STATUS: ${{ steps.site_build.outcome }}
+        run: |
+          status="${BUILD_STATUS}"
+          if [ "${IMAGE_STATUS}" != "success" ]; then
+            status="${IMAGE_STATUS}"
+          fi
+          if [ "${BUILD_STATUS}" = "skipped" ] && [ "${IMAGE_STATUS}" = "success" ]; then
+            status="failure"
+          fi
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase build \
+            --status "${status}" \
+            --event "${{ github.event_name }}" \
+            --message "Claw site container build ${status}" \
+            --workflow "build-site" \
+            --channel frontend \
+            --run-url "${GITHUB_RUN_URL}"
+
+      - name: Deploy Claw site from container
+        id: site_deploy
+        if: ${{ inputs.deploy }}
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_DEV_SITE_ID: ${{ secrets.NETLIFY_DEV_SITE_ID }}
+          NETLIFY_PROD_SITE_ID: ${{ secrets.NETLIFY_PROD_SITE_ID }}
+        run: |
+          set -euo pipefail
+
+          deploy_env="${{ inputs.deploy_environment }}"
+          case "${deploy_env}" in
+            prod)
+              site_id="${NETLIFY_PROD_SITE_ID:-}"
+              env_file="site/env.prod"
+              prod="true"
+              ;;
+            dev)
+              site_id="${NETLIFY_DEV_SITE_ID:-}"
+              env_file="site/env.dev"
+              prod="true"
+              ;;
+            *)
+              echo "Unknown deploy_environment=${deploy_env}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+            echo "NETLIFY_AUTH_TOKEN is required for Netlify deploy" >&2
+            exit 1
+          fi
+          if [ -z "${site_id}" ]; then
+            echo "Netlify site ID secret is required for deploy_environment=${deploy_env}" >&2
+            exit 1
+          fi
+
+          SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
+          SITE_ACTION=deploy \
+          SITE_ENV_FILE="${env_file}" \
+          NETLIFY_SITE_ID="${site_id}" \
+          NETLIFY_PROD="${prod}" \
+          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA}" \
+            .github/scripts/run_site_image.sh
+
+      - name: Notify site publish result
+        if: always() && inputs.deploy
+        continue-on-error: true
+        env:
+          PUBLISH_STATUS: ${{ steps.site_deploy.outcome }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase publish \
+            --status "${PUBLISH_STATUS}" \
+            --event "${{ github.event_name }}" \
+            --message "Claw site Netlify publish ${{ inputs.deploy_environment }} ${PUBLISH_STATUS}" \
+            --workflow "build-site" \
+            --channel frontend \
+            --run-url "${GITHUB_RUN_URL}"

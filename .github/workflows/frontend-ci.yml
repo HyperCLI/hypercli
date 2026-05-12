@@ -20,6 +20,9 @@ jobs:
   build-site:
     needs: sdk
     uses: ./.github/workflows/build-site.yml
+    with:
+      deploy: ${{ github.event_name == 'push' && github.ref == 'refs/heads/main' }}
+      deploy_environment: dev
     secrets: inherit
 
   e2e-console:

@@ -18,7 +18,6 @@ WORKDIR /workspace/site
 RUN cp env.dev apps/main/.env.local \
   && cp env.dev apps/console/.env.local \
   && cp env.dev apps/claw/.env.local \
-  && npm install \
-  && npm run sdk:use-checkout
+  && npm install
 
 CMD ["bash"]

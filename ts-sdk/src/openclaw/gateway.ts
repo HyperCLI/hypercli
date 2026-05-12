@@ -2230,7 +2230,14 @@ export class GatewayClient {
     const seenToolResultIds = new Set<string>();
 
     const handler: GatewayEventHandler = (evt) => {
-      if (evt.event === "chat" || evt.event?.startsWith("chat.")) {
+      const isAgentStreamEvent =
+        evt.event === "agent" &&
+        (() => {
+          const payload = asRecord(evt.payload) ?? {};
+          const stream = typeof payload.stream === "string" ? payload.stream.toLowerCase() : "";
+          return stream === "tool" || stream === "lifecycle";
+        })();
+      if (evt.event === "chat" || evt.event?.startsWith("chat.") || isAgentStreamEvent) {
         queuedEvents.push(evt);
         const waiter = resolveWait;
         resolveWait = null;
@@ -2330,6 +2337,41 @@ export class GatewayClient {
                 isError: toolPayload.isError,
               },
             };
+          }
+          continue;
+        }
+        if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "lifecycle") {
+          const lifecyclePayload = asRecord(payload.data) ?? {};
+          const phase =
+            typeof lifecyclePayload.phase === "string" ? lifecyclePayload.phase.toLowerCase() : "";
+          if (phase === "end") {
+            const historyText = latestHistoryAssistantText(
+              await this.chatHistory(sessionKey, 20),
+              acceptedRunIds,
+            );
+            if (historyText) {
+              const streamed = streamDelta(lastLegacyText, historyText);
+              lastLegacyText = streamed.nextText;
+              if (streamed.delta) {
+                streamedDisplayText = true;
+                yield { type: "content", text: streamed.delta, data: payload };
+              }
+            }
+            yield { type: "done", data: payload };
+            return;
+          }
+          if (phase === "error") {
+            yield {
+              type: "error",
+              text:
+                typeof lifecyclePayload.error === "string" && lifecyclePayload.error
+                  ? lifecyclePayload.error
+                  : typeof payload.errorMessage === "string" && payload.errorMessage
+                    ? payload.errorMessage
+                    : phase,
+              data: payload,
+            };
+            return;
           }
           continue;
         }
