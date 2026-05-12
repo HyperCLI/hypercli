@@ -11,15 +11,6 @@ on:
       - "ts-sdk/**"
       - "sdk/**"
   workflow_dispatch:
-    inputs:
-      deploy_environment:
-        description: Netlify environment to publish after building all sites.
-        required: true
-        type: choice
-        options:
-          - dev
-          - prod
-        default: dev
 
 jobs:
   sdk:
@@ -30,7 +21,7 @@ jobs:
     needs: sdk
     uses: ./.github/workflows/publish-sites.yml
     with:
-      deploy_environment: ${{ github.event_name == 'workflow_dispatch' && inputs.deploy_environment || 'dev' }}
+      deploy_environment: dev
     secrets: inherit
 
   e2e-console:

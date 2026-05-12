@@ -9,6 +9,16 @@ on:
         required: false
         type: string
         default: dev
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: Netlify environment to publish after building all sites.
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: prod
 
 env:
   GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
