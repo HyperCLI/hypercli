@@ -94,10 +94,19 @@ Rules for this mode:
 - Keep secrets in `.env.agents`; do not pass secret values with `docker run -e`.
 - Do not use `--rm` if you need to inspect the container after a failure.
 - `E2E_KEEP_ALIVE_ON_FAILURE=1` is local-debug only; CI should fail and exit.
+- Failure notifications should attach the Playwright video first. The CI scripts
+  convert `video.webm` to MP4 and only fall back to screenshots when no video
+  exists.
 - The E2E image contains a copied workspace. Rebuild after editing source, or
   bind-mount the specific file under test, for example
   `-v "$PWD/site/tests/claw/agents-subscription.spec.ts:/workspace/site/tests/claw/agents-subscription.spec.ts:ro"`.
 - Remove the container with `docker rm -f hypercli-e2e-agents-debug` when done.
+
+## Claw Files UI
+Use the canonical file-browser components in
+`apps/claw/src/components/dashboard/files` and compose agent workspace files via
+`AgentFilesPanel`. The old `apps/claw/src/components/dashboard/files-panel`
+implementation was removed as duplicate cruft and should not be restored.
 
 ## Content generation (ComfyUI templates)
 The marketing site includes generated MDX content and thumbnails.

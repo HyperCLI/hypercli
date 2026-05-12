@@ -149,6 +149,10 @@ keys are available. Keep secrets in `.env.agents`. The E2E image contains a
 copied workspace, so rebuild after source edits or bind-mount the specific test
 file you are iterating on.
 
+CI failure notifications attach the Playwright video first. The E2E scripts
+convert `video.webm` to MP4 and only fall back to screenshots when no video
+artifact exists.
+
 ### Frontend SDK Dependency
 
 The frontend in [`site/`](/home/ubuntu/dev/hypercli/site) is built and deployed
@@ -174,6 +178,13 @@ cd ~/dev/hypercli/site
 npm run sdk:use-checkout
 npm run dev
 ```
+
+### Claw Files UI
+
+The live Claw file-browser implementation is
+`apps/claw/src/components/dashboard/files`, with agent workspace composition in
+`AgentFilesPanel`. Do not restore the removed `dashboard/files-panel` tree; it
+was stale duplicate UI.
 
 That checkout override should remain local to the build/dev environment. CI
 uses the same sibling checkout during site build/publish; Netlify should only

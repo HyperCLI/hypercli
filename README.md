@@ -98,7 +98,14 @@ Keep secrets in `.env.agents`, not inline `docker run -e` arguments. The E2E
 image contains a copied workspace, so rebuild after source edits or bind-mount
 the specific test file you are iterating on.
 
+CI failure notifications prefer Playwright video artifacts: `video.webm` is
+converted to MP4 and sent before falling back to a screenshot. If you only see a
+screenshot, inspect the uploaded `test-results` artifact for missing video or
+ffmpeg conversion errors.
+
 ## Current Notes
 
 - CLI `llm` command surface was removed; inference setup is documented through HyperClaw pages and `hyper claw config` output.
 - Public flow pricing and metadata come from `GET /flows` and `GET /flows/{name}`.
+- Claw files UI should use `site/apps/claw/src/components/dashboard/files` and
+  `AgentFilesPanel`; the old `dashboard/files-panel` duplicate was removed.

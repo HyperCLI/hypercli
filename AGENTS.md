@@ -95,6 +95,8 @@ Notes:
   after the first run.
 - `E2E_KEEP_ALIVE_ON_FAILURE=1` leaves the Next servers and container running
   after a failure.
+- CI failure notifications should prefer the Playwright `video.webm` converted
+  to MP4. Screenshots are only a fallback when no video artifact exists.
 - `TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1` uses the backend admin login path instead
   of OTP when `BACKEND_API_KEY` or `AGENTS_BACKEND_API_KEY` is present.
 - Keep secrets in `.env.agents` or CI secrets. Do not pass secret values with
@@ -126,6 +128,13 @@ When the container is no longer needed:
 ```bash
 docker rm -f hypercli-e2e-agents-debug
 ```
+
+## Claw Files UI
+The canonical Claw file-browser components live under
+`site/apps/claw/src/components/dashboard/files` and the agent page composes them
+through `AgentFilesPanel`. Do not reintroduce the deleted
+`site/apps/claw/src/components/dashboard/files-panel` tree; it was a stale
+duplicate of the file browser.
 
 ## Content generation (ComfyUI templates)
 The marketing site includes generated MDX content and thumbnails.
