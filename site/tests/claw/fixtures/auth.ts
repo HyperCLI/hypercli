@@ -1611,6 +1611,11 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   await captureStep(page, "agents-10-dashboard");
   await launcherEntryButton.click();
 
+  const wizardSurface = page
+    .locator("main, [role='dialog'], section")
+    .filter({ has: page.getByRole("heading", { name: /create your first agent|choose your plan|review & launch|configuration/i }) })
+    .last();
+
   const waitForCreatedAgent = async (button: Locator): Promise<DeploymentRecord> => {
     const createResponsePromise = page.waitForResponse((response) => {
       return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
@@ -1637,19 +1642,23 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     return created;
   };
 
-  for (let i = 0; i < 8; i += 1) {
+  for (let i = 0; i < 12; i += 1) {
+    if (await wizardSurface.isVisible({ timeout: 500 }).catch(() => false)) {
+      await captureStep(page, `agents-10-launch-flow-${i}`);
+    }
+
     const continueButton = page.getByRole("button", { name: /^continue$/i }).first();
     if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await continueButton.click();
       continue;
     }
 
-    const planHeading = page.getByRole("heading", { name: /choose your plan/i }).first();
-    const launchExistingPlanButton = page.getByRole("button", { name: /^launch agent$/i }).last();
-    if (
-      await planHeading.isVisible({ timeout: 500 }).catch(() => false) &&
-      await launchExistingPlanButton.isVisible({ timeout: 2_000 }).catch(() => false)
-    ) {
+    const launchButtons = (await wizardSurface.isVisible({ timeout: 500 }).catch(() => false))
+      ? wizardSurface.getByRole("button", { name: /^launch agent$/i })
+      : page.locator("main").getByRole("button", { name: /^launch agent$/i });
+    const launchExistingPlanButton = launchButtons.last();
+    if (await launchExistingPlanButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
+      await expect(launchExistingPlanButton).toBeEnabled({ timeout: 30_000 });
       return await waitForCreatedAgent(launchExistingPlanButton);
     }
 
@@ -1667,6 +1676,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     break;
   }
 
+  await captureStep(page, "agents-10-launch-flow-stuck");
   throw new Error("Agent launch flow did not reach a launchable state");
 }
 
