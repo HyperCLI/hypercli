@@ -53,11 +53,78 @@ jobs:
           set -euo pipefail
           IMAGE_TAG="${GITHUB_SHA}" .github/scripts/build_site_image.sh
 
-      - name: Run site build in container
+      - name: Build and optionally deploy sites in container
         id: site_build
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_CLAW_DEV_SITE_ID: ${{ secrets.NETLIFY_CLAW_DEV_SITE_ID }}
+          NETLIFY_CLAW_PROD_SITE_ID: ${{ secrets.NETLIFY_CLAW_PROD_SITE_ID }}
+          NETLIFY_CONSOLE_DEV_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_DEV_SITE_ID }}
+          NETLIFY_CONSOLE_PROD_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_PROD_SITE_ID }}
+          NETLIFY_MAIN_DEV_SITE_ID: ${{ secrets.NETLIFY_MAIN_DEV_SITE_ID }}
+          NETLIFY_MAIN_PROD_SITE_ID: ${{ secrets.NETLIFY_MAIN_PROD_SITE_ID }}
         run: |
           set -euo pipefail
+
+          require_site_id() {
+            local value="$1"
+            local name="$2"
+            if [ -z "${value}" ]; then
+              echo "${name} is required for deploy_environment=${deploy_env}" >&2
+              exit 1
+            fi
+          }
+
+          if [ "${{ inputs.deploy }}" = "true" ]; then
+            deploy_env="${{ inputs.deploy_environment }}"
+            case "${deploy_env}" in
+              prod)
+                env_file="site/env.prod"
+                action="deploy"
+                prod="true"
+                require_site_id "${NETLIFY_MAIN_PROD_SITE_ID:-}" "NETLIFY_MAIN_PROD_SITE_ID"
+                require_site_id "${NETLIFY_CONSOLE_PROD_SITE_ID:-}" "NETLIFY_CONSOLE_PROD_SITE_ID"
+                require_site_id "${NETLIFY_CLAW_PROD_SITE_ID:-}" "NETLIFY_CLAW_PROD_SITE_ID"
+                site_targets="$(printf '%s\n' \
+                  "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_PROD_SITE_ID}" \
+                  "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_PROD_SITE_ID}" \
+                  "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_PROD_SITE_ID}")"
+                ;;
+              dev)
+                env_file="site/env.dev"
+                action="deploy"
+                prod="true"
+                require_site_id "${NETLIFY_MAIN_DEV_SITE_ID:-}" "NETLIFY_MAIN_DEV_SITE_ID"
+                require_site_id "${NETLIFY_CONSOLE_DEV_SITE_ID:-}" "NETLIFY_CONSOLE_DEV_SITE_ID"
+                require_site_id "${NETLIFY_CLAW_DEV_SITE_ID:-}" "NETLIFY_CLAW_DEV_SITE_ID"
+                site_targets="$(printf '%s\n' \
+                  "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_DEV_SITE_ID}" \
+                  "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_DEV_SITE_ID}" \
+                  "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_DEV_SITE_ID}")"
+                ;;
+              *)
+                echo "Unknown deploy_environment=${deploy_env}" >&2
+                exit 1
+                ;;
+            esac
+
+            if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+              echo "NETLIFY_AUTH_TOKEN is required for Netlify deploy" >&2
+              exit 1
+            fi
+          else
+            env_file="site/env.dev"
+            action="build"
+            prod="false"
+            site_targets=""
+          fi
+
           SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
+          SITE_ACTION="${action}" \
+          SITE_ENV_FILE="${env_file}" \
+          SITE_TARGETS="${site_targets}" \
+          NETLIFY_PROD="${prod}" \
+          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA}" \
             .github/scripts/run_site_image.sh
 
       - name: Notify site build result
@@ -84,77 +151,11 @@ jobs:
             --channel frontend \
             --run-url "${GITHUB_RUN_URL}"
 
-      - name: Deploy sites from container
-        id: site_deploy
-        if: ${{ inputs.deploy }}
-        env:
-          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
-          NETLIFY_CLAW_DEV_SITE_ID: ${{ secrets.NETLIFY_CLAW_DEV_SITE_ID }}
-          NETLIFY_CLAW_PROD_SITE_ID: ${{ secrets.NETLIFY_CLAW_PROD_SITE_ID }}
-          NETLIFY_CONSOLE_DEV_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_DEV_SITE_ID }}
-          NETLIFY_CONSOLE_PROD_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_PROD_SITE_ID }}
-          NETLIFY_MAIN_DEV_SITE_ID: ${{ secrets.NETLIFY_MAIN_DEV_SITE_ID }}
-          NETLIFY_MAIN_PROD_SITE_ID: ${{ secrets.NETLIFY_MAIN_PROD_SITE_ID }}
-        run: |
-          set -euo pipefail
-
-          require_site_id() {
-            local value="$1"
-            local name="$2"
-            if [ -z "${value}" ]; then
-              echo "${name} is required for deploy_environment=${deploy_env}" >&2
-              exit 1
-            fi
-          }
-
-          deploy_env="${{ inputs.deploy_environment }}"
-          case "${deploy_env}" in
-            prod)
-              env_file="site/env.prod"
-              prod="true"
-              require_site_id "${NETLIFY_MAIN_PROD_SITE_ID:-}" "NETLIFY_MAIN_PROD_SITE_ID"
-              require_site_id "${NETLIFY_CONSOLE_PROD_SITE_ID:-}" "NETLIFY_CONSOLE_PROD_SITE_ID"
-              require_site_id "${NETLIFY_CLAW_PROD_SITE_ID:-}" "NETLIFY_CLAW_PROD_SITE_ID"
-              site_targets="$(printf '%s\n' \
-                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_PROD_SITE_ID}" \
-                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_PROD_SITE_ID}" \
-                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_PROD_SITE_ID}")"
-              ;;
-            dev)
-              env_file="site/env.dev"
-              prod="true"
-              require_site_id "${NETLIFY_MAIN_DEV_SITE_ID:-}" "NETLIFY_MAIN_DEV_SITE_ID"
-              require_site_id "${NETLIFY_CONSOLE_DEV_SITE_ID:-}" "NETLIFY_CONSOLE_DEV_SITE_ID"
-              require_site_id "${NETLIFY_CLAW_DEV_SITE_ID:-}" "NETLIFY_CLAW_DEV_SITE_ID"
-              site_targets="$(printf '%s\n' \
-                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_DEV_SITE_ID}" \
-                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_DEV_SITE_ID}" \
-                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_DEV_SITE_ID}")"
-              ;;
-            *)
-              echo "Unknown deploy_environment=${deploy_env}" >&2
-              exit 1
-              ;;
-          esac
-
-          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
-            echo "NETLIFY_AUTH_TOKEN is required for Netlify deploy" >&2
-            exit 1
-          fi
-
-          SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
-          SITE_ACTION=deploy \
-          SITE_ENV_FILE="${env_file}" \
-          SITE_TARGETS="${site_targets}" \
-          NETLIFY_PROD="${prod}" \
-          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA}" \
-            .github/scripts/run_site_image.sh
-
       - name: Notify site publish result
         if: always() && inputs.deploy
         continue-on-error: true
         env:
-          PUBLISH_STATUS: ${{ steps.site_deploy.outcome }}
+          PUBLISH_STATUS: ${{ steps.site_build.outcome }}
         run: |
           python3 .github/scripts/ci_notify.py \
             --category frontend \
