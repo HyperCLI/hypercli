@@ -184,6 +184,11 @@ describe("FirstAgentSetupWizard", () => {
       "Pro",
     ]);
     expect(screen.queryByRole("heading", { name: "5 AIU" })).not.toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Compare plans" }));
+    const dialog = screen.getByRole("dialog", { name: "Plan comparison" });
+    expect(within(dialog).getByText("Pro")).toBeInTheDocument();
+    expect(within(dialog).queryByText("5 AIU")).not.toBeInTheDocument();
   });
 
   it("uses Pro launch state when the effective plan is a merged 5 AIU plan", async () => {

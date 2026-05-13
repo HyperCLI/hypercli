@@ -14,10 +14,10 @@ import {
   Zap,
 } from "lucide-react";
 import { formatTokens } from "@/lib/format";
+import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 
 type CatalogPlan = HyperAgentPlan & {
   price_usd?: number;
-  hidden?: boolean;
 };
 
 type ComparisonPlan = {
@@ -68,7 +68,7 @@ function planSortValue(plan: HyperAgentPlan): number {
 
 function visibleCatalogPlans(catalogPlans: HyperAgentPlan[] | null | undefined): ComparisonPlan[] {
   return (catalogPlans ?? [])
-    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .filter(isVisibleCurrentAgentPlan)
     .sort((left, right) => {
       const priceDelta = planSortValue(left) - planSortValue(right);
       if (priceDelta !== 0) return priceDelta;

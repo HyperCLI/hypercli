@@ -3,6 +3,12 @@
 import React from "react";
 import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
+import {
+  hasPlanWord,
+  isLegacyAgentPlan,
+  isLegacyAgentPlanLabel,
+  isVisibleCurrentAgentPlan,
+} from "@/lib/agent-plan-catalog";
 
 type CatalogPlan = HyperAgentPlan & {
   priceUsd?: number;
@@ -60,6 +66,15 @@ function catalogPrice(plan: HyperAgentPlan | null | undefined): number | null {
 
 function planTpd(plan: HyperAgentPlan | null | undefined): number {
   return finiteNumber(plan?.limits?.tpd ?? 0);
+}
+
+function selectProPlan(plans: HyperAgentPlan[]): HyperAgentPlan | null {
+  return (
+    plans.find((plan) => plan.name.trim().toLowerCase() === "pro") ??
+    plans.find((plan) => plan.id.trim().toLowerCase() === "pro") ??
+    plans.find((plan) => hasPlanWord(plan.name, "pro") || hasPlanWord(plan.id, "pro")) ??
+    null
+  );
 }
 
 function subscriptionQuantity(subscription: HyperAgentSubscription): number {
@@ -122,20 +137,31 @@ function collectPurchasedPlans({
   catalogPlans,
   tokenLimit,
 }: Pick<AgentPlanSummaryProps, "planName" | "subscriptionSummary" | "catalogPlans" | "tokenLimit">): PurchasedPlanSummary[] {
-  const catalogById = new Map((catalogPlans ?? []).map((plan) => [plan.id, plan]));
+  const currentCatalogPlans = (catalogPlans ?? []).filter(isVisibleCurrentAgentPlan);
+  const catalogById = new Map(currentCatalogPlans.map((plan) => [plan.id, plan]));
+  const proPlan = selectProPlan(currentCatalogPlans);
   const groups = new Map<string, PurchasedPlanSummary>();
 
   for (const subscription of purchasedSubscriptions(subscriptionSummary)) {
     const planId = subscription.planId || subscription.planName || "current";
-    const catalogPlan = catalogById.get(planId);
+    const sourceCatalogPlan = (catalogPlans ?? []).find((plan) => plan.id === planId);
+    const subscriptionIsLegacy =
+      isLegacyAgentPlan(sourceCatalogPlan) ||
+      isLegacyAgentPlanLabel(subscription.planId) ||
+      isLegacyAgentPlanLabel(subscription.planName);
+    if (subscriptionIsLegacy && !proPlan) continue;
+    const catalogPlan = subscriptionIsLegacy ? proPlan : catalogById.get(planId);
     const name = subscription.planName || catalogPlan?.name || titleizePlanId(planId);
+    const displayName = subscriptionIsLegacy && catalogPlan ? catalogPlan.name : name;
+    if (isLegacyAgentPlanLabel(displayName)) continue;
     const quantity = activeEntitlementCount(subscription);
     if (quantity < 1) continue;
     const unitPrice = catalogPrice(catalogPlan);
     const tpd = finiteNumber(subscription.planTpd || planTpd(catalogPlan));
     const slotCount = subscriptionSlotCount(subscription);
     const score = buildPlanScore(unitPrice, tpd, slotCount);
-    const key = `${planId}:${name}`;
+    const displayPlanId = catalogPlan?.id || planId;
+    const key = `${displayPlanId}:${displayName}`;
     const existing = groups.get(key);
 
     if (existing) {
@@ -144,7 +170,7 @@ function collectPurchasedPlans({
       existing.slotCount += slotCount;
       existing.score = Math.max(existing.score, score);
     } else {
-      groups.set(key, { id: planId, name, quantity, unitPrice, tpd, slotCount, score });
+      groups.set(key, { id: displayPlanId, name: displayName, quantity, unitPrice, tpd, slotCount, score });
     }
   }
 
@@ -155,7 +181,9 @@ function collectPurchasedPlans({
 
   if (purchasedPlans.length > 0) return purchasedPlans;
 
-  const fallbackName = planName?.trim() || inferPlanLabel(tokenLimit && tokenLimit > 0 ? tokenLimit : null);
+  const fallbackName = planName?.trim() && !isLegacyAgentPlanLabel(planName)
+    ? planName.trim()
+    : inferPlanLabel(tokenLimit && tokenLimit > 0 ? tokenLimit : null);
   return [{
     id: fallbackName,
     name: fallbackName,

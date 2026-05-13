@@ -40,6 +40,7 @@ import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
+import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens, type SlotInventoryEntry } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
@@ -113,7 +114,7 @@ import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorksp
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { bundleKey, CLAW_PRODUCTS, compactBundle, type SlotBundle } from "@/lib/subscriptions";
+import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -129,6 +130,8 @@ interface UpgradeDisplayProduct {
   name: string;
   bundle: SlotBundle;
   price: number;
+  description?: string;
+  features: string[];
   highlighted: boolean;
   limits: {
     tpd: number;
@@ -157,6 +160,7 @@ type CatalogPlan = HyperAgentPlan & {
   meta?: {
     bundle?: Record<string, number> | null;
     checkout_bundle?: Record<string, number> | null;
+    subtitle?: string | null;
   } | null;
   price_usd?: number;
   slotGrants?: Record<string, number> | null;
@@ -186,9 +190,21 @@ function firstBundle(...bundles: unknown[]): SlotBundle {
   return {};
 }
 
+function uniqueFeatureList(features: string[]): string[] {
+  const seen = new Set<string>();
+  const unique: string[] = [];
+  for (const feature of features) {
+    const normalized = feature.trim();
+    if (!normalized || seen.has(normalized.toLowerCase())) continue;
+    seen.add(normalized.toLowerCase());
+    unique.push(normalized);
+  }
+  return unique;
+}
+
 function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayProduct[] {
   return catalogPlans
-    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .filter(isVisibleCurrentAgentPlan)
     .map((plan) => {
       const catalogPlan = plan as CatalogPlan;
       const limits = plan.limits ?? ({} as HyperAgentPlan["limits"]);
@@ -207,6 +223,8 @@ function buildUpgradeProducts(catalogPlans: HyperAgentPlan[]): UpgradeDisplayPro
           fallbackBundle,
         ),
         price: finiteNumber(catalogPlan.priceUsd ?? catalogPlan.price_usd ?? plan.price),
+        description: catalogPlan.meta?.subtitle ?? undefined,
+        features: plan.features ?? [],
         highlighted: Boolean(plan.highlighted),
         limits: {
           tpd: finiteNumber(limits.tpd),
@@ -248,6 +266,24 @@ function bundleFromSubscription(subscription: HyperAgentSubscription): SlotBundl
 function primaryLaunchTier(bundle: SlotBundle): string | null {
   const tiers: Array<keyof Pick<SlotBundle, "large" | "medium" | "small">> = ["large", "medium", "small"];
   return tiers.find((tier) => Number(bundle[tier] || 0) > 0) ?? null;
+}
+
+function describeUpgradeProduct(product: UpgradeDisplayProduct): string {
+  if (product.description) return product.description;
+  const tier = primaryLaunchTier(product.bundle);
+  if (tier) return `${titleizeTier(tier)} launch capacity`;
+  return `${formatTokens(product.limits.tpd)} tokens per day`;
+}
+
+function upgradeProductFeatures(product: UpgradeDisplayProduct): string[] {
+  const bundleLabel = formatBundle(product.bundle);
+  return uniqueFeatureList([
+    `${formatTokens(product.limits.tpd)} tokens / day`,
+    product.limits.burstTpm > 0 ? `Up to ${formatTokens(product.limits.burstTpm)} TPM` : null,
+    product.limits.rpm > 0 ? `${formatTokens(product.limits.rpm)} RPM` : null,
+    bundleLabel,
+    ...product.features,
+  ].filter((feature): feature is string => Boolean(feature))).slice(0, 7);
 }
 
 function isActiveNoSlotBillingMockEnabled(): boolean {
@@ -436,33 +472,33 @@ function UpgradePlanCatalogModal({
       onClick={onClose}
     >
       <motion.div
-        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-4xl overflow-hidden rounded-[14px] border border-border bg-background shadow-2xl"
+        className="max-h-[min(720px,calc(100vh-2rem))] w-full max-w-[1040px] overflow-hidden rounded-[16px] border border-[#343434] bg-[#171717] shadow-2xl"
         initial={{ opacity: 0, y: 10, scale: 0.98 }}
         animate={{ opacity: 1, y: 0, scale: 1 }}
         exit={{ opacity: 0, y: 10, scale: 0.98 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
       >
-        <div className="flex items-start justify-between gap-4 border-b border-border px-5 py-4">
+        <div className="flex items-start justify-between gap-4 border-b border-[#303033] px-5 py-4">
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-primary" />
-              <h2 className="text-lg font-semibold text-foreground">Upgrade plan</h2>
+              <Sparkles className="h-4 w-4 text-[#36c99b]" />
+              <h2 className="text-[18px] font-semibold leading-tight text-[#f5f5f5]">Upgrade plan</h2>
             </div>
-            <p className="mt-1 text-sm text-text-secondary">Choose a plan for checkout.</p>
+            <p className="mt-2 text-[13px] leading-snug text-[#858585]">Choose a plan for checkout.</p>
           </div>
           <div className="flex shrink-0 items-center gap-2">
             <button
               type="button"
               onClick={() => setComparisonOpen(true)}
-              className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-mid"
+              className="inline-flex h-8 items-center justify-center rounded-[10px] border border-[#4a4a4d] bg-[#232323] px-3 text-[13px] font-medium text-[#f5f5f5] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b]"
             >
               Compare plans
             </button>
             <button
               type="button"
               onClick={onClose}
-              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-[#3c3c40] bg-[#202020] text-[#a2a2a8] transition-colors hover:bg-[#2b2b2b] hover:text-[#f5f5f5]"
               aria-label="Close upgrade modal"
             >
               <X className="h-4 w-4" />
@@ -498,55 +534,65 @@ function UpgradePlanCatalogModal({
               </button>
             </div>
           ) : (
-            <div className="grid gap-4 md:grid-cols-2 xl:grid-cols-3">
+            <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {products.map((product) => {
                 const ownedCount = ownedCounts[product.id] ?? 0;
+                const ProductIcon = product.highlighted ? Sparkles : Bot;
+                const featureRows = upgradeProductFeatures(product);
                 return (
                   <div
                     key={product.id}
-                    className="flex min-h-[280px] flex-col rounded-[10px] border border-border bg-surface-low/25 p-4"
+                    className="relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]"
                   >
-                    <div className="flex items-start justify-between gap-3">
-                      <div className="min-w-0">
-                        <h3 className="truncate text-base font-semibold text-foreground">{product.name}</h3>
-                        <p className="mt-1 text-sm text-text-muted">
-                          <span className="text-2xl font-semibold text-foreground">${product.price}</span>
-                          <span>/month</span>
-                        </p>
-                      </div>
-                      {ownedCount > 0 ? (
-                        <span className="shrink-0 rounded-full bg-[#38D39F]/10 px-2 py-1 text-[11px] font-semibold text-[#38D39F]">
+                    {product.highlighted && (
+                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#063f31] px-2.5 py-1 text-[12px] font-medium leading-none text-[#36d399]">
+                        Most Popular
+                      </span>
+                    )}
+
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[#303035] bg-[#242427] text-[#f5f5f5]">
+                        <ProductIcon className="h-4 w-4" />
+                      </span>
+                      <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{product.name}</h3>
+                      {ownedCount > 0 && (
+                        <span className="ml-auto shrink-0 rounded-full border border-[#36c99b]/30 bg-[#36c99b]/10 px-2 py-0.5 text-[11px] font-medium text-[#36d399]">
                           You own {ownedCount}
                         </span>
-                      ) : product.highlighted ? (
-                        <span className="shrink-0 rounded-full bg-primary/10 px-2 py-1 text-[11px] font-semibold text-primary">
-                          Popular
-                        </span>
-                      ) : null}
+                      )}
                     </div>
 
-                    <div className="mt-4 space-y-2 text-sm text-text-secondary">
-                      <p className="flex items-center gap-2">
-                        <Check className="h-4 w-4 shrink-0 text-primary" />
-                        {formatTokens(product.limits.tpd)} tokens/day
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Check className="h-4 w-4 shrink-0 text-primary" />
-                        Up to {formatTokens(product.limits.burstTpm)} TPM
-                      </p>
-                      <p className="flex items-center gap-2">
-                        <Check className="h-4 w-4 shrink-0 text-primary" />
-                        {formatTokens(product.limits.rpm)} RPM
-                      </p>
+                    <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-[#7d7d82]">
+                      {describeUpgradeProduct(product)}
+                    </p>
+
+                    <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
+                      <span className="text-[28px] font-bold leading-none text-[#f7f7f7]">${product.price}</span>
+                      <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-[#f6f6f6]">
+                        USD/month per agent
+                      </span>
                     </div>
 
                     <button
                       type="button"
                       onClick={() => onSelectPlan(product)}
-                      className="mt-auto flex h-9 w-full items-center justify-center rounded-lg bg-primary px-3 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover"
+                      className={`mt-3 flex h-8 w-full items-center justify-center rounded-[8px] px-3 text-[13px] font-medium leading-tight transition-colors ${
+                        product.highlighted
+                          ? "bg-[#36c99b] text-[#06251c] hover:bg-[#43dbad]"
+                          : "border border-[#444448] bg-[#202020] text-[#f5f5f5] hover:bg-[#262626]"
+                      }`}
                     >
-                      {ownedCount > 0 ? "Add Another" : "Select plan"}
+                      {ownedCount > 0 ? "Add another" : product.highlighted ? `Upgrade to ${product.name}` : "Select plan"}
                     </button>
+
+                    <div className="mt-5 space-y-2.5">
+                      {featureRows.map((feature, featureIndex) => (
+                        <div key={`${product.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-[#f2f2f2]">
+                          <Check className="mt-px h-4 w-4 shrink-0 text-[#77777b]" />
+                          <span>{feature}</span>
+                        </div>
+                      ))}
+                    </div>
                   </div>
                 );
               })}

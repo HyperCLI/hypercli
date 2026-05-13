@@ -11,6 +11,7 @@ import type {
 import { Check } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
+import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { ActivateCodeModal } from "@/components/ActivateCodeModal";
 import { formatTokens } from "@/lib/format";
@@ -136,7 +137,7 @@ function finiteNumber(value: unknown, fallback = 0): number {
 
 function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] {
   return catalogPlans
-    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .filter(isVisibleCurrentAgentPlan)
     .map((plan) => {
       const catalogPlan = plan as CatalogPlan;
       const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;

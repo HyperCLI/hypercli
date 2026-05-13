@@ -17,6 +17,13 @@ import {
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
+import {
+  hasPlanWord,
+  isFiveAiuPlan,
+  isLegacyAgentPlan,
+  isLegacyAgentPlanLabel,
+  isVisibleCurrentAgentPlan,
+} from "@/lib/agent-plan-catalog";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
 
@@ -63,7 +70,7 @@ const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
   },
   plan: {
     title: "Choose your plan",
-    subtitle: "Launch with an available entitlement slot, or choose a plan from the current catalog.",
+    subtitle: "From a single text agent to a full AI workforce.",
   },
 };
 
@@ -122,6 +129,7 @@ type CatalogPlan = HyperAgentPlan & {
   meta?: {
     bundle?: Record<string, number> | null;
     checkout_bundle?: Record<string, number> | null;
+    hidden?: boolean | null;
     subtitle?: string | null;
   } | null;
   price_usd?: number;
@@ -248,26 +256,6 @@ function catalogPrice(plan: HyperAgentPlan | null | undefined): number | null {
   return Number.isFinite(price) ? price : null;
 }
 
-function normalizedPlanWords(value: string | null | undefined): string[] {
-  return String(value ?? "")
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter(Boolean);
-}
-
-function hasPlanWord(value: string | null | undefined, word: string): boolean {
-  return normalizedPlanWords(value).includes(word);
-}
-
-function labelMatchesFiveAiu(value: string | null | undefined): boolean {
-  const words = normalizedPlanWords(value);
-  return words.includes("5aiu") || words.some((word, index) => word === "5" && words[index + 1] === "aiu");
-}
-
-function isFiveAiuPlan(plan: HyperAgentPlan): boolean {
-  return finiteNumber(plan.aiu) === 5 || labelMatchesFiveAiu(plan.id) || labelMatchesFiveAiu(plan.name);
-}
-
 function isProPlan(plan: HyperAgentPlan): boolean {
   return hasPlanWord(plan.id, "pro") || hasPlanWord(plan.name, "pro");
 }
@@ -284,16 +272,20 @@ function selectProPlan(plans: HyperAgentPlan[]): HyperAgentPlan | null {
 }
 
 function buildChoosePlanCatalog(catalogPlans: HyperAgentPlan[] | null | undefined): ChoosePlanCatalog {
-  const visiblePlans = (catalogPlans ?? []).filter((plan) => !(plan as CatalogPlan).hidden);
-  const proPlan = selectProPlan(visiblePlans);
+  const catalogVisiblePlans = (catalogPlans ?? []).filter((plan) => {
+    const catalogPlan = plan as CatalogPlan;
+    return !catalogPlan.hidden && !catalogPlan.meta?.hidden;
+  });
+  const currentPlans = catalogVisiblePlans.filter(isVisibleCurrentAgentPlan);
+  const proPlan = selectProPlan(currentPlans);
   const displayPlans = proPlan
-    ? visiblePlans.filter((plan) => plan.id === proPlan.id || !isFiveAiuPlan(plan))
-    : visiblePlans;
+    ? currentPlans.filter((plan) => plan.id === proPlan.id || !isFiveAiuPlan(plan))
+    : currentPlans;
   const catalogById = new Map<string, HyperAgentPlan>();
   const sourceCatalogById = new Map<string, HyperAgentPlan>();
 
-  for (const plan of visiblePlans) {
-    const displayPlan = proPlan && plan.id !== proPlan.id && isFiveAiuPlan(plan) ? proPlan : plan;
+  for (const plan of catalogVisiblePlans) {
+    const displayPlan = proPlan && plan.id !== proPlan.id && isLegacyAgentPlan(plan) ? proPlan : plan;
     catalogById.set(plan.id, displayPlan);
     sourceCatalogById.set(plan.id, plan);
   }
@@ -374,10 +366,10 @@ function buildLaunchPlanOptions(
       sourceCatalogPlan &&
       catalogPlan.id !== sourceCatalogPlan.id &&
       isProPlan(catalogPlan) &&
-      isFiveAiuPlan(sourceCatalogPlan),
+      isLegacyAgentPlan(sourceCatalogPlan),
     );
-    const subscriptionNameIsFiveAiu = labelMatchesFiveAiu(subscription.planName);
-    const planName = (mergedIntoPro || (catalogPlan && isProPlan(catalogPlan) && subscriptionNameIsFiveAiu))
+    const subscriptionNameIsLegacy = isLegacyAgentPlanLabel(subscription.planName);
+    const planName = (mergedIntoPro || (catalogPlan && isProPlan(catalogPlan) && subscriptionNameIsLegacy))
       ? catalogPlan?.name ?? subscription.planName ?? "Pro"
       : subscription.planName || catalogPlan?.name || subscription.planId || "Current plan";
     const normalizedPlanName = planName.trim().toLowerCase();
@@ -484,7 +476,7 @@ function buildLaunchPlanOptions(
       icon: iconForTier(tier),
       description: catalogDescription(plan),
       price: priceLabel(plan),
-      priceNote: "USD/month",
+      priceNote: "USD/month per agent",
       statusText: waitingForEntitlement ? "Payment active, waiting for entitlement" : slotBeingReleased ? "Slot being released" : undefined,
       cta: canLaunch ? "Launch agent" : waitingForEntitlement ? "Open plans" : slotBeingReleased ? "Refreshing slots" : "View plan",
       accent: Boolean(plan.highlighted),
@@ -856,11 +848,13 @@ export function FirstAgentSetupWizard({
                   {createError}
                 </div>
               )}
-              <div className="grid min-h-0 gap-3 lg:grid-cols-3">
+              <div className="grid min-h-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
               {planOptions.map((plan) => {
                 const Icon = plan.icon;
                 const isProvisioning = plan.statusText === "Payment active, waiting for entitlement";
                 const isReleasing = plan.statusText === "Slot being released";
+                const statusFeature = isProvisioning || isReleasing ? null : plan.slotStatus;
+                const featureRows = uniqueFeatureList([statusFeature, ...plan.features].filter((feature): feature is string => Boolean(feature))).slice(0, 7);
                 return (
                   <div
                     key={plan.id}
@@ -874,51 +868,41 @@ export function FirstAgentSetupWizard({
                     role="button"
                     tabIndex={0}
                     className={cx(
-                      "flex min-h-0 flex-col rounded-[12px] border border-[#333335] bg-[#171717] p-4 text-left transition-colors hover:border-[#4d4d50] sm:p-5",
-                      selectedPlanId === plan.id && "border-[#47484b]",
+                      "relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]",
+                      selectedPlanId === plan.id && "border-[#56565a]",
+                      plan.disabled && "opacity-60",
                     )}
                   >
-                    <div className="flex items-center gap-3">
-                      <span className="flex h-10 w-10 items-center justify-center rounded-[12px] border border-[#3d3e42] bg-[#2b2c30] text-[#f5f5f5]">
-                        <Icon className="h-5 w-5" />
+                    {plan.accent && (
+                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#063f31] px-2.5 py-1 text-[12px] font-medium leading-none text-[#36d399]">
+                        Most Popular
                       </span>
-                      <h3 className="text-[20px] font-semibold leading-none text-[#f5f5f5] sm:text-[22px]">{plan.name}</h3>
+                    )}
+
+                    <div className="flex items-center gap-2.5">
+                      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[#303035] bg-[#242427] text-[#f5f5f5]">
+                        <Icon className="h-4 w-4" />
+                      </span>
+                      <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{plan.name}</h3>
                     </div>
 
-                    <p className="mt-4 min-h-[40px] max-w-[260px] text-[13px] leading-[1.35] text-[#858585] sm:text-[14px]">{plan.description}</p>
+                    <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-[#7d7d82]">{plan.description}</p>
 
-                    <div className="mt-3 flex min-h-[40px] items-center gap-2.5">
+                    <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
                       {plan.oldPrice && (
-                        <span className="text-[24px] font-bold leading-none text-[#777777] line-through decoration-[2px] sm:text-[28px]">{plan.oldPrice}</span>
+                        <span className="text-[24px] font-bold leading-none text-[#777777] line-through decoration-[2px]">{plan.oldPrice}</span>
                       )}
                       {plan.price ? (
                         <>
-                          <span className="text-[28px] font-bold leading-none text-[#f7f7f7] sm:text-[34px]">{plan.price}</span>
-                          <span className="max-w-[96px] text-[11px] font-semibold leading-[1.08] text-[#f6f6f6] sm:text-[12px]">{plan.priceNote}</span>
+                          <span className="text-[28px] font-bold leading-none text-[#f7f7f7]">{plan.price}</span>
+                          <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-[#f6f6f6]">{plan.priceNote}</span>
                         </>
                       ) : (
-                        <span className="text-[18px] font-semibold leading-none text-[#baf5de] sm:text-[20px]">{plan.statusText ?? "Already active"}</span>
+                        <span className="text-[18px] font-semibold leading-none text-[#f7f7f7]">{plan.statusText ?? "Already active"}</span>
                       )}
                     </div>
                     {plan.price && plan.statusText && (
                       <p className="mt-2 text-[12px] font-medium text-amber-100">{plan.statusText}</p>
-                    )}
-                    {isProvisioning || isReleasing ? (
-                      <SlotProvisioningStatus
-                        status={plan.slotStatus}
-                        detail={isReleasing ? "Refreshing slot availability" : undefined}
-                      />
-                    ) : (
-                      <p
-                        className={cx(
-                          "mt-2 rounded-[10px] border px-3 py-2 text-[12px] font-medium leading-tight",
-                          plan.action === "launch"
-                            ? "border-[#3ed0a0]/25 bg-[#3ed0a0]/10 text-[#baf5de]"
-                            : "border-amber-400/20 bg-amber-400/10 text-amber-100",
-                        )}
-                      >
-                        {plan.slotStatus}
-                      </p>
                     )}
 
                     <button
@@ -930,19 +914,26 @@ export function FirstAgentSetupWizard({
                       }}
                       disabled={creating || plan.disabled}
                       className={cx(
-                        "mt-4 h-10 rounded-[12px] text-[14px] font-medium leading-tight transition-colors disabled:cursor-wait disabled:opacity-70 sm:h-11 sm:text-[15px]",
+                        "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors disabled:cursor-wait disabled:opacity-70",
                         plan.accent
-                          ? "bg-[#3ed0a0] text-[#06251c] hover:bg-[#47deae]"
+                          ? "bg-[#36c99b] text-[#06251c] hover:bg-[#43dbad]"
                           : "border border-[#444448] bg-[#202020] text-[#f5f5f5] hover:bg-[#262626]",
                       )}
                     >
                       {creating && selectedPlanId === plan.id ? "Creating..." : plan.cta}
                     </button>
 
+                    {isProvisioning || isReleasing ? (
+                      <SlotProvisioningStatus
+                        status={plan.slotStatus}
+                        detail={isReleasing ? "Refreshing slot availability" : undefined}
+                      />
+                    ) : null}
+
                     <div className="mt-5 space-y-2.5">
-                      {plan.features.map((feature, featureIndex) => (
-                        <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-center gap-2.5 text-[13px] leading-tight text-[#f2f2f2] sm:text-[14px]">
-                          <Check className="h-4 w-4 flex-shrink-0 text-[#7d7d7d]" />
+                      {featureRows.map((feature, featureIndex) => (
+                        <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-[#f2f2f2]">
+                          <Check className="mt-px h-4 w-4 flex-shrink-0 text-[#77777b]" />
                           <span>{feature}</span>
                         </div>
                       ))}

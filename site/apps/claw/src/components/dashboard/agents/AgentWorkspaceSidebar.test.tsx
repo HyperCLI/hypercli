@@ -138,6 +138,8 @@ describe("AgentWorkspaceSidebar", () => {
       planName: "Plus",
       catalogPlans: [
         { id: "plus", name: "Plus", price: 20, priceUsd: 20, limits: { tpd: 50_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
+        { id: "pro", name: "Pro", price: 79, priceUsd: 79, limits: { tpd: 250_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
+        { id: "5-aiu", name: "5 AIU", price: 99, priceUsd: 99, limits: { tpd: 250_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
         { id: "teams", name: "Teams", price: 100, priceUsd: 100, limits: { tpd: 500_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
         { id: "enterprise", name: "Enterprise", price: 250, priceUsd: 250, limits: { tpd: 1_000_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
       ] as any,
@@ -150,6 +152,14 @@ describe("AgentWorkspaceSidebar", () => {
             quantity: 1,
             slotGrants: { medium: 1 },
             planTpd: 50_000_000,
+          },
+          {
+            id: "sub-5-aiu",
+            planId: "5-aiu",
+            planName: "5 AIU",
+            quantity: 1,
+            slotGrants: { large: 1 },
+            planTpd: 250_000_000,
           },
           {
             id: "sub-teams",
@@ -184,6 +194,8 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getAllByText("Teams plan").length).toBeGreaterThan(0);
     expect(screen.getByText("Purchased plans")).toBeInTheDocument();
     expect(screen.getAllByText("Plus plan").length).toBeGreaterThan(0);
+    expect(screen.getAllByText("Pro plan").length).toBeGreaterThan(0);
+    expect(screen.queryByText("5 AIU plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Enterprise plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Empty plan")).not.toBeInTheDocument();
   });
