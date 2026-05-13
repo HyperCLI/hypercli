@@ -1,4 +1,4 @@
-import { fireEvent, screen } from "@testing-library/react";
+import { fireEvent, screen, waitFor } from "@testing-library/react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => {
     plans: vi.fn(),
     currentPlan: vi.fn(),
     subscriptionSummary: vi.fn(),
+    cancelSubscription: vi.fn(),
     updateSubscription: vi.fn(),
     redeemGrantCode: vi.fn(),
   };
@@ -83,6 +84,7 @@ describe("PlansPage", () => {
       slotInventory: {},
     });
     mocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSummary());
+    mocks.hyperAgent.cancelSubscription.mockResolvedValue({ ok: true, message: "Cancellation scheduled" });
   });
 
   it("renders purchase cards from the SDK plan catalog", async () => {
@@ -151,5 +153,145 @@ describe("PlansPage", () => {
 
     fireEvent.click(screen.getByRole("button", { name: /purchase/i }));
     expect(screen.getByRole("dialog")).toHaveTextContent('Checkout catalog-medium with bundle {"medium":1}');
+  });
+
+  it("shows waiting entitlement state when a paid plan has not exposed launch slots yet", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([
+      {
+        id: "catalog-pro",
+        name: "Catalog Pro",
+        price: 20,
+        priceUsd: 20,
+        aiu: 5,
+        agents: 1,
+        features: [],
+        models: [],
+        highlighted: false,
+        limits: {
+          tpd: 50_000_000,
+          tpm: 0,
+          burstTpm: 100_000,
+          rpm: 300,
+        },
+        tpmLimit: 0,
+        rpmLimit: 300,
+        bundle: { medium: 1 },
+      },
+    ]);
+    mocks.hyperAgent.subscriptionSummary.mockResolvedValue(
+      buildSummary({
+        effectivePlanId: "catalog-pro",
+        activeEntitlementCount: 1,
+        entitlements: {
+          effectivePlanId: "catalog-pro",
+          pooledTpmLimit: 0,
+          pooledRpmLimit: 300,
+          pooledTpd: 50_000_000,
+          slotInventory: {},
+          activeEntitlementCount: 1,
+          billingResetAt: null,
+        },
+      }),
+    );
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByRole("heading", { name: "Catalog Pro" })).toBeVisible();
+    expect(screen.getByText("Payment active, waiting for entitlement")).toBeVisible();
+    expect(screen.getByText("Current anchor: Catalog Pro")).toBeVisible();
+    expect(screen.getByRole("button", { name: /refresh billing/i })).toBeVisible();
+  });
+
+  it("reflects an owned launchable plan once SDK slot inventory is available", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([
+      {
+        id: "catalog-pro",
+        name: "Catalog Pro",
+        price: 20,
+        priceUsd: 20,
+        aiu: 5,
+        agents: 1,
+        features: [],
+        models: [],
+        highlighted: false,
+        limits: {
+          tpd: 50_000_000,
+          tpm: 0,
+          burstTpm: 100_000,
+          rpm: 300,
+        },
+        tpmLimit: 0,
+        rpmLimit: 300,
+        bundle: { medium: 1 },
+      },
+    ]);
+    mocks.hyperAgent.subscriptionSummary.mockResolvedValue(
+      buildSummary({
+        effectivePlanId: "catalog-pro",
+        activeEntitlementCount: 1,
+        slotInventory: {
+          medium: { granted: 1, used: 0, available: 1 },
+        },
+        entitlements: {
+          effectivePlanId: "catalog-pro",
+          pooledTpmLimit: 0,
+          pooledRpmLimit: 300,
+          pooledTpd: 50_000_000,
+          slotInventory: {
+            medium: { granted: 1, used: 0, available: 1 },
+          },
+          activeEntitlementCount: 1,
+          billingResetAt: null,
+        },
+      }),
+    );
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByRole("heading", { name: "Catalog Pro" })).toBeVisible();
+    expect(screen.getByText("You own 1")).toBeVisible();
+    expect(screen.getByRole("button", { name: /add another/i })).toBeVisible();
+  });
+
+  it("uses the SDK cancelSubscription method for recurring subscription cancellation", async () => {
+    const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
+    mocks.hyperAgent.plans.mockResolvedValue([]);
+    mocks.hyperAgent.subscriptionSummary.mockResolvedValue(
+      buildSummary({
+        activeSubscriptionCount: 1,
+        activeEntitlementCount: 1,
+        subscriptions: [
+          {
+            id: "sub-cancel",
+            userId: "user-1",
+            planId: "catalog-pro",
+            planName: "Catalog Pro",
+            provider: "stripe",
+            status: "active",
+            quantity: 1,
+            expiresAt: new Date("2026-06-01T00:00:00.000Z"),
+            updatedAt: null,
+            stripeSubscriptionId: "stripe-sub",
+            cancelAtPeriodEnd: false,
+            canCancel: true,
+            isCurrent: true,
+            meta: null,
+            planTpmLimit: 0,
+            planRpmLimit: 300,
+            planTpd: 50_000_000,
+            planAgentTier: "medium",
+            slotGrants: { medium: 1 },
+          },
+        ],
+      }),
+    );
+
+    renderWithClient(<PlansPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /cancel at period end/i }));
+
+    await waitFor(() => expect(mocks.hyperAgent.cancelSubscription).toHaveBeenCalledWith("sub-cancel"));
+    expect(mocks.hyperAgent.updateSubscription).not.toHaveBeenCalled();
+    confirmSpy.mockRestore();
   });
 });

@@ -286,10 +286,10 @@ Export new components from `src/index.ts`.
 |-----|----------|-----|-------------|----------|
 | prod | `hypercli.com` | `api.hypercli.com` | `main` branch | `env.prod` |
 | feat | `feat.hypercli.com` | `api.dev.hypercli.com` | `feat-claw` branch | `env.feat` |
-| dev | `dev.hypercli.com` | `api.dev.hypercli.com` | (manual) | `env.dev` |
+| dev | `dev-hypercli-site.netlify.app` | `api.dev.hypercli.com` | GitHub CI | `env.dev` |
 | local | `localhost:4003` | `localhost:8000` | — | `env.sample` |
 
-Netlify builds via `@netlify/plugin-nextjs`. Build commands set per Netlify site (e.g., `cp env.feat apps/claw/.env.local && npm run build -- --filter=@hypercli/claw`).
+GitHub CI builds the site apps in the Node container and publishes static artifacts with `netlify deploy --no-build`. Netlify projects are deploy-only; do not configure repo builds or framework plugins in Netlify.
 
 **Required env vars** (validated at build time in `apps/claw/next.config.ts`):
 `NEXT_PUBLIC_MAIN_SITE_URL`, `NEXT_PUBLIC_CONSOLE_URL`, `NEXT_PUBLIC_AGENTS_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`

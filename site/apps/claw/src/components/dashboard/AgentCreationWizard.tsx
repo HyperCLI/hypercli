@@ -183,6 +183,8 @@ export function AgentCreationWizard({
   const slotInventory = budget?.slots ?? {};
   const selectedAvailability = slotInventory[selectedType.id]?.available ?? 0;
   const totalAvailableSlots = Object.values(slotInventory).reduce((sum, entry) => sum + Math.max(0, entry.available), 0);
+  const launchEntitlementsLoaded = Boolean(budget);
+  const selectedTypeCanLaunch = selectedAvailability > 0;
   const activeSubscriptions = subscriptionSummary?.activeSubscriptions ?? [];
   const launchSources: LaunchSourceOption[] = activeSubscriptions.map((subscription) => {
     const slotGrants = subscription.slotGrants ?? {};
@@ -360,6 +362,11 @@ export function AgentCreationWizard({
   // ── Create agent ──
 
   const handleCreate = async () => {
+    if (!selectedTypeCanLaunch) {
+      setError("No launch entitlement slot is available for this agent size yet. Refresh billing before creating an agent.");
+      return;
+    }
+
     setCreating(true);
     setError(null);
     try {
@@ -387,7 +394,7 @@ export function AgentCreationWizard({
 
   // ── Validation ──
 
-  const canProceed = step === 1 ? !budget || selectedAvailability > 0 : true;
+  const canProceed = step === 1 ? selectedTypeCanLaunch : true;
 
   if (!open) return null;
 
@@ -678,6 +685,14 @@ export function AgentCreationWizard({
           </button>
         </div>
       )}
+
+      {!launchEntitlementsLoaded && (
+        <div className="border border-amber-400/20 rounded-xl p-3 bg-amber-400/10">
+          <p className="text-sm text-amber-100">
+            Waiting for SDK billing entitlements before agents can be created.
+          </p>
+        </div>
+      )}
     </div>
   );
 
@@ -836,7 +851,7 @@ export function AgentCreationWizard({
             ) : (
               <button
                 onClick={handleCreate}
-                disabled={creating}
+                disabled={creating || !selectedTypeCanLaunch}
                 className="btn-primary px-6 py-2 rounded-xl text-sm font-medium flex items-center gap-2 disabled:opacity-50"
               >
                 {creating ? (

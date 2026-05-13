@@ -104,6 +104,16 @@ describe("AgentMainPanel", () => {
     expect(onCreate).toHaveBeenCalledTimes(1);
   });
 
+  it("does not show the first-agent empty state while another agent is available", () => {
+    renderAgentMainPanel({
+      selectedAgent: null,
+      hasAgents: true,
+    });
+
+    expect(screen.getByText("Selecting agent")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /first agent empty state/i })).not.toBeInTheDocument();
+  });
+
   it("shows the first-agent empty state when files is selected before an agent exists", () => {
     renderAgentMainPanel({
       selectedAgent: null,

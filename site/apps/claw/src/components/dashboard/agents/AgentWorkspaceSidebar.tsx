@@ -19,9 +19,11 @@ import {
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
+import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { AgentPlanSummary } from "./AgentPlanSummary";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -30,6 +32,8 @@ interface AgentWorkspaceSidebarProps {
   activeTab: AgentMainTab;
   skillsActive?: boolean;
   planName?: string | null;
+  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
+  catalogPlans?: HyperAgentPlan[] | null;
   tokenUsed?: number | null;
   tokenLimit?: number | null;
   disabled?: boolean;
@@ -58,18 +62,6 @@ type WorkspaceItem = {
   disabledReason?: string;
   onClick: () => void;
 };
-
-function inferPlanLabel(tokenTotal: number | null): string {
-  if (!tokenTotal) return "Current";
-  if (tokenTotal >= 500_000_000) return "Team";
-  if (tokenTotal >= 250_000_000) return "Pro";
-  if (tokenTotal >= 50_000_000) return "Starter";
-  return "Free";
-}
-
-function formatPlanLabel(label: string): string {
-  return /\bplan\b/i.test(label) ? label : `${label} plan`;
-}
 
 function WorkspaceButton({ item, collapsed }: { item: WorkspaceItem; collapsed?: boolean }) {
   const Icon = item.icon;
@@ -123,6 +115,8 @@ export function AgentWorkspaceSidebar({
   activeTab,
   skillsActive = false,
   planName,
+  subscriptionSummary,
+  catalogPlans,
   tokenUsed,
   tokenLimit,
   disabled = false,
@@ -154,8 +148,6 @@ export function AgentWorkspaceSidebar({
   const tokensUsed = typeof tokenUsed === "number" && Number.isFinite(tokenUsed) ? Math.max(0, tokenUsed) : null;
   const tokenTotal = tokenLimit && tokenLimit > 0 ? tokenLimit : null;
   const tokenProgress = tokenTotal && tokensUsed != null ? Math.min(100, Math.round((tokensUsed / tokenTotal) * 100)) : 0;
-  const planLabel = planName?.trim() || inferPlanLabel(tokenTotal);
-  const planDisplay = formatPlanLabel(planLabel);
   const tokenUsageLabel = tokenTotal
     ? `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
     : `${tokensUsed == null ? "0" : formatTokens(tokensUsed)} / --`;
@@ -223,7 +215,7 @@ export function AgentWorkspaceSidebar({
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={`flex ${
         isCollapsed ? "w-12" : "w-52"
-      } relative h-full shrink-0 flex-col border-r border-border bg-background transition-[width] duration-200 ease-out`}
+      } relative h-full shrink-0 flex-col border-r border-border bg-[#232323] transition-[width] duration-200 ease-out`}
     >
       <div
         className={`flex h-14 shrink-0 items-center border-b border-border ${
@@ -319,8 +311,14 @@ export function AgentWorkspaceSidebar({
 
       <div className={isCollapsed ? "p-1.5" : "p-3"}>
         {isCollapsed ? (
-          <Tooltip delayDuration={300}>
-            <TooltipTrigger asChild>
+          <AgentPlanSummary
+            planName={planName}
+            subscriptionSummary={subscriptionSummary}
+            catalogPlans={catalogPlans}
+            tokenLimit={tokenTotal}
+            tokenUsageLabel={tokenUsageLabel}
+            tooltipSide="right"
+            trigger={
               <button
                 type="button"
                 onClick={onUpgrade}
@@ -329,20 +327,23 @@ export function AgentWorkspaceSidebar({
               >
                 <Sparkles className="h-4 w-4" />
               </button>
-            </TooltipTrigger>
-            <TooltipContent side="right">
-              {planDisplay} · {tokenUsageLabel}
-            </TooltipContent>
-          </Tooltip>
+            }
+          />
         ) : (
           <div className="space-y-2">
-            <p className="text-sm font-semibold text-foreground">{planDisplay}</p>
+            <AgentPlanSummary
+              planName={planName}
+              subscriptionSummary={subscriptionSummary}
+              catalogPlans={catalogPlans}
+              tokenLimit={tokenTotal}
+              tokenUsageLabel={tokenUsageLabel}
+            />
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-text-muted">Tokens today</span>
               <span className="font-medium text-foreground">{tokenUsageLabel}</span>
             </div>
             <div className="h-1 rounded-full bg-surface-low">
-              <div className="h-full rounded-full bg-primary" style={{ width: `${tokenProgress}%` }} />
+              <div className="h-full rounded-full bg-foreground/45" style={{ width: `${tokenProgress}%` }} />
             </div>
             <button
               type="button"

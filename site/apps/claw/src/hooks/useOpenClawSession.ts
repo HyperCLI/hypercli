@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { GatewayClient, GatewayCloseInfo, GatewayConnectionState, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
@@ -13,6 +13,7 @@ import {
   type ActivityEntry,
   type ActivityKind,
   appendActivityEntry,
+  handleOpenClawChatStreamEvent,
   handleOpenClawSessionEvent,
   hydrateOpenClawSession,
 } from "@/lib/openclaw-session";
@@ -40,6 +41,7 @@ export function useOpenClawSession(
   const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>([]);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
+  const activeChatSendRef = useRef(false);
 
   useEffect(() => {
     let active = true;
@@ -125,6 +127,7 @@ export function useOpenClawSession(
         setSending,
         setSessions,
         appendActivity,
+        suppressChatStreamEvents: activeChatSendRef.current,
       });
     });
     return unsubscribe;
@@ -140,7 +143,9 @@ export function useOpenClawSession(
         if (cancelled) return;
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
-        setMessages(hydrated.messages);
+        if (!activeChatSendRef.current) {
+          setMessages(hydrated.messages);
+        }
         setFiles(hydrated.files);
         setGwAgentId(hydrated.gwAgentId);
         setSessions(hydrated.sessions);
@@ -153,10 +158,11 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status]);
+  }, [gateway, status, agent?.id]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
+    activeChatSendRef.current = false;
     setHydrating(false);
     setMessages([]);
     setFiles([]);
@@ -246,18 +252,37 @@ export function useOpenClawSession(
     const preview = msg.slice(0, 80);
     appendActivity({ type: "message", action: "User message sent", detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : "") });
 
+    let handledByChatSend = false;
     try {
-      await gateway.sendChat(
-        agentMessage || "What's in this image?",
-        resolveOpenClawSessionKey(agent?.id),
-        undefined,
-        attachments.length > 0 ? attachments : undefined,
-      );
+      const sessionKey = resolveOpenClawSessionKey(agent?.id);
+      const messageToSend = agentMessage || "What's in this image?";
+      const attachmentsToSend = attachments.length > 0 ? attachments : undefined;
+      if (typeof gateway.chatSend === "function") {
+        handledByChatSend = true;
+        activeChatSendRef.current = true;
+        for await (const chatEvent of gateway.chatSend(messageToSend, sessionKey, attachmentsToSend)) {
+          handleOpenClawChatStreamEvent({
+            gateway,
+            chatEvent,
+            setMessages,
+            setSending,
+            setSessions,
+            appendActivity,
+          });
+        }
+      } else {
+        await gateway.sendChat(messageToSend, sessionKey, undefined, attachmentsToSend);
+      }
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : String(e);
       setMessages((prev) => [...prev, { role: "system", content: `Error: ${errMsg}`, timestamp: Date.now() }]);
       appendActivity({ type: "error", action: "Send failed", detail: errMsg });
       setSending(false);
+    } finally {
+      activeChatSendRef.current = false;
+      if (handledByChatSend) {
+        setSending(false);
+      }
     }
   }, [gateway, input, pendingAttachments, pendingFiles, sending, appendActivity, agent?.id]);
 

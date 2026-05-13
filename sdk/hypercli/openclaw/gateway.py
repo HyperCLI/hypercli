@@ -1403,6 +1403,20 @@ class GatewayClient:
         streamed_display_text = False
         seen_tool_call_ids: set[str] = set()
         seen_tool_result_ids: set[str] = set()
+
+        async def wait_for_history_text(timeout: float = 10.0) -> str:
+            history_deadline = asyncio.get_running_loop().time() + min(timeout, self.chat_timeout)
+            while True:
+                history_text = _latest_history_assistant_text(
+                    await self.chat_history(resolved_session_key, limit=20),
+                    accepted_run_ids,
+                )
+                if history_text:
+                    return history_text
+                if asyncio.get_running_loop().time() >= history_deadline:
+                    return ""
+                await asyncio.sleep(0.5)
+
         while asyncio.get_running_loop().time() < deadline:
             remaining = max(0.1, min(1.0, deadline - asyncio.get_running_loop().time()))
             try:
@@ -1463,6 +1477,39 @@ class GatewayClient:
                         },
                     )
                 continue
+            if event_name == "agent" and str(payload.get("stream") or "").lower() == "lifecycle":
+                lifecycle_payload = payload.get("data") or {}
+                if not isinstance(lifecycle_payload, dict):
+                    continue
+                phase = str(lifecycle_payload.get("phase") or "").lower()
+                if phase == "end":
+                    deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                    has_non_text_activity = bool(last_thinking_text or seen_tool_call_ids or seen_tool_result_ids)
+                    if has_non_text_activity:
+                        history_text = ""
+                    elif not streamed_display_text and not last_legacy_text:
+                        history_text = await wait_for_history_text()
+                    else:
+                        history_text = _latest_history_assistant_text(
+                            await self.chat_history(resolved_session_key, limit=20),
+                            accepted_run_ids,
+                        )
+                    if history_text:
+                        delta_text, last_legacy_text = _stream_delta(last_legacy_text, history_text)
+                        if delta_text:
+                            streamed_display_text = True
+                            yield ChatEvent(type="content", text=delta_text, data=payload)
+                    yield ChatEvent(type="done", data=payload)
+                    return
+                if phase == "error":
+                    deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                    error_message = (
+                        lifecycle_payload.get("error")
+                        or payload.get("errorMessage")
+                        or phase
+                    )
+                    yield ChatEvent(type="error", text=str(error_message), data=payload)
+                    return
             if event_name == "chat.thinking":
                 text = str(payload.get("text") or "")
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
@@ -1488,6 +1535,11 @@ class GatewayClient:
                 continue
             if event_name == "chat.done":
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
+                has_non_text_activity = bool(last_thinking_text or seen_tool_call_ids or seen_tool_result_ids)
+                if not streamed_display_text and not last_legacy_text and not has_non_text_activity:
+                    history_text = await wait_for_history_text()
+                    if history_text:
+                        yield ChatEvent(type="content", text=history_text, data=payload)
                 yield ChatEvent(type="done", data=payload)
                 return
             if event_name == "chat.error":
@@ -1556,10 +1608,7 @@ class GatewayClient:
                 if normalized_message and (normalized_message.thinking or normalized_message.tool_calls):
                     yield ChatEvent(type="done", data=payload)
                     return
-                history_text = _latest_history_assistant_text(
-                    await self.chat_history(resolved_session_key, limit=20),
-                    accepted_run_ids,
-                )
+                history_text = await wait_for_history_text()
                 if history_text:
                     yield ChatEvent(type="content", text=history_text, data=payload)
                 yield ChatEvent(type="done", data=payload)

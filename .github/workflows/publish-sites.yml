@@ -1,0 +1,147 @@
+name: Publish Sites
+run-name: Publish Sites
+
+on:
+  workflow_call:
+    inputs:
+      deploy_environment:
+        description: Netlify environment to publish after building all sites.
+        required: false
+        type: string
+        default: dev
+  workflow_dispatch:
+    inputs:
+      deploy_environment:
+        description: Netlify environment to publish after building all sites.
+        required: true
+        type: choice
+        options:
+          - dev
+          - prod
+        default: prod
+
+env:
+  GITHUB_RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+  NOTIFY_URL: ${{ vars.NOTIFY_URL }}
+  NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
+  NOTIFY_CATEGORY: ${{ vars.NOTIFY_CATEGORY }}
+
+jobs:
+  publish:
+    runs-on: self-hosted
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Build site image
+        id: build_site
+        run: |
+          set -euo pipefail
+          IMAGE_TAG="${GITHUB_SHA}" .github/scripts/build_site_image.sh
+
+      - name: Build and publish sites in container
+        id: site_build
+        env:
+          NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
+          NETLIFY_CLAW_DEV_SITE_ID: ${{ secrets.NETLIFY_CLAW_DEV_SITE_ID }}
+          NETLIFY_CLAW_PROD_SITE_ID: ${{ secrets.NETLIFY_CLAW_PROD_SITE_ID }}
+          NETLIFY_CONSOLE_DEV_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_DEV_SITE_ID }}
+          NETLIFY_CONSOLE_PROD_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_PROD_SITE_ID }}
+          NETLIFY_MAIN_DEV_SITE_ID: ${{ secrets.NETLIFY_MAIN_DEV_SITE_ID }}
+          NETLIFY_MAIN_PROD_SITE_ID: ${{ secrets.NETLIFY_MAIN_PROD_SITE_ID }}
+        run: |
+          set -euo pipefail
+
+          require_site_id() {
+            local value="$1"
+            local name="$2"
+            if [ -z "${value}" ]; then
+              echo "${name} is required for deploy_environment=${deploy_env}" >&2
+              exit 1
+            fi
+          }
+
+          deploy_env="${{ inputs.deploy_environment }}"
+          case "${deploy_env}" in
+            prod)
+              env_file="site/env.prod"
+              require_site_id "${NETLIFY_MAIN_PROD_SITE_ID:-}" "NETLIFY_MAIN_PROD_SITE_ID"
+              require_site_id "${NETLIFY_CONSOLE_PROD_SITE_ID:-}" "NETLIFY_CONSOLE_PROD_SITE_ID"
+              require_site_id "${NETLIFY_CLAW_PROD_SITE_ID:-}" "NETLIFY_CLAW_PROD_SITE_ID"
+              site_targets="$(printf '%s\n' \
+                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_PROD_SITE_ID}" \
+                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_PROD_SITE_ID}" \
+                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_PROD_SITE_ID}")"
+              ;;
+            dev)
+              env_file="site/env.dev"
+              require_site_id "${NETLIFY_MAIN_DEV_SITE_ID:-}" "NETLIFY_MAIN_DEV_SITE_ID"
+              require_site_id "${NETLIFY_CONSOLE_DEV_SITE_ID:-}" "NETLIFY_CONSOLE_DEV_SITE_ID"
+              require_site_id "${NETLIFY_CLAW_DEV_SITE_ID:-}" "NETLIFY_CLAW_DEV_SITE_ID"
+              site_targets="$(printf '%s\n' \
+                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_DEV_SITE_ID}" \
+                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_DEV_SITE_ID}" \
+                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_DEV_SITE_ID}")"
+              ;;
+            *)
+              echo "Unknown deploy_environment=${deploy_env}" >&2
+              exit 1
+              ;;
+          esac
+
+          if [ -z "${NETLIFY_AUTH_TOKEN:-}" ]; then
+            echo "NETLIFY_AUTH_TOKEN is required for Netlify deploy" >&2
+            exit 1
+          fi
+
+          SITE_IMAGE="${{ steps.build_site.outputs.site_image }}" \
+          SITE_ACTION=deploy \
+          SITE_ENV_FILE="${env_file}" \
+          SITE_TARGETS="${site_targets}" \
+          NETLIFY_PROD=true \
+          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA}" \
+            .github/scripts/run_site_image.sh
+
+      - name: Notify site build result
+        if: always()
+        continue-on-error: true
+        env:
+          IMAGE_STATUS: ${{ steps.build_site.outcome }}
+          BUILD_STATUS: ${{ steps.site_build.outcome }}
+        run: |
+          status="${BUILD_STATUS}"
+          if [ "${IMAGE_STATUS}" != "success" ]; then
+            status="${IMAGE_STATUS}"
+          fi
+          if [ "${BUILD_STATUS}" = "skipped" ] && [ "${IMAGE_STATUS}" = "success" ]; then
+            status="failure"
+          fi
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase build \
+            --status "${status}" \
+            --event "${{ github.event_name }}" \
+            --message "Site container build and publish ${{ inputs.deploy_environment }} ${status}" \
+            --workflow "publish-sites" \
+            --channel frontend \
+            --run-url "${GITHUB_RUN_URL}"
+
+      - name: Notify site publish result
+        if: always()
+        continue-on-error: true
+        env:
+          PUBLISH_STATUS: ${{ steps.site_build.outcome }}
+        run: |
+          python3 .github/scripts/ci_notify.py \
+            --category frontend \
+            --phase publish \
+            --status "${PUBLISH_STATUS}" \
+            --event "${{ github.event_name }}" \
+            --message "Site Netlify publish ${{ inputs.deploy_environment }} ${PUBLISH_STATUS}" \
+            --workflow "publish-sites" \
+            --channel frontend \
+            --run-url "${GITHUB_RUN_URL}"

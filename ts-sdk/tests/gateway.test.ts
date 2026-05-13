@@ -679,6 +679,54 @@ describe("GatewayClient", () => {
     expect(events[0]?.text).toBe("Recovered final answer");
   });
 
+  it("chatSend falls back to chat history when done has no streamed text", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "done-run-1" };
+      }
+      if (method === "chat.history") {
+        return {
+          messages: [
+            {
+              role: "assistant",
+              runId: "done-run-1",
+              content: [{ type: "text", text: "SMOKE_OK" }],
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Reply with exactly: SMOKE_OK", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: {
+        runId: "done-run-1",
+        sessionKey: "main",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+    expect(events[0]?.text).toBe("SMOKE_OK");
+  });
+
   it("chatSend forwards pre-normalized attachments in the chat.send request", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -865,6 +913,95 @@ describe("GatewayClient", () => {
       name: "exec",
       result: "a\nb",
     });
+  });
+
+  it("chatSend falls back to lifecycle end when chat final is missing", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "lifecycle-end-1" };
+      }
+      if (method === "chat.history") {
+        return {
+          messages: [
+            {
+              role: "assistant",
+              runId: "lifecycle-end-1",
+              content: [{ type: "text", text: "SMOKE_OK" }],
+            },
+          ],
+        };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Reply with exactly: SMOKE_OK", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "lifecycle-end-1",
+        sessionKey: "main",
+        stream: "lifecycle",
+        data: { phase: "end" },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "done"]);
+    expect(events[0]?.text).toBe("SMOKE_OK");
+  });
+
+  it("chatSend falls back to lifecycle error when chat error is missing", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "lifecycle-error-1" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("fail please", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "lifecycle-error-1",
+        sessionKey: "main",
+        stream: "lifecycle",
+        data: { phase: "error", error: "boom" },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["error"]);
+    expect(events[0]?.text).toBe("boom");
   });
 
   it("sends cron.run RPC with jobId", async () => {

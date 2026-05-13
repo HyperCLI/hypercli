@@ -221,6 +221,52 @@ describe('HyperAgent API', () => {
     }
   });
 
+  it('derives subscription slot grants from nested entitlement data', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+
+    globalThis.fetch = (async () => {
+      return new Response(
+        JSON.stringify({
+          effective_plan_id: 'pro',
+          slot_inventory: { large: { granted: 1, used: 0, available: 1 } },
+          active_subscription_count: 1,
+          active_entitlement_count: 1,
+          active_subscriptions: [
+            {
+              id: 'sub-1',
+              plan_id: 'pro',
+              plan_name: 'Pro',
+              status: 'ACTIVE',
+              entitlements: [
+                {
+                  id: 'ent-1',
+                  subscription_id: 'sub-1',
+                  plan_id: 'pro',
+                  status: 'ACTIVE',
+                  slot_grants: { large: 1 },
+                },
+              ],
+            },
+          ],
+          subscriptions: [],
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const summary = await agent.subscriptionSummary();
+      expect(summary.activeSubscriptions[0]?.slotGrants).toEqual({ large: 1 });
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
   it('uses the API entitlements endpoint on the primary API host', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');

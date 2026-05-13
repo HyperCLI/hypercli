@@ -56,7 +56,7 @@ import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/componen
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
 import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "@/app/dashboard/agents/types";
 import {
   describeAgentTierStartGuidance,
@@ -80,6 +80,7 @@ import {
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
+import { getEffectivePlanName } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
@@ -93,6 +94,29 @@ import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
+
+function buildBillingBudget(
+  summary: HyperAgentSubscriptionSummary | null,
+  currentPlan: HyperAgentCurrentPlan | null,
+  typeCatalog: HyperAgentTypeCatalog | null,
+): AgentBudget | null {
+  if (!summary && !currentPlan) return null;
+
+  const slots = summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {};
+  const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
+  const sizePresets = Object.fromEntries(
+    (typeCatalog?.types ?? []).map((type) => [type.id, { cpu: type.cpu, memory: type.memory }]),
+  );
+
+  const merged: AgentBudget = {
+    slots,
+    pooled_tpd: pooledTpd,
+  };
+  if (Object.keys(sizePresets).length > 0) {
+    merged.size_presets = sizePresets;
+  }
+  return merged;
+}
 
 function normalizeAgentFilePath(path: string): string {
   return path.replace(/^\/+/, "").replace(/\/+$/, "");
@@ -226,7 +250,7 @@ function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
 function removeSdkAgent(prev: SdkAgent[], agentId: string): SdkAgent[] {
   return prev.filter((agent) => agent.id !== agentId);
 }
-// Shell now routes through backend WebSocket via lagoon → K8s exec
+// Shell now routes through the gateway WebSocket via lagoon -> K8s exec.
 
 // ── Main component ──
 
@@ -360,20 +384,24 @@ export default function DevAgentSetupAgentsPage() {
         setDeployments(agentClient);
       }
       const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, budgetData, catalogData, currentPlan, summaryData, usageSummary] = await Promise.all([
+      const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
         agentClient.list(),
-        agentClient.budget().catch(() => null),
         hyperAgent.plans().catch(() => []),
         hyperAgent.currentPlan().catch(() => null),
         hyperAgent.subscriptionSummary().catch(() => null),
-        hyperAgent.usageSummary().catch(() => null),
+        hyperAgent.usageHistory(1).catch(() => null),
+        hyperAgent.agentTypes().catch(() => null),
       ]);
+      const plans = Array.isArray(catalogData) ? catalogData : [];
+      const normalizedCurrentPlan = currentPlan as HyperAgentCurrentPlan | null;
+      const summary = (summaryData as HyperAgentSubscriptionSummary | null) || null;
+      const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
       setSdkAgents(listedAgents);
-      setBudget((budgetData as AgentBudget | null) || null);
-      setCatalogPlans(Array.isArray(catalogData) ? catalogData : []);
-      setPlanName(currentPlan?.name ?? currentPlan?.id ?? null);
-      setSubscriptionSummary((summaryData as HyperAgentSubscriptionSummary | null) || null);
-      setTokenUsage(usageSummary?.totalTokens ?? null);
+      setBudget(buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog));
+      setCatalogPlans(plans);
+      setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
+      setSubscriptionSummary(summary);
+      setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
       setAgentClusterUnavailable(false);
       const setupCreatedAgentId = window.sessionStorage.getItem("dev-agent-setup-created-agent-id");
       setSelectedAgentId((currentId) => {
@@ -1457,7 +1485,7 @@ export default function DevAgentSetupAgentsPage() {
       const token = await getToken();
       const stoppedAgent = await createAgentClient(token).stop(agentId);
       setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
-      // Cooldown: disable Start for 5s while backend cleans up
+      // Cooldown: disable Start for 5s while the runtime finishes cleanup.
       setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
       const existing = stoppedTimersRef.current.get(agentId);
       if (existing) clearTimeout(existing);

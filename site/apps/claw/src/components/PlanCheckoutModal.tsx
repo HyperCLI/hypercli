@@ -5,6 +5,7 @@ import { createPortal } from "react-dom";
 import { X, CreditCard, Coins, Wallet } from "lucide-react";
 import { createHyperAgentClient } from "@/lib/agent-client";
 import { formatTokens } from "@/lib/format";
+import { buildStripeCheckoutReturnUrl, writePendingPlanCheckout } from "@/lib/plan-checkout-state";
 import { createWalletClient, custom, type WalletClient } from "viem";
 import { base } from "viem/chains";
 
@@ -157,12 +158,18 @@ export function PlanCheckoutModal({
       const data = await hyperAgent.createStripeCheckout(
         {
           quantity: 1,
-          successUrl: `${window.location.origin}/plans?session_id={CHECKOUT_SESSION_ID}`,
-          cancelUrl: `${window.location.origin}/plans?cancelled=true`,
+          successUrl: buildStripeCheckoutReturnUrl("success"),
+          cancelUrl: buildStripeCheckoutReturnUrl("cancelled"),
           ...(planBundle ? { bundle: planBundle } : {}),
         },
         plan.id,
       );
+      writePendingPlanCheckout({
+        planId: plan.id,
+        planName: plan.name,
+        ownedCount,
+        startedAt: Date.now(),
+      });
       window.location.href = data.checkoutUrl;
     } catch (err) {
       setError(

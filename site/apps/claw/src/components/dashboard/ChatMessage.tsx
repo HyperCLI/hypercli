@@ -284,6 +284,28 @@ function AgentMessageAvatar({
   );
 }
 
+function StreamingStatusDot() {
+  return (
+    <motion.span
+      aria-label="streaming"
+      className="block h-[7px] w-[7px] rounded-full bg-[#38D39F]"
+      style={{ boxShadow: "0 0 6px rgba(56, 211, 159, 0.6)" }}
+      animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.6, 1, 0.6] }}
+      transition={{ repeat: Infinity, duration: 1.1, ease: "easeInOut" }}
+    />
+  );
+}
+
+function StreamingStatusAnchor({ active }: { active: boolean }) {
+  if (!active) return null;
+
+  return (
+    <div className="pointer-events-none absolute bottom-0 left-0 flex h-4 items-center pl-0.5">
+      <StreamingStatusDot />
+    </div>
+  );
+}
+
 // Returns framer-motion props for the bubble entrance animation.
 // Returns {} for "off" — motion.div with no animation props is a plain div.
 function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotionProps<"div"> {
@@ -670,6 +692,7 @@ export function ChatMessageBubble({
   const showV1Name = nameVariant === "v1";
   const showV2Name = nameVariant === "v2";
   const effectiveName = isUser ? (senderName ?? "You") : (agentName ?? "Agent");
+  const showStreamingDot = isStreaming && !isUser;
   const hasToolResults = message.toolCalls?.some((tc) => tc.result != null) ?? false;
   let contentIsJson = false;
   if (hasToolResults) {
@@ -843,25 +866,21 @@ export function ChatMessageBubble({
         )}
 
         {/* Content */}
-        {effectiveContent && (
-          <div
-            className="leading-relaxed prose-chat relative"
-            style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
-          >
-            {isStreaming && !isUser ? (
-              <TypewriterMarkdown text={effectiveContent} />
-            ) : (
-              <Markdown components={MARKDOWN_COMPONENTS}>{effectiveContent}</Markdown>
+        {(effectiveContent || showStreamingDot) && (
+          <div className={`relative w-full ${showStreamingDot ? "pb-5" : ""}`}>
+            {effectiveContent && (
+              <div
+                className="leading-relaxed prose-chat relative"
+                style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
+              >
+                {isStreaming && !isUser ? (
+                  <TypewriterMarkdown text={effectiveContent} />
+                ) : (
+                  <Markdown components={MARKDOWN_COMPONENTS}>{effectiveContent}</Markdown>
+                )}
+              </div>
             )}
-            {isStreaming && !isUser && (
-              <motion.span
-                aria-label="streaming"
-                className="inline-block w-[7px] h-[7px] align-middle ml-1 rounded-full bg-[#38D39F]"
-                style={{ boxShadow: "0 0 6px rgba(56, 211, 159, 0.6)" }}
-                animate={{ scale: [0.85, 1.15, 0.85], opacity: [0.6, 1, 0.6] }}
-                transition={{ repeat: Infinity, duration: 1.1, ease: "easeInOut" }}
-              />
-            )}
+            <StreamingStatusAnchor active={showStreamingDot} />
           </div>
         )}
 

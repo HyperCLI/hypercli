@@ -58,6 +58,7 @@ async def test_connection_state_transitions(monkeypatch: pytest.MonkeyPatch) -> 
     unsubscribe = client.on_connection_state(lambda state: seen.append(state))
 
     connect_task = asyncio.create_task(client.connect())
+    await asyncio.sleep(0)
     assert client.connection_state == "connecting"
 
     while not sockets:
@@ -367,6 +368,47 @@ async def test_chat_send_accepts_chat_content_and_done_events() -> None:
 
     assert [chunk.type for chunk in chunks] == ["content", "content", "done"]
     assert "".join(chunk.text or "" for chunk in chunks if chunk.type == "content") == "SMOKE_OK"
+
+
+@pytest.mark.asyncio
+async def test_chat_send_uses_history_fallback_when_done_has_no_content() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "done-run-1"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        if method == "chat.history":
+            return {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "SMOKE_OK"}],
+                        "runId": server_run_id,
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat.done",
+                "payload": {"runId": server_run_id, "sessionKey": "main"},
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Reply with exactly: SMOKE_OK")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["content", "done"]
+    assert chunks[0].text == "SMOKE_OK"
 
 
 @pytest.mark.asyncio
@@ -827,6 +869,88 @@ async def test_chat_send_emits_tool_events_from_agent_tool_stream() -> None:
         "result": {"ok": True},
         "isError": False,
     }
+
+
+@pytest.mark.asyncio
+async def test_chat_send_uses_lifecycle_end_fallback_when_chat_final_is_missing() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "lifecycle-end-1"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        if method == "chat.history":
+            return {
+                "messages": [
+                    {
+                        "role": "assistant",
+                        "content": [{"type": "text", "text": "SMOKE_OK"}],
+                        "runId": server_run_id,
+                    }
+                ]
+            }
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "agent",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "stream": "lifecycle",
+                    "data": {"phase": "end"},
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Reply with exactly: SMOKE_OK")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["content", "done"]
+    assert chunks[0].text == "SMOKE_OK"
+
+
+@pytest.mark.asyncio
+async def test_chat_send_uses_lifecycle_error_fallback_when_chat_error_is_missing() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "lifecycle-error-1"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "agent",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "stream": "lifecycle",
+                    "data": {"phase": "error", "error": "boom"},
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("fail please")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["error"]
+    assert chunks[0].text == "boom"
 
 
 @pytest.mark.asyncio

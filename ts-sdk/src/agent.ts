@@ -509,6 +509,11 @@ function hyperAgentCurrentPlanFromDict(data: any): HyperAgentCurrentPlan {
 
 function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
   const periodEnd = data.current_period_end || data.expires_at || null;
+  const entitlements = (data.entitlements || []).map(hyperAgentEntitlementFromDict);
+  const slotGrants = mergeSlotGrants(
+    data.slot_grants,
+    ...entitlements.map((entitlement: HyperAgentEntitlement) => entitlement.slotGrants),
+  );
   return {
     id: data.id || '',
     userId: data.user_id || '',
@@ -528,9 +533,22 @@ function hyperAgentSubscriptionFromDict(data: any): HyperAgentSubscription {
     planRpmLimit: data.plan_rpm_limit || 0,
     planTpd: data.plan_tpd || 0,
     planAgentTier: data.plan_agent_tier || null,
-    slotGrants: data.slot_grants || null,
-    entitlements: (data.entitlements || []).map(hyperAgentEntitlementFromDict),
+    slotGrants,
+    entitlements,
   };
+}
+
+function mergeSlotGrants(...sources: Array<Record<string, number> | null | undefined>): Record<string, number> | null {
+  const merged: Record<string, number> = {};
+  for (const source of sources) {
+    if (!source) continue;
+    for (const [tier, value] of Object.entries(source)) {
+      const granted = Number(value || 0);
+      if (!Number.isFinite(granted) || granted <= 0) continue;
+      merged[tier] = Math.max(merged[tier] || 0, granted);
+    }
+  }
+  return Object.keys(merged).length > 0 ? merged : null;
 }
 
 function hyperAgentEntitlementFromDict(data: any): HyperAgentEntitlement {

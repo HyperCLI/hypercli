@@ -62,7 +62,50 @@ It also supports unapplied grant codes:
 - `docs/` Mintlify docs source
 - `site/` web properties
 
+## Frontend E2E Debugging
+
+Use the agents E2E debug mode when chasing Claw launch or gateway UI failures.
+It keeps the container alive while you rerun Playwright inside the same
+container. This spec must exercise Stripe checkout: success means Stripe
+redirects back to `/plans`, the backend reports more granted slots, and an
+agent launches/connects from the purchased slot.
+
+```bash
+cd ~/dev/hypercli
+IMAGE_TAG=local-agents-debug .github/scripts/build_e2e_image.sh
+mkdir -p .e2e-artifacts-local-live
+docker run --init --name hypercli-e2e-agents-debug \
+  --env-file .env.agents \
+  -e TEST_CLAW_ADMIN_LOGIN_SHORTCUT=1 \
+  -e E2E_KEEP_ALIVE_ON_FAILURE=1 \
+  -e E2E_ARTIFACTS_DIR=/artifacts \
+  -v "$PWD/.e2e-artifacts-local-live:/artifacts" \
+  hypercli-e2e:local-agents-debug \
+  bash -lc 'cd /workspace && ./.github/scripts/run_e2e_agents.sh'
+```
+
+Then rerun only the failing spec:
+
+```bash
+docker exec -it hypercli-e2e-agents-debug bash
+cd /workspace/site
+npx playwright test \
+  --config tests/claw/playwright.config.ts \
+  tests/claw/agents-subscription.spec.ts
+```
+
+Keep secrets in `.env.agents`, not inline `docker run -e` arguments. The E2E
+image contains a copied workspace, so rebuild after source edits or bind-mount
+the specific test file you are iterating on.
+
+CI failure notifications prefer Playwright video artifacts: `video.webm` is
+converted to MP4 and sent before falling back to a screenshot. If you only see a
+screenshot, inspect the uploaded `test-results` artifact for missing video or
+ffmpeg conversion errors.
+
 ## Current Notes
 
 - CLI `llm` command surface was removed; inference setup is documented through HyperClaw pages and `hyper claw config` output.
 - Public flow pricing and metadata come from `GET /flows` and `GET /flows/{name}`.
+- Claw files UI should use `site/apps/claw/src/components/dashboard/files` and
+  `AgentFilesPanel`; the old `dashboard/files-panel` duplicate was removed.

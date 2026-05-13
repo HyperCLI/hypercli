@@ -1405,66 +1405,6 @@ function planFromSummary(
   };
 }
 
-export async function fetchClawEffectivePlan(page: Page): Promise<HyperAgentCurrentPlan | null> {
-  const [currentPlan, summary] = await Promise.all([
-    fetchClawCurrentPlan(page),
-    fetchClawSubscriptionSummary(page),
-  ]);
-  const summaryPlanId = paidPlanIdFromSummary(summary);
-
-  if (summary && summaryPlanId) {
-    if (currentPlan && currentPlan.id === summaryPlanId) {
-      return currentPlan;
-    }
-    return planFromSummary(summary, summaryPlanId, currentPlan);
-  }
-
-  return currentPlan;
-}
-
-export async function waitForClawPlanId(
-  page: Page,
-  expectedPlanId: string,
-  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
-): Promise<HyperAgentCurrentPlan> {
-  const startedAt = logWaitStart(`claw plan id=${expectedPlanId}`);
-  let latestPlan: HyperAgentCurrentPlan | null = null;
-  let latestSummary: HyperAgentSubscriptionSummary | null = null;
-
-  try {
-    await expect
-      .poll(
-        async () => {
-          [latestPlan, latestSummary] = await Promise.all([
-            fetchClawCurrentPlan(page),
-            fetchClawSubscriptionSummary(page),
-          ]);
-          if (expectedPlanId === "free") {
-            return (
-              latestPlan?.id ??
-              latestSummary?.effectivePlanId ??
-              latestSummary?.entitlements?.effectivePlanId ??
-              null
-            );
-          }
-          return paidPlanIdFromSummary(latestSummary) ?? latestPlan?.id ?? null;
-        },
-        { timeout, intervals: [1_000, 2_000, 5_000] }
-      )
-      .toBe(expectedPlanId);
-  } finally {
-    logWaitEnd(`claw plan id=${expectedPlanId}`, startedAt);
-  }
-
-  if (latestPlan && latestPlan.id === expectedPlanId) {
-    return latestPlan;
-  }
-  if (latestSummary && isPaidClawPlanId(expectedPlanId)) {
-    return planFromSummary(latestSummary, expectedPlanId, latestPlan);
-  }
-  return latestPlan!;
-}
-
 export async function waitForPaidClawPlan(
   page: Page,
   timeout = CLAW_PLAN_POLL_TIMEOUT_MS
@@ -1499,68 +1439,6 @@ export async function waitForPaidClawPlan(
     return planFromSummary(latestSummary, latestPaidPlanId, latestPlan);
   }
   return latestPlan!;
-}
-
-export async function waitForClawActiveSubscriptionCount(
-  page: Page,
-  expectedCount: number,
-  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
-): Promise<HyperAgentSubscriptionSummary> {
-  const startedAt = logWaitStart(`claw active subscriptions=${expectedCount}`);
-  let latestSummary: HyperAgentSubscriptionSummary | null = null;
-
-  try {
-    await expect
-      .poll(
-        async () => {
-          latestSummary = await fetchClawSubscriptionSummary(page);
-          return latestSummary?.activeSubscriptionCount ?? 0;
-        },
-        { timeout, intervals: [1_000, 2_000, 5_000] }
-      )
-      .toBe(expectedCount);
-  } finally {
-    logWaitEnd(`claw active subscriptions=${expectedCount}`, startedAt);
-  }
-
-  if (!latestSummary) {
-    throw new Error(`Missing subscription summary while waiting for active subscription count ${expectedCount}`);
-  }
-  return latestSummary;
-}
-
-export async function waitForClawSubscriptionCreatedByCheckout(
-  page: Page,
-  checkoutSessionId: string,
-  timeout = CLAW_PLAN_POLL_TIMEOUT_MS
-): Promise<HyperAgentSubscription> {
-  const startedAt = logWaitStart(`claw checkout session=${checkoutSessionId}`);
-  let latestSummary: HyperAgentSubscriptionSummary | null = null;
-  let latestSubscription: HyperAgentSubscription | null = null;
-
-  try {
-    await expect
-      .poll(
-        async () => {
-          latestSummary = await fetchClawSubscriptionSummary(page);
-          latestSubscription =
-            latestSummary?.activeSubscriptions.find(
-              (subscription) =>
-                subscription.meta?.checkout_session_id === checkoutSessionId && isActiveSubscription(subscription)
-            ) ?? null;
-          return latestSubscription?.id ?? null;
-        },
-        { timeout, intervals: [1_000, 2_000, 5_000] }
-      )
-      .not.toBeNull();
-  } finally {
-    logWaitEnd(`claw checkout session=${checkoutSessionId}`, startedAt);
-  }
-
-  if (!latestSubscription) {
-    throw new Error(`No active subscription found for checkout session ${checkoutSessionId}`);
-  }
-  return latestSubscription;
 }
 
 export async function cleanupClawAgents(page: Page, timeout = 180_000): Promise<void> {
@@ -1599,73 +1477,168 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
 
-  await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
-  const createButton = page
-    .getByRole("button", { name: /create a first agent|create new agent|new agent|create/i })
-    .first();
-  await expect(createButton).toBeVisible({ timeout: 30_000 });
-  await captureStep(page, "agents-10-dashboard");
-  await createButton.click();
+  const findLastVisible = async (locator: Locator, timeoutMs = 2_000): Promise<Locator | null> => {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      const count = await locator.count().catch(() => 0);
+      for (let i = count - 1; i >= 0; i -= 1) {
+        const candidate = locator.nth(i);
+        if (await candidate.isVisible().catch(() => false)) {
+          return candidate;
+        }
+      }
+      await page.waitForTimeout(250);
+    } while (Date.now() < deadline);
+    return null;
+  };
 
-  for (let i = 0; i < 6; i += 1) {
+  await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
+  await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
+
+  const createButton = page.locator("main").locator("button").filter({ hasText: /Create an agent/i }).last();
+  const launchFirstAgentButton = page
+    .locator("main")
+    .locator("section, [data-testid='agent-empty-state']")
+    .getByRole("button", { name: /^launch agent$/i })
+    .last();
+  const launcherEntryButton = (await createButton.isVisible({ timeout: 30_000 }).catch(() => false))
+    ? createButton
+    : launchFirstAgentButton;
+  await expect(launcherEntryButton).toBeVisible({ timeout: 30_000 });
+  await captureStep(page, "agents-10-dashboard");
+  await launcherEntryButton.click();
+
+  const wizardSurface = page
+    .locator("main, [role='dialog'], section")
+    .filter({ has: page.getByRole("heading", { name: /create your first agent|choose your plan|review & launch|configuration/i }) })
+    .last();
+
+  const waitForCreatedAgent = async (clickCreate: () => Promise<void>): Promise<DeploymentRecord> => {
+    const beforeAgents = await deployments.list();
+    const beforeIds = new Set(beforeAgents.map((agent) => String(agent.id || "")).filter(Boolean));
+    await clickCreate();
+
+    let created: DeploymentRecord | null = null;
+    await expect
+      .poll(
+        async () => {
+          const agents = await deployments.list();
+          created = agents.find((agent) => {
+            const agentId = String(agent.id || "");
+            return agentId && !beforeIds.has(agentId);
+          }) ?? null;
+          return created?.id ?? null;
+        },
+        { timeout: 90_000, intervals: [1_000, 2_000, 5_000] }
+      )
+      .not.toBeNull();
+
+    expect(created).toBeTruthy();
+    expect(created.id).toBeTruthy();
+    await captureStep(page, "agents-11-created");
+
+    const running = await deployments.waitRunning(created.id, timeout, 5_000);
+    expect(running.state).toBe("RUNNING");
+
+    const composer = page.getByRole("textbox", { name: /Message agent/i }).first();
+    await expect(composer).toBeVisible({ timeout: 60_000 });
+    await expect(composer).toBeEnabled({ timeout: 60_000 });
+    await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
+    await expect(
+      page.getByText("Connecting to gateway...", { exact: true }).first()
+    ).not.toBeVisible({ timeout: 60_000 });
+    await captureStep(page, "agents-12-gateway-connected");
+
+    return created;
+  };
+
+  const clickPlanLaunchButtonViaDom = async (timeoutMs = 30_000): Promise<boolean> => {
+    const deadline = Date.now() + timeoutMs;
+    do {
+      const clicked = await page.evaluate(() => {
+        const isVisible = (element: HTMLElement): boolean => {
+          const rect = element.getBoundingClientRect();
+          const style = window.getComputedStyle(element);
+          return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+        };
+        const buttons = Array.from(document.querySelectorAll("button")).filter((element) => {
+          const button = element as HTMLButtonElement;
+          return (
+            button.textContent?.trim() === "Launch agent" &&
+            !button.disabled &&
+            Boolean(button.closest("div[role='button']")) &&
+            isVisible(button)
+          );
+        }) as HTMLButtonElement[];
+        const button = buttons.at(-1);
+        if (!button) return false;
+        button.scrollIntoView({ block: "center", inline: "center" });
+        button.click();
+        return true;
+      }).catch(() => false);
+      if (clicked) return true;
+      await page.waitForTimeout(500);
+    } while (Date.now() < deadline);
+    return false;
+  };
+
+  const hasPlanLaunchButtonViaDom = async (): Promise<boolean> => {
+    return await page.evaluate(() => {
+      const isVisible = (element: HTMLElement): boolean => {
+        const rect = element.getBoundingClientRect();
+        const style = window.getComputedStyle(element);
+        return rect.width > 0 && rect.height > 0 && style.display !== "none" && style.visibility !== "hidden";
+      };
+      return Array.from(document.querySelectorAll("button")).some((element) => {
+        const button = element as HTMLButtonElement;
+        return (
+          button.textContent?.trim() === "Launch agent" &&
+          !button.disabled &&
+          Boolean(button.closest("div[role='button']")) &&
+          isVisible(button)
+        );
+      });
+    }).catch(() => false);
+  };
+
+  for (let i = 0; i < 12; i += 1) {
+    if (await wizardSurface.isVisible({ timeout: 500 }).catch(() => false)) {
+      await captureStep(page, `agents-10-launch-flow-${i}`);
+    }
+
     const continueButton = page.getByRole("button", { name: /^continue$/i }).first();
     if (await continueButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
       await continueButton.click();
       continue;
     }
 
-    const launchExistingPlanButton = page.getByRole("button", { name: /^launch agent$/i }).first();
-    if (await launchExistingPlanButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      const createResponsePromise = page.waitForResponse((response) => {
-        return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
+    if (await hasPlanLaunchButtonViaDom()) {
+      return await waitForCreatedAgent(async () => {
+        const clicked = await clickPlanLaunchButtonViaDom(5_000);
+        expect(clicked).toBeTruthy();
       });
-      await launchExistingPlanButton.click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.ok()).toBeTruthy();
-      const created = (await createResponse.json()) as DeploymentRecord;
-      expect(created.id).toBeTruthy();
-      await captureStep(page, "agents-11-created");
+    }
 
-      const running = await deployments.waitRunning(created.id, timeout, 5_000);
-      expect(running.state).toBe("RUNNING");
-
-      const composer = page.getByPlaceholder("Message agent...");
-      await expect(composer).toBeVisible({ timeout: 60_000 });
-      await expect(composer).toBeEnabled({ timeout: 60_000 });
-      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
-      await expect(
-        page.getByText("Connecting to gateway...", { exact: true }).first()
-      ).not.toBeVisible({ timeout: 60_000 });
-      await captureStep(page, "agents-12-gateway-connected");
-
-      return created;
+    const globalLaunchButtons = page.locator("main button").filter({ hasText: /Launch agent/i });
+    const exactLaunchTextButtons = page
+      .locator("main")
+      .getByText("Launch agent", { exact: true })
+      .locator("xpath=ancestor::button[1]");
+    const scopedLaunchButtons = (await wizardSurface.isVisible({ timeout: 500 }).catch(() => false))
+      ? wizardSurface.getByRole("button").filter({ hasText: /Launch agent/i })
+      : page.locator("main").getByRole("button").filter({ hasText: /Launch agent/i });
+    const launchExistingPlanButton =
+      (await findLastVisible(globalLaunchButtons)) ??
+      (await findLastVisible(exactLaunchTextButtons)) ??
+      (await findLastVisible(scopedLaunchButtons));
+    if (launchExistingPlanButton) {
+      await expect(launchExistingPlanButton).toBeEnabled({ timeout: 30_000 });
+      return await waitForCreatedAgent(() => launchExistingPlanButton.click());
     }
 
     const createAgentButton = page.getByRole("button", { name: /^create agent$/i }).first();
     if (await createAgentButton.isVisible({ timeout: 2_000 }).catch(() => false)) {
-      const createResponsePromise = page.waitForResponse((response) => {
-        return response.request().method() === "POST" && /\/agents\/deployments$/.test(response.url());
-      });
-      await createAgentButton.click();
-      const createResponse = await createResponsePromise;
-      expect(createResponse.ok()).toBeTruthy();
-      const created = (await createResponse.json()) as DeploymentRecord;
-      expect(created.id).toBeTruthy();
-      await captureStep(page, "agents-11-created");
-
-      const running = await deployments.waitRunning(created.id, timeout, 5_000);
-      expect(running.state).toBe("RUNNING");
-
-      const composer = page.getByPlaceholder("Message agent...");
-      await expect(composer).toBeVisible({ timeout: 60_000 });
-      await expect(composer).toBeEnabled({ timeout: 60_000 });
-      await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
-      await expect(
-        page.getByText("Connecting to gateway...", { exact: true }).first()
-      ).not.toBeVisible({ timeout: 60_000 });
-      await captureStep(page, "agents-12-gateway-connected");
-
-      return created;
+      return await waitForCreatedAgent(() => createAgentButton.click());
     }
 
     const nextButton = page.getByRole("button", { name: /^next$/i }).first();
@@ -1677,6 +1650,7 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     break;
   }
 
+  await captureStep(page, "agents-10-launch-flow-stuck");
   throw new Error("Agent launch flow did not reach a launchable state");
 }
 

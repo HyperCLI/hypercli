@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type {
   HyperAgentCurrentPlan,
   HyperAgentEntitlement,
@@ -11,10 +11,21 @@ import type {
 import { Check } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient } from "@/lib/agent-client";
+import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { ActivateCodeModal } from "@/components/ActivateCodeModal";
 import { formatTokens } from "@/lib/format";
 import { Skeleton } from "@/components/dashboard/Skeleton";
+import {
+  clearPendingPlanCheckout,
+  clearStripeCheckoutReturnState,
+  getCheckoutReflectionStatus,
+  getEffectivePlanName,
+  getLaunchSlotInventoryFromSummary,
+  getPlanOwnedCountFromSummary,
+  readPendingPlanCheckout,
+  readStripeCheckoutReturnState,
+} from "@/lib/plan-checkout-state";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 
 interface DisplayProduct {
@@ -44,6 +55,11 @@ interface CheckoutPlan {
     rpm: number;
   };
 }
+
+type CheckoutSyncState = {
+  status: "syncing" | "success" | "pending" | "cancelled";
+  message: string;
+};
 
 type CatalogPlan = HyperAgentPlan & {
   bundle?: Record<string, number> | null;
@@ -121,7 +137,7 @@ function finiteNumber(value: unknown, fallback = 0): number {
 
 function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] {
   return catalogPlans
-    .filter((plan) => !(plan as CatalogPlan).hidden)
+    .filter(isVisibleCurrentAgentPlan)
     .map((plan) => {
       const catalogPlan = plan as CatalogPlan;
       const fallbackBundle = FALLBACK_PRODUCTS_BY_ID.get(plan.id)?.bundle;
@@ -181,32 +197,10 @@ export default function PlansPage() {
   const [catalogError, setCatalogError] = useState<string | null>(null);
   const [showRedeemModal, setShowRedeemModal] = useState(false);
   const [redeemingCode, setRedeemingCode] = useState(false);
+  const [checkoutSync, setCheckoutSync] = useState<CheckoutSyncState | null>(null);
+  const checkoutReturnHandledRef = useRef(false);
 
-  useEffect(() => {
-    const fetchData = async () => {
-      try {
-        const token = await getToken();
-        const agentClient = createHyperAgentClient(token);
-        const [catalog, current, subscriptions] = await Promise.allSettled([
-          agentClient.plans(),
-          agentClient.currentPlan(),
-          agentClient.subscriptionSummary(),
-        ]);
-        setCatalogPlans(catalog.status === "fulfilled" ? catalog.value : []);
-        setCatalogError(catalog.status === "fulfilled" ? null : "Plan catalog is unavailable right now.");
-        setCurrentPlan(current.status === "fulfilled" ? current.value : null);
-        setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
-      } catch {
-        // graceful fallback
-      } finally {
-        setLoading(false);
-      }
-    };
-
-    void fetchData();
-  }, [getToken]);
-
-  const refreshPlan = async () => {
+  const refreshPlan = useCallback(async () => {
     try {
       const token = await getToken();
       const agentClient = createHyperAgentClient(token);
@@ -215,12 +209,134 @@ export default function PlansPage() {
         agentClient.currentPlan(),
         agentClient.subscriptionSummary(),
       ]);
-      setCatalogPlans(catalog.status === "fulfilled" ? catalog.value : []);
+      const nextCatalogPlans = catalog.status === "fulfilled" ? catalog.value : [];
+      const nextCurrentPlan = current.status === "fulfilled" ? current.value : null;
+      const nextSummary = subscriptions.status === "fulfilled" ? subscriptions.value : null;
+      setCatalogPlans(nextCatalogPlans);
       setCatalogError(catalog.status === "fulfilled" ? null : "Plan catalog is unavailable right now.");
-      setCurrentPlan(current.status === "fulfilled" ? current.value : null);
-      setSummary(subscriptions.status === "fulfilled" ? subscriptions.value : null);
-    } catch {}
-  };
+      setCurrentPlan(nextCurrentPlan);
+      setSummary(nextSummary);
+      return { currentPlan: nextCurrentPlan, subscriptionSummary: nextSummary };
+    } catch {
+      return null;
+    }
+  }, [getToken]);
+
+  useEffect(() => {
+    setLoading(true);
+    void refreshPlan().finally(() => setLoading(false));
+  }, [refreshPlan]);
+
+  const refreshCheckoutEntitlements = useCallback(async () => {
+    const pending = readPendingPlanCheckout();
+    setCheckoutSync({
+      status: "syncing",
+      message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
+    });
+    const refreshed = await refreshPlan();
+    const reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
+
+    if (reflectionStatus === "ready") {
+      clearPendingPlanCheckout();
+      setCheckoutSync({
+        status: "success",
+        message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
+      });
+      return;
+    }
+
+    if (reflectionStatus === "waiting-entitlement") {
+      setCheckoutSync({
+        status: "pending",
+        message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+      });
+      return;
+    }
+
+    setCheckoutSync({
+      status: "pending",
+      message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+    });
+  }, [refreshPlan]);
+
+  useEffect(() => {
+    if (checkoutReturnHandledRef.current) return;
+    const checkoutReturn = readStripeCheckoutReturnState();
+    if (!checkoutReturn) return;
+
+    if (checkoutReturn.status === "cancelled") {
+      checkoutReturnHandledRef.current = true;
+      clearPendingPlanCheckout();
+      setCheckoutSync({
+        status: "cancelled",
+        message: "Checkout cancelled. No plan changes were made.",
+      });
+      clearStripeCheckoutReturnState();
+      return;
+    }
+
+    let active = true;
+    const pending = readPendingPlanCheckout();
+    const planLabel = pending?.planName ? `${pending.planName} plan` : "your plan";
+    setCheckoutSync({
+      status: "syncing",
+      message: `Payment received. Finalizing ${planLabel} setup...`,
+    });
+
+    const wait = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+    void (async () => {
+      let reflectionStatus = getCheckoutReflectionStatus(null, pending);
+
+      for (let attempt = 0; attempt < 6; attempt += 1) {
+        const refreshed = await refreshPlan();
+        if (!active) return;
+
+        reflectionStatus = getCheckoutReflectionStatus(refreshed?.subscriptionSummary ?? null, pending);
+        if (reflectionStatus === "ready") {
+          break;
+        }
+
+        if (attempt < 5) {
+          await wait(attempt < 2 ? 1500 : 3000);
+          if (!active) return;
+        }
+      }
+
+      if (!active) return;
+
+      if (reflectionStatus === "ready") {
+        clearPendingPlanCheckout();
+        setCheckoutSync({
+          status: "success",
+          message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
+        });
+      } else if (reflectionStatus === "waiting-entitlement") {
+        setCheckoutSync({
+          status: "pending",
+          message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
+        });
+      } else {
+        setCheckoutSync({
+          status: "pending",
+          message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+        });
+      }
+
+      checkoutReturnHandledRef.current = true;
+      clearStripeCheckoutReturnState();
+    })();
+
+    return () => {
+      active = false;
+    };
+  }, [refreshPlan]);
+
+  useEffect(() => {
+    if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;
+    const timer = setTimeout(() => setCheckoutSync(null), 5000);
+    return () => clearTimeout(timer);
+  }, [checkoutSync]);
 
   const ownedBundles = useMemo(() => {
     const entries = new Map<string, number>();
@@ -238,8 +354,14 @@ export default function PlansPage() {
       if (!subscription.planId) continue;
       entries.set(subscription.planId, (entries.get(subscription.planId) ?? 0) + Math.max(subscription.quantity || 1, 1));
     }
+    if (summary?.effectivePlanId) {
+      const effectiveOwnedCount = getPlanOwnedCountFromSummary(summary, summary.effectivePlanId);
+      if (effectiveOwnedCount > 0) {
+        entries.set(summary.effectivePlanId, Math.max(entries.get(summary.effectivePlanId) ?? 0, effectiveOwnedCount));
+      }
+    }
     return entries;
-  }, [summary?.activeSubscriptions]);
+  }, [summary]);
 
   const slotInventoryEntries = useMemo(() => {
     return Object.entries(summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {}).sort(
@@ -252,6 +374,11 @@ export default function PlansPage() {
   }, [summary?.subscriptions]);
 
   const displayProducts = useMemo(() => buildDisplayProducts(catalogPlans), [catalogPlans]);
+  const launchSlotInventory = useMemo(() => getLaunchSlotInventoryFromSummary(summary), [summary]);
+  const effectivePlanName = useMemo(
+    () => getEffectivePlanName(summary, currentPlan, catalogPlans),
+    [catalogPlans, currentPlan, summary],
+  );
   const paidProducts = useMemo(() => displayProducts.filter((product) => product.id !== "free"), [displayProducts]);
   const legacySubscriptions = useMemo(() => {
     const knownPlanIds = new Set(displayProducts.map((product) => product.id));
@@ -283,11 +410,11 @@ export default function PlansPage() {
     setMutatingSubscriptionId(subscription.id);
     try {
       const agentClient = createHyperAgentClient(await getToken());
-      const result = await agentClient.updateSubscription(subscription.id, { bundle: {} });
+      const result = await agentClient.cancelSubscription(subscription.id);
       if (!result.ok) {
         throw new Error(result.message || "Failed to cancel subscription");
       }
-      setSubscriptionNotice(result.message || "Subscription updated");
+      setSubscriptionNotice(result.message || "Subscription cancellation scheduled");
       await refreshPlan();
     } catch (error) {
       setSubscriptionError(error instanceof Error ? error.message : "Failed to cancel subscription");
@@ -418,6 +545,44 @@ export default function PlansPage() {
         </div>
       </div>
 
+      {checkoutSync && (
+        <div
+          className={`glass-card p-4 mb-6 flex items-start justify-between gap-3 ${
+            checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
+              ? "border border-amber-400/25"
+              : "border border-[#38D39F]/20"
+          }`}
+        >
+          <p
+            className={`text-sm ${
+              checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
+                ? "text-amber-100"
+                : "text-[#B7F5DF]"
+            }`}
+          >
+            {checkoutSync.message}
+          </p>
+          <div className="flex shrink-0 items-center gap-3">
+            {checkoutSync.status === "pending" && (
+              <button
+                type="button"
+                onClick={() => { void refreshCheckoutEntitlements(); }}
+                className="text-sm font-medium text-foreground underline underline-offset-4 transition hover:text-[#B7F5DF]"
+              >
+                Refresh
+              </button>
+            )}
+            <button
+              type="button"
+              onClick={() => setCheckoutSync(null)}
+              className="text-sm text-text-muted transition hover:text-foreground"
+            >
+              Dismiss
+            </button>
+          </div>
+        </div>
+      )}
+
       {subscriptionNotice && (
         <div className="glass-card p-4 mb-6 border border-[#38D39F]/20">
           <p className="text-sm text-[#B7F5DF]">{subscriptionNotice}</p>
@@ -447,7 +612,7 @@ export default function PlansPage() {
             <p className="text-xs uppercase tracking-[0.18em] text-text-muted mb-2">Active Entitlements</p>
             <p className="text-2xl font-semibold text-foreground">{activeEntitlementCount}</p>
             <p className="text-sm text-text-secondary mt-1">
-              {currentPlan?.name ? `Current anchor: ${currentPlan.name}` : "No paid entitlements yet"}
+              {effectivePlanName ? `Current anchor: ${effectivePlanName}` : "No paid entitlements yet"}
             </p>
           </div>
           <div className="glass-card p-5">
@@ -585,10 +750,18 @@ export default function PlansPage() {
             const ownedCount = Math.max(ownedPlanCounts.get(product.id) ?? 0, ownedByBundle);
             const checkoutBundle = compactBundle(product.bundle) as Record<string, number>;
             const hasCheckoutBundle = Object.keys(checkoutBundle).length > 0;
+            const hasGrantedLaunchSlots = Object.keys(checkoutBundle).some((tier) =>
+              Math.max(Number(launchSlotInventory[tier]?.granted ?? 0), 0) > 0
+            );
+            const waitingForLaunchEntitlement = ownedCount > 0 && hasCheckoutBundle && !hasGrantedLaunchSlots;
 
             return (
               <div key={product.id} className="glass-card p-6 flex flex-col">
-                {ownedCount > 0 ? (
+                {waitingForLaunchEntitlement ? (
+                  <div className="text-xs font-semibold text-amber-100 bg-amber-400/10 px-3 py-1 rounded-full self-start mb-4">
+                    Payment active, waiting for entitlement
+                  </div>
+                ) : ownedCount > 0 ? (
                   <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
                     You own {ownedCount}
                   </div>
@@ -620,21 +793,24 @@ export default function PlansPage() {
                 </ul>
 
                 <button
-                  onClick={() =>
-                    product.id !== "free"
-                      ? setCheckoutPlan({
-                          id: product.id,
-                          name: product.name,
-                          bundle: hasCheckoutBundle ? checkoutBundle : undefined,
-                          price: product.price,
-                          limits: product.limits,
-                        })
-                      : undefined
-                  }
+                  onClick={() => {
+                    if (waitingForLaunchEntitlement) {
+                      void refreshCheckoutEntitlements();
+                      return;
+                    }
+                    if (product.id === "free") return;
+                    setCheckoutPlan({
+                      id: product.id,
+                      name: product.name,
+                      bundle: hasCheckoutBundle ? checkoutBundle : undefined,
+                      price: product.price,
+                      limits: product.limits,
+                    });
+                  }}
                   disabled={product.id === "free"}
                   className="w-full py-2.5 rounded-lg text-sm font-medium btn-secondary flex items-center justify-center gap-2 disabled:opacity-50"
                 >
-                  {product.id === "free" ? "Included" : ownedCount > 0 ? "Add Another" : "Purchase"}
+                  {product.id === "free" ? "Included" : waitingForLaunchEntitlement ? "Refresh billing" : ownedCount > 0 ? "Add Another" : "Purchase"}
                 </button>
               </div>
             );
@@ -653,7 +829,7 @@ export default function PlansPage() {
           }
           isOpen={!!checkoutPlan}
           onClose={() => setCheckoutPlan(null)}
-          onSuccess={refreshPlan}
+          onSuccess={() => { void refreshCheckoutEntitlements(); }}
           getToken={getToken}
         />
       )}

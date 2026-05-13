@@ -52,6 +52,9 @@ describe("PlanCheckoutModal", () => {
     const [request, planId] = mocks.hyperAgent.createStripeCheckout.mock.calls[0];
     expect(planId).toBe("catalog-pro");
     expect(request).toMatchObject({ quantity: 1 });
+    expect(request.successUrl).toContain("checkout=success");
+    expect(request.successUrl).toContain("session_id={CHECKOUT_SESSION_ID}");
+    expect(request.cancelUrl).toContain("checkout=cancelled");
     expect(request).not.toHaveProperty("bundle");
   });
 });

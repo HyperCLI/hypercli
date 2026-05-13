@@ -35,7 +35,6 @@ import { AgentView, ConnectionDetail, type TabId as AgentTabId } from "@/compone
 import { AgentsChannelsSidebar, MOCK_CONVERSATION_THREADS, MOCK_PARTICIPANTS, type AgentsChannelsSidebarVariant, type Participant } from "@/components/dashboard/AgentsChannelsSidebar";
 import { AddParticipantPanel } from "@/components/dashboard/AddParticipantPanel";
 import { FilesDrawer } from "@/components/dashboard/files";
-import { FilesPanel } from "@/components/dashboard/files-panel";
 import { InChatUxKitDemo } from "@/components/dashboard/chat/InChatUxKit";
 import type { ChatMessage } from "@/lib/openclaw-chat";
 import { agentAvatar } from "@/lib/avatar";
@@ -457,7 +456,6 @@ export default function DevChatPage() {
   const [filesDrawerOpen, setFilesDrawerOpen] = useState(false);
   const [mockFiles, setMockFiles] = useState<{ name: string; path: string; type: "file" | "directory"; size?: number }[]>([]);
   const [mockFileContents, setMockFileContents] = useState<Record<string, string>>({});
-  const [filesVariant, setFilesVariant] = useState<"drawer" | "panel">("drawer");
 
   const groupThreadIds = useMemo(
     () => new Set(threads.filter((t) => t.kind === "group" || t.kind === "agent-agent").map((t) => t.id)),
@@ -1495,23 +1493,8 @@ export default function DevChatPage() {
         {devTab === "files" && (<>
           <div className="space-y-3">
             <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider">Component</h3>
-            <div className="flex gap-1.5">
-              {(["drawer", "panel"] as const).map((v) => (
-                <button
-                  key={v}
-                  onClick={() => setFilesVariant(v)}
-                  className={`flex-1 px-3 py-1.5 rounded-lg text-[11px] font-medium border transition-colors capitalize ${
-                    filesVariant === v
-                      ? "bg-[#38D39F]/10 border-[#38D39F]/30 text-[#38D39F]"
-                      : "border-border text-text-muted hover:text-foreground"
-                  }`}
-                >
-                  {v}
-                </button>
-              ))}
-            </div>
-            <p className="text-[9px] text-text-muted">
-              {filesVariant === "drawer" ? "Right-side overlay drawer" : "Bottom split panel within chat area"}
+            <p className="rounded-lg border border-border bg-surface-low px-3 py-2 text-[11px] text-text-muted">
+              Right-side overlay drawer backed by the canonical dashboard file browser components.
             </p>
 
             <a
@@ -1524,7 +1507,7 @@ export default function DevChatPage() {
             </a>
 
             <h3 className="text-xs font-medium text-text-secondary uppercase tracking-wider pt-2">Mock Files</h3>
-            <p className="text-[10px] text-text-muted">Add mock files to test the Files {filesVariant}. Click the Files button in the chat header to open it.</p>
+            <p className="text-[10px] text-text-muted">Add mock files to test the Files drawer. Click the Files button in the chat header to open it.</p>
 
             {/* Quick-add presets */}
             <div className="space-y-1.5">
@@ -1949,36 +1932,6 @@ export default function DevChatPage() {
           </div>
         </div>
 
-        {/* Files Panel (bottom split) */}
-        {filesVariant === "panel" && (
-          <FilesPanel
-            open={filesDrawerOpen}
-            onClose={() => setFilesDrawerOpen(false)}
-            connected={connected}
-            files={mockFiles.length > 0 ? mockFiles : undefined}
-            callbacks={mockFiles.length > 0 ? {
-              onListFiles: async () => ({
-                prefix: "",
-                directories: mockFiles.filter((f) => f.type === "directory"),
-                files: mockFiles.filter((f) => f.type === "file"),
-              }),
-              onGetFile: async (path: string) => mockFileContents[path] ?? "",
-              onSetFile: async (path: string, content: string) => {
-                setMockFileContents((prev) => ({ ...prev, [path]: content }));
-              },
-              onDeleteFile: async (path: string) => {
-                setMockFiles((prev) => prev.filter((f) => f.path !== path));
-                setMockFileContents((prev) => { const next = { ...prev }; delete next[path]; return next; });
-              },
-              onUploadFile: async (path: string, content: string) => {
-                const name = path.split("/").pop() ?? path;
-                setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
-                setMockFileContents((prev) => ({ ...prev, [path]: content }));
-              },
-            } : undefined}
-          />
-        )}
-
         {/* Input area */}
         <div className="flex-shrink-0 border-t border-border p-3 z-10">
           <div className="mx-auto w-3/4 max-w-[75%] min-w-0">
@@ -2151,34 +2104,32 @@ export default function DevChatPage() {
       )}
 
       {/* ── Files Drawer (right-side overlay) ── */}
-      {filesVariant === "drawer" && (
-        <FilesDrawer
-          open={filesDrawerOpen}
-          onClose={() => setFilesDrawerOpen(false)}
-          connected={connected}
-          files={mockFiles.length > 0 ? mockFiles : undefined}
-          callbacks={mockFiles.length > 0 ? {
-            onListFiles: async () => ({
-              prefix: "",
-              directories: mockFiles.filter((f) => f.type === "directory"),
-              files: mockFiles.filter((f) => f.type === "file"),
-            }),
-            onGetFile: async (path: string) => mockFileContents[path] ?? "",
-            onSetFile: async (path: string, content: string) => {
-              setMockFileContents((prev) => ({ ...prev, [path]: content }));
-            },
-            onDeleteFile: async (path: string) => {
-              setMockFiles((prev) => prev.filter((f) => f.path !== path));
-              setMockFileContents((prev) => { const next = { ...prev }; delete next[path]; return next; });
-            },
-            onUploadFile: async (path: string, content: string) => {
-              const name = path.split("/").pop() ?? path;
-              setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
-              setMockFileContents((prev) => ({ ...prev, [path]: content }));
-            },
-          } : undefined}
-        />
-      )}
+      <FilesDrawer
+        open={filesDrawerOpen}
+        onClose={() => setFilesDrawerOpen(false)}
+        connected={connected}
+        files={mockFiles.length > 0 ? mockFiles : undefined}
+        callbacks={mockFiles.length > 0 ? {
+          onListFiles: async () => ({
+            prefix: "",
+            directories: mockFiles.filter((f) => f.type === "directory"),
+            files: mockFiles.filter((f) => f.type === "file"),
+          }),
+          onGetFile: async (path: string) => mockFileContents[path] ?? "",
+          onSetFile: async (path: string, content: string) => {
+            setMockFileContents((prev) => ({ ...prev, [path]: content }));
+          },
+          onDeleteFile: async (path: string) => {
+            setMockFiles((prev) => prev.filter((f) => f.path !== path));
+            setMockFileContents((prev) => { const next = { ...prev }; delete next[path]; return next; });
+          },
+          onUploadFile: async (path: string, content: string) => {
+            const name = path.split("/").pop() ?? path;
+            setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
+            setMockFileContents((prev) => ({ ...prev, [path]: content }));
+          },
+        } : undefined}
+      />
 
       {/* ── Delete Confirmation Dialog ── */}
       {pendingDeleteId && (() => {

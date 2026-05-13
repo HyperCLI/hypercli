@@ -193,6 +193,7 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
       { id: "gemini-2.5-pro", name: "Gemini 2.5 Pro", providerId: "google", providerName: "Google" },
     ],
     onSaveOpenClawConfig: vi.fn(async () => undefined),
+    onLogout: vi.fn(),
     ...overrides,
   };
 
@@ -241,6 +242,18 @@ describe("AgentList", () => {
 
     expect(onOpenSettings).toHaveBeenCalledTimes(1);
   });
+
+  it("shows sign out as the last account menu option", () => {
+    const onLogout = vi.fn();
+    renderAgentList({ sidebarCollapsed: false, onLogout });
+
+    fireEvent.click(screen.getByRole("button", { name: /account/i }));
+    const menuItems = screen.getAllByRole("menuitem");
+
+    expect(menuItems.at(-1)).toHaveTextContent("Sign out");
+    fireEvent.click(menuItems[menuItems.length - 1]);
+    expect(onLogout).toHaveBeenCalledTimes(1);
+  });
 });
 
 describe("AgentSettingsPanel", () => {
@@ -260,6 +273,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByDisplayValue("test@example.com")).toBeDisabled();
     expect(screen.getByText("Avatar")).toBeInTheDocument();
     expect(screen.getByText("Upload Image")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /sign out/i })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Discard" })).toBeDisabled();
     expect(screen.getByRole("button", { name: "Save changes" })).toBeDisabled();
     expect(screen.queryByRole("heading", { name: "Agent Settings" })).not.toBeInTheDocument();
@@ -280,6 +294,15 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Agent runtime")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("signs out from general settings", () => {
+    const onLogout = vi.fn();
+    renderAgentSettingsPanel({ onLogout });
+
+    fireEvent.click(screen.getByRole("button", { name: /sign out/i }));
+
+    expect(onLogout).toHaveBeenCalledTimes(1);
   });
 
   it("loads and saves the profile name through the SDK", async () => {
