@@ -1,5 +1,5 @@
 import type { Dispatch, SetStateAction } from "react";
-import type { GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type { ChatEvent, GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { resolveOpenClawSessionKey } from "./openclaw-session-key";
 import {
   type ChatMessage,
@@ -43,6 +43,16 @@ interface SessionEventContext {
   setSending: Dispatch<SetStateAction<boolean>>;
   setSessions: Dispatch<SetStateAction<Array<Record<string, unknown>>>>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
+  suppressChatStreamEvents?: boolean;
+}
+
+interface ChatStreamEventContext {
+  gateway: GatewayClient;
+  chatEvent: ChatEvent;
+  setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
+  setSending: Dispatch<SetStateAction<boolean>>;
+  setSessions: Dispatch<SetStateAction<Array<Record<string, unknown>>>>;
+  appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
 function formatSessionToolValue(value: unknown): string {
@@ -55,6 +65,53 @@ function formatSessionToolValue(value: unknown): string {
   }
 }
 
+function isGatewayChatStreamEvent(event: string, payload: unknown): boolean {
+  if (event === "chat" || event.startsWith("chat.")) return true;
+  if (event !== "agent") return false;
+  const stream = String((payload as Record<string, unknown> | null)?.stream || "").toLowerCase();
+  return stream === "tool" || stream === "lifecycle";
+}
+
+export function handleOpenClawChatStreamEvent({
+  gateway,
+  chatEvent,
+  setMessages,
+  setSending,
+  setSessions,
+  appendActivity,
+}: ChatStreamEventContext): void {
+  const payload = chatEvent.data ?? {};
+
+  if (chatEvent.type === "content") {
+    const text = sanitizeChatDisplayText(chatEvent.text ?? "");
+    if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: text, timestamp: Date.now() }));
+  } else if (chatEvent.type === "thinking") {
+    const text = sanitizeChatDisplayText(chatEvent.text ?? "");
+    if (text) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", thinking: text, timestamp: Date.now() }));
+  } else if (chatEvent.type === "tool_call") {
+    const toolCall = normalizeLiveToolCall(payload);
+    if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }));
+    if (toolCall && !isInternalHeartbeatMessage({ toolCalls: [toolCall] })) {
+      appendActivity({ type: "tool", action: toolCall.name, detail: toolCall.args || "" });
+    }
+  } else if (chatEvent.type === "tool_result") {
+    const toolResult = normalizeLiveToolResult(payload);
+    if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
+    if (toolResult?.result && !isInternalHeartbeatMessage({ toolCalls: [toolResult] })) {
+      appendActivity({ type: "tool", action: `${toolResult.name} → result`, detail: toolResult.result });
+    }
+  } else if (chatEvent.type === "done") {
+    setSending(false);
+    appendActivity({ type: "message", action: "Assistant response complete" });
+    void gateway.sessionsList().then((list) => setSessions(list as Array<Record<string, unknown>>)).catch(() => {});
+  } else if (chatEvent.type === "error") {
+    const message = chatEvent.text || "Unknown error";
+    setSending(false);
+    setMessages((prev) => [...prev, { role: "system", content: `Error: ${message}`, timestamp: Date.now() }]);
+    appendActivity({ type: "error", action: "Error", detail: message });
+  }
+}
+
 export function handleOpenClawSessionEvent({
   gateway,
   gatewayEvent,
@@ -62,9 +119,14 @@ export function handleOpenClawSessionEvent({
   setSending,
   setSessions,
   appendActivity,
+  suppressChatStreamEvents = false,
 }: SessionEventContext): void {
   const event = gatewayEvent.event;
   const payload = gatewayEvent.payload ?? {};
+
+  if (suppressChatStreamEvents && isGatewayChatStreamEvent(event, payload)) {
+    return;
+  }
 
   if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
     const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;

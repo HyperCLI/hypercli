@@ -22,6 +22,7 @@ import {
   Key,
   CreditCard,
   Settings,
+  LogOut,
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
@@ -121,6 +122,7 @@ export interface AgentsChannelsSidebarProps {
   /** When provided, the Settings account item opens the current agent workspace settings panel instead of routing. */
   onOpenAgentSettings?: () => void;
   agentSettingsActive?: boolean;
+  onLogout?: () => void | Promise<void>;
 }
 
 const DASHBOARD_LINKS = [
@@ -576,11 +578,13 @@ export function AgentsSidebarDashboardLinks({
   accountInitial = "?",
   onOpenAgentSettings,
   agentSettingsActive = false,
+  onLogout,
 }: {
   compact?: boolean;
   accountInitial?: string;
   onOpenAgentSettings?: () => void;
   agentSettingsActive?: boolean;
+  onLogout?: () => void | Promise<void>;
 }) {
   const pathname = usePathname() ?? "";
   const [open, setOpen] = useState(false);
@@ -654,6 +658,20 @@ export function AgentsSidebarDashboardLinks({
                 </Link>
               );
             })}
+            {onLogout && (
+              <button
+                type="button"
+                onClick={() => {
+                  setOpen(false);
+                  void onLogout();
+                }}
+                role="menuitem"
+                className="flex w-full items-center gap-2 border-t border-border/70 px-3 py-1.5 text-left text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/10"
+              >
+                <LogOut className="h-3.5 w-3.5 flex-shrink-0" />
+                <span className="text-[11px] font-medium">Sign out</span>
+              </button>
+            )}
           </motion.div>
         )}
       </AnimatePresence>
@@ -2071,6 +2089,7 @@ export function AgentsChannelsSidebar({
   accountInitial,
   onOpenAgentSettings,
   agentSettingsActive,
+  onLogout,
 }: AgentsChannelsSidebarProps) {
   const [showSearch, setShowSearch] = useState(false);
   const [searchQuery, setSearchQuery] = useState("");
@@ -2087,7 +2106,7 @@ export function AgentsChannelsSidebar({
   }, [threads, searchQuery]);
 
   return (
-    <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} relative flex flex-col h-full min-h-0 bg-background`}>
+    <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} relative flex h-full min-h-0 flex-col bg-[#232323]`}>
       {showDivider && <div aria-hidden className="pointer-events-none absolute right-0 top-0 z-20 h-full w-px bg-border" />}
       <SidebarHeader
         showSearch={showSearch}
@@ -2156,6 +2175,7 @@ export function AgentsChannelsSidebar({
         accountInitial={accountInitial}
         onOpenAgentSettings={onOpenAgentSettings}
         agentSettingsActive={agentSettingsActive}
+        onLogout={onLogout}
       />
     </div>
   );

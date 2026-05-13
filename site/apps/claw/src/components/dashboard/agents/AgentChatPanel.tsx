@@ -419,7 +419,7 @@ export function AgentChatPanel({
                   rows={1}
                   placeholder={chat.connected ? "Message agent..." : "Connect gateway to message..."}
                   disabled={composerDisabled}
-                  className="w-full resize-none bg-[#2f2f2f] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
+                  className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
                 />
                 <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
                   <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">

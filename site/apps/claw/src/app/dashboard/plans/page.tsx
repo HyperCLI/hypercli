@@ -254,7 +254,7 @@ export default function PlansPage() {
 
     setCheckoutSync({
       status: "pending",
-      message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest SDK plan data.",
+      message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
     });
   }, [refreshPlan]);
 
@@ -263,9 +263,8 @@ export default function PlansPage() {
     const checkoutReturn = readStripeCheckoutReturnState();
     if (!checkoutReturn) return;
 
-    checkoutReturnHandledRef.current = true;
-
     if (checkoutReturn.status === "cancelled") {
+      checkoutReturnHandledRef.current = true;
       clearPendingPlanCheckout();
       setCheckoutSync({
         status: "cancelled",
@@ -319,10 +318,11 @@ export default function PlansPage() {
       } else {
         setCheckoutSync({
           status: "pending",
-          message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest SDK plan data.",
+          message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
         });
       }
 
+      checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
     })();
 
@@ -330,6 +330,12 @@ export default function PlansPage() {
       active = false;
     };
   }, [refreshPlan]);
+
+  useEffect(() => {
+    if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;
+    const timer = setTimeout(() => setCheckoutSync(null), 5000);
+    return () => clearTimeout(timer);
+  }, [checkoutSync]);
 
   const ownedBundles = useMemo(() => {
     const entries = new Map<string, number>();

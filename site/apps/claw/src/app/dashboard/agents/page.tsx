@@ -54,6 +54,7 @@ import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboa
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
+import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -403,6 +404,7 @@ type CheckoutSyncState = {
 function UpgradePlanCatalogModal({
   open,
   products,
+  catalogPlans,
   ownedCounts,
   loading,
   error,
@@ -412,6 +414,7 @@ function UpgradePlanCatalogModal({
 }: {
   open: boolean;
   products: UpgradeDisplayProduct[];
+  catalogPlans: HyperAgentPlan[] | null;
   ownedCounts: Record<string, number>;
   loading: boolean;
   error: string | null;
@@ -419,6 +422,8 @@ function UpgradePlanCatalogModal({
   onSelectPlan: (product: UpgradeDisplayProduct) => void;
   onOpenPlans: () => void;
 }) {
+  const [comparisonOpen, setComparisonOpen] = useState(false);
+
   if (!open) return null;
 
   return (
@@ -446,14 +451,23 @@ function UpgradePlanCatalogModal({
             </div>
             <p className="mt-1 text-sm text-text-secondary">Choose a plan for checkout.</p>
           </div>
-          <button
-            type="button"
-            onClick={onClose}
-            className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-            aria-label="Close upgrade modal"
-          >
-            <X className="h-4 w-4" />
-          </button>
+          <div className="flex shrink-0 items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setComparisonOpen(true)}
+              className="inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-sm font-medium text-foreground transition-colors hover:bg-surface-mid"
+            >
+              Compare plans
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+              aria-label="Close upgrade modal"
+            >
+              <X className="h-4 w-4" />
+            </button>
+          </div>
         </div>
 
         <div className="max-h-[calc(min(720px,100vh-2rem)-73px)] overflow-y-auto px-5 py-5">
@@ -539,6 +553,11 @@ function UpgradePlanCatalogModal({
             </div>
           )}
         </div>
+        <PlanComparisonModal
+          open={comparisonOpen}
+          onClose={() => setComparisonOpen(false)}
+          catalogPlans={catalogPlans}
+        />
       </motion.div>
     </motion.div>
   );
@@ -592,7 +611,7 @@ function getWorkspaceSidebarDisabledReason({
 // ── Main component ──
 
 export default function AgentsPage() {
-  const { getToken, user } = useAgentAuth();
+  const { getToken, user, logout } = useAgentAuth();
   const router = useRouter();
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
@@ -721,12 +740,12 @@ export default function AgentsPage() {
         setDeployments(agentClient);
       }
       const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, catalogData, currentPlan, summaryData, usageSummary, typeCatalogData] = await Promise.all([
+      const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
         agentClient.list(),
         hyperAgent.plans().catch(() => []),
         hyperAgent.currentPlan().catch(() => null),
         hyperAgent.subscriptionSummary().catch(() => null),
-        hyperAgent.usageSummary().catch(() => null),
+        hyperAgent.usageHistory(1).catch(() => null),
         hyperAgent.agentTypes().catch(() => null),
       ]);
       const plans = Array.isArray(catalogData) ? catalogData : [];
@@ -742,7 +761,7 @@ export default function AgentsPage() {
       setCatalogPlans(plans);
       setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
       setSubscriptionSummary(summary);
-      setTokenUsage(usageSummary?.totalTokens ?? null);
+      setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
       setAgentClusterUnavailable(false);
       setSelectedAgentId((currentId) => {
         if (!currentId) {
@@ -882,9 +901,8 @@ export default function AgentsPage() {
     const checkoutReturn = readStripeCheckoutReturnState();
     if (!checkoutReturn) return;
 
-    checkoutReturnHandledRef.current = true;
-
     if (checkoutReturn.status === "cancelled") {
+      checkoutReturnHandledRef.current = true;
       clearPendingPlanCheckout();
       setCheckoutSync({
         status: "cancelled",
@@ -942,6 +960,7 @@ export default function AgentsPage() {
         });
       }
 
+      checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
     })();
 
@@ -949,6 +968,12 @@ export default function AgentsPage() {
       active = false;
     };
   }, [fetchAgents]);
+
+  useEffect(() => {
+    if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;
+    const timer = setTimeout(() => setCheckoutSync(null), 5000);
+    return () => clearTimeout(timer);
+  }, [checkoutSync]);
 
   const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
   const upgradeProducts = useMemo(
@@ -2546,6 +2571,7 @@ export default function AgentsPage() {
           <UpgradePlanCatalogModal
             open={upgradeCatalogOpen}
             products={upgradeProducts}
+            catalogPlans={catalogPlans}
             ownedCounts={upgradeOwnedCounts}
             loading={upgradeCatalogLoading}
             error={upgradeCatalogError}
@@ -2629,6 +2655,7 @@ export default function AgentsPage() {
             setMobileShowChat(true);
           }}
           settingsActive={mainTab === "settings"}
+          onLogout={logout}
           budget={budget}
           subscriptionSummary={subscriptionSummary}
           catalogPlans={catalogPlans}
@@ -2790,6 +2817,7 @@ export default function AgentsPage() {
               onStopAgent={() => {
                 if (selectedAgent) void handleStop(selectedAgent.id);
               }}
+              onLogout={logout}
               agentStarting={selectedAgentStarting}
               agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
               agentStartBlocked={selectedAgentLaunchBlocked}

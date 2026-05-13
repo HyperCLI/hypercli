@@ -215,7 +215,7 @@ export function AgentWorkspaceSidebar({
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={`flex ${
         isCollapsed ? "w-12" : "w-52"
-      } relative h-full shrink-0 flex-col border-r border-border bg-background transition-[width] duration-200 ease-out`}
+      } relative h-full shrink-0 flex-col border-r border-border bg-[#232323] transition-[width] duration-200 ease-out`}
     >
       <div
         className={`flex h-14 shrink-0 items-center border-b border-border ${

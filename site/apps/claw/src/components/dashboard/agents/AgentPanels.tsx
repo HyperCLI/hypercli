@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, MessageSquare, PanelLeftOpen, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, PanelLeftOpen, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -456,6 +456,7 @@ interface AgentSettingsPanelProps {
   getToken?: () => Promise<string>;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
+  onLogout?: () => void | Promise<void>;
   agentStarting?: boolean;
   agentStopping?: boolean;
   agentStartBlocked?: boolean;
@@ -547,6 +548,7 @@ function AgentGeneralSettingsContent({
   onAvatarSelect,
   onAvatarRemove,
   avatarUpdatesEnabled,
+  onLogout,
 }: {
   user: AgentSettingsPanelProps["user"];
   profileName: string;
@@ -557,6 +559,7 @@ function AgentGeneralSettingsContent({
   onAvatarSelect: (event: React.ChangeEvent<HTMLInputElement>) => void;
   onAvatarRemove: () => void;
   avatarUpdatesEnabled: boolean;
+  onLogout?: () => void | Promise<void>;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const email = user?.email || "";
@@ -655,6 +658,19 @@ function AgentGeneralSettingsContent({
               </div>
             </div>
           </AgentProfileSettingsRow>
+
+          {onLogout ? (
+            <AgentProfileSettingsRow label="Sign out" description="End your session on this browser.">
+              <button
+                type="button"
+                onClick={() => { void onLogout(); }}
+                className={`${SETTINGS_DANGER_BUTTON_CLASS} gap-2`}
+              >
+                <LogOut className="h-3.5 w-3.5" />
+                Sign out
+              </button>
+            </AgentProfileSettingsRow>
+          ) : null}
         </section>
       </div>
     </div>
@@ -1221,6 +1237,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     getToken,
     onStartAgent,
     onStopAgent,
+    onLogout,
     agentStarting = false,
     agentStopping = false,
     agentStartBlocked = false,
@@ -1464,6 +1481,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAvatarSelect={handleAvatarSelect}
             onAvatarRemove={() => setProfileAvatar(null)}
             avatarUpdatesEnabled={false}
+            onLogout={onLogout}
           />
         ) : activeSettingsSection === "agent" ? (
           <AgentSectionSettingsContent
@@ -1640,6 +1658,7 @@ interface AgentListProps {
   accountInitial?: string;
   onOpenSettings?: () => void;
   settingsActive?: boolean;
+  onLogout?: () => void | Promise<void>;
   budget?: {
     slots: Record<string, { granted: number; used: number; available: number }>;
     pooled_tpd: number;
@@ -1691,6 +1710,7 @@ export function AgentList({
   accountInitial,
   onOpenSettings,
   settingsActive = false,
+  onLogout,
   budget,
   subscriptionSummary,
   catalogPlans,
@@ -1736,7 +1756,7 @@ export function AgentList({
 
   return (
     <motion.div
-      className={`relative flex-shrink-0 h-full overflow-visible bg-background ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      className={`relative h-full flex-shrink-0 overflow-visible bg-[#232323] ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
       animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
       transition={{ type: "spring", stiffness: 360, damping: 32 }}
     >
@@ -1749,7 +1769,7 @@ export function AgentList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="w-12 h-full flex flex-col bg-background overflow-visible"
+            className="flex h-full w-12 flex-col overflow-visible bg-[#232323]"
           >
             <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
               <button
@@ -1787,7 +1807,7 @@ export function AgentList({
                           setMobileShowChat(true);
                         }}
                         aria-label={`Select ${a.name || a.id}`}
-                        className={`relative w-8 h-8 rounded-full flex items-center justify-center transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-background" : ""}`}
+                        className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-[#232323]" : ""}`}
                         style={{ backgroundColor: av.bgColor }}
                       >
                         {av.imageUrl ? (
@@ -1813,6 +1833,7 @@ export function AgentList({
               accountInitial={accountInitial}
               onOpenAgentSettings={onOpenSettings}
               agentSettingsActive={settingsActive}
+              onLogout={onLogout}
             />
           </motion.div>
         ) : (
@@ -1852,6 +1873,7 @@ export function AgentList({
               accountInitial={accountInitial}
               onOpenAgentSettings={onOpenSettings}
               agentSettingsActive={settingsActive}
+              onLogout={onLogout}
               onDeleteThread={(threadId) => {
                 const a = agents.find((x) => x.id === threadId);
                 if (a) setPendingAgentDelete({ id: a.id, name: a.name || a.id });

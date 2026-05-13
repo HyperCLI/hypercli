@@ -384,12 +384,12 @@ export default function DevAgentSetupAgentsPage() {
         setDeployments(agentClient);
       }
       const hyperAgent = createHyperAgentClient(token);
-      const [listedAgents, catalogData, currentPlan, summaryData, usageSummary, typeCatalogData] = await Promise.all([
+      const [listedAgents, catalogData, currentPlan, summaryData, dailyUsage, typeCatalogData] = await Promise.all([
         agentClient.list(),
         hyperAgent.plans().catch(() => []),
         hyperAgent.currentPlan().catch(() => null),
         hyperAgent.subscriptionSummary().catch(() => null),
-        hyperAgent.usageSummary().catch(() => null),
+        hyperAgent.usageHistory(1).catch(() => null),
         hyperAgent.agentTypes().catch(() => null),
       ]);
       const plans = Array.isArray(catalogData) ? catalogData : [];
@@ -401,7 +401,7 @@ export default function DevAgentSetupAgentsPage() {
       setCatalogPlans(plans);
       setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
       setSubscriptionSummary(summary);
-      setTokenUsage(usageSummary?.totalTokens ?? null);
+      setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
       setAgentClusterUnavailable(false);
       const setupCreatedAgentId = window.sessionStorage.getItem("dev-agent-setup-created-agent-id");
       setSelectedAgentId((currentId) => {
