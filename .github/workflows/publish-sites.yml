@@ -17,6 +17,7 @@ on:
         type: choice
         options:
           - dev
+          - feat
           - prod
         default: prod
 
@@ -48,10 +49,13 @@ jobs:
         env:
           NETLIFY_AUTH_TOKEN: ${{ secrets.NETLIFY_AUTH_TOKEN }}
           NETLIFY_CLAW_DEV_SITE_ID: ${{ secrets.NETLIFY_CLAW_DEV_SITE_ID }}
+          NETLIFY_CLAW_FEAT_SITE_ID: ${{ secrets.NETLIFY_CLAW_FEAT_SITE_ID }}
           NETLIFY_CLAW_PROD_SITE_ID: ${{ secrets.NETLIFY_CLAW_PROD_SITE_ID }}
           NETLIFY_CONSOLE_DEV_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_DEV_SITE_ID }}
+          NETLIFY_CONSOLE_FEAT_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_FEAT_SITE_ID }}
           NETLIFY_CONSOLE_PROD_SITE_ID: ${{ secrets.NETLIFY_CONSOLE_PROD_SITE_ID }}
           NETLIFY_MAIN_DEV_SITE_ID: ${{ secrets.NETLIFY_MAIN_DEV_SITE_ID }}
+          NETLIFY_MAIN_FEAT_SITE_ID: ${{ secrets.NETLIFY_MAIN_FEAT_SITE_ID }}
           NETLIFY_MAIN_PROD_SITE_ID: ${{ secrets.NETLIFY_MAIN_PROD_SITE_ID }}
         run: |
           set -euo pipefail
@@ -76,6 +80,16 @@ jobs:
                 "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_PROD_SITE_ID}" \
                 "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_PROD_SITE_ID}" \
                 "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_PROD_SITE_ID}")"
+              ;;
+            feat)
+              env_file="site/env.feat"
+              require_site_id "${NETLIFY_MAIN_FEAT_SITE_ID:-}" "NETLIFY_MAIN_FEAT_SITE_ID"
+              require_site_id "${NETLIFY_CONSOLE_FEAT_SITE_ID:-}" "NETLIFY_CONSOLE_FEAT_SITE_ID"
+              require_site_id "${NETLIFY_CLAW_FEAT_SITE_ID:-}" "NETLIFY_CLAW_FEAT_SITE_ID"
+              site_targets="$(printf '%s\n' \
+                "main|@hypercli/main|apps/main|.site-artifact/main|${NETLIFY_MAIN_FEAT_SITE_ID}" \
+                "console|@hypercli/console|apps/console|.site-artifact/console|${NETLIFY_CONSOLE_FEAT_SITE_ID}" \
+                "claw|@hypercli/claw|apps/claw|.site-artifact/claw|${NETLIFY_CLAW_FEAT_SITE_ID}")"
               ;;
             dev)
               env_file="site/env.dev"
@@ -103,7 +117,7 @@ jobs:
           SITE_ENV_FILE="${env_file}" \
           SITE_TARGETS="${site_targets}" \
           NETLIFY_PROD=true \
-          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA}" \
+          NETLIFY_DEPLOY_MESSAGE="GitHub CI ${GITHUB_SHA} (${deploy_env})" \
             .github/scripts/run_site_image.sh
 
       - name: Notify site build result

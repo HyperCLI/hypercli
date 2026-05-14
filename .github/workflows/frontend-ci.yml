@@ -21,7 +21,7 @@ jobs:
     needs: sdk
     uses: ./.github/workflows/publish-sites.yml
     with:
-      deploy_environment: dev
+      deploy_environment: ${{ github.ref_name == 'main' && 'feat' || 'dev' }}
     secrets: inherit
 
   e2e-console:
