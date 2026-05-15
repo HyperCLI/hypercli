@@ -8,6 +8,7 @@ import type { ChatMessage as ChatMessageType } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
 
 // ── Helpers ──
 
@@ -60,6 +61,12 @@ interface AgentFileReference {
 type ToolCall = NonNullable<ChatMessageType["toolCalls"]>[number];
 
 const THINKING_PREVIEW_LINES = 2;
+const MARKDOWN_WRAP_CLASS = "min-w-0 max-w-full break-words [overflow-wrap:anywhere]";
+const MARKDOWN_BLOCK_CLASS = `${MARKDOWN_WRAP_CLASS} mb-2 last:mb-0`;
+const MARKDOWN_INLINE_CODE_CLASS = "max-w-full break-words rounded bg-background/50 px-1 py-0.5 font-mono text-xs text-[#f0c56c] [overflow-wrap:anywhere]";
+const MARKDOWN_PRE_CLASS = "my-2 max-w-full overflow-x-auto rounded-md border border-border bg-background/50 px-3 py-2 font-mono text-xs";
+const MARKDOWN_IMAGE_CLASS = "h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]";
+const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
 
 /**
  * Markdown component config — lifted to module scope so the reference is stable
@@ -68,38 +75,53 @@ const THINKING_PREVIEW_LINES = 2;
  * skip work where possible.
  */
 const MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
-  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
+  p: ({ children }) => <p className={MARKDOWN_BLOCK_CLASS}>{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
   em: ({ children }) => <em className="italic">{children}</em>,
   code: ({ children, className }) => {
     const isBlock = className?.includes("language-");
     return isBlock ? (
-      <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
+      <pre className={MARKDOWN_PRE_CLASS}>
         <code>{children}</code>
       </pre>
     ) : (
-      <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
+      <code className={MARKDOWN_INLINE_CODE_CLASS}>{children}</code>
     );
   },
   pre: ({ children }) => <>{children}</>,
-  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-  li: ({ children }) => <li>{children}</li>,
+  ul: ({ children }) => <ul className={`${MARKDOWN_WRAP_CLASS} mb-2 list-disc space-y-1 pl-4`}>{children}</ul>,
+  ol: ({ children }) => <ol className={`${MARKDOWN_WRAP_CLASS} mb-2 list-decimal space-y-1 pl-4`}>{children}</ol>,
+  li: ({ children }) => <li className={MARKDOWN_WRAP_CLASS}>{children}</li>,
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="break-words text-accent hover:underline [overflow-wrap:anywhere]">
       {children}
     </a>
   ),
-  h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
+  h1: ({ children }) => <h1 className={`${MARKDOWN_WRAP_CLASS} mb-2 text-lg font-bold`}>{children}</h1>,
+  h2: ({ children }) => <h2 className={`${MARKDOWN_WRAP_CLASS} mb-2 text-base font-bold`}>{children}</h2>,
+  h3: ({ children }) => <h3 className={`${MARKDOWN_WRAP_CLASS} mb-1 text-sm font-bold`}>{children}</h3>,
   blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
+    <blockquote className={`${MARKDOWN_WRAP_CLASS} my-2 border-l-2 border-text-muted pl-3 italic text-text-secondary`}>{children}</blockquote>
   ),
   hr: () => <hr className="border-border my-3" />,
+  table: ({ children }) => (
+    <div className="my-2 max-w-full overflow-x-auto">
+      <table className="w-full min-w-max text-left text-xs">{children}</table>
+    </div>
+  ),
+  th: ({ children }) => <th className="border-b border-border px-2 py-1 font-semibold text-foreground">{children}</th>,
+  td: ({ children }) => <td className="border-b border-border/60 px-2 py-1 text-text-secondary">{children}</td>,
   img: ({ src, alt }) => typeof src === "string" && src ? (
-    <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
-      <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
+    <a href={src} target="_blank" rel="noopener noreferrer" className={`${CHAT_MEDIA_LINK_CLASS} my-2`}>
+      <ResourceImage
+        src={src}
+        alt={typeof alt === "string" ? alt : "image"}
+        width={320}
+        height={320}
+        sizes="(max-width: 640px) 100vw, 320px"
+        className={MARKDOWN_IMAGE_CLASS}
+        loading="lazy"
+      />
     </a>
   ) : null,
 };
@@ -249,8 +271,16 @@ export function AuthImage({
   if (!blobUrl) return null;
 
   return (
-    <a href={blobUrl} target="_blank" rel="noopener noreferrer">
-      <img src={blobUrl} alt={alt} className={className} loading="lazy" />
+    <a href={blobUrl} target="_blank" rel="noopener noreferrer" className="block max-w-full">
+      <ResourceImage
+        src={blobUrl}
+        alt={alt}
+        width={320}
+        height={320}
+        sizes="(max-width: 640px) 100vw, 320px"
+        className={className}
+        loading="lazy"
+      />
     </a>
   );
 }
@@ -270,12 +300,14 @@ function AgentMessageAvatar({
   const AvatarIcon = avatar.icon;
 
   return (
-    <div className={`${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
+    <div className={`relative ${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
       {avatar.imageUrl ? (
-        <span
-          aria-label={`${name} avatar`}
-          className="h-full w-full bg-cover bg-center"
-          style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+        <ResourceImage
+          src={avatar.imageUrl}
+          alt={`${name} avatar`}
+          fill
+          sizes="28px"
+          className="object-cover"
         />
       ) : (
         <AvatarIcon className={iconClass} style={{ color: avatar.fgColor }} />
@@ -352,22 +384,23 @@ function getThinkingButtonClass(theme: ThemeVariant): string {
 }
 
 function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
+  const baseClass = "mb-2 w-full min-w-0 max-w-full text-xs overflow-hidden";
   if (theme === "v1") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/8 border border-[#38D39F]/25 rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/8 border border-[#f0c56c]/25 rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border border-[#38D39F]/25 bg-[#38D39F]/8`
+      : `${baseClass} rounded-md border border-[#f0c56c]/25 bg-[#f0c56c]/8`;
   }
   if (theme === "v2") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/8 border-l-4 border-[#38D39F] rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/8 border-l-4 border-[#f0c56c] rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border-l-4 border-[#38D39F] bg-[#38D39F]/8`
+      : `${baseClass} rounded-md border-l-4 border-[#f0c56c] bg-[#f0c56c]/8`;
   }
   if (theme === "v3") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/10 border border-[#38D39F]/30 rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/10 border border-[#f0c56c]/30 rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border border-[#38D39F]/30 bg-[#38D39F]/10`
+      : `${baseClass} rounded-md border border-[#f0c56c]/30 bg-[#f0c56c]/10`;
   }
-  return "mb-2 text-xs bg-background/50 border border-border rounded-md overflow-hidden";
+  return `${baseClass} rounded-md border border-border bg-background/50`;
 }
 
 const TOOL_PENDING_TIMEOUT_MS = 45_000;
@@ -423,7 +456,7 @@ function ToolCallDisclosure({
     <div className={getToolCallClass(themeVariant, hasResult)}>
       <button
         onClick={() => onToggle(index, defaultOpen)}
-        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 hover:bg-surface-low transition-colors text-left"
+        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-low"
       >
         {pending ? (
           <Loader2 className="w-3 h-3 text-[#f0c56c] animate-spin shrink-0" />
@@ -432,8 +465,8 @@ function ToolCallDisclosure({
         ) : (
           <Wrench className="w-3 h-3 text-text-muted shrink-0" />
         )}
-        <span className="text-[#f0c56c] font-medium">{tc.name}</span>
-        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="min-w-0 max-w-[45%] truncate font-medium text-[#f0c56c]">{tc.name}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-muted">
           {pending ? "Running" : hasResult ? "Done" : "Called"}
         </span>
         {!isOpen && summary && (
@@ -448,25 +481,25 @@ function ToolCallDisclosure({
       {isOpen && (
         <div className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
           {argsDetail && (
-            <div>
+            <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Arguments</p>
-              <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-mono">{argsDetail}</pre>
+              <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail}</pre>
             </div>
           )}
           {resultDetail && (
-            <div>
+            <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Result</p>
-              <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words font-mono">{resultDetail}</pre>
+              <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail}</pre>
             </div>
           )}
         </div>
       )}
       {imageFile && (
-        <div className="px-2.5 py-2 border-t border-border">
+        <div className="max-w-full border-t border-border px-2.5 py-2">
           <AuthImage
             file={imageFile}
             alt={imagePath?.split("/").pop() || "generated image"}
-            className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+            className={MARKDOWN_IMAGE_CLASS}
           />
         </div>
       )}
@@ -522,7 +555,7 @@ function ToolCallStackDisclosure({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
       >
         <motion.span
           className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-background/70"
@@ -545,8 +578,8 @@ function ToolCallStackDisclosure({
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
+            <span className="min-w-0 truncate font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
               {statusLabel}
             </span>
           </span>
@@ -678,8 +711,8 @@ export function ChatMessageBubble({
 
   if (isSystem) {
     return (
-      <div className="flex justify-center">
-        <div className="max-w-[85%] rounded-lg px-4 py-2 text-sm bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-[#d05f5f]">
+      <div className="flex min-w-0 max-w-full justify-center">
+        <div className="max-w-[85%] break-words rounded-lg border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-2 text-sm text-[#d05f5f] [overflow-wrap:anywhere]">
           {message.content}
         </div>
       </div>
@@ -710,7 +743,7 @@ export function ChatMessageBubble({
 
   return (
     <motion.div
-      className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-2 group`}
+      className={`group flex min-w-0 max-w-full ${isUser ? "justify-end" : "justify-start"} items-start gap-2`}
       {...getEntranceProps(animationVariant, isUser)}
     >
       {/* v2 name: avatar circle to the left */}
@@ -732,24 +765,24 @@ export function ChatMessageBubble({
         );
       })()}
 
-      <div className={`flex flex-col min-w-0 ${isUser ? "items-end" : "items-start flex-1"}`}>
+      <div className={`flex min-w-0 flex-col ${isUser ? "max-w-[calc(100%-2.25rem)] items-end" : "flex-1 items-start"}`}>
 
         {/* v1 name: monogram + muted label above bubble */}
         {showV1Name && (() => {
           if (isUser) {
             return (
-              <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+              <div className="mb-1 flex max-w-full items-center gap-1.5 min-w-0 flex-row-reverse">
                 <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
                   <span className="text-[9px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
                 </div>
-                <span className="text-[11px] text-text-muted">{effectiveName}</span>
+                <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
               </div>
             );
           }
           return (
-            <div className="flex items-center gap-1.5 mb-1">
+            <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5">
               <AgentMessageAvatar name={effectiveName} meta={agentMeta} sizeClass="w-5 h-5" iconClass="w-3 h-3" />
-              <span className="text-[11px] text-text-muted">{effectiveName}</span>
+              <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
             </div>
           );
         })()}
@@ -761,7 +794,7 @@ export function ChatMessageBubble({
             className="group/think w-full max-w-full mb-2 text-left text-xs italic text-text-muted/70 hover:text-text-muted transition-colors pl-2.5 border-l border-[#38D39F]/30 hover:border-[#38D39F]/60"
           >
             {thinkingOpen ? (
-              <span className="whitespace-pre-wrap leading-relaxed block">{message.thinking}</span>
+              <span className="block whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{message.thinking}</span>
             ) : (
               <span className="line-clamp-2 leading-relaxed">
                 {thinkingPreview?.preview ?? message.thinking}
@@ -805,25 +838,31 @@ export function ChatMessageBubble({
 
         {/* User-sent image attachments */}
         {message.attachments && message.attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {message.attachments.map((att, i) => (
-              <img
-                key={i}
-                src={`data:${att.mimeType};base64,${att.content}`}
-                alt={att.fileName || "attachment"}
-                className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
-                onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
-              />
-            ))}
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
+            {message.attachments.map((att, i) => {
+              const attachmentSrc = `data:${att.mimeType};base64,${att.content}`;
+              return (
+                <ResourceImage
+                  key={i}
+                  src={attachmentSrc}
+                  alt={att.fileName || "attachment"}
+                  width={240}
+                  height={240}
+                  sizes="(max-width: 640px) 100vw, 240px"
+                  className="h-auto max-h-[240px] max-w-full cursor-pointer rounded-md object-cover sm:max-w-[240px]"
+                  onClick={() => window.open(attachmentSrc, "_blank")}
+                />
+              );
+            })}
           </div>
         )}
 
         {message.files && message.files.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
             {message.files.map((file, i) => (
               <div
                 key={`${file.name}-${i}`}
-                className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
               >
                 <Paperclip className="h-3.5 w-3.5 shrink-0" />
                 <span className="truncate">{file.name}</span>
@@ -834,16 +873,19 @@ export function ChatMessageBubble({
 
         {/* Agent-sent media (URLs) */}
         {message.mediaUrls && message.mediaUrls.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
             {message.mediaUrls.map((url, i) => {
               const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
               if (isImage) {
                 return (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                    <img
+                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" className={CHAT_MEDIA_LINK_CLASS}>
+                    <ResourceImage
                       src={url}
                       alt="media"
-                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                      width={320}
+                      height={320}
+                      sizes="(max-width: 640px) 100vw, 320px"
+                      className={MARKDOWN_IMAGE_CLASS}
                       loading="lazy"
                     />
                   </a>
@@ -856,7 +898,7 @@ export function ChatMessageBubble({
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-accent hover:underline text-xs"
+                  className="max-w-full break-words text-xs text-accent hover:underline [overflow-wrap:anywhere]"
                 >
                   {url.split("/").pop() || "media"}
                 </a>
@@ -867,10 +909,10 @@ export function ChatMessageBubble({
 
         {/* Content */}
         {(effectiveContent || showStreamingDot) && (
-          <div className={`relative w-full ${showStreamingDot ? "pb-5" : ""}`}>
+          <div className={`relative w-full min-w-0 max-w-full ${showStreamingDot ? "pb-5" : ""}`}>
             {effectiveContent && (
               <div
-                className="leading-relaxed prose-chat relative"
+                className="prose-chat relative max-w-full leading-relaxed"
                 style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
               >
                 {isStreaming && !isUser ? (

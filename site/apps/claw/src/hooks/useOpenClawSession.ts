@@ -28,6 +28,7 @@ export function useOpenClawSession(
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hydrating, setHydrating] = useState(false);
+  const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [pendingInput, setPendingInput] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
@@ -53,6 +54,7 @@ export function useOpenClawSession(
       setStatus("disconnected");
       setError(null);
       setHydrating(false);
+      setReady(false);
       return () => {
         active = false;
       };
@@ -62,6 +64,7 @@ export function useOpenClawSession(
     setStatus("connecting");
     setError(null);
     setHydrating(false);
+    setReady(false);
 
     void (async () => {
       try {
@@ -85,6 +88,9 @@ export function useOpenClawSession(
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
           setStatus(nextState);
+          if (nextState !== "connected") {
+            setReady(false);
+          }
           if (nextState === "connected") {
             setError(null);
           }
@@ -102,6 +108,7 @@ export function useOpenClawSession(
         setGateway(null);
         setStatus("disconnected");
         setHydrating(false);
+        setReady(false);
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
@@ -136,6 +143,7 @@ export function useOpenClawSession(
   useEffect(() => {
     if (!gateway || status !== "connected") return;
     let cancelled = false;
+    setReady(false);
     setHydrating(true);
     void (async () => {
       try {
@@ -151,6 +159,11 @@ export function useOpenClawSession(
         setSessions(hydrated.sessions);
         setCronJobs(hydrated.cronJobs);
         setModels(hydrated.models);
+        setReady(true);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setReady(false);
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -164,6 +177,7 @@ export function useOpenClawSession(
     if (status !== "disconnected") return;
     activeChatSendRef.current = false;
     setHydrating(false);
+    setReady(false);
     setMessages([]);
     setFiles([]);
     setConfig(null);
@@ -228,7 +242,7 @@ export function useOpenClawSession(
   }, []);
 
   const sendMessage = useCallback(async (overrideInput?: string) => {
-    if (!gateway) throw new Error("Not connected");
+    if (!gateway || !ready) throw new Error("Chat is not ready");
     const nextInput = typeof overrideInput === "string" ? overrideInput : input;
     const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
     const nextFiles = typeof overrideInput === "string" ? [] : pendingFiles;
@@ -284,15 +298,16 @@ export function useOpenClawSession(
         setSending(false);
       }
     }
-  }, [gateway, input, pendingAttachments, pendingFiles, sending, appendActivity, agent?.id]);
+  }, [gateway, ready, input, pendingAttachments, pendingFiles, sending, appendActivity, agent?.id]);
 
   useEffect(() => {
+    if (!ready) return;
     if (!sending && pendingInput.length > 0) {
       const nextMessage = pendingInput[0];
       setPendingInput((prev) => prev.slice(1));
       void sendMessage(nextMessage);
     }
-  }, [sending, pendingInput, sendMessage]);
+  }, [ready, sending, pendingInput, sendMessage]);
 
   const openFile = useCallback(async (name: string): Promise<string> => {
     if (!gateway) throw new Error("Not connected");
@@ -361,12 +376,17 @@ export function useOpenClawSession(
     return gateway.cronRun(jobId);
   }, [gateway, appendActivity]);
 
+  const connected = status === "connected" && ready && !hydrating;
+  const connecting = status === "connecting" || hydrating || (status === "connected" && !ready && !error);
+
   return {
     gateway,
     status,
     error,
-    connected: status === "connected",
-    connecting: status === "connecting",
+    ready,
+    gatewayConnected: status === "connected",
+    connected,
+    connecting,
     hydrating,
     messages,
     sendMessage,

@@ -48,25 +48,40 @@ describe("AgentLaunchPrompt", () => {
       <AgentLaunchPrompt label="Logs" launching={true} onLaunch={onLaunch} blockedTitle="Starting" />,
     );
 
-    const launchButton = screen.getByRole("button", { name: /start agent to use logs/i });
-    expect(launchButton).toHaveAttribute("title", "Starting");
-    await userEvent.click(launchButton);
+    expect(screen.getByText("Booting agent")).toBeInTheDocument();
+    expect(screen.getByText("Starting the runtime and gateway.")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start agent to use logs/i })).not.toBeInTheDocument();
     expect(onLaunch).not.toHaveBeenCalled();
   });
 });
 
 describe("AgentLoadingState", () => {
-  it("shows gateway as the active lifecycle step while waiting", () => {
-    renderWithClient(
+  it("shows the shared gateway loading state", () => {
+    renderWithClient(<AgentLoadingState />);
+
+    expect(screen.getByText("Connecting gateway .")).toBeInTheDocument();
+    expect(screen.getByText("Opening the agent session")).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+  });
+
+  it("keeps the loading animation mounted while status text changes", () => {
+    const { rerender } = renderWithClient(
       <AgentLoadingState
-        title="Waiting for gateway"
-        detail="The runtime is up. Reconnecting to the agent session."
-        tone="connecting"
-        stage="gateway"
+        title="Provisioning runtime"
+        detail="Reserving compute and preparing the workspace."
+      />,
+    );
+    const animation = screen.getByRole("img", { name: /agent workspace loading/i });
+
+    rerender(
+      <AgentLoadingState
+        title="Booting agent"
+        detail="Starting the container and OpenClaw services."
       />,
     );
 
-    expect(screen.getByText("Waiting for gateway")).toBeInTheDocument();
-    expect(screen.getByLabelText(/runtime complete, agent complete, gateway active/i)).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBe(animation);
+    expect(screen.getByText("Booting agent")).toBeInTheDocument();
+    expect(screen.getByText("Starting the container and OpenClaw services.")).toBeInTheDocument();
   });
 });

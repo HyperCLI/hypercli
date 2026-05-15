@@ -13,27 +13,17 @@ import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
   Check,
-  Key,
-  CreditCard,
-  ExternalLink,
   Loader2,
   Plus,
   MessageSquare,
-  RefreshCw,
-  TerminalSquare,
   Trash2,
   Settings,
   SlidersHorizontal,
-  PanelLeft,
-  PanelLeftOpen,
   Plug,
-  Menu,
   X,
-  Gauge,
   Link2,
   Zap,
   Timer,
-  FolderOpen,
   Sparkles,
 } from "lucide-react";
 import "@xterm/xterm/css/xterm.css";
@@ -42,7 +32,6 @@ import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createAgentClient, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens, type SlotInventoryEntry } from "@/lib/format";
-import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
@@ -51,11 +40,12 @@ import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
-import { MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import { AgentsChannelsSidebar, MOCK_PARTICIPANTS, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWizard";
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
+import { FirstAgentSetupWizard } from "@/components/dashboard/agents/FirstAgentSetupWizard";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -66,7 +56,7 @@ import type {
   HyperAgentSubscriptionSummary,
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
-import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "./types";
+import type { Agent, AgentBudget, AgentState, JsonObject } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -124,6 +114,7 @@ const SCHEDULED_SECTION_ENABLED = true;
 const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available yet.";
 const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
+const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 
 interface UpgradeDisplayProduct {
   id: string;
@@ -649,8 +640,8 @@ function getWorkspaceSidebarDisabledReason({
   hydrating: boolean;
 }): string {
   if (agentsLoading) return "Loading agents.";
-  if (connecting) return "Opening the gateway connection.";
   if (hydrating) return "Fetching messages, files, and config.";
+  if (connecting) return "Opening the gateway connection.";
   return "Workspace is loading.";
 }
 // Shell now routes through the gateway WebSocket via lagoon -> K8s exec.
@@ -664,7 +655,7 @@ export default function AgentsPage() {
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
     if (typeof window === "undefined") return true;
-    return window.matchMedia("(min-width: 768px)").matches;
+    return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
   });
 
   // Agent data
@@ -690,7 +681,6 @@ export default function AgentsPage() {
   const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const slotReleaseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const checkoutReturnHandledRef = useRef(false);
-  const [openingDesktopId, setOpeningDesktopId] = useState<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -706,7 +696,9 @@ export default function AgentsPage() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [mainTab, setMainTab] = useState<MainTab>("chat");
   const [mobileShowChat, setMobileShowChat] = useState(false);
-  const [mobileAgentMenuOpen, setMobileAgentMenuOpen] = useState(false);
+  const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
+  const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
+  const [mobileAgentLauncherOpen, setMobileAgentLauncherOpen] = useState(false);
   const [sidebarCreatorSignal, setSidebarCreatorSignal] = useState(0);
   const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
 
@@ -731,6 +723,7 @@ export default function AgentsPage() {
   const [showChannelWizard, setShowChannelWizard] = useState(false);
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
   const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
+  const [directoryDetailOrigin, setDirectoryDetailOrigin] = useState<"chat" | null>(null);
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -738,12 +731,18 @@ export default function AgentsPage() {
 
   useLayoutEffect(() => {
     if (typeof window === "undefined") return;
-    const mediaQuery = window.matchMedia("(min-width: 768px)");
+    const mediaQuery = window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY);
     const apply = () => setIsDesktopViewport(mediaQuery.matches);
     apply();
     mediaQuery.addEventListener("change", apply);
     return () => mediaQuery.removeEventListener("change", apply);
   }, []);
+
+  useEffect(() => {
+    if (!isDesktopViewport) return;
+    setMobileAgentsSidebarOpen(false);
+    setMobileWorkspaceSidebarOpen(false);
+  }, [isDesktopViewport]);
 
   // Settings panel state
   const [settingsName, setSettingsName] = useState("");
@@ -767,6 +766,7 @@ export default function AgentsPage() {
       const category = getCategoryForPlugin(suggestion.directoryPluginId) ?? undefined;
       setDirectoryCategory(category);
       setDirectoryItemId(suggestion.directoryPluginId);
+      setDirectoryDetailOrigin("chat");
       setMainTab("integrations");
       setMobileShowChat(true);
       return;
@@ -1095,32 +1095,12 @@ export default function AgentsPage() {
     settings: "Settings",
     shell: "Shell",
   };
-  const agentTabItems: Array<{ key: MainTab; label: string; icon: typeof MessageSquare }> = [
-    { key: "chat", label: "Chat", icon: MessageSquare },
-    { key: "files", label: "Files", icon: FolderOpen },
-    { key: "scheduled", label: "Scheduled", icon: Timer },
-    { key: "logs", label: "Logs", icon: TerminalSquare },
-    { key: "shell", label: "Shell", icon: TerminalSquare },
-  ];
-  const dashboardNavItems: Array<{ label: string; href: string; icon: typeof Bot }> = [
-    { label: "Overview", href: "/dashboard", icon: Bot },
-    { label: "Agents", href: "/agents", icon: Bot },
-    { label: "API Keys", href: "/keys", icon: Key },
-    { label: "Plans", href: "/plans", icon: CreditCard },
-    { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
-    { label: "Settings", href: "/dashboard/settings", icon: Settings },
-  ];
-
   // Sync settings fields when selected agent changes
   useEffect(() => {
     if (selectedAgent) {
       setSettingsName(selectedAgent.name || "");
     }
   }, [selectedAgentId]);
-
-  useEffect(() => {
-    setMobileAgentMenuOpen(false);
-  }, [mainTab, selectedAgentId, isDesktopViewport]);
 
   // ── Gateway Chat hook ──
   const handleShellData = useCallback((text: string) => {
@@ -1283,7 +1263,7 @@ export default function AgentsPage() {
     }
     return {
       label: "Ready",
-      detail: panelLabel === "workspace" ? "Gateway connected." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
+      detail: panelLabel === "workspace" ? "Chat is available." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
       tone: "ready",
     };
   }, [activeConnectionStatus, isSelectedRunning, mainTab, selectedAgent]);
@@ -1923,16 +1903,6 @@ export default function AgentsPage() {
     }
   }, [mainTab]);
 
-  // ── Desktop launch bootstrap ──
-  const issueAgentAccessToken = useCallback(
-    async (agentId: string, hostname: string): Promise<string> => {
-      const authToken = await getToken();
-      const tokenData = await createAgentClient(authToken).refreshToken(agentId) as AgentDesktopTokenResponse;
-      return `https://desktop-${hostname}/_jwt_auth?jwt=${encodeURIComponent(tokenData.token)}`;
-    },
-    [getToken]
-  );
-
   useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
 
   useEffect(() => {
@@ -2185,26 +2155,6 @@ export default function AgentsPage() {
     }
   };
 
-  const handleOpenDesktop = async (agent: Agent) => {
-    if (!agent.hostname) return;
-    const popup = window.open("about:blank", "_blank");
-    if (popup) popup.opener = null;
-    setOpeningDesktopId(agent.id);
-    setError(null);
-    try {
-      const desktopUrl = new URL(await issueAgentAccessToken(agent.id, agent.hostname));
-      if (popup) { popup.location.href = desktopUrl.toString(); } else {
-        const fallback = window.open(desktopUrl.toString(), "_blank");
-        if (fallback) fallback.opener = null;
-      }
-    } catch (err) {
-      if (popup) popup.close();
-      setError(err instanceof Error ? err.message : "Failed to open desktop");
-    } finally {
-      setOpeningDesktopId(null);
-    }
-  };
-
   // Audio recording
   const [recording, setRecording] = useState(false);
   const [recordingDuration, setRecordingDuration] = useState(0);
@@ -2443,6 +2393,7 @@ export default function AgentsPage() {
         if (tab === "integrations") {
           setDirectoryCategory(undefined);
           setDirectoryItemId(undefined);
+          setDirectoryDetailOrigin(null);
           setMainTab("integrations");
           setMobileShowChat(true);
           return;
@@ -2472,6 +2423,86 @@ export default function AgentsPage() {
   }, [selectedAgent, mainTab, deletingId, setAgentMenu, router]);
 
   // ── Render ──
+  const mobileMainPanelVisible = !isDesktopViewport || mobileShowChat || agentsLoading || !selectedAgent;
+  const closeMobileSidebars = () => {
+    setMobileAgentsSidebarOpen(false);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openAgentSettingsTab = () => {
+    setMainTab("settings");
+    setMobileShowChat(true);
+    closeMobileSidebars();
+  };
+  const openChatTab = () => {
+    setMainTab("chat");
+    setDirectoryDetailOrigin(null);
+    setOpenclawSettingsOpen(false);
+    setMobileShowChat(true);
+    closeMobileSidebars();
+  };
+  const openFilesTab = () => {
+    setMainTab("files");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openIntegrationsTab = () => {
+    setDirectoryCategory(undefined);
+    setDirectoryItemId(undefined);
+    setDirectoryDetailOrigin(null);
+    setMainTab("integrations");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openSkillsTab = () => {
+    setDirectoryCategory("skills");
+    setDirectoryItemId(undefined);
+    setDirectoryDetailOrigin(null);
+    setMainTab("integrations");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openScheduledTab = () => {
+    if (!SCHEDULED_SECTION_ENABLED) return;
+    setMainTab("scheduled");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openLogsTab = () => {
+    setMainTab("logs");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openShellTab = () => {
+    setMainTab("shell");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openOpenClawSettings = () => {
+    if (!selectedAgent) {
+      openAgentSettingsTab();
+      return;
+    }
+    setOpenclawSettingsOpen(true);
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+  };
+  const openMobileAgentLauncher = () => {
+    setMobileAgentsSidebarOpen(false);
+    setMobileAgentLauncherOpen(true);
+  };
+  const createMobileAgentFromLauncher = async (params: { name: string; iconIndex: number; size: string }) => {
+    try {
+      const createdId = await handleCreateFirstAgent(params);
+      if (createdId) {
+        setMobileAgentLauncherOpen(false);
+        setMobileAgentsSidebarOpen(false);
+      }
+      return createdId;
+    } catch {
+      return null;
+    }
+  };
+  const showMobileChatReturn = !isDesktopViewport && (mainTab !== "chat" || openclawSettingsOpen);
 
   return (
     <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
@@ -2482,101 +2513,57 @@ export default function AgentsPage() {
             <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
-          <button
-            onClick={() => setMobileAgentMenuOpen((open) => !open)}
-            className="p-2 rounded-lg border border-border text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-            aria-label={mobileAgentMenuOpen ? "Close agent menu" : "Open agent menu"}
-          >
-            {mobileAgentMenuOpen ? <X className="w-4 h-4" /> : <Menu className="w-4 h-4" />}
-          </button>
-
-          {mobileAgentMenuOpen && (
-            <div className="absolute right-4 top-[calc(100%-0.25rem)] z-30 w-64 rounded-xl border border-border bg-background shadow-2xl">
-              <div className="p-2 space-y-1">
-                <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
-                  Dashboard
-                </p>
-                {dashboardNavItems.map(({ label, href, icon: Icon }) => (
-                  <button
-                    key={`mobile-nav-${href}`}
-                    onClick={() => {
-                      router.push(href);
-                      setMobileAgentMenuOpen(false);
-                    }}
-                    className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                  >
-                    <Icon className="w-4 h-4" />
-                    <span>{label}</span>
-                  </button>
-                ))}
-              </div>
-              {selectedAgent && (
-                <>
-                  <div className="border-t border-border p-2 space-y-1">
-                    <p className="px-3 pb-1 text-[11px] font-medium uppercase tracking-wider text-text-muted">
-                      Agent
-                    </p>
-                    {agentTabItems.map(({ key, label, icon: Icon }) => (
-                      <button
-                        key={`mobile-tab-${key}`}
-                        onClick={() => {
-                          setMainTab(key);
-                          setMobileAgentMenuOpen(false);
-                        }}
-                        className={`w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm transition-colors ${
-                          mainTab === key
-                            ? "bg-surface-low text-foreground"
-                            : "text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                        }`}
-                      >
-                        <Icon className="w-4 h-4" />
-                        <span>{label}</span>
-                      </button>
-                    ))}
-                  </div>
-                  <div className="border-t border-border p-2 space-y-1">
-                    {(mainTab === "logs" || mainTab === "shell") && (
-                      <button
-                        onClick={() => {
-                          if (mainTab === "logs") reconnectLogs();
-                          if (mainTab === "shell") reconnectShell();
-                          setMobileAgentMenuOpen(false);
-                        }}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70"
-                      >
-                        <RefreshCw className="w-4 h-4" />
-                        <span>Reconnect</span>
-                      </button>
-                    )}
-                    {isSelectedRunning && selectedAgent.hostname && (
-                      <button
-                        onClick={() => {
-                          void handleOpenDesktop(selectedAgent);
-                          setMobileAgentMenuOpen(false);
-                        }}
-                        disabled={openingDesktopId === selectedAgent.id}
-                        className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-foreground hover:bg-surface-low/70 disabled:opacity-60"
-                      >
-                        {openingDesktopId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <ExternalLink className="w-4 h-4" />}
-                        <span>Desktop</span>
-                      </button>
-                    )}
-                    <button
-                      onClick={() => {
-                        setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
-                        setMobileAgentMenuOpen(false);
-                      }}
-                      disabled={deletingId === selectedAgent.id}
-                      className="w-full flex items-center gap-2 rounded-lg px-3 py-2 text-sm text-text-muted hover:text-[#d05f5f] hover:bg-surface-low/70 disabled:opacity-60"
-                    >
-                      {deletingId === selectedAgent.id ? <Loader2 className="w-4 h-4 animate-spin" /> : <Trash2 className="w-4 h-4" />}
-                      <span>Delete Agent</span>
-                    </button>
-                  </div>
-                </>
+          <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
+            <AnimatePresence initial={false}>
+              {showMobileChatReturn && (
+                <motion.button
+                  key="mobile-chat-return"
+                  type="button"
+                  aria-label="Back to chat"
+                  onClick={openChatTab}
+                  initial={{ opacity: 0, scale: 0.85, width: 0 }}
+                  animate={{ opacity: 1, scale: 1, width: 40 }}
+                  exit={{ opacity: 0, scale: 0.85, width: 0 }}
+                  transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
+                  className="flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-text-secondary transition-colors hover:bg-background hover:text-foreground"
+                >
+                  <MessageSquare className="h-5 w-5 shrink-0" />
+                </motion.button>
               )}
-            </div>
-          )}
+            </AnimatePresence>
+            <button
+              type="button"
+              aria-label="Open agents sidebar"
+              aria-expanded={mobileAgentsSidebarOpen}
+              onClick={() => {
+                setMobileWorkspaceSidebarOpen(false);
+                setMobileAgentsSidebarOpen((open) => !open);
+              }}
+              className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
+                mobileAgentsSidebarOpen
+                  ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+                  : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
+              }`}
+            >
+              <Bot className="h-5 w-5" />
+            </button>
+            <button
+              type="button"
+              aria-label="Open workspace sidebar"
+              aria-expanded={mobileWorkspaceSidebarOpen}
+              onClick={() => {
+                setMobileAgentsSidebarOpen(false);
+                setMobileWorkspaceSidebarOpen((open) => !open);
+              }}
+              className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
+                mobileWorkspaceSidebarOpen
+                  ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+                  : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
+              }`}
+            >
+              <SlidersHorizontal className="h-5 w-5" />
+            </button>
+          </div>
         </div>
       )}
 
@@ -2676,13 +2663,173 @@ export default function AgentsPage() {
         titleizeTier={titleizeTier}
       />
 
+      <AnimatePresence>
+        {mobileAgentLauncherOpen && (
+          <motion.div
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+          >
+            <motion.div
+              initial={{ opacity: 0, scale: 0.98, y: 8 }}
+              animate={{ opacity: 1, scale: 1, y: 0 }}
+              exit={{ opacity: 0, scale: 0.98, y: 8 }}
+              transition={{ type: "spring", stiffness: 420, damping: 34 }}
+              className="relative h-[min(720px,calc(100vh-1.5rem))] w-[min(1020px,calc(100vw-1.5rem))]"
+            >
+              <button
+                type="button"
+                aria-label="Close launch agent"
+                onClick={() => setMobileAgentLauncherOpen(false)}
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/35 text-text-muted backdrop-blur transition-colors hover:bg-black/55 hover:text-foreground"
+              >
+                <X className="h-4 w-4" />
+              </button>
+              <FirstAgentSetupWizard
+                budget={budget}
+                subscriptionSummary={subscriptionSummary}
+                catalogPlans={catalogPlans}
+                pendingSlotReleases={pendingSlotReleases}
+                onOpenPlanCatalog={openUpgradeCatalog}
+                onCreateAgent={createMobileAgentFromLauncher}
+              />
+            </motion.div>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {!isDesktopViewport && mobileAgentsSidebarOpen && (
+          <motion.div
+            className="fixed inset-0 z-[70] flex"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+          >
+            <button
+              type="button"
+              aria-label="Close agents sidebar"
+              onClick={() => setMobileAgentsSidebarOpen(false)}
+              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            />
+            <motion.aside
+              initial={{ x: "-100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "-100%" }}
+              transition={{ type: "spring", stiffness: 360, damping: 34 }}
+              className="relative z-10 h-full w-full bg-[#232323] shadow-2xl"
+            >
+              <AgentsChannelsSidebar
+                variant="v3"
+                showDivider={false}
+                fillParent
+                mobileMode
+                threads={syntheticThreads}
+                selectedThreadId={selectedAgentId}
+                showChannels={false}
+                availableAgents={agents.map((a) => ({
+                  id: a.id,
+                  name: a.name || a.id,
+                  type: "agent" as const,
+                  meta: a.meta ?? null,
+                }))}
+                agentCardDataById={agentCardDataById}
+                onSelectThread={(threadId) => {
+                  setSelectedAgentId(threadId);
+                  setMobileShowChat(true);
+                  setMobileAgentsSidebarOpen(false);
+                }}
+                onStartAgentChat={(agent) => {
+                  setSelectedAgentId(agent.id);
+                  setMobileShowChat(true);
+                  setMobileAgentsSidebarOpen(false);
+                }}
+                onOpenAgentLauncher={openMobileAgentLauncher}
+                onCreateAgent={createMobileAgentFromLauncher}
+                accountInitial={accountInitial}
+                onOpenAgentSettings={openAgentSettingsTab}
+                agentSettingsActive={mainTab === "settings"}
+                onLogout={logout}
+                onDeleteThread={(threadId) => {
+                  const agent = agents.find((item) => item.id === threadId);
+                  if (agent) {
+                    setPendingAgentDelete({ id: agent.id, name: agent.name || agent.id });
+                    setMobileAgentsSidebarOpen(false);
+                  }
+                }}
+                onCollapse={() => setMobileAgentsSidebarOpen(false)}
+              />
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
+      <AnimatePresence>
+        {!isDesktopViewport && mobileWorkspaceSidebarOpen && (
+          <motion.div
+            className="fixed inset-0 z-[70] flex"
+            initial={{ opacity: 0 }}
+            animate={{ opacity: 1 }}
+            exit={{ opacity: 0 }}
+            transition={{ duration: 0.16 }}
+          >
+            <button
+              type="button"
+              aria-label="Close workspace sidebar"
+              onClick={() => setMobileWorkspaceSidebarOpen(false)}
+              className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            />
+            <motion.aside
+              initial={{ x: "100%" }}
+              animate={{ x: 0 }}
+              exit={{ x: "100%" }}
+              transition={{ type: "spring", stiffness: 360, damping: 34 }}
+              className="relative z-10 h-full w-full bg-[#232323] shadow-2xl"
+            >
+              <AgentWorkspaceSidebar
+                selectedAgent={selectedAgent}
+                activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
+                skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
+                planName={planName}
+                subscriptionSummary={subscriptionSummary}
+                catalogPlans={catalogPlans}
+                tokenUsed={tokenUsage}
+                tokenLimit={budget?.pooled_tpd ?? null}
+                disabled={workspaceSidebarDisabled}
+                disabledReason={workspaceSidebarDisabledReason}
+                scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
+                scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
+                isDesktopViewport={false}
+                renderMobile
+                forceExpanded
+                fillParent
+                onClose={() => setMobileWorkspaceSidebarOpen(false)}
+                onSelectChat={openChatTab}
+                onOpenFiles={openFilesTab}
+                onOpenIntegrations={openIntegrationsTab}
+                onOpenSkills={openSkillsTab}
+                onOpenScheduled={openScheduledTab}
+                onOpenLogs={openLogsTab}
+                onOpenShell={openShellTab}
+                onOpenOpenClaw={openOpenClawSettings}
+                onOpenSettings={openAgentSettingsTab}
+                onUpgrade={() => { void openUpgradeCatalog(); }}
+              />
+            </motion.aside>
+          </motion.div>
+        )}
+      </AnimatePresence>
+
 
       {/* Main layout: AgentList + AgentMainPanel + AgentInspector */}
       <div className="flex flex-1 min-h-0">
         <AgentList
           sidebarCollapsed={sidebarCollapsed}
           isDesktopViewport={isDesktopViewport}
-          mobileShowChat={mobileShowChat}
+          mobileShowChat={mobileMainPanelVisible}
           agents={agents}
           selectedAgentId={selectedAgentId}
           setSelectedAgentId={setSelectedAgentId}
@@ -2697,10 +2844,7 @@ export default function AgentsPage() {
           sidebarCreatorSignal={sidebarCreatorSignal}
           setPendingAgentDelete={setPendingAgentDelete}
           accountInitial={accountInitial}
-          onOpenSettings={() => {
-            setMainTab("settings");
-            setMobileShowChat(true);
-          }}
+          onOpenSettings={openAgentSettingsTab}
           settingsActive={mainTab === "settings"}
           onLogout={logout}
           budget={budget}
@@ -2729,51 +2873,21 @@ export default function AgentsPage() {
           scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
           scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
           isDesktopViewport={isDesktopViewport}
-          onSelectChat={() => setMainTab("chat")}
-          onOpenFiles={() => {
-            setMainTab("files");
-            setMobileShowChat(true);
-          }}
-          onOpenIntegrations={() => {
-            setDirectoryCategory(undefined);
-            setDirectoryItemId(undefined);
-            setMainTab("integrations");
-            setMobileShowChat(true);
-          }}
-          onOpenSkills={() => {
-            setDirectoryCategory("skills");
-            setDirectoryItemId(undefined);
-            setMainTab("integrations");
-            setMobileShowChat(true);
-          }}
-          onOpenScheduled={() => {
-            if (!SCHEDULED_SECTION_ENABLED) {
-              return;
-            }
-            setMainTab("scheduled");
-            setMobileShowChat(true);
-          }}
-          onOpenLogs={() => setMainTab("logs")}
-          onOpenShell={() => setMainTab("shell")}
-          onOpenOpenClaw={() => {
-            if (!selectedAgent) {
-              setMainTab("settings");
-              setMobileShowChat(true);
-              return;
-            }
-            setOpenclawSettingsOpen(true);
-            setMobileShowChat(true);
-          }}
-          onOpenSettings={() => {
-            setMainTab("settings");
-            setMobileShowChat(true);
-          }}
+          onSelectChat={openChatTab}
+          onOpenFiles={openFilesTab}
+          onOpenIntegrations={openIntegrationsTab}
+          onOpenSkills={openSkillsTab}
+          onOpenScheduled={openScheduledTab}
+          onOpenLogs={openLogsTab}
+          onOpenShell={openShellTab}
+          onOpenOpenClaw={openOpenClawSettings}
+          onOpenSettings={openAgentSettingsTab}
           onUpgrade={() => { void openUpgradeCatalog(); }}
         />
 
         <AgentMainPanel
           isDesktopViewport={isDesktopViewport}
-          mobileShowChat={mobileShowChat}
+          mobileShowChat={mobileMainPanelVisible}
           selectedAgent={selectedAgent}
           hasAgents={agents.length > 0}
           loadingInitialAgents={agentsLoading}
@@ -2828,7 +2942,7 @@ export default function AgentsPage() {
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               agentState={selectedAgent?.state ?? null}
               rootPath={OPENCLAW_WORKSPACE_PREFIX}
-              connected={Boolean(selectedAgent)}
+              connected={chat.connected}
               connecting={chat.connecting}
               hydrating={chat.hydrating}
               error={null}
@@ -2842,6 +2956,13 @@ export default function AgentsPage() {
             <IntegrationsDirectoryPanel
               initialCategory={directoryCategory}
               initialPluginId={directoryItemId}
+              detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
+              onDetailBack={directoryDetailOrigin === "chat" ? () => {
+                setDirectoryDetailOrigin(null);
+                setDirectoryItemId(undefined);
+                setMainTab("chat");
+                setMobileShowChat(true);
+              } : undefined}
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               config={chat.config as Record<string, unknown> | null}
               configSchema={chat.configSchema}
@@ -2893,6 +3014,7 @@ export default function AgentsPage() {
           pendingSlotReleases={pendingSlotReleases}
           onOpenPlanCatalog={openUpgradeCatalog}
           onShowList={() => setMobileShowChat(false)}
+          showMobileListButton={false}
           onShowInspector={() => setInspectorSheetOpen(true)}
           showInspectorButton={SHOW_AGENT_INSPECTOR}
           onStart={() => {
@@ -2930,7 +3052,7 @@ export default function AgentsPage() {
               agentWorkspaceFiles: agentWorkspaceFilesForView,
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setMainTab("integrations"); },
+              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryDetailOrigin(null); setMainTab("integrations"); },
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,

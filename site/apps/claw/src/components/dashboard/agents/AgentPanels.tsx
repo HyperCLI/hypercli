@@ -16,6 +16,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashbo
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
+import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
@@ -614,11 +615,11 @@ function AgentGeneralSettingsContent({
                 }}
                 disabled={!avatarUpdatesEnabled}
                 title={!avatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
+                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
                 aria-label="Upload profile avatar"
               >
                 {profileAvatar ? (
-                  <img src={profileAvatar} alt="Profile avatar" className="h-full w-full object-cover" />
+                  <ResourceImage src={profileAvatar} alt="Profile avatar" fill sizes="64px" className="object-cover" />
                 ) : (
                   <span>{profileInitials(profileName, email)}</span>
                 )}
@@ -776,11 +777,11 @@ function AgentSectionSettingsContent({
                 }}
                 disabled={!agentAvatarUpdatesEnabled}
                 title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
+                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
                 aria-label="Upload agent avatar"
               >
                 {agentAvatarPreview ? (
-                  <img src={agentAvatarPreview} alt="Agent avatar" className="h-full w-full object-cover" />
+                  <ResourceImage src={agentAvatarPreview} alt="Agent avatar" fill sizes="64px" className="object-cover" />
                 ) : (
                   <span>{initialsFromName(agentName)}</span>
                 )}
@@ -1754,6 +1755,8 @@ export function AgentList({
     }
   }, [createOpenClawAgent, fetchAgents, getToken, setError, setMobileShowChat, setSelectedAgentId]);
 
+  if (!isDesktopViewport) return null;
+
   return (
     <motion.div
       className={`relative h-full flex-shrink-0 overflow-visible bg-[#232323] ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
@@ -1811,10 +1814,12 @@ export function AgentList({
                         style={{ backgroundColor: av.bgColor }}
                       >
                         {av.imageUrl ? (
-                          <span
-                            aria-label={`${a.name || a.id} avatar`}
-                            className="h-full w-full rounded-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${JSON.stringify(av.imageUrl)})` }}
+                          <ResourceImage
+                            src={av.imageUrl}
+                            alt={`${a.name || a.id} avatar`}
+                            fill
+                            sizes="32px"
+                            className="rounded-full object-cover"
                           />
                         ) : (
                           <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
@@ -2168,7 +2173,7 @@ function LaunchAgentCenteredEmptyStateContent({
           {description}
         </p>
 
-        <div className="mt-8 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-8 grid w-full grid-cols-1 gap-4 md:grid-cols-3">
           {examples.map((example, index) => (
             <motion.div
               key={example}
@@ -2319,7 +2324,7 @@ export function AgentScheduledEmptyState({}: AgentEmptyStateProps & AgentLaunchA
           Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows automatically on schedules - without waiting for someone to ask.
         </p>
 
-        <div className="mt-9 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-9 grid w-full grid-cols-1 gap-4 md:grid-cols-3">
           {[
             "Schedule daily reports, summaries, and automated follow-ups",
             "Monitor pipelines, inboxes, or KPIs and trigger actions automatically",

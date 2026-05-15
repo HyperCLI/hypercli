@@ -12,6 +12,7 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
 import { formatTokens, type SlotInventory } from "@/lib/format";
+import { ResourceImage } from "@/components/ResourceImage";
 
 // ── Types ──
 
@@ -407,9 +408,9 @@ export function AgentCreationWizard({
     if (customAvatar) {
       return (
         <div
-          className={`${dims} rounded-full overflow-hidden border-2 border-border-medium flex-shrink-0`}
+          className={`relative ${dims} rounded-full overflow-hidden border-2 border-border-medium flex-shrink-0`}
         >
-          <img src={customAvatar} alt="Custom avatar" className="w-full h-full object-cover" />
+          <ResourceImage src={customAvatar} alt="Custom avatar" fill sizes={size === "sm" ? "40px" : "80px"} className="object-cover" />
         </div>
       );
     }
@@ -497,8 +498,8 @@ export function AgentCreationWizard({
         />
         {customAvatar && (
           <div className="flex items-center gap-2">
-            <div className="w-8 h-8 rounded-full overflow-hidden border border-border-medium">
-              <img src={customAvatar} alt="Custom" className="w-full h-full object-cover" />
+            <div className="relative w-8 h-8 rounded-full overflow-hidden border border-border-medium">
+              <ResourceImage src={customAvatar} alt="Custom" fill sizes="32px" className="object-cover" />
             </div>
             <button
               onClick={() => setCustomAvatar(null)}

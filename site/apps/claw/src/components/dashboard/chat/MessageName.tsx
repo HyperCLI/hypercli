@@ -2,6 +2,7 @@
 
 import { Sparkles } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
 import type { NameVariant } from "./types";
 
 interface MessageNameProps {
@@ -26,12 +27,14 @@ function AgentAvatarMark({
   const avatar = agentAvatar(name, meta);
   const AvatarIcon = avatar.icon;
   return (
-    <div className={`${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
+    <div className={`relative ${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
       {avatar.imageUrl ? (
-        <span
-          aria-label={`${name} avatar`}
-          className="h-full w-full bg-cover bg-center"
-          style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+        <ResourceImage
+          src={avatar.imageUrl}
+          alt={`${name} avatar`}
+          fill
+          sizes="28px"
+          className="object-cover"
         />
       ) : (
         <AvatarIcon className={iconClass} style={{ color: avatar.fgColor }} />
@@ -64,25 +67,25 @@ export function MessageName({ variant, placement, isUser, effectiveName, agentMe
 
   // v2: text label above bubble (paired with avatar-left)
   if (variant === "v2" && placement === "text-above") {
-    return <span className="text-[11px] text-text-muted mb-0.5">{effectiveName}</span>;
+    return <span className="mb-0.5 block max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>;
   }
 
   // v1: monogram + muted label above bubble
   if (variant === "v1" && placement === "above-bubble") {
     if (isUser) {
       return (
-        <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+        <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5 flex-row-reverse">
           <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
             <span className="text-[9px] font-bold text-text-muted">{initial}</span>
           </div>
-          <span className="text-[11px] text-text-muted">{effectiveName}</span>
+          <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
         </div>
       );
     }
     return (
-      <div className="flex items-center gap-1.5 mb-1">
+      <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5">
         <AgentAvatarMark name={effectiveName} meta={agentMeta} sizeClass="w-5 h-5" iconClass="w-3 h-3" />
-        <span className="text-[11px] text-text-muted">{effectiveName}</span>
+        <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
       </div>
     );
   }
@@ -91,20 +94,20 @@ export function MessageName({ variant, placement, isUser, effectiveName, agentMe
   if (variant === "v3" && placement === "above-bubble") {
     if (isUser) {
       return (
-        <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+        <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5 flex-row-reverse">
           <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
             <Sparkles className="w-3 h-3 text-text-muted" />
           </div>
-          <span className="text-[11px] font-semibold text-foreground">{effectiveName}</span>
+          <span className="block min-w-0 max-w-full truncate text-[11px] font-semibold text-foreground">{effectiveName}</span>
         </div>
       );
     }
     return (
-      <div className="flex items-center gap-1.5 mb-1">
+      <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5">
         <div className="w-5 h-5 rounded-full bg-gradient-to-br from-[#4285f4] via-[#38D39F] to-[#f0c56c] flex items-center justify-center">
           <Sparkles className="w-3 h-3 text-white" />
         </div>
-        <span className="text-[11px] font-semibold text-foreground">{effectiveName}</span>
+        <span className="block min-w-0 max-w-full truncate text-[11px] font-semibold text-foreground">{effectiveName}</span>
       </div>
     );
   }

@@ -770,14 +770,16 @@ export function FirstAgentSetupWizard({
                       <button
                         key={category}
                         type="button"
+                        aria-pressed={selected}
                         onClick={() => setSelectedCategory(category)}
                         className={cx(
-                          "h-8 rounded-full border px-3 text-[13px] font-medium transition-colors sm:text-[14px]",
+                          "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38d39f]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] sm:text-[14px]",
                           selected
-                            ? "border-[#5b5b5f] bg-[#252525] text-[#f6f6f6]"
-                            : "border-[#444448] bg-[#202020] text-[#f0f0f0] hover:border-[#66666a]",
+                            ? "border-[#38d39f]/55 bg-[#38d39f]/14 text-[#baf7df] shadow-[0_0_0_1px_rgba(56,211,159,0.14),0_8px_20px_rgba(56,211,159,0.08)]"
+                            : "border-[#3f3f44] bg-[#1f1f21] text-[#d9d9dd] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:border-[#5f5f66] hover:bg-[#28282b] hover:text-[#f5f5f5]",
                         )}
                       >
+                        <Check className={cx("h-3.5 w-3.5 shrink-0 transition-opacity", selected ? "opacity-100" : "opacity-0")} />
                         {category}
                       </button>
                     );

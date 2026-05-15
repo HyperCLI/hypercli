@@ -17,6 +17,7 @@ import {
 } from "lucide-react";
 import type { FileEntry } from "./types";
 import { formatFileSize } from "./FileRow";
+import { ResourceImage } from "@/components/ResourceImage";
 
 // ── Types ──
 
@@ -225,11 +226,15 @@ export function FilePreview({
           <>
             {previewType === "image" ? (
               <div className="flex items-center justify-center p-4 h-full">
-                <img
-                  src={`data:image/${getFileExtension(entry.name)};base64,${content}`}
-                  alt={entry.name}
-                  className="max-w-full max-h-full object-contain rounded border border-border"
-                />
+                <div className="relative h-full w-full overflow-hidden rounded border border-border">
+                  <ResourceImage
+                    src={`data:image/${getFileExtension(entry.name)};base64,${content}`}
+                    alt={entry.name}
+                    fill
+                    sizes="(max-width: 768px) 100vw, 720px"
+                    className="object-contain"
+                  />
+                </div>
               </div>
             ) : isEditable ? (
               <textarea

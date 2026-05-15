@@ -1,25 +1,37 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X, type LucideIcon } from "lucide-react";
+import { ArrowRight, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
-import { MOCK_CONNECTIONS } from "@/components/dashboard/agentViewMockData";
-import { PLUGIN_REGISTRY } from "@/components/dashboard/integrations/plugin-registry";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
+import { getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+import { ResourceImage } from "@/components/ResourceImage";
+
+export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 
 type ChatSession = ReturnType<typeof useOpenClawSession>;
 
-export interface ChatConnectionSuggestion {
-  id: string;
-  displayName: string;
-  description: string;
-  category: string;
-  Icon: LucideIcon;
-  directoryPluginId?: string;
+function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden text-text-muted">
+      <div className="flex max-h-full min-h-0 w-full items-center justify-center overflow-y-auto">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function StoppedChatEmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-6 text-center text-text-muted">
+      <Sparkles className="mb-2 h-8 w-8" />
+      <p className="text-sm">Start the agent to begin chatting.</p>
+    </div>
+  );
 }
 
 interface AgentChatPanelProps {
@@ -50,103 +62,6 @@ interface AgentChatPanelProps {
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
 }
 
-const CONNECTION_ALIAS_OVERRIDES: Record<string, string[]> = {
-  "amazon-bedrock": ["aws bedrock", "bedrock"],
-  "cloudflare-ai-gateway": ["cloudflare", "cloudflare ai"],
-  duckduckgo: ["duck duck go", "ddg"],
-  "github-copilot": ["github copilot", "copilot"],
-  gcal: ["google calendar", "calendar", "gcal"],
-  gdrive: ["google drive", "drive", "gdrive"],
-  gmail: ["gmail", "google mail", "email"],
-  googlechat: ["google chat", "gchat"],
-  huggingface: ["hugging face", "hf"],
-  imessage: ["imessage", "i message"],
-  "microsoft": ["azure speech", "microsoft speech"],
-  "msteams": ["microsoft teams", "ms teams", "teams"],
-  "nextcloud-talk": ["nextcloud talk", "nextcloud"],
-  openai: ["open ai", "chatgpt"],
-  "openrouter": ["open router"],
-  "qwen-portal-auth": ["qwen", "qwen oauth"],
-  "synology-chat": ["synology chat", "synology"],
-  whatsapp: ["whats app"],
-  xai: ["x ai", "grok"],
-  zalouser: ["zalo personal"],
-};
-
-const WORKSPACE_CONNECTION_DIRECTORY_MAP: Record<string, string> = {
-  slack: "slack",
-  telegram: "telegram",
-  teams: "msteams",
-};
-
-const CHAT_CONNECTION_CATALOG: ChatConnectionSuggestion[] = (() => {
-  const suggestions = new Map<string, ChatConnectionSuggestion>();
-
-  for (const connection of MOCK_CONNECTIONS) {
-    suggestions.set(connection.id, {
-      id: connection.id,
-      displayName: connection.name,
-      description: connection.description,
-      category: connection.category,
-      Icon: connection.icon,
-      directoryPluginId: WORKSPACE_CONNECTION_DIRECTORY_MAP[connection.id],
-    });
-  }
-
-  for (const plugin of PLUGIN_REGISTRY) {
-    if (plugin.category === "built-in") continue;
-    if (Array.from(suggestions.values()).some((suggestion) => suggestion.directoryPluginId === plugin.id)) continue;
-    if (suggestions.has(plugin.id)) {
-      const existing = suggestions.get(plugin.id);
-      if (existing) suggestions.set(plugin.id, { ...existing, directoryPluginId: plugin.id });
-      continue;
-    }
-    suggestions.set(plugin.id, {
-      id: plugin.id,
-      displayName: plugin.displayName,
-      description: plugin.description,
-      category: plugin.category === "chat" ? "Communication" : plugin.category === "ai-providers" ? "Models" : "Tools",
-      Icon: plugin.icon,
-      directoryPluginId: plugin.id,
-    });
-  }
-
-  return Array.from(suggestions.values());
-})();
-
-function normalizeConnectionAlias(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function connectionAliases(suggestion: ChatConnectionSuggestion): string[] {
-  const baseAliases = [
-    suggestion.id,
-    suggestion.displayName,
-    normalizeConnectionAlias(suggestion.displayName).replace(/\s+/g, ""),
-    ...(suggestion.directoryPluginId ? [suggestion.directoryPluginId] : []),
-  ];
-  return Array.from(
-    new Set(
-      [...baseAliases, ...(CONNECTION_ALIAS_OVERRIDES[suggestion.id] ?? []), ...(suggestion.directoryPluginId ? CONNECTION_ALIAS_OVERRIDES[suggestion.directoryPluginId] ?? [] : [])]
-        .map(normalizeConnectionAlias)
-        .filter((alias) => alias.length >= 3),
-    ),
-  );
-}
-
-function aliasAppearsInInput(input: string, alias: string): boolean {
-  const compactInput = normalizeConnectionAlias(input);
-  if (!compactInput) return false;
-  const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-  return new RegExp(`(^|\\s)${escapedAlias}(\\s|$)`, "i").test(compactInput);
-}
-
-function getConnectionSuggestions(input: string): ChatConnectionSuggestion[] {
-  const trimmed = input.trim();
-  if (trimmed.length < 3) return [];
-  return CHAT_CONNECTION_CATALOG.filter((suggestion) => connectionAliases(suggestion).some((alias) => aliasAppearsInInput(trimmed, alias))).slice(0, 3);
-}
-
 export function AgentChatPanel({
   chat,
   selectedAgent,
@@ -174,13 +89,56 @@ export function AgentChatPanel({
   formatDuration,
   onConnectionCta,
 }: AgentChatPanelProps) {
-  const connectionSuggestions = React.useMemo(() => getConnectionSuggestions(chat.input), [chat.input]);
+  const connectionSuggestions = React.useMemo(
+    () => getConnectionSuggestions(chat.input, chat.config, chat.configSchema),
+    [chat.config, chat.configSchema, chat.input],
+  );
   const setChatInput = chat.setInput;
   const composerDisabled = !chat.connected;
+  const emptyChatContent = (() => {
+    if (chat.hydrating) {
+      return (
+        <AgentLoadingState
+          title="Loading workspace"
+          detail="Fetching messages, files, and config."
+          tone="loading"
+          stage="complete"
+        />
+      );
+    }
+
+    if (chat.connecting) {
+      return (
+        <AgentLoadingState
+          title="Connecting gateway"
+          detail="Opening the agent session."
+          tone="connecting"
+          stage="gateway"
+        />
+      );
+    }
+
+    if (chat.connected) {
+      return <AgentEmptyHistory onPromptSelect={setChatInput} />;
+    }
+
+    if (isSelectedRunning) {
+      return (
+        <AgentLoadingState
+          title="Waiting for gateway"
+          detail="The runtime is up. Reconnecting to the agent session."
+          tone="connecting"
+          stage="gateway"
+        />
+      );
+    }
+
+    return <StoppedChatEmptyState />;
+  })();
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-col ${chatDragActive ? "bg-surface-low/10" : ""}`}
+      className={`relative flex h-full max-h-full min-h-0 min-w-0 flex-col overflow-hidden ${chatDragActive ? "bg-surface-low/10" : ""}`}
       onDragEnter={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -218,44 +176,10 @@ export function AgentChatPanel({
           </div>
         </div>
       )}
-      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex min-h-full w-3/4 max-w-[75%] min-w-0 flex-1 flex-col space-y-4">
+      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-x-hidden px-3 py-3 sm:px-4 sm:py-4">
           {chat.messages.length === 0 && (
-            <div className="flex min-h-full flex-1 flex-col items-center justify-center text-text-muted">
-              {chat.hydrating ? (
-                <AgentLoadingState
-                  title="Loading workspace"
-                  detail="Fetching messages, files, and config."
-                  tone="loading"
-                  stage="complete"
-                />
-              ) : chat.connecting ? (
-                <AgentLoadingState
-                  title="Connecting gateway"
-                  detail="Opening the agent session."
-                  tone="connecting"
-                  stage="gateway"
-                />
-              ) : chat.connected ? (
-                <AgentEmptyHistory
-                  onPromptSelect={setChatInput}
-                />
-              ) : (
-                isSelectedRunning ? (
-                  <AgentLoadingState
-                    title="Waiting for gateway"
-                    detail="The runtime is up. Reconnecting to the agent session."
-                    tone="connecting"
-                    stage="gateway"
-                  />
-                ) : (
-                  <>
-                    <Sparkles className="w-8 h-8 mb-2" />
-                    <p className="text-sm">Start the agent to begin chatting.</p>
-                  </>
-                )
-              )}
-            </div>
+            <ChatEmptyStateFrame>{emptyChatContent}</ChatEmptyStateFrame>
           )}
 
           {chat.messages.map((msg, i) => {
@@ -287,12 +211,12 @@ export function AgentChatPanel({
             return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
           })()}
 
-          <div ref={chatEndRef} />
+          {chat.messages.length > 0 && <div ref={chatEndRef} />}
         </div>
       </div>
 
-      <div className="flex-shrink-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3">
-        <div className="mx-auto flex w-3/4 max-w-[75%] min-w-0 flex-col">
+      <div className="max-h-[45%] flex-shrink-0 overflow-y-auto px-3 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] md:max-h-[38%] md:p-3">
+        <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
           {!recording && !audioUrl && connectionSuggestions.length > 0 && (
             <div className="mb-2 flex flex-col gap-2">
               {connectionSuggestions.map((suggestion) => {
@@ -324,8 +248,14 @@ export function AgentChatPanel({
           {chat.pendingAttachments.length > 0 && (
             <div className="flex gap-2 mb-2 flex-wrap">
               {chat.pendingAttachments.map((att, i) => (
-                <div key={i} className="relative group">
-                  <img src={`data:${att.mimeType};base64,${att.content}`} alt={att.fileName || "attachment"} className="w-16 h-16 rounded-md object-cover border border-border" />
+                <div key={i} className="group relative h-16 w-16">
+                  <ResourceImage
+                    src={`data:${att.mimeType};base64,${att.content}`}
+                    alt={att.fileName || "attachment"}
+                    fill
+                    sizes="64px"
+                    className="rounded-md border border-border object-cover"
+                  />
                   <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
                     <X className="w-3 h-3 text-white" />
                   </button>
@@ -417,10 +347,9 @@ export function AgentChatPanel({
                     }
                   }}
                   rows={1}
-                  aria-label="Message agent"
-                  placeholder={chat.connected ? "Message agent..." : "Connect gateway to message..."}
+                  placeholder={chat.connected ? "Message agent..." : chat.connecting ? "Preparing chat..." : "Connect gateway to message..."}
                   disabled={composerDisabled}
-                  className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
+                  className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-24 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden sm:pr-28"
                 />
                 <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
                   <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">

@@ -202,6 +202,13 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
 }
 
 describe("AgentList", () => {
+  it("does not render the desktop agents/channels sidebar below the desktop breakpoint", () => {
+    renderAgentList({ isDesktopViewport: false });
+
+    expect(screen.queryByRole("button", { name: /select test agent/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /launch agent/i })).not.toBeInTheDocument();
+  });
+
   it("keeps the agents/channels sidebar collapsed until the explicit expand control is used", () => {
     const props = renderAgentList();
 

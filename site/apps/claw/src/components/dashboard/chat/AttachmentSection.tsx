@@ -1,6 +1,7 @@
 "use client";
 
 import { Paperclip } from "lucide-react";
+import { ResourceImage } from "@/components/ResourceImage";
 import type { ChatAttachment, ChatPendingFile } from "./types";
 
 interface AttachmentSectionProps {
@@ -14,13 +15,16 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
     <>
       {/* Image attachments */}
       {attachments && attachments.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-2">
+        <div className="mb-2 flex max-w-full flex-wrap gap-2">
           {attachments.map((att, i) => (
-            <img
+            <ResourceImage
               key={i}
               src={`data:${att.mimeType};base64,${att.content}`}
               alt={att.fileName || "attachment"}
-              className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
+              width={240}
+              height={240}
+              sizes="(max-width: 640px) 100vw, 240px"
+              className="h-auto max-h-[240px] max-w-full cursor-pointer rounded-md object-cover sm:max-w-[240px]"
               onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
             />
           ))}
@@ -29,11 +33,11 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
 
       {/* File attachments */}
       {files && files.length > 0 && (
-        <div className="mb-2 flex flex-wrap gap-2">
+        <div className="mb-2 flex max-w-full flex-wrap gap-2">
           {files.map((file, i) => (
             <div
               key={`${file.name}-${i}`}
-              className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+              className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
             >
               <Paperclip className="h-3.5 w-3.5 shrink-0" />
               <span className="truncate">{file.name}</span>
@@ -44,16 +48,19 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
 
       {/* Agent-sent media (URLs) */}
       {mediaUrls && mediaUrls.length > 0 && (
-        <div className="flex flex-wrap gap-2 mb-2">
+        <div className="mb-2 flex max-w-full flex-wrap gap-2">
           {mediaUrls.map((url, i) => {
             const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
             if (isImage) {
               return (
-                <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                  <img
+                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block max-w-full">
+                  <ResourceImage
                     src={url}
                     alt="media"
-                    className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+                    width={320}
+                    height={320}
+                    sizes="(max-width: 640px) 100vw, 320px"
+                    className="h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]"
                     loading="lazy"
                   />
                 </a>
@@ -65,7 +72,7 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
                 href={url}
                 target="_blank"
                 rel="noopener noreferrer"
-                className="text-accent hover:underline text-xs"
+                className="max-w-full break-words text-xs text-accent hover:underline [overflow-wrap:anywhere]"
               >
                 {url.split("/").pop() || "media"}
               </a>

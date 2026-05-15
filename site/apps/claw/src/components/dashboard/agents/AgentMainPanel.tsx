@@ -1,12 +1,12 @@
 "use client";
 
 import React from "react";
-import { Gauge, Loader2, PanelLeft, RefreshCw } from "lucide-react";
+import { Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
-import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
+import { ResourceImage } from "@/components/ResourceImage";
 import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import type { SlotInventory } from "@/lib/format";
@@ -46,6 +46,7 @@ interface AgentMainPanelProps {
   onOpenPlanCatalog?: () => void | Promise<void>;
   pendingSlotReleases?: Record<string, number>;
   onShowList: () => void;
+  showMobileListButton?: boolean;
   onShowInspector: () => void;
   showInspectorButton?: boolean;
   onStart: () => void;
@@ -84,6 +85,7 @@ export function AgentMainPanel({
   onOpenPlanCatalog,
   pendingSlotReleases,
   onShowList,
+  showMobileListButton = true,
   onShowInspector,
   showInspectorButton = true,
   onStart,
@@ -136,9 +138,9 @@ export function AgentMainPanel({
     ? {
         label: activeConnectionStatus === "connected" ? "Ready" : activeConnectionStatus === "connecting" ? "Connecting" : "Disconnected",
         detail: activeConnectionStatus === "connected"
-          ? "Gateway connected."
+          ? "Chat is available."
           : activeConnectionStatus === "connecting" || chatConnecting
-            ? "Opening the gateway connection."
+            ? "Preparing chat."
             : chatConnected === false
               ? "Gateway disconnected."
               : "Gateway is not connected yet.",
@@ -151,6 +153,13 @@ export function AgentMainPanel({
   const shouldShowStartupAnimation =
     (isSelectedTransitioning && (selectedAgent?.state === "PENDING" || selectedAgent?.state === "STARTING")) ||
     (selectedAgent?.state === "RUNNING" && burstAgentId === selectedAgent.id);
+  React.useEffect(() => {
+    if (selectedAgent?.state !== "RUNNING" || burstAgentId !== selectedAgent.id) return;
+
+    const timeout = window.setTimeout(onBurstComplete, 900);
+    return () => window.clearTimeout(timeout);
+  }, [burstAgentId, onBurstComplete, selectedAgent?.id, selectedAgent?.state]);
+
   const stoppedLaunchBusy = Boolean(selectedAgent && startingId === selectedAgent.id);
   const stoppedLaunchCooldown = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
   const stoppedLaunchBlocked = selectedAgentLaunchBlocked || stoppedLaunchCooldown;
@@ -194,24 +203,42 @@ export function AgentMainPanel({
 
     if (isStopping) {
       return (
-        <div className="h-full flex items-center justify-center p-6">
-          <div className="max-w-md text-center">
-            <Loader2 className="mx-auto mb-4 h-8 w-8 animate-spin text-[#f0c56c]" />
-            <p className="text-base text-foreground">Stopping agent</p>
-            <p className="mt-2 text-sm text-text-muted">Stopping the runtime and cleaning up the workspace.</p>
-          </div>
-        </div>
+        <AgentLoadingState
+          title="Stopping agent"
+          detail="Stopping the runtime and cleaning up the workspace."
+          tone="loading"
+          stage="complete"
+        />
       );
     }
 
     if (shouldShowStartupAnimation) {
+      const startupCopy =
+        activeAgent.state === "PENDING"
+          ? {
+              title: "Provisioning runtime",
+              detail: "Reserving compute and preparing the workspace.",
+              stage: "runtime" as const,
+            }
+          : activeAgent.state === "STARTING"
+            ? {
+                title: "Booting agent",
+                detail: "Starting the container and OpenClaw services.",
+                stage: "agent" as const,
+              }
+            : {
+                title: "Runtime ready",
+                detail: "Opening the gateway connection.",
+                stage: "complete" as const,
+              };
+
       return (
-        <div className="h-full flex items-center justify-center">
-          <AgentHatchAnimation
-            state={activeAgent.state === "RUNNING" ? "RUNNING" : activeAgent.state as "PENDING" | "STARTING"}
-            onBurstComplete={onBurstComplete}
-          />
-        </div>
+        <AgentLoadingState
+          title={startupCopy.title}
+          detail={startupCopy.detail}
+          tone="starting"
+          stage={startupCopy.stage}
+        />
       );
     }
 
@@ -275,75 +302,80 @@ export function AgentMainPanel({
         />
       ) : (
         <>
-          <div className="relative px-4 h-14 border-b border-border flex items-center gap-3 min-w-0">
-            <button
-              onClick={onShowList}
-              className={`${isDesktopViewport ? "hidden" : "block"} relative z-10 flex-shrink-0 text-text-muted hover:text-foreground`}
-              aria-label="Show agents list"
-            >
-              <PanelLeft className="w-5 h-5" />
-            </button>
-
-            <div className="relative z-10 flex items-center gap-2 min-w-0 flex-shrink-0">
-              {(() => {
-                const avatar = agentAvatar(selectedAgent.name || selectedAgent.id, selectedAgent.meta);
-                const AvatarIcon = avatar.icon;
-                return (
-                  <div className="w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
-                    {avatar.imageUrl ? (
-                      <img src={avatar.imageUrl} alt={`${selectedAgent.name} avatar`} className="w-full h-full object-cover" />
-                    ) : (
-                      <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
-                    )}
-                  </div>
-                );
-              })()}
-              {effectiveAgentStatus ? (
-                <AgentStatusChip status={effectiveAgentStatus} />
-              ) : legacyConnectionStatus ? (
-                <ConnectionStatusIndicator status={legacyConnectionStatus} />
-              ) : (
-                null
-              )}
-            </div>
-
-            <div className="pointer-events-none absolute inset-y-0 left-1/2 z-0 flex w-[min(46vw,420px)] -translate-x-1/2 flex-col items-center justify-center px-2 text-center">
-              <p className="max-w-full truncate text-sm font-medium text-foreground">
-                {selectedAgent.name || selectedAgent.pod_name || "Agent"}
-              </p>
-              {!chatConnected && (
-                <p className="max-w-full truncate text-xs text-text-muted">
-                  {chatConnecting ? "Connecting gateway" : selectedAgent.state === "RUNNING" ? "Gateway disconnected" : selectedAgent.state}
-                </p>
-              )}
-            </div>
-
-            <div className="relative z-10 flex items-center gap-2 flex-shrink-0">
-              <div className={`${isDesktopViewport ? "flex" : "hidden"} items-center gap-2`}>
-                <div className="flex items-center gap-1">
-                  {(currentPanel === "logs" || currentPanel === "shell") && (
-                    <button
-                      onClick={onReconnect}
-                      className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-                      title="Reconnect"
-                    >
-                      <RefreshCw className="w-3.5 h-3.5" />
-                    </button>
+          {isDesktopViewport && (
+            <div className="grid h-14 min-w-0 grid-cols-[minmax(0,1fr)_minmax(0,auto)_minmax(0,1fr)] items-center gap-3 border-b border-border px-4">
+              <div className="relative z-10 flex min-w-0 items-center gap-2">
+                {showMobileListButton && (
+                  <button
+                    onClick={onShowList}
+                    className="hidden flex-shrink-0 text-text-muted hover:text-foreground"
+                    aria-label="Show agents list"
+                  >
+                    <PanelLeft className="w-5 h-5" />
+                  </button>
+                )}
+                {(() => {
+                  const avatar = agentAvatar(selectedAgent.name || selectedAgent.id, selectedAgent.meta);
+                  const AvatarIcon = avatar.icon;
+                  return (
+                    <div className="relative w-7 h-7 rounded-full flex items-center justify-center flex-shrink-0 overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
+                      {avatar.imageUrl ? (
+                        <ResourceImage src={avatar.imageUrl} alt={`${selectedAgent.name} avatar`} fill sizes="28px" className="object-cover" />
+                      ) : (
+                        <AvatarIcon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
+                      )}
+                    </div>
+                  );
+                })()}
+                <div className="flex min-w-0">
+                  {effectiveAgentStatus ? (
+                    <AgentStatusChip status={effectiveAgentStatus} />
+                  ) : legacyConnectionStatus ? (
+                    <ConnectionStatusIndicator status={legacyConnectionStatus} />
+                  ) : (
+                    null
                   )}
                 </div>
               </div>
 
-              {!isDesktopViewport && showInspectorButton && (
-                <button
-                  onClick={onShowInspector}
-                  className="w-8 h-8 rounded-full flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
-                  title="Agent details"
-                >
-                  <Gauge className="w-3.5 h-3.5" />
-                </button>
-              )}
+              <div className="pointer-events-none z-0 flex w-[min(42vw,420px)] min-w-0 flex-col items-center justify-center px-2 text-center">
+                <p className="max-w-full truncate text-sm font-medium text-foreground">
+                  {selectedAgent.name || selectedAgent.pod_name || "Agent"}
+                </p>
+                {!chatConnected && (
+                  <p className="max-w-full truncate text-xs text-text-muted">
+                    {chatConnecting ? "Preparing chat" : selectedAgent.state === "RUNNING" ? "Gateway disconnected" : selectedAgent.state}
+                  </p>
+                )}
+              </div>
+
+              <div className="relative z-10 flex min-w-0 items-center justify-end gap-2">
+                <div className="flex items-center gap-2">
+                  <div className="flex items-center gap-1">
+                    {(currentPanel === "logs" || currentPanel === "shell") && (
+                      <button
+                        onClick={onReconnect}
+                        className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+                        title="Reconnect"
+                      >
+                        <RefreshCw className="w-3.5 h-3.5" />
+                      </button>
+                    )}
+                  </div>
+                </div>
+
+                {showInspectorButton && (
+                  <button
+                    onClick={onShowInspector}
+                    className="hidden w-8 h-8 rounded-full items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+                    title="Agent details"
+                  >
+                    <Gauge className="w-3.5 h-3.5" />
+                  </button>
+                )}
+              </div>
             </div>
-          </div>
+          )}
 
           <div className="flex-1 min-h-0 overflow-hidden">
             {renderSelectedPanelContent()}

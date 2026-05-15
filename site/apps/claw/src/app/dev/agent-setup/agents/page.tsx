@@ -332,6 +332,7 @@ export default function DevAgentSetupAgentsPage() {
   const [showChannelWizard, setShowChannelWizard] = useState(false);
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
   const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
+  const [directoryDetailOrigin, setDirectoryDetailOrigin] = useState<"chat" | null>(null);
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -367,6 +368,7 @@ export default function DevAgentSetupAgentsPage() {
       const category = getCategoryForPlugin(suggestion.directoryPluginId) ?? undefined;
       setDirectoryCategory(category);
       setDirectoryItemId(suggestion.directoryPluginId);
+      setDirectoryDetailOrigin("chat");
       setMainTab("integrations");
       setMobileShowChat(true);
       return;
@@ -613,6 +615,7 @@ export default function DevAgentSetupAgentsPage() {
         onClick: () => {
           setDirectoryCategory("channels");
           setDirectoryItemId(undefined);
+          setDirectoryDetailOrigin(null);
           setMainTab("integrations");
           setMobileShowChat(true);
         },
@@ -1779,6 +1782,7 @@ export default function DevAgentSetupAgentsPage() {
         if (tab === "integrations") {
           setDirectoryCategory(undefined);
           setDirectoryItemId(undefined);
+          setDirectoryDetailOrigin(null);
           setMainTab("integrations");
           setMobileShowChat(true);
           return;
@@ -2049,6 +2053,13 @@ export default function DevAgentSetupAgentsPage() {
               <IntegrationsDirectoryPanel
                 initialCategory={directoryCategory}
                 initialPluginId={directoryItemId}
+                detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
+                onDetailBack={directoryDetailOrigin === "chat" ? () => {
+                  setDirectoryDetailOrigin(null);
+                  setDirectoryItemId(undefined);
+                  setMainTab("chat");
+                  setMobileShowChat(true);
+                } : undefined}
                 agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
                 config={chat.config as Record<string, unknown> | null}
                 configSchema={chat.configSchema}
@@ -2132,7 +2143,7 @@ export default function DevAgentSetupAgentsPage() {
               agentWorkspaceFiles: agentWorkspaceFilesForView,
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setMainTab("integrations"); },
+              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryDetailOrigin(null); setMainTab("integrations"); },
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,

@@ -313,8 +313,8 @@ export function AgentFilesPanel({
         )}
       </AnimatePresence>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex min-h-0 w-72 flex-shrink-0 flex-col border-r border-border">
+      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
+        <aside className="flex h-[42%] min-h-[220px] w-full flex-shrink-0 flex-col border-b border-border md:h-auto md:min-h-0 md:w-72 md:border-b-0 md:border-r">
           <div className="flex-shrink-0 space-y-2 px-3 pb-2 pt-3">
             <FilesSearchBar
               value={searchQuery}
@@ -365,7 +365,7 @@ export function AgentFilesPanel({
           </div>
         </aside>
 
-        <main className="min-h-0 min-w-0 flex-1">
+        <main className="min-h-[220px] min-w-0 flex-1 md:min-h-0">
           <AnimatePresence mode="wait">
             {previewEntry ? (
               <FilePreview

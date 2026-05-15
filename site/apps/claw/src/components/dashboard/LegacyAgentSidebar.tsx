@@ -10,6 +10,7 @@ import {
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory, formatTokens } from "@/lib/format";
+import { ResourceImage } from "@/components/ResourceImage";
 
 type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
@@ -171,9 +172,9 @@ export function LegacyAgentSidebar({
                     title={agent.name}
                   >
                     <div className="relative">
-                      <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
+                      <div className="relative w-9 h-9 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
                         {avatar.imageUrl ? (
-                          <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
+                          <ResourceImage src={avatar.imageUrl} alt={`${agent.name} avatar`} fill sizes="36px" className="object-cover" />
                         ) : (
                           <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
                         )}
@@ -193,9 +194,9 @@ export function LegacyAgentSidebar({
                   }`}
                 >
                   <div className="relative flex-shrink-0">
-                    <div className="w-9 h-9 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
+                    <div className="relative w-9 h-9 rounded-full flex items-center justify-center overflow-hidden" style={{ backgroundColor: avatar.bgColor }}>
                       {avatar.imageUrl ? (
-                        <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
+                        <ResourceImage src={avatar.imageUrl} alt={`${agent.name} avatar`} fill sizes="36px" className="object-cover" />
                       ) : (
                         <AvatarIcon className="w-4 h-4" style={{ color: avatar.fgColor }} />
                       )}

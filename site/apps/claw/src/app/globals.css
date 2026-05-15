@@ -507,6 +507,31 @@ pre, code {
   font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", "Courier New", monospace;
 }
 
+.prose-chat {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.prose-chat :where(p, li, a, code, h1, h2, h3, blockquote) {
+  min-width: 0;
+  max-width: 100%;
+  overflow-wrap: anywhere;
+}
+
+.prose-chat :where(pre, table) {
+  max-width: 100%;
+}
+
+.prose-chat pre {
+  overflow-x: auto;
+}
+
+.prose-chat img {
+  max-width: 100%;
+  height: auto;
+}
+
 pre {
   background-color: var(--surface-low);
   border: 1px solid var(--border);

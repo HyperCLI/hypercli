@@ -1,3 +1,4 @@
+import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import { PLUGIN_REGISTRY, type PluginMeta } from "../integrations/plugin-registry";
 
 export type DirectoryCategory = "intelligence" | "web" | "channels" | "tools" | "media" | "skills";
@@ -53,6 +54,27 @@ export function getCategoryForPlugin(pluginId: string): DirectoryCategory | null
     case "built-in": return "media";
     default: return null;
   }
+}
+
+export function schemaPathExists(schema: Record<string, unknown> | null | undefined, path: string): boolean {
+  if (!schema) return false;
+  let node: Record<string, unknown> | undefined = schema;
+  for (const part of path.split(".")) {
+    const properties = node?.properties as Record<string, unknown> | undefined;
+    if (!properties || typeof properties !== "object" || !(part in properties)) {
+      return false;
+    }
+    node = properties[part] as Record<string, unknown>;
+  }
+  return true;
+}
+
+export function isPluginAvailableInSchema(plugin: PluginMeta, configSchema: OpenClawConfigSchemaResponse | null): boolean {
+  if (!configSchema) return false;
+  return (
+    schemaPathExists(configSchema.schema, plugin.configPath) ||
+    Boolean(configSchema.uiHints?.[plugin.configPath] || configSchema.uiHints?.[`${plugin.configPath}.enabled`])
+  );
 }
 
 /** Check if a plugin is connected based on gateway config */

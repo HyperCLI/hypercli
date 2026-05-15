@@ -15,6 +15,7 @@ import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
+import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -178,10 +179,12 @@ export default function AgentFilesPage() {
   // Loading / error states for agent fetch
   if (agentLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-text-muted">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading agent record
-      </div>
+      <AgentLoadingState
+        title="Loading agent record"
+        detail="Opening the agent file browser."
+        tone="loading"
+        stage="complete"
+      />
     );
   }
   if (agentError || !agent) {

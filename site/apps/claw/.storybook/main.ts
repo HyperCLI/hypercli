@@ -1,6 +1,6 @@
 import type { StorybookConfig } from '@storybook/nextjs-vite';
 
-import { dirname } from "path"
+import { dirname, resolve } from "path"
 
 import { fileURLToPath } from "url"
 
@@ -11,6 +11,9 @@ import { fileURLToPath } from "url"
 function getAbsolutePath(value: string) {
   return dirname(fileURLToPath(import.meta.resolve(`${value}/package.json`)))
 }
+
+const storybookDir = dirname(fileURLToPath(import.meta.url));
+
 const config: StorybookConfig = {
   "stories": [
     "../src/**/*.mdx",
@@ -33,7 +36,7 @@ const config: StorybookConfig = {
     config.resolve = config.resolve || {};
     config.resolve.alias = {
       ...config.resolve.alias,
-      fs: require.resolve('./stubs/fs.js'),
+      fs: resolve(storybookDir, "stubs/fs.js"),
     };
     return config;
   },

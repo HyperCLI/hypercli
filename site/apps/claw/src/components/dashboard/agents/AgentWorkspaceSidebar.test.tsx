@@ -58,6 +58,13 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
 }
 
 describe("AgentWorkspaceSidebar", () => {
+  it("does not render the desktop workspace sidebar below the desktop breakpoint", () => {
+    renderAgentWorkspaceSidebar({ isDesktopViewport: false });
+
+    expect(screen.queryByRole("button", { name: /chat/i })).not.toBeInTheDocument();
+    expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /advanced/i })).not.toBeInTheDocument();
+  });
   it("disables the scheduled section when it is not enabled", () => {
     const props = renderAgentWorkspaceSidebar({
       scheduledDisabled: true,
