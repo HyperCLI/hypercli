@@ -1,4 +1,4 @@
-//import { HyperAgent } from "@hypercli.com/sdk";
+import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import { HyperAgent } from "@hypercli.com/sdk/agent";
 import type { OpenClawCreateAgentOptions, OpenClawStartAgentOptions } from "@hypercli.com/sdk/agents";
 import { Deployments } from "@hypercli.com/sdk/agents";
@@ -40,8 +40,11 @@ export function createAgentClient(apiKey: string): Deployments {
 
 export function createHyperAgentClient(apiKey: string): HyperAgent {
   const resolvedApiBaseUrl = resolveAgentApiBaseUrl(API_BASE_URL);
-  const http = new HTTPClient(resolvedApiBaseUrl, apiKey);
-  return new HyperAgent(http, apiKey, false, resolvedApiBaseUrl);
+  return new BrowserHyperCLI({
+    token: apiKey,
+    agentApiKey: apiKey,
+    apiUrl: resolvedApiBaseUrl.replace(/\/agents\/?$/, ""),
+  }).agent;
 }
 
 export function createPublicHyperAgentClient(): HyperAgent {
