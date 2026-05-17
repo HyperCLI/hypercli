@@ -14,3 +14,322 @@ hyper agent status
 hyper config openclaw
 hyper agent config env
 ```
+$ hyper claw subscribe 1aiu
+
+Subscribing to HyperClaw plan: 1aiu
+
+API: https://api.hyperclaw.app
+✓ Loaded wallet: 0x5D4631C26CFA3Ef9E25351d3E8E810737fed8f54
+
+Setting up x402 v2 client...
+
+→ Requesting: POST https://api.hyperclaw.app/x402/1aiu
+
+✓ Response status: 200
+
+✅ Subscription successful!
+
+API Key: sk-XHAWG8ywjaZ0behp-LC_BQ
+Plan: 1aiu
+Expires: 2026-03-05T19:45:30+00:00
+Limits: 50,000 TPM / 1,000 RPM
+
+✓ Key saved to /home/user/.hypercli/claw-key.json
+
+Configure OpenClaw with: hyper claw openclaw-setup
+```
+
+**One Key at a Time:**
+Each `subscribe` overwrites the previous key. HyperClaw follows a one-key-per-agent model.
+
+### status
+
+Show current HyperClaw subscription status.
+
+```bash
+hyper claw status
+```
+
+**Output:**
+- Plan ID
+- API key preview
+- Expiration date
+- Time remaining
+- Rate limits (TPM/RPM)
+
+**Example:**
+```bash
+$ hyper claw status
+
+HyperClaw Subscription Status
+
+Plan: 1aiu
+Key: sk-Kn4wYCpt0gMS1xZzb...
+Expires: 2026-03-05 19:45:30
+Time remaining: 29 days
+
+Limits:
+  TPM: 50,000
+  RPM: 1,000
+```
+
+### plans
+
+List available HyperClaw plans.
+
+```bash
+hyper claw plans
+```
+
+**Example:**
+```bash
+$ hyper claw plans
+
+┏━━━━━━━━━┳━━━━━━━━━━━┳━━━━━━━┳━━━━━━┳━━━━━━┓
+┃ Plan ID ┃ Name      ┃ Price ┃ TPM  ┃ RPM  ┃
+┡━━━━━━━━━╇━━━━━━━━━━━╇━━━━━━━╇━━━━━━╇━━━━━━┩
+│ 1aiu    │ 1 Agent   │ $35   │ 600K │ 3K   │
+│ 2aiu    │ 2 Agents  │ $65   │ 1.2M │ 6K   │
+│ 5aiu    │ 5 Agents  │ $120  │ 3M   │ 15K  │
+│ 10aiu   │ 10 Agents │ $225  │ 6M   │ 30K  │
+└─────────┴───────────┴───────┴──────┴──────┘
+
+Subscribe with: hyper claw subscribe <plan_id>
+```
+
+**Plan Details:**
+- **1aiu** - $35/month, 600K TPM, 3K RPM, 4x burst (2.4M TPM)
+- **2aiu** - $65/month, 1.2M TPM, 6K RPM, 4x burst (4.8M TPM)
+- **5aiu** - $120/month, 3M TPM, 15K RPM, 4x burst (12M TPM)
+- **10aiu** - $225/month, 6M TPM, 30K RPM, 4x burst (24M TPM)
+
+All plans include:
+- 32-day validity
+- OpenAI-compatible API
+- Access to Kimi K2.5 and GLM-5 models
+
+### config
+
+Generate provider configs for OpenClaw, OpenCode, and other tools. Validates your key against the API and fetches available models automatically.
+
+```bash
+hyper claw config [FORMAT] [--key sk-...] [--apply]
+```
+
+**Arguments:**
+- `FORMAT` — Output format: `openclaw`, `opencode`, `env`. Omit to show all three.
+
+**Options:**
+- `--key`, `-k` — API key (`sk-...`). Falls back to `~/.hypercli/claw-key.json`
+- `--apply` — Write config directly to the appropriate file (deep-merges, won't overwrite other settings)
+- `--dev` — Use dev API
+
+<Tip>
+The `--key` flag means you don't need a wallet or x402 subscription to use this command. Got a key from the dashboard or Stripe? Just pass it in.
+</Tip>
+
+**Examples:**
+
+```bash
+# Show all config formats (uses saved key)
+$ hyper claw config
+
+# OpenClaw config snippet
+$ hyper claw config openclaw
+
+# OpenCode config with an explicit key
+$ hyper claw config opencode --key sk-L0yyN8vV9OfM0urGRe0szg
+
+# Write directly to ~/.openclaw/openclaw.json
+$ hyper claw config openclaw --apply
+
+# Shell env vars (for Claude Code, Codex, etc.)
+$ hyper claw config env
+```
+
+**Output — OpenClaw:**
+```json
+{
+  "models": {
+    "mode": "merge",
+    "providers": {
+      "hyperclaw": {
+        "baseUrl": "https://api.hyperclaw.app",
+        "apiKey": "sk-...",
+        "api": "anthropic-messages",
+        "authHeader": true,
+        "models": [
+          {
+            "id": "kimi-k2.6-anthropic",
+            "name": "Kimi K2.6 Anthropic",
+            "reasoning": true,
+            "input": ["text"],
+            "contextWindow": 262144
+          }
+        ]
+      }
+    }
+  },
+  "agents": {
+    "defaults": {
+      "model": {
+        "primary": "hyperclaw/kimi-k2.6-anthropic"
+      },
+      "models": {
+        "hyperclaw/kimi-k2.6-anthropic": { "alias": "kimi" }
+      }
+    }
+  }
+}
+```
+
+**Output — OpenCode:**
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "hypercli/kimi-k2.6-anthropic",
+  "provider": {
+    "hypercli": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "HyperCLI",
+      "options": {
+        "baseURL": "https://api.hyperclaw.app/v1",
+        "apiKey": "sk-..."
+      },
+      "models": {
+        "kimi-k2.6-anthropic": { "name": "kimi-k2.6-anthropic" }
+      }
+    }
+  }
+}
+```
+
+**Output — env:**
+```bash
+export OPENAI_API_KEY="sk-..."
+export OPENAI_BASE_URL="https://api.hyperclaw.app/v1"
+# Available models: kimi-k2.6-anthropic
+```
+
+### openclaw-setup
+
+Patch OpenClaw config directly with your HyperClaw key (legacy — prefer `hyper claw config openclaw --apply`).
+
+```bash
+hyper claw openclaw-setup [--default]
+```
+
+**Options:**
+- `--default` — Also set `hyperclaw/kimi-k2.6-anthropic` as the primary model
+
+## Payment Protocol (x402)
+
+HyperClaw uses the x402 protocol for crypto payments:
+
+1. **Client** requests a paid endpoint
+2. **Server** returns HTTP 402 with payment terms
+3. **Client** signs EIP-3009 authorization (gasless)
+4. **Client** retries with payment signature
+5. **Server's facilitator** settles USDC on-chain
+
+**Benefits:**
+- No gas fees for the buyer
+- Instant subscription activation
+- No credit card required
+- Private (no email, no account needed for anonymous mode)
+
+## Tool Integration
+
+After subscribing, configure your tools automatically:
+
+```bash
+# Auto-configure OpenClaw (writes to ~/.openclaw/openclaw.json)
+hyper claw config openclaw --apply
+
+# Or generate config for any tool
+hyper claw config opencode --key sk-...
+hyper claw config env
+```
+
+See [Agent Integrations](/hyperclaw/integrations) for manual setup with OpenClaw, OpenCode, Claude Code, Python, TypeScript, and more.
+
+## Renewal
+
+Keys expire after 30 days. To renew:
+
+```bash
+# Check expiry
+hyper claw status
+
+# Renew (overwrites old key)
+hyper claw subscribe 1aiu
+```
+
+The new key replaces the old one in `~/.hypercli/claw-key.json`.
+
+## Troubleshooting
+
+**"Wallet commands require crypto dependencies"**
+```bash
+pip install 'hypercli-cli[wallet]'
+```
+
+**"No wallet found"**
+```bash
+hyper wallet create
+```
+
+**"No USDC"**
+```bash
+# Check balance
+hyper wallet balance
+
+# Fund your wallet on Base network
+# See: hyper wallet address
+```
+
+**"Payment failed"**
+- Verify USDC balance covers plan price
+- Check you're on Base mainnet (not testnet)
+- Try again (payment signatures expire after 10 minutes)
+
+**"Request failed: 402"**
+- This is normal! The x402 client handles it automatically
+- If you see this error, the payment wasn't submitted correctly
+- Ensure wallet dependencies are installed
+
+## API Usage
+
+Once subscribed, use your key with any OpenAI-compatible client:
+
+**Python:**
+```python
+from openai import OpenAI
+
+client = OpenAI(
+    base_url="https://api.hyperclaw.app/v1",
+    api_key="sk-XHAWG8ywjaZ0behp-LC_BQ"
+)
+
+response = client.chat.completions.create(
+    model="kimi-k2.6-anthropic",
+    messages=[{"role": "user", "content": "Hello!"}]
+)
+```
+
+**cURL:**
+```bash
+curl https://api.hyperclaw.app/v1/chat/completions \
+  -H "Authorization: Bearer sk-XHAWG8ywjaZ0behp-LC_BQ" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "model": "kimi-k2.6-anthropic",
+    "messages": [{"role": "user", "content": "Hello!"}]
+  }'
+```
+
+## Next Steps
+
+- [Wallet Management](/cli/commands/wallet) - Fund and manage your wallet
+- [HyperClaw Overview](/hyperclaw/index) - Learn about HyperClaw inference
+- [x402 Protocol](/hyperclaw/x402-wallet) - Deep dive into crypto payments

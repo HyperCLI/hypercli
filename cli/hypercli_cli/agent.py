@@ -749,7 +749,21 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
         normalized = (model_id or "").strip().lower()
         aliases = {
             "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
+            "kimi-k2.5-anthropic": {"name": "Kimi K2.5 Anthropic", "reasoning": True, "contextWindow": 262144},
+            "kimi-k2.6": {"name": "Kimi K2.6", "reasoning": True, "contextWindow": 262144},
+            "kimi-k2.6-anthropic": {"name": "Kimi K2.6 Anthropic", "reasoning": True, "contextWindow": 262144},
             "moonshotai/kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
+            "moonshotai/kimi-k2.5-anthropic": {
+                "name": "Kimi K2.5 Anthropic",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
+            "moonshotai/kimi-k2.6": {"name": "Kimi K2.6", "reasoning": True, "contextWindow": 262144},
+            "moonshotai/kimi-k2.6-anthropic": {
+                "name": "Kimi K2.6 Anthropic",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
             "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
             "zai-org/glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
             "qwen3-embedding-4b": {
@@ -814,9 +828,21 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
         ]
 
 
+def _preferred_agent_models(models: list[dict]) -> list[dict]:
+    """Return the recommended agent models in priority order."""
+    preferred = ["kimi-k2.6-anthropic", "kimi-k2.5-anthropic"]
+    picked = [model for model_id in preferred for model in models if model["id"] == model_id]
+    if picked:
+        return picked
+    anthropic = [model for model in models if model["id"].endswith("-anthropic")]
+    if anthropic:
+        return anthropic
+    return models[:1]
+
+
 @app.command("openclaw-setup")
 def openclaw_setup(
-    default: bool = typer.Option(False, "--default", help="Set hyperclaw/kimi-k2.5 as the default model"),
+    default: bool = typer.Option(False, "--default", help="Set hyperclaw/kimi-k2.6-anthropic as the default model"),
 ):
     """Patch OpenClaw config with your HyperClaw API key.
 
@@ -912,8 +938,8 @@ def _config_openclaw(
 
     api_base = api_base.rstrip("/")
     supported_models = [m for m in models if _is_supported_openclaw_model(m)]
-    chat_models = [m for m in supported_models if m.get("mode") != "embedding"]
     embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
+    chat_models = _preferred_agent_models([m for m in supported_models if m.get("mode") != "embedding"])
     kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
     glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
     other_chat_models = [
@@ -974,6 +1000,7 @@ def _config_openclaw(
 def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> dict:
     """OpenCode opencode.json provider snippet."""
     api_base = api_base.rstrip("/")
+    models = _preferred_agent_models(models)
     model_entries = {}
     for m in models:
         model_entries[m["id"]] = {"name": m["id"]}
@@ -981,7 +1008,7 @@ def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_INFE
         "$schema": "https://opencode.ai/config.json",
         "provider": {
             "hypercli": {
-                "npm": "@ai-sdk/openai-compatible",
+                "npm": "@ai-sdk/anthropic",
                 "name": "HyperCLI",
                 "options": {
                     "baseURL": f"{api_base}/v1",
@@ -989,13 +1016,15 @@ def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_INFE
                 },
                 "models": model_entries,
             }
-        }
+        },
+        "model": f"hypercli/{models[0]['id']}",
     }
 
 
 def _config_env(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> str:
     """Shell env vars for generic OpenAI-compatible tools."""
     api_base = api_base.rstrip("/")
+    models = _preferred_agent_models(models)
     lines = [
         f'export OPENAI_API_KEY="{api_key}"',
         f'export OPENAI_BASE_URL="{api_base}/v1"',
