@@ -417,6 +417,7 @@ export function AgentChatPanel({
                     }
                   }}
                   rows={1}
+                  aria-label="Message agent"
                   placeholder={chat.connected ? "Message agent..." : "Connect gateway to message..."}
                   disabled={composerDisabled}
                   className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"

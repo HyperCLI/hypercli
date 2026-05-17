@@ -109,6 +109,7 @@ class TestHyperAgentDataclasses:
                         "plan_name": "Large",
                         "provider": "STRIPE",
                         "status": "ACTIVE",
+                        "starts_at": "2026-04-01T00:00:00Z",
                         "expires_at": "2026-04-15T00:00:00Z",
                         "agent_tier": "large",
                         "slot_grants": {"large": 1},
@@ -138,7 +139,9 @@ class TestHyperAgentDataclasses:
         assert isinstance(summary.entitlements, HyperAgentEntitlements)
         assert summary.entitlements.active_entitlement_count == 1
         assert summary.active_subscriptions[0].plan_id == "large"
+        assert summary.entitlements.billing_reset_at is not None
         assert isinstance(summary.entitlement_items[0], HyperAgentEntitlement)
+        assert summary.entitlement_items[0].starts_at is not None
         assert summary.entitlement_items[0].tags == ["customer=acme"]
         assert summary.entitlement_items[0].slot_grants == {"large": 1}
 
@@ -163,6 +166,7 @@ class TestHyperAgentDataclasses:
                         "plan_name": "Pro",
                         "provider": "ACTIVATION_CODE",
                         "status": "ACTIVE",
+                        "starts_at": "2026-04-01T00:00:00Z",
                         "agent_tier": "large",
                         "slot_grants": {"large": 1},
                     }
@@ -175,6 +179,7 @@ class TestHyperAgentDataclasses:
         assert summary.active_subscription_count == 0
         assert summary.active_entitlement_count == 1
         assert summary.entitlement_items[0].subscription_id is None
+        assert summary.entitlement_items[0].starts_at is not None
         assert summary.entitlement_items[0].slot_grants == {"large": 1}
 
 

@@ -159,15 +159,6 @@ export interface HyperAgentEntitlements {
   billingResetAt: Date | null;
 }
 
-export interface HyperAgentEntitlements {
-  effectivePlanId: string;
-  pooledTpmLimit: number;
-  pooledRpmLimit: number;
-  pooledTpd: number;
-  slotInventory: Record<string, { granted: number; used: number; available: number }>;
-  activeEntitlementCount: number;
-}
-
 export interface HyperAgentSubscriptionSummary {
   effectivePlanId: string;
   currentSubscriptionId: string | null;
@@ -180,7 +171,7 @@ export interface HyperAgentSubscriptionSummary {
   activeSubscriptionCount: number;
   activeEntitlementCount: number;
   entitlements: HyperAgentEntitlements;
-  entitlementItems?: HyperAgentEntitlement[];
+  entitlementItems: HyperAgentEntitlement[];
   activeSubscriptions: HyperAgentSubscription[];
   subscriptions: HyperAgentSubscription[];
   user: Record<string, any>;
@@ -596,6 +587,7 @@ function hyperAgentGrantFromDict(data: any): HyperAgentGrant {
 
 function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
   const payload = data?.entitlements && typeof data.entitlements === 'object' ? data.entitlements : data;
+  const billingResetAt = payload?.billing_reset_at || data?.billing_reset_at || null;
   return {
     effectivePlanId: payload?.effective_plan_id || data?.effective_plan_id || '',
     pooledTpmLimit: payload?.pooled_tpm_limit || data?.pooled_tpm_limit || 0,
@@ -603,7 +595,7 @@ function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
     pooledTpd: payload?.pooled_tpd || data?.pooled_tpd || 0,
     slotInventory: payload?.slot_inventory || data?.slot_inventory || {},
     activeEntitlementCount: payload?.active_entitlement_count || data?.active_entitlement_count || data?.active_subscription_count || 0,
-    billingResetAt: payload?.billing_reset_at ? new Date(String(payload.billing_reset_at).replace('Z', '+00:00')) : null,
+    billingResetAt: billingResetAt ? new Date(String(billingResetAt).replace('Z', '+00:00')) : null,
   };
 }
 

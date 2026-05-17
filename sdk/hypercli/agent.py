@@ -147,6 +147,7 @@ class HyperAgentEntitlement:
     plan_name: str
     provider: str
     status: str
+    starts_at: datetime | None = None
     expires_at: datetime | None = None
     updated_at: datetime | None = None
     tpm_limit: int = 0
@@ -162,6 +163,7 @@ class HyperAgentEntitlement:
 
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentEntitlement":
+        starts_at = data.get("starts_at")
         expires_at = data.get("expires_at")
         updated_at = data.get("updated_at")
         return cls(
@@ -172,6 +174,7 @@ class HyperAgentEntitlement:
             plan_name=data.get("plan_name", data.get("plan_id", "")),
             provider=data.get("provider", ""),
             status=data.get("status", ""),
+            starts_at=datetime.fromisoformat(str(starts_at).replace("Z", "+00:00")) if starts_at else None,
             expires_at=datetime.fromisoformat(str(expires_at).replace("Z", "+00:00")) if expires_at else None,
             updated_at=datetime.fromisoformat(str(updated_at).replace("Z", "+00:00")) if updated_at else None,
             tpm_limit=int(data.get("tpm_limit", 0) or 0),
@@ -202,6 +205,7 @@ class HyperAgentEntitlements:
     @classmethod
     def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
         payload = data.get("entitlements") if isinstance(data.get("entitlements"), dict) else data
+        billing_reset_at = payload.get("billing_reset_at", data.get("billing_reset_at"))
         return cls(
             effective_plan_id=payload.get("effective_plan_id", data.get("effective_plan_id", "")),
             pooled_tpm_limit=int(payload.get("pooled_tpm_limit", data.get("pooled_tpm_limit", 0)) or 0),
@@ -215,41 +219,10 @@ class HyperAgentEntitlements:
                 )
                 or 0
             ),
-            billing_reset_at=datetime.fromisoformat(str(payload.get("billing_reset_at")).replace("Z", "+00:00"))
-            if payload.get("billing_reset_at")
+            billing_reset_at=datetime.fromisoformat(str(billing_reset_at).replace("Z", "+00:00"))
+            if billing_reset_at
             else None,
         )
-
-
-@dataclass
-class HyperAgentEntitlements:
-    """Effective account entitlements computed by the backend."""
-
-    effective_plan_id: str
-    pooled_tpm_limit: int
-    pooled_rpm_limit: int
-    pooled_tpd: int
-    slot_inventory: dict[str, Any]
-    active_entitlement_count: int
-
-    @classmethod
-    def from_dict(cls, data: dict) -> "HyperAgentEntitlements":
-        payload = data.get("entitlements") if isinstance(data.get("entitlements"), dict) else data
-        return cls(
-            effective_plan_id=payload.get("effective_plan_id", data.get("effective_plan_id", "")),
-            pooled_tpm_limit=int(payload.get("pooled_tpm_limit", data.get("pooled_tpm_limit", 0)) or 0),
-            pooled_rpm_limit=int(payload.get("pooled_rpm_limit", data.get("pooled_rpm_limit", 0)) or 0),
-            pooled_tpd=int(payload.get("pooled_tpd", data.get("pooled_tpd", 0)) or 0),
-            slot_inventory=payload.get("slot_inventory") or data.get("slot_inventory") or {},
-            active_entitlement_count=int(
-                payload.get(
-                    "active_entitlement_count",
-                    data.get("active_entitlement_count", data.get("active_subscription_count", 0)),
-                )
-                or 0
-            ),
-        )
-
 
 @dataclass
 class HyperAgentSubscriptionSummary:
