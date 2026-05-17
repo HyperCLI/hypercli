@@ -1,6 +1,6 @@
 import path from "node:path";
 import { config as loadEnv } from "dotenv";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import {
   cleanupClawAgents,
   captureStep,
@@ -38,6 +38,50 @@ function checkoutSessionIdFromUrl(rawUrl: string): string | null {
   }
 }
 
+async function waitForPlansPageReady(page: Page): Promise<void> {
+  const proPlanHeading = page.getByRole("heading", { name: "Pro" }).first();
+
+  for (let attempt = 1; attempt <= 3; attempt += 1) {
+    await page.goto("/plans", { waitUntil: "domcontentloaded" });
+
+    const state = await expect
+      .poll(
+        async () => {
+          if (await proPlanHeading.isVisible().catch(() => false)) {
+            return "ready";
+          }
+
+          const mainText = await page
+            .locator("main")
+            .first()
+            .textContent({ timeout: 1_000 })
+            .catch(() => "");
+          const headingText = await page
+            .locator("h1")
+            .first()
+            .textContent({ timeout: 1_000 })
+            .catch(() => "");
+          return `url=${page.url()} h1=${headingText?.trim() || "none"} main=${mainText?.trim().slice(0, 120) || "empty"}`;
+        },
+        { timeout: 20_000, intervals: [500, 1_000, 2_000] }
+      )
+      .toBe("ready")
+      .then(() => "ready" as const)
+      .catch(async (error) => {
+        console.log(`[agents-plans] plans page not ready attempt=${attempt}: ${error instanceof Error ? error.message : String(error)}`);
+        return "not-ready" as const;
+      });
+
+    if (state === "ready") {
+      return;
+    }
+
+    await page.reload({ waitUntil: "domcontentloaded" }).catch(() => {});
+  }
+
+  await expect(proPlanHeading).toBeVisible({ timeout: 20_000 });
+}
+
 test.describe.serial("Agents subscription", () => {
   test("logs into Claw, ensures a paid plan, launches an agent, and connects the gateway", async ({ page }) => {
     test.setTimeout(480_000);
@@ -63,16 +107,7 @@ test.describe.serial("Agents subscription", () => {
         );
       };
 
-      await page.goto("/plans", { waitUntil: "domcontentloaded" });
-      await expect
-        .poll(async () => {
-          const heading = page.locator("h1").first();
-          if (!(await heading.isVisible().catch(() => false))) {
-            return null;
-          }
-          return (await heading.textContent())?.trim() ?? null;
-        }, { timeout: 30_000 })
-        .toMatch(/plans/i);
+      await waitForPlansPageReady(page);
       await logPlanState("before-checkout");
       const beforeSummary = await fetchClawSubscriptionSummary(page);
       const beforeActiveSubscriptionCount = beforeSummary?.activeSubscriptionCount ?? 0;
