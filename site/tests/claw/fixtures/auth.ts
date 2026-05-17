@@ -78,6 +78,11 @@ interface StripeInvoice {
   status?: string | null;
 }
 
+interface StripeCheckoutSession {
+  id: string;
+  subscription?: string | { id?: string | null } | null;
+}
+
 interface HyperAgentCurrentPlan {
   id: string;
   name: string;
@@ -1734,6 +1739,17 @@ export async function cancelActiveClawStripeSubscriptionsForTestUser(): Promise<
   }
 
   return cancelled;
+}
+
+export async function fetchStripeSubscriptionIdForCheckoutSession(sessionId: string): Promise<string | null> {
+  if (!sessionId) return null;
+  const session = await stripeApiRequest<StripeCheckoutSession>(
+    `/v1/checkout/sessions/${encodeURIComponent(sessionId)}`
+  );
+  const subscription = session.subscription;
+  if (!subscription) return null;
+  if (typeof subscription === "string") return subscription;
+  return subscription.id || null;
 }
 
 export async function cancelStripeSubscription(
