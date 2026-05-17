@@ -47,6 +47,9 @@ const CODE_EXTENSIONS = new Set([
   "yaml", "yml", "toml", "ini", "conf", "env", "dockerfile",
 ]);
 const MARKDOWN_EXTENSIONS = new Set(["md", "mdx"]);
+const PREVIEW_ACTION_BUTTON_CLASS =
+  "flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
+const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
 
 function getFileExtension(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -156,38 +159,42 @@ export function FilePreview({
             <button
               onClick={handleSave}
               disabled={!isDirty || saving}
-              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className={PREVIEW_ACTION_BUTTON_CLASS}
               title="Save"
             >
               {saving ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className={`${PREVIEW_ACTION_ICON_CLASS} animate-spin`} />
               ) : (
-                <Save className="w-3 h-3" />
+                <Save className={PREVIEW_ACTION_ICON_CLASS} />
               )}
             </button>
           )}
           <button
             onClick={handleCopy}
-            className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            className={PREVIEW_ACTION_BUTTON_CLASS}
             title="Copy content"
           >
-            {copied ? <Check className="w-3 h-3 text-[#38D39F]" /> : <Copy className="w-3 h-3" />}
+            {copied ? (
+              <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[#38D39F]`} />
+            ) : (
+              <Copy className={PREVIEW_ACTION_ICON_CLASS} />
+            )}
           </button>
           {onDownload && (
             <button
               onClick={() => onDownload(entry)}
-              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              className={PREVIEW_ACTION_BUTTON_CLASS}
               title="Download"
             >
-              <Download className="w-3 h-3" />
+              <Download className={PREVIEW_ACTION_ICON_CLASS} />
             </button>
           )}
           {showClose && (
             <button
               onClick={onClose}
-              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              className={PREVIEW_ACTION_BUTTON_CLASS}
             >
-              <X className="w-3 h-3" />
+              <X className={PREVIEW_ACTION_ICON_CLASS} />
             </button>
           )}
         </div>

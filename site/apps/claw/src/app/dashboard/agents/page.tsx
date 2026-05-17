@@ -2503,11 +2503,12 @@ export default function AgentsPage() {
     }
   };
   const showMobileChatReturn = !isDesktopViewport && (mainTab !== "chat" || openclawSettingsOpen);
+  const useSettingsMobileChrome = !isDesktopViewport && mainTab === "settings" && Boolean(selectedAgent) && !openclawSettingsOpen;
 
   return (
     <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header + menu (hidden on desktop) */}
-      {!isDesktopViewport && (
+      {!isDesktopViewport && !useSettingsMobileChrome && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2">
             <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
@@ -2945,6 +2946,7 @@ export default function AgentsPage() {
               connected={chat.connected}
               connecting={chat.connecting}
               hydrating={chat.hydrating}
+              isDesktopViewport={isDesktopViewport}
               error={null}
               onListFiles={listAgentFiles}
               onOpenFile={readAgentFile}
@@ -2985,9 +2987,15 @@ export default function AgentsPage() {
               onStopAgent={() => {
                 if (selectedAgent) void handleStop(selectedAgent.id);
               }}
+              onDeleteAgent={() => {
+                if (selectedAgent) {
+                  setPendingAgentDelete({ id: selectedAgent.id, name: selectedAgent.name || selectedAgent.id });
+                }
+              }}
               onLogout={logout}
               agentStarting={selectedAgentStarting}
               agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
+              agentDeleting={Boolean(selectedAgent && deletingId === selectedAgent.id)}
               agentStartBlocked={selectedAgentLaunchBlocked}
               agentStartBlockedReason={selectedAgentStartBlockedTitle}
               planName={planName}
@@ -2997,6 +3005,19 @@ export default function AgentsPage() {
               openclawConfig={chat.config}
               openclawModels={chat.models}
               onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
+              isDesktopViewport={isDesktopViewport}
+              showBackToChat={showMobileChatReturn}
+              onBackToChat={openChatTab}
+              agentsMenuOpen={mobileAgentsSidebarOpen}
+              workspaceMenuOpen={mobileWorkspaceSidebarOpen}
+              onOpenAgentsMenu={() => {
+                setMobileWorkspaceSidebarOpen(false);
+                setMobileAgentsSidebarOpen((open) => !open);
+              }}
+              onOpenWorkspaceMenu={() => {
+                setMobileAgentsSidebarOpen(false);
+                setMobileWorkspaceSidebarOpen((open) => !open);
+              }}
             />
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />

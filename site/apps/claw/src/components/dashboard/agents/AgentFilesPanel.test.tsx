@@ -99,4 +99,19 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => expect(screen.getAllByText("notes.txt").length).toBeGreaterThan(0));
     expect(onListFiles).toHaveBeenCalledTimes(2);
   });
+
+  it("opens the file editor in a drawer on mobile", async () => {
+    const onListFiles = vi.fn(async () => [
+      { name: "README.md", path: "workspace/README.md", type: "file", size: 128 },
+    ]);
+    const onOpenFile = vi.fn().mockResolvedValue("# Notes");
+
+    renderAgentFilesPanel({ onListFiles, onOpenFile });
+
+    await userEvent.click(await screen.findByRole("button", { name: /README.md/i }));
+
+    expect(await screen.findByRole("dialog", { name: /file editor/i })).toBeInTheDocument();
+    expect(await screen.findByDisplayValue("# Notes")).toBeInTheDocument();
+    expect(onOpenFile).toHaveBeenCalledWith("workspace/README.md");
+  });
 });

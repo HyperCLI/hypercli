@@ -56,6 +56,7 @@ interface AgentFilesPanelProps {
   connected: boolean;
   connecting: boolean;
   hydrating: boolean;
+  isDesktopViewport?: boolean;
   error?: string | null;
   onListFiles: (path?: string) => Promise<FileEntry[]>;
   onOpenFile: (path: string) => Promise<string>;
@@ -71,6 +72,7 @@ export function AgentFilesPanel({
   connected,
   connecting,
   hydrating,
+  isDesktopViewport = false,
   error,
   onListFiles,
   onOpenFile,
@@ -212,9 +214,21 @@ export function AgentFilesPanel({
   }, [sortKey]);
 
   const breadcrumbPath = pathRelativeToRoot(currentPath, normalizedRootPath);
+  const filePreview = previewEntry ? (
+    <FilePreview
+      key={previewEntry.path}
+      entry={previewEntry}
+      content={previewContent}
+      loading={previewLoading}
+      error={previewError}
+      readOnly={isProtectedFile(previewEntry.path)}
+      onClose={() => setPreviewEntry(null)}
+      onSave={handleSaveFile}
+    />
+  ) : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border px-4">
         <FolderOpen className="h-4 w-4 text-primary" />
         <div className="min-w-0">
@@ -313,8 +327,14 @@ export function AgentFilesPanel({
         )}
       </AnimatePresence>
 
-      <div className="flex min-h-0 flex-1 flex-col md:flex-row">
-        <aside className="flex h-[42%] min-h-[220px] w-full flex-shrink-0 flex-col border-b border-border md:h-auto md:min-h-0 md:w-72 md:border-b-0 md:border-r">
+      <div className={`flex min-h-0 flex-1 ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
+        <aside
+          className={`flex flex-shrink-0 flex-col ${
+            isDesktopViewport
+              ? "h-auto min-h-0 w-72 border-r border-border"
+              : "h-full min-h-0 w-full"
+          }`}
+        >
           <div className="flex-shrink-0 space-y-2 px-3 pb-2 pt-3">
             <FilesSearchBar
               value={searchQuery}
@@ -365,39 +385,53 @@ export function AgentFilesPanel({
           </div>
         </aside>
 
-        <main className="min-h-[220px] min-w-0 flex-1 md:min-h-0">
-          <AnimatePresence mode="wait">
-            {previewEntry ? (
-              <FilePreview
-                key={previewEntry.path}
-                entry={previewEntry}
-                content={previewContent}
-                loading={previewLoading}
-                error={previewError}
-                readOnly={isProtectedFile(previewEntry.path)}
-                onClose={() => setPreviewEntry(null)}
-                onSave={handleSaveFile}
-              />
-            ) : (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex h-full flex-col items-center justify-center gap-3 text-text-muted"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-low/50">
-                  <FileText className="h-5 w-5 opacity-50" />
-                </div>
-                <div className="text-center">
-                  <p className="mb-1 text-sm font-medium text-foreground">Select a file to preview</p>
-                  <p className="text-[11px] text-text-muted">Browse workspace files without leaving the agent.</p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
+        {isDesktopViewport && (
+          <main className="min-h-0 min-w-0 flex-1">
+            <AnimatePresence mode="wait">
+              {filePreview ?? (
+                <motion.div
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex h-full flex-col items-center justify-center gap-3 text-text-muted"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-low/50">
+                    <FileText className="h-5 w-5 opacity-50" />
+                  </div>
+                  <div className="text-center">
+                    <p className="mb-1 text-sm font-medium text-foreground">Select a file to preview</p>
+                    <p className="text-[11px] text-text-muted">Browse workspace files without leaving the agent.</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </main>
+        )}
       </div>
+
+      <AnimatePresence>
+        {!isDesktopViewport && previewEntry && (
+          <motion.section
+            key="file-editor-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="File editor"
+            initial={{ y: "100%", opacity: 0.98 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0.98 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background shadow-[0_-18px_50px_rgba(0,0,0,0.45)]"
+          >
+            <div className="flex flex-shrink-0 justify-center py-2">
+              <div className="h-1 w-10 rounded-full bg-border" />
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {filePreview}
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
     </div>
   );
 }
