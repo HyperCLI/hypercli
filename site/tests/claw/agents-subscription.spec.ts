@@ -63,7 +63,7 @@ test.describe.serial("Agents subscription", () => {
         );
       };
 
-      await page.goto("/plans", { waitUntil: "networkidle" });
+      await page.goto("/plans", { waitUntil: "domcontentloaded" });
       await expect
         .poll(async () => {
           const heading = page.locator("h1").first();
