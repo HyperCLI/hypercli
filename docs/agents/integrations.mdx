@@ -22,7 +22,7 @@ curl https://api.hypercli.com/v1/messages \
   -H "anthropic-version: 2023-06-01" \
   -H "content-type: application/json" \
   -d '{
-    "model": "kimi-k2.5-anthropic",
+    "model": "kimi-k2.6-anthropic",
     "max_tokens": 512,
     "messages": [
       {
@@ -46,18 +46,15 @@ Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
   "$schema": "https://opencode.ai/config.json",
   "provider": {
     "hypercli": {
-      "npm": "@ai-sdk/openai-compatible",
+      "npm": "@ai-sdk/anthropic",
       "name": "HyperCLI",
       "options": {
         "baseURL": "https://api.hypercli.com/v1",
         "apiKey": "sk-YOUR-API-KEY"
       },
       "models": {
-        "kimi-k2.5": {
-          "name": "kimi-k2.5"
-        },
-        "glm-5": {
-          "name": "glm-5"
+        "kimi-k2.6-anthropic": {
+          "name": "kimi-k2.6-anthropic"
         }
       }
     }
@@ -65,7 +62,7 @@ Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
 }
 ```
 
-Then select the model with `hypercli/kimi-k2.5` or `hypercli/glm-5` in OpenCode.
+Then select the model with `hypercli/kimi-k2.6-anthropic` in OpenCode.
 
 ## OpenClaw
 
@@ -83,18 +80,11 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
         "authHeader": true,
         "models": [
           {
-            "id": "kimi-k2.5",
-            "name": "Kimi K2.5",
+            "id": "kimi-k2.6-anthropic",
+            "name": "Kimi K2.6 Anthropic",
             "reasoning": true,
             "input": ["text", "image"],
             "contextWindow": 262144
-          },
-          {
-            "id": "glm-5",
-            "name": "GLM-5",
-            "reasoning": true,
-            "input": ["text", "image"],
-            "contextWindow": 202752
           }
         ]
       }
@@ -116,7 +106,7 @@ Add a `hyperclaw` provider in `~/.openclaw/openclaw.json` under `models.provider
 ```
 
 For chat, OpenClaw appends `/v1/messages` for `anthropic-messages`, so keep the chat `baseUrl` at `https://api.hypercli.com`, not `.../v1`.
-For the branded HyperClaw setup, use `hyperclaw/kimi-k2.5` and `hyperclaw/glm-5` directly.
+For the branded HyperClaw setup, use `hyperclaw/kimi-k2.6-anthropic` directly.
 
 If you need compatibility with an older OpenAI-style OpenClaw config, this still works, but it is not recommended for chat:
 
@@ -131,8 +121,8 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
         "api": "openai-completions",
         "models": [
           {
-            "id": "kimi-k2.5",
-            "name": "Kimi K2.5",
+            "id": "kimi-k2.6",
+            "name": "Kimi K2.6",
             "reasoning": true,
             "input": ["text", "image"],
             "contextWindow": 262144,
@@ -145,17 +135,17 @@ If you need compatibility with an older OpenAI-style OpenClaw config, this still
 }
 ```
 
-Then reference the model as `hyperclaw/kimi-k2.5` in your agent config, or set it as primary:
+Then reference the model as `hyperclaw/kimi-k2.6-anthropic` in your agent config, or set it as primary:
 
 ```json
 {
   "agents": {
     "defaults": {
       "model": {
-        "primary": "hyperclaw/kimi-k2.5"
+        "primary": "hyperclaw/kimi-k2.6-anthropic"
       },
       "models": {
-        "hyperclaw/kimi-k2.5": {
+        "hyperclaw/kimi-k2.6-anthropic": {
           "alias": "kimi"
         }
       }
@@ -173,10 +163,10 @@ export OPENAI_API_KEY="sk-YOUR-API-KEY"
 export OPENAI_BASE_URL="https://api.hypercli.com/v1"
 
 # Claude Code
-claude --model hyperclaw/kimi-k2.5
+claude --model hyperclaw/kimi-k2.6-anthropic
 
 # OpenAI Codex
-codex --model hyperclaw/kimi-k2.5
+codex --model hyperclaw/kimi-k2.6-anthropic
 ```
 
 ## Python (OpenAI SDK)
@@ -190,7 +180,7 @@ client = OpenAI(
 )
 
 response = client.chat.completions.create(
-    model="kimi-k2.5",
+    model="kimi-k2.6-anthropic",
     messages=[{"role": "user", "content": "Hello!"}]
 )
 print(response.choices[0].message.content)
@@ -207,7 +197,7 @@ const client = new OpenAI({
 });
 
 const response = await client.chat.completions.create({
-  model: 'kimi-k2.5',
+  model: 'kimi-k2.6-anthropic',
   messages: [{ role: 'user', content: 'Hello!' }]
 });
 ```
@@ -219,7 +209,7 @@ curl https://api.hypercli.com/v1/chat/completions \
   -H "Authorization: Bearer sk-YOUR-API-KEY" \
   -H "Content-Type: application/json" \
   -d '{
-    "model": "kimi-k2.5",
+    "model": "kimi-k2.6-anthropic",
     "messages": [{"role": "user", "content": "Hello!"}],
     "stream": true
   }'
@@ -253,11 +243,6 @@ model_list:
       api_base: https://api.hypercli.com/v1
       api_key: sk-YOUR-HYPERCLAW-KEY
 
-  - model_name: glm-5
-    litellm_params:
-      model: openai/glm-5
-      api_base: https://api.hypercli.com/v1
-      api_key: sk-YOUR-HYPERCLAW-KEY
 ```
 
 For embeddings, use the same OpenAI-compatible upstream pattern with
@@ -276,11 +261,6 @@ model_list:
       api_base: https://api.hypercli.com
       api_key: sk-YOUR-HYPERCLAW-KEY
 
-  - model_name: glm-5-anthropic
-    litellm_params:
-      model: anthropic/glm-5-anthropic
-      api_base: https://api.hypercli.com
-      api_key: sk-YOUR-HYPERCLAW-KEY
 ```
 
 ### Mixed downstream config
@@ -311,9 +291,7 @@ that expect `/v1`.
 | Model | Context | Description |
 |-------|---------|-------------|
 | `kimi-k2.6-anthropic` | 262K tokens | Kimi K2.6 on the recommended Anthropic Messages route |
-| `glm-5-anthropic` | 202K tokens | GLM-5 on the recommended Anthropic Messages route |
 | `kimi-k2.6` | 262K tokens | Kimi K2.6 on the OpenAI-compatible route |
-| `glm-5` | 202K tokens | GLM-5 on the OpenAI-compatible route |
 
 Check available models at any time:
 
