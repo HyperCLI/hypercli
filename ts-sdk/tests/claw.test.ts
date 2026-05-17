@@ -191,6 +191,7 @@ describe('HyperAgent API', () => {
               status: 'ACTIVE',
               expires_at: '2026-04-15T00:00:00Z',
               agent_tier: 'large',
+              slot_grants: { large: 1 },
               features: { voice: true },
               tags: ['customer=acme'],
               active_agent_count: 1,
@@ -214,6 +215,8 @@ describe('HyperAgent API', () => {
       expect(summary.currentEntitlementId).toBe('sub-1');
       expect(summary.slotInventory.large.available).toBe(1);
       expect(summary.entitlements.activeEntitlementCount).toBe(1);
+      expect(summary.entitlementItems ?? []).toHaveLength(1);
+      expect(summary.entitlementItems?.[0]?.slotGrants).toEqual({ large: 1 });
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/subscriptions/summary');
       expect((calls[0]?.init?.headers as Record<string, string>)?.Authorization).toBe('Bearer sk-hyper-test');
     } finally {

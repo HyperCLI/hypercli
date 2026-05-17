@@ -180,6 +180,7 @@ export interface HyperAgentSubscriptionSummary {
   activeSubscriptionCount: number;
   activeEntitlementCount: number;
   entitlements: HyperAgentEntitlements;
+  entitlementItems?: HyperAgentEntitlement[];
   activeSubscriptions: HyperAgentSubscription[];
   subscriptions: HyperAgentSubscription[];
   user: Record<string, any>;
@@ -609,6 +610,7 @@ function hyperAgentEntitlementsFromDict(data: any): HyperAgentEntitlements {
 
 
 function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptionSummary {
+  const entitlementItems = (data.entitlement_items || []).map(hyperAgentEntitlementFromDict);
   return {
     effectivePlanId: data.effective_plan_id || '',
     currentSubscriptionId: data.current_subscription_id || null,
@@ -621,6 +623,7 @@ function hyperAgentSubscriptionSummaryFromDict(data: any): HyperAgentSubscriptio
     activeSubscriptionCount: data.active_subscription_count || 0,
     activeEntitlementCount: data.active_entitlement_count || data.active_subscription_count || 0,
     entitlements: hyperAgentEntitlementsFromDict(data),
+    entitlementItems,
     activeSubscriptions: (data.active_subscriptions || []).map(hyperAgentSubscriptionFromDict),
     subscriptions: (data.subscriptions || []).map(hyperAgentSubscriptionFromDict),
     user: data.user || {},

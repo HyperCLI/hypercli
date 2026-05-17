@@ -2,7 +2,7 @@
 
 import React, { type ComponentType } from "react";
 import { motion } from "framer-motion";
-import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { HyperAgentEntitlement, HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
   Bot,
   Brain,
@@ -145,7 +145,8 @@ type ActiveLaunchPlanGroup = {
   catalogPlan?: HyperAgentPlan;
   granted: number;
   slotGrants: Record<string, number>;
-  subscriptionCount: number;
+  sourceCount: number;
+  sourceType: "subscription" | "entitlement";
 };
 
 type ChoosePlanCatalog = {
@@ -354,13 +355,24 @@ function buildLaunchPlanOptions(
   } = buildChoosePlanCatalog(catalogPlans);
   const activeGroups = new Map<string, ActiveLaunchPlanGroup>();
 
-  for (const subscription of subscriptionSummary?.activeSubscriptions ?? []) {
-    const slotGrants = subscription.slotGrants ?? {};
-    const tier = ["large", "medium", "small"].find((candidate) => Number(slotGrants[candidate] || 0) > 0);
-    if (!tier) continue;
+  const addActiveGroup = ({
+    sourceType,
+    planId: rawPlanId,
+    planName: rawPlanName,
+    slotGrants,
+    quantity = 1,
+  }: {
+    sourceType: "subscription" | "entitlement";
+    planId: string;
+    planName?: string | null;
+    slotGrants: Record<string, number> | null | undefined;
+    quantity?: number;
+  }) => {
+    const tier = ["large", "medium", "small"].find((candidate) => Number(slotGrants?.[candidate] || 0) > 0);
+    if (!tier) return;
 
-    const catalogPlan = catalogById.get(subscription.planId);
-    const sourceCatalogPlan = sourceCatalogById.get(subscription.planId);
+    const catalogPlan = catalogById.get(rawPlanId);
+    const sourceCatalogPlan = sourceCatalogById.get(rawPlanId);
     const mergedIntoPro = Boolean(
       catalogPlan &&
       sourceCatalogPlan &&
@@ -368,14 +380,14 @@ function buildLaunchPlanOptions(
       isProPlan(catalogPlan) &&
       isLegacyAgentPlan(sourceCatalogPlan),
     );
-    const subscriptionNameIsLegacy = isLegacyAgentPlanLabel(subscription.planName);
-    const planName = (mergedIntoPro || (catalogPlan && isProPlan(catalogPlan) && subscriptionNameIsLegacy))
-      ? catalogPlan?.name ?? subscription.planName ?? "Pro"
-      : subscription.planName || catalogPlan?.name || subscription.planId || "Current plan";
+    const sourceNameIsLegacy = isLegacyAgentPlanLabel(rawPlanName ?? "");
+    const planName = (mergedIntoPro || (catalogPlan && isProPlan(catalogPlan) && sourceNameIsLegacy))
+      ? catalogPlan?.name ?? rawPlanName ?? "Pro"
+      : rawPlanName || catalogPlan?.name || rawPlanId || "Current plan";
     const normalizedPlanName = planName.trim().toLowerCase();
-    const planId = catalogPlan?.id || (subscription.planName ? normalizedPlanName : subscription.planId || normalizedPlanName);
-    const groupKey = `${planId}:${tier}`;
-    const quantity = Math.max(Number(subscription.quantity || 1), 1);
+    const planId = catalogPlan?.id || (rawPlanName ? normalizedPlanName : rawPlanId || normalizedPlanName);
+    const groupKey = `${sourceType}:${planId}:${tier}`;
+    const normalizedQuantity = Math.max(Number(quantity || 1), 1);
     let group = activeGroups.get(groupKey);
     if (!group) {
       group = {
@@ -385,17 +397,38 @@ function buildLaunchPlanOptions(
         catalogPlan,
         granted: 0,
         slotGrants: {},
-        subscriptionCount: 0,
+        sourceCount: 0,
+        sourceType,
       };
       activeGroups.set(groupKey, group);
     }
 
-    group.granted += Math.max(Number(slotGrants[tier] || 0), 0) * quantity;
-    group.subscriptionCount += quantity;
-    for (const [slotTier, amount] of Object.entries(slotGrants)) {
-      const granted = Math.max(Number(amount || 0), 0) * quantity;
+    group.granted += Math.max(Number(slotGrants?.[tier] || 0), 0) * normalizedQuantity;
+    group.sourceCount += normalizedQuantity;
+    for (const [slotTier, amount] of Object.entries(slotGrants ?? {})) {
+      const granted = Math.max(Number(amount || 0), 0) * normalizedQuantity;
       group.slotGrants[slotTier] = (group.slotGrants[slotTier] ?? 0) + granted;
     }
+  };
+
+  for (const subscription of subscriptionSummary?.activeSubscriptions ?? []) {
+    addActiveGroup({
+      sourceType: "subscription",
+      planId: subscription.planId,
+      planName: subscription.planName,
+      slotGrants: subscription.slotGrants,
+      quantity: subscription.quantity,
+    });
+  }
+
+  for (const entitlement of (subscriptionSummary?.entitlementItems ?? []) as HyperAgentEntitlement[]) {
+    if (entitlement.subscriptionId) continue;
+    addActiveGroup({
+      sourceType: "entitlement",
+      planId: entitlement.planId,
+      planName: entitlement.planName,
+      slotGrants: entitlement.slotGrants,
+    });
   }
 
   const mapped = Array.from(activeGroups.values()).map((group) => {
@@ -408,9 +441,13 @@ function buildLaunchPlanOptions(
     const canLaunch = available > 0;
     const waitingForEntitlement = granted > 0 && inventoryGranted === 0;
     const slotBeingReleased = !canLaunch && !waitingForEntitlement && releasing > 0;
-    const activeSubscriptionLabel = group.subscriptionCount > 1
-      ? "Uses your existing active subscriptions"
-      : "Uses your existing active subscription";
+    const activeSourceLabel = group.sourceType === "entitlement"
+      ? group.sourceCount > 1
+        ? "Uses your active direct entitlements"
+        : "Uses your active direct entitlement"
+      : group.sourceCount > 1
+        ? "Uses your existing active subscriptions"
+        : "Uses your existing active subscription";
 
     return {
       id: group.id,
@@ -438,10 +475,10 @@ function buildLaunchPlanOptions(
       features: catalogPlan ? uniqueFeatureList([
         waitingForEntitlement ? "Launch entitlement is still provisioning" : null,
         slotBeingReleased ? "A deleted agent is releasing this slot" : null,
+        activeSourceLabel,
         ...catalogFeatures(catalogPlan, tier, group.slotGrants),
         `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
         waitingForEntitlement || slotBeingReleased ? null : `${available} free right now`,
-        activeSubscriptionLabel,
       ].filter((feature): feature is string => Boolean(feature))).slice(0, 7) : [
         `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
         waitingForEntitlement
@@ -449,7 +486,7 @@ function buildLaunchPlanOptions(
           : slotBeingReleased
             ? "A deleted agent is releasing this slot"
             : `${available} free right now`,
-        activeSubscriptionLabel,
+        activeSourceLabel,
       ],
     };
   });

@@ -360,6 +360,7 @@ function applyActiveNoSlotBillingMock(
       activeEntitlementCount,
       billingResetAt: summary?.entitlements?.billingResetAt ?? summary?.billingResetAt ?? null,
     },
+    entitlementItems: summary?.entitlementItems ?? [],
     activeSubscriptions,
     subscriptions,
     user: summary?.user || {},

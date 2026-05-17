@@ -111,6 +111,7 @@ class TestHyperAgentDataclasses:
                         "status": "ACTIVE",
                         "expires_at": "2026-04-15T00:00:00Z",
                         "agent_tier": "large",
+                        "slot_grants": {"large": 1},
                         "features": {"voice": True},
                         "tags": ["customer=acme"],
                         "active_agent_count": 1,
@@ -139,6 +140,42 @@ class TestHyperAgentDataclasses:
         assert summary.active_subscriptions[0].plan_id == "large"
         assert isinstance(summary.entitlement_items[0], HyperAgentEntitlement)
         assert summary.entitlement_items[0].tags == ["customer=acme"]
+        assert summary.entitlement_items[0].slot_grants == {"large": 1}
+
+    def test_subscription_summary_preserves_direct_entitlement_items(self):
+        summary = HyperAgentSubscriptionSummary.from_dict(
+            {
+                "effective_plan_id": "pro",
+                "current_subscription_id": None,
+                "current_entitlement_id": "ent-direct-1",
+                "pooled_tpm_limit": 8680550,
+                "pooled_rpm_limit": 868,
+                "pooled_tpd": 250000000,
+                "slot_inventory": {"large": {"granted": 1, "used": 0, "available": 1}},
+                "active_subscription_count": 0,
+                "active_entitlement_count": 1,
+                "entitlement_items": [
+                    {
+                        "id": "ent-direct-1",
+                        "user_id": "user-1",
+                        "subscription_id": None,
+                        "plan_id": "pro",
+                        "plan_name": "Pro",
+                        "provider": "ACTIVATION_CODE",
+                        "status": "ACTIVE",
+                        "agent_tier": "large",
+                        "slot_grants": {"large": 1},
+                    }
+                ],
+                "active_subscriptions": [],
+                "subscriptions": [],
+            }
+        )
+
+        assert summary.active_subscription_count == 0
+        assert summary.active_entitlement_count == 1
+        assert summary.entitlement_items[0].subscription_id is None
+        assert summary.entitlement_items[0].slot_grants == {"large": 1}
 
 
 class TestHyperAgentClient:
@@ -236,6 +273,7 @@ class TestHyperAgentClient:
                     "status": "ACTIVE",
                     "expires_at": "2026-04-15T00:00:00Z",
                     "agent_tier": "large",
+                    "slot_grants": {"large": 1},
                     "features": {"voice": True},
                     "tags": ["customer=acme"],
                     "active_agent_count": 1,
@@ -263,6 +301,7 @@ class TestHyperAgentClient:
         assert summary.current_subscription_id == "sub-1"
         assert summary.slot_inventory["large"]["available"] == 1
         assert summary.entitlement_items[0].plan_id == "large"
+        assert summary.entitlement_items[0].slot_grants == {"large": 1}
         mock_http._session.get.assert_called_with(
             "https://api.hypercli.com/agents/subscriptions/summary",
             headers={"Authorization": "Bearer sk-hyper-test"},
