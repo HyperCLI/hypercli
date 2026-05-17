@@ -9,7 +9,7 @@ HyperClaw exposes two chat surfaces:
 - **Compatibility option:** OpenAI-compatible API at `https://api.hypercli.com/v1`
 
 For chat models, prefer the Anthropic Messages format. The OpenAI-compatible endpoint works well for broad tool compatibility, but tool calling quality is better with the Anthropic format.
-
+ 
 `hyper config openclaw --apply` already configures the `hyperclaw` provider and the `/v1` memory-search remote automatically.
 
 ## Anthropic Messages API
@@ -242,6 +242,7 @@ model_list:
       model: openai/kimi-k2.6
       api_base: https://api.hypercli.com/v1
       api_key: sk-YOUR-HYPERCLAW-KEY
+
 ```
 
 For embeddings, use the same OpenAI-compatible upstream pattern with
@@ -259,6 +260,7 @@ model_list:
       model: anthropic/kimi-k2.6-anthropic
       api_base: https://api.hypercli.com
       api_key: sk-YOUR-HYPERCLAW-KEY
+
 ```
 
 ### Mixed downstream config
