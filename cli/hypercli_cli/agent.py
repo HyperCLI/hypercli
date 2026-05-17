@@ -1,4 +1,5 @@
 """HyperAgent inference commands"""
+
 import asyncio
 import json
 import os
@@ -32,6 +33,7 @@ try:
     from x402.http.clients import x402HttpxClient
     from x402.mechanisms.evm import EthAccountSigner
     from x402.mechanisms.evm.exact.register import register_exact_evm_client
+
     X402_AVAILABLE = True
 except ImportError:
     X402_AVAILABLE = False
@@ -67,7 +69,9 @@ def _resolve_agent_query_key() -> str:
         except Exception:
             pass
     console.print("[red]❌ No HyperClaw API key found.[/red]")
-    console.print("Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe first with [bold]hyper agent subscribe[/bold].")
+    console.print(
+        "Set HYPER_AGENTS_API_KEY or HYPER_API_KEY, or subscribe first with [bold]hyper agent subscribe[/bold]."
+    )
     raise typer.Exit(1)
 
 
@@ -79,8 +83,13 @@ def _get_agent_query_client(dev: bool) -> HyperCLI:
 
 @app.command("subscribe")
 def subscribe(
-    plan_id: str = typer.Argument("basic", help="Plan ID: basic, plus, pro, team (default: basic)"),
-    amount: str = typer.Argument(None, help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally."),
+    plan_id: str = typer.Argument(
+        "basic", help="Plan ID: basic, plus, pro, team (default: basic)"
+    ),
+    amount: str = typer.Argument(
+        None,
+        help="USDC amount to pay (e.g., '25' for $25). Duration scales proportionally.",
+    ),
     passphrase: str = typer.Option(
         None,
         "--passphrase",
@@ -88,50 +97,50 @@ def subscribe(
     ),
 ):
     """Subscribe to a HyperClaw plan via x402 payment.
-    
+
     Duration scales with payment amount (basic: $25 = 32 days):
       - $25 → 32 days
       - $12.50 → 16 days
       - $1 → ~1.3 days
-    
+
     Examples:
       hyper agent subscribe basic 25     # Pay $25 for 32 days
       hyper agent subscribe basic 50     # Pay $50 for 64 days
       hyper agent subscribe pro 100    # Pay $100 for pro plan
     """
     require_x402_deps()
-    
+
     # Import wallet helper
     from .wallet import load_wallet
     from hypercli.config import get_api_url
-    
+
     api_base = get_api_url().rstrip("/")
-    
+
     console.print(f"\n[bold]Subscribing to HyperClaw plan: {plan_id}[/bold]\n")
     console.print(f"API: {api_base}")
     if amount:
         console.print(f"Custom amount: [bold]${amount} USDC[/bold]")
-    
+
     # Load wallet
     account = load_wallet(passphrase=passphrase)
     console.print(f"[green]✓[/green] Loaded wallet: {account.address}\n")
-    
+
     # Run async subscribe
     result = asyncio.run(_subscribe_async(account, plan_id, api_base, amount))
-    
+
     if result:
         import yaml
         from datetime import datetime
-        
+
         # Save key (current)
         HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
         with open(AGENT_KEY_PATH, "w") as f:
             json.dump(result, f, indent=2)
-        
+
         # Build history entry with key info
         tx_hash = result.get("tx_hash", "")
         basescan_url = f"https://basescan.org/tx/{tx_hash}" if tx_hash else ""
-        
+
         history_entry = {
             "key": result["key"],
             "plan": result["plan_id"],
@@ -142,7 +151,7 @@ def subscribe(
             "tpm_limit": result.get("tpm_limit", 0),
             "rpm_limit": result.get("rpm_limit", 0),
         }
-        
+
         # Load existing keys or start fresh
         keys_history_path = HYPERCLI_DIR / "agent-keys.yaml"
         if keys_history_path.exists():
@@ -150,27 +159,35 @@ def subscribe(
                 keys_data = yaml.safe_load(f) or {"keys": []}
         else:
             keys_data = {"keys": []}
-        
+
         keys_data["keys"].append(history_entry)
-        
+
         with open(keys_history_path, "w") as f:
             yaml.dump(keys_data, f, default_flow_style=False, sort_keys=False)
-        
+
         console.print("\n[green]✅ Subscription successful![/green]\n")
         console.print(f"API Key: [bold]{result['key']}[/bold]")
         console.print(f"Plan: {result['plan_id']}")
-        console.print(f"Amount paid: [bold]${result.get('amount_paid', 'N/A')} USDC[/bold]")
-        console.print(f"Duration: [bold]{result.get('duration_days', 30):.2f} days[/bold]")
+        console.print(
+            f"Amount paid: [bold]${result.get('amount_paid', 'N/A')} USDC[/bold]"
+        )
+        console.print(
+            f"Duration: [bold]{result.get('duration_days', 30):.2f} days[/bold]"
+        )
         console.print(f"Expires: {result['expires_at']}")
-        console.print(f"Limits: {result['tpm_limit']:,} TPM / {result['rpm_limit']:,} RPM")
+        console.print(
+            f"Limits: {result['tpm_limit']:,} TPM / {result['rpm_limit']:,} RPM"
+        )
         console.print(f"\n[green]✓[/green] Key saved to [bold]{AGENT_KEY_PATH}[/bold]")
         console.print(f"[green]✓[/green] Key history: [bold]{keys_history_path}[/bold]")
-        console.print("\nConfigure OpenClaw with: [bold]hyper config openclaw --apply[/bold]")
+        console.print(
+            "\nConfigure OpenClaw with: [bold]hyper config openclaw --apply[/bold]"
+        )
 
 
 async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = None):
     """Async helper for x402 payment.
-    
+
     Args:
         account: Ethereum account for signing
         plan_id: Plan to subscribe to
@@ -180,13 +197,13 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
     import httpx
     from decimal import Decimal
     from x402.http import x402HTTPClient
-    
+
     # Setup x402 client
     console.print("[bold]Setting up x402 client...[/bold]")
     client = x402Client()
     register_exact_evm_client(client, EthAccountSigner(account))
     http_client = x402HTTPClient(client)
-    
+
     async with httpx.AsyncClient() as http:
         try:
             url = await _resolve_plan_purchase_url(http, api_base, plan_id)
@@ -194,48 +211,58 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
 
             # Step 1: Make initial request to get 402 response with payment requirements
             response = await http.post(url)
-            
+
             if response.status_code != 402:
                 if response.is_success:
                     return response.json()
-                console.print(f"\n[red]❌ Unexpected response: {response.status_code}[/red]")
+                console.print(
+                    f"\n[red]❌ Unexpected response: {response.status_code}[/red]"
+                )
                 console.print(response.text)
                 raise typer.Exit(1)
-            
+
             console.print(f"[yellow]→[/yellow] Got 402 Payment Required")
-            
+
             # Step 2: Parse payment requirements
             def get_header(name: str) -> str | None:
                 return response.headers.get(name)
-            
+
             try:
                 body = response.json()
             except:
                 body = None
-            
-            payment_required = http_client.get_payment_required_response(get_header, body)
-            
+
+            payment_required = http_client.get_payment_required_response(
+                get_header, body
+            )
+
             # Step 3: Modify amount if custom amount specified
             if amount and payment_required.accepts:
                 amount_decimal = Decimal(amount)
                 amount_smallest = str(int(amount_decimal * Decimal("1000000")))
-                console.print(f"[bold]Custom amount:[/bold] ${amount} USDC ({amount_smallest} smallest units)")
-                
+                console.print(
+                    f"[bold]Custom amount:[/bold] ${amount} USDC ({amount_smallest} smallest units)"
+                )
+
                 # Modify the amount in payment requirements
                 # PaymentRequirements is a Pydantic model, so we can modify it
                 for req in payment_required.accepts:
                     req.amount = amount_smallest
             else:
-                console.print(f"[dim]Using server-requested amount: {payment_required.accepts[0].amount if payment_required.accepts else 'N/A'}[/dim]")
-            
+                console.print(
+                    f"[dim]Using server-requested amount: {payment_required.accepts[0].amount if payment_required.accepts else 'N/A'}[/dim]"
+                )
+
             # Step 4: Create payment payload
             console.print("[bold]Creating payment signature...[/bold]")
             payment_payload = await client.create_payment_payload(payment_required)
-            
+
             # Step 5: Encode payment header
-            payment_headers = http_client.encode_payment_signature_header(payment_payload)
+            payment_headers = http_client.encode_payment_signature_header(
+                payment_payload
+            )
             console.print(f"[green]✓[/green] Payment signed")
-            
+
             # Step 6: Retry with payment (include JWT if available from agent login)
             jwt_path = HYPERCLI_DIR / "agent-jwt.json"
             if jwt_path.exists():
@@ -245,20 +272,26 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
                     jwt_token = jwt_data.get("token", "")
                     if jwt_token:
                         payment_headers["Authorization"] = f"Bearer {jwt_token}"
-                        console.print("[green]✓[/green] Attaching user auth (from agent login)")
+                        console.print(
+                            "[green]✓[/green] Attaching user auth (from agent login)"
+                        )
                 except Exception:
                     pass
 
             console.print("[bold]Sending payment...[/bold]")
             retry_response = await http.post(url, headers=payment_headers)
-            
-            console.print(f"[green]✓[/green] Response status: {retry_response.status_code}")
-            
+
+            console.print(
+                f"[green]✓[/green] Response status: {retry_response.status_code}"
+            )
+
             if retry_response.is_success:
                 data = retry_response.json()
                 return data
             else:
-                console.print(f"\n[red]❌ Payment failed: {retry_response.status_code}[/red]")
+                console.print(
+                    f"\n[red]❌ Payment failed: {retry_response.status_code}[/red]"
+                )
                 console.print(retry_response.text)
                 raise typer.Exit(1)
 
@@ -267,11 +300,14 @@ async def _subscribe_async(account, plan_id: str, api_base: str, amount: str = N
         except Exception as e:
             console.print(f"\n[red]❌ Error: {e}[/red]")
             import traceback
+
             traceback.print_exc()
             raise typer.Exit(1)
 
 
-def _extract_plan_purchase_url_from_discovery(discovery: object, plan_id: str) -> str | None:
+def _extract_plan_purchase_url_from_discovery(
+    discovery: object, plan_id: str
+) -> str | None:
     if not isinstance(discovery, dict):
         return None
     resources = discovery.get("resources")
@@ -287,9 +323,13 @@ def _extract_plan_purchase_url_from_discovery(discovery: object, plan_id: str) -
     return None
 
 
-async def _resolve_plan_purchase_url(http: "httpx.AsyncClient", api_base: str, plan_id: str) -> str:
+async def _resolve_plan_purchase_url(
+    http: "httpx.AsyncClient", api_base: str, plan_id: str
+) -> str:
     normalized_api_base = api_base.rstrip("/")
-    agents_base = get_agents_api_base_url_from_product_base(normalized_api_base).rstrip("/")
+    agents_base = get_agents_api_base_url_from_product_base(normalized_api_base).rstrip(
+        "/"
+    )
     discovery_candidates = [
         f"{agents_base}/.well-known/x402",
         f"{normalized_api_base}/api/.well-known/x402",
@@ -316,59 +356,59 @@ async def _resolve_plan_purchase_url(http: "httpx.AsyncClient", api_base: str, p
 @app.command("status")
 def status():
     """Show current HyperClaw key status"""
-    
+
     if not AGENT_KEY_PATH.exists():
         console.print("[yellow]No HyperClaw key found.[/yellow]")
         console.print("Subscribe with: [bold]hyper agent subscribe <aiu>[/bold]")
         raise typer.Exit(0)
-    
+
     with open(AGENT_KEY_PATH) as f:
         key_data = json.load(f)
-    
+
     # Parse expiry
     expires_at = datetime.fromisoformat(key_data["expires_at"].replace("Z", "+00:00"))
     now = datetime.now(expires_at.tzinfo)
     time_left = expires_at - now
     days_left = time_left.days
     hours_left = time_left.seconds // 3600
-    
+
     console.print("\n[bold]HyperClaw Subscription Status[/bold]\n")
     console.print(f"Plan: [bold]{key_data['plan_id']}[/bold]")
     console.print(f"Key: [dim]{key_data['key'][:20]}...[/dim]")
-    
+
     # Show amount paid and duration if available
     if "amount_paid" in key_data:
         console.print(f"Paid: [bold]${key_data['amount_paid']} USDC[/bold]")
     if "duration_days" in key_data:
         console.print(f"Duration: {key_data['duration_days']:.2f} days")
-    
+
     console.print(f"Expires: {expires_at.strftime('%Y-%m-%d %H:%M:%S UTC')}")
-    
+
     if days_left > 1:
         console.print(f"Time left: [green]{days_left} days, {hours_left} hours[/green]")
     elif days_left == 1:
         console.print(f"Time left: [yellow]1 day, {hours_left} hours[/yellow]")
     elif time_left.total_seconds() > 0:
         mins_left = time_left.seconds // 60
-        console.print(f"Time left: [yellow]{hours_left} hours, {mins_left % 60} minutes[/yellow]")
+        console.print(
+            f"Time left: [yellow]{hours_left} hours, {mins_left % 60} minutes[/yellow]"
+        )
     else:
         console.print(f"Time left: [red]EXPIRED[/red]")
-    
+
     console.print(f"\nLimits:")
     console.print(f"  TPM: {key_data['tpm_limit']:,}")
     console.print(f"  RPM: {key_data['rpm_limit']:,}")
 
 
 @app.command("plans")
-def plans(
-    dev: bool = typer.Option(False, "--dev", help="Use dev API")
-):
+def plans(dev: bool = typer.Option(False, "--dev", help="Use dev API")):
     """List available HyperClaw plans"""
     import httpx
-    
+
     api_base = DEV_API_BASE if dev else PROD_API_BASE
     url = f"{api_base}/api/plans"
-    
+
     try:
         response = httpx.get(url, timeout=10)
         response.raise_for_status()
@@ -376,7 +416,7 @@ def plans(
     except Exception as e:
         console.print(f"[red]❌ Failed to fetch plans: {e}[/red]")
         raise typer.Exit(1)
-    
+
     table = Table(title="HyperClaw Plans")
     table.add_column("Plan ID", style="cyan")
     table.add_column("Name", style="green")
@@ -384,7 +424,7 @@ def plans(
     table.add_column("Duration", style="blue")
     table.add_column("TPM", style="magenta")
     table.add_column("RPM", style="magenta")
-    
+
     for plan in data.get("plans", []):
         plan_id = plan.get("id", "")
         name = plan.get("name", "")
@@ -393,11 +433,13 @@ def plans(
         tpm = f"{plan.get('tpm_limit', 0):,}"
         rpm = f"{plan.get('rpm_limit', 0):,}"
         table.add_row(plan_id, name, price, duration, tpm, rpm)
-    
+
     console.print()
     console.print(table)
     console.print()
-    console.print("Subscribe with: [bold]hyper agent subscribe <plan_id> <amount>[/bold]")
+    console.print(
+        "Subscribe with: [bold]hyper agent subscribe <plan_id> <amount>[/bold]"
+    )
 
 
 @app.command("current-plan")
@@ -422,7 +464,9 @@ def current_plan(
         console.print(f"Expires: {current.expires_at.strftime('%Y-%m-%d %H:%M:%S %Z')}")
     if current.provider:
         console.print(f"Provider: {current.provider}")
-    console.print(f"Cancel at period end: {'yes' if current.cancel_at_period_end else 'no'}")
+    console.print(
+        f"Cancel at period end: {'yes' if current.cancel_at_period_end else 'no'}"
+    )
     if current.slot_inventory:
         console.print("\n[bold]Slots[/bold]")
         for tier, inventory in current.slot_inventory.items():
@@ -442,7 +486,9 @@ def subscriptions(
     items = client.agent.subscriptions()
 
     if json_output:
-        console.print_json(json.dumps([item.__dict__ for item in items], indent=2, default=str))
+        console.print_json(
+            json.dumps([item.__dict__ for item in items], indent=2, default=str)
+        )
         return
 
     table = Table(title="HyperClaw Subscriptions")
@@ -453,8 +499,17 @@ def subscriptions(
     table.add_column("Status")
     table.add_column("Expires")
     for item in items:
-        expires = item.expires_at.strftime("%Y-%m-%d %H:%M:%S %Z") if item.expires_at else ""
-        table.add_row(item.id[:12], item.plan_name or item.plan_id, str(item.quantity), item.provider, item.status, expires)
+        expires = (
+            item.expires_at.strftime("%Y-%m-%d %H:%M:%S %Z") if item.expires_at else ""
+        )
+        table.add_row(
+            item.id[:12],
+            item.plan_name or item.plan_id,
+            str(item.quantity),
+            item.provider,
+            item.status,
+            expires,
+        )
     console.print()
     console.print(table)
 
@@ -469,18 +524,26 @@ def subscription_summary(
     summary = client.agent.subscription_summary()
 
     if json_output:
-        console.print_json(json.dumps({
-            "effective_plan_id": summary.effective_plan_id,
-            "current_subscription_id": summary.current_subscription_id,
-            "pooled_tpm_limit": summary.pooled_tpm_limit,
-            "pooled_rpm_limit": summary.pooled_rpm_limit,
-            "pooled_tpd": summary.pooled_tpd,
-            "slot_inventory": summary.slot_inventory,
-            "active_subscription_count": summary.active_subscription_count,
-            "active_subscriptions": [item.__dict__ for item in summary.active_subscriptions],
-            "subscriptions": [item.__dict__ for item in summary.subscriptions],
-            "user": summary.user,
-        }, indent=2, default=str))
+        console.print_json(
+            json.dumps(
+                {
+                    "effective_plan_id": summary.effective_plan_id,
+                    "current_subscription_id": summary.current_subscription_id,
+                    "pooled_tpm_limit": summary.pooled_tpm_limit,
+                    "pooled_rpm_limit": summary.pooled_rpm_limit,
+                    "pooled_tpd": summary.pooled_tpd,
+                    "slot_inventory": summary.slot_inventory,
+                    "active_subscription_count": summary.active_subscription_count,
+                    "active_subscriptions": [
+                        item.__dict__ for item in summary.active_subscriptions
+                    ],
+                    "subscriptions": [item.__dict__ for item in summary.subscriptions],
+                    "user": summary.user,
+                },
+                indent=2,
+                default=str,
+            )
+        )
         return
 
     console.print("\n[bold]HyperClaw Entitlement Summary[/bold]\n")
@@ -502,7 +565,11 @@ def subscription_summary(
 def activate_code(
     code: str = typer.Argument(..., help="Activation or promo code to redeem"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
-    extend_existing: bool = typer.Option(False, "--extend-existing", help="Extend the matching entitlement instead of creating a new one"),
+    extend_existing: bool = typer.Option(
+        False,
+        "--extend-existing",
+        help="Extend the matching entitlement instead of creating a new one",
+    ),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Redeem a HyperClaw activation code for the current account."""
@@ -520,7 +587,9 @@ def activate_code(
     entitlement = result.get("entitlement") or {}
     console.print("\n[bold]HyperClaw Code Activated[/bold]\n")
     console.print(f"Code: [bold]{grant.get('code') or code}[/bold]")
-    console.print(f"Plan: [bold]{entitlement.get('plan_name') or entitlement.get('plan_id') or grant.get('plan_id') or ''}[/bold]")
+    console.print(
+        f"Plan: [bold]{entitlement.get('plan_name') or entitlement.get('plan_id') or grant.get('plan_id') or ''}[/bold]"
+    )
     if entitlement.get("starts_at"):
         console.print(f"Starts: {entitlement.get('starts_at')}")
     if entitlement.get("expires_at"):
@@ -693,9 +762,15 @@ def login(
             jwt_path = HYPERCLI_DIR / "agent-jwt.json"
             HYPERCLI_DIR.mkdir(parents=True, exist_ok=True)
             with open(jwt_path, "w") as f:
-                json.dump({"token": jwt_token, "user_id": user_id, "team_id": team_id}, f, indent=2)
+                json.dump(
+                    {"token": jwt_token, "user_id": user_id, "team_id": team_id},
+                    f,
+                    indent=2,
+                )
             console.print(f"[yellow]⚠ Key creation failed: {resp.text}[/yellow]")
-            console.print(f"[green]✓[/green] JWT saved to {jwt_path} (use for direct auth)")
+            console.print(
+                f"[green]✓[/green] JWT saved to {jwt_path} (use for direct auth)"
+            )
             raise typer.Exit(1)
 
         key_data = resp.json()
@@ -752,24 +827,52 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
     def _meta_for_model(model_id: str) -> dict:
         normalized = (model_id or "").strip().lower()
         aliases = {
-            "kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
-            "kimi-k2.5-anthropic": {"name": "Kimi K2.5 Anthropic", "reasoning": True, "contextWindow": 262144},
-            "kimi-k2.6": {"name": "Kimi K2.6", "reasoning": True, "contextWindow": 262144},
-            "kimi-k2.6-anthropic": {"name": "Kimi K2.6 Anthropic", "reasoning": True, "contextWindow": 262144},
-            "moonshotai/kimi-k2.5": {"name": "Kimi K2.5", "reasoning": True, "contextWindow": 262144},
+            "kimi-k2.5": {
+                "name": "Kimi K2.5",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
+            "kimi-k2.5-anthropic": {
+                "name": "Kimi K2.5 Anthropic",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
+            "kimi-k2.6": {
+                "name": "Kimi K2.6",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
+            "kimi-k2.6-anthropic": {
+                "name": "Kimi K2.6 Anthropic",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
+            "moonshotai/kimi-k2.5": {
+                "name": "Kimi K2.5",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
             "moonshotai/kimi-k2.5-anthropic": {
                 "name": "Kimi K2.5 Anthropic",
                 "reasoning": True,
                 "contextWindow": 262144,
             },
-            "moonshotai/kimi-k2.6": {"name": "Kimi K2.6", "reasoning": True, "contextWindow": 262144},
+            "moonshotai/kimi-k2.6": {
+                "name": "Kimi K2.6",
+                "reasoning": True,
+                "contextWindow": 262144,
+            },
             "moonshotai/kimi-k2.6-anthropic": {
                 "name": "Kimi K2.6 Anthropic",
                 "reasoning": True,
                 "contextWindow": 262144,
             },
             "glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
-            "zai-org/glm-5": {"name": "GLM-5", "reasoning": True, "contextWindow": 202752},
+            "zai-org/glm-5": {
+                "name": "GLM-5",
+                "reasoning": True,
+                "contextWindow": 202752,
+            },
             "qwen3-embedding-4b": {
                 "name": "Qwen3 Embedding 4B",
                 "reasoning": False,
@@ -794,11 +897,25 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
         return [
             {
                 "id": m["id"],
-                "name": _meta_for_model(m["id"]).get("name", m["id"].replace("-", " ").title()),
+                "name": _meta_for_model(m["id"]).get(
+                    "name", m["id"].replace("-", " ").title()
+                ),
                 "reasoning": _meta_for_model(m["id"]).get("reasoning", False),
                 "input": _meta_for_model(m["id"]).get("input", ["text", "image"]),
                 "contextWindow": _meta_for_model(m["id"]).get("contextWindow", 200000),
-                **({"mode": m.get("mode") or _meta_for_model(m["id"]).get("mode") or _infer_mode(m["id"])} if (m.get("mode") or _meta_for_model(m["id"]).get("mode") or _infer_mode(m["id"])) else {}),
+                **(
+                    {
+                        "mode": m.get("mode")
+                        or _meta_for_model(m["id"]).get("mode")
+                        or _infer_mode(m["id"])
+                    }
+                    if (
+                        m.get("mode")
+                        or _meta_for_model(m["id"]).get("mode")
+                        or _infer_mode(m["id"])
+                    )
+                    else {}
+                ),
             }
             for m in data
             if m.get("id")
@@ -835,7 +952,9 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
 def _preferred_agent_models(models: list[dict]) -> list[dict]:
     """Return the recommended agent models in priority order."""
     preferred = ["glm-5-anthropic", "kimi-k2.6-anthropic", "kimi-k2.5-anthropic"]
-    picked = [model for model_id in preferred for model in models if model["id"] == model_id]
+    picked = [
+        model for model_id in preferred for model in models if model["id"] == model_id
+    ]
     if picked:
         return picked
     anthropic = [model for model in models if model["id"].endswith("-anthropic")]
@@ -846,7 +965,11 @@ def _preferred_agent_models(models: list[dict]) -> list[dict]:
 
 @app.command("openclaw-setup")
 def openclaw_setup(
-    default: bool = typer.Option(False, "--default", help="Set hyperclaw/kimi-k2.6-anthropic as the default model"),
+    default: bool = typer.Option(
+        False,
+        "--default",
+        help="Set hyperclaw/kimi-k2.6-anthropic as the default model",
+    ),
 ):
     """Patch OpenClaw config with your HyperClaw API key.
 
@@ -876,7 +999,7 @@ def openclaw_setup(
     models = fetch_models(api_key, PROD_INFERENCE_API_BASE)
     snippet = _config_openclaw(api_key, models, PROD_INFERENCE_API_BASE)
     if not default:
-        defaults = (((snippet.get("agents") or {}).get("defaults") or {}))
+        defaults = (snippet.get("agents") or {}).get("defaults") or {}
         model_cfg = defaults.get("model") or {}
         model_cfg.pop("primary", None)
         if not model_cfg and "model" in defaults:
@@ -891,12 +1014,14 @@ def openclaw_setup(
         f.write("\n")
 
     console.print(f"[green]✅ Patched {OPENCLAW_CONFIG_PATH}[/green]")
-    providers = ((snippet.get("models") or {}).get("providers") or {})
+    providers = (snippet.get("models") or {}).get("providers") or {}
     for provider_id, provider_cfg in providers.items():
         console.print(f"   provider: {provider_id}  key: {api_key[:16]}...")
         for m in provider_cfg.get("models") or []:
             console.print(f"   model: {provider_id}/{m['id']}")
-    primary = ((((snippet.get("agents") or {}).get("defaults") or {}).get("model") or {}).get("primary"))
+    primary = (
+        ((snippet.get("agents") or {}).get("defaults") or {}).get("model") or {}
+    ).get("primary")
     if primary:
         console.print(f"   default model: {primary}")
     console.print("\nOpenClaw will use the Anthropic-compatible /v1/messages endpoint.")
@@ -906,6 +1031,7 @@ def openclaw_setup(
 # ---------------------------------------------------------------------------
 # hyper agent config — generate / apply provider configs for various tools
 # ---------------------------------------------------------------------------
+
 
 def _resolve_api_key(key: str | None) -> str:
     """Resolve API key from --key flag or ~/.hypercli/agent-key.json."""
@@ -929,18 +1055,16 @@ def _config_openclaw(
     placeholder_env: str | None = None,
 ) -> dict:
     """OpenClaw openclaw.json provider snippet (LLM only)."""
+
     def _model_suffix(model_id: str) -> str:
         return str(model_id or "").strip().lower().rsplit("/", 1)[-1]
 
     def _is_supported_openclaw_model(model: dict) -> bool:
         suffix = _model_suffix(model.get("id", ""))
-        return (
-            suffix == "glm-5"
-            or "kimi" in suffix
-            or "embedding" in suffix
-        )
+        return suffix == "glm-5" or "kimi" in suffix or "embedding" in suffix
 
     api_base = api_base.rstrip("/")
+
     def _openclaw_model_order(model: dict) -> tuple[int, str]:
         suffix = _model_suffix(model.get("id", ""))
         if "kimi" in suffix:
@@ -960,14 +1084,17 @@ def _config_openclaw(
     kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
     glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
     other_chat_models = [
-        m for m in chat_models
-        if m not in kimi_models and m not in glm_models
+        m for m in chat_models if m not in kimi_models and m not in glm_models
     ]
     provider_models = kimi_models + glm_models + other_chat_models
     embedding_model_id = embedding_models[0]["id"] if embedding_models else None
     primary_model = (
-        f"hyperclaw/{kimi_models[0]['id']}" if kimi_models else (
-            f"hyperclaw/{glm_models[0]['id']}" if glm_models else (
+        f"hyperclaw/{kimi_models[0]['id']}"
+        if kimi_models
+        else (
+            f"hyperclaw/{glm_models[0]['id']}"
+            if glm_models
+            else (
                 f"hyperclaw/{other_chat_models[0]['id']}" if other_chat_models else None
             )
         )
@@ -985,7 +1112,7 @@ def _config_openclaw(
                     "authHeader": True,
                     "models": provider_models,
                 }
-            }
+            },
         },
         "agents": {
             "defaults": {
@@ -993,7 +1120,10 @@ def _config_openclaw(
                 "models": {
                     **{f"hyperclaw/{m['id']}": {"alias": "kimi"} for m in kimi_models},
                     **{f"hyperclaw/{m['id']}": {"alias": "glm"} for m in glm_models},
-                    **{f"hyperclaw/{m['id']}": {"alias": m['id'].split('-')[0]} for m in other_chat_models},
+                    **{
+                        f"hyperclaw/{m['id']}": {"alias": m["id"].split("-")[0]}
+                        for m in other_chat_models
+                    },
                 },
                 **(
                     {
@@ -1010,7 +1140,7 @@ def _config_openclaw(
                     else {}
                 ),
             }
-        }
+        },
     }
 
 
@@ -1051,14 +1181,16 @@ def _config_opencode(
     }
 
 
-def _config_env(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> str:
+def _config_env(
+    api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE
+) -> str:
     """Shell env vars for generic OpenAI-compatible tools."""
     api_base = api_base.rstrip("/")
     models = _preferred_agent_models(models)
     lines = [
         f'export OPENAI_API_KEY="{api_key}"',
         f'export OPENAI_BASE_URL="{api_base}/v1"',
-        f'# Available models: {", ".join(m["id"] for m in models)}',
+        f"# Available models: {', '.join(m['id'] for m in models)}",
     ]
     return "\n".join(lines)
 
@@ -1067,7 +1199,9 @@ def _config_env(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE
 def exec_cmd(
     agent_id: str = typer.Argument(..., help="Agent ID (or prefix)"),
     command: str = typer.Argument(..., help="Command to execute"),
-    timeout: int = typer.Option(30, "--timeout", "-t", help="Command timeout (seconds)"),
+    timeout: int = typer.Option(
+        30, "--timeout", "-t", help="Command timeout (seconds)"
+    ),
 ):
     """Execute a command on a `hypercli-openclaw` agent container."""
     from . import agents
@@ -1094,10 +1228,27 @@ def config_cmd(
         None,
         help=f"Output format: {', '.join(FORMAT_CHOICES)}. Omit to show all.",
     ),
-    key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json"),
-    base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults"),
-    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write tool-specific environment placeholders into generated config instead of literal API keys"),
-    apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
+    key: str = typer.Option(
+        None,
+        "--key",
+        "-k",
+        help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json",
+    ),
+    base_url: str = typer.Option(
+        None,
+        "--base-url",
+        help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults",
+    ),
+    placeholder_env: str = typer.Option(
+        None,
+        "--placeholder-env",
+        help="Write tool-specific environment placeholders into generated config instead of literal API keys",
+    ),
+    apply: bool = typer.Option(
+        False,
+        "--apply",
+        help="Write config to the appropriate file (openclaw/opencode only)",
+    ),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
     """Generate provider configs for OpenClaw, OpenCode, and other tools.
@@ -1128,10 +1279,20 @@ def config_cmd(
 
     for fmt in formats:
         if fmt == "openclaw":
-            snippet = _config_openclaw(api_key, models, api_base, placeholder_env=placeholder_env)
-            _show_snippet("OpenClaw", "~/.openclaw/openclaw.json", snippet, apply, OPENCLAW_CONFIG_PATH)
+            snippet = _config_openclaw(
+                api_key, models, api_base, placeholder_env=placeholder_env
+            )
+            _show_snippet(
+                "OpenClaw",
+                "~/.openclaw/openclaw.json",
+                snippet,
+                apply,
+                OPENCLAW_CONFIG_PATH,
+            )
         elif fmt == "opencode":
-            snippet = _config_opencode(api_key, models, api_base, placeholder_env=placeholder_env)
+            snippet = _config_opencode(
+                api_key, models, api_base, placeholder_env=placeholder_env
+            )
             target = Path.cwd() / "opencode.json"
             _show_snippet("OpenCode", "opencode.json", snippet, apply, target)
         elif fmt == "env":
@@ -1140,7 +1301,9 @@ def config_cmd(
             console.print()
 
 
-def _show_snippet(name: str, path_hint: str, data: dict, apply: bool, target_path: Path):
+def _show_snippet(
+    name: str, path_hint: str, data: dict, apply: bool, target_path: Path
+):
     """Print a JSON snippet and optionally apply it."""
     console.print(f"[bold]── {name} ({path_hint}) ──[/bold]")
     formatted = json.dumps(data, indent=2)
@@ -1173,7 +1336,9 @@ def _refresh_openclaw_runtime():
     if shutil.which("openclaw") is None:
         console.print("[yellow]⚠[/yellow] OpenClaw CLI not found in PATH.")
         console.print("Run after install: [bold]openclaw models list[/bold]")
-        console.print("Then restart when ready: [bold]openclaw gateway restart[/bold]\n")
+        console.print(
+            "Then restart when ready: [bold]openclaw gateway restart[/bold]\n"
+        )
         return
 
     try:
@@ -1186,7 +1351,9 @@ def _refresh_openclaw_runtime():
         )
         console.print("[green]✓[/green] Regenerated OpenClaw model cache.")
     except Exception:
-        console.print("[yellow]⚠[/yellow] Could not regenerate OpenClaw model cache automatically.")
+        console.print(
+            "[yellow]⚠[/yellow] Could not regenerate OpenClaw model cache automatically."
+        )
         console.print("Run manually: [bold]openclaw models list[/bold]")
     console.print("Restart when ready: [bold]openclaw gateway restart[/bold]\n")
 
@@ -1205,15 +1372,22 @@ def _merge_openclaw_config(existing: dict, snippet: dict) -> dict:
     merged = dict(existing)
     _deep_merge(merged, snippet)
 
-    snippet_models = ((snippet.get("models") or {}).get("providers") or {})
+    snippet_models = (snippet.get("models") or {}).get("providers") or {}
     if snippet_models:
         merged.setdefault("models", {})
         merged["models"]["providers"] = snippet_models
 
-    snippet_defaults = (((snippet.get("agents") or {}).get("defaults") or {}).get("models") or {})
+    snippet_defaults = ((snippet.get("agents") or {}).get("defaults") or {}).get(
+        "models"
+    ) or {}
     if snippet_defaults:
         merged.setdefault("agents", {})
         merged["agents"].setdefault("defaults", {})
+        merged["agents"]["defaults"]["models"] = snippet_defaults
+
+    snippet_model_config = ((snippet.get("agents") or {}).get("defaults") or {}).get(
+        "model"
+    ) or {}
         merged["agents"]["defaults"]["models"] = snippet_defaults
 
     snippet_model_config = (((snippet.get("agents") or {}).get("defaults") or {}).get("model") or {})
