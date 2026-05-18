@@ -3,17 +3,14 @@
 import { useEffect, useRef, useState } from "react";
 import { usePrivy } from "@privy-io/react-auth";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
-import { clearAuthLogoutMarker, cookieUtils } from "../utils/cookies";
+import { clearAuthLogoutMarker } from "../utils/cookies";
 import { getAuthBackendUrl } from "../utils/api";
 import { exchangePrivyToken } from "../auth/AuthProvider";
-
-type StorageMode = "cookie" | "localStorage";
 
 export interface PrivyLoginPanelProps {
   title?: string;
   description?: string;
   apiBaseUrl?: string;
-  storageMode?: StorageMode;
   tokenStorageKey?: string;
   cookieName?: string;
   showTitle?: boolean;
@@ -72,47 +69,10 @@ function TurnkeyFallbackButton({
   );
 }
 
-async function exchangeToCookie(
-  apiBaseUrl: string,
-  privyToken: string,
-  cookieName: string,
-): Promise<void> {
-  const response = await fetch(`${apiBaseUrl}/auth/login`, {
-    method: "POST",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ privy_token: privyToken }),
-  });
-
-  if (!response.ok) {
-    let detail = "Privy login failed";
-    try {
-      const body = await response.json();
-      detail = body.detail || body.message || detail;
-    } catch {
-      // Ignore non-JSON error bodies.
-    }
-    throw new Error(detail);
-  }
-
-  const loginData = await response.json();
-  if (!loginData.token) {
-    throw new Error("Privy login succeeded but no token was returned");
-  }
-
-  const expiresIn =
-    loginData.expires_in ||
-    parseInt(process.env.NEXT_PUBLIC_COOKIE_VALIDITY || "15", 10) *
-      24 *
-      60 *
-      60;
-  cookieUtils.setWithMaxAge(cookieName, loginData.token, expiresIn);
-}
-
 export function PrivyLoginPanel({
   title = "Welcome to HyperCLI",
   description = "Sign in with Privy to continue",
   apiBaseUrl,
-  storageMode = "cookie",
   tokenStorageKey = "app_auth_token",
   cookieName = "auth_token",
   showTitle = true,
@@ -133,11 +93,7 @@ export function PrivyLoginPanel({
     }
 
     const resolvedApiBase = normalizeApiBase(apiBaseUrl);
-    if (storageMode === "localStorage") {
-      await exchangePrivyToken(resolvedApiBase, privyToken, tokenStorageKey);
-    } else {
-      await exchangeToCookie(resolvedApiBase, privyToken, cookieName);
-    }
+    await exchangePrivyToken(resolvedApiBase, privyToken, tokenStorageKey, cookieName);
   };
 
   useEffect(() => {

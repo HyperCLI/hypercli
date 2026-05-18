@@ -458,7 +458,6 @@ export default function Header() {
         onClose={() => setIsLoginModalOpen(false)}
         title="Welcome to HyperCLI Console"
         description="Please sign in to continue"
-        storageMode="cookie"
         showTurnkeyFallback={true}
         onSuccess={() => window.location.reload()}
       />

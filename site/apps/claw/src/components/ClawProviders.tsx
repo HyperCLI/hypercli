@@ -30,6 +30,8 @@ function StubAuthProvider({ children }: { children: ReactNode }) {
         isLoading: false,
         isAuthenticated: false,
         user: null,
+        flowState: "idle",
+        error: null,
         login: noop,
         logout: noopAsync,
         getToken: noopToken,

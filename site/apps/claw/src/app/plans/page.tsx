@@ -1,5 +1,5 @@
 import DashboardShell from "@/components/dashboard/DashboardShell";
-import PlansPage from "@/app/dashboard/plans/page";
+import PlansPage from "@/components/plans/PlansPage";
 
 export default function PlansRootPage() {
   return (

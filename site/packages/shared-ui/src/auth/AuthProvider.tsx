@@ -16,10 +16,14 @@ export interface AuthUser {
   walletAddress?: string;
 }
 
+export type AuthFlowState = "checking_session" | "idle" | "exchanging" | "complete" | "error";
+
 export interface AuthContextType {
   isLoading: boolean;
   isAuthenticated: boolean;
   user: AuthUser | null;
+  flowState: AuthFlowState;
+  error: string | null;
   login: () => void;
   logout: () => Promise<void>;
   getToken: () => Promise<string>;
@@ -52,6 +56,25 @@ function getCookieToken(cookieName = "auth_token"): string | null {
   return cookieUtils.get(cookieName);
 }
 
+function getStoredSession(tokenStorageKey = "app_auth_token", cookieName = "auth_token"): string | null {
+  if (hasAuthLogoutMarker()) {
+    return null;
+  }
+
+  const cookieToken = getCookieToken(cookieName);
+  if (cookieToken && !isTokenExpired(cookieToken)) {
+    setStoredToken(cookieToken, tokenStorageKey);
+    return cookieToken;
+  }
+
+  const localToken = getStoredToken(tokenStorageKey);
+  if (localToken && !isTokenExpired(localToken)) {
+    return localToken;
+  }
+
+  return null;
+}
+
 export function setStoredToken(token: string, tokenStorageKey = "app_auth_token"): void {
   if (typeof window === "undefined") return;
   localStorage.setItem(tokenStorageKey, token);
@@ -62,12 +85,23 @@ export function clearStoredToken(tokenStorageKey = "app_auth_token"): void {
   localStorage.removeItem(tokenStorageKey);
 }
 
+function decodeJwtPayload(token: string): Record<string, unknown> {
+  const encodedPayload = token.split(".")[1];
+  if (!encodedPayload) {
+    throw new Error("JWT payload missing");
+  }
+  const base64 = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
+  const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
+  return JSON.parse(atob(padded)) as Record<string, unknown>;
+}
+
 export function isTokenExpired(token: string): boolean {
   try {
-    const payload = JSON.parse(atob(token.split(".")[1]));
+    const payload = decodeJwtPayload(token);
     const exp = payload.exp;
-    if (!exp) return true;
-    return Date.now() >= exp * 1000 - 60000;
+    const expiresAtSeconds = typeof exp === "number" ? exp : Number(exp);
+    if (!Number.isFinite(expiresAtSeconds)) return true;
+    return Date.now() >= expiresAtSeconds * 1000 - 60000;
   } catch {
     return true;
   }
@@ -111,20 +145,12 @@ export async function getAppToken(
   tokenStorageKey = "app_auth_token",
   cookieName = "auth_token"
 ): Promise<string> {
-  const cookieToken = getCookieToken(cookieName);
-  if (cookieToken && !isTokenExpired(cookieToken)) {
-    setStoredToken(cookieToken, tokenStorageKey);
-    return cookieToken;
-  }
-
-  clearStoredToken(tokenStorageKey);
-
-  if (hasAuthLogoutMarker()) {
-    throw new Error("Not authenticated");
-  }
+  const storedSession = getStoredSession(tokenStorageKey, cookieName);
+  if (storedSession) return storedSession;
 
   const privyToken = await getPrivyToken();
   if (!privyToken) {
+    clearStoredToken(tokenStorageKey);
     throw new Error("Not authenticated");
   }
 
@@ -157,108 +183,128 @@ export function AuthProvider({
   const [isLoading, setIsLoading] = useState(true);
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [user, setUser] = useState<AuthUser | null>(null);
+  const [flowState, setFlowState] = useState<AuthFlowState>("checking_session");
+  const [error, setError] = useState<string | null>(null);
+
+  const getUserFromPrivy = useCallback((): AuthUser | null => {
+    if (!privyUser) return null;
+    return {
+      id: privyUser.id,
+      email: privyUser.email?.address,
+      walletAddress: privyUser.wallet?.address,
+    };
+  }, [privyUser]);
+
+  const completeSession = useCallback(() => {
+    setUser(getUserFromPrivy());
+    setError(null);
+    setFlowState("complete");
+    setIsAuthenticated(true);
+    setIsLoading(false);
+  }, [getUserFromPrivy]);
+
+  const resetSession = useCallback((nextState: AuthFlowState = "idle", nextError: string | null = null) => {
+    clearStoredToken(tokenStorageKey);
+    setUser(null);
+    setError(nextError);
+    setFlowState(nextState);
+    setIsAuthenticated(false);
+    setIsLoading(false);
+  }, [tokenStorageKey]);
+
+  const syncStoredSession = useCallback((): boolean => {
+    const storedSession = getStoredSession(tokenStorageKey, cookieName);
+    if (!storedSession) return false;
+    completeSession();
+    return true;
+  }, [completeSession, cookieName, tokenStorageKey]);
 
   useEffect(() => {
-    const cookieToken = getCookieToken(cookieName);
-    const logoutMarked = hasAuthLogoutMarker();
-    const activeToken =
-      !logoutMarked && cookieToken && !isTokenExpired(cookieToken)
-        ? cookieToken
-        : null;
-
-    if (activeToken) {
-      setStoredToken(activeToken, tokenStorageKey);
-      setIsAuthenticated(true);
-      setIsLoading(false);
-      if (privyUser) {
-        setUser({
-          id: privyUser.id,
-          email: privyUser.email?.address,
-          walletAddress: privyUser.wallet?.address,
-        });
-      }
+    if (syncStoredSession()) {
       return;
     }
 
-    if (ready) {
-      clearStoredToken(tokenStorageKey);
-      setIsAuthenticated(false);
-      setUser(null);
-      setIsLoading(false);
+    if (hasAuthLogoutMarker()) {
+      resetSession("idle");
+      return;
     }
-  }, [cookieName, privyUser, ready, tokenStorageKey]);
 
-  useEffect(() => {
-    if (!ready || !authenticated || isAuthenticated || hasAuthLogoutMarker()) return;
+    if (!ready) {
+      setFlowState("checking_session");
+      setIsLoading(true);
+      return;
+    }
+
+    if (!authenticated) {
+      resetSession("idle");
+      return;
+    }
+
+    let cancelled = false;
 
     const exchange = async () => {
       try {
+        setFlowState("exchanging");
         setIsLoading(true);
+        setError(null);
         await getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName);
-        setIsAuthenticated(true);
-        if (privyUser) {
-          setUser({
-            id: privyUser.id,
-            email: privyUser.email?.address,
-            walletAddress: privyUser.wallet?.address,
-          });
+        if (!cancelled) {
+          completeSession();
         }
       } catch (err) {
-        console.error("Token exchange failed:", err);
-      } finally {
-        setIsLoading(false);
+        if (!cancelled) {
+          const message = err instanceof Error ? err.message : "Token exchange failed";
+          console.error("Token exchange failed:", err);
+          resetSession("error", message);
+        }
       }
     };
 
-    exchange();
-  }, [apiBaseUrl, authenticated, cookieName, getAccessToken, isAuthenticated, privyUser, ready, tokenStorageKey]);
+    void exchange();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [
+    apiBaseUrl,
+    authenticated,
+    completeSession,
+    cookieName,
+    getAccessToken,
+    ready,
+    resetSession,
+    syncStoredSession,
+    tokenStorageKey,
+  ]);
 
   useEffect(() => {
-    const syncFromCookie = () => {
-      const logoutMarked = hasAuthLogoutMarker();
-      const cookieToken = getCookieToken(cookieName);
-      if (!cookieToken || isTokenExpired(cookieToken)) {
-        clearStoredToken(tokenStorageKey);
-        setIsAuthenticated(false);
-        setUser(null);
-        setIsLoading(false);
+    const syncFromStorage = () => {
+      if (syncStoredSession()) {
         return;
       }
 
-      if (logoutMarked) {
-        clearStoredToken(tokenStorageKey);
-        setIsAuthenticated(false);
-        setUser(null);
-        setIsLoading(false);
+      if (hasAuthLogoutMarker() || !authenticated) {
+        resetSession("idle");
         return;
       }
 
-      setStoredToken(cookieToken, tokenStorageKey);
-      setIsAuthenticated(true);
-      if (privyUser) {
-        setUser({
-          id: privyUser.id,
-          email: privyUser.email?.address,
-          walletAddress: privyUser.wallet?.address,
-        });
-      }
-      setIsLoading(false);
+      setFlowState("checking_session");
     };
 
     const handleCookieChange = (event: Event) => {
       const detail = (event as CustomEvent<{ name?: string }>).detail;
       if (detail?.name && detail.name !== cookieName && detail.name !== "hypercli_logged_out") return;
-      syncFromCookie();
+      syncFromStorage();
     };
 
     window.addEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener);
-    window.addEventListener("focus", syncFromCookie);
+    window.addEventListener("focus", syncFromStorage);
 
     return () => {
       window.removeEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener);
-      window.removeEventListener("focus", syncFromCookie);
+      window.removeEventListener("focus", syncFromStorage);
     };
-  }, [cookieName, privyUser, tokenStorageKey]);
+  }, [authenticated, cookieName, resetSession, syncStoredSession]);
 
   const login = useCallback(() => {
     clearAuthLogoutMarker();
@@ -270,10 +316,9 @@ export function AuthProvider({
     clearStoredToken(tokenStorageKey);
     clearLocalAuthTokens("app_auth_token", "claw_auth_token");
     cookieUtils.remove(cookieName);
-    setIsAuthenticated(false);
-    setUser(null);
+    resetSession("idle");
     await privyLogout();
-  }, [cookieName, privyLogout, tokenStorageKey]);
+  }, [cookieName, privyLogout, resetSession, tokenStorageKey]);
 
   const getToken = useCallback(async (): Promise<string> => {
     return getAppToken(apiBaseUrl, getAccessToken, tokenStorageKey, cookieName);
@@ -281,7 +326,7 @@ export function AuthProvider({
 
   return (
     <AuthContext.Provider
-      value={{ isLoading, isAuthenticated, user, login, logout, getToken }}
+      value={{ isLoading, isAuthenticated, user, flowState, error, login, logout, getToken }}
     >
       {children}
     </AuthContext.Provider>

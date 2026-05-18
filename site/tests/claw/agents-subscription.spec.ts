@@ -61,7 +61,31 @@ async function waitForPlansPageReady(page: Page): Promise<void> {
             .first()
             .textContent({ timeout: 1_000 })
             .catch(() => "");
-          return `url=${page.url()} h1=${headingText?.trim() || "none"} main=${mainText?.trim().slice(0, 120) || "empty"}`;
+          const authState = await page
+            .locator("[data-auth-flow-state]")
+            .first()
+            .evaluate((element) => ({
+              loading: element.getAttribute("data-auth-loading"),
+              authenticated: element.getAttribute("data-authenticated"),
+              flowState: element.getAttribute("data-auth-flow-state"),
+              error: element.getAttribute("data-auth-error"),
+            }))
+            .catch(() => null);
+          const browserState = await page
+            .evaluate(() => {
+              const cookieNames = document.cookie
+                .split("; ")
+                .map((entry) => entry.split("=")[0])
+                .filter(Boolean);
+              return {
+                hasClawAuthToken: Boolean(localStorage.getItem("claw_auth_token")),
+                hasAppAuthToken: Boolean(localStorage.getItem("app_auth_token")),
+                hasAuthCookie: cookieNames.includes("auth_token"),
+                hasLogoutMarker: cookieNames.includes("hypercli_logged_out"),
+              };
+            })
+            .catch(() => null);
+          return `url=${page.url()} auth=${JSON.stringify(authState)} browser=${JSON.stringify(browserState)} h1=${headingText?.trim() || "none"} main=${mainText?.trim().slice(0, 120) || "empty"}`;
         },
         { timeout: 20_000, intervals: [500, 1_000, 2_000] }
       )

@@ -42,7 +42,7 @@ export function DashboardShell({
 }: {
   children: React.ReactNode;
 }) {
-  const { isLoading, isAuthenticated } = useAgentAuth();
+  const { isLoading, isAuthenticated, flowState, error } = useAgentAuth();
   const router = useRouter();
   const pathname = usePathname();
   const isAgentsRoute =
@@ -61,7 +61,13 @@ export function DashboardShell({
 
   return (
     <DashboardMobileAgentMenuProvider>
-      <div className="h-dvh overflow-hidden bg-background">
+      <div
+        className="h-dvh overflow-hidden bg-background"
+        data-auth-loading={isLoading ? "true" : "false"}
+        data-authenticated={isAuthenticated ? "true" : "false"}
+        data-auth-flow-state={flowState}
+        data-auth-error={error ? "true" : "false"}
+      >
         {showDashboardNav ? <DashboardNav /> : null}
         <main
           className={

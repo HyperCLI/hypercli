@@ -172,7 +172,7 @@ export function HeroSection() {
         title="Welcome to HyperClaw"
         description="Please sign in to continue"
         apiBaseUrl={AUTH_BASE_URL}
-        storageMode="cookie"
+        tokenStorageKey="claw_auth_token"
         onSuccess={() => {
           window.location.href = POST_LOGIN_PATH;
         }}
