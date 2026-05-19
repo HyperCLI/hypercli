@@ -145,7 +145,7 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByPlaceholderText("Message agent...")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
   });
 
@@ -231,13 +231,13 @@ describe("AgentChatPanel", () => {
     );
 
     expect(screen.getByText("Connecting gateway")).toBeInTheDocument();
-    expect(screen.queryByPlaceholderText("Message agent...")).not.toBeInTheDocument();
+    expect(screen.queryByRole("textbox", { name: /message agent/i })).not.toBeInTheDocument();
 
     await act(async () => {
       vi.advanceTimersByTime(180);
     });
 
-    expect(screen.getByPlaceholderText("Message agent...")).toBeInTheDocument();
+    expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
   });
 
   it("automatically retries three times before showing the retry action", async () => {

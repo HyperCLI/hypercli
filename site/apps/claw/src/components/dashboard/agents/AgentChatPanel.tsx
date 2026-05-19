@@ -493,6 +493,7 @@ export function AgentChatPanel({
               ) : (
                 <div className="relative flex-1 min-w-0">
                   <textarea
+                    aria-label="Message agent"
                     value={chat.input}
                     onChange={(e) => {
                       chat.setInput(e.target.value);
