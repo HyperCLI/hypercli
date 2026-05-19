@@ -13,6 +13,7 @@ from rich.console import Console
 from rich.table import Table
 
 from hypercli.agents import Agent, Deployments, OpenClawAgent, DEFAULT_OPENCLAW_IMAGE
+from hypercli.config import get_agent_api_key as get_config_agent_api_key
 
 app = typer.Typer(help="Manage OpenClaw agent pods")
 console = Console()
@@ -46,11 +47,8 @@ def agents_root(
 
 
 def _get_agent_api_key() -> str:
-    """Resolve HyperClaw API key from env or saved key file."""
-    key = os.environ.get("HYPER_AGENTS_API_KEY", "").strip()
-    if key:
-        return key
-    key = os.environ.get("HYPER_API_KEY", "").strip()
+    """Resolve HyperClaw API key from canonical config before legacy key file."""
+    key = (get_config_agent_api_key() or "").strip()
     if key:
         return key
     if AGENT_KEY_PATH.exists():

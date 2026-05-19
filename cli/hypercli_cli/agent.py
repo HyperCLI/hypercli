@@ -12,7 +12,7 @@ from rich.console import Console
 from rich.table import Table
 
 from hypercli import HyperCLI
-from hypercli.config import get_agents_api_base_url_from_product_base
+from hypercli.config import get_agent_api_key, get_agents_api_base_url_from_product_base
 
 from .onboard import onboard as _onboard_fn
 from .voice import app as voice_app
@@ -54,7 +54,7 @@ def require_x402_deps():
 
 
 def _resolve_agent_query_key() -> str:
-    key = os.getenv("HYPER_AGENTS_API_KEY", "").strip() or os.getenv("HYPER_API_KEY", "").strip()
+    key = (get_agent_api_key() or "").strip()
     if key:
         return key
     if AGENT_KEY_PATH.exists():
