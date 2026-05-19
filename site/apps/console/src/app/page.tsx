@@ -65,7 +65,6 @@ export default function ConsolePage() {
               showTitle={true}
               title="Welcome to HyperCLI Console"
               description="Please sign in to continue"
-              storageMode="cookie"
               showTurnkeyFallback={true}
               onSuccess={() => window.location.reload()}
             />

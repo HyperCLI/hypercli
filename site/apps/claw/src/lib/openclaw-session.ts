@@ -101,6 +101,8 @@ export function handleOpenClawChatStreamEvent({
       appendActivity({ type: "tool", action: `${toolResult.name} → result`, detail: toolResult.result });
     }
   } else if (chatEvent.type === "done") {
+    const normalized = normalizeHistoryMessage(payload.message);
+    if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
     setSending(false);
     appendActivity({ type: "message", action: "Assistant response complete" });
     void gateway.sessionsList().then((list) => setSessions(list as Array<Record<string, unknown>>)).catch(() => {});
@@ -217,18 +219,148 @@ export interface HydratedOpenClawSession {
   models: Array<Record<string, unknown>>;
 }
 
+const CANONICAL_GATEWAY_AGENT_ID = "main";
+
 function isUuidLikeAgentId(value: unknown): boolean {
   return typeof value === "string" && /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(value.trim());
 }
 
+function uniqueNonEmptyStrings(values: Array<string | null | undefined>): string[] {
+  return Array.from(new Set(values.map((value) => (value ?? "").trim()).filter(Boolean)));
+}
+
+function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
+  if (!Array.isArray(messages)) return [];
+  return messages
+    .map((message) => normalizeHistoryMessage(message))
+    .filter((message): message is ChatMessage => message !== null);
+}
+
 function resolveGatewayAgentId(agents: Array<Record<string, unknown>>): string {
-  const mainAgent = agents.find((agent) => agent.id === "main")?.id;
+  const mainAgent = agents.find((agent) => agent.id === CANONICAL_GATEWAY_AGENT_ID)?.id;
   if (typeof mainAgent === "string") return mainAgent;
 
   const namedAgent = agents.find((agent) => typeof agent.id === "string" && !isUuidLikeAgentId(agent.id))?.id;
   if (typeof namedAgent === "string") return namedAgent;
 
-  return "main";
+  return CANONICAL_GATEWAY_AGENT_ID;
+}
+
+function sessionKeyFromRecord(session: Record<string, unknown>): string | null {
+  for (const key of ["id", "key", "sessionKey", "session_key", "sessionId", "session_id"]) {
+    const value = session[key];
+    if (typeof value === "string" && value.trim()) return value.trim();
+  }
+  return null;
+}
+
+function legacySessionKeyCandidates(
+  preferredAgentId: string,
+  sessions: Array<Record<string, unknown>>,
+): string[] {
+  const candidates: Array<string | null | undefined> = [];
+  if (preferredAgentId && preferredAgentId !== CANONICAL_GATEWAY_AGENT_ID) {
+    candidates.push(`agent:${preferredAgentId}:main`);
+  }
+
+  for (const session of sessions) {
+    const sessionKey = sessionKeyFromRecord(session);
+    if (!sessionKey || sessionKey === CANONICAL_GATEWAY_AGENT_ID) continue;
+    if (!preferredAgentId || sessionKey.includes(preferredAgentId) || sessionKey.startsWith("agent:")) {
+      candidates.push(sessionKey);
+    }
+  }
+
+  return uniqueNonEmptyStrings(candidates).filter((candidate) => candidate !== CANONICAL_GATEWAY_AGENT_ID);
+}
+
+async function loadLegacyHistory(
+  gateway: GatewayClient,
+  preferredAgentId: string,
+  sessions: Array<Record<string, unknown>>,
+): Promise<ChatMessage[]> {
+  for (const sessionKey of legacySessionKeyCandidates(preferredAgentId, sessions)) {
+    try {
+      const messages = normalizeHistoryMessages(await gateway.chatHistory(sessionKey, 200));
+      if (messages.length > 0) return messages;
+    } catch {}
+  }
+  return [];
+}
+
+function legacyGatewayAgentCandidates(
+  preferredAgentId: string,
+  agents: Array<Record<string, unknown>>,
+  canonicalAgentId: string,
+): string[] {
+  const candidates: Array<string | null | undefined> = [];
+  if (preferredAgentId && preferredAgentId !== CANONICAL_GATEWAY_AGENT_ID) {
+    candidates.push(preferredAgentId);
+  }
+  for (const agent of agents) {
+    if (typeof agent.id === "string") candidates.push(agent.id);
+  }
+  return uniqueNonEmptyStrings(candidates).filter((candidate) => (
+    candidate !== CANONICAL_GATEWAY_AGENT_ID && candidate !== canonicalAgentId
+  ));
+}
+
+function hasRecoverableFiles(files: WorkspaceFile[]): boolean {
+  return files.some((file) => typeof file.name === "string" && file.name.trim() && !file.missing);
+}
+
+async function migrateLegacyGatewayFiles(
+  gateway: GatewayClient,
+  sourceAgentId: string,
+  targetAgentId: string,
+  files: WorkspaceFile[],
+): Promise<WorkspaceFile[] | null> {
+  const copied: WorkspaceFile[] = [];
+  for (const file of files) {
+    const name = typeof file.name === "string" ? file.name.trim() : "";
+    if (!name || file.missing) continue;
+    try {
+      const content = await gateway.fileGet(sourceAgentId, name);
+      await gateway.fileSet(targetAgentId, name, content);
+      copied.push(file);
+    } catch {}
+  }
+
+  if (copied.length === 0) return null;
+
+  try {
+    const refreshedFiles = await gateway.filesList(targetAgentId) as WorkspaceFile[];
+    if (refreshedFiles.length > 0) return refreshedFiles;
+  } catch {}
+
+  return copied;
+}
+
+async function recoverLegacyGatewayFiles(
+  gateway: GatewayClient,
+  preferredAgentId: string,
+  agents: Array<Record<string, unknown>>,
+  canonicalAgentId: string,
+): Promise<{ files: WorkspaceFile[]; agentId: string } | null> {
+  for (const legacyAgentId of legacyGatewayAgentCandidates(preferredAgentId, agents, canonicalAgentId)) {
+    let legacyFiles: WorkspaceFile[] = [];
+    try {
+      legacyFiles = await gateway.filesList(legacyAgentId) as WorkspaceFile[];
+    } catch {
+      continue;
+    }
+
+    if (!hasRecoverableFiles(legacyFiles)) continue;
+
+    const migratedFiles = await migrateLegacyGatewayFiles(gateway, legacyAgentId, canonicalAgentId, legacyFiles);
+    if (migratedFiles && migratedFiles.length > 0) {
+      return { files: migratedFiles, agentId: canonicalAgentId };
+    }
+
+    return { files: legacyFiles, agentId: legacyAgentId };
+  }
+
+  return null;
 }
 
 export async function hydrateOpenClawSession(
@@ -248,23 +380,36 @@ export async function hydrateOpenClawSession(
   ]);
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
+  const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value as Array<Record<string, unknown>> : [];
+  const canonicalMessages = historyResult.status === "fulfilled"
+    ? normalizeHistoryMessages(historyResult.value)
+    : [];
+  const messages = canonicalMessages.length > 0
+    ? canonicalMessages
+    : await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions);
   const resolvedGatewayAgentId = resolveGatewayAgentId(agents);
+  let activeGatewayAgentId = resolvedGatewayAgentId;
   let files: WorkspaceFile[] = [];
   if (agentsResult.status === "fulfilled") {
     try {
       files = await gateway.filesList(resolvedGatewayAgentId);
     } catch {}
+    if (files.length === 0) {
+      const recovered = await recoverLegacyGatewayFiles(gateway, normalizedPreferredAgentId, agents, resolvedGatewayAgentId);
+      if (recovered) {
+        files = recovered.files;
+        activeGatewayAgentId = recovered.agentId;
+      }
+    }
   }
 
   return {
     config: cfgResult.status === "fulfilled" ? cfgResult.value : {},
     configSchema: schemaResult.status === "fulfilled" ? schemaResult.value : null,
-    messages: historyResult.status === "fulfilled"
-      ? historyResult.value.map((message) => normalizeHistoryMessage(message)).filter((message): message is ChatMessage => message !== null)
-      : [],
+    messages,
     files,
-    gwAgentId: resolvedGatewayAgentId,
-    sessions: sessionsRes.status === "fulfilled" ? sessionsRes.value as Array<Record<string, unknown>> : [],
+    gwAgentId: activeGatewayAgentId,
+    sessions,
     cronJobs: cronRes.status === "fulfilled" ? cronRes.value as Array<Record<string, unknown>> : [],
     models: modelsRes.status === "fulfilled" ? modelsRes.value as Array<Record<string, unknown>> : [],
   };

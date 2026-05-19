@@ -173,6 +173,10 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   checkout via `npm run sdk:use-checkout`. CI build/publish containers also
   install the sibling checkout so site builds exercise the current SDK source
   instead of waiting for a published package.
+- Frontend CI deploys `dev` branch pushes to the dev Netlify sites with
+  `site/env.dev`, and `main` branch pushes to the feat Netlify sites with
+  `site/env.feat`, which points at the prod backend. Production Netlify publishing is manual through the
+  `Publish Sites` workflow with `deploy_environment=prod`.
 - For OpenClaw or other app-specific gateway features, frontend code may call
   app-level WebSocket/gateway methods exposed by the SDK. Do not add frontend
   connection management, reconnect logic, session lifecycle management, or

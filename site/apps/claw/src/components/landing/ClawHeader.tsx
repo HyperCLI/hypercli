@@ -303,7 +303,7 @@ export function ClawHeader() {
         title="Welcome to HyperClaw"
         description="Please sign in to continue"
         apiBaseUrl={AUTH_BASE_URL}
-        storageMode="cookie"
+        tokenStorageKey="claw_auth_token"
         onSuccess={() => router.push(POST_LOGIN_PATH)}
       />
     </>

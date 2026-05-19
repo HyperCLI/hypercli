@@ -23,6 +23,7 @@ import { createAgentClient, createHyperAgentClient, startOpenClawAgent } from "@
 import UsageChart from "@/components/dashboard/UsageChart";
 import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
 import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
+import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import type {
   HyperAgentCurrentPlan,
@@ -369,11 +370,11 @@ export default function DashboardPage() {
                     {/* Avatar */}
                     <div className="relative flex-shrink-0">
                       <div
-                        className="w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
+                        className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
                         style={{ backgroundColor: avatar.bgColor }}
                       >
                         {avatar.imageUrl ? (
-                          <img src={avatar.imageUrl} alt={`${agent.name} avatar`} className="w-full h-full object-cover" />
+                          <ResourceImage src={avatar.imageUrl} alt={`${agent.name} avatar`} fill sizes="40px" className="object-cover" />
                         ) : (
                           <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
                         )}

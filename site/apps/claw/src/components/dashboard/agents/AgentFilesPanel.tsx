@@ -14,12 +14,13 @@ import {
 } from "lucide-react";
 
 import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
-import { FilePreview } from "@/components/dashboard/files/FilePreview";
+import { FilePreview, isImageFileName } from "@/components/dashboard/files/FilePreview";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
 import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
 import type { FileEntry, FileSortDir, FileSortKey } from "@/components/dashboard/files/types";
+import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { isProtectedFile } from "@/lib/protected-files";
 
 const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
@@ -56,9 +57,11 @@ interface AgentFilesPanelProps {
   connected: boolean;
   connecting: boolean;
   hydrating: boolean;
+  isDesktopViewport?: boolean;
   error?: string | null;
   onListFiles: (path?: string) => Promise<FileEntry[]>;
   onOpenFile: (path: string) => Promise<string>;
+  onOpenFileBytes?: (path: string) => Promise<Uint8Array>;
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   onUploadFile: (path: string, content: string) => Promise<void>;
@@ -71,9 +74,11 @@ export function AgentFilesPanel({
   connected,
   connecting,
   hydrating,
+  isDesktopViewport = false,
   error,
   onListFiles,
   onOpenFile,
+  onOpenFileBytes,
   onSaveFile,
   onDeleteFile,
   onUploadFile,
@@ -92,7 +97,7 @@ export function AgentFilesPanel({
   const listRequestIdRef = useRef(0);
 
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
-  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -139,6 +144,19 @@ export function AgentFilesPanel({
   const filesLoading = listLoading || (agentState === "RUNNING" && (connecting || hydrating));
   const filesDisconnected = agentState === "RUNNING" && !connecting && !hydrating && !listLoading && !connected;
   const effectiveError = listError ?? error ?? null;
+  const filesBootStatus = getAgentGatewayPanelBootStatus({
+    connected,
+    connecting,
+    loading: filesLoading,
+    error: effectiveError,
+    loadingTitle: "Loading workspace",
+    loadingDetail: "Loading folders and files.",
+    connectingDetail: "Opening the files workspace.",
+    waitingDetail: filesDisconnected
+      ? "Reconnect the gateway to browse workspace files."
+      : "Start the agent to browse workspace files.",
+    errorTitle: "Files error",
+  });
   const emptyKind: "offline" | "loading" | "error" | "no-files" | "no-results" | null =
     filesLoading
       ? "loading"
@@ -164,13 +182,17 @@ export function AgentFilesPanel({
     setPreviewError(null);
     setPreviewLoading(true);
     try {
-      setPreviewContent(await onOpenFile(entry.path));
+      setPreviewContent(
+        isImageFileName(entry.name) && onOpenFileBytes
+          ? await onOpenFileBytes(entry.path)
+          : await onOpenFile(entry.path),
+      );
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "Failed to load file");
     } finally {
       setPreviewLoading(false);
     }
-  }, [onOpenFile]);
+  }, [onOpenFile, onOpenFileBytes]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     await onSaveFile(path, content);
@@ -212,9 +234,21 @@ export function AgentFilesPanel({
   }, [sortKey]);
 
   const breadcrumbPath = pathRelativeToRoot(currentPath, normalizedRootPath);
+  const filePreview = previewEntry ? (
+    <FilePreview
+      key={previewEntry.path}
+      entry={previewEntry}
+      content={previewContent}
+      loading={previewLoading}
+      error={previewError}
+      readOnly={isProtectedFile(previewEntry.path)}
+      onClose={() => setPreviewEntry(null)}
+      onSave={handleSaveFile}
+    />
+  ) : null;
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-background">
+    <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border px-4">
         <FolderOpen className="h-4 w-4 text-primary" />
         <div className="min-w-0">
@@ -228,9 +262,9 @@ export function AgentFilesPanel({
 
         {(filesLoading || !connected || effectiveError) && (
           <div className="flex items-center gap-1 text-[10px] text-[#f0c56c]">
-            {filesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
+            {filesBootStatus?.status === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
             <span>
-              {filesLoading ? "Loading workspace" : effectiveError ? "Files error" : agentState === "RUNNING" ? "Unavailable" : agentState}
+              {filesBootStatus?.title ?? (agentState === "RUNNING" ? "Unavailable" : agentState)}
             </span>
           </div>
         )}
@@ -313,8 +347,14 @@ export function AgentFilesPanel({
         )}
       </AnimatePresence>
 
-      <div className="flex min-h-0 flex-1">
-        <aside className="flex min-h-0 w-72 flex-shrink-0 flex-col border-r border-border">
+      <div className={`flex min-h-0 flex-1 ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
+        <aside
+          className={`flex flex-shrink-0 flex-col ${
+            isDesktopViewport
+              ? "h-auto min-h-0 w-72 border-r border-border"
+              : "h-full min-h-0 w-full"
+          }`}
+        >
           <div className="flex-shrink-0 space-y-2 px-3 pb-2 pt-3">
             <FilesSearchBar
               value={searchQuery}
@@ -336,16 +376,20 @@ export function AgentFilesPanel({
                 onRetry={emptyKind === "error" ? loadFiles : undefined}
                 title={
                   emptyKind === "loading"
-                    ? "Loading workspace"
+                    ? filesBootStatus?.title ?? "Loading workspace"
+                    : emptyKind === "error"
+                      ? filesBootStatus?.title
                     : emptyKind === "offline" && filesDisconnected
-                      ? "Files unavailable"
+                      ? filesBootStatus?.title ?? "Files unavailable"
                       : undefined
                 }
                 description={
                   emptyKind === "loading"
-                    ? "Loading folders and files."
+                    ? filesBootStatus?.detail ?? "Loading folders and files."
+                    : emptyKind === "error"
+                      ? filesBootStatus?.detail
                     : emptyKind === "offline" && filesDisconnected
-                      ? "Start the agent to browse workspace files."
+                      ? filesBootStatus?.detail ?? "Start the agent to browse workspace files."
                       : undefined
                 }
               />
@@ -365,39 +409,53 @@ export function AgentFilesPanel({
           </div>
         </aside>
 
-        <main className="min-h-0 min-w-0 flex-1">
-          <AnimatePresence mode="wait">
-            {previewEntry ? (
-              <FilePreview
-                key={previewEntry.path}
-                entry={previewEntry}
-                content={previewContent}
-                loading={previewLoading}
-                error={previewError}
-                readOnly={isProtectedFile(previewEntry.path)}
-                onClose={() => setPreviewEntry(null)}
-                onSave={handleSaveFile}
-              />
-            ) : (
-              <motion.div
-                key="empty"
-                initial={{ opacity: 0 }}
-                animate={{ opacity: 1 }}
-                exit={{ opacity: 0 }}
-                className="flex h-full flex-col items-center justify-center gap-3 text-text-muted"
-              >
-                <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-low/50">
-                  <FileText className="h-5 w-5 opacity-50" />
-                </div>
-                <div className="text-center">
-                  <p className="mb-1 text-sm font-medium text-foreground">Select a file to preview</p>
-                  <p className="text-[11px] text-text-muted">Browse workspace files without leaving the agent.</p>
-                </div>
-              </motion.div>
-            )}
-          </AnimatePresence>
-        </main>
+        {isDesktopViewport && (
+          <main className="min-h-0 min-w-0 flex-1">
+            <AnimatePresence mode="wait">
+              {filePreview ?? (
+                <motion.div
+                  key="empty"
+                  initial={{ opacity: 0 }}
+                  animate={{ opacity: 1 }}
+                  exit={{ opacity: 0 }}
+                  className="flex h-full flex-col items-center justify-center gap-3 text-text-muted"
+                >
+                  <div className="flex h-12 w-12 items-center justify-center rounded-xl border border-border bg-surface-low/50">
+                    <FileText className="h-5 w-5 opacity-50" />
+                  </div>
+                  <div className="text-center">
+                    <p className="mb-1 text-sm font-medium text-foreground">Select a file to preview</p>
+                    <p className="text-[11px] text-text-muted">Browse workspace files without leaving the agent.</p>
+                  </div>
+                </motion.div>
+              )}
+            </AnimatePresence>
+          </main>
+        )}
       </div>
+
+      <AnimatePresence>
+        {!isDesktopViewport && previewEntry && (
+          <motion.section
+            key="file-editor-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="File editor"
+            initial={{ y: "100%", opacity: 0.98 }}
+            animate={{ y: 0, opacity: 1 }}
+            exit={{ y: "100%", opacity: 0.98 }}
+            transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
+            className="absolute inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background shadow-[0_-18px_50px_rgba(0,0,0,0.45)]"
+          >
+            <div className="flex flex-shrink-0 justify-center py-2">
+              <div className="h-1 w-10 rounded-full bg-border" />
+            </div>
+            <div className="min-h-0 flex-1 overflow-hidden">
+              {filePreview}
+            </div>
+          </motion.section>
+        )}
+      </AnimatePresence>
     </div>
   );
 }

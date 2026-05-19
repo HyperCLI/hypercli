@@ -1,11 +1,13 @@
 """HyperClaw Voice API commands — TTS, clone, design"""
 import json
 import os
+from datetime import datetime, timezone
 from pathlib import Path
 
 import typer
 from rich.console import Console
 from hypercli import HyperCLI, APIError
+from hypercli.config import get_agent_api_key, get_api_key
 from .stt import transcribe as _stt_transcribe
 
 app = typer.Typer(help="Voice commands — text-to-speech, voice cloning, voice design, and local transcription")
@@ -17,22 +19,30 @@ DEFAULT_API_BASE = "https://api.hypercli.com"
 
 
 def _get_api_key(key: str | None) -> str:
-    """Resolve API key: --key > HYPER_API_KEY > HYPER_AGENTS_API_KEY > agent-key.json."""
+    """Resolve API key from canonical config before legacy agent-key storage."""
     if key:
         return key
-    env_key = os.environ.get("HYPER_API_KEY", "").strip()
-    if env_key:
-        return env_key
-    env_key = os.environ.get("HYPER_AGENTS_API_KEY", "").strip()
-    if env_key:
-        return env_key
+    configured = (get_api_key() or get_agent_api_key() or "").strip()
+    if configured:
+        return configured
     if AGENT_KEY_PATH.exists():
-        with open(AGENT_KEY_PATH) as f:
-            k = json.load(f).get("key", "")
-        if k:
-            return k
+        try:
+            with open(AGENT_KEY_PATH) as f:
+                saved = json.load(f)
+            expires_at = saved.get("expires_at")
+            if expires_at:
+                expires = datetime.fromisoformat(str(expires_at).replace("Z", "+00:00"))
+                if expires.tzinfo is None:
+                    expires = expires.replace(tzinfo=timezone.utc)
+                if expires <= datetime.now(timezone.utc):
+                    saved = {}
+            k = str(saved.get("key", "")).strip()
+            if k:
+                return k
+        except Exception:
+            pass
     console.print("[red]❌ No API key found.[/red]")
-    console.print("Pass [bold]--key sk-...[/bold], set [bold]HYPER_API_KEY[/bold] or [bold]HYPER_AGENTS_API_KEY[/bold], or run [bold]hyper agent subscribe[/bold]")
+    console.print("Pass [bold]--key[/bold], set [bold]HYPER_API_KEY[/bold], or run [bold]hyper configure[/bold].")
     raise typer.Exit(1)
 
 

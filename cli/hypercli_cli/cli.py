@@ -1,6 +1,7 @@
 """HyperCLI - Main entry point"""
 import sys
 import json
+from datetime import datetime, timezone
 import typer
 from rich.console import Console
 from rich.prompt import Prompt
@@ -13,6 +14,24 @@ from . import agent, agents, billing, comfyui, files, flow, instances, jobs, key
 from .output import output, spinner
 
 console = Console()
+
+
+def _format_time_left(expires_at: datetime | None) -> str:
+    if not expires_at:
+        return ""
+    if expires_at.tzinfo is None:
+        expires_at = expires_at.replace(tzinfo=timezone.utc)
+    remaining = expires_at - datetime.now(timezone.utc)
+    if remaining.total_seconds() <= 0:
+        return "expired"
+    days = remaining.days
+    hours = remaining.seconds // 3600
+    minutes = (remaining.seconds % 3600) // 60
+    if days:
+        return f"{days}d {hours}h"
+    if hours:
+        return f"{hours}h {minutes}m"
+    return f"{minutes}m"
 
 
 def fuzzy_match(input_str: str, options: list[str], threshold: float = 0.5) -> list[str]:
@@ -107,8 +126,32 @@ def me_cmd(
     client = HyperCLI()
     with spinner("Resolving auth context..."):
         auth_me = client.user.auth_me()
+        entitlement_summary = None
+        entitlement_error = None
+        try:
+            entitlement_summary = client.agent.subscription_summary()
+        except APIError as exc:
+            entitlement_error = f"{exc.status_code}: {exc.detail}"
+        except Exception as exc:
+            entitlement_error = str(exc)
     if fmt == "json":
-        output(auth_me, fmt)
+        payload = dict(getattr(auth_me, "__dict__", {}))
+        if entitlement_summary is not None:
+            payload["agents_entitlements"] = {
+                "effective_plan_id": entitlement_summary.effective_plan_id,
+                "current_subscription_id": entitlement_summary.current_subscription_id,
+                "current_entitlement_id": entitlement_summary.current_entitlement_id,
+                "active_subscription_count": entitlement_summary.active_subscription_count,
+                "active_entitlement_count": entitlement_summary.active_entitlement_count,
+                "pooled_tpm_limit": entitlement_summary.pooled_tpm_limit,
+                "pooled_rpm_limit": entitlement_summary.pooled_rpm_limit,
+                "pooled_tpd": entitlement_summary.pooled_tpd,
+                "billing_reset_at": entitlement_summary.billing_reset_at,
+                "entitlement_items": [item.__dict__ for item in entitlement_summary.entitlement_items],
+            }
+        elif entitlement_error:
+            payload["agents_entitlements_error"] = entitlement_error
+        output(payload, fmt)
         return
 
     table = Table(show_header=False, box=None)
@@ -127,6 +170,25 @@ def me_cmd(
     raw_capabilities = list(getattr(auth_me, "capabilities", []) or [])
     capabilities = "\n".join(raw_capabilities) if raw_capabilities else ""
     table.add_row("capabilities", capabilities)
+    if entitlement_summary is not None:
+        table.add_row("agents_effective_plan", entitlement_summary.effective_plan_id)
+        table.add_row("agents_current_entitlement", str(entitlement_summary.current_entitlement_id or ""))
+        table.add_row("agents_active_entitlements", str(entitlement_summary.active_entitlement_count))
+        active_items = [item for item in entitlement_summary.entitlement_items if str(item.status).upper() == "ACTIVE"]
+        expires_at = max((item.expires_at for item in active_items if item.expires_at), default=None)
+        if expires_at:
+            table.add_row("agents_expires_at", expires_at.isoformat())
+            table.add_row("agents_time_left", _format_time_left(expires_at))
+        table.add_row(
+            "agents_limits",
+            (
+                f"{entitlement_summary.pooled_tpm_limit:,} TPM / "
+                f"{entitlement_summary.pooled_rpm_limit:,} RPM / "
+                f"{entitlement_summary.pooled_tpd:,} TPD"
+            ),
+        )
+    elif entitlement_error:
+        table.add_row("agents_entitlements", f"unavailable ({entitlement_error})")
     console.print(table)
 
 

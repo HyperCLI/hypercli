@@ -284,8 +284,8 @@ Export new components from `src/index.ts`.
 
 | Env | Frontend | API | Deploys From | Env File |
 |-----|----------|-----|-------------|----------|
-| prod | `hypercli.com` | `api.hypercli.com` | `main` branch | `env.prod` |
-| feat | `feat.hypercli.com` | `api.dev.hypercli.com` | `feat-claw` branch | `env.feat` |
+| prod | `hypercli.com` | `api.hypercli.com` | Manual `Publish Sites` workflow | `env.prod` |
+| feat | `feat.hypercli.com`, `console.feat.hypercli.com`, `agents.feat.hypercli.com` | `api.hypercli.com` | `main` branch GitHub CI | `env.feat` |
 | dev | `dev-hypercli-site.netlify.app` | `api.dev.hypercli.com` | GitHub CI | `env.dev` |
 | local | `localhost:4003` | `localhost:8000` | — | `env.sample` |
 
@@ -294,5 +294,5 @@ GitHub CI builds the site apps in the Node container and publishes static artifa
 **Required env vars** (validated at build time in `apps/claw/next.config.ts`):
 `NEXT_PUBLIC_MAIN_SITE_URL`, `NEXT_PUBLIC_CONSOLE_URL`, `NEXT_PUBLIC_AGENTS_URL`, `NEXT_PUBLIC_PRIVY_APP_ID`
 
-**Key insight for feat-claw**: Frontend is at `feat.hypercli.com` but backend is `api.dev.hypercli.com`. Gateway cookies need `domain=.hypercli.com` to reach `openclaw-{name}.dev.hypercli.com`. The `useGatewayChat` hook handles cross-domain cookie logic automatically.
+**Key insight for feat**: Frontends are on `*.feat.hypercli.com` but use the production frontend environment and prod backend. `main` branch pushes should publish feat artifacts, while production domains remain a manual publish target.
 

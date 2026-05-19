@@ -19,6 +19,17 @@ import {
 } from "@/lib/openclaw-session";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 
+const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
+
+function hasSeededE2EConnection(): boolean {
+  if (typeof window === "undefined" || !window.navigator.webdriver) return false;
+  try {
+    return window.localStorage.getItem(E2E_OPENCLAW_CONNECTED_KEY) === "1";
+  } catch {
+    return false;
+  }
+}
+
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
   enabled: boolean = true,
@@ -28,6 +39,7 @@ export function useOpenClawSession(
   const [error, setError] = useState<string | null>(null);
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hydrating, setHydrating] = useState(false);
+  const [ready, setReady] = useState(false);
   const [input, setInput] = useState("");
   const [pendingInput, setPendingInput] = useState<string[]>([]);
   const [sending, setSending] = useState(false);
@@ -40,19 +52,56 @@ export function useOpenClawSession(
   const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>([]);
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
+  const [pendingAttachmentReads, setPendingAttachmentReads] = useState(0);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
+  const [retrySignal, setRetrySignal] = useState(0);
   const activeChatSendRef = useRef(false);
+  const seededE2EConnection = hasSeededE2EConnection();
+
+  const retry = useCallback(() => {
+    setRetrySignal((value) => value + 1);
+  }, []);
+
+  const resetSessionStateForDisconnect = useCallback(() => {
+    activeChatSendRef.current = false;
+    setHydrating(false);
+    setReady(false);
+    setMessages([]);
+    setFiles([]);
+    setConfig(null);
+    setConfigSchema(null);
+    setSending(false);
+    setGwAgentId("main");
+    setPendingAttachments([]);
+    setPendingAttachmentReads(0);
+    setPendingFiles([]);
+    setSessions([]);
+    setCronJobs([]);
+    setModels([]);
+    setActivityFeed([]);
+  }, []);
 
   useEffect(() => {
     let active = true;
     let localGateway: GatewayClient | null = null;
     let unsubscribeConnectionState: (() => void) | null = null;
 
+    if (enabled && seededE2EConnection) {
+      setGateway(null);
+      setStatus("connected");
+      setError(null);
+      setHydrating(false);
+      setReady(true);
+      return () => {
+        active = false;
+      };
+    }
+
     if (!enabled || !agent || typeof agent.connect !== "function") {
       setGateway(null);
       setStatus("disconnected");
       setError(null);
-      setHydrating(false);
+      resetSessionStateForDisconnect();
       return () => {
         active = false;
       };
@@ -62,6 +111,7 @@ export function useOpenClawSession(
     setStatus("connecting");
     setError(null);
     setHydrating(false);
+    setReady(false);
 
     void (async () => {
       try {
@@ -85,23 +135,38 @@ export function useOpenClawSession(
         const applyState = (nextState: GatewayConnectionState) => {
           if (!active) return;
           setStatus(nextState);
+          if (nextState === "disconnected") {
+            setGateway(null);
+            resetSessionStateForDisconnect();
+            return;
+          }
+          if (nextState === "connecting") {
+            setGateway(null);
+            setHydrating(false);
+            setReady(false);
+            setSending(false);
+            setError(null);
+            return;
+          }
           if (nextState === "connected") {
+            setGateway(client);
             setError(null);
           }
         };
         applyState(client.state);
         unsubscribeConnectionState = client.onConnectionState(applyState);
-        setGateway(client);
-        await client.connect();
-        if (!active) {
-          client.close();
-          return;
-        }
+        void client.connect().catch((e: unknown) => {
+          if (!active) return;
+          setGateway(null);
+          setStatus("disconnected");
+          resetSessionStateForDisconnect();
+          setError(e instanceof Error ? e.message : String(e));
+        });
       } catch (e: unknown) {
         if (!active) return;
         setGateway(null);
         setStatus("disconnected");
-        setHydrating(false);
+        resetSessionStateForDisconnect();
         setError(e instanceof Error ? e.message : String(e));
       }
     })();
@@ -111,7 +176,7 @@ export function useOpenClawSession(
       unsubscribeConnectionState?.();
       localGateway?.close();
     };
-  }, [enabled, agent]);
+  }, [enabled, agent, retrySignal, seededE2EConnection, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -136,6 +201,7 @@ export function useOpenClawSession(
   useEffect(() => {
     if (!gateway || status !== "connected") return;
     let cancelled = false;
+    setReady(false);
     setHydrating(true);
     void (async () => {
       try {
@@ -151,6 +217,11 @@ export function useOpenClawSession(
         setSessions(hydrated.sessions);
         setCronJobs(hydrated.cronJobs);
         setModels(hydrated.models);
+        setReady(true);
+      } catch (e: unknown) {
+        if (cancelled) return;
+        setReady(false);
+        setError(e instanceof Error ? e.message : String(e));
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -162,36 +233,41 @@ export function useOpenClawSession(
 
   useEffect(() => {
     if (status !== "disconnected") return;
-    activeChatSendRef.current = false;
-    setHydrating(false);
-    setMessages([]);
-    setFiles([]);
-    setConfig(null);
-    setConfigSchema(null);
-    setSending(false);
-    setGwAgentId("main");
-    setPendingAttachments([]);
-    setPendingFiles([]);
-    setSessions([]);
-    setCronJobs([]);
-    setModels([]);
-    setActivityFeed([]);
-  }, [status]);
+    resetSessionStateForDisconnect();
+  }, [status, resetSessionStateForDisconnect]);
 
   const addPendingMessage = useCallback((message: string) => {
     setPendingInput((prev) => [...prev, message]);
   }, []);
 
   const addAttachments = useCallback((files: FileList) => {
-    Array.from(files).forEach((file) => {
-      if (!file.type.startsWith("image/")) return;
+    const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
+    if (imageFiles.length === 0) return;
+
+    setPendingAttachmentReads((count) => count + imageFiles.length);
+
+    imageFiles.forEach((file) => {
       const reader = new FileReader();
+      let finished = false;
+      const finishRead = () => {
+        if (finished) return;
+        finished = true;
+        setPendingAttachmentReads((count) => Math.max(0, count - 1));
+      };
       reader.onload = () => {
-        const base64 = (reader.result as string).split(",")[1];
+        const result = typeof reader.result === "string" ? reader.result : "";
+        const base64 = result.split(",")[1];
         if (!base64) return;
         setPendingAttachments((prev) => [...prev, { type: "image", mimeType: file.type, content: base64, fileName: file.name }]);
       };
-      reader.readAsDataURL(file);
+      reader.onerror = finishRead;
+      reader.onabort = finishRead;
+      reader.onloadend = finishRead;
+      try {
+        reader.readAsDataURL(file);
+      } catch {
+        finishRead();
+      }
     });
   }, []);
 
@@ -228,11 +304,12 @@ export function useOpenClawSession(
   }, []);
 
   const sendMessage = useCallback(async (overrideInput?: string) => {
-    if (!gateway) throw new Error("Not connected");
+    if (!gateway || !ready) throw new Error("Chat is not ready");
     const nextInput = typeof overrideInput === "string" ? overrideInput : input;
     const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
     const nextFiles = typeof overrideInput === "string" ? [] : pendingFiles;
-    if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sending) return;
+    const readingAttachments = typeof overrideInput !== "string" && pendingAttachmentReads > 0;
+    if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sending || readingAttachments) return;
 
     const msg = nextInput.trim();
     const attachments = [...nextAttachments];
@@ -284,15 +361,16 @@ export function useOpenClawSession(
         setSending(false);
       }
     }
-  }, [gateway, input, pendingAttachments, pendingFiles, sending, appendActivity, agent?.id]);
+  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, agent?.id]);
 
   useEffect(() => {
+    if (!ready) return;
     if (!sending && pendingInput.length > 0) {
       const nextMessage = pendingInput[0];
       setPendingInput((prev) => prev.slice(1));
       void sendMessage(nextMessage);
     }
-  }, [sending, pendingInput, sendMessage]);
+  }, [ready, sending, pendingInput, sendMessage]);
 
   const openFile = useCallback(async (name: string): Promise<string> => {
     if (!gateway) throw new Error("Not connected");
@@ -361,12 +439,19 @@ export function useOpenClawSession(
     return gateway.cronRun(jobId);
   }, [gateway, appendActivity]);
 
+  const connected = seededE2EConnection || (status === "connected" && ready && !hydrating);
+  const connecting = seededE2EConnection
+    ? false
+    : status === "connecting" || hydrating || (status === "connected" && !ready && !error);
+
   return {
     gateway,
     status,
     error,
-    connected: status === "connected",
-    connecting: status === "connecting",
+    ready,
+    gatewayConnected: seededE2EConnection || status === "connected",
+    connected,
+    connecting,
     hydrating,
     messages,
     sendMessage,
@@ -385,6 +470,7 @@ export function useOpenClawSession(
     channelsStatus,
     pendingFiles,
     pendingAttachments,
+    pendingAttachmentReads,
     addPendingFiles,
     addAttachments,
     removePendingFile,
@@ -398,5 +484,6 @@ export function useOpenClawSession(
     addCron,
     removeCron,
     runCron,
+    retry,
   };
 }

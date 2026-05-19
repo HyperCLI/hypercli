@@ -194,6 +194,7 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
     ],
     onSaveOpenClawConfig: vi.fn(async () => undefined),
     onLogout: vi.fn(),
+    onDeleteAgent: vi.fn(),
     ...overrides,
   };
 
@@ -202,6 +203,13 @@ function renderAgentSettingsPanel(overrides: Partial<ComponentProps<typeof Agent
 }
 
 describe("AgentList", () => {
+  it("does not render the desktop agents/channels sidebar below the desktop breakpoint", () => {
+    renderAgentList({ isDesktopViewport: false });
+
+    expect(screen.queryByRole("button", { name: /select test agent/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /launch agent/i })).not.toBeInTheDocument();
+  });
+
   it("keeps the agents/channels sidebar collapsed until the explicit expand control is used", () => {
     const props = renderAgentList();
 
@@ -266,6 +274,7 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("button", { name: "Agent" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Billing" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Usage" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Team" })).toBeInTheDocument();
     expect(screen.getByRole("heading", { name: "Profile" })).toBeInTheDocument();
     expect(screen.getByText("Full Name")).toBeInTheDocument();
     expect(screen.getByDisplayValue("John Smith")).toBeInTheDocument();
@@ -293,7 +302,49 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Auto-archive idle conversations")).toBeInTheDocument();
     expect(screen.getByText("Agent runtime")).toBeInTheDocument();
     expect(screen.getByRole("button", { name: /stop agent/i })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Danger Zone" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Delete agent" })).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("opens the delete confirmation from agent settings", () => {
+    const onDeleteAgent = vi.fn();
+    renderAgentSettingsPanel({ onDeleteAgent });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.click(screen.getByRole("button", { name: "Delete agent" }));
+
+    expect(onDeleteAgent).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders the mobile settings header and horizontal section tabs", () => {
+    const onOpenMobileMenu = vi.fn();
+    const onBackToChat = vi.fn();
+    const onOpenAgentsMenu = vi.fn();
+    renderAgentSettingsPanel({
+      isDesktopViewport: false,
+      onBackToChat,
+      onOpenAgentsMenu,
+      onOpenMobileMenu,
+      showBackToChat: true,
+    });
+
+    expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
+    expect(screen.getByRole("navigation", { name: /settings sections/i })).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /back to chat/i }));
+    expect(onBackToChat).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /open agents sidebar/i }));
+    expect(onOpenAgentsMenu).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: /open workspace sidebar/i }));
+    expect(onOpenMobileMenu).toHaveBeenCalledTimes(1);
+
+    fireEvent.click(screen.getByRole("button", { name: "Team" }));
+    expect(screen.getByRole("button", { name: "Team" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("heading", { name: "Team" })).toBeInTheDocument();
+    expect(screen.getByText("Workspace members")).toBeInTheDocument();
   });
 
   it("signs out from general settings", () => {
@@ -400,6 +451,24 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByRole("heading", { name: "Usage" })).toBeInTheDocument();
     expect(screen.getByText("Usage dashboard")).toBeInTheDocument();
     expect(screen.getByText("API keys")).toBeInTheDocument();
+  });
+
+  it("renders the compact mobile billing layout", () => {
+    renderAgentSettingsPanel({ isDesktopViewport: false });
+
+    fireEvent.click(screen.getByRole("button", { name: "Billing" }));
+
+    expect(screen.getByRole("heading", { name: "Agent Settings" })).toBeInTheDocument();
+    expect(screen.getAllByText("Pro Plan").length).toBeGreaterThan(0);
+    expect(screen.getByText(/auto renew on May 21, 2026/i)).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Adjust plan" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Update" })).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "Invoices" })).toBeInTheDocument();
+    expect(screen.getByText("Receipt")).toBeInTheDocument();
+    expect(screen.getByText("Total")).toBeInTheDocument();
+    expect(screen.getByText("Status")).toBeInTheDocument();
+    expect(screen.queryByText("Plan limits")).not.toBeInTheDocument();
+    expect(screen.queryByText("Subscriptions")).not.toBeInTheDocument();
   });
 });
 

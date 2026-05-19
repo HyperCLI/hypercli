@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react"
 import { getToolCallClass } from "./bubbleStyles";
 import { extractImagePath, formatToolDetail, toolCallSummary } from "./helpers";
 import { AuthImage } from "./AuthImage";
+import { DirectoryVisualization, parseDirectoryVisualization } from "./DirectoryVisualization";
 import type { ThemeVariant } from "./types";
 
 interface ToolCallBlockProps {
@@ -29,6 +30,7 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
   const pending = rawPending && !pendingTimedOut;
   const argsDetail = formatToolDetail(tc.args, 280);
   const resultDetail = tc.result ? formatToolDetail(tc.result, 520) : null;
+  const directoryListing = tc.result ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -40,7 +42,7 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
     <div className={getToolCallClass(themeVariant, hasResult)}>
       <button
         onClick={() => onToggle(index)}
-        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 hover:bg-surface-low transition-colors text-left"
+        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-low"
       >
         {pending ? (
           <Loader2 className="w-3 h-3 text-[#f0c56c] animate-spin shrink-0" />
@@ -49,8 +51,8 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
         ) : (
           <Wrench className="w-3 h-3 text-text-muted shrink-0" />
         )}
-        <span className="text-[#f0c56c] font-medium">{tc.name}</span>
-        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="min-w-0 max-w-[45%] truncate font-medium text-[#f0c56c]">{tc.name}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-muted">
           {pending ? "Running" : hasResult ? "Done" : "Called"}
         </span>
         {!isOpen && summary && (
@@ -65,25 +67,33 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
       {isOpen && (
         <div className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
           {argsDetail.text && (
-            <div>
+            <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Arguments</p>
-              <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-mono">{argsDetail.text}</pre>
+              <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail.text}</pre>
             </div>
           )}
-          {resultDetail?.text && (
-            <div>
+          {directoryListing && (
+            <DirectoryVisualization
+              title="Directory result"
+              rootPath={directoryListing.rootPath}
+              entries={directoryListing.entries}
+              truncated={directoryListing.truncated}
+            />
+          )}
+          {resultDetail?.text && !directoryListing && (
+            <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Result</p>
-              <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words font-mono">{resultDetail.text}</pre>
+              <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail.text}</pre>
             </div>
           )}
         </div>
       )}
       {imageFile && (
-        <div className="px-2.5 py-2 border-t border-border">
+        <div className="max-w-full border-t border-border px-2.5 py-2">
           <AuthImage
             file={imageFile}
             alt={imagePath?.split("/").pop() || "generated image"}
-            className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+            className="h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]"
           />
         </div>
       )}

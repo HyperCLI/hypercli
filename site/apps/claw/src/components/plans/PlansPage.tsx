@@ -78,6 +78,8 @@ type CatalogPlan = HyperAgentPlan & {
 };
 
 const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.id, product]));
+const CORE_PLAN_FETCH_TIMEOUT_MS = 15_000;
+const SUMMARY_PLAN_FETCH_TIMEOUT_MS = 4_000;
 
 function titleizeTier(value: string): string {
   return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
@@ -135,6 +137,25 @@ function finiteNumber(value: unknown, fallback = 0): number {
   return Number.isFinite(numeric) ? numeric : fallback;
 }
 
+function withTimeout<T>(promise: Promise<T>, timeoutMs: number, label: string): Promise<T> {
+  return new Promise<T>((resolve, reject) => {
+    const timeout = setTimeout(() => {
+      reject(new Error(`${label} timed out`));
+    }, timeoutMs);
+
+    promise.then(
+      (value) => {
+        clearTimeout(timeout);
+        resolve(value);
+      },
+      (error) => {
+        clearTimeout(timeout);
+        reject(error);
+      },
+    );
+  });
+}
+
 function buildDisplayProducts(catalogPlans: HyperAgentPlan[]): DisplayProduct[] {
   return catalogPlans
     .filter(isVisibleCurrentAgentPlan)
@@ -185,6 +206,7 @@ function formatEntitlementDate(entitlement: HyperAgentEntitlement): string {
 
 export default function PlansPage() {
   const { getToken } = useAgentAuth();
+  const getTokenRef = useRef(getToken);
   const [catalogPlans, setCatalogPlans] = useState<HyperAgentPlan[]>([]);
   const [currentPlan, setCurrentPlan] = useState<HyperAgentCurrentPlan | null>(null);
   const [summary, setSummary] = useState<HyperAgentSubscriptionSummary | null>(null);
@@ -200,14 +222,18 @@ export default function PlansPage() {
   const [checkoutSync, setCheckoutSync] = useState<CheckoutSyncState | null>(null);
   const checkoutReturnHandledRef = useRef(false);
 
+  useEffect(() => {
+    getTokenRef.current = getToken;
+  }, [getToken]);
+
   const refreshPlan = useCallback(async () => {
     try {
-      const token = await getToken();
+      const token = await getTokenRef.current();
       const agentClient = createHyperAgentClient(token);
       const [catalog, current, subscriptions] = await Promise.allSettled([
-        agentClient.plans(),
-        agentClient.currentPlan(),
-        agentClient.subscriptionSummary(),
+        withTimeout(agentClient.plans(), CORE_PLAN_FETCH_TIMEOUT_MS, "Plan catalog request"),
+        withTimeout(agentClient.currentPlan(), CORE_PLAN_FETCH_TIMEOUT_MS, "Current plan request"),
+        withTimeout(agentClient.subscriptionSummary(), SUMMARY_PLAN_FETCH_TIMEOUT_MS, "Subscription summary request"),
       ]);
       const nextCatalogPlans = catalog.status === "fulfilled" ? catalog.value : [];
       const nextCurrentPlan = current.status === "fulfilled" ? current.value : null;
@@ -220,7 +246,7 @@ export default function PlansPage() {
     } catch {
       return null;
     }
-  }, [getToken]);
+  }, []);
 
   useEffect(() => {
     setLoading(true);

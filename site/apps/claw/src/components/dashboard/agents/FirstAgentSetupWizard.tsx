@@ -24,8 +24,17 @@ import {
   isLegacyAgentPlanLabel,
   isVisibleCurrentAgentPlan,
 } from "@/lib/agent-plan-catalog";
+import {
+  deriveLaunchSources,
+  getEffectivePlanIdFromSummary,
+  type LaunchSourceKind,
+} from "@/lib/agent-launch-state";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
+import {
+  createFirstAgentWizardState,
+  firstAgentWizardReducer,
+} from "./first-agent-wizard-machine";
 
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
@@ -145,7 +154,8 @@ type ActiveLaunchPlanGroup = {
   catalogPlan?: HyperAgentPlan;
   granted: number;
   slotGrants: Record<string, number>;
-  subscriptionCount: number;
+  sourceCount: number;
+  sourceType: LaunchSourceKind;
 };
 
 type ChoosePlanCatalog = {
@@ -353,14 +363,38 @@ function buildLaunchPlanOptions(
     sourceCatalogById,
   } = buildChoosePlanCatalog(catalogPlans);
   const activeGroups = new Map<string, ActiveLaunchPlanGroup>();
+  const effectivePlanId = getEffectivePlanIdFromSummary(subscriptionSummary);
+  const launchSources = deriveLaunchSources({
+    subscriptionSummary,
+    slotInventory,
+    pendingSlotReleases,
+    includeInventorySources: true,
+  });
 
-  for (const subscription of subscriptionSummary?.activeSubscriptions ?? []) {
-    const slotGrants = subscription.slotGrants ?? {};
-    const tier = ["large", "medium", "small"].find((candidate) => Number(slotGrants[candidate] || 0) > 0);
-    if (!tier) continue;
+  const addActiveGroup = ({
+    sourceType,
+    planId: rawPlanId,
+    planName: rawPlanName,
+    slotGrants,
+    quantity = 1,
+  }: {
+    sourceType: LaunchSourceKind;
+    planId: string;
+    planName?: string | null;
+    slotGrants: Record<string, number> | null | undefined;
+    quantity?: number;
+  }) => {
+    const tier = ["large", "medium", "small"].find((candidate) => Number(slotGrants?.[candidate] || 0) > 0);
+    if (!tier) return;
 
-    const catalogPlan = catalogById.get(subscription.planId);
-    const sourceCatalogPlan = sourceCatalogById.get(subscription.planId);
+    const inventoryCatalogPlan = sourceType === "inventory"
+      ? displayPlans.find((plan) => {
+          const planTier = primaryTierFromBundle(catalogSlotBundle(plan));
+          return (planTier === "free" ? "small" : planTier) === tier;
+        })
+      : undefined;
+    const catalogPlan = catalogById.get(rawPlanId) ?? inventoryCatalogPlan;
+    const sourceCatalogPlan = sourceCatalogById.get(rawPlanId);
     const mergedIntoPro = Boolean(
       catalogPlan &&
       sourceCatalogPlan &&
@@ -368,14 +402,16 @@ function buildLaunchPlanOptions(
       isProPlan(catalogPlan) &&
       isLegacyAgentPlan(sourceCatalogPlan),
     );
-    const subscriptionNameIsLegacy = isLegacyAgentPlanLabel(subscription.planName);
-    const planName = (mergedIntoPro || (catalogPlan && isProPlan(catalogPlan) && subscriptionNameIsLegacy))
-      ? catalogPlan?.name ?? subscription.planName ?? "Pro"
-      : subscription.planName || catalogPlan?.name || subscription.planId || "Current plan";
+    const sourceNameIsLegacy = isLegacyAgentPlanLabel(rawPlanName ?? "");
+    const planName = (mergedIntoPro || (catalogPlan && isProPlan(catalogPlan) && sourceNameIsLegacy))
+      ? catalogPlan?.name ?? rawPlanName ?? "Pro"
+      : sourceType === "inventory"
+        ? catalogPlan?.name || rawPlanName || rawPlanId || "Current plan"
+        : rawPlanName || catalogPlan?.name || rawPlanId || "Current plan";
     const normalizedPlanName = planName.trim().toLowerCase();
-    const planId = catalogPlan?.id || (subscription.planName ? normalizedPlanName : subscription.planId || normalizedPlanName);
-    const groupKey = `${planId}:${tier}`;
-    const quantity = Math.max(Number(subscription.quantity || 1), 1);
+    const planId = catalogPlan?.id || (rawPlanName ? normalizedPlanName : rawPlanId || normalizedPlanName);
+    const groupKey = `${sourceType}:${planId}:${tier}`;
+    const normalizedQuantity = Math.max(Number(quantity || 1), 1);
     let group = activeGroups.get(groupKey);
     if (!group) {
       group = {
@@ -385,17 +421,29 @@ function buildLaunchPlanOptions(
         catalogPlan,
         granted: 0,
         slotGrants: {},
-        subscriptionCount: 0,
+        sourceCount: 0,
+        sourceType,
       };
       activeGroups.set(groupKey, group);
     }
 
-    group.granted += Math.max(Number(slotGrants[tier] || 0), 0) * quantity;
-    group.subscriptionCount += quantity;
-    for (const [slotTier, amount] of Object.entries(slotGrants)) {
-      const granted = Math.max(Number(amount || 0), 0) * quantity;
+    group.granted += Math.max(Number(slotGrants?.[tier] || 0), 0) * normalizedQuantity;
+    group.sourceCount += normalizedQuantity;
+    for (const [slotTier, amount] of Object.entries(slotGrants ?? {})) {
+      const granted = Math.max(Number(amount || 0), 0) * normalizedQuantity;
       group.slotGrants[slotTier] = (group.slotGrants[slotTier] ?? 0) + granted;
     }
+  };
+
+  for (const source of launchSources) {
+    if (source.inferenceOnly) continue;
+    addActiveGroup({
+      sourceType: source.kind,
+      planId: source.planId,
+      planName: source.planName,
+      slotGrants: source.slotGrants,
+      quantity: source.quantity,
+    });
   }
 
   const mapped = Array.from(activeGroups.values()).map((group) => {
@@ -408,9 +456,15 @@ function buildLaunchPlanOptions(
     const canLaunch = available > 0;
     const waitingForEntitlement = granted > 0 && inventoryGranted === 0;
     const slotBeingReleased = !canLaunch && !waitingForEntitlement && releasing > 0;
-    const activeSubscriptionLabel = group.subscriptionCount > 1
-      ? "Uses your existing active subscriptions"
-      : "Uses your existing active subscription";
+    const activeSourceLabel = group.sourceType === "direct-entitlement"
+      ? group.sourceCount > 1
+        ? "Uses your active direct entitlements"
+        : "Uses your active direct entitlement"
+      : group.sourceType === "inventory"
+        ? "Uses your active entitlement"
+      : group.sourceCount > 1
+        ? "Uses your existing active subscriptions"
+        : "Uses your existing active subscription";
 
     return {
       id: group.id,
@@ -438,10 +492,10 @@ function buildLaunchPlanOptions(
       features: catalogPlan ? uniqueFeatureList([
         waitingForEntitlement ? "Launch entitlement is still provisioning" : null,
         slotBeingReleased ? "A deleted agent is releasing this slot" : null,
+        activeSourceLabel,
         ...catalogFeatures(catalogPlan, tier, group.slotGrants),
         `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
         waitingForEntitlement || slotBeingReleased ? null : `${available} free right now`,
-        activeSubscriptionLabel,
       ].filter((feature): feature is string => Boolean(feature))).slice(0, 7) : [
         `${granted}x ${titleizeTier(tier)} slot${granted === 1 ? "" : "s"}`,
         waitingForEntitlement
@@ -449,14 +503,13 @@ function buildLaunchPlanOptions(
           : slotBeingReleased
             ? "A deleted agent is releasing this slot"
             : `${available} free right now`,
-        activeSubscriptionLabel,
+        activeSourceLabel,
       ],
     };
   });
 
   if (mapped.length > 0) return sortLaunchPlanOptions(mapped);
 
-  const effectivePlanId = subscriptionSummary?.effectivePlanId ?? "";
   const effectiveDisplayPlanId = effectivePlanId ? (catalogById.get(effectivePlanId)?.id ?? effectivePlanId) : "";
   const catalogOptions = displayPlans.map((plan) => {
     const bundle = catalogSlotBundle(plan);
@@ -576,7 +629,6 @@ export function FirstAgentSetupWizard({
   pendingSlotReleases = {},
 }: FirstAgentSetupWizardProps) {
   const [defaultAgentName, setDefaultAgentName] = React.useState("");
-  const [stepIndex, setStepIndex] = React.useState(0);
   const [agentName, setAgentName] = React.useState("");
   const [selectedCategory, setSelectedCategory] = React.useState("General");
   const [selectedIconIndex, setSelectedIconIndex] = React.useState(avatarOptions[0].iconIndex);
@@ -585,10 +637,13 @@ export function FirstAgentSetupWizard({
     () => buildLaunchPlanOptions(subscriptionSummary, slotInventory, catalogPlans, pendingSlotReleases),
     [catalogPlans, pendingSlotReleases, slotInventory, subscriptionSummary],
   );
-  const [selectedPlanId, setSelectedPlanId] = React.useState<string>(planOptions[0]?.id ?? "free");
+  const [wizardState, dispatchWizard] = React.useReducer(
+    firstAgentWizardReducer,
+    planOptions[0]?.id ?? "free",
+    createFirstAgentWizardState,
+  );
+  const { stepIndex, selectedPlanId, creating, createError } = wizardState;
   const [files, setFiles] = React.useState<File[]>([]);
-  const [creating, setCreating] = React.useState(false);
-  const [createError, setCreateError] = React.useState<string | null>(null);
   const [planComparisonOpen, setPlanComparisonOpen] = React.useState(false);
   const fileInputRef = React.useRef<HTMLInputElement>(null);
 
@@ -606,13 +661,15 @@ export function FirstAgentSetupWizard({
   }, []);
 
   React.useEffect(() => {
-    if (!planOptions.find((plan) => plan.id === selectedPlanId)) {
-      setSelectedPlanId(planOptions[0]?.id ?? "free");
-    }
-  }, [planOptions, selectedPlanId]);
+    dispatchWizard({
+      type: "PLAN_OPTIONS_CHANGED",
+      planIds: planOptions.map((plan) => plan.id),
+      fallbackPlanId: planOptions[0]?.id ?? "free",
+    });
+  }, [planOptions]);
 
   const goToStep = (nextStep: number) => {
-    setStepIndex(Math.max(0, Math.min(steps.length - 1, nextStep)));
+    dispatchWizard({ type: "GO_TO_STEP", stepIndex: nextStep, maxStepIndex: steps.length - 1 });
   };
 
   const handleFileSelection = (fileList: FileList | null) => {
@@ -641,9 +698,9 @@ export function FirstAgentSetupWizard({
   const saveDraftAndCreate = async (planId = selectedPlanId) => {
     if (creating) return;
     const plan = planOptions.find((option) => option.id === planId) ?? selectedPlan;
-    setCreateError(null);
+    dispatchWizard({ type: "CLEAR_ERROR" });
     if (!plan) {
-      setCreateError("Plan catalog is unavailable right now.");
+      dispatchWizard({ type: "CREATE_FAILED", message: "Plan catalog is unavailable right now." });
       return;
     }
     persistDraft(plan);
@@ -652,7 +709,10 @@ export function FirstAgentSetupWizard({
         try {
           await onOpenPlanCatalog();
         } catch (error) {
-          setCreateError(error instanceof Error ? error.message : "Plan catalog is unavailable right now.");
+          dispatchWizard({
+            type: "CREATE_FAILED",
+            message: error instanceof Error ? error.message : "Plan catalog is unavailable right now.",
+          });
         }
       } else if (typeof window !== "undefined") {
         window.location.assign("/plans");
@@ -660,10 +720,13 @@ export function FirstAgentSetupWizard({
       return;
     }
     if (Math.max(slotInventory[plan.size]?.available ?? 0, 0) <= 0) {
-      setCreateError("Payment may be active, but no launch entitlement slot is available yet. Refresh billing before creating an agent.");
+      dispatchWizard({
+        type: "CREATE_FAILED",
+        message: "Payment may be active, but no launch entitlement slot is available yet. Refresh billing before creating an agent.",
+      });
       return;
     }
-    setCreating(true);
+    dispatchWizard({ type: "CREATE_REQUESTED" });
     try {
       const createdId = await onCreateAgent({
         name: displayName,
@@ -671,12 +734,10 @@ export function FirstAgentSetupWizard({
         size: plan.size,
       });
       if (!createdId) {
-        setCreateError("Agent creation did not return an agent id.");
-        setCreating(false);
+        dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
       }
     } catch (error) {
-      setCreateError(error instanceof Error ? error.message : "Failed to create agent");
-      setCreating(false);
+      dispatchWizard({ type: "CREATE_FAILED", message: error instanceof Error ? error.message : "Failed to create agent" });
     }
   };
 
@@ -733,14 +794,16 @@ export function FirstAgentSetupWizard({
                       <button
                         key={category}
                         type="button"
+                        aria-pressed={selected}
                         onClick={() => setSelectedCategory(category)}
                         className={cx(
-                          "h-8 rounded-full border px-3 text-[13px] font-medium transition-colors sm:text-[14px]",
+                          "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38d39f]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] sm:text-[14px]",
                           selected
-                            ? "border-[#5b5b5f] bg-[#252525] text-[#f6f6f6]"
-                            : "border-[#444448] bg-[#202020] text-[#f0f0f0] hover:border-[#66666a]",
+                            ? "border-[#38d39f]/55 bg-[#38d39f]/14 text-[#baf7df] shadow-[0_0_0_1px_rgba(56,211,159,0.14),0_8px_20px_rgba(56,211,159,0.08)]"
+                            : "border-[#3f3f44] bg-[#1f1f21] text-[#d9d9dd] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:border-[#5f5f66] hover:bg-[#28282b] hover:text-[#f5f5f5]",
                         )}
                       >
+                        <Check className={cx("h-3.5 w-3.5 shrink-0 transition-opacity", selected ? "opacity-100" : "opacity-0")} />
                         {category}
                       </button>
                     );
@@ -858,11 +921,11 @@ export function FirstAgentSetupWizard({
                 return (
                   <div
                     key={plan.id}
-                    onClick={() => setSelectedPlanId(plan.id)}
+                    onClick={() => dispatchWizard({ type: "SELECT_PLAN", planId: plan.id })}
                     onKeyDown={(event) => {
                       if (event.key === "Enter" || event.key === " ") {
                         event.preventDefault();
-                        setSelectedPlanId(plan.id);
+                        dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
                       }
                     }}
                     role="button"
@@ -909,7 +972,7 @@ export function FirstAgentSetupWizard({
                       type="button"
                       onClick={(event) => {
                         event.stopPropagation();
-                        setSelectedPlanId(plan.id);
+                        dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
                         void saveDraftAndCreate(plan.id);
                       }}
                       disabled={creating || plan.disabled}

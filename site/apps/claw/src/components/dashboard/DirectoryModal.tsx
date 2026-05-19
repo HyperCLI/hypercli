@@ -26,6 +26,7 @@ import {
   type DirectoryCategory,
 } from "./directory/directory-utils";
 import { DirectoryDetail } from "./directory/DirectoryDetail";
+import { SkillsLoadingState } from "./directory/SkillsLoadingState";
 import { isPluginConnected } from "./directory/directory-utils";
 import { loadSystemSkills, type AgentFileSource, type WorkspaceSkill } from "./directory/workspace-skills";
 import {
@@ -486,12 +487,11 @@ export function DirectoryModal({
                       </div>
                     </section>
                     {skillsLoading ? (
-                      <div className="flex min-h-[220px] items-center justify-center rounded-xl border border-border bg-surface-low/20">
-                        <div className="flex items-center gap-3 text-sm text-text-secondary">
-                          <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />
-                          Loading workspace skills...
-                        </div>
-                      </div>
+                      <SkillsLoadingState
+                        title="Loading skills"
+                        detail="Reading workspace skills."
+                        className="rounded-xl border border-border bg-surface-low/20"
+                      />
                     ) : effectiveSkillsError ? (
                       <div className="rounded-lg border border-border bg-surface-low/20 px-4 py-8 text-center text-sm text-text-muted">
                         {effectiveSkillsError}

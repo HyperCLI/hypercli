@@ -15,6 +15,7 @@ import {
   Sparkles,
   SlidersHorizontal,
   TerminalSquare,
+  X,
 } from "lucide-react";
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
@@ -51,6 +52,10 @@ interface AgentWorkspaceSidebarProps {
   onOpenOpenClaw: () => void;
   onOpenSettings: () => void;
   onUpgrade: () => void;
+  renderMobile?: boolean;
+  forceExpanded?: boolean;
+  fillParent?: boolean;
+  onClose?: () => void;
 }
 
 type WorkspaceItem = {
@@ -63,17 +68,32 @@ type WorkspaceItem = {
   onClick: () => void;
 };
 
-function WorkspaceButton({ item, collapsed }: { item: WorkspaceItem; collapsed?: boolean }) {
+function WorkspaceButton({
+  item,
+  collapsed,
+  mobileMode = false,
+}: {
+  item: WorkspaceItem;
+  collapsed?: boolean;
+  mobileMode?: boolean;
+}) {
   const Icon = item.icon;
   const disabled = Boolean(item.disabled);
-  const buttonClassName = `flex h-9 ${
-    collapsed ? "w-9 justify-center" : "w-full gap-3 px-3 text-left"
-  } items-center rounded-full text-sm transition-colors ${
+  const buttonSizeClass = collapsed
+    ? "h-9 w-9 justify-center"
+    : mobileMode
+      ? "h-10 w-full gap-3.5 px-3.5 text-left"
+      : "h-9 w-full gap-3 px-3 text-left";
+  const iconClassName = mobileMode && !collapsed ? "h-5 w-5 shrink-0" : "h-4 w-4 shrink-0";
+  const roundedClassName = "rounded-full";
+  const buttonClassName = `flex ${buttonSizeClass} items-center ${roundedClassName} text-sm transition-colors ${
     disabled
       ? "cursor-not-allowed text-text-muted/45"
       : item.active
-        ? "bg-surface-low text-foreground"
-        : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
+        ? mobileMode
+          ? "border border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+          : "bg-surface-low text-foreground"
+        : `${mobileMode ? "border border-transparent" : ""} text-text-secondary hover:bg-surface-low/60 hover:text-foreground`
   }`;
 
   if (collapsed) {
@@ -88,7 +108,7 @@ function WorkspaceButton({ item, collapsed }: { item: WorkspaceItem; collapsed?:
             aria-disabled={disabled}
             className={buttonClassName}
           >
-            <Icon className="h-4 w-4 shrink-0" />
+            <Icon className={iconClassName} />
           </button>
         </TooltipTrigger>
         <TooltipContent side="right">{item.disabledReason ?? item.label}</TooltipContent>
@@ -104,7 +124,7 @@ function WorkspaceButton({ item, collapsed }: { item: WorkspaceItem; collapsed?:
       title={item.disabledReason}
       className={buttonClassName}
     >
-      <Icon className="h-4 w-4 shrink-0" />
+      <Icon className={iconClassName} />
       <span className="truncate">{item.label}</span>
     </button>
   );
@@ -134,6 +154,10 @@ export function AgentWorkspaceSidebar({
   onOpenOpenClaw,
   onOpenSettings,
   onUpgrade,
+  renderMobile = false,
+  forceExpanded = false,
+  fillParent = false,
+  onClose,
 }: AgentWorkspaceSidebarProps) {
   const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(selectedAgent));
   const [collapsed, setCollapsed] = useState<boolean>(() => {
@@ -144,7 +168,7 @@ export function AgentWorkspaceSidebar({
     if (typeof window === "undefined") return;
     window.localStorage.setItem(WORKSPACE_COLLAPSED_KEY, collapsed ? "1" : "0");
   }, [collapsed]);
-  const isCollapsed = collapsed && isDesktopViewport;
+  const isCollapsed = forceExpanded ? false : !isDesktopViewport || collapsed;
   const tokensUsed = typeof tokenUsed === "number" && Number.isFinite(tokenUsed) ? Math.max(0, tokenUsed) : null;
   const tokenTotal = tokenLimit && tokenLimit > 0 ? tokenLimit : null;
   const tokenProgress = tokenTotal && tokensUsed != null ? Math.min(100, Math.round((tokensUsed / tokenTotal) * 100)) : 0;
@@ -157,12 +181,6 @@ export function AgentWorkspaceSidebar({
   const agentNotRunning = agentState !== "RUNNING";
   const stoppedReason = "Agent must be running";
   const emptyStateReason = "Select or create an agent first.";
-
-  useEffect(() => {
-    if (noSelectedAgent) {
-      setAdvancedOpen(false);
-    }
-  }, [noSelectedAgent]);
 
   const disabledItemProps = disabled
     ? { disabled: true, disabledReason }
@@ -193,6 +211,7 @@ export function AgentWorkspaceSidebar({
 
   const advancedDropdownDisabled = disabled || noSelectedAgent;
   const advancedDropdownDisabledReason = disabled ? disabledReason : emptyStateReason;
+  const advancedItemsOpen = advancedOpen && !advancedDropdownDisabled;
   const advancedDisabled = disabled
     ? disabledItemProps
     : noSelectedAgent
@@ -207,6 +226,8 @@ export function AgentWorkspaceSidebar({
     { id: "settings", label: "Settings", icon: Settings, active: activeTab === "settings", onClick: onOpenSettings, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
   ];
 
+  if (!isDesktopViewport && !renderMobile) return null;
+
   return (
     <motion.aside
       initial={{ opacity: 0, x: -12 }}
@@ -214,7 +235,7 @@ export function AgentWorkspaceSidebar({
       exit={{ opacity: 0, x: -8 }}
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={`flex ${
-        isCollapsed ? "w-12" : "w-52"
+        fillParent ? "w-full" : isCollapsed ? "w-12" : "w-52"
       } relative h-full shrink-0 flex-col border-r border-border bg-[#232323] transition-[width] duration-200 ease-out`}
     >
       <div
@@ -225,21 +246,40 @@ export function AgentWorkspaceSidebar({
         {!isCollapsed && (
           <HyperClawLogoLink className="h-[31px] min-w-0 flex-1 max-w-[109px]" />
         )}
-        <Tooltip delayDuration={300}>
-          <TooltipTrigger asChild>
-            <button
-              type="button"
-              onClick={() => setCollapsed((c) => !c)}
-              aria-label={isCollapsed ? "Expand workspace sidebar" : "Collapse workspace sidebar"}
-              className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
-            >
-              {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
-            </button>
-          </TooltipTrigger>
-          <TooltipContent side="right">
-            {isCollapsed ? "Expand workspace" : "Collapse workspace"}
-          </TooltipContent>
-        </Tooltip>
+        {onClose ? (
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close workspace sidebar"
+            className="flex h-10 w-10 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+          >
+            <X className="h-5 w-5" />
+          </button>
+        ) : isDesktopViewport ? (
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
+              <button
+                type="button"
+                onClick={() => setCollapsed((c) => !c)}
+                aria-label={isCollapsed ? "Expand workspace sidebar" : "Collapse workspace sidebar"}
+                className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+              >
+                {isCollapsed ? <PanelRight className="h-4 w-4" /> : <PanelLeft className="h-4 w-4" />}
+              </button>
+            </TooltipTrigger>
+            <TooltipContent side="right">
+              {isCollapsed ? "Expand workspace" : "Collapse workspace"}
+            </TooltipContent>
+          </Tooltip>
+        ) : (
+          <div
+            className="flex h-8 w-8 items-center justify-center rounded-full text-text-muted"
+            title="Workspace navigation"
+            aria-hidden="true"
+          >
+            <PanelRight className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
+          </div>
+        )}
       </div>
 
       <div className={`flex-1 overflow-y-auto py-5 ${isCollapsed ? "px-1.5" : "px-3"}`}>
@@ -250,7 +290,7 @@ export function AgentWorkspaceSidebar({
         )}
         <nav className={`space-y-1 ${isCollapsed ? "flex flex-col items-center" : ""}`}>
           {workspaceItems.map((item) => (
-            <WorkspaceButton key={item.id} item={item} collapsed={isCollapsed} />
+            <WorkspaceButton key={item.id} item={item} collapsed={isCollapsed} mobileMode={renderMobile} />
           ))}
         </nav>
       </div>
@@ -270,38 +310,42 @@ export function AgentWorkspaceSidebar({
               disabled={advancedDropdownDisabled}
               aria-disabled={advancedDropdownDisabled}
               title={advancedDropdownDisabled ? advancedDropdownDisabledReason : undefined}
-              className={`flex h-9 w-full items-center justify-between rounded-full px-3 text-sm transition-colors ${
+              className={`flex ${renderMobile ? "h-10 rounded-full px-3.5" : "h-9 rounded-full px-3"} w-full items-center justify-between text-sm transition-colors ${
                 advancedDropdownDisabled
                   ? "cursor-not-allowed text-text-muted/45"
                   : "text-foreground hover:bg-surface-low/60"
               }`}
             >
-              <span className="inline-flex items-center gap-3">
-                <Settings className="h-4 w-4" />
+              <span className={`inline-flex items-center ${renderMobile ? "gap-3.5" : "gap-3"}`}>
+                <Settings className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
                 Advanced
               </span>
-              <ChevronUp className={`h-4 w-4 transition-transform ${advancedOpen ? "" : "rotate-180"}`} />
+              <ChevronUp className={`${renderMobile ? "h-5 w-5" : "h-4 w-4"} transition-transform ${advancedItemsOpen ? "" : "rotate-180"}`} />
             </button>
-            {advancedOpen && (
-              <div className="ml-7 mt-1 border-l border-border pl-3">
+            {advancedItemsOpen && (
+              <div className={renderMobile ? "mt-1 space-y-1" : "ml-7 mt-1 border-l border-border pl-3"}>
                 {advancedItems.map((item) => (
-                  <button
-                    key={item.id}
-                    type="button"
-                    onClick={item.disabled ? undefined : item.onClick}
-                    disabled={item.disabled}
-                    aria-disabled={item.disabled}
-                    title={item.disabledReason}
-                    className={`block w-full rounded-full px-3 py-2 text-left text-sm transition-colors ${
-                      item.disabled
-                        ? "cursor-not-allowed text-text-muted/45"
-                        : item.active
-                        ? "bg-surface-low text-foreground"
-                        : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
-                    }`}
-                  >
-                    {item.label}
-                  </button>
+                  renderMobile ? (
+                    <WorkspaceButton key={item.id} item={item} mobileMode />
+                  ) : (
+                    <button
+                      key={item.id}
+                      type="button"
+                      onClick={item.disabled ? undefined : item.onClick}
+                      disabled={item.disabled}
+                      aria-disabled={item.disabled}
+                      title={item.disabledReason}
+                      className={`block w-full rounded-full px-3 py-2 text-left text-sm transition-colors ${
+                        item.disabled
+                          ? "cursor-not-allowed text-text-muted/45"
+                          : item.active
+                          ? "bg-surface-low text-foreground"
+                          : "text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
+                      }`}
+                    >
+                      {item.label}
+                    </button>
+                  )
                 ))}
               </div>
             )}
@@ -348,9 +392,11 @@ export function AgentWorkspaceSidebar({
             <button
               type="button"
               onClick={onUpgrade}
-              className="flex h-8 w-full items-center justify-center gap-2 rounded-full border border-border bg-background text-xs font-medium text-foreground transition-colors hover:bg-surface-low"
+              className={`flex w-full items-center justify-center gap-2 border border-border bg-background font-medium text-foreground transition-colors hover:bg-surface-low ${
+                renderMobile ? "h-10 rounded-full text-sm" : "h-8 rounded-full text-xs"
+              }`}
             >
-              <Sparkles className="h-3.5 w-3.5" />
+              <Sparkles className={renderMobile ? "h-5 w-5" : "h-3.5 w-3.5"} />
               Upgrade
             </button>
           </div>

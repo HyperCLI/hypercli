@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { motion } from "framer-motion";
 import {
   X,
@@ -17,12 +17,13 @@ import {
 } from "lucide-react";
 import type { FileEntry } from "./types";
 import { formatFileSize } from "./FileRow";
+import { ResourceImage } from "@/components/ResourceImage";
 
 // ── Types ──
 
 interface FilePreviewProps {
   entry: FileEntry;
-  content: string | null;
+  content: string | Uint8Array | null;
   loading: boolean;
   error: string | null;
   dirty?: boolean;
@@ -46,6 +47,9 @@ const CODE_EXTENSIONS = new Set([
   "yaml", "yml", "toml", "ini", "conf", "env", "dockerfile",
 ]);
 const MARKDOWN_EXTENSIONS = new Set(["md", "mdx"]);
+const PREVIEW_ACTION_BUTTON_CLASS =
+  "flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
+const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
 
 function getFileExtension(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -58,6 +62,49 @@ function getPreviewType(name: string): "image" | "code" | "markdown" | "text" | 
   if (MARKDOWN_EXTENSIONS.has(ext)) return "markdown";
   if (ext === "json" || ext === "txt" || ext === "log" || ext === "csv") return "text";
   return "text";
+}
+
+export function isImageFileName(name: string): boolean {
+  return IMAGE_EXTENSIONS.has(getFileExtension(name));
+}
+
+function imageMimeType(name: string): string {
+  const ext = getFileExtension(name);
+  if (ext === "jpg" || ext === "jpeg") return "image/jpeg";
+  if (ext === "svg") return "image/svg+xml";
+  if (ext === "ico") return "image/x-icon";
+  return `image/${ext || "png"}`;
+}
+
+function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
+  return bytes.buffer.slice(
+    bytes.byteOffset,
+    bytes.byteOffset + bytes.byteLength,
+  ) as ArrayBuffer;
+}
+
+function imageSrcFromText(name: string, value: string): string {
+  const trimmed = value.trim();
+  if (trimmed.startsWith("data:") || trimmed.startsWith("blob:") || trimmed.startsWith("http://") || trimmed.startsWith("https://")) {
+    return trimmed;
+  }
+  return `data:${imageMimeType(name)};base64,${trimmed}`;
+}
+
+function useImagePreviewSrc(name: string, content: string | Uint8Array | null): string | null {
+  const blobUrl = useMemo(() => {
+    if (!(content instanceof Uint8Array)) return null;
+    return URL.createObjectURL(new Blob([toArrayBuffer(content)], { type: imageMimeType(name) }));
+  }, [content, name]);
+
+  useEffect(() => {
+    if (!blobUrl) return;
+    return () => URL.revokeObjectURL(blobUrl);
+  }, [blobUrl]);
+
+  if (content instanceof Uint8Array) return blobUrl;
+  if (typeof content === "string") return imageSrcFromText(name, content);
+  return null;
 }
 
 function getPreviewIcon(type: string) {
@@ -84,22 +131,24 @@ export function FilePreview({
   onSave,
   onDownload,
 }: FilePreviewProps) {
-  const [editContent, setEditContent] = useState(content ?? "");
+  const [editContent, setEditContent] = useState(typeof content === "string" ? content : "");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
 
   const previewType = getPreviewType(entry.name);
   const PreviewIcon = getPreviewIcon(previewType);
   const isEditable = previewType === "code" || previewType === "text" || previewType === "markdown";
+  const textContent = typeof content === "string" ? content : "";
+  const imageSrc = useImagePreviewSrc(entry.name, content);
 
   // Sync content when loaded
   const [lastContent, setLastContent] = useState(content);
   if (content !== lastContent) {
     setLastContent(content);
-    setEditContent(content ?? "");
+    setEditContent(typeof content === "string" ? content : "");
   }
 
-  const isDirty = dirty || editContent !== (content ?? "");
+  const isDirty = dirty || editContent !== textContent;
 
   const handleSave = async () => {
     if (!onSave || !isDirty) return;
@@ -113,7 +162,7 @@ export function FilePreview({
 
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(editContent || content || "");
+      await navigator.clipboard.writeText(editContent || textContent);
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
     } catch {
@@ -155,38 +204,42 @@ export function FilePreview({
             <button
               onClick={handleSave}
               disabled={!isDirty || saving}
-              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              className={PREVIEW_ACTION_BUTTON_CLASS}
               title="Save"
             >
               {saving ? (
-                <Loader2 className="w-3 h-3 animate-spin" />
+                <Loader2 className={`${PREVIEW_ACTION_ICON_CLASS} animate-spin`} />
               ) : (
-                <Save className="w-3 h-3" />
+                <Save className={PREVIEW_ACTION_ICON_CLASS} />
               )}
             </button>
           )}
           <button
             onClick={handleCopy}
-            className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            className={PREVIEW_ACTION_BUTTON_CLASS}
             title="Copy content"
           >
-            {copied ? <Check className="w-3 h-3 text-[#38D39F]" /> : <Copy className="w-3 h-3" />}
+            {copied ? (
+              <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[#38D39F]`} />
+            ) : (
+              <Copy className={PREVIEW_ACTION_ICON_CLASS} />
+            )}
           </button>
           {onDownload && (
             <button
               onClick={() => onDownload(entry)}
-              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              className={PREVIEW_ACTION_BUTTON_CLASS}
               title="Download"
             >
-              <Download className="w-3 h-3" />
+              <Download className={PREVIEW_ACTION_ICON_CLASS} />
             </button>
           )}
           {showClose && (
             <button
               onClick={onClose}
-              className="w-6 h-6 rounded flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              className={PREVIEW_ACTION_BUTTON_CLASS}
             >
-              <X className="w-3 h-3" />
+              <X className={PREVIEW_ACTION_ICON_CLASS} />
             </button>
           )}
         </div>
@@ -225,11 +278,21 @@ export function FilePreview({
           <>
             {previewType === "image" ? (
               <div className="flex items-center justify-center p-4 h-full">
-                <img
-                  src={`data:image/${getFileExtension(entry.name)};base64,${content}`}
-                  alt={entry.name}
-                  className="max-w-full max-h-full object-contain rounded border border-border"
-                />
+                <div className="relative h-full w-full overflow-hidden rounded border border-border">
+                  {imageSrc ? (
+                    <ResourceImage
+                      src={imageSrc}
+                      alt={entry.name}
+                      fill
+                      sizes="(max-width: 768px) 100vw, 720px"
+                      className="object-contain"
+                    />
+                  ) : (
+                    <div className="flex h-full items-center justify-center">
+                      <Loader2 className="h-5 w-5 animate-spin text-text-muted" />
+                    </div>
+                  )}
+                </div>
               </div>
             ) : isEditable ? (
               <textarea

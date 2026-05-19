@@ -2,12 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
-import Markdown from "react-markdown";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { ResourceImage } from "@/components/ResourceImage";
+import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
+import { DirectoryVisualization, parseDirectoryVisualization } from "@/components/dashboard/chat/DirectoryVisualization";
+import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 
 // ── Helpers ──
 
@@ -20,6 +24,10 @@ function extractImagePath(tc: { name: string; args: string; result?: string }): 
     if (typeof path === "string" && IMAGE_EXTENSIONS.test(path)) return path;
   } catch { /* ignore */ }
   return null;
+}
+
+function isImageFileReference(file: { name: string; path: string; type: string }): boolean {
+  return file.type.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name) || IMAGE_EXTENSIONS.test(file.path);
 }
 
 // ── Variant types ──
@@ -59,104 +67,12 @@ interface AgentFileReference {
 
 type ToolCall = NonNullable<ChatMessageType["toolCalls"]>[number];
 
-const THINKING_PREVIEW_LINES = 2;
-
-/**
- * Markdown component config — lifted to module scope so the reference is stable
- * across renders. Inline objects re-mount react-markdown's internals on every
- * streamed chunk, which causes flicker. Keeping this stable lets the renderer
- * skip work where possible.
- */
-const MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
-  p: ({ children }) => <p className="mb-2 last:mb-0">{children}</p>,
-  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-  em: ({ children }) => <em className="italic">{children}</em>,
-  code: ({ children, className }) => {
-    const isBlock = className?.includes("language-");
-    return isBlock ? (
-      <pre className="bg-background/50 border border-border rounded-md px-3 py-2 my-2 overflow-x-auto text-xs font-mono">
-        <code>{children}</code>
-      </pre>
-    ) : (
-      <code className="bg-background/50 text-[#f0c56c] px-1 py-0.5 rounded text-xs font-mono">{children}</code>
-    );
-  },
-  pre: ({ children }) => <>{children}</>,
-  ul: ({ children }) => <ul className="list-disc pl-4 mb-2 space-y-1">{children}</ul>,
-  ol: ({ children }) => <ol className="list-decimal pl-4 mb-2 space-y-1">{children}</ol>,
-  li: ({ children }) => <li>{children}</li>,
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-accent hover:underline">
-      {children}
-    </a>
-  ),
-  h1: ({ children }) => <h1 className="text-lg font-bold mb-2">{children}</h1>,
-  h2: ({ children }) => <h2 className="text-base font-bold mb-2">{children}</h2>,
-  h3: ({ children }) => <h3 className="text-sm font-bold mb-1">{children}</h3>,
-  blockquote: ({ children }) => (
-    <blockquote className="border-l-2 border-text-muted pl-3 italic text-text-secondary my-2">{children}</blockquote>
-  ),
-  hr: () => <hr className="border-border my-3" />,
-  img: ({ src, alt }) => typeof src === "string" && src ? (
-    <a href={src} target="_blank" rel="noopener noreferrer" className="block my-2">
-      <img src={src} alt={typeof alt === "string" ? alt : "image"} className="max-w-[320px] max-h-[320px] rounded-md object-contain" loading="lazy" />
-    </a>
-  ) : null,
-};
-
-/**
- * Typewriter that renders streamed markdown content character-by-character via
- * requestAnimationFrame, decoupling display speed from network arrival speed.
- *
- * Why: WebSocket + React batching coalesces chunks into single renders, making
- * messages "pop" instead of typing. This component buffers the full target text
- * and advances a display cursor at ~60 chars/sec regardless of how chunks arrive.
- */
-function TypewriterMarkdown({ text }: { text: string }) {
-  const [displayed, setDisplayed] = useState("");
-  const targetRef = useRef(text);
-  targetRef.current = text;
-
-  useEffect(() => {
-    let raf: number;
-    let last = performance.now();
-    // Characters revealed per millisecond — tuned for fluid LLM-like typing.
-    // ~70 chars/sec = nice middle ground; faster than reading speed but visible.
-    const CHARS_PER_MS = 0.07;
-
-    const tick = (now: number) => {
-      const dt = now - last;
-      last = now;
-      setDisplayed((cur) => {
-        const target = targetRef.current;
-        if (cur.length >= target.length) return cur;
-        // Catch up faster if we're far behind (avoids long lag at end of stream)
-        const behind = target.length - cur.length;
-        const speedMultiplier = behind > 200 ? 4 : behind > 80 ? 2 : 1;
-        const advance = Math.max(1, Math.ceil(dt * CHARS_PER_MS * speedMultiplier));
-        return target.slice(0, cur.length + advance);
-      });
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  return <Markdown components={MARKDOWN_COMPONENTS}>{displayed}</Markdown>;
-}
-
 function formatTime(ts?: number): string {
   if (!ts) return "";
   return new Date(ts).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function truncateToLines(text: string, maxLines: number): { preview: string; truncated: boolean } {
-  const lines = text.split("\n").slice(0, maxLines);
-  const preview = lines.join("\n").trim();
-  return { preview, truncated: text.split("\n").length > maxLines || text.length > preview.length + 50 };
 }
 
 function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
@@ -198,32 +114,40 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): string | null {
+function useAgentFileObjectState(file: AgentFileReference | null | undefined): { url: string | null; loading: boolean; failed: boolean } {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(false);
   const blobRef = useRef<string | null>(null);
 
   useEffect(() => {
     setBlobUrl(null);
     setFailed(false);
+    setLoading(false);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
     if (!file) return;
     const token = getStoredToken();
     if (!token) { setFailed(true); return; }
     let cancelled = false;
+    setLoading(true);
 
-    createAgentClient(token).fileReadBytes(file.agentId, file.path)
+    createAgentClient(token).fileReadBytes(file.agentId, normalizeOpenClawWorkspaceFilePath(file.path))
       .then((bytes) => {
         if (cancelled) return;
         const blob = new Blob([toArrayBuffer(bytes)]);
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setBlobUrl(url);
+        setFailed(false);
       })
       .catch(() => {
         if (cancelled) return;
         setFailed(true);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
       });
 
     return () => {
@@ -232,7 +156,11 @@ function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): str
     };
   }, [file?.agentId, file?.path]);
 
-  return failed ? null : blobUrl;
+  return { url: failed ? null : blobUrl, loading, failed };
+}
+
+function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): string | null {
+  return useAgentFileObjectState(file).url;
 }
 
 export function AuthImage({
@@ -244,14 +172,34 @@ export function AuthImage({
   alt: string;
   className?: string;
 }) {
-  const blobUrl = useAgentFileObjectUrl(file);
+  const { url: blobUrl, failed } = useAgentFileObjectState(file);
 
-  if (!blobUrl) return null;
+  if (!blobUrl) {
+    return (
+      <div
+        role="status"
+        aria-label={failed ? "Image unavailable" : "Loading image"}
+        className={`flex min-h-24 min-w-24 max-w-full items-center justify-center rounded-md border border-border bg-surface-low px-3 py-3 text-center text-xs text-text-muted ${className ?? ""}`}
+      >
+        {failed ? (
+          <span>Image unavailable</span>
+        ) : (
+          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[#38D39F]" />
+        )}
+      </div>
+    );
+  }
 
   return (
-    <a href={blobUrl} target="_blank" rel="noopener noreferrer">
-      <img src={blobUrl} alt={alt} className={className} loading="lazy" />
-    </a>
+    <ChatImageViewer
+      src={blobUrl}
+      alt={alt}
+      width={320}
+      height={320}
+      sizes="(max-width: 640px) 100vw, 320px"
+      className={className}
+      loading="lazy"
+    />
   );
 }
 
@@ -270,12 +218,14 @@ function AgentMessageAvatar({
   const AvatarIcon = avatar.icon;
 
   return (
-    <div className={`${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
+    <div className={`relative ${sizeClass} rounded-full flex items-center justify-center overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
       {avatar.imageUrl ? (
-        <span
-          aria-label={`${name} avatar`}
-          className="h-full w-full bg-cover bg-center"
-          style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+        <ResourceImage
+          src={avatar.imageUrl}
+          alt={`${name} avatar`}
+          fill
+          sizes="28px"
+          className="object-cover"
         />
       ) : (
         <AvatarIcon className={iconClass} style={{ color: avatar.fgColor }} />
@@ -352,22 +302,23 @@ function getThinkingButtonClass(theme: ThemeVariant): string {
 }
 
 function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
+  const baseClass = "mb-2 w-full min-w-0 max-w-full text-xs overflow-hidden";
   if (theme === "v1") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/8 border border-[#38D39F]/25 rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/8 border border-[#f0c56c]/25 rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border border-[#38D39F]/25 bg-[#38D39F]/8`
+      : `${baseClass} rounded-md border border-[#f0c56c]/25 bg-[#f0c56c]/8`;
   }
   if (theme === "v2") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/8 border-l-4 border-[#38D39F] rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/8 border-l-4 border-[#f0c56c] rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border-l-4 border-[#38D39F] bg-[#38D39F]/8`
+      : `${baseClass} rounded-md border-l-4 border-[#f0c56c] bg-[#f0c56c]/8`;
   }
   if (theme === "v3") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/10 border border-[#38D39F]/30 rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/10 border border-[#f0c56c]/30 rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border border-[#38D39F]/30 bg-[#38D39F]/10`
+      : `${baseClass} rounded-md border border-[#f0c56c]/30 bg-[#f0c56c]/10`;
   }
-  return "mb-2 text-xs bg-background/50 border border-border rounded-md overflow-hidden";
+  return `${baseClass} rounded-md border border-border bg-background/50`;
 }
 
 const TOOL_PENDING_TIMEOUT_MS = 45_000;
@@ -412,6 +363,7 @@ function ToolCallDisclosure({
   const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
   const argsDetail = formatToolDetail(tc.args, 280);
   const resultDetail = tc.result ? formatToolDetail(tc.result, 520) : "";
+  const directoryListing = tc.result ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -423,7 +375,7 @@ function ToolCallDisclosure({
     <div className={getToolCallClass(themeVariant, hasResult)}>
       <button
         onClick={() => onToggle(index, defaultOpen)}
-        className="flex items-center gap-1.5 w-full px-2.5 py-1.5 hover:bg-surface-low transition-colors text-left"
+        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-low"
       >
         {pending ? (
           <Loader2 className="w-3 h-3 text-[#f0c56c] animate-spin shrink-0" />
@@ -432,8 +384,8 @@ function ToolCallDisclosure({
         ) : (
           <Wrench className="w-3 h-3 text-text-muted shrink-0" />
         )}
-        <span className="text-[#f0c56c] font-medium">{tc.name}</span>
-        <span className="text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="min-w-0 max-w-[45%] truncate font-medium text-[#f0c56c]">{tc.name}</span>
+        <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-muted">
           {pending ? "Running" : hasResult ? "Done" : "Called"}
         </span>
         {!isOpen && summary && (
@@ -448,25 +400,33 @@ function ToolCallDisclosure({
       {isOpen && (
         <div className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
           {argsDetail && (
-            <div>
+            <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Arguments</p>
-              <pre className="max-h-28 overflow-y-auto whitespace-pre-wrap break-words font-mono">{argsDetail}</pre>
+              <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail}</pre>
             </div>
           )}
-          {resultDetail && (
-            <div>
+          {directoryListing && (
+            <DirectoryVisualization
+              title="Directory result"
+              rootPath={directoryListing.rootPath}
+              entries={directoryListing.entries}
+              truncated={directoryListing.truncated}
+            />
+          )}
+          {resultDetail && !directoryListing && (
+            <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Result</p>
-              <pre className="max-h-36 overflow-y-auto whitespace-pre-wrap break-words font-mono">{resultDetail}</pre>
+              <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail}</pre>
             </div>
           )}
         </div>
       )}
       {imageFile && (
-        <div className="px-2.5 py-2 border-t border-border">
+        <div className="max-w-full border-t border-border px-2.5 py-2">
           <AuthImage
             file={imageFile}
             alt={imagePath?.split("/").pop() || "generated image"}
-            className="max-w-[320px] max-h-[320px] rounded-md object-contain"
+            className={CHAT_MARKDOWN_IMAGE_CLASS}
           />
         </div>
       )}
@@ -522,7 +482,7 @@ function ToolCallStackDisclosure({
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
       >
         <motion.span
           className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-background/70"
@@ -545,8 +505,8 @@ function ToolCallStackDisclosure({
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
+            <span className="min-w-0 truncate font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
               {statusLabel}
             </span>
           </span>
@@ -642,7 +602,6 @@ export function ChatMessageBubble({
   senderName,
   isGroupChat = false,
 }: ChatMessageProps) {
-  const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
   const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -678,15 +637,13 @@ export function ChatMessageBubble({
 
   if (isSystem) {
     return (
-      <div className="flex justify-center">
-        <div className="max-w-[85%] rounded-lg px-4 py-2 text-sm bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-[#d05f5f]">
+      <div className="flex min-w-0 max-w-full justify-center">
+        <div className="max-w-[85%] break-words rounded-lg border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-2 text-sm text-[#d05f5f] [overflow-wrap:anywhere]">
           {message.content}
         </div>
       </div>
     );
   }
-
-  const thinkingPreview = message.thinking ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES) : null;
 
   // Compute name display logic
   const showV1Name = nameVariant === "v1";
@@ -707,10 +664,19 @@ export function ChatMessageBubble({
     }
   }
   const effectiveContent = contentIsJson ? "" : message.content;
+  const contentDirectoryListing = !isUser && effectiveContent ? parseDirectoryVisualization(effectiveContent) : null;
+  const messageFiles = message.files ?? [];
+  const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
+  const imageFiles = messageFiles.filter(isImageFileReference);
+  const imagePreviewAgentId = agentId ?? "";
+  const shouldRenderImageFilePreviews = Boolean(imagePreviewAgentId && imageFiles.length > 0 && !hasInlineImageAttachments);
+  const fileChips = messageFiles.filter((file) => (
+    !isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)
+  ));
 
   return (
     <motion.div
-      className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-2 group`}
+      className={`group flex min-w-0 max-w-full ${isUser ? "justify-end" : "justify-start"} items-start gap-2`}
       {...getEntranceProps(animationVariant, isUser)}
     >
       {/* v2 name: avatar circle to the left */}
@@ -732,45 +698,34 @@ export function ChatMessageBubble({
         );
       })()}
 
-      <div className={`flex flex-col min-w-0 ${isUser ? "items-end" : "items-start flex-1"}`}>
+      <div className={`flex min-w-0 flex-col ${isUser ? "max-w-[calc(100%-2.25rem)] items-end" : "flex-1 items-start"}`}>
 
         {/* v1 name: monogram + muted label above bubble */}
         {showV1Name && (() => {
           if (isUser) {
             return (
-              <div className="flex items-center gap-1.5 mb-1 flex-row-reverse">
+              <div className="mb-1 flex max-w-full items-center gap-1.5 min-w-0 flex-row-reverse">
                 <div className="w-5 h-5 rounded-full bg-surface-low flex items-center justify-center">
                   <span className="text-[9px] font-bold text-text-muted">{effectiveName[0]?.toUpperCase() ?? "Y"}</span>
                 </div>
-                <span className="text-[11px] text-text-muted">{effectiveName}</span>
+                <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
               </div>
             );
           }
           return (
-            <div className="flex items-center gap-1.5 mb-1">
+            <div className="mb-1 flex max-w-full min-w-0 items-center gap-1.5">
               <AgentMessageAvatar name={effectiveName} meta={agentMeta} sizeClass="w-5 h-5" iconClass="w-3 h-3" />
-              <span className="text-[11px] text-text-muted">{effectiveName}</span>
+              <span className="block min-w-0 max-w-full truncate text-[11px] text-text-muted">{effectiveName}</span>
             </div>
           );
         })()}
 
-        {/* Thinking — subtle italic quote with left accent, click to expand */}
+        {/* Internal reasoning is intentionally not exposed in chat. */}
         {message.thinking && !isUser && (
-          <button
-            onClick={() => setThinkingOpen((v) => !v)}
-            className="group/think w-full max-w-full mb-2 text-left text-xs italic text-text-muted/70 hover:text-text-muted transition-colors pl-2.5 border-l border-[#38D39F]/30 hover:border-[#38D39F]/60"
-          >
-            {thinkingOpen ? (
-              <span className="whitespace-pre-wrap leading-relaxed block">{message.thinking}</span>
-            ) : (
-              <span className="line-clamp-2 leading-relaxed">
-                {thinkingPreview?.preview ?? message.thinking}
-                {thinkingPreview?.truncated && (
-                  <span className="text-[#38D39F]/60 ml-1 not-italic font-medium opacity-0 group-hover/think:opacity-100 transition-opacity">show more</span>
-                )}
-              </span>
-            )}
-          </button>
+          <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-2.5 py-1 text-xs text-text-muted">
+            <Brain className="h-3.5 w-3.5 shrink-0 text-[#38D39F]" />
+            <span className="truncate">Internal reasoning hidden</span>
+          </div>
         )}
 
         {/* Tool calls */}
@@ -805,48 +760,71 @@ export function ChatMessageBubble({
 
         {/* User-sent image attachments */}
         {message.attachments && message.attachments.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
-            {message.attachments.map((att, i) => (
-              <img
-                key={i}
-                src={`data:${att.mimeType};base64,${att.content}`}
-                alt={att.fileName || "attachment"}
-                className="max-w-[240px] max-h-[240px] rounded-md object-cover cursor-pointer"
-                onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
-              />
-            ))}
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
+            {message.attachments.map((att, i) => {
+              const attachmentSrc = `data:${att.mimeType};base64,${att.content}`;
+              return (
+                <ChatImageViewer
+                  key={i}
+                  src={attachmentSrc}
+                  alt={att.fileName || "attachment"}
+                  width={240}
+                  height={240}
+                  sizes="(max-width: 640px) 100vw, 240px"
+                  className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
+                />
+              );
+            })}
           </div>
         )}
 
-        {message.files && message.files.length > 0 && (
-          <div className="mb-2 flex flex-wrap gap-2">
-            {message.files.map((file, i) => (
-              <div
-                key={`${file.name}-${i}`}
-                className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
-              >
-                <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
+        {messageFiles.length > 0 && (
+          <>
+            {shouldRenderImageFilePreviews && (
+              <div className="mb-2 flex max-w-full flex-wrap gap-2">
+                {imageFiles.map((file, i) => (
+                  <AuthImage
+                    key={`${file.path}-${i}`}
+                    file={{ agentId: imagePreviewAgentId, path: file.path }}
+                    alt={file.name || "attachment"}
+                    className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+            {fileChips.length > 0 && (
+              <div className="mb-2 flex max-w-full flex-wrap gap-2">
+                {fileChips.map((file, i) => (
+                  <div
+                    key={`${file.name}-${i}`}
+                    className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                  >
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{file.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Agent-sent media (URLs) */}
         {message.mediaUrls && message.mediaUrls.length > 0 && (
-          <div className="flex flex-wrap gap-2 mb-2">
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
             {message.mediaUrls.map((url, i) => {
               const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
               if (isImage) {
                 return (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer">
-                    <img
-                      src={url}
-                      alt="media"
-                      className="max-w-[320px] max-h-[320px] rounded-md object-contain"
-                      loading="lazy"
-                    />
-                  </a>
+                  <ChatImageViewer
+                    key={i}
+                    src={url}
+                    alt="media"
+                    width={320}
+                    height={320}
+                    sizes="(max-width: 640px) 100vw, 320px"
+                    className={CHAT_MARKDOWN_IMAGE_CLASS}
+                    loading="lazy"
+                  />
                 );
               }
               // Non-image media: render as link
@@ -856,7 +834,7 @@ export function ChatMessageBubble({
                   href={url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="text-accent hover:underline text-xs"
+                  className="max-w-full break-words text-xs text-accent hover:underline [overflow-wrap:anywhere]"
                 >
                   {url.split("/").pop() || "media"}
                 </a>
@@ -867,18 +845,21 @@ export function ChatMessageBubble({
 
         {/* Content */}
         {(effectiveContent || showStreamingDot) && (
-          <div className={`relative w-full ${showStreamingDot ? "pb-5" : ""}`}>
-            {effectiveContent && (
-              <div
-                className="leading-relaxed prose-chat relative"
+          <div className={`relative w-full min-w-0 max-w-full ${showStreamingDot ? "pb-5" : ""}`}>
+            {contentDirectoryListing ? (
+              <DirectoryVisualization
+                title="Directory"
+                rootPath={contentDirectoryListing.rootPath}
+                entries={contentDirectoryListing.entries}
+                truncated={contentDirectoryListing.truncated}
+              />
+            ) : effectiveContent && (
+              <MarkdownContent
+                content={effectiveContent}
+                typewriter={isStreaming && !isUser}
+                className="relative"
                 style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
-              >
-                {isStreaming && !isUser ? (
-                  <TypewriterMarkdown text={effectiveContent} />
-                ) : (
-                  <Markdown components={MARKDOWN_COMPONENTS}>{effectiveContent}</Markdown>
-                )}
-              </div>
+              />
             )}
             <StreamingStatusAnchor active={showStreamingDot} />
           </div>

@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import type { AgentFileReference } from "./types";
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -22,7 +23,7 @@ export function useInlineAudio(inlineAudioFile: AgentFileReference | null | unde
     if (!token) return;
 
     createAgentClient(token)
-      .fileReadBytes(inlineAudioFile.agentId, inlineAudioFile.path)
+      .fileReadBytes(inlineAudioFile.agentId, normalizeOpenClawWorkspaceFilePath(inlineAudioFile.path))
       .then((bytes) => {
         if (cancelled) return;
         const url = URL.createObjectURL(new Blob([toArrayBuffer(bytes)]));

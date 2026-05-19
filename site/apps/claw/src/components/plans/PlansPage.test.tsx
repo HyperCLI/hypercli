@@ -1,8 +1,8 @@
 import { fireEvent, screen, waitFor } from "@testing-library/react";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
-import PlansPage from "./page";
+import PlansPage from "./PlansPage";
 
 const mocks = vi.hoisted(() => {
   const hyperAgent = {
@@ -16,6 +16,7 @@ const mocks = vi.hoisted(() => {
 
   return {
     getToken: vi.fn(),
+    unstableTokenGetter: false,
     createHyperAgentClient: vi.fn(() => hyperAgent),
     hyperAgent,
   };
@@ -23,7 +24,7 @@ const mocks = vi.hoisted(() => {
 
 vi.mock("@/hooks/useAgentAuth", () => ({
   useAgentAuth: () => ({
-    getToken: mocks.getToken,
+    getToken: mocks.unstableTokenGetter ? () => mocks.getToken() : mocks.getToken,
   }),
 }));
 
@@ -71,6 +72,8 @@ function buildSummary(overrides: Record<string, unknown> = {}) {
 describe("PlansPage", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    vi.useRealTimers();
+    mocks.unstableTokenGetter = false;
     mocks.getToken.mockResolvedValue("token");
     mocks.hyperAgent.currentPlan.mockResolvedValue({
       id: "free",
@@ -85,6 +88,10 @@ describe("PlansPage", () => {
     });
     mocks.hyperAgent.subscriptionSummary.mockResolvedValue(buildSummary());
     mocks.hyperAgent.cancelSubscription.mockResolvedValue({ ok: true, message: "Cancellation scheduled" });
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("renders purchase cards from the SDK plan catalog", async () => {
@@ -121,6 +128,67 @@ describe("PlansPage", () => {
     fireEvent.click(screen.getByRole("button", { name: /purchase/i }));
     expect(screen.getByRole("dialog")).toHaveTextContent("Checkout catalog-pro without bundle");
   });
+
+  it("does not restart plan loading when the auth token getter identity changes", async () => {
+    mocks.unstableTokenGetter = true;
+    mocks.hyperAgent.plans.mockResolvedValue([
+      {
+        id: "catalog-pro",
+        name: "Catalog Pro",
+        price: 80,
+        priceUsd: 80,
+        aiu: 5,
+        agents: 1,
+        features: ["SDK catalog feature"],
+        models: ["kimi-k2.5"],
+        highlighted: true,
+        limits: {
+          tpd: 80_000_000,
+          tpm: 0,
+          burstTpm: 456_000,
+          rpm: 789,
+        },
+        tpmLimit: 0,
+        rpmLimit: 789,
+        bundle: { medium: 1 },
+      },
+    ]);
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByRole("heading", { name: "Catalog Pro" })).toBeVisible();
+    await waitFor(() => expect(mocks.hyperAgent.plans).toHaveBeenCalledTimes(1));
+  });
+
+  it("renders catalog plans when subscription summary hangs", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([
+      {
+        id: "catalog-pro",
+        name: "Catalog Pro",
+        price: 80,
+        priceUsd: 80,
+        aiu: 5,
+        agents: 1,
+        features: ["SDK catalog feature"],
+        models: ["kimi-k2.5"],
+        highlighted: true,
+        limits: {
+          tpd: 80_000_000,
+          tpm: 0,
+          burstTpm: 456_000,
+          rpm: 789,
+        },
+        tpmLimit: 0,
+        rpmLimit: 789,
+        bundle: { medium: 1 },
+      },
+    ]);
+    mocks.hyperAgent.subscriptionSummary.mockImplementation(() => new Promise(() => {}));
+
+    renderWithClient(<PlansPage />);
+
+    expect(await screen.findByRole("heading", { name: "Catalog Pro" }, { timeout: 6_000 })).toBeVisible();
+  }, 7_000);
 
   it("uses SDK catalog bundle metadata when the plan exposes it", async () => {
     mocks.hyperAgent.plans.mockResolvedValue([

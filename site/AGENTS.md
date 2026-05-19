@@ -151,6 +151,10 @@ If you add templates, update `scripts/templates.txt` and re-run the generator.
   - inspect the packed `dist/*.js` for the intended runtime behavior before `npm publish`
 - Netlify should only receive artifacts from CI. Do not rely on Netlify to build
   this monorepo or resolve the sibling `ts-sdk/` checkout.
+- Frontend CI deploys `dev` branch pushes to the dev Netlify sites with
+  `site/env.dev`, and `main` branch pushes to the feat Netlify sites with
+  `site/env.feat`, which points at the prod backend. Production Netlify publishing is manual through the
+  `Publish Sites` workflow with `deploy_environment=prod`.
 - For Claw agent chat, do not hardcode the bare gateway session key `"main"`
   for agent-scoped pages. Use
   `site/apps/claw/src/lib/openclaw-session.ts:resolveOpenClawSessionKey()` so

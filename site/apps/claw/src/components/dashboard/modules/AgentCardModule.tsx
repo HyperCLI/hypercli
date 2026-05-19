@@ -5,6 +5,7 @@ import { Bot, ChevronDown, Wrench, FolderOpen, Link2, Activity, Cpu, MemoryStick
 import { motion, AnimatePresence } from "framer-motion";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { formatCpu, formatMemory } from "@/lib/format";
+import { ResourceImage } from "@/components/ResourceImage";
 import type { StyleVariant, AgentStatus } from "../agentViewTypes";
 import {
   MOCK_CONFIG,
@@ -103,14 +104,16 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
     >
       <div className="flex items-center gap-2.5">
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0"
+          className="relative w-8 h-8 rounded-lg flex items-center justify-center flex-shrink-0 overflow-hidden"
           style={{ backgroundColor: avatar.bgColor }}
         >
           {avatar.imageUrl ? (
-            <span
-              aria-label={`${name} avatar`}
-              className="h-full w-full rounded-lg bg-cover bg-center"
-              style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+            <ResourceImage
+              src={avatar.imageUrl}
+              alt={`${name} avatar`}
+              fill
+              sizes="32px"
+              className="object-cover"
             />
           ) : (
             <Icon className="w-4 h-4" style={{ color: avatar.fgColor }} />
@@ -387,11 +390,11 @@ export function AgentCardModule({
             <motion.div
               animate={isRunning ? { scale: [1, 1.05, 1] } : {}}
               transition={{ repeat: Infinity, duration: 3 }}
-              className="w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
+              className="relative w-10 h-10 rounded-xl flex items-center justify-center flex-shrink-0 overflow-hidden"
               style={{ backgroundColor: avatar.bgColor }}
             >
               {avatar.imageUrl ? (
-                <img src={avatar.imageUrl} alt={`${agentName} avatar`} className="w-full h-full object-cover" />
+                <ResourceImage src={avatar.imageUrl} alt={`${agentName} avatar`} fill sizes="40px" className="object-cover" />
               ) : (
                 <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
               )}

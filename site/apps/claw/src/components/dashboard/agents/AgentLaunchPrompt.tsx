@@ -1,6 +1,8 @@
 "use client";
 
-import { Loader2, Play, Plus } from "lucide-react";
+import { Play, Plus } from "lucide-react";
+
+import { AgentGatewayLoadingVisual } from "@/components/dashboard/AgentGatewayLoadingVisual";
 
 interface AgentLaunchPromptProps {
   label: string;
@@ -20,27 +22,38 @@ export function AgentLaunchPrompt({
   suggestedTierActions,
 }: AgentLaunchPromptProps) {
   const blocked = Boolean(blockedMessage);
+
+  if (launching) {
+    return (
+      <div className="flex h-full min-h-0 items-center justify-center overflow-hidden px-4 py-3 sm:px-5 sm:py-4">
+        <AgentGatewayLoadingVisual
+          title="Booting agent"
+          detail="Starting the runtime and gateway."
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="h-full flex items-center justify-center p-6">
       <div className="max-w-md text-center">
         <button
           onClick={onLaunch}
-          disabled={launching || blocked}
+          disabled={blocked}
           className="mx-auto mb-4 flex h-14 w-14 items-center justify-center text-text-muted transition-colors hover:text-foreground disabled:opacity-60"
           aria-label={`Start agent to use ${label}`}
           title={blockedTitle || "Start agent"}
         >
-          {launching ? <Loader2 className="h-6 w-6 animate-spin" /> : <Play className="h-6 w-6" />}
+          <Play className="h-6 w-6" />
         </button>
-        <p className="text-base text-foreground">{launching ? "Booting agent" : `Start Agent to Use ${label}`}</p>
-        {launching && <p className="mt-1 text-sm text-text-muted">Starting the runtime and gateway.</p>}
+        <p className="text-base text-foreground">{`Start Agent to Use ${label}`}</p>
         <button
           onClick={onLaunch}
-          disabled={launching || blocked}
+          disabled={blocked}
           className="mt-3 inline-flex items-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-text-muted transition-colors hover:text-foreground hover:bg-surface-low disabled:opacity-60"
         >
-          {launching ? <Loader2 className="h-4 w-4 animate-spin" /> : <Play className="h-4 w-4" />}
-          <span>{launching ? "Starting Agent" : "Start Agent"}</span>
+          <Play className="h-4 w-4" />
+          <span>Start Agent</span>
         </button>
         {blockedMessage && (
           <div className="mt-4 rounded-xl border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-4 py-3 text-left">

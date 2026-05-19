@@ -13,8 +13,9 @@ import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
 import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
 import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
-import { FilePreview } from "@/components/dashboard/files/FilePreview";
+import { FilePreview, isImageFileName } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
+import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -77,7 +78,7 @@ export default function AgentFilesPage() {
 
   // Preview
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
-  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -89,14 +90,16 @@ export default function AgentFilesPage() {
     setPreviewError(null);
     setPreviewLoading(true);
     try {
-      const content = await chat.openFile(entry.path);
+      const content = isImageFileName(entry.name)
+        ? await createAgentClient(await getToken()).fileReadBytes(agentId, entry.path)
+        : await chat.openFile(entry.path);
       setPreviewContent(content);
     } catch (e) {
       setPreviewError(e instanceof Error ? e.message : String(e));
     } finally {
       setPreviewLoading(false);
     }
-  }, [chat]);
+  }, [agentId, chat, getToken]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     await chat.saveFile(path, content);
@@ -178,10 +181,12 @@ export default function AgentFilesPage() {
   // Loading / error states for agent fetch
   if (agentLoading) {
     return (
-      <div className="flex h-full items-center justify-center text-text-muted">
-        <Loader2 className="w-5 h-5 animate-spin mr-2" />
-        Loading agent record
-      </div>
+      <AgentLoadingState
+        title="Loading agent record"
+        detail="Opening the agent file browser."
+        tone="loading"
+        stage="complete"
+      />
     );
   }
   if (agentError || !agent) {

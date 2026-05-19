@@ -1,4 +1,8 @@
 import { Billing } from './billing.js';
+import {
+  getAgentsApiBaseUrl,
+  getAgentsApiBaseUrlFromProductBase,
+} from './config.js';
 export {
   GatewayClient,
   type GatewayOptions,
@@ -24,6 +28,7 @@ import {
   type ApiKeyBaselineFamily,
   type ApiKeyBaselineValue,
 } from './keys.js';
+import { HyperAgent } from './agent.js';
 import { UserAPI } from './user.js';
 import { VoiceAPI } from './voice.js';
 export {
@@ -35,6 +40,9 @@ export {
 export interface BrowserHyperCLIOptions {
   apiUrl: string;
   token: string;
+  agentApiKey?: string;
+  agentDev?: boolean;
+  agentsApiBaseUrl?: string;
   timeout?: number;
 }
 
@@ -50,6 +58,7 @@ export class BrowserHyperCLI {
   private readonly http: HTTPClient;
 
   public readonly billing: Billing;
+  public readonly agent: HyperAgent;
   public readonly user: UserAPI;
   public readonly instances: Instances;
   public readonly keys: KeysAPI;
@@ -60,6 +69,15 @@ export class BrowserHyperCLI {
     this.http = new HTTPClient(apiUrl, options.token, options.timeout);
 
     this.billing = new Billing(this.http);
+    const agentsApiBaseUrl =
+      options.agentsApiBaseUrl ||
+      (options.agentDev ? getAgentsApiBaseUrl(true) : getAgentsApiBaseUrlFromProductBase(apiUrl));
+    this.agent = new HyperAgent(
+      this.http,
+      options.agentApiKey ?? options.token,
+      Boolean(options.agentDev),
+      agentsApiBaseUrl,
+    );
     this.user = new UserAPI(this.http);
     this.instances = new Instances(this.http);
     this.keys = new KeysAPI(this.http);

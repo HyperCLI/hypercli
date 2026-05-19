@@ -2,6 +2,7 @@
 
 import React from "react";
 import { TabLoadingState } from "@/components/dashboard/agents/page-helpers";
+import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 
 interface AgentLogsPanelProps {
   status: "connected" | "connecting" | "disconnected";
@@ -11,10 +12,20 @@ interface AgentLogsPanelProps {
 
 export function AgentLogsPanel({ status, logs, logBoxRef }: AgentLogsPanelProps) {
   if (status !== "connected") {
+    const bootStatus = getAgentGatewayPanelBootStatus({
+      connected: false,
+      connecting: status === "connecting",
+      loadingTitle: "Loading logs",
+      loadingDetail: "Preparing the logs stream.",
+      connectingDetail: "Opening the logs stream.",
+      waitingDetail: "Logs attach after the runtime is reachable.",
+    });
+
     return (
       <TabLoadingState
         label={status === "connecting" ? "Connecting gateway" : "Waiting for gateway"}
         detail={status === "connecting" ? "Opening the logs stream." : "Logs attach after the runtime is reachable."}
+        bootStatus={bootStatus ?? undefined}
       />
     );
   }

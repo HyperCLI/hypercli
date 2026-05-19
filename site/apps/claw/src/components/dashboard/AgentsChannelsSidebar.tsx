@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
+import { ResourceImage } from "@/components/ResourceImage";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
@@ -75,12 +76,14 @@ function AgentAvatarMark({
   const AvatarIcon = avatar.icon;
 
   return (
-    <div className={`${className} overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
+    <div className={`relative ${className} overflow-hidden`} style={{ backgroundColor: avatar.bgColor }}>
       {avatar.imageUrl ? (
-        <span
-          aria-label={`${name} avatar`}
-          className="h-full w-full bg-cover bg-center"
-          style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+        <ResourceImage
+          src={avatar.imageUrl}
+          alt={`${name} avatar`}
+          fill
+          sizes="32px"
+          className="object-cover"
         />
       ) : (
         <AvatarIcon className={iconClassName} style={{ color: avatar.fgColor }} />
@@ -108,6 +111,8 @@ export interface AgentsChannelsSidebarProps {
   showDivider?: boolean;
   /** Fill the parent width instead of reserving a fixed sidebar width. */
   fillParent?: boolean;
+  /** Use larger touch targets and always-visible affordances for the fullscreen mobile drawer. */
+  mobileMode?: boolean;
   /** Real agent roster shown under "Available Agents". Falls back to mock list when undefined. */
   availableAgents?: Participant[];
   /** SDK-backed data used by the agent hover information cards. */
@@ -351,7 +356,7 @@ function ParticipantAvatars({
           <Tooltip key={p.id} delayDuration={300}>
             <TooltipTrigger asChild>
               <div
-                className="rounded-full flex items-center justify-center border-2 border-background"
+                className="relative rounded-full flex items-center justify-center overflow-hidden border-2 border-background"
                 style={{
                   width: size,
                   height: size,
@@ -361,10 +366,12 @@ function ParticipantAvatars({
                 }}
               >
                 {avatar.imageUrl ? (
-                  <span
-                    aria-label={`${p.name} avatar`}
-                    className="h-full w-full rounded-full bg-cover bg-center"
-                    style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+                  <ResourceImage
+                    src={avatar.imageUrl}
+                    alt={`${p.name} avatar`}
+                    fill
+                    sizes={`${size}px`}
+                    className="rounded-full object-cover"
                   />
                 ) : (
                   <Icon style={{ width: size * 0.5, height: size * 0.5, color: avatar.fgColor }} />
@@ -396,6 +403,7 @@ function ThreadRow({
   onDelete,
   onRename,
   compact = false,
+  mobileMode = false,
   agentCardDataById,
 }: {
   thread: ConversationThread;
@@ -404,6 +412,7 @@ function ThreadRow({
   onDelete?: () => void;
   onRename?: (title: string) => void;
   compact?: boolean;
+  mobileMode?: boolean;
   agentCardDataById?: Record<string, AgentCardTooltipData>;
 }) {
   const [editing, setEditing] = useState(false);
@@ -424,7 +433,7 @@ function ThreadRow({
 
   return (
     <motion.div
-      className={`w-full text-left px-3 py-2.5 flex items-start gap-2.5 transition-colors relative group/row cursor-pointer ${
+      className={`w-full text-left px-3 ${mobileMode ? "py-3 gap-3" : "py-2.5 gap-2.5"} flex items-start transition-colors relative group/row cursor-pointer ${
         selected
           ? "bg-surface-low border-l-2 border-[#38D39F]"
           : "border-l-2 border-transparent hover:bg-surface-low/50"
@@ -438,7 +447,7 @@ function ThreadRow({
       {!compact && (
         <ParticipantAvatars
           participants={thread.kind === "user-agent" ? thread.participants.filter((p) => p.type === "agent") : thread.participants}
-          size={28}
+          size={mobileMode ? 36 : 28}
           agentCardDataById={agentCardDataById}
         />
       )}
@@ -463,25 +472,33 @@ function ThreadRow({
                 {onRename && (
                   <button
                     onClick={startEdit}
-                    className="flex-shrink-0 hidden group-hover/row:flex w-4 h-4 rounded items-center justify-center text-text-muted hover:text-foreground transition-colors"
+                    className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:text-foreground ${
+                      mobileMode ? "flex h-8 w-8 rounded-lg hover:bg-surface-low" : "hidden h-4 w-4 rounded group-hover/row:flex"
+                    }`}
                     title="Rename"
                   >
-                    <PenLine className="w-2.5 h-2.5" />
+                    <PenLine className={mobileMode ? "h-4 w-4" : "h-2.5 w-2.5"} />
                   </button>
                 )}
               </>
             )}
             {!editing && thread.isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F] flex-shrink-0" />}
           </div>
-          {!editing && <span className="text-[10px] text-text-muted flex-shrink-0 group-hover/row:hidden">{relativeTime(thread.lastMessageAt)}</span>}
-          {/* Delete button — visible on hover */}
+          {!editing && (
+            <span className={`text-[10px] text-text-muted flex-shrink-0 ${mobileMode && onDelete ? "hidden" : "group-hover/row:hidden"}`}>
+              {relativeTime(thread.lastMessageAt)}
+            </span>
+          )}
+          {/* Delete is hover-revealed on desktop and always visible in the mobile drawer. */}
           {!editing && onDelete && (
             <button
               onClick={(e) => { e.stopPropagation(); onDelete(); }}
-              className="flex-shrink-0 hidden group-hover/row:flex w-5 h-5 rounded items-center justify-center text-text-muted hover:text-[#d05f5f] hover:bg-[#d05f5f]/10 transition-colors"
+              className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-[#d05f5f]/10 hover:text-[#d05f5f] ${
+                mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
+              }`}
               title="Delete conversation"
             >
-              <Trash2 className="w-3 h-3" />
+              <Trash2 className={mobileMode ? "h-4 w-4" : "h-3 w-3"} />
             </button>
           )}
         </div>
@@ -503,10 +520,10 @@ function ThreadRow({
 
       {/* Kind indicator */}
       {thread.kind === "group" && (
-        <Users className="w-3 h-3 text-text-muted flex-shrink-0 mt-1" />
+        <Users className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} text-text-muted flex-shrink-0 mt-1`} />
       )}
       {thread.kind === "agent-agent" && (
-        <Bot className="w-3 h-3 text-text-muted flex-shrink-0 mt-1" />
+        <Bot className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} text-text-muted flex-shrink-0 mt-1`} />
       )}
     </motion.div>
   );
@@ -518,31 +535,42 @@ function SidebarHeader({
   onToggleSearch,
   onSearchChange,
   onCollapse,
+  mobileMode = false,
 }: {
   showSearch: boolean;
   searchQuery: string;
   onToggleSearch: () => void;
   onSearchChange: (q: string) => void;
   onCollapse?: () => void;
+  mobileMode?: boolean;
 }) {
+  const iconClassName = mobileMode ? "h-5 w-5" : "h-3.5 w-3.5";
+  const actionClassName = mobileMode
+    ? "flex h-10 w-10 items-center justify-center rounded-lg border border-transparent text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
+    : "flex h-7 w-7 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground";
+
   return (
     <div className="flex-shrink-0 border-b border-border m-[-1px]">
       <div className="flex items-center justify-between px-3 h-14">
         <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Agents</span>
         <div className="flex items-center gap-1">
           <button
+            type="button"
+            aria-label={showSearch ? "Close search" : "Search agents"}
             onClick={onToggleSearch}
-            className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+            className={`${actionClassName} ${showSearch ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]" : ""}`}
           >
-            {showSearch ? <X className="w-3.5 h-3.5" /> : <Search className="w-3.5 h-3.5" />}
+            {showSearch ? <X className={iconClassName} /> : <Search className={iconClassName} />}
           </button>
           {onCollapse && (
             <button
+              type="button"
+              aria-label={mobileMode ? "Close agents sidebar" : "Collapse sidebar"}
               onClick={onCollapse}
-              title="Collapse sidebar"
-              className="w-7 h-7 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
+              title={mobileMode ? "Close sidebar" : "Collapse sidebar"}
+              className={actionClassName}
             >
-              <PanelLeftClose className="w-3.5 h-3.5" />
+              {mobileMode ? <X className={iconClassName} /> : <PanelLeftClose className={iconClassName} />}
             </button>
           )}
         </div>
@@ -563,7 +591,9 @@ function SidebarHeader({
                 value={searchQuery}
                 onChange={(e) => onSearchChange(e.target.value)}
                 placeholder="Search Agents · Channels"
-                className="w-full bg-surface-low border border-border rounded-md px-2.5 py-1.5 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong"
+                className={`w-full rounded-md border border-border bg-surface-low text-foreground placeholder-text-muted focus:border-border-strong focus:outline-none ${
+                  mobileMode ? "px-3 py-2 text-sm" : "px-2.5 py-1.5 text-xs"
+                }`}
               />
             </div>
           </motion.div>
@@ -575,12 +605,14 @@ function SidebarHeader({
 
 export function AgentsSidebarDashboardLinks({
   compact = false,
+  mobileMode = false,
   accountInitial = "?",
   onOpenAgentSettings,
   agentSettingsActive = false,
   onLogout,
 }: {
   compact?: boolean;
+  mobileMode?: boolean;
   accountInitial?: string;
   onOpenAgentSettings?: () => void;
   agentSettingsActive?: boolean;
@@ -629,13 +661,13 @@ export function AgentsSidebarDashboardLinks({
                       onOpenAgentSettings?.();
                     }}
                     role="menuitem"
-                    className={`flex w-full items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                    className={`flex w-full items-center gap-2 px-3 text-left transition-colors ${
                       active
                         ? "bg-surface-low text-foreground"
                         : "text-text-secondary hover:bg-surface-low hover:text-foreground"
-                    }`}
+                    } ${mobileMode ? "py-2" : "py-1.5"}`}
                   >
-                    <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                    <Icon className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                     <span className="text-[11px] font-medium">{item.label}</span>
                   </button>
                 );
@@ -647,13 +679,13 @@ export function AgentsSidebarDashboardLinks({
                   href={item.href}
                   onClick={() => setOpen(false)}
                   role="menuitem"
-                  className={`flex items-center gap-2 px-3 py-1.5 text-left transition-colors ${
+                  className={`flex items-center gap-2 px-3 text-left transition-colors ${
                     active
                       ? "bg-surface-low text-foreground"
                       : "text-text-secondary hover:bg-surface-low hover:text-foreground"
-                  }`}
+                  } ${mobileMode ? "py-2" : "py-1.5"}`}
                 >
-                  <Icon className="h-3.5 w-3.5 flex-shrink-0" />
+                  <Icon className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                   <span className="text-[11px] font-medium">{item.label}</span>
                 </Link>
               );
@@ -666,9 +698,11 @@ export function AgentsSidebarDashboardLinks({
                   void onLogout();
                 }}
                 role="menuitem"
-                className="flex w-full items-center gap-2 border-t border-border/70 px-3 py-1.5 text-left text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/10"
+                className={`flex w-full items-center gap-2 border-t border-border/70 px-3 text-left text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/10 ${
+                  mobileMode ? "py-2" : "py-1.5"
+                }`}
               >
-                <LogOut className="h-3.5 w-3.5 flex-shrink-0" />
+                <LogOut className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0`} />
                 <span className="text-[11px] font-medium">Sign out</span>
               </button>
             )}
@@ -687,7 +721,7 @@ export function AgentsSidebarDashboardLinks({
                   ? "bg-surface-low text-foreground"
                   : "text-text-muted hover:bg-surface-low hover:text-foreground"
               }`
-            : `h-8 w-full justify-between px-2 text-left ${
+            : `${mobileMode ? "h-10 rounded-lg px-3" : "h-8 px-2"} w-full justify-between text-left ${
                 open
                   ? "bg-surface-low text-foreground"
                   : "text-text-muted hover:bg-surface-low hover:text-foreground"
@@ -697,13 +731,15 @@ export function AgentsSidebarDashboardLinks({
         aria-haspopup="menu"
       >
         <span className={`flex items-center ${compact ? "" : "min-w-0 gap-2"}`}>
-          <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground">
+          <span className={`flex flex-shrink-0 items-center justify-center rounded-full bg-surface-high text-xs font-bold text-foreground ${
+            mobileMode && !compact ? "h-8 w-8" : "h-7 w-7"
+          }`}>
             {initial}
           </span>
           {!compact && <span className="truncate text-[11px] font-medium">Account</span>}
         </span>
         {!compact && (
-          <ChevronDown className={`h-3.5 w-3.5 flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
+          <ChevronDown className={`${mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} flex-shrink-0 text-text-muted transition-transform ${open ? "rotate-180" : ""}`} />
         )}
       </button>
     </div>
@@ -917,14 +953,16 @@ function GroupedByAgent({
                 <ChevronDown className="w-3 h-3 text-text-muted" />
               </motion.div>
               <div
-                className="w-5 h-5 rounded-full flex items-center justify-center"
+                className="relative w-5 h-5 rounded-full flex items-center justify-center overflow-hidden"
                 style={{ backgroundColor: avatar.bgColor }}
               >
                 {avatar.imageUrl ? (
-                  <span
-                    aria-label={`${group.agentName} avatar`}
-                    className="h-full w-full rounded-full bg-cover bg-center"
-                    style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+                  <ResourceImage
+                    src={avatar.imageUrl}
+                    alt={`${group.agentName} avatar`}
+                    fill
+                    sizes="20px"
+                    className="rounded-full object-cover"
                   />
                 ) : (
                   <Icon className="w-3 h-3" style={{ color: avatar.fgColor }} />
@@ -1201,10 +1239,12 @@ export function ConversationGraphModule({
                   title={node.name}
                 >
                   {avatar.imageUrl ? (
-                    <span
-                      aria-label={`${node.name} avatar`}
-                      className="h-full w-full rounded-full bg-cover bg-center"
-                      style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+                    <ResourceImage
+                      src={avatar.imageUrl}
+                      alt={`${node.name} avatar`}
+                      fill
+                      sizes="28px"
+                      className="rounded-full object-cover"
                     />
                   ) : (
                     <Icon className="w-3.5 h-3.5" style={{ color: avatar.fgColor }} />
@@ -1439,10 +1479,12 @@ export function ConversationGraphModule({
               title={node.name}
             >
               {avatar.imageUrl ? (
-                <span
-                  aria-label={`${node.name} avatar`}
-                  className="h-full w-full rounded-full bg-cover bg-center"
-                  style={{ backgroundImage: `url(${JSON.stringify(avatar.imageUrl)})` }}
+                <ResourceImage
+                  src={avatar.imageUrl}
+                  alt={`${node.name} avatar`}
+                  fill
+                  sizes={`${nodeSizeVal}px`}
+                  className="rounded-full object-cover"
                 />
               ) : (
                 <Icon className={isCompact ? "w-2.5 h-2.5" : "w-3.5 h-3.5"} style={{ color: avatar.fgColor }} />
@@ -1699,6 +1741,7 @@ function HandoffThreadView({
   availableAgents,
   agentCardDataById,
   openAgentCreatorSignal,
+  mobileMode = false,
 }: {
   threads: ConversationThread[];
   selectedThreadId: string | null;
@@ -1713,6 +1756,7 @@ function HandoffThreadView({
   availableAgents?: Participant[];
   agentCardDataById?: Record<string, AgentCardTooltipData>;
   openAgentCreatorSignal?: number;
+  mobileMode?: boolean;
 }) {
   const agentsList = availableAgents ?? AVAILABLE_AGENTS_LIST;
   const [showAgentCreator, setShowAgentCreator] = useState(false);
@@ -1758,7 +1802,7 @@ function HandoffThreadView({
           onClick={() => setMyAgentsOpen((v) => !v)}
           className="flex min-w-0 flex-1 items-center gap-2 text-left"
         >
-          <ChevronDown className={`w-3 h-3 flex-shrink-0 text-text-muted transition-transform ${myAgentsOpen ? "" : "-rotate-90"}`} />
+          <ChevronDown className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} flex-shrink-0 text-text-muted transition-transform ${myAgentsOpen ? "" : "-rotate-90"}`} />
           <span className="text-[10px] font-semibold uppercase tracking-wider text-text-muted/60">My Agents</span>
           <div className="flex-1 h-px bg-border/50" />
           {privateThreads.length > 0 && (
@@ -1794,16 +1838,22 @@ function HandoffThreadView({
                 setShowChannelCreator(false);
                 setMyAgentsOpen(true);
               }}
-              className="group/agent flex w-full items-center gap-2.5 rounded-md px-3 py-2 text-left transition-colors hover:bg-surface-low/60"
+              className={`group/agent flex w-full items-center text-left transition-colors hover:bg-surface-low/60 ${
+                mobileMode ? "gap-3 rounded-lg px-3 py-2.5" : "gap-2.5 rounded-md px-3 py-2"
+              }`}
             >
-              <span className="flex h-7 w-7 flex-shrink-0 items-center justify-center rounded-lg border border-[#38D39F]/25 bg-[#38D39F]/10 text-[#38D39F] transition-colors group-hover/agent:border-[#38D39F]/45 group-hover/agent:bg-[#38D39F]/15">
-                <Plus className="h-3.5 w-3.5" />
+              <span className={`flex flex-shrink-0 items-center justify-center rounded-lg border border-[#38D39F]/25 bg-[#38D39F]/10 text-[#38D39F] transition-colors group-hover/agent:border-[#38D39F]/45 group-hover/agent:bg-[#38D39F]/15 ${
+                mobileMode ? "h-9 w-9" : "h-7 w-7"
+              }`}>
+                <Plus className={mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} />
               </span>
               <span className="min-w-0 flex-1">
                 <span className="block truncate text-[11px] font-medium text-foreground">Launch agent</span>
                 <span className="block truncate text-[10px] text-text-muted">Create a new workspace</span>
               </span>
-              <ChevronRight className="h-3 w-3 flex-shrink-0 text-text-muted/0 transition-colors group-hover/agent:text-text-muted" />
+              <ChevronRight className={`flex-shrink-0 transition-colors ${
+                mobileMode ? "h-5 w-5 text-text-muted" : "h-3 w-3 text-text-muted/0 group-hover/agent:text-text-muted"
+              }`} />
             </motion.button>
 
             {/* Inline agent creator */}
@@ -1834,6 +1884,7 @@ function HandoffThreadView({
                 onSelect={() => onSelectThread(thread.id)}
                 onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
                 onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+                mobileMode={mobileMode}
                 agentCardDataById={agentCardDataById}
               />
             ))}
@@ -1847,7 +1898,7 @@ function HandoffThreadView({
           onClick={() => setAgentsExpanded((v) => !v)}
           className="flex items-center gap-1 px-1 mb-1.5 group/hdr"
         >
-          <ChevronDown className={`w-3 h-3 text-text-muted transition-transform ${agentsExpanded ? "" : "-rotate-90"}`} />
+          <ChevronDown className={`${mobileMode ? "h-4 w-4" : "h-3 w-3"} text-text-muted transition-transform ${agentsExpanded ? "" : "-rotate-90"}`} />
           <span className="text-[9px] font-semibold text-text-secondary uppercase tracking-wider">
             Available Agents
           </span>
@@ -1861,18 +1912,22 @@ function HandoffThreadView({
               <button
                 key={agent.id}
                 onClick={() => onStartAgentChat?.(agent)}
-                className="flex items-center gap-2.5 w-full px-2 py-1.5 rounded-md hover:bg-surface-low/60 transition-colors text-left group/agent"
+                className={`flex w-full items-center text-left transition-colors hover:bg-surface-low/60 group/agent ${
+                  mobileMode ? "gap-3 rounded-lg px-2 py-2" : "gap-2.5 rounded-md px-2 py-1.5"
+                }`}
               >
                 <AgentAvatarMark
                   name={agent.name}
                   meta={participantAgentMeta(agent, agentCardDataById)}
-                  className="w-7 h-7 rounded-lg flex items-center justify-center flex-shrink-0"
-                  iconClassName="w-3.5 h-3.5"
+                  className={`${mobileMode ? "h-9 w-9" : "h-7 w-7"} rounded-lg flex items-center justify-center flex-shrink-0`}
+                  iconClassName={mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"}
                 />
                 <div className="flex-1 min-w-0">
                   <span className="text-[11px] text-text-muted group-hover/agent:text-foreground truncate transition-colors block">{agent.name}</span>
                 </div>
-                <ChevronRight className="w-3 h-3 text-text-muted/0 group-hover/agent:text-text-muted transition-colors flex-shrink-0" />
+                <ChevronRight className={`transition-colors flex-shrink-0 ${
+                  mobileMode ? "h-5 w-5 text-text-muted" : "h-3 w-3 text-text-muted/0 group-hover/agent:text-text-muted"
+                }`} />
               </button>
             );
           })}
@@ -1936,6 +1991,7 @@ function HandoffThreadView({
                 onSelect={() => onSelectThread(thread.id)}
                 onDelete={onDeleteThread ? () => onDeleteThread(thread.id) : undefined}
                 onRename={onRenameThread ? (title) => onRenameThread(thread.id, title) : undefined}
+                mobileMode={mobileMode}
                 agentCardDataById={agentCardDataById}
               />
             ))}
@@ -2081,6 +2137,7 @@ export function AgentsChannelsSidebar({
   onCollapse,
   showDivider = true,
   fillParent = false,
+  mobileMode = false,
   availableAgents,
   agentCardDataById,
   onCreateAgent,
@@ -2117,6 +2174,7 @@ export function AgentsChannelsSidebar({
         }}
         onSearchChange={setSearchQuery}
         onCollapse={onCollapse}
+        mobileMode={mobileMode}
       />
       <HandoffWidget />
 
@@ -2152,6 +2210,7 @@ export function AgentsChannelsSidebar({
           availableAgents={availableAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
+          mobileMode={mobileMode}
         />
       )}
       {variant === "v3.1" && (
@@ -2169,9 +2228,11 @@ export function AgentsChannelsSidebar({
           availableAgents={availableAgents}
           agentCardDataById={agentCardDataById}
           openAgentCreatorSignal={openAgentCreatorSignal}
+          mobileMode={mobileMode}
         />
       )}
       <AgentsSidebarDashboardLinks
+        mobileMode={mobileMode}
         accountInitial={accountInitial}
         onOpenAgentSettings={onOpenAgentSettings}
         agentSettingsActive={agentSettingsActive}

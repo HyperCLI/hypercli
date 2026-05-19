@@ -1,4 +1,5 @@
 import { beforeEach, afterEach, describe, it, expect } from 'vitest';
+import { BrowserHyperCLI } from '../src/browser.js';
 import { HyperCLI } from '../src/client.js';
 
 describe('HyperCLI Client', () => {
@@ -81,5 +82,17 @@ describe('HyperCLI Client', () => {
 
     expect((client.deployments as any).agentApiBase).toBe('https://api.dev.hypercli.com/agents');
     expect(client.agent.baseUrl).toBe('https://api.agents.dev.hypercli.com/v1');
+  });
+
+  it('should expose HyperAgent from the browser-safe client', () => {
+    const client = new BrowserHyperCLI({
+      apiUrl: 'https://api.hypercli.com',
+      token: 'hyper_api_test_key',
+    });
+
+    expect(client.agent).toBeDefined();
+    expect(client.agent.apiKey).toBe('hyper_api_test_key');
+    expect(client.agent.controlBaseUrl).toBe('https://api.hypercli.com/agents');
+    expect(client.agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
   });
 });

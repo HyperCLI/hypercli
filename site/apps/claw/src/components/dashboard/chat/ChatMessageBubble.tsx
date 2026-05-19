@@ -15,6 +15,7 @@ import { AttachmentSection } from "./AttachmentSection";
 import { MarkdownContent } from "./MarkdownContent";
 import { StreamingIndicator } from "./StreamingIndicator";
 import { TimestampDisplay } from "./TimestampDisplay";
+import { DirectoryVisualization, parseDirectoryVisualization } from "./DirectoryVisualization";
 
 export function ChatMessageBubble({
   message,
@@ -46,6 +47,9 @@ export function ChatMessageBubble({
     }
   }
   const effectiveContent = contentIsJson ? "" : message.content;
+  const contentDirectoryListing = message.role === "assistant" && effectiveContent
+    ? parseDirectoryVisualization(effectiveContent)
+    : null;
 
   const typewriterActive = isStreaming && message.role === "assistant" && streamingVariant === "v2";
   const displayedContent = useTypewriter(effectiveContent, typewriterActive);
@@ -57,8 +61,8 @@ export function ChatMessageBubble({
   // ── System message ──
   if (isSystem) {
     return (
-      <div className="flex justify-center">
-        <div className="max-w-[85%] rounded-lg px-4 py-2 text-sm bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-[#d05f5f]">
+      <div className="flex min-w-0 max-w-full justify-center">
+        <div className="max-w-[85%] break-words rounded-lg border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-2 text-sm text-[#d05f5f] [overflow-wrap:anywhere]">
           {message.content}
         </div>
       </div>
@@ -80,7 +84,7 @@ export function ChatMessageBubble({
 
   return (
     <motion.div
-      className={`flex ${isUser ? "justify-end" : "justify-start"} items-start gap-2 group`}
+      className={`group flex min-w-0 max-w-full ${isUser ? "justify-end" : "justify-start"} items-start gap-2`}
       {...getEntranceProps(animationVariant, isUser)}
     >
       {/* v2 name: avatar circle to the left */}
@@ -88,7 +92,7 @@ export function ChatMessageBubble({
         <MessageName variant="v2" placement="avatar-left" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} />
       )}
 
-      <div className={`flex flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "flex-1 min-w-0" : ""}`}>
+      <div className={`flex min-w-0 max-w-full flex-1 flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "min-w-0" : ""}`}>
 
         {/* v1 name: monogram above */}
         {showV1Name && (
@@ -138,7 +142,14 @@ export function ChatMessageBubble({
           />
 
           {/* Content */}
-          {displayedContent && <MarkdownContent content={displayedContent} />}
+          {contentDirectoryListing ? (
+            <DirectoryVisualization
+              title="Directory"
+              rootPath={contentDirectoryListing.rootPath}
+              entries={contentDirectoryListing.entries}
+              truncated={contentDirectoryListing.truncated}
+            />
+          ) : displayedContent && <MarkdownContent content={displayedContent} />}
 
           {/* Streaming indicator */}
           <StreamingIndicator variant={streamingVariant} isStreaming={showStreamingIndicator} isUser={isUser} />

@@ -388,6 +388,86 @@ describe("FirstAgentSetupWizard", () => {
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });
 
+  it("launches from a direct activation-code entitlement without an active subscription", async () => {
+    const onOpenPlanCatalog = vi.fn();
+    const onCreateAgent = vi.fn(async () => "agent-1");
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={{
+          slots: {
+            large: { granted: 1, used: 0, available: 1 },
+          },
+          pooled_tpd: 250000000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "catalog-pro",
+          activeSubscriptions: [],
+          entitlementItems: [
+            {
+              id: "ent-activation-1",
+              subscriptionId: null,
+              planId: "catalog-pro",
+              planName: "Pro",
+              provider: "ACTIVATION_CODE",
+              status: "ACTIVE",
+              slotGrants: { large: 1 },
+            },
+          ],
+        } as any}
+        catalogPlans={proAndFiveAiuCatalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
+    expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
+    expect(screen.getByText("Uses your active direct entitlement")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+
+    await waitFor(() =>
+      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),
+    );
+    expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+  });
+
+  it("launches from entitlement slot inventory when no entitlement item is listed", async () => {
+    const onCreateAgent = vi.fn(async () => "agent-1");
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        budget={{
+          slots: {
+            large: { granted: 1, used: 0, available: 1 },
+          },
+          pooled_tpd: 250000000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "",
+          activeSubscriptions: [],
+          activeEntitlementCount: 1,
+        } as any}
+        catalogPlans={proAndFiveAiuCatalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+
+    expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
+    expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+
+    await waitFor(() =>
+      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),
+    );
+  });
+
   it("groups repeated active subscriptions for the same plan and slot tier", () => {
     renderWithClient(
       <FirstAgentSetupWizard

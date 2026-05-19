@@ -80,7 +80,7 @@ import {
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
-import { getEffectivePlanName } from "@/lib/plan-checkout-state";
+import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
@@ -102,7 +102,8 @@ function buildBillingBudget(
 ): AgentBudget | null {
   if (!summary && !currentPlan) return null;
 
-  const slots = summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {};
+  const summarySlots = mergeLaunchSlotInventories(summary?.slotInventory, summary?.entitlements?.slotInventory);
+  const slots = summary ? summarySlots : mergeLaunchSlotInventories(currentPlan?.slotInventory);
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
   const sizePresets = Object.fromEntries(
     (typeCatalog?.types ?? []).map((type) => [type.id, { cpu: type.cpu, memory: type.memory }]),
@@ -332,6 +333,7 @@ export default function DevAgentSetupAgentsPage() {
   const [showChannelWizard, setShowChannelWizard] = useState(false);
   const [directoryCategory, setDirectoryCategory] = useState<DirectoryCategory | undefined>();
   const [directoryItemId, setDirectoryItemId] = useState<string | undefined>();
+  const [directoryDetailOrigin, setDirectoryDetailOrigin] = useState<"chat" | null>(null);
 
   // Hatching animation state tracking
   const prevStatesRef = useRef<Map<string, AgentState>>(new Map());
@@ -367,6 +369,7 @@ export default function DevAgentSetupAgentsPage() {
       const category = getCategoryForPlugin(suggestion.directoryPluginId) ?? undefined;
       setDirectoryCategory(category);
       setDirectoryItemId(suggestion.directoryPluginId);
+      setDirectoryDetailOrigin("chat");
       setMainTab("integrations");
       setMobileShowChat(true);
       return;
@@ -613,6 +616,7 @@ export default function DevAgentSetupAgentsPage() {
         onClick: () => {
           setDirectoryCategory("channels");
           setDirectoryItemId(undefined);
+          setDirectoryDetailOrigin(null);
           setMainTab("integrations");
           setMobileShowChat(true);
         },
@@ -1779,6 +1783,7 @@ export default function DevAgentSetupAgentsPage() {
         if (tab === "integrations") {
           setDirectoryCategory(undefined);
           setDirectoryItemId(undefined);
+          setDirectoryDetailOrigin(null);
           setMainTab("integrations");
           setMobileShowChat(true);
           return;
@@ -2049,6 +2054,13 @@ export default function DevAgentSetupAgentsPage() {
               <IntegrationsDirectoryPanel
                 initialCategory={directoryCategory}
                 initialPluginId={directoryItemId}
+                detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
+                onDetailBack={directoryDetailOrigin === "chat" ? () => {
+                  setDirectoryDetailOrigin(null);
+                  setDirectoryItemId(undefined);
+                  setMainTab("chat");
+                  setMobileShowChat(true);
+                } : undefined}
                 agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
                 config={chat.config as Record<string, unknown> | null}
                 configSchema={chat.configSchema}
@@ -2132,7 +2144,7 @@ export default function DevAgentSetupAgentsPage() {
               agentWorkspaceFiles: agentWorkspaceFilesForView,
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setMainTab("integrations"); },
+              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryDetailOrigin(null); setMainTab("integrations"); },
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,

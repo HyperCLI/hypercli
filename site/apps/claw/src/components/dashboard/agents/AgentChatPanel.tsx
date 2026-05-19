@@ -1,25 +1,166 @@
 "use client";
 
 import React from "react";
-import { ArrowRight, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X, type LucideIcon } from "lucide-react";
+import { ArrowRight, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
-import { MOCK_CONNECTIONS } from "@/components/dashboard/agentViewMockData";
-import { PLUGIN_REGISTRY } from "@/components/dashboard/integrations/plugin-registry";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
+import { getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+import { ResourceImage } from "@/components/ResourceImage";
+import {
+  getAgentChatBootStatus,
+  stabilizeAgentChatBootStatus,
+  type AgentChatBootStatus,
+} from "@/components/dashboard/agents/chat-boot-stage";
+
+export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 
 type ChatSession = ReturnType<typeof useOpenClawSession>;
+const CHAT_READY_SETTLE_MS = 180;
+const AUTO_RETRY_CONNECTION_ATTEMPTS = 3;
+const AUTO_RETRY_CONNECTION_DELAY_MS = 900;
+const AUDIO_BAR_WEIGHTS = [
+  0.62,
+  0.78,
+  0.94,
+  0.7,
+  0.86,
+  1,
+  0.74,
+  0.9,
+  0.66,
+  0.82,
+  0.98,
+  0.76,
+  0.92,
+  0.68,
+  0.84,
+  0.96,
+  0.72,
+  0.88,
+  0.64,
+  0.8,
+] as const;
 
-export interface ChatConnectionSuggestion {
-  id: string;
-  displayName: string;
-  description: string;
-  category: string;
-  Icon: LucideIcon;
-  directoryPluginId?: string;
+function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
+  return (
+    <div className="flex min-h-0 flex-1 items-center justify-center overflow-hidden text-text-muted">
+      <div className="flex max-h-full min-h-0 w-full items-center justify-center overflow-y-auto">
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function StoppedChatEmptyState() {
+  return (
+    <div className="flex flex-col items-center justify-center px-4 py-6 text-center text-text-muted">
+      <Sparkles className="mb-2 h-8 w-8" />
+      <p className="text-sm">Start the agent to begin chatting.</p>
+    </div>
+  );
+}
+
+function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStatus) {
+  const [status, setStatus] = React.useState(nextStatus);
+  const statusRef = React.useRef(nextStatus);
+  const agentIdRef = React.useRef(agentId);
+
+  const commitStatus = React.useCallback((value: AgentChatBootStatus) => {
+    statusRef.current = value;
+    setStatus(value);
+  }, []);
+
+  React.useEffect(() => {
+    if (agentIdRef.current !== agentId) {
+      agentIdRef.current = agentId;
+      commitStatus(nextStatus);
+      return;
+    }
+
+    if (nextStatus.status !== "ready") {
+      commitStatus(stabilizeAgentChatBootStatus(statusRef.current, nextStatus));
+      return;
+    }
+
+    if (statusRef.current.status !== "loading") {
+      commitStatus(nextStatus);
+      return;
+    }
+
+    const timeout = window.setTimeout(() => commitStatus(nextStatus), CHAT_READY_SETTLE_MS);
+    return () => window.clearTimeout(timeout);
+  }, [agentId, commitStatus, nextStatus]);
+
+  return status;
+}
+
+function useConnectionAutoRetry({
+  agentId,
+  bootStatus,
+  retry,
+}: {
+  agentId: string;
+  bootStatus: AgentChatBootStatus;
+  retry: () => void;
+}) {
+  const retryRef = React.useRef(retry);
+  const [state, setState] = React.useState(() => ({
+    agentId,
+    attempts: 0,
+  }));
+
+  React.useEffect(() => {
+    retryRef.current = retry;
+  }, [retry]);
+
+  React.useEffect(() => {
+    setState((current) => (
+      current.agentId === agentId
+        ? current
+        : { agentId, attempts: 0 }
+    ));
+  }, [agentId]);
+
+  React.useEffect(() => {
+    if (bootStatus.status !== "ready" && bootStatus.status !== "stopped") return;
+    setState((current) => (
+      current.agentId === agentId && current.attempts === 0
+        ? current
+        : { agentId, attempts: 0 }
+    ));
+  }, [agentId, bootStatus.status]);
+
+  React.useEffect(() => {
+    if (bootStatus.status !== "error") return;
+    if (state.agentId !== agentId || state.attempts >= AUTO_RETRY_CONNECTION_ATTEMPTS) return;
+
+    const timeout = window.setTimeout(() => {
+      setState((current) => {
+        if (current.agentId !== agentId || current.attempts >= AUTO_RETRY_CONNECTION_ATTEMPTS) {
+          return current;
+        }
+        return {
+          ...current,
+          attempts: current.attempts + 1,
+        };
+      });
+      retryRef.current();
+    }, AUTO_RETRY_CONNECTION_DELAY_MS);
+
+    return () => window.clearTimeout(timeout);
+  }, [agentId, bootStatus.status, state.agentId, state.attempts]);
+
+  const attempts = state.agentId === agentId ? state.attempts : 0;
+
+  return {
+    attempts,
+    exhausted: attempts >= AUTO_RETRY_CONNECTION_ATTEMPTS,
+    nextAttempt: Math.min(attempts + 1, AUTO_RETRY_CONNECTION_ATTEMPTS),
+  };
 }
 
 interface AgentChatPanelProps {
@@ -50,103 +191,6 @@ interface AgentChatPanelProps {
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
 }
 
-const CONNECTION_ALIAS_OVERRIDES: Record<string, string[]> = {
-  "amazon-bedrock": ["aws bedrock", "bedrock"],
-  "cloudflare-ai-gateway": ["cloudflare", "cloudflare ai"],
-  duckduckgo: ["duck duck go", "ddg"],
-  "github-copilot": ["github copilot", "copilot"],
-  gcal: ["google calendar", "calendar", "gcal"],
-  gdrive: ["google drive", "drive", "gdrive"],
-  gmail: ["gmail", "google mail", "email"],
-  googlechat: ["google chat", "gchat"],
-  huggingface: ["hugging face", "hf"],
-  imessage: ["imessage", "i message"],
-  "microsoft": ["azure speech", "microsoft speech"],
-  "msteams": ["microsoft teams", "ms teams", "teams"],
-  "nextcloud-talk": ["nextcloud talk", "nextcloud"],
-  openai: ["open ai", "chatgpt"],
-  "openrouter": ["open router"],
-  "qwen-portal-auth": ["qwen", "qwen oauth"],
-  "synology-chat": ["synology chat", "synology"],
-  whatsapp: ["whats app"],
-  xai: ["x ai", "grok"],
-  zalouser: ["zalo personal"],
-};
-
-const WORKSPACE_CONNECTION_DIRECTORY_MAP: Record<string, string> = {
-  slack: "slack",
-  telegram: "telegram",
-  teams: "msteams",
-};
-
-const CHAT_CONNECTION_CATALOG: ChatConnectionSuggestion[] = (() => {
-  const suggestions = new Map<string, ChatConnectionSuggestion>();
-
-  for (const connection of MOCK_CONNECTIONS) {
-    suggestions.set(connection.id, {
-      id: connection.id,
-      displayName: connection.name,
-      description: connection.description,
-      category: connection.category,
-      Icon: connection.icon,
-      directoryPluginId: WORKSPACE_CONNECTION_DIRECTORY_MAP[connection.id],
-    });
-  }
-
-  for (const plugin of PLUGIN_REGISTRY) {
-    if (plugin.category === "built-in") continue;
-    if (Array.from(suggestions.values()).some((suggestion) => suggestion.directoryPluginId === plugin.id)) continue;
-    if (suggestions.has(plugin.id)) {
-      const existing = suggestions.get(plugin.id);
-      if (existing) suggestions.set(plugin.id, { ...existing, directoryPluginId: plugin.id });
-      continue;
-    }
-    suggestions.set(plugin.id, {
-      id: plugin.id,
-      displayName: plugin.displayName,
-      description: plugin.description,
-      category: plugin.category === "chat" ? "Communication" : plugin.category === "ai-providers" ? "Models" : "Tools",
-      Icon: plugin.icon,
-      directoryPluginId: plugin.id,
-    });
-  }
-
-  return Array.from(suggestions.values());
-})();
-
-function normalizeConnectionAlias(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
-}
-
-function connectionAliases(suggestion: ChatConnectionSuggestion): string[] {
-  const baseAliases = [
-    suggestion.id,
-    suggestion.displayName,
-    normalizeConnectionAlias(suggestion.displayName).replace(/\s+/g, ""),
-    ...(suggestion.directoryPluginId ? [suggestion.directoryPluginId] : []),
-  ];
-  return Array.from(
-    new Set(
-      [...baseAliases, ...(CONNECTION_ALIAS_OVERRIDES[suggestion.id] ?? []), ...(suggestion.directoryPluginId ? CONNECTION_ALIAS_OVERRIDES[suggestion.directoryPluginId] ?? [] : [])]
-        .map(normalizeConnectionAlias)
-        .filter((alias) => alias.length >= 3),
-    ),
-  );
-}
-
-function aliasAppearsInInput(input: string, alias: string): boolean {
-  const compactInput = normalizeConnectionAlias(input);
-  if (!compactInput) return false;
-  const escapedAlias = alias.replace(/[.*+?^${}()|[\]\\]/g, "\\$&").replace(/\s+/g, "\\s+");
-  return new RegExp(`(^|\\s)${escapedAlias}(\\s|$)`, "i").test(compactInput);
-}
-
-function getConnectionSuggestions(input: string): ChatConnectionSuggestion[] {
-  const trimmed = input.trim();
-  if (trimmed.length < 3) return [];
-  return CHAT_CONNECTION_CATALOG.filter((suggestion) => connectionAliases(suggestion).some((alias) => aliasAppearsInInput(trimmed, alias))).slice(0, 3);
-}
-
 export function AgentChatPanel({
   chat,
   selectedAgent,
@@ -174,13 +218,92 @@ export function AgentChatPanel({
   formatDuration,
   onConnectionCta,
 }: AgentChatPanelProps) {
-  const connectionSuggestions = React.useMemo(() => getConnectionSuggestions(chat.input), [chat.input]);
+  const connectionSuggestions = React.useMemo(
+    () => getConnectionSuggestions(chat.input, chat.config, chat.configSchema),
+    [chat.config, chat.configSchema, chat.input],
+  );
   const setChatInput = chat.setInput;
-  const composerDisabled = !chat.connected;
+  const rawBootStatus = React.useMemo(
+    () => getAgentChatBootStatus({
+      agentState: selectedAgent.state,
+      isSelectedRunning,
+      gatewayConnected: chat.gatewayConnected,
+      ready: chat.ready,
+      connected: chat.connected,
+      connecting: chat.connecting,
+      hydrating: chat.hydrating,
+      error: chat.error,
+    }),
+    [
+      chat.connected,
+      chat.connecting,
+      chat.error,
+      chat.gatewayConnected,
+      chat.hydrating,
+      chat.ready,
+      isSelectedRunning,
+      selectedAgent.state,
+    ],
+  );
+  const bootStatus = useSettledChatBootStatus(selectedAgent.id, rawBootStatus);
+  const autoRetry = useConnectionAutoRetry({
+    agentId: selectedAgent.id,
+    bootStatus,
+    retry: chat.retry,
+  });
+  const displayBootStatus: AgentChatBootStatus =
+    bootStatus.status === "error" && !autoRetry.exhausted
+      ? {
+          status: "loading",
+          phase: "gateway",
+          title: "Retrying connection",
+          detail: `Attempt ${autoRetry.nextAttempt} of ${AUTO_RETRY_CONNECTION_ATTEMPTS}.`,
+          tone: "connecting",
+          stage: bootStatus.stage,
+        }
+      : bootStatus;
+  const hasPendingAttachmentWork = chat.pendingAttachments.length > 0 || chat.pendingAttachmentReads > 0;
+  const canSendChatDraft =
+    chat.connected &&
+    chat.pendingAttachmentReads === 0 &&
+    (chat.input.trim().length > 0 || chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0);
+  const composerHasDraft =
+    recording ||
+    Boolean(audioUrl) ||
+    chat.input.trim().length > 0 ||
+    hasPendingAttachmentWork ||
+    chat.pendingFiles.length > 0;
+  const showComposer = displayBootStatus.status === "ready" || composerHasDraft;
+  const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected;
+  const emptyChatContent = (() => {
+    if (displayBootStatus.status === "loading") {
+      return (
+        <AgentLoadingState
+          bootStatus={displayBootStatus}
+        />
+      );
+    }
+
+    if (displayBootStatus.status === "error") {
+      return (
+        <AgentLoadingState
+          bootStatus={displayBootStatus}
+          actionLabel="Retry"
+          onAction={chat.retry}
+        />
+      );
+    }
+
+    if (displayBootStatus.status === "ready") {
+      return <AgentEmptyHistory onPromptSelect={setChatInput} />;
+    }
+
+    return <StoppedChatEmptyState />;
+  })();
 
   return (
     <div
-      className={`relative flex h-full min-h-0 flex-col ${chatDragActive ? "bg-surface-low/10" : ""}`}
+      className={`relative flex h-full max-h-full min-h-0 min-w-0 flex-col overflow-hidden ${chatDragActive ? "bg-surface-low/10" : ""}`}
       onDragEnter={(e) => {
         e.preventDefault();
         e.stopPropagation();
@@ -218,44 +341,10 @@ export function AgentChatPanel({
           </div>
         </div>
       )}
-      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 flex-1 overflow-y-auto p-4">
-        <div className="mx-auto flex min-h-full w-3/4 max-w-[75%] min-w-0 flex-1 flex-col space-y-4">
+      <div ref={chatScrollRef} onScroll={handleChatScroll} className="flex min-h-0 min-w-0 flex-1 overflow-x-hidden overflow-y-auto">
+        <div className="mx-auto flex min-h-full w-full max-w-5xl min-w-0 flex-1 flex-col gap-4 overflow-x-hidden px-3 py-3 sm:px-4 sm:py-4">
           {chat.messages.length === 0 && (
-            <div className="flex min-h-full flex-1 flex-col items-center justify-center text-text-muted">
-              {chat.hydrating ? (
-                <AgentLoadingState
-                  title="Loading workspace"
-                  detail="Fetching messages, files, and config."
-                  tone="loading"
-                  stage="complete"
-                />
-              ) : chat.connecting ? (
-                <AgentLoadingState
-                  title="Connecting gateway"
-                  detail="Opening the agent session."
-                  tone="connecting"
-                  stage="gateway"
-                />
-              ) : chat.connected ? (
-                <AgentEmptyHistory
-                  onPromptSelect={setChatInput}
-                />
-              ) : (
-                isSelectedRunning ? (
-                  <AgentLoadingState
-                    title="Waiting for gateway"
-                    detail="The runtime is up. Reconnecting to the agent session."
-                    tone="connecting"
-                    stage="gateway"
-                  />
-                ) : (
-                  <>
-                    <Sparkles className="w-8 h-8 mb-2" />
-                    <p className="text-sm">Start the agent to begin chatting.</p>
-                  </>
-                )
-              )}
-            </div>
+            <ChatEmptyStateFrame>{emptyChatContent}</ChatEmptyStateFrame>
           )}
 
           {chat.messages.map((msg, i) => {
@@ -287,167 +376,186 @@ export function AgentChatPanel({
             return hasContent ? null : <ChatThinkingIndicator variant="v2" />;
           })()}
 
-          <div ref={chatEndRef} />
+          {chat.messages.length > 0 && <div ref={chatEndRef} />}
         </div>
       </div>
 
-      <div className="flex-shrink-0 px-3 pt-3 pb-[max(0.75rem,env(safe-area-inset-bottom,0.75rem))] md:p-3">
-        <div className="mx-auto flex w-3/4 max-w-[75%] min-w-0 flex-col">
-          {!recording && !audioUrl && connectionSuggestions.length > 0 && (
-            <div className="mb-2 flex flex-col gap-2">
-              {connectionSuggestions.map((suggestion) => {
-                const Icon = suggestion.Icon;
-                return (
-                  <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-3 py-2 shadow-sm">
-                    <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#38D39F]/15 text-[#38D39F]">
-                      <Icon className="h-4 w-4" />
+      {showComposer && (
+        <div className="max-h-[45%] flex-shrink-0 overflow-y-auto px-3 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] md:max-h-[38%] md:p-3">
+          <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
+            {!recording && !audioUrl && displayBootStatus.status === "ready" && connectionSuggestions.length > 0 && (
+              <div className="mb-2 flex flex-col gap-2">
+                {connectionSuggestions.map((suggestion) => {
+                  const Icon = suggestion.Icon;
+                  return (
+                    <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-3 py-2 shadow-sm">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#38D39F]/15 text-[#38D39F]">
+                        <Icon className="h-4 w-4" />
+                      </div>
+                      <div className="min-w-0 flex-1">
+                        <p className="truncate text-sm font-medium text-foreground">Connect {suggestion.displayName}</p>
+                        <p className="truncate text-xs text-text-muted">{suggestion.description}</p>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => onConnectionCta?.(suggestion)}
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-1.5 text-xs font-medium text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:opacity-50"
+                        disabled={!onConnectionCta}
+                        title={`Open ${suggestion.displayName} connection setup`}
+                      >
+                        Connect
+                        <ArrowRight className="h-3.5 w-3.5" />
+                      </button>
                     </div>
-                    <div className="min-w-0 flex-1">
-                      <p className="truncate text-sm font-medium text-foreground">Connect {suggestion.displayName}</p>
-                      <p className="truncate text-xs text-text-muted">{suggestion.description}</p>
-                    </div>
-                    <button
-                      type="button"
-                      onClick={() => onConnectionCta?.(suggestion)}
-                      className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-1.5 text-xs font-medium text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:opacity-50"
-                      disabled={!onConnectionCta}
-                      title={`Open ${suggestion.displayName} connection setup`}
-                    >
-                      Connect
-                      <ArrowRight className="h-3.5 w-3.5" />
-                    </button>
-                  </div>
-                );
-              })}
-            </div>
-          )}
-          {chat.pendingAttachments.length > 0 && (
-            <div className="flex gap-2 mb-2 flex-wrap">
-              {chat.pendingAttachments.map((att, i) => (
-                <div key={i} className="relative group">
-                  <img src={`data:${att.mimeType};base64,${att.content}`} alt={att.fileName || "attachment"} className="w-16 h-16 rounded-md object-cover border border-border" />
-                  <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                    <X className="w-3 h-3 text-white" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          {chat.pendingFiles.length > 0 && (
-            <div className="mb-2 flex flex-wrap gap-2">
-              {chat.pendingFiles.map((file, i) => (
-                <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
-                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                  <span className="truncate">{file.name}</span>
-                  <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-[#d05f5f]" title="Remove attachment">
-                    <X className="h-3.5 w-3.5" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          )}
-          <div className="flex gap-2 items-center">
-            {recording ? (
-              <>
-                <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
-                  <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75" style={{ transform: `scale(${1 + audioLevel * 1.5})` }} />
-                  <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
-                  <div className="flex items-center gap-0.5 flex-1">
-                    {Array.from({ length: 20 }).map((_, i) => (
-                      <div
-                        key={i}
-                        className="w-1 rounded-full transition-all duration-75"
-                        style={{
-                          height: `${Math.max(4, Math.min(20, audioLevel * 24 * (0.5 + Math.random() * 0.5)))}px`,
-                          backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
-                        }}
-                      />
-                    ))}
-                  </div>
-                </div>
-                <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors">
-                  <Square className="w-4 h-4" />
-                </button>
-              </>
-            ) : audioUrl ? (
-              <>
-                <div className="min-w-0 flex-1 flex items-center gap-1 rounded-full border border-border bg-surface-low px-2 py-1.5">
-                  <button onClick={toggleAudioPreviewPlayback} type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border text-text-muted hover:text-foreground hover:bg-background/50" title={audioPreviewPlaying ? "Pause" : "Play"}>
-                    {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-                  </button>
-                  <span className="min-w-0 truncate text-xs font-mono text-text-secondary">{formatDuration(audioPreviewDuration || recordingDuration)}</span>
-                </div>
-                <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
-                  <X className="w-4 h-4" />
-                </button>
-                <button onClick={sendAudio} disabled={!chat.connected || chat.sending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
-                  {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
-                </button>
-              </>
-            ) : (
-              <div className="relative flex-1 min-w-0">
-                <textarea
-                  value={chat.input}
-                  onChange={(e) => {
-                    chat.setInput(e.target.value);
-                    e.target.style.height = "auto";
-                    e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
-                  }}
-                  onKeyDown={(e) => {
-                    if (e.key === "Enter" && !e.shiftKey) {
-                      e.preventDefault();
-                      handleSendChat();
-                    }
-                  }}
-                  onPaste={(e) => {
-                    const items = e.clipboardData?.items;
-                    if (!items) return;
-                    const imageFiles: File[] = [];
-                    for (const item of Array.from(items)) {
-                      if (item.type.startsWith("image/")) {
-                        const file = item.getAsFile();
-                        if (file) imageFiles.push(file);
-                      }
-                    }
-                    if (imageFiles.length > 0) {
-                      e.preventDefault();
-                      const dt = new DataTransfer();
-                      imageFiles.forEach((f) => dt.items.add(f));
-                      chat.addAttachments(dt.files);
-                    }
-                  }}
-                  rows={1}
-                  placeholder={chat.connected ? "Message agent..." : "Connect gateway to message..."}
-                  disabled={composerDisabled}
-                  className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-28 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden"
-                />
-                <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
-                  <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">
-                    <Paperclip className="w-4 h-4" />
-                    <input
-                      type="file"
-                      multiple
-                      className="hidden"
-                      onChange={(e) => {
-                        if (e.target.files?.length) {
-                          void handleChatFileDrop(e.target.files);
-                          e.target.value = "";
-                        }
-                      }}
-                    />
-                  </label>
-                  <button onClick={startRecording} disabled={!chat.connected || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 hover:text-[#38D39F] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#38D39F]/15" title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
-                    <Mic className="w-4 h-4" />
-                  </button>
-                  <button onClick={handleSendChat} disabled={!chat.connected || (!chat.input.trim() && chat.pendingAttachments.length === 0 && chat.pendingFiles.length === 0)} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
-                    <Send className="w-3.5 h-3.5" />
-                  </button>
-                </div>
+                  );
+                })}
               </div>
             )}
+            {hasPendingAttachmentWork && (
+              <div className="flex gap-2 mb-2 flex-wrap">
+                {chat.pendingAttachments.map((att, i) => (
+                  <div key={i} className="group relative h-16 w-16">
+                    <ResourceImage
+                      src={`data:${att.mimeType};base64,${att.content}`}
+                      alt={att.fileName || "attachment"}
+                      fill
+                      sizes="64px"
+                      className="rounded-md border border-border object-cover"
+                    />
+                    <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="w-3 h-3 text-white" />
+                    </button>
+                  </div>
+                ))}
+                {Array.from({ length: chat.pendingAttachmentReads }).map((_, i) => (
+                  <div
+                    key={`pending-read-${i}`}
+                    role="status"
+                    aria-label="Preparing image attachment"
+                    className="relative flex h-16 w-16 items-center justify-center rounded-md border border-border bg-surface-low"
+                  >
+                    <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[#38D39F]" />
+                  </div>
+                ))}
+              </div>
+            )}
+            {chat.pendingFiles.length > 0 && (
+              <div className="mb-2 flex flex-wrap gap-2">
+                {chat.pendingFiles.map((file, i) => (
+                  <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{file.name}</span>
+                    <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-[#d05f5f]" title="Remove attachment">
+                      <X className="h-3.5 w-3.5" />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            )}
+            <div className="flex gap-2 items-center">
+              {recording ? (
+                <>
+                  <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75" style={{ transform: `scale(${1 + audioLevel * 1.5})` }} />
+                    <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
+                    <div className="flex items-center gap-0.5 flex-1">
+                      {Array.from({ length: 20 }).map((_, i) => (
+                        <div
+                          key={i}
+                          className="w-1 rounded-full transition-all duration-75"
+                          style={{
+                            height: `${Math.max(4, Math.min(20, audioLevel * 24 * AUDIO_BAR_WEIGHTS[i % AUDIO_BAR_WEIGHTS.length]))}px`,
+                            backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
+                          }}
+                        />
+                      ))}
+                    </div>
+                  </div>
+                  <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors">
+                    <Square className="w-4 h-4" />
+                  </button>
+                </>
+              ) : audioUrl ? (
+                <>
+                  <div className="min-w-0 flex-1 flex items-center gap-1 rounded-full border border-border bg-surface-low px-2 py-1.5">
+                    <button onClick={toggleAudioPreviewPlayback} type="button" className="flex h-7 w-7 shrink-0 items-center justify-center rounded-full border border-border text-text-muted hover:text-foreground hover:bg-background/50" title={audioPreviewPlaying ? "Pause" : "Play"}>
+                      {audioPreviewPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
+                    </button>
+                    <span className="min-w-0 truncate text-xs font-mono text-text-secondary">{formatDuration(audioPreviewDuration || recordingDuration)}</span>
+                  </div>
+                  <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
+                    <X className="w-4 h-4" />
+                  </button>
+                  <button onClick={sendAudio} disabled={!chat.connected || chat.sending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                    {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
+                  </button>
+                </>
+              ) : (
+                <div className="relative flex-1 min-w-0">
+                  <textarea
+                    aria-label="Message agent"
+                    value={chat.input}
+                    onChange={(e) => {
+                      chat.setInput(e.target.value);
+                      e.target.style.height = "auto";
+                      e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                    }}
+                    onKeyDown={(e) => {
+                      if (e.key === "Enter" && !e.shiftKey) {
+                        e.preventDefault();
+                        handleSendChat();
+                      }
+                    }}
+                    onPaste={(e) => {
+                      const items = e.clipboardData?.items;
+                      if (!items) return;
+                      const imageFiles: File[] = [];
+                      for (const item of Array.from(items)) {
+                        if (item.type.startsWith("image/")) {
+                          const file = item.getAsFile();
+                          if (file) imageFiles.push(file);
+                        }
+                      }
+                      if (imageFiles.length > 0) {
+                        e.preventDefault();
+                        const dt = new DataTransfer();
+                        imageFiles.forEach((f) => dt.items.add(f));
+                        chat.addAttachments(dt.files);
+                      }
+                    }}
+                    rows={1}
+                    placeholder={chat.connected ? "Message agent..." : chat.connecting ? "Preparing chat..." : "Connect gateway to message..."}
+                    disabled={composerDisabled}
+                    className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-24 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden sm:pr-28"
+                  />
+                  <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
+                    <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">
+                      <Paperclip className="w-4 h-4" />
+                      <input
+                        type="file"
+                        multiple
+                        className="hidden"
+                        onChange={(e) => {
+                          if (e.target.files?.length) {
+                            void handleChatFileDrop(e.target.files);
+                            e.target.value = "";
+                          }
+                        }}
+                      />
+                    </label>
+                    <button onClick={startRecording} disabled={!chat.connected || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 hover:text-[#38D39F] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#38D39F]/15" title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
+                      <Mic className="w-4 h-4" />
+                    </button>
+                    <button onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">
+                      <Send className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )}
+            </div>
           </div>
         </div>
-      </div>
+      )}
     </div>
   );
 }

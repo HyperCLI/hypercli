@@ -27,35 +27,36 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
 }
 
 export function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
+  const baseClass = "mb-2 w-full min-w-0 max-w-full overflow-hidden text-xs";
   if (theme === "v1") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/8 border border-[#38D39F]/25 rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/8 border border-[#f0c56c]/25 rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border border-[#38D39F]/25 bg-[#38D39F]/8`
+      : `${baseClass} rounded-md border border-[#f0c56c]/25 bg-[#f0c56c]/8`;
   }
   if (theme === "v2") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/8 border-l-4 border-[#38D39F] rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/8 border-l-4 border-[#f0c56c] rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border-l-4 border-[#38D39F] bg-[#38D39F]/8`
+      : `${baseClass} rounded-md border-l-4 border-[#f0c56c] bg-[#f0c56c]/8`;
   }
   if (theme === "v3") {
     return hasResult
-      ? "mb-2 text-xs bg-[#38D39F]/10 border border-[#38D39F]/30 rounded-md overflow-hidden"
-      : "mb-2 text-xs bg-[#f0c56c]/10 border border-[#f0c56c]/30 rounded-md overflow-hidden";
+      ? `${baseClass} rounded-md border border-[#38D39F]/30 bg-[#38D39F]/10`
+      : `${baseClass} rounded-md border border-[#f0c56c]/30 bg-[#f0c56c]/10`;
   }
-  return "mb-2 text-xs bg-background/50 border border-border rounded-md overflow-hidden";
+  return `${baseClass} rounded-md border border-border bg-background/50`;
 }
 
 /** Compute combined bubble classes from shape + color variants. */
 export function getBubbleClasses(bubblesVariant: BubblesVariant, themeVariant: ThemeVariant, isUser: boolean): string {
   let shapeClass: string;
   if (bubblesVariant === "v1") {
-    shapeClass = "max-w-[80%] rounded-2xl px-4 py-3 text-sm";
+    shapeClass = "min-w-0 max-w-[80%] rounded-2xl px-4 py-3 text-sm";
   } else if (bubblesVariant === "v2") {
-    shapeClass = "max-w-[80%] rounded-3xl px-5 py-3 text-sm";
+    shapeClass = "min-w-0 max-w-[80%] rounded-3xl px-5 py-3 text-sm";
   } else if (bubblesVariant === "v3") {
-    shapeClass = isUser ? "max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "rounded-2xl px-4 py-3 text-sm w-full";
+    shapeClass = isUser ? "min-w-0 max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "w-full min-w-0 rounded-2xl px-4 py-3 text-sm";
   } else {
-    shapeClass = "max-w-[80%] rounded-lg px-4 py-2.5 text-sm";
+    shapeClass = "min-w-0 max-w-[80%] rounded-lg px-4 py-2.5 text-sm";
   }
 
   let colorClass: string;
@@ -78,5 +79,5 @@ export function getBubbleClasses(bubblesVariant: BubblesVariant, themeVariant: T
     else colorClass = isUser ? "bg-surface-high" : "bg-surface-low";
   }
 
-  return [shapeClass, colorClass, "text-foreground"].filter(Boolean).join(" ");
+  return [shapeClass, colorClass, "max-w-full text-foreground"].filter(Boolean).join(" ");
 }

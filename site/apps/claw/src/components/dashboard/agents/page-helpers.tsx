@@ -1,7 +1,6 @@
 "use client";
 
 import React, { useEffect, useRef, useState } from "react";
-import { motion } from "framer-motion";
 import {
   Blocks,
   CalendarClock,
@@ -12,7 +11,13 @@ import {
   Settings,
   TerminalSquare,
 } from "lucide-react";
-import { AgentLifecycleSteps, type AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleSteps";
+import {
+  AgentGatewayLoadingVisual,
+  GATEWAY_LOADING_DETAIL,
+  GATEWAY_LOADING_TITLE,
+} from "@/components/dashboard/AgentGatewayLoadingVisual";
+import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleSteps";
+import type { AgentBootDisplayStatus } from "@/components/dashboard/agents/chat-boot-stage";
 export { AgentLaunchPrompt } from "./AgentLaunchPrompt";
 
 // ── Error Boundary ──
@@ -142,111 +147,64 @@ export function ConnectionStatusIndicator({
 // ── Shared Loading State ──
 
 interface AgentLoadingStateProps {
-  title: string;
+  title?: string;
   detail?: string;
   tone?: "starting" | "connecting" | "loading";
   surface?: "default" | "terminal";
   stage?: AgentLifecycleStage;
+  bootStatus?: AgentBootDisplayStatus;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export function AgentLoadingState({
   title,
   detail,
-  tone = "connecting",
   surface = "default",
-  stage,
+  stage = "gateway",
+  bootStatus,
+  actionLabel,
+  onAction,
 }: AgentLoadingStateProps) {
-  const accent = tone === "loading" ? "#38D39F" : "#f0c56c";
-  const secondaryAccent = tone === "loading" ? "#7ef7c9" : "#4ea7ff";
-  const lifecycleStage = stage ?? (tone === "loading" ? "complete" : "gateway");
-  const ringOpacity = lifecycleStage === "gateway" ? 0.86 : 0.68;
+  const resolvedTitle = bootStatus?.title ?? title ?? GATEWAY_LOADING_TITLE;
+  const resolvedDetail = bootStatus?.detail ?? detail ?? GATEWAY_LOADING_DETAIL;
+  const resolvedStage = bootStatus?.stage ?? stage;
+  const resolvedStatus = bootStatus?.status ?? "loading";
+
   return (
     <div
-      className={`flex h-full items-center justify-center ${
-        surface === "terminal" ? "bg-[#0c1016] text-[#8b95a6]" : "text-text-muted"
-      }`}
+      className="flex h-full min-h-0 items-center justify-center overflow-hidden px-4 py-3 sm:px-5 sm:py-4"
       aria-live="polite"
+      data-loading-surface={surface}
+      data-loading-stage={resolvedStage}
     >
-      <div className="flex flex-col items-center gap-4 text-center">
-        <div className="relative h-24 w-24" aria-hidden="true">
-          <motion.span
-            className="absolute inset-0 rounded-full opacity-25"
-            animate={{
-              boxShadow: [
-                `0 0 20px ${accent}`,
-                `0 0 46px ${accent}`,
-                `0 0 20px ${accent}`,
-              ],
-              scale: [0.96, 1.05, 0.96],
-            }}
-            transition={{ duration: 2.1, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.span
-            className="absolute inset-0 rounded-full border-2 border-transparent"
-            style={{
-              borderTopColor: accent,
-              borderRightColor: `${secondaryAccent}cc`,
-              opacity: ringOpacity,
-              filter: `drop-shadow(0 0 5px ${accent})`,
-            }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 2.4, repeat: Infinity, ease: "linear" }}
-          />
-          <motion.span
-            className="absolute inset-3 rounded-full border-2 border-transparent"
-            style={{
-              borderBottomColor: accent,
-              borderLeftColor: `${secondaryAccent}aa`,
-              opacity: ringOpacity * 0.78,
-            }}
-            animate={{ rotate: -360 }}
-            transition={{ duration: 1.85, repeat: Infinity, ease: "linear" }}
-          />
-          <motion.span
-            className="absolute inset-6 rounded-full border border-transparent"
-            style={{
-              borderTopColor: secondaryAccent,
-              borderRightColor: `${accent}bb`,
-              opacity: ringOpacity,
-            }}
-            animate={{ rotate: 360 }}
-            transition={{ duration: 1.25, repeat: Infinity, ease: "linear" }}
-          />
-          <motion.span
-            className="absolute inset-[1.8rem] rounded-full opacity-80"
-            style={{
-              background: `radial-gradient(circle, #ffffff 0%, ${accent} 45%, ${secondaryAccent} 100%)`,
-              boxShadow: `0 0 14px ${accent}`,
-            }}
-            animate={{ scale: [0.82, 1.14, 0.82], opacity: [0.7, 1, 0.7] }}
-            transition={{ duration: 1.15, repeat: Infinity, ease: "easeInOut" }}
-          />
-          <motion.span
-            className="absolute inset-[1.35rem] rounded-full border"
-            style={{ borderColor: `${secondaryAccent}55` }}
-            animate={{ scale: [0.9, 1.16, 0.9], opacity: [0.25, 0.64, 0.25] }}
-            transition={{ duration: 1.65, repeat: Infinity, ease: "easeInOut", delay: 0.1 }}
-          />
-        </div>
-        <div className="space-y-1">
-          <p className={surface === "terminal" ? "text-sm text-[#d8dde7]" : "text-sm font-medium text-foreground"}>
-            {title}
-          </p>
-          {detail && (
-            <p className={surface === "terminal" ? "text-xs text-[#8b95a6]" : "text-xs text-text-muted"}>
-              {detail}
-            </p>
-          )}
-        </div>
-        <AgentLifecycleSteps stage={lifecycleStage} />
-      </div>
+      <AgentGatewayLoadingVisual
+        title={resolvedTitle}
+        detail={resolvedDetail}
+        showCodePhase
+        status={resolvedStatus}
+        actionLabel={actionLabel}
+        onAction={onAction}
+      />
     </div>
   );
 }
 
 // ── Tab Loading State (for logs/shell) ──
 
-export function TabLoadingState({ label, detail, stage = "gateway" }: { label: string; detail?: string; stage?: AgentLifecycleStage }) {
+export function TabLoadingState({
+  label,
+  detail,
+  stage = "gateway",
+  bootStatus,
+  onAction,
+}: {
+  label: string;
+  detail?: string;
+  stage?: AgentLifecycleStage;
+  bootStatus?: AgentBootDisplayStatus;
+  onAction?: () => void;
+}) {
   return (
     <AgentLoadingState
       title={label}
@@ -254,6 +212,9 @@ export function TabLoadingState({ label, detail, stage = "gateway" }: { label: s
       tone="connecting"
       surface="terminal"
       stage={stage}
+      bootStatus={bootStatus}
+      actionLabel={bootStatus?.status === "error" ? "Retry" : undefined}
+      onAction={onAction}
     />
   );
 }

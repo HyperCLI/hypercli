@@ -169,6 +169,8 @@ describe("AgentMainPanel", () => {
       selectedAgent,
       isSelectedTransitioning: true,
       isSelectedRunning: false,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
       agentStatus: {
         label: "Stopping",
         detail: "Stopping the runtime and cleaning up the workspace.",
@@ -180,6 +182,36 @@ describe("AgentMainPanel", () => {
     expect(screen.getByText("Stopping agent")).toBeInTheDocument();
     expect(screen.getByText("Stopping the runtime and cleaning up the workspace.")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("lets the chat panel own startup boot stages", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedTransitioning: true,
+      isSelectedRunning: false,
+      currentPanel: "chat",
+      panelContent: <div>Chat-owned boot state</div>,
+    });
+
+    expect(screen.getByText("Chat-owned boot state")).toBeInTheDocument();
+    expect(screen.queryByText("Provisioning runtime")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("keeps non-chat panels covered by the outer startup stage", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedTransitioning: true,
+      isSelectedRunning: false,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+      panelContent: <div>Files panel</div>,
+    });
+
+    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
   });
 
   it("does not render the boot animation for a stopped agent with a stale burst id", () => {

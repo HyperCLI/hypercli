@@ -16,6 +16,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashbo
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
+import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
@@ -27,6 +28,9 @@ import {
 } from "@/lib/openclaw-models";
 import { OpenClawErrorBoundary } from "./page-helpers";
 import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
+import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
+import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
+import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 
 interface SessionLike {
   connected: boolean;
@@ -78,6 +82,14 @@ export function OpenClawConfigPanel({
   const [localError, setLocalError] = React.useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = React.useState<string | null>(null);
   const [localSaving, setLocalSaving] = React.useState(false);
+  const configBootStatus = getAgentGatewayPanelBootStatus({
+    connected: chat.connected,
+    connecting: chat.connecting,
+    loadingTitle: "Loading settings",
+    loadingDetail: "Reading OpenClaw configuration.",
+    connectingDetail: "Opening the settings workspace.",
+    waitingDetail: "Reconnect the gateway before editing openclaw.json.",
+  });
   const editorContent = React.useMemo(() => JSON.stringify(openclawDraft ?? {}, null, 2), [openclawDraft]);
   const editorEntry = React.useMemo<FileEntry>(() => ({
     name: "openclaw.json",
@@ -173,7 +185,7 @@ export function OpenClawConfigPanel({
           error={null}
           readOnly={!chat.connected}
           readOnlyLabel="Disconnected"
-          readOnlyDescription="Reconnect the gateway before editing openclaw.json."
+          readOnlyDescription={configBootStatus?.detail ?? "Reconnect the gateway before editing openclaw.json."}
           onClose={onClose ?? (() => {})}
           showClose={Boolean(onClose)}
           onSave={chat.connected ? saveOpenclawJson : undefined}
@@ -232,6 +244,15 @@ export function OpenClawSettingsPanel({
   const [mobileSectionsOpen, setMobileSectionsOpen] = React.useState(true);
   const hasSections = openclawSections.length > 0;
   const saveLabel = effectiveOpenclawSection ? "Save Section" : "Save All";
+  const settingsBootStatus = getAgentGatewayPanelBootStatus({
+    connected: chat.connected,
+    connecting: chat.connecting,
+    loading: chat.connected && !openclawSchemaBundle,
+    loadingTitle: "Loading settings",
+    loadingDetail: "Reading OpenClaw configuration.",
+    connectingDetail: "Opening the settings workspace.",
+    waitingDetail: "Connect the agent gateway to edit OpenClaw settings.",
+  });
 
   React.useEffect(() => {
     if (isDesktopViewport) setMobileSectionsOpen(false);
@@ -279,18 +300,24 @@ export function OpenClawSettingsPanel({
           {openclawSuccess}
         </div>
       )}
-      {!chat.connected && !chat.connecting && (
+      {settingsBootStatus && !chat.connected && !chat.connecting && (
         <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-          Connect the agent gateway to edit OpenClaw settings.
+          {settingsBootStatus.detail}
         </div>
       )}
-      {chat.connecting && !chat.connected && (
+      {settingsBootStatus && chat.connecting && !chat.connected && (
         <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Connecting to gateway...
+          {settingsBootStatus.title}
         </div>
       )}
-      {chat.connected && !hasSections && (
+      {settingsBootStatus && chat.connected && !hasSections && !openclawSchemaBundle && (
+        <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {settingsBootStatus.detail}
+        </div>
+      )}
+      {chat.connected && !hasSections && openclawSchemaBundle && (
         <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
           No config schema available from gateway.
         </div>
@@ -456,9 +483,11 @@ interface AgentSettingsPanelProps {
   getToken?: () => Promise<string>;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
+  onDeleteAgent?: () => void;
   onLogout?: () => void | Promise<void>;
   agentStarting?: boolean;
   agentStopping?: boolean;
+  agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
   planName?: string | null;
@@ -468,15 +497,24 @@ interface AgentSettingsPanelProps {
   openclawConfig?: Record<string, unknown> | null;
   openclawModels?: Array<Record<string, unknown>> | null;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
+  isDesktopViewport?: boolean;
+  agentsMenuOpen?: boolean;
+  onBackToChat?: () => void;
+  onOpenAgentsMenu?: () => void;
+  onOpenMobileMenu?: () => void;
+  onOpenWorkspaceMenu?: () => void;
+  showBackToChat?: boolean;
+  workspaceMenuOpen?: boolean;
 }
 
-type AgentSettingsSection = "general" | "agent" | "billing" | "usage";
+type AgentSettingsSection = "general" | "agent" | "billing" | "usage" | "team";
 
 const AGENT_SETTINGS_SECTIONS: Array<{ id: AgentSettingsSection; label: string }> = [
   { id: "general", label: "General" },
   { id: "agent", label: "Agent" },
   { id: "billing", label: "Billing" },
   { id: "usage", label: "Usage" },
+  { id: "team", label: "Team" },
 ];
 
 const SETTINGS_FIELD_CLASS =
@@ -485,6 +523,8 @@ const SETTINGS_SMALL_BUTTON_CLASS =
   "inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-high disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_DANGER_BUTTON_CLASS =
   "inline-flex h-8 items-center justify-center rounded-lg border border-[#d05f5f]/30 bg-background px-3 text-xs font-medium text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/10 disabled:cursor-not-allowed disabled:opacity-60";
+const SETTINGS_FILLED_DANGER_BUTTON_CLASS =
+  "inline-flex h-8 min-w-[96px] shrink-0 items-center justify-center rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/15 px-3 text-xs font-semibold text-[#ff7a7a] transition-colors hover:bg-[#d05f5f]/25 disabled:cursor-not-allowed disabled:opacity-50";
 
 function profileNameFromUser(user: AgentSettingsPanelProps["user"]): string {
   return user?.fullName || user?.name || "";
@@ -528,7 +568,7 @@ function AgentProfileSettingsRow({
   minHeight?: string;
 }) {
   return (
-    <div className={`grid grid-cols-1 gap-4 py-7 md:grid-cols-[260px_minmax(0,440px)] md:items-start md:justify-between ${minHeight}`}>
+    <div className={`grid grid-cols-1 gap-2 py-5 md:grid-cols-[260px_minmax(0,440px)] md:items-start md:justify-between md:gap-4 md:py-7 ${minHeight}`}>
       <div>
         <p className="text-[14px] font-semibold leading-5 text-foreground">{label}</p>
         {description ? <p className="mt-1 text-[12px] text-text-muted">{description}</p> : null}
@@ -549,6 +589,7 @@ function AgentGeneralSettingsContent({
   onAvatarRemove,
   avatarUpdatesEnabled,
   onLogout,
+  showSessionActions = true,
 }: {
   user: AgentSettingsPanelProps["user"];
   profileName: string;
@@ -560,12 +601,13 @@ function AgentGeneralSettingsContent({
   onAvatarRemove: () => void;
   avatarUpdatesEnabled: boolean;
   onLogout?: () => void | Promise<void>;
+  showSessionActions?: boolean;
 }) {
   const avatarInputRef = React.useRef<HTMLInputElement | null>(null);
   const email = user?.email || "";
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
       <div className="mx-auto w-full max-w-[844px]">
         <h2 className="text-[20px] font-semibold leading-none text-foreground">Profile</h2>
         {(profileError || profileSuccess) && (
@@ -582,7 +624,7 @@ function AgentGeneralSettingsContent({
           </div>
         )}
 
-        <section className="mt-7 divide-y divide-foreground border-b border-foreground">
+        <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
           <AgentProfileSettingsRow label="Full Name" description="Shown across your workspace.">
             <input
               value={profileName}
@@ -614,11 +656,11 @@ function AgentGeneralSettingsContent({
                 }}
                 disabled={!avatarUpdatesEnabled}
                 title={!avatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
+                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
                 aria-label="Upload profile avatar"
               >
                 {profileAvatar ? (
-                  <img src={profileAvatar} alt="Profile avatar" className="h-full w-full object-cover" />
+                  <ResourceImage src={profileAvatar} alt="Profile avatar" fill sizes="64px" className="object-cover" />
                 ) : (
                   <span>{profileInitials(profileName, email)}</span>
                 )}
@@ -659,7 +701,7 @@ function AgentGeneralSettingsContent({
             </div>
           </AgentProfileSettingsRow>
 
-          {onLogout ? (
+          {onLogout && showSessionActions ? (
             <AgentProfileSettingsRow label="Sign out" description="End your session on this browser.">
               <button
                 type="button"
@@ -694,8 +736,10 @@ function AgentSectionSettingsContent({
   agentSettingsSuccess,
   onStartAgent,
   onStopAgent,
+  onDeleteAgent,
   agentStarting,
   agentStopping,
+  agentDeleting,
   agentStartBlocked,
   agentStartBlockedReason,
 }: {
@@ -715,8 +759,10 @@ function AgentSectionSettingsContent({
   agentSettingsSuccess?: string | null;
   onStartAgent?: () => void;
   onStopAgent?: () => void;
+  onDeleteAgent?: () => void;
   agentStarting?: boolean;
   agentStopping?: boolean;
+  agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
 }) {
@@ -736,8 +782,39 @@ function AgentSectionSettingsContent({
           : "Lifecycle controls are unavailable";
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
       <div className="mx-auto w-full max-w-[844px]">
+        <div className="mb-7 flex min-h-[72px] items-center justify-between gap-4 rounded-[14px] border border-foreground px-3 py-3">
+          <div className="min-w-0">
+            <p className="text-[14px] font-semibold leading-5 text-foreground">Agent runtime</p>
+            <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">{lifecycleDescription}</p>
+          </div>
+          {canStopAgent ? (
+            <button
+              type="button"
+              aria-label="Stop agent"
+              onClick={onStopAgent}
+              disabled={!onStopAgent || lifecycleBusy}
+              className={`${SETTINGS_SMALL_BUTTON_CLASS} shrink-0 gap-2`}
+            >
+              {agentStopping ? "Stopping..." : "Stop agent"}
+              <Square className="h-3 w-3 fill-current" />
+            </button>
+          ) : (
+            <button
+              type="button"
+              aria-label="Start agent"
+              onClick={onStartAgent}
+              disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
+              title={agentStartBlockedReason ?? undefined}
+              className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+            >
+              {agentStarting || agent.state === "PENDING" || agent.state === "STARTING" ? "Starting..." : "Start agent"}
+              <Play className="h-3.5 w-3.5 fill-current" />
+            </button>
+          )}
+        </div>
+
         <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
         {(agentSettingsError || agentSettingsSuccess) && (
           <div className="mt-4">
@@ -753,7 +830,7 @@ function AgentSectionSettingsContent({
           </div>
         )}
 
-        <section className="mt-7 divide-y divide-foreground border-b border-foreground">
+        <section className="mt-4 divide-y divide-foreground border-b border-foreground md:mt-7">
           <AgentProfileSettingsRow label="Agent Name" description="Shown when users interact with this agent.">
             <input
               value={agentName}
@@ -776,11 +853,11 @@ function AgentSectionSettingsContent({
                 }}
                 disabled={!agentAvatarUpdatesEnabled}
                 title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
+                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
                 aria-label="Upload agent avatar"
               >
                 {agentAvatarPreview ? (
-                  <img src={agentAvatarPreview} alt="Agent avatar" className="h-full w-full object-cover" />
+                  <ResourceImage src={agentAvatarPreview} alt="Agent avatar" fill sizes="64px" className="object-cover" />
                 ) : (
                   <span>{initialsFromName(agentName)}</span>
                 )}
@@ -867,38 +944,25 @@ function AgentSectionSettingsContent({
               <option value="disabled">Disabled</option>
             </select>
           </AgentProfileSettingsRow>
+        </section>
 
-          <div className="py-6">
-            <div className="flex min-h-[68px] items-center justify-between gap-4 rounded-lg border border-border bg-surface-low/30 px-3">
-              <div className="min-w-0">
-                <p className="text-[14px] font-semibold leading-5 text-foreground">Agent runtime</p>
-                <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">{lifecycleDescription}</p>
-              </div>
-              {canStopAgent ? (
-                <button
-                  type="button"
-                  aria-label="Stop agent"
-                  onClick={onStopAgent}
-                  disabled={!onStopAgent || lifecycleBusy}
-                  className={`${SETTINGS_DANGER_BUTTON_CLASS} shrink-0 gap-2`}
-                >
-                  {agentStopping ? "Stopping..." : "Stop agent"}
-                  <Square className="h-3 w-3 fill-current" />
-                </button>
-              ) : (
-                <button
-                  type="button"
-                  aria-label="Start agent"
-                  onClick={onStartAgent}
-                  disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
-                  title={agentStartBlockedReason ?? undefined}
-                  className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  {agentStarting || agent.state === "PENDING" || agent.state === "STARTING" ? "Starting..." : "Start agent"}
-                  <Play className="h-3.5 w-3.5 fill-current" />
-                </button>
-              )}
+        <section className="mt-8">
+          <h2 className="text-[20px] font-semibold leading-none text-foreground">Danger Zone</h2>
+          <div className="mt-7 flex min-h-[68px] items-center justify-between gap-4">
+            <div className="min-w-0">
+              <p className="text-[14px] font-semibold leading-5 text-foreground">Delete agent</p>
+              <p className="mt-1 max-w-[420px] text-[13px] font-medium leading-5 text-text-muted">
+                Permanently delete this agent and all related configuration. This action cannot be undone.
+              </p>
             </div>
+            <button
+              type="button"
+              onClick={onDeleteAgent}
+              disabled={!onDeleteAgent || agentDeleting}
+              className={SETTINGS_FILLED_DANGER_BUTTON_CLASS}
+            >
+              {agentDeleting ? "Deleting..." : "Delete agent"}
+            </button>
           </div>
         </section>
       </div>
@@ -990,9 +1054,9 @@ function describeBillingCycle(subscription: HyperAgentSubscription | null, reset
     return `Usage resets ${formatBillingDate(resetAt) ?? "soon"}.`;
   }
   if (subscription) {
-    return "Renewal date unavailable from the SDK.";
+    return "Renewal date unavailable from billing data.";
   }
-  return "No active paid subscription returned by the SDK.";
+  return "No active paid subscription returned by billing data.";
 }
 
 function describeSubscriptionDate(subscription: HyperAgentSubscription): string {
@@ -1022,16 +1086,69 @@ function BillingStatusPill({ status }: { status: string }) {
   );
 }
 
+function billingCadenceLabel(subscription: HyperAgentSubscription | null): string | null {
+  if (!subscription) return null;
+  return subscription.provider.toLowerCase() === "stripe" ? "Monthly" : formatBillingProvider(subscription.provider);
+}
+
+function describePaymentMethod(subscription: HyperAgentSubscription | null): string {
+  if (subscription?.provider.toLowerCase() === "stripe") {
+    return "Payment method is managed by Stripe.";
+  }
+  if (subscription) {
+    return `Activated through ${formatBillingProvider(subscription.provider)}.`;
+  }
+  return "Payment data unavailable.";
+}
+
+function describeMobileBillingCycle(subscription: HyperAgentSubscription | null, resetAt: Date | null): string {
+  if (subscription?.cancelAtPeriodEnd) {
+    const endDate = formatBillingDate(subscription.expiresAt);
+    return endDate ? `Your subscription cancels on ${endDate}.` : "Your subscription cancels at period end.";
+  }
+  const renewalDate = formatBillingDate(subscription?.expiresAt ?? resetAt);
+  if (renewalDate) return `Your subscription will auto renew on ${renewalDate}.`;
+  return describeBillingCycle(subscription, resetAt);
+}
+
+function compactBillingIdentifier(value: string | null | undefined): string {
+  if (!value) return "Unavailable";
+  return value.length > 12 ? value.slice(0, 8) : value;
+}
+
+function numericMetaValue(meta: Record<string, any> | null | undefined, keys: string[]): number | null {
+  if (!meta) return null;
+  for (const key of keys) {
+    const value = Number(meta[key]);
+    if (Number.isFinite(value) && value >= 0) return value;
+  }
+  return null;
+}
+
+function formatSubscriptionTotal(subscription: HyperAgentSubscription): string {
+  const amount =
+    numericMetaValue(subscription.meta, ["amountUsd", "amount_usd", "priceUsd", "price_usd", "totalUsd", "total_usd"]) ??
+    null;
+  if (amount !== null) return `$${amount.toLocaleString()}`;
+
+  const cents = numericMetaValue(subscription.meta, ["amount_cents", "unit_amount_cents"]);
+  if (cents !== null && cents > 0) return `$${(cents / 100).toLocaleString()}`;
+
+  return "Unavailable";
+}
+
 function AgentBillingSettingsContent({
   planName,
   subscriptionSummary,
   tokenUsage,
   tokenLimit,
+  isDesktopViewport = true,
 }: {
   planName?: string | null;
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   tokenUsage?: number | null;
   tokenLimit?: number | null;
+  isDesktopViewport?: boolean;
 }) {
   const currentSubscription = getCurrentBillingSubscription(subscriptionSummary);
   const subscriptions = getBillingSubscriptions(subscriptionSummary);
@@ -1057,10 +1174,102 @@ function AgentBillingSettingsContent({
     ? `${cancellationSubscription.planName || "Current plan"} can be managed from Billing.`
     : currentSubscription?.cancelAtPeriodEnd
       ? describeBillingCycle(currentSubscription, resetAt)
-      : "No cancellable subscription returned by the SDK.";
+      : "No cancellable subscription returned by billing data.";
+  const mobileInvoiceRows = subscriptions.length > 0 ? subscriptions : currentSubscription ? [currentSubscription] : [];
+
+  if (!isDesktopViewport) {
+    const cadenceLabel = billingCadenceLabel(currentSubscription);
+    return (
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7">
+        <div className="mx-auto w-full max-w-[844px]">
+          <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
+          <section className="mt-7 border-b border-foreground">
+            <div className="flex min-h-[92px] items-center justify-between gap-3 border-b border-foreground py-5">
+              <div className="flex min-w-0 items-center gap-3">
+                <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center rounded-[12px] border border-border bg-[#2a2b2e]">
+                  <Rocket className="h-5 w-5 text-foreground" />
+                </div>
+                <div className="min-w-0">
+                  <p className="truncate text-[20px] font-semibold leading-6 text-foreground">
+                    {effectivePlanName}
+                    {cadenceLabel ? <span className="text-text-muted"> / {cadenceLabel}</span> : null}
+                  </p>
+                  <p className="mt-1 max-w-[180px] text-[13px] font-semibold leading-5 text-text-muted">
+                    {describeMobileBillingCycle(currentSubscription, resetAt)}
+                  </p>
+                </div>
+              </div>
+              <AgentSettingsLinkButton href="/plans">Adjust plan</AgentSettingsLinkButton>
+            </div>
+
+            <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-5">
+              <div className="min-w-0">
+                <p className="text-[14px] font-semibold leading-5 text-foreground">Payment</p>
+                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">
+                  {describePaymentMethod(currentSubscription)}
+                </p>
+              </div>
+              <AgentSettingsLinkButton href="/dashboard/billing">Update</AgentSettingsLinkButton>
+            </div>
+
+            <div className="border-b border-foreground py-7">
+              <h2 className="text-[20px] font-semibold leading-none text-foreground">Invoices</h2>
+              <div className="mt-8 overflow-hidden rounded-[10px] border border-foreground">
+                <table className="w-full table-fixed text-left">
+                  <thead>
+                    <tr className="border-b border-border">
+                      <th className="w-[42%] px-3 py-3 text-[13px] font-semibold text-foreground">Receipt</th>
+                      <th className="w-[25%] px-3 py-3 text-[13px] font-semibold text-foreground">Total</th>
+                      <th className="w-[33%] px-3 py-3 text-[13px] font-semibold text-foreground">Status</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {mobileInvoiceRows.length > 0 ? (
+                      mobileInvoiceRows.map((subscription) => (
+                        <tr key={subscription.id} className="border-b border-border last:border-b-0">
+                          <td className="truncate px-3 py-3 text-[14px] font-semibold text-foreground">
+                            {compactBillingIdentifier(subscription.stripeSubscriptionId || subscription.id)}
+                          </td>
+                          <td className="truncate px-3 py-3 text-[14px] font-semibold text-foreground">
+                            {formatSubscriptionTotal(subscription)}
+                          </td>
+                          <td className="px-3 py-3">
+                            <BillingStatusPill status={subscription.status} />
+                          </td>
+                        </tr>
+                      ))
+                    ) : (
+                      <tr>
+                        <td colSpan={3} className="px-3 py-4 text-[13px] font-medium text-text-muted">
+                          No invoices yet.
+                        </td>
+                      </tr>
+                    )}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+
+            <div className="py-7">
+              <h2 className="text-[20px] font-semibold leading-none text-foreground">Cancellation</h2>
+              <div className="mt-7 flex min-h-[68px] items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="text-[14px] font-semibold leading-5 text-foreground">Cancel Plan</p>
+                  <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">{cancellationDescription}</p>
+                </div>
+                <AgentSettingsLinkButton href="/dashboard/billing" tone={cancellationSubscription ? "danger" : "default"}>
+                  {cancellationSubscription ? "Cancel" : "Manage"}
+                </AgentSettingsLinkButton>
+              </div>
+            </div>
+          </section>
+        </div>
+      </div>
+    );
+  }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
       <div className="mx-auto w-full max-w-[844px]">
         <section className="border-b border-foreground">
           <div className="flex min-h-[92px] items-center justify-between gap-4 border-b border-foreground py-5">
@@ -1089,7 +1298,7 @@ function AgentBillingSettingsContent({
                   ? "Payment method is managed by Stripe."
                   : currentSubscription
                     ? `Activated through ${formatBillingProvider(currentSubscription.provider)}.`
-                    : "Payment data unavailable from the SDK."}
+                    : "Payment data unavailable from billing data."}
               </p>
             </div>
             <AgentSettingsLinkButton href="/dashboard/billing">Manage</AgentSettingsLinkButton>
@@ -1156,7 +1365,7 @@ function AgentBillingSettingsContent({
                   ) : (
                     <tr className="border-b border-border">
                       <td colSpan={4} className="px-2 py-4 text-[13px] font-medium text-text-muted">
-                        No subscription records returned by the SDK.
+                        No subscription records returned by billing data.
                       </td>
                     </tr>
                   )}
@@ -1185,7 +1394,7 @@ function AgentBillingSettingsContent({
 
 function AgentUsageSettingsContent() {
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-4 py-7 sm:px-8">
+    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
       <div className="mx-auto w-full max-w-[844px]">
         <h2 className="text-[20px] font-semibold leading-none text-foreground">Usage</h2>
         <section className="mt-7 border-b border-foreground">
@@ -1219,7 +1428,7 @@ function AgentUsageSettingsContent() {
             <div className="flex min-h-[68px] items-center justify-between gap-4 rounded-[14px] border border-foreground px-3">
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold leading-5 text-foreground">Current plan limits</p>
-                <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">Open the usage dashboard for live SDK-backed limits.</p>
+                <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">Open the usage dashboard for live plan limits.</p>
               </div>
               <AgentSettingsLinkButton href="/dashboard">Open usage</AgentSettingsLinkButton>
             </div>
@@ -1237,9 +1446,11 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     getToken,
     onStartAgent,
     onStopAgent,
+    onDeleteAgent,
     onLogout,
     agentStarting = false,
     agentStopping = false,
+    agentDeleting = false,
     agentStartBlocked = false,
     agentStartBlockedReason = null,
     planName = null,
@@ -1249,6 +1460,14 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     openclawConfig = null,
     openclawModels = null,
     onSaveOpenClawConfig,
+    isDesktopViewport = true,
+    agentsMenuOpen = false,
+    onBackToChat,
+    onOpenAgentsMenu,
+    onOpenMobileMenu,
+    onOpenWorkspaceMenu,
+    showBackToChat = false,
+    workspaceMenuOpen = false,
   } = props;
   const [activeSettingsSection, setActiveSettingsSection] = React.useState<AgentSettingsSection>("general");
   const [savedProfileName, setSavedProfileName] = React.useState(() => profileNameFromUser(user));
@@ -1367,7 +1586,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     if (!hasSettingsChanges) return;
 
     if (profileChanged && !getToken) {
-      setProfileError("Profile updates are unavailable without an authenticated SDK client.");
+      setProfileError("Profile updates are unavailable without an authenticated account session.");
       return;
     }
 
@@ -1445,30 +1664,44 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   if (!agent) return null;
 
   return (
-    <div className="flex h-full min-h-0 bg-background">
-      <aside className="h-full w-[208px] shrink-0 border-r border-border px-4 py-5">
-        <h2 className="text-[20px] font-semibold leading-none text-foreground">Settings</h2>
-        <nav aria-label="Settings sections" className="mt-6 flex flex-col gap-1">
-          {AGENT_SETTINGS_SECTIONS.map((section) => {
-            const active = activeSettingsSection === section.id;
-            return (
-              <button
-                key={section.id}
-                type="button"
-                onClick={() => setActiveSettingsSection(section.id)}
-                aria-current={active ? "page" : undefined}
-                className={`h-8 w-full rounded-[7px] px-2.5 text-left text-[14px] font-medium transition-colors ${
-                  active
-                    ? "bg-surface-low text-foreground"
-                    : "text-text-secondary hover:bg-surface-low/70 hover:text-foreground"
-                }`}
-              >
-                {section.label}
-              </button>
-            );
-          })}
-        </nav>
-      </aside>
+    <div className={`flex h-full min-h-0 bg-background ${isDesktopViewport ? "flex-row" : "flex-col"}`}>
+      {isDesktopViewport ? (
+        <aside className="h-full w-[208px] shrink-0 border-r border-border px-4 py-5">
+          <h2 className="text-[20px] font-semibold leading-none text-foreground">Settings</h2>
+          <nav aria-label="Settings sections" className="mt-6 flex flex-col gap-1">
+            {AGENT_SETTINGS_SECTIONS.map((section) => {
+              const active = activeSettingsSection === section.id;
+              return (
+                <button
+                  key={section.id}
+                  type="button"
+                  onClick={() => setActiveSettingsSection(section.id)}
+                  aria-current={active ? "page" : undefined}
+                  className={`h-8 w-full rounded-[7px] px-2.5 text-left text-[14px] font-medium transition-colors ${
+                    active
+                      ? "bg-surface-low text-foreground"
+                      : "text-text-secondary hover:bg-surface-low/70 hover:text-foreground"
+                  }`}
+                >
+                  {section.label}
+                </button>
+              );
+            })}
+          </nav>
+        </aside>
+      ) : (
+        <AgentSettingsMobileChrome
+          activeSection={activeSettingsSection}
+          agentsMenuOpen={agentsMenuOpen}
+          onBackToChat={onBackToChat}
+          onOpenAgentsMenu={onOpenAgentsMenu}
+          onOpenWorkspaceMenu={onOpenWorkspaceMenu ?? onOpenMobileMenu}
+          onSectionChange={(sectionId) => setActiveSettingsSection(sectionId as AgentSettingsSection)}
+          sections={AGENT_SETTINGS_SECTIONS}
+          showBackToChat={showBackToChat}
+          workspaceMenuOpen={workspaceMenuOpen}
+        />
+      )}
       <div className="flex min-h-0 min-w-0 flex-1 flex-col">
         {activeSettingsSection === "general" ? (
           <AgentGeneralSettingsContent
@@ -1482,6 +1715,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             onAvatarRemove={() => setProfileAvatar(null)}
             avatarUpdatesEnabled={false}
             onLogout={onLogout}
+            showSessionActions={isDesktopViewport}
           />
         ) : activeSettingsSection === "agent" ? (
           <AgentSectionSettingsContent
@@ -1501,8 +1735,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             agentSettingsSuccess={agentSettingsSuccess}
             onStartAgent={onStartAgent}
             onStopAgent={onStopAgent}
+            onDeleteAgent={onDeleteAgent}
             agentStarting={agentStarting}
             agentStopping={agentStopping}
+            agentDeleting={agentDeleting}
             agentStartBlocked={agentStartBlocked}
             agentStartBlockedReason={agentStartBlockedReason}
           />
@@ -1512,13 +1748,16 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             subscriptionSummary={subscriptionSummary}
             tokenUsage={tokenUsage}
             tokenLimit={tokenLimit}
+            isDesktopViewport={isDesktopViewport}
           />
         ) : activeSettingsSection === "usage" ? (
           <AgentUsageSettingsContent />
+        ) : activeSettingsSection === "team" ? (
+          <AgentTeamSettingsContent />
         ) : (
           <div className="min-h-0 flex-1" aria-hidden />
         )}
-        <footer className="flex h-[83px] shrink-0 items-center justify-end border-t border-border px-4 sm:px-8">
+        <footer className="flex h-[54px] shrink-0 items-center justify-end border-t border-border px-5 md:h-[83px] md:px-8">
           <div className="flex w-full max-w-[844px] justify-end gap-3">
             <button
               type="button"
@@ -1754,6 +1993,8 @@ export function AgentList({
     }
   }, [createOpenClawAgent, fetchAgents, getToken, setError, setMobileShowChat, setSelectedAgentId]);
 
+  if (!isDesktopViewport) return null;
+
   return (
     <motion.div
       className={`relative h-full flex-shrink-0 overflow-visible bg-[#232323] ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
@@ -1811,10 +2052,12 @@ export function AgentList({
                         style={{ backgroundColor: av.bgColor }}
                       >
                         {av.imageUrl ? (
-                          <span
-                            aria-label={`${a.name || a.id} avatar`}
-                            className="h-full w-full rounded-full bg-cover bg-center"
-                            style={{ backgroundImage: `url(${JSON.stringify(av.imageUrl)})` }}
+                          <ResourceImage
+                            src={av.imageUrl}
+                            alt={`${a.name || a.id} avatar`}
+                            fill
+                            sizes="32px"
+                            className="rounded-full object-cover"
                           />
                         ) : (
                           <Icon className="w-4 h-4" style={{ color: av.fgColor }} />
@@ -2168,7 +2411,7 @@ function LaunchAgentCenteredEmptyStateContent({
           {description}
         </p>
 
-        <div className="mt-8 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-8 grid w-full grid-cols-1 gap-4 md:grid-cols-3">
           {examples.map((example, index) => (
             <motion.div
               key={example}
@@ -2319,7 +2562,7 @@ export function AgentScheduledEmptyState({}: AgentEmptyStateProps & AgentLaunchA
           Make AI proactive instead of reactive. Your agent can monitor, report, follow up, and trigger workflows automatically on schedules - without waiting for someone to ask.
         </p>
 
-        <div className="mt-9 grid w-full grid-cols-1 gap-4 sm:grid-cols-3">
+        <div className="mt-9 grid w-full grid-cols-1 gap-4 md:grid-cols-3">
           {[
             "Schedule daily reports, summaries, and automated follow-ups",
             "Monitor pipelines, inboxes, or KPIs and trigger actions automatically",

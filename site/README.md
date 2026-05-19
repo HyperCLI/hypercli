@@ -201,6 +201,24 @@ That reset script removes any local override from `node_modules` first, then rei
 
 This keeps local development flexible without making CI or Netlify depend on the parent repo layout.
 
+### Site Publishing
+
+CI builds all sites in the site container and publishes the generated artifacts
+with the Netlify CLI. Netlify should not build from the repo directly.
+
+Branch deploy mapping:
+
+- `dev` pushes publish the dev Netlify sites with `site/env.dev`.
+- `main` pushes publish the feat Netlify sites with `site/env.feat`; this keeps
+  `feat.hypercli.com`, `console.feat.hypercli.com`, and
+  `agents.feat.hypercli.com` pointed at the prod backend without taking over dev.
+- Production site publishing stays manual via the `Publish Sites` workflow with
+  `deploy_environment=prod`.
+
+Required site ID secrets are `NETLIFY_MAIN_*_SITE_ID`,
+`NETLIFY_CONSOLE_*_SITE_ID`, and `NETLIFY_CLAW_*_SITE_ID` for `DEV`, `FEAT`,
+and `PROD`, plus `NETLIFY_AUTH_TOKEN`.
+
 ### CLI Development
 
 ```bash

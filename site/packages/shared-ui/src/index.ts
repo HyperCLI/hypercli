@@ -13,6 +13,7 @@ export {
 } from "./auth/AuthProvider";
 export { PrivyAuthBoundary } from "./auth/PrivyAuthBoundary";
 export type {
+  AuthFlowState as PrivyAuthFlowState,
   AuthContextType as PrivyAuthContextType,
   AuthProviderProps as PrivyAuthProviderProps,
   AuthUser as PrivyAuthUser,
@@ -318,14 +319,11 @@ export { default as ContactModal } from "./components/ContactModal";
 export { default as PartnerFormModal } from "./components/PartnerFormModal";
 export { default as Modal } from "./components/Modal";
 export { default as AlertDialog } from "./components/AlertDialog";
-export { default as Auth } from "./components/Auth";
 export { PrivyLoginModal, PrivyLoginPanel } from "./components/PrivyLogin";
 export { Providers } from "./components/Providers";
-export { AuthConnect } from "./components/AuthConnect";
 export { AuthProvider, useAuth } from "./providers/AuthProvider";
 export { WalletProvider, useWallet } from "./contexts/WalletContext";
 export { RainbowKitProvider } from "./providers/RainbowKitProvider";
-export { WalletAuth } from "./components/WalletAuth";
 export { TopUpModal } from "./components/TopUpModal";
 export { ApiKeysManager } from "./components/ApiKeysManager";
 

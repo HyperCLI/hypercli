@@ -74,7 +74,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
         type="button"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
       >
         <motion.span
           className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-background/70"
@@ -97,8 +97,8 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
-            <span className={`rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
+            <span className="min-w-0 truncate font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
+            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
               {statusLabel}
             </span>
           </span>

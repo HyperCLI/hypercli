@@ -55,6 +55,23 @@ function maybeDecodeMojibake(text: string): string {
 }
 
 const BINARY_CONTENT_OMITTED_MESSAGE = "[Binary file content omitted from chat preview.]";
+const INTERNAL_TOOL_OUTPUT_OMITTED_MESSAGE = "[Internal tool output hidden from chat.]";
+const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
+  bmp: "image/bmp",
+  gif: "image/gif",
+  ico: "image/x-icon",
+  jpeg: "image/jpeg",
+  jpg: "image/jpeg",
+  png: "image/png",
+  svg: "image/svg+xml",
+  webp: "image/webp",
+  csv: "text/csv",
+  md: "text/markdown",
+  pdf: "application/pdf",
+  txt: "text/plain",
+  xls: "application/vnd.ms-excel",
+  xlsx: "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+};
 
 function looksLikeBinaryDisplayText(text: string): boolean {
   const sample = text.slice(0, 4096);
@@ -95,6 +112,87 @@ const INTERNAL_HEARTBEAT_PRELUDE_MARKERS = [
   /\bThe user wants me to read\b/i,
   /\bLet me read the file first\b/i,
 ];
+const INTERNAL_HISTORY_CONTENT_TYPES = new Set([
+  "computer_call",
+  "computer_call_output",
+  "function_call",
+  "function_call_output",
+  "functioncall",
+  "functioncalloutput",
+  "input_image",
+  "local_shell_call",
+  "local_shell_call_output",
+  "mcp_call",
+  "mcp_list_tools",
+  "reasoning",
+  "thinking",
+  "tool",
+  "tool_call",
+  "tool_output",
+  "tool_use",
+  "toolcall",
+  "tooloutput",
+  "tooluse",
+  "tool_result",
+  "toolresult",
+  "image",
+]);
+const INTERNAL_TOOL_OUTPUT_CONTENT_TYPES = new Set([
+  "computer_call_output",
+  "function_call_output",
+  "functioncalloutput",
+  "local_shell_call_output",
+  "tool_output",
+  "tooloutput",
+  "tool_result",
+  "toolresult",
+]);
+const INTERNAL_WORKSPACE_PATH_MARKERS = ["/home/node/.openclaw/workspace", "/workspace"];
+const INTERNAL_WORKSPACE_PATH_TOKEN = /^(?:\/home\/node\/\.openclaw\/workspace|\/workspace)(?:\/|$)/;
+const INTERNAL_EXECUTION_STATUS_MARKERS = [
+  /^\(?\s*command exited with code \d+\s*\)?\.?$/i,
+  /^\(?\s*command failed with exit code \d+\s*\)?\.?$/i,
+  /^\(?\s*process exited with code \d+\s*\)?\.?$/i,
+  /^\(?\s*exit code:?\s*\d+\s*\)?\.?$/i,
+];
+
+function stripTokenWrapper(token: string): string {
+  return token
+    .replace(/^[`"'([{<]+/, "")
+    .replace(/[`"',.;:)\]}>]+$/, "");
+}
+
+function isLikelyInternalToolOutputText(text: string): boolean {
+  const trimmed = text.trim();
+  if (!trimmed || !INTERNAL_WORKSPACE_PATH_MARKERS.some((marker) => trimmed.includes(marker))) {
+    return false;
+  }
+
+  const tokens = trimmed.split(/\s+/).map(stripTokenWrapper).filter(Boolean);
+  const pathTokens = tokens.filter((token) => INTERNAL_WORKSPACE_PATH_TOKEN.test(token));
+  if (pathTokens.length < 3) return false;
+
+  const nonPathWordCount = tokens
+    .filter((token) => !INTERNAL_WORKSPACE_PATH_TOKEN.test(token))
+    .join(" ")
+    .match(/[A-Za-z]{3,}/g)?.length ?? 0;
+  return pathTokens.length / Math.max(tokens.length, 1) >= 0.5 && nonPathWordCount < 8;
+}
+
+function isInternalExecutionStatusText(text: string): boolean {
+  const trimmed = sanitizeChatDisplayText(text).trim();
+  return INTERNAL_EXECUTION_STATUS_MARKERS.some((marker) => marker.test(trimmed));
+}
+
+function hasDisplayableMessageContent(message: ChatMessage): boolean {
+  return Boolean(
+    message.content.trim() ||
+    (message.toolCalls?.length ?? 0) > 0 ||
+    (message.mediaUrls?.length ?? 0) > 0 ||
+    (message.attachments?.length ?? 0) > 0 ||
+    (message.files?.length ?? 0) > 0
+  );
+}
 
 function containsInternalHeartbeatMarker(value: unknown): boolean {
   if (value == null) return false;
@@ -143,6 +241,248 @@ function formatToolValue(value: unknown): string {
   }
 }
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function isHistoryWrapperLabelText(text: string): boolean {
+  const normalized = text.trim().toLowerCase();
+  return normalized === "message" || normalized === "assistant" || normalized === "assistant message";
+}
+
+function nestedVisibleRecordText(record: Record<string, unknown>): string {
+  return [record.output, record.message, record.messages, record.content]
+    .map((value) => extractVisibleHistoryText(value))
+    .filter((value) => value.trim() && !isHistoryWrapperLabelText(value) && !isInternalExecutionStatusText(value))
+    .join("\n");
+}
+
+function chooseVisibleHistoryText(normalizedText: string, fallbackText: string): string {
+  const fallback = fallbackText.trim();
+  if (fallback && (
+    !normalizedText.trim() ||
+    isHistoryWrapperLabelText(normalizedText) ||
+    isInternalExecutionStatusText(normalizedText)
+  )) {
+    return fallbackText;
+  }
+  return normalizedText || fallbackText;
+}
+
+function looksLikeAssistantAnswerText(text: string): boolean {
+  const trimmed = sanitizeChatDisplayText(text).trim();
+  if (
+    !trimmed ||
+    isLikelyInternalToolOutputText(trimmed) ||
+    isInternalExecutionStatusText(trimmed) ||
+    isInternalHeartbeatMessage(trimmed)
+  ) {
+    return false;
+  }
+  if (/^[{[]/.test(trimmed)) return false;
+
+  const words = trimmed.match(/[A-Za-z][A-Za-z']{1,}/g)?.length ?? 0;
+  if (words < 5) return false;
+
+  return (
+    /[.!?](?:\s|$)/.test(trimmed) ||
+    /:\s*(?:\n|$)/.test(trimmed) ||
+    /^(?:no|yes|there|the|it|here|i|you|workspace)\b/i.test(trimmed)
+  );
+}
+
+function extractNaturalLanguageToolOutputText(value: unknown): string {
+  if (Array.isArray(value)) {
+    return value
+      .map((entry) => extractNaturalLanguageToolOutputText(entry))
+      .find((text) => text.trim()) ?? "";
+  }
+
+  const record = asRecord(value);
+  if (!record) return "";
+
+  const type = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+  const role = typeof record.role === "string" ? record.role.trim().toLowerCase() : "";
+  const canUseDirectOutput = INTERNAL_TOOL_OUTPUT_CONTENT_TYPES.has(type) || role === "tool";
+  if (canUseDirectOutput) {
+    for (const key of ["text", "output", "content", "result"]) {
+      const text = record[key];
+      if (typeof text === "string" && looksLikeAssistantAnswerText(text)) {
+        return text;
+      }
+    }
+  }
+
+  for (const key of ["content", "output", "message", "messages"]) {
+    const text = extractNaturalLanguageToolOutputText(record[key]);
+    if (text.trim()) return text;
+  }
+  return "";
+}
+
+function visibleContentItemText(item: unknown): string | null {
+  if (typeof item === "string") return item;
+  const record = asRecord(item);
+  if (!record) return null;
+
+  const type = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+  if (INTERNAL_HISTORY_CONTENT_TYPES.has(type)) return null;
+
+  const nestedText = nestedVisibleRecordText(record);
+  if (nestedText && (type === "message" || type.endsWith("_message"))) {
+    return nestedText;
+  }
+
+  for (const key of ["text", "output_text"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  if (typeof record.content === "string" && record.content.trim()) {
+    return isHistoryWrapperLabelText(record.content) && nestedText ? nestedText : record.content;
+  }
+
+  if (nestedText) return nestedText;
+
+  return null;
+}
+
+function extractVisibleHistoryText(message: unknown): string {
+  if (typeof message === "string") return message;
+  if (Array.isArray(message)) {
+    return message
+      .map((item) => visibleContentItemText(item))
+      .filter((value): value is string => Boolean(value))
+      .join("\n");
+  }
+  const record = asRecord(message);
+  if (!record) return "";
+  const type = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+  if (INTERNAL_HISTORY_CONTENT_TYPES.has(type)) return "";
+
+  const nestedText = nestedVisibleRecordText(record);
+  if (nestedText && (type === "message" || type.endsWith("_message"))) {
+    return nestedText;
+  }
+
+  if (typeof record.content === "string") {
+    return isInternalExecutionStatusText(record.content) && nestedText ? nestedText : record.content;
+  }
+
+  for (const key of ["text", "output_text"]) {
+    const value = record[key];
+    if (typeof value === "string" && value.trim()) return value;
+  }
+  if (nestedText) return nestedText;
+  return "";
+}
+
+function fileNameFromPath(path: string): string {
+  return path.split("/").filter(Boolean).pop() ?? path;
+}
+
+function inferFileType(path: string): string {
+  const extension = fileNameFromPath(path).split(".").pop()?.toLowerCase() ?? "";
+  return FILE_TYPE_BY_EXTENSION[extension] ?? "application/octet-stream";
+}
+
+function isMediaAttachmentSentinel(line: string): boolean {
+  return /^\s*\[media attached:\s*media:\/\/[^\]]+\]\s*$/i.test(line);
+}
+
+function extractUserVisibleContentAndFiles(content: string): { content: string; files: ChatPendingFile[] } {
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  let cursor = 0;
+  const files: ChatPendingFile[] = [];
+  while (/^file:\s+/i.test(lines[cursor]?.trim() ?? "")) {
+    const path = (lines[cursor] ?? "")
+      .replace(/^\s*file:\s+/i, "")
+      .trim()
+      .replace(/^["']|["']$/g, "");
+    if (path) {
+      files.push({
+        name: fileNameFromPath(path),
+        path,
+        type: inferFileType(path),
+      });
+    }
+    cursor += 1;
+  }
+  if (cursor > 0 && lines[cursor]?.trim() === "") cursor += 1;
+  const visibleLines = (cursor > 0 ? lines.slice(cursor) : lines)
+    .filter((line) => !isMediaAttachmentSentinel(line));
+  return {
+    content: visibleLines.join("\n").trim(),
+    files,
+  };
+}
+
+function roleFromHistoryMessage(message: unknown): ChatMessage["role"] {
+  const record = asRecord(message);
+  const role = typeof record?.role === "string" ? record.role : "assistant";
+  return normalizeChatRole(role);
+}
+
+function rawHistoryRole(message: unknown): string {
+  const record = asRecord(message);
+  return typeof record?.role === "string" ? record.role.trim().toLowerCase() : "";
+}
+
+function isInternalToolHistoryRole(role: string): boolean {
+  return role === "tool" || role === "toolresult" || role === "tool_result";
+}
+
+function parseEmbeddedJsonObject(text: string): Record<string, unknown> | null {
+  const trimmed = text.trim();
+  if (!trimmed) return null;
+  for (const candidate of [trimmed, trimmed.slice(Math.max(0, trimmed.indexOf("{")))]) {
+    if (!candidate.startsWith("{")) continue;
+    try {
+      const parsed = JSON.parse(candidate);
+      return asRecord(parsed);
+    } catch {
+      // Try the next candidate.
+    }
+  }
+  return null;
+}
+
+function readHistoryErrorPayload(message: unknown): { raw: string; type?: string; status?: string; message?: string } | null {
+  const record = asRecord(message);
+  if (!record) return null;
+  const stopReason = typeof record.stopReason === "string" ? record.stopReason.trim().toLowerCase() : "";
+  const raw = typeof record.errorMessage === "string" ? sanitizeChatDisplayText(record.errorMessage).trim() : "";
+  if (!raw && stopReason !== "error") return null;
+
+  const status = raw.match(/^\s*(\d{3})\b/)?.[1];
+  const parsed = raw ? parseEmbeddedJsonObject(raw) : null;
+  const parsedError = asRecord(parsed?.error);
+  const parsedType = typeof parsedError?.type === "string" ? parsedError.type.trim() : undefined;
+  const parsedMessage = typeof parsedError?.message === "string" ? sanitizeChatDisplayText(parsedError.message).trim() : undefined;
+  const parsedCode = parsedError?.code;
+  const parsedStatus = typeof parsedCode === "number" || typeof parsedCode === "string" ? String(parsedCode) : undefined;
+
+  return {
+    raw,
+    ...(parsedType && parsedType.toLowerCase() !== "none" ? { type: parsedType } : {}),
+    ...(status || parsedStatus ? { status: status ?? parsedStatus } : {}),
+    ...(parsedMessage ? { message: parsedMessage } : {}),
+  };
+}
+
+function normalizeHistoryErrorContent(message: unknown): string | null {
+  const payload = readHistoryErrorPayload(message);
+  if (!payload) return null;
+  const firstLine = (payload.message || payload.raw).split("\n").map((line) => line.trim()).find(Boolean) ?? "";
+  const canShowFirstLine = firstLine && !/validation errors?|pydantic|field required|input_value/i.test(firstLine);
+  if (canShowFirstLine && firstLine.length <= 160) {
+    return `Assistant response failed: ${firstLine.replace(/[.。]+$/, "")}.`;
+  }
+  const detail = [payload.status, payload.type].filter(Boolean).join(" ");
+  return `Assistant response failed before returning content${detail ? ` (${detail})` : ""}.`;
+}
+
 function summarizeToolCalls(
   toolCalls: GatewayChatToolCall[],
 ): ChatMessage["toolCalls"] | undefined {
@@ -158,25 +498,44 @@ function summarizeToolCalls(
 }
 
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
+  if (isInternalToolHistoryRole(rawHistoryRole(message))) return null;
   const normalized = normalizeGatewayChatMessage(message);
-  if (!normalized) return null;
-  const content = sanitizeChatDisplayText(normalized.text);
-  const thinking = sanitizeChatDisplayText(normalized.thinking).trim();
-  if (isInternalHeartbeatMessage({ content, thinking })) return null;
-  const toolCalls = summarizeToolCalls(normalized.toolCalls)?.filter(
-    (toolCall) => !isInternalHeartbeatMessage({ toolCalls: [toolCall] }),
-  );
-  const mediaUrls = normalized.mediaUrls;
-  if (!content.trim() && !thinking && (!toolCalls || toolCalls.length === 0) && mediaUrls.length === 0) {
+  const role = normalized ? normalizeChatRole(normalized.role) : roleFromHistoryMessage(message);
+  const fallbackContent = extractVisibleHistoryText(message) || extractNaturalLanguageToolOutputText(message);
+  const rawContent = chooseVisibleHistoryText(normalized?.text ?? "", fallbackContent);
+  const userContent = role === "user"
+    ? extractUserVisibleContentAndFiles(rawContent)
+    : { content: rawContent, files: [] as ChatPendingFile[] };
+  const content = sanitizeChatDisplayText(
+    userContent.content,
+  ).trim();
+  const historyErrorContent = role === "assistant" && !content ? normalizeHistoryErrorContent(message) : null;
+  if (historyErrorContent) {
+    return {
+      role: "system",
+      content: historyErrorContent,
+      timestamp: normalized?.timestamp ?? Date.now(),
+    };
+  }
+  const thinking = sanitizeChatDisplayText(normalized?.thinking ?? "").trim();
+  if (isInternalHeartbeatMessage({ thinking })) return null;
+  const historyToolCalls = summarizeToolCalls(normalized?.toolCalls ?? []);
+  if (historyToolCalls?.some((toolCall) => isInternalHeartbeatMessage({ toolCalls: [toolCall] }))) {
+    return null;
+  }
+  const mediaUrls = normalized?.mediaUrls ?? [];
+  if (role === "assistant" && (isLikelyInternalToolOutputText(content) || isInternalExecutionStatusText(content))) {
+    return null;
+  }
+  if (!content.trim() && mediaUrls.length === 0 && userContent.files.length === 0) {
     return null;
   }
   return {
-    role: normalizeChatRole(normalized.role),
+    role,
     content,
-    ...(thinking ? { thinking } : {}),
-    ...(toolCalls ? { toolCalls } : {}),
     ...(mediaUrls.length > 0 ? { mediaUrls } : {}),
-    timestamp: normalized.timestamp ?? Date.now(),
+    ...(userContent.files.length > 0 ? { files: userContent.files } : {}),
+    timestamp: normalized?.timestamp ?? Date.now(),
   };
 }
 
@@ -220,70 +579,72 @@ function mergeToolCalls(
 }
 
 function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): ChatMessage {
+  const cleanCurrent = sanitizeAssistantMessage(current);
   // Cumulative vs delta detection: only treat as cumulative when the incoming
   // text actually contains the current text as a prefix. The previous
   // length-based heuristic broke delta streams whenever a single chunk was
   // longer than the accumulated text, silently dropping prior content.
   const rawMergedContent = incoming.content
     ? (
-      current.content && incoming.content.startsWith(current.content)
+      cleanCurrent.content && incoming.content.startsWith(cleanCurrent.content)
         ? incoming.content
-        : `${current.content ?? ""}${incoming.content}`
+        : `${cleanCurrent.content ?? ""}${incoming.content}`
     )
-    : current.content;
-  const mergedContent = isBinaryOmittedText(current.content) && incoming.content
-    ? current.content
+    : cleanCurrent.content;
+  const mergedContent = isBinaryOmittedText(cleanCurrent.content) && incoming.content
+    ? cleanCurrent.content
     : sanitizeChatDisplayText(rawMergedContent);
-  const rawMergedThinking = incoming.thinking
-    ? (
-      current.thinking && incoming.thinking.startsWith(current.thinking)
-        ? incoming.thinking
-        : `${current.thinking ?? ""}${incoming.thinking}`
-    )
-    : current.thinking;
-  const mergedThinking = rawMergedThinking
-    ? (
-      isBinaryOmittedText(current.thinking) && incoming.thinking
-        ? current.thinking
-        : sanitizeChatDisplayText(rawMergedThinking)
-    )
-    : rawMergedThinking;
   const mergedMediaUrls = [
-    ...(current.mediaUrls ?? []),
-    ...((incoming.mediaUrls ?? []).filter((url) => !(current.mediaUrls ?? []).includes(url))),
+    ...(cleanCurrent.mediaUrls ?? []),
+    ...((incoming.mediaUrls ?? []).filter((url) => !(cleanCurrent.mediaUrls ?? []).includes(url))),
   ];
   const mergedToolCalls = incoming.toolCalls
-    ? mergeToolCalls(current.toolCalls ?? [], incoming.toolCalls)
-    : current.toolCalls;
+    ? mergeToolCalls(cleanCurrent.toolCalls ?? [], incoming.toolCalls)
+    : cleanCurrent.toolCalls;
   return {
-    ...current,
+    ...cleanCurrent,
     content: mergedContent,
-    ...(mergedThinking ? { thinking: mergedThinking } : {}),
     ...(mergedToolCalls && mergedToolCalls.length > 0 ? { toolCalls: mergedToolCalls } : {}),
     ...(mergedMediaUrls.length > 0 ? { mediaUrls: mergedMediaUrls } : {}),
-    timestamp: incoming.timestamp ?? current.timestamp,
+    timestamp: incoming.timestamp ?? cleanCurrent.timestamp,
   };
 }
 
 function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
-  const toolCalls = message.toolCalls?.map((toolCall) => ({
-    ...toolCall,
-    args: sanitizeChatDisplayText(toolCall.args),
-    ...(toolCall.result !== undefined ? { result: sanitizeChatDisplayText(toolCall.result) } : {}),
-  }));
+  const content = sanitizeChatDisplayText(message.content);
+  const toolCalls = message.toolCalls?.map((toolCall) => {
+    const result = toolCall.result !== undefined ? sanitizeChatDisplayText(toolCall.result) : undefined;
+    return {
+      ...toolCall,
+      args: sanitizeChatDisplayText(toolCall.args),
+      ...(result !== undefined
+        ? { result: (isLikelyInternalToolOutputText(result) || isInternalExecutionStatusText(result)) ? INTERNAL_TOOL_OUTPUT_OMITTED_MESSAGE : result }
+        : {}),
+    };
+  });
   return {
-    ...message,
-    content: sanitizeChatDisplayText(message.content),
-    ...(message.thinking ? { thinking: sanitizeChatDisplayText(message.thinking) } : {}),
-    ...(toolCalls ? { toolCalls } : {}),
+    role: message.role,
+    content: message.role === "assistant" && (isLikelyInternalToolOutputText(content) || isInternalExecutionStatusText(content)) ? "" : content,
+    ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
+    ...(message.mediaUrls && message.mediaUrls.length > 0 ? { mediaUrls: message.mediaUrls } : {}),
+    ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
+    ...(message.files && message.files.length > 0 ? { files: message.files } : {}),
+    ...(message.timestamp !== undefined ? { timestamp: message.timestamp } : {}),
   };
 }
 
 function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  if (isInternalHeartbeatMessage(incoming)) {
+    const last = prev[prev.length - 1];
+    return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
+  }
   const sanitizedIncoming = sanitizeAssistantMessage(incoming);
   if (isInternalHeartbeatMessage(sanitizedIncoming)) {
     const last = prev[prev.length - 1];
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
+  }
+  if (!hasDisplayableMessageContent(sanitizedIncoming)) {
+    return prev;
   }
   const last = prev[prev.length - 1];
   let next: ChatMessage[];
@@ -292,7 +653,7 @@ function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): Cha
   } else {
     next = [...prev, sanitizedIncoming];
   }
-  return next.filter((message) => !isInternalHeartbeatMessage(message));
+  return next.filter((message) => !isInternalHeartbeatMessage(message) && hasDisplayableMessageContent(message));
 }
 
 function normalizeLiveToolCall(
