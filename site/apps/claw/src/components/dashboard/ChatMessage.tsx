@@ -668,7 +668,8 @@ export function ChatMessageBubble({
   const messageFiles = message.files ?? [];
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
-  const shouldRenderImageFilePreviews = Boolean(agentId && imageFiles.length > 0 && !hasInlineImageAttachments);
+  const imagePreviewAgentId = agentId ?? "";
+  const shouldRenderImageFilePreviews = Boolean(imagePreviewAgentId && imageFiles.length > 0 && !hasInlineImageAttachments);
   const fileChips = messageFiles.filter((file) => (
     !isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)
   ));
@@ -784,7 +785,7 @@ export function ChatMessageBubble({
                 {imageFiles.map((file, i) => (
                   <AuthImage
                     key={`${file.path}-${i}`}
-                    file={{ agentId, path: file.path }}
+                    file={{ agentId: imagePreviewAgentId, path: file.path }}
                     alt={file.name || "attachment"}
                     className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
                   />
