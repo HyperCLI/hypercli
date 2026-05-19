@@ -3,6 +3,19 @@ import type {
   HyperAgentPlan,
   HyperAgentSubscriptionSummary,
 } from "@hypercli.com/sdk/agent";
+import {
+  getEffectivePlanIdFromSummary,
+  getLaunchSlotInventoryFromSummary,
+  hasLaunchEntitlementSlots,
+  mergeLaunchSlotInventories,
+} from "@/lib/agent-launch-state";
+
+export {
+  getEffectivePlanIdFromSummary,
+  getLaunchSlotInventoryFromSummary,
+  hasLaunchEntitlementSlots,
+  mergeLaunchSlotInventories,
+};
 
 const PENDING_CHECKOUT_KEY = "hyperclaw.pendingPlanCheckout.v1";
 
@@ -19,8 +32,6 @@ export interface StripeCheckoutReturnState {
 }
 
 export type CheckoutReflectionStatus = "waiting-payment" | "waiting-entitlement" | "ready";
-
-type LaunchSlotInventory = Record<string, { granted?: number; used?: number; available?: number }>;
 
 export function writePendingPlanCheckout(checkout: PendingPlanCheckout): void {
   if (typeof window === "undefined") return;
@@ -118,17 +129,11 @@ export function getPlanOwnedCountFromSummary(
     summary.activeEntitlementCount ??
     summary.activeSubscriptionCount ??
     0;
-  if (count === 0 && summary.effectivePlanId === planId && activeEntitlementCount > 0) {
+  if (count === 0 && getEffectivePlanIdFromSummary(summary) === planId && activeEntitlementCount > 0) {
     count = activeEntitlementCount;
   }
 
   return count;
-}
-
-export function getLaunchSlotInventoryFromSummary(
-  summary: HyperAgentSubscriptionSummary | null | undefined,
-): LaunchSlotInventory {
-  return summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? {};
 }
 
 export function getGrantedLaunchSlotCountFromSummary(
@@ -149,12 +154,6 @@ export function getAvailableLaunchSlotCountFromSummary(
   );
 }
 
-export function hasLaunchEntitlementSlots(
-  summary: HyperAgentSubscriptionSummary | null | undefined,
-): boolean {
-  return getGrantedLaunchSlotCountFromSummary(summary) > 0;
-}
-
 export function getCheckoutReflectionStatus(
   summary: HyperAgentSubscriptionSummary | null | undefined,
   pending: PendingPlanCheckout | null,
@@ -165,7 +164,8 @@ export function getCheckoutReflectionStatus(
     summary.activeEntitlementCount ??
     summary.activeSubscriptionCount ??
     0;
-  const effectivePlanId = summary.effectivePlanId && summary.effectivePlanId !== "free" ? summary.effectivePlanId : "";
+  const summaryEffectivePlanId = getEffectivePlanIdFromSummary(summary);
+  const effectivePlanId = summaryEffectivePlanId && summaryEffectivePlanId !== "free" ? summaryEffectivePlanId : "";
   const planReflected = pending
     ? getPlanOwnedCountFromSummary(summary, pending.planId) > pending.ownedCount
     : activeEntitlementCount > 0 || Boolean(effectivePlanId);
@@ -186,15 +186,16 @@ export function getEffectivePlanName(
   currentPlan: HyperAgentCurrentPlan | null | undefined,
   catalogPlans: HyperAgentPlan[] | null | undefined,
 ): string | null {
+  const effectivePlanId = getEffectivePlanIdFromSummary(summary);
   const currentSubscription = (summary?.activeSubscriptions ?? []).find((subscription) =>
     subscription.isCurrent ||
     subscription.id === summary?.currentSubscriptionId ||
-    subscription.planId === summary?.effectivePlanId
+    subscription.planId === effectivePlanId
   );
   if (currentSubscription?.planName) return currentSubscription.planName;
 
-  const catalogPlan = (catalogPlans ?? []).find((plan) => plan.id === summary?.effectivePlanId);
+  const catalogPlan = (catalogPlans ?? []).find((plan) => plan.id === effectivePlanId);
   if (catalogPlan?.name) return catalogPlan.name;
 
-  return currentPlan?.name ?? currentPlan?.id ?? summary?.effectivePlanId ?? null;
+  return currentPlan?.name ?? currentPlan?.id ?? (effectivePlanId || null);
 }

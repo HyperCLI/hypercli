@@ -17,6 +17,7 @@ import {
   GATEWAY_LOADING_TITLE,
 } from "@/components/dashboard/AgentGatewayLoadingVisual";
 import type { AgentLifecycleStage } from "@/components/dashboard/AgentLifecycleSteps";
+import type { AgentBootDisplayStatus } from "@/components/dashboard/agents/chat-boot-stage";
 export { AgentLaunchPrompt } from "./AgentLaunchPrompt";
 
 // ── Error Boundary ──
@@ -151,34 +152,69 @@ interface AgentLoadingStateProps {
   tone?: "starting" | "connecting" | "loading";
   surface?: "default" | "terminal";
   stage?: AgentLifecycleStage;
+  bootStatus?: AgentBootDisplayStatus;
+  actionLabel?: string;
+  onAction?: () => void;
 }
 
 export function AgentLoadingState({
-  title = GATEWAY_LOADING_TITLE,
-  detail = GATEWAY_LOADING_DETAIL,
+  title,
+  detail,
   surface = "default",
+  stage = "gateway",
+  bootStatus,
+  actionLabel,
+  onAction,
 }: AgentLoadingStateProps) {
+  const resolvedTitle = bootStatus?.title ?? title ?? GATEWAY_LOADING_TITLE;
+  const resolvedDetail = bootStatus?.detail ?? detail ?? GATEWAY_LOADING_DETAIL;
+  const resolvedStage = bootStatus?.stage ?? stage;
+  const resolvedStatus = bootStatus?.status ?? "loading";
+
   return (
     <div
       className="flex h-full min-h-0 items-center justify-center overflow-hidden px-4 py-3 sm:px-5 sm:py-4"
       aria-live="polite"
+      data-loading-surface={surface}
+      data-loading-stage={resolvedStage}
     >
-      <AgentGatewayLoadingVisual title={title} detail={detail} />
+      <AgentGatewayLoadingVisual
+        title={resolvedTitle}
+        detail={resolvedDetail}
+        showCodePhase
+        status={resolvedStatus}
+        actionLabel={actionLabel}
+        onAction={onAction}
+      />
     </div>
   );
 }
 
 // ── Tab Loading State (for logs/shell) ──
 
-export function TabLoadingState({ label, detail, stage = "gateway" }: { label: string; detail?: string; stage?: AgentLifecycleStage }) {
-  void stage;
-
+export function TabLoadingState({
+  label,
+  detail,
+  stage = "gateway",
+  bootStatus,
+  onAction,
+}: {
+  label: string;
+  detail?: string;
+  stage?: AgentLifecycleStage;
+  bootStatus?: AgentBootDisplayStatus;
+  onAction?: () => void;
+}) {
   return (
     <AgentLoadingState
       title={label}
       detail={detail ?? "Opening a gateway stream."}
       tone="connecting"
       surface="terminal"
+      stage={stage}
+      bootStatus={bootStatus}
+      actionLabel={bootStatus?.status === "error" ? "Retry" : undefined}
+      onAction={onAction}
     />
   );
 }

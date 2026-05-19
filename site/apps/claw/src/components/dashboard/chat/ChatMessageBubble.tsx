@@ -15,6 +15,7 @@ import { AttachmentSection } from "./AttachmentSection";
 import { MarkdownContent } from "./MarkdownContent";
 import { StreamingIndicator } from "./StreamingIndicator";
 import { TimestampDisplay } from "./TimestampDisplay";
+import { DirectoryVisualization, parseDirectoryVisualization } from "./DirectoryVisualization";
 
 export function ChatMessageBubble({
   message,
@@ -46,6 +47,9 @@ export function ChatMessageBubble({
     }
   }
   const effectiveContent = contentIsJson ? "" : message.content;
+  const contentDirectoryListing = message.role === "assistant" && effectiveContent
+    ? parseDirectoryVisualization(effectiveContent)
+    : null;
 
   const typewriterActive = isStreaming && message.role === "assistant" && streamingVariant === "v2";
   const displayedContent = useTypewriter(effectiveContent, typewriterActive);
@@ -138,7 +142,14 @@ export function ChatMessageBubble({
           />
 
           {/* Content */}
-          {displayedContent && <MarkdownContent content={displayedContent} />}
+          {contentDirectoryListing ? (
+            <DirectoryVisualization
+              title="Directory"
+              rootPath={contentDirectoryListing.rootPath}
+              entries={contentDirectoryListing.entries}
+              truncated={contentDirectoryListing.truncated}
+            />
+          ) : displayedContent && <MarkdownContent content={displayedContent} />}
 
           {/* Streaming indicator */}
           <StreamingIndicator variant={streamingVariant} isStreaming={showStreamingIndicator} isUser={isUser} />

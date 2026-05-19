@@ -2,7 +2,7 @@
 
 import React from "react";
 import Markdown from "react-markdown";
-import { AlertTriangle, Box, CheckCircle2, Code2, FileText, Loader2, Mail, Plus, Search, X } from "lucide-react";
+import { AlertTriangle, Box, CheckCircle2, Code2, FileText, Mail, Plus, Search, X } from "lucide-react";
 import type { IconType } from "react-icons";
 import {
   SiAnthropic,
@@ -48,10 +48,12 @@ import {
 } from "react-icons/si";
 
 import { DirectoryDetail } from "../directory/DirectoryDetail";
+import { SkillsLoadingState } from "../directory/SkillsLoadingState";
 import { isPluginAvailableInSchema, isPluginConnected, type DirectoryCategory } from "../directory/directory-utils";
 import { loadSystemSkills, type AgentFileSource, type WorkspaceSkill } from "../directory/workspace-skills";
 import { PLUGIN_REGISTRY, type PluginMeta } from "./plugin-registry";
 import { AgentLoadingState } from "../agents/page-helpers";
+import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
 import { TeamsIcon } from "../BrandIcons";
 import type { FileEntry } from "../files/types";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -884,7 +886,7 @@ export function IntegrationsDirectoryPanel({
     ? getSkillConfigEntry(config, selectedSkillRow.skill.id, skillConfigOverrides)
     : { env: {} };
   const skillsSummary = skillsLoading
-    ? "Loading bundled skills"
+    ? "Loading app skills"
     : `${workspaceSkills.length} bundled · ${skillCounts.active} active`;
   const effectiveSkillsError = showingSkills && !onLoadSkills && !canLoadWorkspaceSkills
     ? "Workspace file access is unavailable for this agent."
@@ -901,13 +903,19 @@ export function IntegrationsDirectoryPanel({
   }, [selectedSkillPath, skillRows]);
 
   if (!connected || !configSchema) {
+    const bootStatus = getAgentGatewayPanelBootStatus({
+      connected,
+      loading: connected && !configSchema,
+      loadingTitle: "Loading integrations",
+      loadingDetail: `Reading available capabilities for ${scopeLabel}.`,
+      connectingDetail: "Opening the integrations workspace.",
+      waitingDetail: "Start the agent gateway to manage integrations.",
+    });
+
     return (
       <div className="h-full min-h-0 bg-[#030303]">
         <AgentLoadingState
-          title={connected ? "Loading integrations" : "Waiting for gateway"}
-          detail={connected ? `Reading available capabilities for ${scopeLabel}.` : "Start the agent gateway to manage integrations."}
-          tone={connected ? "loading" : "connecting"}
-          stage="gateway"
+          bootStatus={bootStatus ?? undefined}
         />
       </div>
     );
@@ -1019,12 +1027,7 @@ export function IntegrationsDirectoryPanel({
       <div className="px-5 py-7">
         {showingSkills ? (
           skillsLoading ? (
-            <div className="flex min-h-[260px] items-center justify-center rounded-[12px] border border-[#333333] bg-[#181818]">
-              <div className="flex items-center gap-3 text-sm text-[#a7a7a7]">
-                <Loader2 className="h-4 w-4 animate-spin text-[#29d76f]" />
-                Loading app skills...
-              </div>
-            </div>
+            <SkillsLoadingState className="rounded-[12px] border border-[#333333] bg-[#181818]" />
           ) : effectiveSkillsError ? (
             <div className="rounded-[12px] border border-[#333333] bg-[#181818] px-5 py-10 text-center text-sm text-[#858585]">
               {effectiveSkillsError}

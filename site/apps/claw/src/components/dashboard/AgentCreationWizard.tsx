@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useRef, useCallback, useEffect } from "react";
+import { useState, useRef, useCallback, useEffect, useMemo } from "react";
 import { motion, AnimatePresence } from "framer-motion";
 import type { HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
@@ -11,6 +11,7 @@ import {
 } from "lucide-react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { createHyperAgentClient, createOpenClawAgent } from "@/lib/agent-client";
+import { deriveLaunchEligibilityState } from "@/lib/agent-launch-state";
 import { formatTokens, type SlotInventory } from "@/lib/format";
 import { ResourceImage } from "@/components/ResourceImage";
 
@@ -95,6 +96,7 @@ const TYPE_ORDER = ["small", "medium", "large"];
 
 const TOTAL_STEPS = 3;
 const FIRST_AGENT_SETUP_DRAFT_KEY = "hypercli-first-agent-draft";
+const EMPTY_SLOT_INVENTORY: SlotInventory = {};
 
 interface FirstAgentSetupDraft {
   name?: unknown;
@@ -181,41 +183,27 @@ export function AgentCreationWizard({
     return (aIndex === -1 ? Number.MAX_SAFE_INTEGER : aIndex) - (bIndex === -1 ? Number.MAX_SAFE_INTEGER : bIndex);
   });
   const selectedType = sizeOptions.find((option) => option.id === selectedTypeId) || sizeOptions[0] || FALLBACK_TYPES[2];
-  const slotInventory = budget?.slots ?? {};
+  const slotInventory = useMemo(() => budget?.slots ?? EMPTY_SLOT_INVENTORY, [budget?.slots]);
   const selectedAvailability = slotInventory[selectedType.id]?.available ?? 0;
   const totalAvailableSlots = Object.values(slotInventory).reduce((sum, entry) => sum + Math.max(0, entry.available), 0);
   const launchEntitlementsLoaded = Boolean(budget);
   const selectedTypeCanLaunch = selectedAvailability > 0;
-  const activeSubscriptions = subscriptionSummary?.activeSubscriptions ?? [];
-  const launchSources: LaunchSourceOption[] = activeSubscriptions.map((subscription) => {
-    const slotGrants = subscription.slotGrants ?? {};
-    const tierIds = Object.entries(slotGrants)
-      .filter(([, granted]) => Math.max(Number(granted || 0), 0) > 0)
-      .map(([tier]) => tier)
-      .sort((a, b) => TYPE_ORDER.indexOf(a) - TYPE_ORDER.indexOf(b));
-    const slotSummary = tierIds.length > 0
-      ? tierIds
-          .map((tier) => `${Math.max(Number(slotGrants[tier] || 0), 0)} ${tier}`)
-          .join(" + ")
-      : "No launchable slots";
-    const inferenceOnly = tierIds.length === 0;
-    const availableCount = tierIds.reduce((sum, tier) => sum + Math.max(slotInventory[tier]?.available ?? 0, 0), 0);
-    const statusLabel = inferenceOnly
-      ? "Inference only"
-      : availableCount > 0
-        ? `${availableCount} launchable slot${availableCount === 1 ? "" : "s"}`
-        : "No free slots";
-    return {
-      id: subscription.id,
-      label: subscription.planName || subscription.planId,
-      planName: subscription.planName || subscription.planId,
-      tierIds,
-      slotSummary,
-      inferenceOnly,
-      availableCount,
-      statusLabel,
-    };
+  const launchEligibility = deriveLaunchEligibilityState({
+    subscriptionSummary,
+    slotInventory,
+    budgetLoaded: launchEntitlementsLoaded,
+    includeInventorySources: true,
   });
+  const launchSources: LaunchSourceOption[] = launchEligibility.sources.map((source) => ({
+    id: source.id,
+    label: source.planName || source.planId,
+    planName: source.planName || source.planId,
+    tierIds: [...source.tierIds].sort((a, b) => TYPE_ORDER.indexOf(a) - TYPE_ORDER.indexOf(b)),
+    slotSummary: source.slotSummary,
+    inferenceOnly: source.inferenceOnly,
+    availableCount: source.availableCount,
+    statusLabel: source.statusLabel,
+  }));
   const launchableSources = launchSources.filter((source) => !source.inferenceOnly);
   const selectedLaunchSource = launchSources.find((source) => source.id === selectedLaunchSourceId) ?? null;
 

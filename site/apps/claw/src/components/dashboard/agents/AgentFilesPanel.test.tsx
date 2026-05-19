@@ -1,11 +1,14 @@
 import type { ComponentProps } from "react";
 import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
-import { describe, expect, it, vi } from "vitest";
+import { afterEach, describe, expect, it, vi } from "vitest";
 
 import type { FileEntry } from "@/components/dashboard/files/types";
 import { renderWithClient } from "@/test/utils";
 import { AgentFilesPanel } from "./AgentFilesPanel";
+
+const originalCreateObjectURL = URL.createObjectURL;
+const originalRevokeObjectURL = URL.revokeObjectURL;
 
 function renderAgentFilesPanel(
   overrides: Partial<ComponentProps<typeof AgentFilesPanel>> = {},
@@ -33,6 +36,20 @@ function renderAgentFilesPanel(
 }
 
 describe("AgentFilesPanel", () => {
+  afterEach(() => {
+    vi.restoreAllMocks();
+    if (originalCreateObjectURL) {
+      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
+    } else {
+      Reflect.deleteProperty(URL, "createObjectURL");
+    }
+    if (originalRevokeObjectURL) {
+      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
+    } else {
+      Reflect.deleteProperty(URL, "revokeObjectURL");
+    }
+  });
+
   it("fetches root folders and files, then refetches when a folder is opened", async () => {
     const rootEntries: FileEntry[] = [
       { name: "docs", path: "workspace/docs", type: "directory" },
@@ -113,5 +130,32 @@ describe("AgentFilesPanel", () => {
     expect(await screen.findByRole("dialog", { name: /file editor/i })).toBeInTheDocument();
     expect(await screen.findByDisplayValue("# Notes")).toBeInTheDocument();
     expect(onOpenFile).toHaveBeenCalledWith("workspace/README.md");
+  });
+
+  it("opens image previews from bytes instead of text reads", async () => {
+    const createObjectURL = vi.fn(() => "blob:preview-image");
+    const revokeObjectURL = vi.fn();
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    const onListFiles = vi.fn(async () => [
+      { name: "chart.png", path: "workspace/chart.png", type: "file", size: 4 },
+    ]);
+    const onOpenFile = vi.fn().mockResolvedValue("not-image-text");
+    const onOpenFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+
+    renderAgentFilesPanel({ onListFiles, onOpenFile, onOpenFileBytes });
+
+    await userEvent.click(await screen.findByRole("button", { name: /chart.png/i }));
+
+    const previewImage = await screen.findByAltText("chart.png");
+    expect(previewImage).toHaveAttribute("src", "blob:preview-image");
+    expect(onOpenFileBytes).toHaveBeenCalledWith("workspace/chart.png");
+    expect(onOpenFile).not.toHaveBeenCalled();
   });
 });

@@ -200,6 +200,18 @@ export function AgentMainPanel({
   const renderSelectedPanelContent = () => {
     const activeAgent = selectedAgent;
     if (!activeAgent) return null;
+    const chatPanelOwnsBootState =
+      currentPanel === "chat" &&
+      (
+        activeAgent.state === "PENDING" ||
+        activeAgent.state === "STARTING" ||
+        activeAgent.state === "STOPPING" ||
+        (activeAgent.state === "RUNNING" && shouldShowStartupAnimation)
+      );
+
+    if (chatPanelOwnsBootState) {
+      return panelContent;
+    }
 
     if (isStopping) {
       return (

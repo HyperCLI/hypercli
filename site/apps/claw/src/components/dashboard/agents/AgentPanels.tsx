@@ -30,6 +30,7 @@ import { OpenClawErrorBoundary } from "./page-helpers";
 import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
 import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
+import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
 
 interface SessionLike {
   connected: boolean;
@@ -81,6 +82,14 @@ export function OpenClawConfigPanel({
   const [localError, setLocalError] = React.useState<string | null>(null);
   const [localSuccess, setLocalSuccess] = React.useState<string | null>(null);
   const [localSaving, setLocalSaving] = React.useState(false);
+  const configBootStatus = getAgentGatewayPanelBootStatus({
+    connected: chat.connected,
+    connecting: chat.connecting,
+    loadingTitle: "Loading settings",
+    loadingDetail: "Reading OpenClaw configuration.",
+    connectingDetail: "Opening the settings workspace.",
+    waitingDetail: "Reconnect the gateway before editing openclaw.json.",
+  });
   const editorContent = React.useMemo(() => JSON.stringify(openclawDraft ?? {}, null, 2), [openclawDraft]);
   const editorEntry = React.useMemo<FileEntry>(() => ({
     name: "openclaw.json",
@@ -176,7 +185,7 @@ export function OpenClawConfigPanel({
           error={null}
           readOnly={!chat.connected}
           readOnlyLabel="Disconnected"
-          readOnlyDescription="Reconnect the gateway before editing openclaw.json."
+          readOnlyDescription={configBootStatus?.detail ?? "Reconnect the gateway before editing openclaw.json."}
           onClose={onClose ?? (() => {})}
           showClose={Boolean(onClose)}
           onSave={chat.connected ? saveOpenclawJson : undefined}
@@ -235,6 +244,15 @@ export function OpenClawSettingsPanel({
   const [mobileSectionsOpen, setMobileSectionsOpen] = React.useState(true);
   const hasSections = openclawSections.length > 0;
   const saveLabel = effectiveOpenclawSection ? "Save Section" : "Save All";
+  const settingsBootStatus = getAgentGatewayPanelBootStatus({
+    connected: chat.connected,
+    connecting: chat.connecting,
+    loading: chat.connected && !openclawSchemaBundle,
+    loadingTitle: "Loading settings",
+    loadingDetail: "Reading OpenClaw configuration.",
+    connectingDetail: "Opening the settings workspace.",
+    waitingDetail: "Connect the agent gateway to edit OpenClaw settings.",
+  });
 
   React.useEffect(() => {
     if (isDesktopViewport) setMobileSectionsOpen(false);
@@ -282,18 +300,24 @@ export function OpenClawSettingsPanel({
           {openclawSuccess}
         </div>
       )}
-      {!chat.connected && !chat.connecting && (
+      {settingsBootStatus && !chat.connected && !chat.connecting && (
         <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
-          Connect the agent gateway to edit OpenClaw settings.
+          {settingsBootStatus.detail}
         </div>
       )}
-      {chat.connecting && !chat.connected && (
+      {settingsBootStatus && chat.connecting && !chat.connected && (
         <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
           <Loader2 className="h-4 w-4 animate-spin" />
-          Connecting to gateway...
+          {settingsBootStatus.title}
         </div>
       )}
-      {chat.connected && !hasSections && (
+      {settingsBootStatus && chat.connected && !hasSections && !openclawSchemaBundle && (
+        <div className="inline-flex items-center gap-2 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
+          <Loader2 className="h-4 w-4 animate-spin" />
+          {settingsBootStatus.detail}
+        </div>
+      )}
+      {chat.connected && !hasSections && openclawSchemaBundle && (
         <div className="rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-text-muted">
           No config schema available from gateway.
         </div>

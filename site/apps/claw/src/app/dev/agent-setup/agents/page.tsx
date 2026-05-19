@@ -80,7 +80,7 @@ import {
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
-import { getEffectivePlanName } from "@/lib/plan-checkout-state";
+import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
@@ -102,7 +102,8 @@ function buildBillingBudget(
 ): AgentBudget | null {
   if (!summary && !currentPlan) return null;
 
-  const slots = summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {};
+  const summarySlots = mergeLaunchSlotInventories(summary?.slotInventory, summary?.entitlements?.slotInventory);
+  const slots = summary ? summarySlots : mergeLaunchSlotInventories(currentPlan?.slotInventory);
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
   const sizePresets = Object.fromEntries(
     (typeCatalog?.types ?? []).map((type) => [type.id, { cpu: type.cpu, memory: type.memory }]),

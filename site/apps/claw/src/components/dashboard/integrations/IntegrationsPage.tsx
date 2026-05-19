@@ -22,6 +22,7 @@ import { PluginCard } from "./PluginCard";
 import { PluginConfigPanel } from "./PluginConfigPanel";
 import { getPlugin, getPluginsByCategory, isPluginEnabled, countEnabledInCategory } from "./plugin-registry";
 import { AgentLoadingState } from "../agents/page-helpers";
+import { getAgentGatewayPanelBootStatus } from "../agents/chat-boot-stage";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 /** Panel identifiers: legacy literals for existing wizards/panels, "plugin:<id>" for dynamic plugin panels */
@@ -151,13 +152,19 @@ export function IntegrationsPage({ config: initialConfig, configSchema, connecte
   const telegramInfo = getTelegramStatus();
 
   if (!connected && !applyingChanges) {
+    const bootStatus = getAgentGatewayPanelBootStatus({
+      connected,
+      connecting: false,
+      loadingTitle: "Loading integrations",
+      loadingDetail: "Reading available integrations.",
+      connectingDetail: "Opening the integrations workspace.",
+      waitingDetail: "Integrations load after the gateway is reachable.",
+    });
+
     return (
       <div className="h-full min-h-[280px]">
         <AgentLoadingState
-          title="Waiting for gateway"
-          detail="Integrations load after the gateway is reachable."
-          tone="connecting"
-          stage="gateway"
+          bootStatus={bootStatus ?? undefined}
         />
       </div>
     );

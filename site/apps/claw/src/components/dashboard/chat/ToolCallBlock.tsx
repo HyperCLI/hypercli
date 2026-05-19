@@ -5,6 +5,7 @@ import { Check, ChevronDown, ChevronRight, Loader2, Wrench } from "lucide-react"
 import { getToolCallClass } from "./bubbleStyles";
 import { extractImagePath, formatToolDetail, toolCallSummary } from "./helpers";
 import { AuthImage } from "./AuthImage";
+import { DirectoryVisualization, parseDirectoryVisualization } from "./DirectoryVisualization";
 import type { ThemeVariant } from "./types";
 
 interface ToolCallBlockProps {
@@ -29,6 +30,7 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
   const pending = rawPending && !pendingTimedOut;
   const argsDetail = formatToolDetail(tc.args, 280);
   const resultDetail = tc.result ? formatToolDetail(tc.result, 520) : null;
+  const directoryListing = tc.result ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -70,7 +72,15 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
               <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail.text}</pre>
             </div>
           )}
-          {resultDetail?.text && (
+          {directoryListing && (
+            <DirectoryVisualization
+              title="Directory result"
+              rootPath={directoryListing.rootPath}
+              entries={directoryListing.entries}
+              truncated={directoryListing.truncated}
+            />
+          )}
+          {resultDetail?.text && !directoryListing && (
             <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Result</p>
               <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail.text}</pre>

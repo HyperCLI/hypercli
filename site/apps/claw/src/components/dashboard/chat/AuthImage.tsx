@@ -3,7 +3,8 @@
 import { useEffect, useRef, useState } from "react";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
-import { ResourceImage } from "@/components/ResourceImage";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { ChatImageViewer } from "./ChatImageViewer";
 import type { AgentFileReference } from "./types";
 
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
@@ -35,7 +36,7 @@ export function AuthImage({
     if (!token) { setFailed(true); return; }
     let cancelled = false;
 
-    createAgentClient(token).fileReadBytes(file.agentId, file.path)
+    createAgentClient(token).fileReadBytes(file.agentId, normalizeOpenClawWorkspaceFilePath(file.path))
       .then((bytes) => {
         if (cancelled) return;
         const blob = new Blob([toArrayBuffer(bytes)]);
@@ -57,16 +58,14 @@ export function AuthImage({
   if (failed || !blobUrl) return null;
 
   return (
-    <a href={blobUrl} target="_blank" rel="noopener noreferrer" className="block max-w-full">
-      <ResourceImage
-        src={blobUrl}
-        alt={alt}
-        width={320}
-        height={320}
-        sizes="(max-width: 640px) 100vw, 320px"
-        className={className}
-        loading="lazy"
-      />
-    </a>
+    <ChatImageViewer
+      src={blobUrl}
+      alt={alt}
+      width={320}
+      height={320}
+      sizes="(max-width: 640px) 100vw, 320px"
+      className={className}
+      loading="lazy"
+    />
   );
 }

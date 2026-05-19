@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
+import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   createOpenClawConfigValue,
@@ -51,6 +51,7 @@ import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type {
   HyperAgentCurrentPlan,
+  HyperAgentEntitlement,
   HyperAgentPlan,
   HyperAgentSubscription,
   HyperAgentSubscriptionSummary,
@@ -85,9 +86,15 @@ import {
   getCheckoutReflectionStatus,
   getEffectivePlanName,
   getPlanOwnedCountFromSummary,
+  mergeLaunchSlotInventories,
   readPendingPlanCheckout,
   readStripeCheckoutReturnState,
 } from "@/lib/plan-checkout-state";
+import {
+  billingReflectionReducer,
+  checkoutSyncBannerFromBillingState,
+  initialBillingReflectionState,
+} from "@/lib/billing-reflection-machine";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import {
   type AgentStatusChipModel,
@@ -101,6 +108,7 @@ import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalP
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
+import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
@@ -108,6 +116,9 @@ import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle 
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
+type SubscriptionSummaryWithEntitlementItems = HyperAgentSubscriptionSummary & {
+  entitlementItems?: HyperAgentEntitlement[];
+};
 
 const SHOW_AGENT_INSPECTOR = false;
 const SCHEDULED_SECTION_ENABLED = true;
@@ -291,6 +302,7 @@ function applyActiveNoSlotBillingMock(
   currentPlan: HyperAgentCurrentPlan | null,
   catalogPlans: HyperAgentPlan[],
 ): HyperAgentSubscriptionSummary {
+  const entitlementItems = (summary as SubscriptionSummaryWithEntitlementItems | null)?.entitlementItems ?? [];
   const catalogProduct = buildUpgradeProducts(catalogPlans).find((product) => product.id !== "free" && primaryLaunchTier(product.bundle));
   const existingSubscription = summary?.activeSubscriptions?.find((subscription) => primaryLaunchTier(bundleFromSubscription(subscription)));
   const tier = primaryLaunchTier(existingSubscription ? bundleFromSubscription(existingSubscription) : (catalogProduct?.bundle ?? {})) ?? "medium";
@@ -330,7 +342,7 @@ function applyActiveNoSlotBillingMock(
     : [...(summary?.activeSubscriptions ?? []), mockSubscription];
   const subscriptions = existingSubscription && summary?.subscriptions?.length ? summary.subscriptions : activeSubscriptions;
 
-  return {
+  const mockedSummary: SubscriptionSummaryWithEntitlementItems = {
     effectivePlanId: planId,
     currentSubscriptionId: summary?.currentSubscriptionId || mockSubscription.id,
     currentEntitlementId: summary?.currentEntitlementId || mockSubscription.id,
@@ -351,11 +363,12 @@ function applyActiveNoSlotBillingMock(
       activeEntitlementCount,
       billingResetAt: summary?.entitlements?.billingResetAt ?? summary?.billingResetAt ?? null,
     },
-    entitlementItems: summary?.entitlementItems ?? [],
+    entitlementItems,
     activeSubscriptions,
     subscriptions,
     user: summary?.user || {},
   };
+  return mockedSummary;
 }
 
 function countOwnedCheckoutPlan(
@@ -394,7 +407,8 @@ function buildBillingBudget(
     return null;
   }
 
-  const slots = summary?.entitlements?.slotInventory ?? summary?.slotInventory ?? currentPlan?.slotInventory ?? {};
+  const summarySlots = mergeLaunchSlotInventories(summary?.slotInventory, summary?.entitlements?.slotInventory);
+  const slots = summary ? summarySlots : mergeLaunchSlotInventories(currentPlan?.slotInventory);
   const pooledTpd = summary?.entitlements?.pooledTpd ?? summary?.pooledTpd ?? currentPlan?.pooledTpd ?? 0;
   const sizePresets = Object.fromEntries(
     (typeCatalog?.types ?? []).map((type) => [type.id, { cpu: type.cpu, memory: type.memory }]),
@@ -423,11 +437,6 @@ function slotReleaseLanded(
   return Math.max(after.available ?? 0, 0) > Math.max(before.available ?? 0, 0) ||
     Math.max(after.used ?? 0, 0) < Math.max(before.used ?? 0, 0);
 }
-
-type CheckoutSyncState = {
-  status: "syncing" | "success" | "pending" | "cancelled";
-  message: string;
-};
 
 function UpgradePlanCatalogModal({
   open,
@@ -640,8 +649,16 @@ function getWorkspaceSidebarDisabledReason({
   hydrating: boolean;
 }): string {
   if (agentsLoading) return "Loading agents.";
-  if (hydrating) return "Fetching messages, files, and config.";
-  if (connecting) return "Opening the gateway connection.";
+  const bootStatus = getAgentGatewayPanelBootStatus({
+    connected: false,
+    connecting,
+    loading: hydrating,
+    loadingTitle: "Loading workspace",
+    loadingDetail: "Fetching messages, files, and config.",
+    connectingDetail: "Opening the gateway connection.",
+    waitingDetail: "Workspace is loading.",
+  });
+  if (bootStatus) return bootStatus.detail;
   return "Workspace is loading.";
 }
 // Shell now routes through the gateway WebSocket via lagoon -> K8s exec.
@@ -669,7 +686,14 @@ export default function AgentsPage() {
   const [upgradeCatalogError, setUpgradeCatalogError] = useState<string | null>(null);
   const [upgradeCheckoutPlan, setUpgradeCheckoutPlan] = useState<UpgradeCheckoutPlan | null>(null);
   const [upgradeCatalogLoading, setUpgradeCatalogLoading] = useState(false);
-  const [checkoutSync, setCheckoutSync] = useState<CheckoutSyncState | null>(null);
+  const [billingReflectionState, dispatchBillingReflection] = useReducer(
+    billingReflectionReducer,
+    initialBillingReflectionState,
+  );
+  const checkoutSync = useMemo(
+    () => checkoutSyncBannerFromBillingState(billingReflectionState),
+    [billingReflectionState],
+  );
   const [deployments, setDeployments] = useState<Deployments | null>(null);
   const [agentsLoading, setAgentsLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -887,8 +911,9 @@ export default function AgentsPage() {
 
   const refreshCheckoutEntitlements = useCallback(async () => {
     const pending = readPendingPlanCheckout();
-    setCheckoutSync({
-      status: "syncing",
+    dispatchBillingReflection({
+      type: "SYNC_STARTED",
+      pending,
       message: `Refreshing ${pending?.planName ?? "your plan"} entitlements from billing...`,
     });
     const refreshed = await fetchAgents();
@@ -896,24 +921,11 @@ export default function AgentsPage() {
 
     if (reflectionStatus === "ready") {
       clearPendingPlanCheckout();
-      setCheckoutSync({
-        status: "success",
-        message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
-      });
-      return;
     }
-
-    if (reflectionStatus === "waiting-entitlement") {
-      setCheckoutSync({
-        status: "pending",
-        message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
-      });
-      return;
-    }
-
-    setCheckoutSync({
-      status: "pending",
-      message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
+    dispatchBillingReflection({
+      type: "REFLECTION_RECEIVED",
+      pending,
+      reflectionStatus,
     });
   }, [fetchAgents]);
 
@@ -951,10 +963,7 @@ export default function AgentsPage() {
     if (checkoutReturn.status === "cancelled") {
       checkoutReturnHandledRef.current = true;
       clearPendingPlanCheckout();
-      setCheckoutSync({
-        status: "cancelled",
-        message: "Checkout cancelled. No plan changes were made.",
-      });
+      dispatchBillingReflection({ type: "CHECKOUT_CANCELLED" });
       clearStripeCheckoutReturnState();
       return;
     }
@@ -962,8 +971,9 @@ export default function AgentsPage() {
     let active = true;
     const pending = readPendingPlanCheckout();
     const planLabel = pending?.planName ? `${pending.planName} plan` : "your plan";
-    setCheckoutSync({
-      status: "syncing",
+    dispatchBillingReflection({
+      type: "SYNC_STARTED",
+      pending,
       message: `Payment received. Finalizing ${planLabel} setup...`,
     });
 
@@ -991,21 +1001,12 @@ export default function AgentsPage() {
 
       if (reflectionStatus === "ready") {
         clearPendingPlanCheckout();
-        setCheckoutSync({
-          status: "success",
-          message: `${pending?.planName ?? "Your plan"} is active. Agent slots and limits are updated.`,
-        });
-      } else if (reflectionStatus === "waiting-entitlement") {
-        setCheckoutSync({
-          status: "pending",
-          message: "Payment active. Waiting for launch entitlements to finish provisioning before agents can be created.",
-        });
-      } else {
-        setCheckoutSync({
-          status: "pending",
-          message: "Payment succeeded. Billing is still updating, so this page will keep showing the latest plan data.",
-        });
       }
+      dispatchBillingReflection({
+        type: "REFLECTION_RECEIVED",
+        pending,
+        reflectionStatus,
+      });
 
       checkoutReturnHandledRef.current = true;
       clearStripeCheckoutReturnState();
@@ -1018,7 +1019,7 @@ export default function AgentsPage() {
 
   useEffect(() => {
     if (!checkoutSync || (checkoutSync.status !== "success" && checkoutSync.status !== "cancelled")) return;
-    const timer = setTimeout(() => setCheckoutSync(null), 5000);
+    const timer = setTimeout(() => dispatchBillingReflection({ type: "DISMISS" }), 5000);
     return () => clearTimeout(timer);
   }, [checkoutSync]);
 
@@ -1155,18 +1156,54 @@ export default function AgentsPage() {
   const listAgentFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
     if (!selectedAgentId) return [];
     const token = await getToken();
-    const entries = await createAgentClient(token).filesList(
-      selectedAgentId,
-      normalizeAgentFilePath(path ?? ""),
-      source,
-    );
+    const agentClient = createAgentClient(token);
+    const normalizedPath = normalizeAgentFilePath(path ?? "");
+    const entries = await agentClient.filesList(selectedAgentId, normalizedPath, source);
+    if (source === "auto" && entries.length === 0) {
+      for (const fallbackSource of ["s3", "pod"] as const) {
+        try {
+          const fallbackEntries = await agentClient.filesList(selectedAgentId, normalizedPath, fallbackSource);
+          if (fallbackEntries.length > 0) return (fallbackEntries as AgentFileEntry[]).map(toDashboardFileEntry);
+        } catch {}
+      }
+    }
     return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
   }, [getToken, selectedAgentId]);
 
   const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
     if (!selectedAgentId) return "";
     const token = await getToken();
-    return createAgentClient(token).fileRead(selectedAgentId, normalizeAgentFilePath(path), source);
+    const agentClient = createAgentClient(token);
+    const normalizedPath = normalizeAgentFilePath(path);
+    try {
+      return await agentClient.fileRead(selectedAgentId, normalizedPath, source);
+    } catch (err) {
+      if (source !== "auto") throw err;
+      for (const fallbackSource of ["s3", "pod"] as const) {
+        try {
+          return await agentClient.fileRead(selectedAgentId, normalizedPath, fallbackSource);
+        } catch {}
+      }
+      throw err;
+    }
+  }, [getToken, selectedAgentId]);
+
+  const readAgentFileBytes = useCallback(async (path: string, source: AgentFileSource = "auto") => {
+    if (!selectedAgentId) return new Uint8Array();
+    const token = await getToken();
+    const agentClient = createAgentClient(token);
+    const normalizedPath = normalizeAgentFilePath(path);
+    try {
+      return await agentClient.fileReadBytes(selectedAgentId, normalizedPath, source);
+    } catch (err) {
+      if (source !== "auto") throw err;
+      for (const fallbackSource of ["s3", "pod"] as const) {
+        try {
+          return await agentClient.fileReadBytes(selectedAgentId, normalizedPath, fallbackSource);
+        } catch {}
+      }
+      throw err;
+    }
   }, [getToken, selectedAgentId]);
 
   const loadAgentSkills = useCallback(async () => {
@@ -2591,7 +2628,7 @@ export default function AgentsPage() {
             )}
             <button
               type="button"
-              onClick={() => setCheckoutSync(null)}
+              onClick={() => dispatchBillingReflection({ type: "DISMISS" })}
               className="rounded p-0.5 text-current opacity-70 transition hover:opacity-100"
               aria-label="Dismiss checkout status"
             >
@@ -2950,6 +2987,7 @@ export default function AgentsPage() {
               error={null}
               onListFiles={listAgentFiles}
               onOpenFile={readAgentFile}
+              onOpenFileBytes={readAgentFileBytes}
               onSaveFile={saveAgentFile}
               onDeleteFile={deleteAgentFile}
               onUploadFile={saveAgentFile}

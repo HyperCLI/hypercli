@@ -1,7 +1,7 @@
 "use client";
 
 import { Paperclip } from "lucide-react";
-import { ResourceImage } from "@/components/ResourceImage";
+import { ChatImageViewer } from "./ChatImageViewer";
 import type { ChatAttachment, ChatPendingFile } from "./types";
 
 interface AttachmentSectionProps {
@@ -17,15 +17,14 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
       {attachments && attachments.length > 0 && (
         <div className="mb-2 flex max-w-full flex-wrap gap-2">
           {attachments.map((att, i) => (
-            <ResourceImage
+            <ChatImageViewer
               key={i}
               src={`data:${att.mimeType};base64,${att.content}`}
               alt={att.fileName || "attachment"}
               width={240}
               height={240}
               sizes="(max-width: 640px) 100vw, 240px"
-              className="h-auto max-h-[240px] max-w-full cursor-pointer rounded-md object-cover sm:max-w-[240px]"
-              onClick={() => window.open(`data:${att.mimeType};base64,${att.content}`, "_blank")}
+              className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
             />
           ))}
         </div>
@@ -53,17 +52,16 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
             const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
             if (isImage) {
               return (
-                <a key={i} href={url} target="_blank" rel="noopener noreferrer" className="block max-w-full">
-                  <ResourceImage
-                    src={url}
-                    alt="media"
-                    width={320}
-                    height={320}
-                    sizes="(max-width: 640px) 100vw, 320px"
-                    className="h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]"
-                    loading="lazy"
-                  />
-                </a>
+                <ChatImageViewer
+                  key={i}
+                  src={url}
+                  alt="media"
+                  width={320}
+                  height={320}
+                  sizes="(max-width: 640px) 100vw, 320px"
+                  className="h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]"
+                  loading="lazy"
+                />
               );
             }
             return (

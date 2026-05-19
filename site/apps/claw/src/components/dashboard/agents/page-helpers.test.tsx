@@ -1,4 +1,4 @@
-import { screen } from "@testing-library/react";
+import { screen, waitFor } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { describe, expect, it, vi } from "vitest";
 import { renderWithClient, expectNoA11yViolations } from "@/test/utils";
@@ -64,7 +64,7 @@ describe("AgentLoadingState", () => {
     expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
   });
 
-  it("keeps the loading animation mounted while status text changes", () => {
+  it("keeps the loading animation mounted while status text changes", async () => {
     const { rerender } = renderWithClient(
       <AgentLoadingState
         title="Provisioning runtime"
@@ -81,7 +81,30 @@ describe("AgentLoadingState", () => {
     );
 
     expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBe(animation);
-    expect(screen.getByText("Booting agent")).toBeInTheDocument();
-    expect(screen.getByText("Starting the container and OpenClaw services.")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(screen.getByText("Booting agent")).toBeInTheDocument();
+      expect(screen.getByText("Starting the container and OpenClaw services.")).toBeInTheDocument();
+    });
+  });
+
+  it("renders an error status with a retry action", async () => {
+    const onRetry = vi.fn();
+    renderWithClient(
+      <AgentLoadingState
+        bootStatus={{
+          status: "error",
+          phase: "error",
+          title: "Could not connect",
+          detail: "Gateway handshake failed",
+          stage: "gateway",
+        }}
+        actionLabel="Retry"
+        onAction={onRetry}
+      />,
+    );
+
+    expect(screen.getByRole("alert", { name: /could not connect gateway handshake failed/i })).toBeInTheDocument();
+    await userEvent.click(screen.getByRole("button", { name: /retry/i }));
+    expect(onRetry).toHaveBeenCalledTimes(1);
   });
 });

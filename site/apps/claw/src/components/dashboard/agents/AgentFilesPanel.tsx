@@ -14,12 +14,13 @@ import {
 } from "lucide-react";
 
 import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
-import { FilePreview } from "@/components/dashboard/files/FilePreview";
+import { FilePreview, isImageFileName } from "@/components/dashboard/files/FilePreview";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
 import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
 import type { FileEntry, FileSortDir, FileSortKey } from "@/components/dashboard/files/types";
+import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { isProtectedFile } from "@/lib/protected-files";
 
 const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
@@ -60,6 +61,7 @@ interface AgentFilesPanelProps {
   error?: string | null;
   onListFiles: (path?: string) => Promise<FileEntry[]>;
   onOpenFile: (path: string) => Promise<string>;
+  onOpenFileBytes?: (path: string) => Promise<Uint8Array>;
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   onUploadFile: (path: string, content: string) => Promise<void>;
@@ -76,6 +78,7 @@ export function AgentFilesPanel({
   error,
   onListFiles,
   onOpenFile,
+  onOpenFileBytes,
   onSaveFile,
   onDeleteFile,
   onUploadFile,
@@ -94,7 +97,7 @@ export function AgentFilesPanel({
   const listRequestIdRef = useRef(0);
 
   const [previewEntry, setPreviewEntry] = useState<FileEntry | null>(null);
-  const [previewContent, setPreviewContent] = useState<string | null>(null);
+  const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
 
@@ -141,6 +144,19 @@ export function AgentFilesPanel({
   const filesLoading = listLoading || (agentState === "RUNNING" && (connecting || hydrating));
   const filesDisconnected = agentState === "RUNNING" && !connecting && !hydrating && !listLoading && !connected;
   const effectiveError = listError ?? error ?? null;
+  const filesBootStatus = getAgentGatewayPanelBootStatus({
+    connected,
+    connecting,
+    loading: filesLoading,
+    error: effectiveError,
+    loadingTitle: "Loading workspace",
+    loadingDetail: "Loading folders and files.",
+    connectingDetail: "Opening the files workspace.",
+    waitingDetail: filesDisconnected
+      ? "Reconnect the gateway to browse workspace files."
+      : "Start the agent to browse workspace files.",
+    errorTitle: "Files error",
+  });
   const emptyKind: "offline" | "loading" | "error" | "no-files" | "no-results" | null =
     filesLoading
       ? "loading"
@@ -166,13 +182,17 @@ export function AgentFilesPanel({
     setPreviewError(null);
     setPreviewLoading(true);
     try {
-      setPreviewContent(await onOpenFile(entry.path));
+      setPreviewContent(
+        isImageFileName(entry.name) && onOpenFileBytes
+          ? await onOpenFileBytes(entry.path)
+          : await onOpenFile(entry.path),
+      );
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "Failed to load file");
     } finally {
       setPreviewLoading(false);
     }
-  }, [onOpenFile]);
+  }, [onOpenFile, onOpenFileBytes]);
 
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     await onSaveFile(path, content);
@@ -242,9 +262,9 @@ export function AgentFilesPanel({
 
         {(filesLoading || !connected || effectiveError) && (
           <div className="flex items-center gap-1 text-[10px] text-[#f0c56c]">
-            {filesLoading ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
+            {filesBootStatus?.status === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
             <span>
-              {filesLoading ? "Loading workspace" : effectiveError ? "Files error" : agentState === "RUNNING" ? "Unavailable" : agentState}
+              {filesBootStatus?.title ?? (agentState === "RUNNING" ? "Unavailable" : agentState)}
             </span>
           </div>
         )}
@@ -356,16 +376,20 @@ export function AgentFilesPanel({
                 onRetry={emptyKind === "error" ? loadFiles : undefined}
                 title={
                   emptyKind === "loading"
-                    ? "Loading workspace"
+                    ? filesBootStatus?.title ?? "Loading workspace"
+                    : emptyKind === "error"
+                      ? filesBootStatus?.title
                     : emptyKind === "offline" && filesDisconnected
-                      ? "Files unavailable"
+                      ? filesBootStatus?.title ?? "Files unavailable"
                       : undefined
                 }
                 description={
                   emptyKind === "loading"
-                    ? "Loading folders and files."
+                    ? filesBootStatus?.detail ?? "Loading folders and files."
+                    : emptyKind === "error"
+                      ? filesBootStatus?.detail
                     : emptyKind === "offline" && filesDisconnected
-                      ? "Start the agent to browse workspace files."
+                      ? filesBootStatus?.detail ?? "Start the agent to browse workspace files."
                       : undefined
                 }
               />

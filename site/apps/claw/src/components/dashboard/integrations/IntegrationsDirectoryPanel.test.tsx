@@ -49,4 +49,15 @@ describe("IntegrationsDirectoryPanel", () => {
     expect(onDetailBack).toHaveBeenCalledTimes(1);
     expect(screen.queryByRole("button", { name: /back to chat/i })).not.toBeInTheDocument();
   });
+
+  it("uses the shared loading visual while app skills load", async () => {
+    renderPanel({
+      initialCategory: "skills",
+      initialPluginId: null,
+      onLoadSkills: vi.fn(() => new Promise<never>(() => undefined)),
+    });
+
+    expect(await screen.findByRole("status", { name: /loading skills reading available app skills/i })).toBeInTheDocument();
+    expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+  });
 });

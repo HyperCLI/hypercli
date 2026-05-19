@@ -2,13 +2,16 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
-import Markdown from "react-markdown";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
+import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
+import { DirectoryVisualization, parseDirectoryVisualization } from "@/components/dashboard/chat/DirectoryVisualization";
+import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 
 // ── Helpers ──
 
@@ -21,6 +24,10 @@ function extractImagePath(tc: { name: string; args: string; result?: string }): 
     if (typeof path === "string" && IMAGE_EXTENSIONS.test(path)) return path;
   } catch { /* ignore */ }
   return null;
+}
+
+function isImageFileReference(file: { name: string; path: string; type: string }): boolean {
+  return file.type.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name) || IMAGE_EXTENSIONS.test(file.path);
 }
 
 // ── Variant types ──
@@ -60,125 +67,12 @@ interface AgentFileReference {
 
 type ToolCall = NonNullable<ChatMessageType["toolCalls"]>[number];
 
-const THINKING_PREVIEW_LINES = 2;
-const MARKDOWN_WRAP_CLASS = "min-w-0 max-w-full break-words [overflow-wrap:anywhere]";
-const MARKDOWN_BLOCK_CLASS = `${MARKDOWN_WRAP_CLASS} mb-2 last:mb-0`;
-const MARKDOWN_INLINE_CODE_CLASS = "max-w-full break-words rounded bg-background/50 px-1 py-0.5 font-mono text-xs text-[#f0c56c] [overflow-wrap:anywhere]";
-const MARKDOWN_PRE_CLASS = "my-2 max-w-full overflow-x-auto rounded-md border border-border bg-background/50 px-3 py-2 font-mono text-xs";
-const MARKDOWN_IMAGE_CLASS = "h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]";
-const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
-
-/**
- * Markdown component config — lifted to module scope so the reference is stable
- * across renders. Inline objects re-mount react-markdown's internals on every
- * streamed chunk, which causes flicker. Keeping this stable lets the renderer
- * skip work where possible.
- */
-const MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
-  p: ({ children }) => <p className={MARKDOWN_BLOCK_CLASS}>{children}</p>,
-  strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
-  em: ({ children }) => <em className="italic">{children}</em>,
-  code: ({ children, className }) => {
-    const isBlock = className?.includes("language-");
-    return isBlock ? (
-      <pre className={MARKDOWN_PRE_CLASS}>
-        <code>{children}</code>
-      </pre>
-    ) : (
-      <code className={MARKDOWN_INLINE_CODE_CLASS}>{children}</code>
-    );
-  },
-  pre: ({ children }) => <>{children}</>,
-  ul: ({ children }) => <ul className={`${MARKDOWN_WRAP_CLASS} mb-2 list-disc space-y-1 pl-4`}>{children}</ul>,
-  ol: ({ children }) => <ol className={`${MARKDOWN_WRAP_CLASS} mb-2 list-decimal space-y-1 pl-4`}>{children}</ol>,
-  li: ({ children }) => <li className={MARKDOWN_WRAP_CLASS}>{children}</li>,
-  a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="break-words text-accent hover:underline [overflow-wrap:anywhere]">
-      {children}
-    </a>
-  ),
-  h1: ({ children }) => <h1 className={`${MARKDOWN_WRAP_CLASS} mb-2 text-lg font-bold`}>{children}</h1>,
-  h2: ({ children }) => <h2 className={`${MARKDOWN_WRAP_CLASS} mb-2 text-base font-bold`}>{children}</h2>,
-  h3: ({ children }) => <h3 className={`${MARKDOWN_WRAP_CLASS} mb-1 text-sm font-bold`}>{children}</h3>,
-  blockquote: ({ children }) => (
-    <blockquote className={`${MARKDOWN_WRAP_CLASS} my-2 border-l-2 border-text-muted pl-3 italic text-text-secondary`}>{children}</blockquote>
-  ),
-  hr: () => <hr className="border-border my-3" />,
-  table: ({ children }) => (
-    <div className="my-2 max-w-full overflow-x-auto">
-      <table className="w-full min-w-max text-left text-xs">{children}</table>
-    </div>
-  ),
-  th: ({ children }) => <th className="border-b border-border px-2 py-1 font-semibold text-foreground">{children}</th>,
-  td: ({ children }) => <td className="border-b border-border/60 px-2 py-1 text-text-secondary">{children}</td>,
-  img: ({ src, alt }) => typeof src === "string" && src ? (
-    <a href={src} target="_blank" rel="noopener noreferrer" className={`${CHAT_MEDIA_LINK_CLASS} my-2`}>
-      <ResourceImage
-        src={src}
-        alt={typeof alt === "string" ? alt : "image"}
-        width={320}
-        height={320}
-        sizes="(max-width: 640px) 100vw, 320px"
-        className={MARKDOWN_IMAGE_CLASS}
-        loading="lazy"
-      />
-    </a>
-  ) : null,
-};
-
-/**
- * Typewriter that renders streamed markdown content character-by-character via
- * requestAnimationFrame, decoupling display speed from network arrival speed.
- *
- * Why: WebSocket + React batching coalesces chunks into single renders, making
- * messages "pop" instead of typing. This component buffers the full target text
- * and advances a display cursor at ~60 chars/sec regardless of how chunks arrive.
- */
-function TypewriterMarkdown({ text }: { text: string }) {
-  const [displayed, setDisplayed] = useState("");
-  const targetRef = useRef(text);
-  targetRef.current = text;
-
-  useEffect(() => {
-    let raf: number;
-    let last = performance.now();
-    // Characters revealed per millisecond — tuned for fluid LLM-like typing.
-    // ~70 chars/sec = nice middle ground; faster than reading speed but visible.
-    const CHARS_PER_MS = 0.07;
-
-    const tick = (now: number) => {
-      const dt = now - last;
-      last = now;
-      setDisplayed((cur) => {
-        const target = targetRef.current;
-        if (cur.length >= target.length) return cur;
-        // Catch up faster if we're far behind (avoids long lag at end of stream)
-        const behind = target.length - cur.length;
-        const speedMultiplier = behind > 200 ? 4 : behind > 80 ? 2 : 1;
-        const advance = Math.max(1, Math.ceil(dt * CHARS_PER_MS * speedMultiplier));
-        return target.slice(0, cur.length + advance);
-      });
-      raf = requestAnimationFrame(tick);
-    };
-    raf = requestAnimationFrame(tick);
-    return () => cancelAnimationFrame(raf);
-  }, []);
-
-  return <Markdown components={MARKDOWN_COMPONENTS}>{displayed}</Markdown>;
-}
-
 function formatTime(ts?: number): string {
   if (!ts) return "";
   return new Date(ts).toLocaleTimeString([], {
     hour: "2-digit",
     minute: "2-digit",
   });
-}
-
-function truncateToLines(text: string, maxLines: number): { preview: string; truncated: boolean } {
-  const lines = text.split("\n").slice(0, maxLines);
-  const preview = lines.join("\n").trim();
-  return { preview, truncated: text.split("\n").length > maxLines || text.length > preview.length + 50 };
 }
 
 function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
@@ -220,32 +114,40 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): string | null {
+function useAgentFileObjectState(file: AgentFileReference | null | undefined): { url: string | null; loading: boolean; failed: boolean } {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
+  const [loading, setLoading] = useState(false);
   const blobRef = useRef<string | null>(null);
 
   useEffect(() => {
     setBlobUrl(null);
     setFailed(false);
+    setLoading(false);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
     if (!file) return;
     const token = getStoredToken();
     if (!token) { setFailed(true); return; }
     let cancelled = false;
+    setLoading(true);
 
-    createAgentClient(token).fileReadBytes(file.agentId, file.path)
+    createAgentClient(token).fileReadBytes(file.agentId, normalizeOpenClawWorkspaceFilePath(file.path))
       .then((bytes) => {
         if (cancelled) return;
         const blob = new Blob([toArrayBuffer(bytes)]);
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
         setBlobUrl(url);
+        setFailed(false);
       })
       .catch(() => {
         if (cancelled) return;
         setFailed(true);
+      })
+      .finally(() => {
+        if (cancelled) return;
+        setLoading(false);
       });
 
     return () => {
@@ -254,7 +156,11 @@ function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): str
     };
   }, [file?.agentId, file?.path]);
 
-  return failed ? null : blobUrl;
+  return { url: failed ? null : blobUrl, loading, failed };
+}
+
+function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): string | null {
+  return useAgentFileObjectState(file).url;
 }
 
 export function AuthImage({
@@ -266,22 +172,34 @@ export function AuthImage({
   alt: string;
   className?: string;
 }) {
-  const blobUrl = useAgentFileObjectUrl(file);
+  const { url: blobUrl, failed } = useAgentFileObjectState(file);
 
-  if (!blobUrl) return null;
+  if (!blobUrl) {
+    return (
+      <div
+        role="status"
+        aria-label={failed ? "Image unavailable" : "Loading image"}
+        className={`flex min-h-24 min-w-24 max-w-full items-center justify-center rounded-md border border-border bg-surface-low px-3 py-3 text-center text-xs text-text-muted ${className ?? ""}`}
+      >
+        {failed ? (
+          <span>Image unavailable</span>
+        ) : (
+          <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[#38D39F]" />
+        )}
+      </div>
+    );
+  }
 
   return (
-    <a href={blobUrl} target="_blank" rel="noopener noreferrer" className="block max-w-full">
-      <ResourceImage
-        src={blobUrl}
-        alt={alt}
-        width={320}
-        height={320}
-        sizes="(max-width: 640px) 100vw, 320px"
-        className={className}
-        loading="lazy"
-      />
-    </a>
+    <ChatImageViewer
+      src={blobUrl}
+      alt={alt}
+      width={320}
+      height={320}
+      sizes="(max-width: 640px) 100vw, 320px"
+      className={className}
+      loading="lazy"
+    />
   );
 }
 
@@ -445,6 +363,7 @@ function ToolCallDisclosure({
   const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
   const argsDetail = formatToolDetail(tc.args, 280);
   const resultDetail = tc.result ? formatToolDetail(tc.result, 520) : "";
+  const directoryListing = tc.result ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -486,7 +405,15 @@ function ToolCallDisclosure({
               <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail}</pre>
             </div>
           )}
-          {resultDetail && (
+          {directoryListing && (
+            <DirectoryVisualization
+              title="Directory result"
+              rootPath={directoryListing.rootPath}
+              entries={directoryListing.entries}
+              truncated={directoryListing.truncated}
+            />
+          )}
+          {resultDetail && !directoryListing && (
             <div className="min-w-0">
               <p className="mb-1 font-medium text-text-secondary">Result</p>
               <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail}</pre>
@@ -499,7 +426,7 @@ function ToolCallDisclosure({
           <AuthImage
             file={imageFile}
             alt={imagePath?.split("/").pop() || "generated image"}
-            className={MARKDOWN_IMAGE_CLASS}
+            className={CHAT_MARKDOWN_IMAGE_CLASS}
           />
         </div>
       )}
@@ -675,7 +602,6 @@ export function ChatMessageBubble({
   senderName,
   isGroupChat = false,
 }: ChatMessageProps) {
-  const [thinkingOpen, setThinkingOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
   const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
@@ -719,8 +645,6 @@ export function ChatMessageBubble({
     );
   }
 
-  const thinkingPreview = message.thinking ? truncateToLines(message.thinking, THINKING_PREVIEW_LINES) : null;
-
   // Compute name display logic
   const showV1Name = nameVariant === "v1";
   const showV2Name = nameVariant === "v2";
@@ -740,6 +664,14 @@ export function ChatMessageBubble({
     }
   }
   const effectiveContent = contentIsJson ? "" : message.content;
+  const contentDirectoryListing = !isUser && effectiveContent ? parseDirectoryVisualization(effectiveContent) : null;
+  const messageFiles = message.files ?? [];
+  const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
+  const imageFiles = messageFiles.filter(isImageFileReference);
+  const shouldRenderImageFilePreviews = Boolean(agentId && imageFiles.length > 0 && !hasInlineImageAttachments);
+  const fileChips = messageFiles.filter((file) => (
+    !isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)
+  ));
 
   return (
     <motion.div
@@ -787,23 +719,12 @@ export function ChatMessageBubble({
           );
         })()}
 
-        {/* Thinking — subtle italic quote with left accent, click to expand */}
+        {/* Internal reasoning is intentionally not exposed in chat. */}
         {message.thinking && !isUser && (
-          <button
-            onClick={() => setThinkingOpen((v) => !v)}
-            className="group/think w-full max-w-full mb-2 text-left text-xs italic text-text-muted/70 hover:text-text-muted transition-colors pl-2.5 border-l border-[#38D39F]/30 hover:border-[#38D39F]/60"
-          >
-            {thinkingOpen ? (
-              <span className="block whitespace-pre-wrap break-words leading-relaxed [overflow-wrap:anywhere]">{message.thinking}</span>
-            ) : (
-              <span className="line-clamp-2 leading-relaxed">
-                {thinkingPreview?.preview ?? message.thinking}
-                {thinkingPreview?.truncated && (
-                  <span className="text-[#38D39F]/60 ml-1 not-italic font-medium opacity-0 group-hover/think:opacity-100 transition-opacity">show more</span>
-                )}
-              </span>
-            )}
-          </button>
+          <div className="mb-2 inline-flex max-w-full items-center gap-1.5 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-2.5 py-1 text-xs text-text-muted">
+            <Brain className="h-3.5 w-3.5 shrink-0 text-[#38D39F]" />
+            <span className="truncate">Internal reasoning hidden</span>
+          </div>
         )}
 
         {/* Tool calls */}
@@ -842,33 +763,48 @@ export function ChatMessageBubble({
             {message.attachments.map((att, i) => {
               const attachmentSrc = `data:${att.mimeType};base64,${att.content}`;
               return (
-                <ResourceImage
+                <ChatImageViewer
                   key={i}
                   src={attachmentSrc}
                   alt={att.fileName || "attachment"}
                   width={240}
                   height={240}
                   sizes="(max-width: 640px) 100vw, 240px"
-                  className="h-auto max-h-[240px] max-w-full cursor-pointer rounded-md object-cover sm:max-w-[240px]"
-                  onClick={() => window.open(attachmentSrc, "_blank")}
+                  className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
                 />
               );
             })}
           </div>
         )}
 
-        {message.files && message.files.length > 0 && (
-          <div className="mb-2 flex max-w-full flex-wrap gap-2">
-            {message.files.map((file, i) => (
-              <div
-                key={`${file.name}-${i}`}
-                className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
-              >
-                <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                <span className="truncate">{file.name}</span>
+        {messageFiles.length > 0 && (
+          <>
+            {shouldRenderImageFilePreviews && (
+              <div className="mb-2 flex max-w-full flex-wrap gap-2">
+                {imageFiles.map((file, i) => (
+                  <AuthImage
+                    key={`${file.path}-${i}`}
+                    file={{ agentId, path: file.path }}
+                    alt={file.name || "attachment"}
+                    className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
+                  />
+                ))}
               </div>
-            ))}
-          </div>
+            )}
+            {fileChips.length > 0 && (
+              <div className="mb-2 flex max-w-full flex-wrap gap-2">
+                {fileChips.map((file, i) => (
+                  <div
+                    key={`${file.name}-${i}`}
+                    className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                  >
+                    <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{file.name}</span>
+                  </div>
+                ))}
+              </div>
+            )}
+          </>
         )}
 
         {/* Agent-sent media (URLs) */}
@@ -878,17 +814,16 @@ export function ChatMessageBubble({
               const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
               if (isImage) {
                 return (
-                  <a key={i} href={url} target="_blank" rel="noopener noreferrer" className={CHAT_MEDIA_LINK_CLASS}>
-                    <ResourceImage
-                      src={url}
-                      alt="media"
-                      width={320}
-                      height={320}
-                      sizes="(max-width: 640px) 100vw, 320px"
-                      className={MARKDOWN_IMAGE_CLASS}
-                      loading="lazy"
-                    />
-                  </a>
+                  <ChatImageViewer
+                    key={i}
+                    src={url}
+                    alt="media"
+                    width={320}
+                    height={320}
+                    sizes="(max-width: 640px) 100vw, 320px"
+                    className={CHAT_MARKDOWN_IMAGE_CLASS}
+                    loading="lazy"
+                  />
                 );
               }
               // Non-image media: render as link
@@ -910,17 +845,20 @@ export function ChatMessageBubble({
         {/* Content */}
         {(effectiveContent || showStreamingDot) && (
           <div className={`relative w-full min-w-0 max-w-full ${showStreamingDot ? "pb-5" : ""}`}>
-            {effectiveContent && (
-              <div
-                className="prose-chat relative max-w-full leading-relaxed"
+            {contentDirectoryListing ? (
+              <DirectoryVisualization
+                title="Directory"
+                rootPath={contentDirectoryListing.rootPath}
+                entries={contentDirectoryListing.entries}
+                truncated={contentDirectoryListing.truncated}
+              />
+            ) : effectiveContent && (
+              <MarkdownContent
+                content={effectiveContent}
+                typewriter={isStreaming && !isUser}
+                className="relative"
                 style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
-              >
-                {isStreaming && !isUser ? (
-                  <TypewriterMarkdown text={effectiveContent} />
-                ) : (
-                  <Markdown components={MARKDOWN_COMPONENTS}>{effectiveContent}</Markdown>
-                )}
-              </div>
+              />
             )}
             <StreamingStatusAnchor active={showStreamingDot} />
           </div>
