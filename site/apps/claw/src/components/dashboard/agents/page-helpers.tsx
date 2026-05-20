@@ -55,9 +55,9 @@ export interface AgentStatusChipModel {
 
 const AGENT_STATUS_CHIP_STYLES: Record<AgentStatusTone, { shell: string; dot: string; text: string }> = {
   ready: {
-    shell: "border-[#38D39F]/25 bg-[#38D39F]/8",
-    dot: "bg-[#38D39F]",
-    text: "text-[#38D39F]",
+    shell: "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]",
+    dot: "bg-[var(--selection-accent)]",
+    text: "text-[var(--selection-accent)]",
   },
   starting: {
     shell: "border-[#f0c56c]/25 bg-[#f0c56c]/8",
@@ -121,7 +121,7 @@ export function ConnectionStatusIndicator({
     <span
       className={`inline-flex items-center gap-1.5 text-xs font-medium min-w-[5.25rem] ${
         connected
-          ? "text-[#38D39F]"
+          ? "text-[var(--selection-accent)]"
           : connecting
             ? "text-[#f0c56c]"
             : "text-text-muted"
@@ -133,7 +133,7 @@ export function ConnectionStatusIndicator({
       ) : (
         <span
           className={`inline-block h-2 w-2 rounded-full ${
-            connected ? "bg-[#38D39F]" : "bg-text-muted"
+            connected ? "bg-[var(--selection-accent)]" : "bg-text-muted"
           }`}
         />
       )}

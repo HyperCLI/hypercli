@@ -273,9 +273,9 @@ export function PlanCheckoutModal({
 
           {success ? (
             <div className="text-center py-8">
-              <div className="w-16 h-16 bg-[#38D39F]/20 rounded-full flex items-center justify-center mx-auto mb-4">
+              <div className="w-16 h-16 bg-[rgb(var(--selection-accent-rgb)_/_0.2)] rounded-full flex items-center justify-center mx-auto mb-4">
                 <svg
-                  className="w-8 h-8 text-primary"
+                  className="w-8 h-8 text-[var(--selection-accent)]"
                   fill="none"
                   stroke="currentColor"
                   viewBox="0 0 24 24"
@@ -334,7 +334,7 @@ export function PlanCheckoutModal({
                     disabled={processing}
                     className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
                       method === "card"
-                        ? "border-[#38D39F]/60 bg-[#38D39F]/10"
+                        ? "border-[rgb(var(--selection-accent-rgb)_/_0.6)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]"
                         : "border-white/10 hover:border-white/20"
                     } disabled:opacity-50`}
                   >
@@ -350,7 +350,7 @@ export function PlanCheckoutModal({
                     disabled={processing}
                     className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
                       method === "crypto"
-                        ? "border-[#38D39F]/60 bg-[#38D39F]/10"
+                        ? "border-[rgb(var(--selection-accent-rgb)_/_0.6)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]"
                         : "border-white/10 hover:border-white/20"
                     } disabled:opacity-50`}
                   >
@@ -368,7 +368,7 @@ export function PlanCheckoutModal({
                 <div className="mb-4 p-3 rounded-lg bg-surface-low/50 border border-white/5 text-sm">
                   {walletAddress ? (
                     <div className="flex items-center gap-2 text-text-secondary">
-                      <Wallet className="w-4 h-4 text-primary" />
+                      <Wallet className="w-4 h-4 text-[var(--selection-accent)]" />
                       <span className="font-mono text-xs">
                         {walletAddress.slice(0, 6)}...{walletAddress.slice(-4)}
                       </span>

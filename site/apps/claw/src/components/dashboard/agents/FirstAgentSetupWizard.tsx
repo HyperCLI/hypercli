@@ -29,6 +29,7 @@ import {
   getEffectivePlanIdFromSummary,
   type LaunchSourceKind,
 } from "@/lib/agent-launch-state";
+import { agentAvatar } from "@/lib/avatar";
 import { PlanComparisonModal } from "./PlanComparisonModal";
 import { SlotProvisioningStatus } from "./SlotProvisioningStatus";
 import {
@@ -107,6 +108,18 @@ const agentNameSecondWords = [
   "signal",
   "vector",
   "window",
+];
+const agentNameThirdWords = [
+  "anchor",
+  "bridge",
+  "engine",
+  "field",
+  "garden",
+  "lab",
+  "node",
+  "studio",
+  "tower",
+  "works",
 ];
 
 type LaunchPlanAction = "launch" | "plans";
@@ -592,15 +605,18 @@ function randomIndex(max: number): number {
 function generateAgentName(): string {
   const first = agentNameFirstWords[randomIndex(agentNameFirstWords.length)];
   const second = agentNameSecondWords[randomIndex(agentNameSecondWords.length)];
-  return `${first}-${second}`;
+  const third = agentNameThirdWords[randomIndex(agentNameThirdWords.length)];
+  return `${first}-${second}-${third}`;
 }
 
 function WizardButton({
   children,
+  disabled = false,
   onClick,
   variant = "primary",
 }: {
   children: React.ReactNode;
+  disabled?: boolean;
   onClick: () => void;
   variant?: "primary" | "secondary";
 }) {
@@ -608,10 +624,11 @@ function WizardButton({
     <button
       type="button"
       onClick={onClick}
+      disabled={disabled}
       className={cx(
-        "inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[14px] font-medium transition-colors sm:h-10 sm:px-4 sm:text-[15px]",
+        "inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10 sm:px-4 sm:text-[15px]",
         variant === "primary"
-          ? "bg-[#36c99b] text-[#06251c] hover:bg-[#43dbad]"
+          ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
           : "border border-[#4a4a4d] bg-[#242424] text-foreground hover:bg-[#2b2b2b]",
       )}
     >
@@ -653,6 +670,7 @@ export function FirstAgentSetupWizard({
   const selectedAvatar = avatarOptions.find((option) => option.iconIndex === selectedIconIndex) ?? avatarOptions[0];
   const SelectedAvatarIcon = selectedAvatar.icon;
   const displayName = agentName.trim() || defaultAgentName || "agent";
+  const selectedAvatarStyle = agentAvatar(displayName, { ui: { avatar: { icon_index: selectedIconIndex } } });
 
   React.useEffect(() => {
     const generatedName = generateAgentName();
@@ -741,6 +759,14 @@ export function FirstAgentSetupWizard({
     }
   };
 
+  const handlePlanAction = (planId = selectedPlan?.id) => {
+    if (!planId || creating) return;
+    const plan = planOptions.find((option) => option.id === planId);
+    if (!plan || plan.disabled) return;
+    dispatchWizard({ type: "SELECT_PLAN", planId });
+    void saveDraftAndCreate(planId);
+  };
+
   return (
     <div className="flex h-full min-h-0 flex-1 items-center justify-center overflow-hidden px-3 py-3 sm:px-4 sm:py-4">
       <motion.section
@@ -770,7 +796,13 @@ export function FirstAgentSetupWizard({
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
               <div className="grid gap-5 md:grid-cols-[72px_minmax(0,1fr)] md:items-center lg:grid-cols-[80px_minmax(0,1fr)]">
                 <div className="relative mx-auto h-[72px] w-[72px] md:mx-0 lg:h-20 lg:w-20">
-                  <div className="flex h-[72px] w-[72px] items-center justify-center rounded-full bg-[#22352f] text-[#74e5be] lg:h-20 lg:w-20">
+                  <div
+                    className="flex h-[72px] w-[72px] items-center justify-center rounded-full lg:h-20 lg:w-20"
+                    style={{
+                      backgroundColor: selectedAvatarStyle.bgColor,
+                      color: selectedAvatarStyle.fgColor,
+                    }}
+                  >
                     <SelectedAvatarIcon className="h-7 w-7 lg:h-8 lg:w-8" />
                   </div>
                 </div>
@@ -797,9 +829,9 @@ export function FirstAgentSetupWizard({
                         aria-pressed={selected}
                         onClick={() => setSelectedCategory(category)}
                         className={cx(
-                          "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38d39f]/35 focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] sm:text-[14px]",
+                          "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] sm:text-[14px]",
                           selected
-                            ? "border-[#38d39f]/55 bg-[#38d39f]/14 text-[#baf7df] shadow-[0_0_0_1px_rgba(56,211,159,0.14),0_8px_20px_rgba(56,211,159,0.08)]"
+                            ? "border-[rgb(var(--selection-accent-rgb)_/_0.55)] bg-[rgb(var(--selection-accent-rgb)_/_0.14)] text-[var(--selection-accent)] shadow-[0_0_0_1px_rgb(var(--selection-accent-rgb)_/_0.14),0_8px_20px_rgb(var(--selection-accent-rgb)_/_0.08)]"
                             : "border-[#3f3f44] bg-[#1f1f21] text-[#d9d9dd] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:border-[#5f5f66] hover:bg-[#28282b] hover:text-[#f5f5f5]",
                         )}
                       >
@@ -817,6 +849,7 @@ export function FirstAgentSetupWizard({
                   {avatarOptions.map((option) => {
                     const Icon = option.icon;
                     const selected = selectedIconIndex === option.iconIndex;
+                    const avatarStyle = agentAvatar(displayName, { ui: { avatar: { icon_index: option.iconIndex } } });
                     return (
                       <button
                         key={option.iconIndex}
@@ -825,11 +858,15 @@ export function FirstAgentSetupWizard({
                         aria-pressed={selected}
                         onClick={() => setSelectedIconIndex(option.iconIndex)}
                         className={cx(
-                          "flex h-8 w-8 items-center justify-center rounded-[8px] border bg-[#222222] text-[#f1f1f1] transition-colors",
+                          "flex h-8 w-8 items-center justify-center rounded-[8px] border transition-colors",
                           selected
-                            ? "border-[#35c69a] shadow-[0_0_0_1px_rgba(53,198,154,0.28)]"
+                            ? "border-[var(--selection-accent)] shadow-[0_0_0_1px_rgb(var(--selection-accent-rgb)_/_0.28)]"
                             : "border-[#424245] hover:border-[#66666a] hover:bg-[#292929]",
                         )}
+                        style={{
+                          backgroundColor: avatarStyle.bgColor,
+                          color: avatarStyle.fgColor,
+                        }}
                       >
                         <Icon className="h-4 w-4" />
                       </button>
@@ -905,6 +942,7 @@ export function FirstAgentSetupWizard({
         )}
 
         {currentStep === "plan" && (
+          <>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
               {createError && (
                 <div className="mb-4 rounded-[12px] border border-[#d05f5f]/40 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#ffb3b3]">
@@ -912,100 +950,112 @@ export function FirstAgentSetupWizard({
                 </div>
               )}
               <div className="grid min-h-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
-              {planOptions.map((plan) => {
-                const Icon = plan.icon;
-                const isProvisioning = plan.statusText === "Payment active, waiting for entitlement";
-                const isReleasing = plan.statusText === "Slot being released";
-                const statusFeature = isProvisioning || isReleasing ? null : plan.slotStatus;
-                const featureRows = uniqueFeatureList([statusFeature, ...plan.features].filter((feature): feature is string => Boolean(feature))).slice(0, 7);
-                return (
-                  <div
-                    key={plan.id}
-                    onClick={() => dispatchWizard({ type: "SELECT_PLAN", planId: plan.id })}
-                    onKeyDown={(event) => {
-                      if (event.key === "Enter" || event.key === " ") {
-                        event.preventDefault();
-                        dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
-                      }
-                    }}
-                    role="button"
-                    tabIndex={0}
-                    className={cx(
-                      "relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]",
-                      selectedPlanId === plan.id && "border-[#56565a]",
-                      plan.disabled && "opacity-60",
-                    )}
-                  >
-                    {plan.accent && (
-                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#063f31] px-2.5 py-1 text-[12px] font-medium leading-none text-[#36d399]">
-                        Most Popular
-                      </span>
-                    )}
-
-                    <div className="flex items-center gap-2.5">
-                      <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[#303035] bg-[#242427] text-[#f5f5f5]">
-                        <Icon className="h-4 w-4" />
-                      </span>
-                      <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{plan.name}</h3>
-                    </div>
-
-                    <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-[#7d7d82]">{plan.description}</p>
-
-                    <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
-                      {plan.oldPrice && (
-                        <span className="text-[24px] font-bold leading-none text-[#777777] line-through decoration-[2px]">{plan.oldPrice}</span>
-                      )}
-                      {plan.price ? (
-                        <>
-                          <span className="text-[28px] font-bold leading-none text-[#f7f7f7]">{plan.price}</span>
-                          <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-[#f6f6f6]">{plan.priceNote}</span>
-                        </>
-                      ) : (
-                        <span className="text-[18px] font-semibold leading-none text-[#f7f7f7]">{plan.statusText ?? "Already active"}</span>
-                      )}
-                    </div>
-                    {plan.price && plan.statusText && (
-                      <p className="mt-2 text-[12px] font-medium text-amber-100">{plan.statusText}</p>
-                    )}
-
-                    <button
-                      type="button"
-                      onClick={(event) => {
-                        event.stopPropagation();
-                        dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
-                        void saveDraftAndCreate(plan.id);
+                {planOptions.map((plan) => {
+                  const Icon = plan.icon;
+                  const isProvisioning = plan.statusText === "Payment active, waiting for entitlement";
+                  const isReleasing = plan.statusText === "Slot being released";
+                  const statusFeature = isProvisioning || isReleasing ? null : plan.slotStatus;
+                  const featureRows = uniqueFeatureList([statusFeature, ...plan.features].filter((feature): feature is string => Boolean(feature))).slice(0, 7);
+                  return (
+                    <div
+                      key={plan.id}
+                      onClick={() => dispatchWizard({ type: "SELECT_PLAN", planId: plan.id })}
+                      onKeyDown={(event) => {
+                        if (event.key === "Enter" || event.key === " ") {
+                          event.preventDefault();
+                          dispatchWizard({ type: "SELECT_PLAN", planId: plan.id });
+                        }
                       }}
-                      disabled={creating || plan.disabled}
+                      role="button"
+                      tabIndex={0}
                       className={cx(
-                        "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors disabled:cursor-wait disabled:opacity-70",
-                        plan.accent
-                          ? "bg-[#36c99b] text-[#06251c] hover:bg-[#43dbad]"
-                          : "border border-[#444448] bg-[#202020] text-[#f5f5f5] hover:bg-[#262626]",
+                        "relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]",
+                        selectedPlanId === plan.id && "border-[#56565a]",
+                        plan.disabled && "opacity-60",
                       )}
-                    >
-                      {creating && selectedPlanId === plan.id ? "Creating..." : plan.cta}
-                    </button>
+	                    >
+	                      {plan.accent && (
+	                        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
+	                          Most Popular
+	                        </span>
+	                      )}
 
-                    {isProvisioning || isReleasing ? (
-                      <SlotProvisioningStatus
-                        status={plan.slotStatus}
-                        detail={isReleasing ? "Refreshing slot availability" : undefined}
-                      />
-                    ) : null}
+                      <div className="flex items-center gap-2.5">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[#303035] bg-[#242427] text-[#f5f5f5]">
+                          <Icon className="h-4 w-4" />
+                        </span>
+                        <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{plan.name}</h3>
+                      </div>
 
-                    <div className="mt-5 space-y-2.5">
-                      {featureRows.map((feature, featureIndex) => (
-                        <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-[#f2f2f2]">
-                          <Check className="mt-px h-4 w-4 flex-shrink-0 text-[#77777b]" />
-                          <span>{feature}</span>
-                        </div>
-                      ))}
+                      <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-[#7d7d82]">{plan.description}</p>
+
+                      <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
+                        {plan.oldPrice && (
+                          <span className="text-[24px] font-bold leading-none text-[#777777] line-through decoration-[2px]">{plan.oldPrice}</span>
+                        )}
+                        {plan.price ? (
+                          <>
+                            <span className="text-[28px] font-bold leading-none text-[#f7f7f7]">{plan.price}</span>
+                            <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-[#f6f6f6]">{plan.priceNote}</span>
+                          </>
+                        ) : (
+                          <span className="text-[18px] font-semibold leading-none text-[#f7f7f7]">{plan.statusText ?? "Already active"}</span>
+                        )}
+                      </div>
+                      {plan.price && plan.statusText && (
+                        <p className="mt-2 text-[12px] font-medium text-amber-100">{plan.statusText}</p>
+                      )}
+
+                      <button
+                        type="button"
+                        onClick={(event) => {
+                          event.stopPropagation();
+                          handlePlanAction(plan.id);
+                        }}
+	                        disabled={creating || plan.disabled}
+	                        className={cx(
+	                          "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818] disabled:cursor-wait disabled:opacity-70",
+	                          plan.accent
+	                            ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
+	                            : "border border-[rgb(var(--button-primary-rgb)_/_0.38)] bg-[rgb(var(--button-primary-rgb)_/_0.09)] text-[var(--button-primary)] hover:border-[rgb(var(--button-primary-rgb)_/_0.55)] hover:bg-[rgb(var(--button-primary-rgb)_/_0.14)]",
+	                        )}
+	                      >
+                        {creating && selectedPlanId === plan.id ? "Creating..." : plan.cta}
+                      </button>
+
+                      {isProvisioning || isReleasing ? (
+                        <SlotProvisioningStatus
+                          status={plan.slotStatus}
+                          detail={isReleasing ? "Refreshing slot availability" : undefined}
+                        />
+                      ) : null}
+
+                      <div className="mt-5 space-y-2.5">
+                        {featureRows.map((feature, featureIndex) => (
+                          <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-[#f2f2f2]">
+                            <Check className="mt-px h-4 w-4 flex-shrink-0 text-[#77777b]" />
+                            <span>{feature}</span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
-                  </div>
-                );
-              })}
+                  );
+                })}
             </div>
           </div>
+          <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-[#333333] bg-[#202020] px-5 sm:px-7">
+            <WizardButton variant="secondary" onClick={() => goToStep(1)}>
+              <ChevronLeft className="mr-2 h-4 w-4" />
+              Back
+            </WizardButton>
+            <WizardButton
+              disabled={!selectedPlan || creating || Boolean(selectedPlan.disabled)}
+              onClick={() => handlePlanAction()}
+            >
+              {creating ? "Creating..." : selectedPlan?.cta ?? "Continue"}
+            </WizardButton>
+          </footer>
+          </>
         )}
       </motion.section>
       <PlanComparisonModal

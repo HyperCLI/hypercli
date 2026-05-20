@@ -151,8 +151,8 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
         onDrop={handleDrop}
         onClick={handleClickUpload}
         animate={{
-          borderColor: dragOver ? "rgba(56,211,159,0.5)" : "rgba(255,255,255,0.08)",
-          backgroundColor: dragOver ? "rgba(56,211,159,0.05)" : "rgba(0,0,0,0)",
+          borderColor: dragOver ? "rgb(var(--selection-accent-rgb) / 0.5)" : "rgba(255,255,255,0.08)",
+          backgroundColor: dragOver ? "rgb(var(--selection-accent-rgb) / 0.05)" : "rgba(0,0,0,0)",
         }}
         transition={{ duration: 0.15 }}
         className={`border border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors hover:border-text-muted/30 hover:bg-surface-low/30 ${
@@ -194,10 +194,10 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
                 {/* Status icon */}
                 {item.status === "uploading" && (
                   <motion.div animate={{ rotate: 360 }} transition={{ repeat: Infinity, duration: 1, ease: "linear" }}>
-                    <RefreshCw className="w-3 h-3 text-[#38D39F]" />
+                    <RefreshCw className="w-3 h-3 text-[var(--selection-accent)]" />
                   </motion.div>
                 )}
-                {item.status === "done" && <CheckCircle2 className="w-3 h-3 text-[#38D39F]" />}
+                {item.status === "done" && <CheckCircle2 className="w-3 h-3 text-[var(--selection-accent)]" />}
                 {item.status === "error" && <AlertCircle className="w-3 h-3 text-[#d05f5f]" />}
                 {item.status === "pending" && <FileIcon className="w-3 h-3 text-text-muted" />}
 
@@ -207,7 +207,7 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
                   {item.status === "uploading" && (
                     <div className="h-1 mt-0.5 rounded-full bg-surface-high overflow-hidden">
                       <motion.div
-                        className="h-full bg-[#38D39F] rounded-full"
+                        className="h-full bg-[var(--selection-accent)] rounded-full"
                         initial={{ width: 0 }}
                         animate={{ width: `${item.progress}%` }}
                         transition={{ duration: 0.3 }}

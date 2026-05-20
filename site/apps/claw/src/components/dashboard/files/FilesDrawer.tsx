@@ -216,7 +216,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
           >
             {/* Header */}
             <div className="flex items-center gap-2 px-4 h-12 border-b border-border flex-shrink-0">
-              <FolderOpen className="w-4 h-4 text-[#38D39F]" />
+              <FolderOpen className="w-4 h-4 text-[var(--selection-accent)]" />
               <span className="text-sm font-semibold text-foreground flex-1">Files</span>
 
               {!connected && (
@@ -230,7 +230,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
               <button
                 onClick={() => setShowHidden((v) => !v)}
                 className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
-                  showHidden ? "text-[#38D39F] bg-[#38D39F]/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+                  showHidden ? "text-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]" : "text-text-muted hover:text-foreground hover:bg-surface-low"
                 }`}
                 title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
               >
@@ -261,7 +261,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
                             key={opt.key}
                             onClick={() => toggleSort(opt.key)}
                             className={`flex items-center justify-between w-full px-3 py-1.5 text-[11px] transition-colors hover:bg-surface-low ${
-                              sortKey === opt.key ? "text-[#38D39F]" : "text-foreground"
+                              sortKey === opt.key ? "text-[var(--selection-accent)]" : "text-foreground"
                             }`}
                           >
                             <span>{opt.label}</span>

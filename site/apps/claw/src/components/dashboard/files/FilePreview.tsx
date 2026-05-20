@@ -220,7 +220,7 @@ export function FilePreview({
             title="Copy content"
           >
             {copied ? (
-              <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[#38D39F]`} />
+              <Check className={`${PREVIEW_ACTION_ICON_CLASS} text-[var(--selection-accent)]`} />
             ) : (
               <Copy className={PREVIEW_ACTION_ICON_CLASS} />
             )}
@@ -322,7 +322,7 @@ export function FilePreview({
           <button
             onClick={handleSave}
             disabled={saving}
-            className="text-[10px] font-medium text-[#38D39F] hover:underline disabled:opacity-50"
+            className="text-[10px] font-medium text-[var(--selection-accent)] hover:underline disabled:opacity-50"
           >
             {saving ? "Saving..." : "Save now"}
           </button>

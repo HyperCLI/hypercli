@@ -3,7 +3,7 @@
 import Link from "next/link";
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, PanelLeftOpen, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
 import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
@@ -16,6 +16,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashbo
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
+import { HyperClawLogoMark } from "@/components/HyperClawLogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
@@ -148,7 +149,7 @@ export function OpenClawConfigPanel({
   return (
     <div className={`flex h-full min-h-0 flex-col bg-background ${embedded ? "rounded-lg border border-border" : ""}`}>
       <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border px-4">
-        <SlidersHorizontal className="h-4 w-4 text-primary" />
+        <SlidersHorizontal className="h-4 w-4 text-[var(--selection-accent)]" />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">OpenClaw Config</p>
           <p className="text-[10px] text-text-muted">Editing openclaw.json</p>
@@ -172,7 +173,7 @@ export function OpenClawConfigPanel({
             <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">{effectiveError}</div>
           )}
           {effectiveSuccess && !effectiveError && (
-            <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">{effectiveSuccess}</div>
+            <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">{effectiveSuccess}</div>
           )}
         </div>
       )}
@@ -276,7 +277,7 @@ export function OpenClawSettingsPanel({
             }}
             className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
               selected
-                ? "border-l-2 border-primary bg-primary/15 font-medium text-foreground"
+                ? "border-l-2 border-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.15)] font-medium text-foreground"
                 : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
             }`}
             title={sectionDescription}
@@ -296,7 +297,7 @@ export function OpenClawSettingsPanel({
         </div>
       )}
       {openclawSuccess && !openclawError && (
-        <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+        <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
           {openclawSuccess}
         </div>
       )}
@@ -353,7 +354,7 @@ export function OpenClawSettingsPanel({
             type="button"
             onClick={() => void (effectiveOpenclawSection ? saveOpenclawSection(effectiveOpenclawSection) : saveAllOpenclaw())}
             disabled={openclawSaving || !chat.connected || !openclawDraft}
-            className="inline-flex items-center gap-2 rounded-lg bg-primary px-3 py-2 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 py-2 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {openclawSaving ? <Loader2 className="h-4 w-4 animate-spin" /> : <SlidersHorizontal className="h-4 w-4" />}
             {saveLabel}
@@ -395,7 +396,7 @@ export function OpenClawSettingsPanel({
     return (
       <div className="flex h-full min-h-0 flex-col bg-background">
         <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-          <SlidersHorizontal className="h-4 w-4 text-primary" />
+          <SlidersHorizontal className="h-4 w-4 text-[var(--selection-accent)]" />
           <div className="min-w-0">
             <p className="truncate text-sm font-semibold text-foreground">OpenClaw settings</p>
             <p className="text-[10px] text-text-muted">Choose a section to edit</p>
@@ -617,7 +618,7 @@ function AgentGeneralSettingsContent({
                 {profileError}
               </div>
             ) : (
-              <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
                 {profileSuccess}
               </div>
             )}
@@ -807,7 +808,7 @@ function AgentSectionSettingsContent({
               onClick={onStartAgent}
               disabled={!canStartAgent || !onStartAgent || lifecycleBusy || agentStartBlocked}
               title={agentStartBlockedReason ?? undefined}
-              className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-primary/40 bg-primary/10 px-3 text-xs font-medium text-primary transition-colors hover:bg-primary/15 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex h-8 shrink-0 items-center gap-2 rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.4)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] disabled:cursor-not-allowed disabled:opacity-60"
             >
               {agentStarting || agent.state === "PENDING" || agent.state === "STARTING" ? "Starting..." : "Start agent"}
               <Play className="h-3.5 w-3.5 fill-current" />
@@ -823,7 +824,7 @@ function AgentSectionSettingsContent({
                 {agentSettingsError}
               </div>
             ) : (
-              <div className="rounded-lg border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-2 text-sm text-[#38D39F]">
+              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
                 {agentSettingsSuccess}
               </div>
             )}
@@ -1075,7 +1076,7 @@ function BillingStatusPill({ status }: { status: string }) {
     <span
       className={`inline-flex h-6 items-center rounded-full px-3 text-[12px] font-medium ${
         active
-          ? "bg-[#0d5f38] text-[#38D39F]"
+          ? "bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"
           : pending
             ? "bg-[#4d3a12] text-[#f0c36a]"
             : "bg-surface-low text-text-secondary"
@@ -1344,7 +1345,7 @@ function AgentBillingSettingsContent({
                     subscriptions.map((subscription) => (
                       <tr key={subscription.id} className="border-b border-border">
                         <td className="px-2 py-3 align-top">
-                          <Link href="/dashboard/billing" className="block text-[14px] font-semibold text-foreground hover:text-primary">
+                          <Link href="/dashboard/billing" className="block text-[14px] font-semibold text-foreground hover:text-[var(--selection-accent)]">
                             {subscription.planName || humanizeBillingPlanId(subscription.planId)}
                           </Link>
                           <p className="mt-1 max-w-[260px] truncate text-[12px] font-medium text-text-muted">
@@ -1771,7 +1772,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
               type="button"
               onClick={() => { void saveProfileChanges(); }}
               disabled={!hasSettingsChanges || profileSaving}
-              className="inline-flex h-9 items-center justify-center rounded-lg bg-primary px-3.5 text-sm font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:cursor-not-allowed disabled:opacity-50"
+              className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--button-primary)] px-3.5 text-sm font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
             >
               {profileSaving ? "Saving..." : "Save changes"}
             </button>
@@ -2018,7 +2019,7 @@ export function AgentList({
                 title="Expand sidebar"
                 className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
               >
-                <PanelLeftOpen className="w-3.5 h-3.5" />
+                <HyperClawLogoMark className="h-[17px] w-[17px]" />
               </button>
             </div>
             <div className="flex flex-1 flex-col items-center gap-3 overflow-y-auto py-3">
@@ -2028,7 +2029,7 @@ export function AgentList({
                     type="button"
                     onClick={() => setShowAgentLauncher(true)}
                     aria-label="Launch agent"
-                    className="flex h-8 w-8 items-center justify-center rounded-full border border-[#38D39F]/25 bg-[#38D39F]/10 text-[#38D39F] transition-transform hover:scale-110 hover:border-[#38D39F]/45 hover:bg-[#38D39F]/15"
+                    className="flex h-8 w-8 items-center justify-center rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-transform hover:scale-110 hover:border-[rgb(var(--selection-accent-rgb)_/_0.45)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]"
                   >
                     <Plus className="h-4 w-4" />
                   </button>
@@ -2048,7 +2049,7 @@ export function AgentList({
                           setMobileShowChat(true);
                         }}
                         aria-label={`Select ${a.name || a.id}`}
-                        className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[#38D39F] ring-offset-2 ring-offset-[#232323]" : ""}`}
+                        className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)] ring-offset-2 ring-offset-[#232323]" : ""}`}
                         style={{ backgroundColor: av.bgColor }}
                       >
                         {av.imageUrl ? (
@@ -2249,7 +2250,7 @@ export function LaunchFirstAgentEmptyState({
           onClick={() => setShowWizard(true)}
           whileHover={{ y: -1 }}
           whileTap={{ scale: 0.99 }}
-          className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="mt-9 flex min-h-[86px] w-full items-center gap-4 rounded-[8px] border border-foreground bg-surface-low px-6 py-4 text-left transition-colors hover:bg-surface-mid focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-[7px] border border-border bg-surface-mid text-foreground">
             <Codepen className="h-4 w-4" />
@@ -2260,7 +2261,7 @@ export function LaunchFirstAgentEmptyState({
               Name it, pick a plan, and connect it to where your team already works.
             </span>
           </span>
-          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-primary text-primary-foreground">
+          <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[8px] bg-[var(--button-primary)] text-[var(--button-primary-foreground)]">
             <ArrowRight className="h-4 w-4" />
           </span>
         </motion.button>
@@ -2436,7 +2437,7 @@ function LaunchAgentCenteredEmptyStateContent({
           onClick={onLaunch}
           disabled={launchDisabled}
           title={launchBlocked ? launchBlockedReason ?? "Start unavailable" : undefined}
-          className={`mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
+          className={`mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:opacity-70 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background ${
             launching ? "disabled:cursor-wait" : "disabled:cursor-not-allowed"
           }`}
         >
@@ -2554,7 +2555,7 @@ export function AgentScheduledEmptyState({}: AgentEmptyStateProps & AgentLaunchA
   return (
     <div className="flex h-full min-h-0 flex-1 items-center justify-center bg-background px-5 py-8">
       <div className="flex w-full max-w-[700px] flex-col items-center text-center">
-        <div className="mb-3 inline-flex h-5 items-center rounded-full bg-primary px-3 text-[11px] font-semibold leading-none text-primary-foreground">
+        <div className="mb-3 inline-flex h-5 items-center rounded-full bg-[var(--selection-accent)] px-3 text-[11px] font-semibold leading-none text-[var(--selection-accent-foreground)]">
           Coming Soon
         </div>
 
@@ -2631,7 +2632,7 @@ function LaunchAgentEmptyStateContent({
           whileTap={{ scale: 0.98 }}
           type="button"
           onClick={onLaunch}
-          className="mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-primary px-3.5 text-[13px] font-semibold text-primary-foreground transition-colors hover:bg-primary-hover focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+          className="mt-8 inline-flex h-9 items-center gap-2 rounded-[8px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.6)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
         >
           Launch agent
           <ArrowRight className="h-4 w-4" />

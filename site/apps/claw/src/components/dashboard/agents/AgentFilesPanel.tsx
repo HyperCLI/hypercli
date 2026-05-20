@@ -260,7 +260,7 @@ export function AgentFilesPanel({
   return (
     <div className="relative flex h-full min-h-0 flex-col overflow-hidden bg-background">
       <div className="flex h-12 flex-shrink-0 items-center gap-3 border-b border-border px-4">
-        <FolderOpen className="h-4 w-4 text-primary" />
+        <FolderOpen className="h-4 w-4 text-[var(--selection-accent)]" />
         <div className="min-w-0">
           <p className="truncate text-sm font-semibold text-foreground">{agentName || "Agent files"}</p>
           <p className="text-[10px] text-text-muted">
@@ -284,7 +284,7 @@ export function AgentFilesPanel({
           onClick={() => setShowUpload((open) => !open)}
           disabled={!connected}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            showUpload ? "bg-primary/10 text-primary" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+            showUpload ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
           }`}
           title="Upload files"
         >
@@ -295,7 +295,7 @@ export function AgentFilesPanel({
           type="button"
           onClick={() => setShowHidden((value) => !value)}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-            showHidden ? "bg-primary/10 text-primary" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+            showHidden ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
           }`}
           title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
         >
@@ -326,7 +326,7 @@ export function AgentFilesPanel({
                     type="button"
                     onClick={() => toggleSort(option.key)}
                     className={`flex w-full items-center justify-between px-3 py-1.5 text-[11px] hover:bg-surface-low ${
-                      sortKey === option.key ? "text-primary" : "text-foreground"
+                      sortKey === option.key ? "text-[var(--selection-accent)]" : "text-foreground"
                     }`}
                   >
                     <span>{option.label}</span>

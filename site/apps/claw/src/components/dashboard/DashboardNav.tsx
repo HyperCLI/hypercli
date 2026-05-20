@@ -23,6 +23,7 @@ import {
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { ClawThemePicker } from "@/components/ClawThemePicker";
 
 const dropdownNavItems = [
   { label: "API Keys", href: "/keys", icon: Key },
@@ -87,26 +88,27 @@ export function DashboardNav() {
 
             {/* Right side — avatar dropdown + mobile hamburger */}
             <div className="flex items-center gap-1">
-            <div className="flex items-center relative" ref={userMenuRef}>
-              <button
-                onClick={() => setUserMenuOpen(!userMenuOpen)}
-                className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-surface-low transition-colors"
-              >
-                <div className="w-7 h-7 rounded-full bg-surface-high flex items-center justify-center text-xs font-bold text-foreground">
-                  {emailInitial}
-                </div>
-                <ChevronDown className={`w-3.5 h-3.5 text-text-muted transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
-              </button>
+              <ClawThemePicker size="sm" />
+              <div className="flex items-center relative" ref={userMenuRef}>
+                <button
+                  onClick={() => setUserMenuOpen(!userMenuOpen)}
+                  className="flex items-center gap-2 px-2 py-1 rounded-lg hover:bg-surface-low transition-colors"
+                >
+                  <div className="w-7 h-7 rounded-full bg-surface-high flex items-center justify-center text-xs font-bold text-foreground">
+                    {emailInitial}
+                  </div>
+                  <ChevronDown className={`w-3.5 h-3.5 text-text-muted transition-transform ${userMenuOpen ? "rotate-180" : ""}`} />
+                </button>
 
-              <AnimatePresence>
-                {userMenuOpen && (
-                  <motion.div
-                    initial={{ opacity: 0, y: -4, scale: 0.97 }}
-                    animate={{ opacity: 1, y: 0, scale: 1 }}
-                    exit={{ opacity: 0, y: -4, scale: 0.97 }}
-                    transition={{ duration: 0.15 }}
-                    className="absolute right-0 top-12 w-56 rounded-[var(--radius)] border border-white/5 bg-[#141416] p-1 shadow-xl"
-                  >
+                <AnimatePresence>
+                  {userMenuOpen && (
+                    <motion.div
+                      initial={{ opacity: 0, y: -4, scale: 0.97 }}
+                      animate={{ opacity: 1, y: 0, scale: 1 }}
+                      exit={{ opacity: 0, y: -4, scale: 0.97 }}
+                      transition={{ duration: 0.15 }}
+                      className="absolute right-0 top-12 w-56 rounded-[var(--radius)] border border-border bg-popover p-1 shadow-xl"
+                    >
                     {/* User info */}
                     <div className="px-3 py-2 border-b border-border mb-1">
                       <p className="text-sm text-foreground font-medium truncate">{user?.email || "User"}</p>
@@ -146,25 +148,25 @@ export function DashboardNav() {
                       <LogOut className="w-4 h-4" />
                       Sign Out
                     </button>
-                  </motion.div>
-                )}
-              </AnimatePresence>
-            </div>
+                    </motion.div>
+                  )}
+                </AnimatePresence>
+              </div>
 
-            {/* Mobile hamburger */}
-            {!hideMobileHamburger && (
-              <button
-                className="md:hidden p-2 text-text-secondary hover:text-foreground transition-colors"
-                onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-                aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
-              >
-                {mobileMenuOpen ? (
-                  <X className="h-5 w-5" />
-                ) : (
-                  <Menu className="h-5 w-5" />
-                )}
-              </button>
-            )}
+              {/* Mobile hamburger */}
+              {!hideMobileHamburger && (
+                <button
+                  className="md:hidden p-2 text-text-secondary hover:text-foreground transition-colors"
+                  onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
+                  aria-label={mobileMenuOpen ? "Close navigation menu" : "Open navigation menu"}
+                >
+                  {mobileMenuOpen ? (
+                    <X className="h-5 w-5" />
+                  ) : (
+                    <Menu className="h-5 w-5" />
+                  )}
+                </button>
+              )}
             </div>
           </div>
         </div>

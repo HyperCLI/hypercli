@@ -165,7 +165,7 @@ const SKILL_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = 
     <blockquote className="my-3 border-l-2 border-[#56565c] pl-3 text-[12px] text-[#a7a7ad]">{children}</blockquote>
   ),
   a: ({ href, children }) => (
-    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[#38d39f] hover:underline">
+    <a href={href} target="_blank" rel="noopener noreferrer" className="text-[var(--selection-accent)] hover:underline">
       {children}
     </a>
   ),
@@ -481,17 +481,17 @@ function SkillRow({ row, selected, onOpen }: { row: SkillListRow; selected: bool
   const { skill, status, requirement } = row;
   const statusLabel = status === "needs-setup" ? "Needs setup" : status === "disabled" ? "Disabled" : "Active";
   const statusClasses = {
-    active: "border-[#0d5d42] bg-[#063a2a] text-[#38d39f]",
+    active: "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]",
     "needs-setup": "border-[#765415] bg-[#2f2209] text-[#f5c45e]",
     disabled: "border-[#333333] bg-[#151515] text-[#858585]",
   }[status];
   const dotClasses = {
-    active: "bg-[#38d39f]",
+    active: "bg-[var(--button-primary)]",
     "needs-setup": "bg-[#f5c45e]",
     disabled: "bg-[#626266]",
   }[status];
   const toggleClasses = {
-    active: "border-[#12a775] bg-[#38d39f]",
+    active: "border-[var(--selection-accent)] bg-[var(--button-primary)]",
     "needs-setup": "border-[#c99631] bg-[#f5c45e]",
     disabled: "border-[#343438] bg-[#242426]",
   }[status];
@@ -501,7 +501,7 @@ function SkillRow({ row, selected, onOpen }: { row: SkillListRow; selected: bool
     <button
       type="button"
       onClick={onOpen}
-      className={`grid w-full grid-cols-1 gap-3 border-t border-[#29292c] px-3.5 py-3.5 text-left transition-colors first:border-t-0 hover:bg-[#121214] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[#38d39f]/50 sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4 ${selected ? "bg-[#121214]" : ""} ${status === "disabled" ? "opacity-60" : ""}`}
+      className={`grid w-full grid-cols-1 gap-3 border-t border-[#29292c] px-3.5 py-3.5 text-left transition-colors first:border-t-0 hover:bg-[#121214] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] sm:grid-cols-[minmax(0,1fr)_auto] sm:items-center sm:px-4 ${selected ? "bg-[#121214]" : ""} ${status === "disabled" ? "opacity-60" : ""}`}
     >
       <div className="grid min-w-0 grid-cols-[1.75rem_minmax(0,1fr)] items-start gap-3">
         <div className="flex h-7 w-7 shrink-0 items-center justify-center rounded-[6px] border border-[#303036] bg-[#151519] text-[#f3f3f3]">
@@ -566,7 +566,7 @@ function SkillDrawer({
     ? "border-[#765415] bg-[#2f2209] text-[#f5c45e]"
     : row.status === "disabled"
       ? "border-[#333333] bg-[#151515] text-[#858585]"
-      : "border-[#0d5d42] bg-[#063a2a] text-[#38d39f]";
+      : "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]";
   const StatusIcon = row.status === "active" ? CheckCircle2 : AlertTriangle;
   const configEntryEnvSignature = JSON.stringify(configEntry.env ?? {});
   const [envDraft, setEnvDraft] = React.useState<Record<string, string>>(() => configEntry.env ?? {});
@@ -682,7 +682,7 @@ function SkillDrawer({
                   </div>
                 )}
                 {saveError && <p className="mt-3 text-[11px] leading-relaxed text-[#ff6b6b]">{saveError}</p>}
-                {saveSuccess && <p className="mt-3 text-[11px] leading-relaxed text-[#38d39f]">{saveSuccess}</p>}
+                {saveSuccess && <p className="mt-3 text-[11px] leading-relaxed text-[var(--selection-accent)]">{saveSuccess}</p>}
               </div>
             </div>
           </div>
@@ -721,7 +721,7 @@ function SkillDrawer({
               onClick={handleSaveSetup}
               disabled={!canSaveSetup}
               title={requiredEnvMissing ? "Enter the required environment values first." : "Save this skill config."}
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-[7px] bg-[#38d39f] px-3 text-[12px] font-semibold leading-none text-[#03110c] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-[7px] bg-[var(--button-primary)] px-3 text-[12px] font-semibold leading-none text-[var(--button-primary-foreground)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
             >
               {saving ? "Saving..." : "Set up & enable"}
             </button>
@@ -734,7 +734,7 @@ function SkillDrawer({
               type="button"
               onClick={handleSaveSetup}
               disabled={!canSaveSetup}
-              className="inline-flex h-8 shrink-0 items-center justify-center rounded-[7px] bg-[#38d39f] px-3 text-[12px] font-semibold leading-none text-[#03110c] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
+              className="inline-flex h-8 shrink-0 items-center justify-center rounded-[7px] bg-[var(--button-primary)] px-3 text-[12px] font-semibold leading-none text-[var(--button-primary-foreground)] transition-opacity disabled:cursor-not-allowed disabled:opacity-45"
             >
               {saving ? "Saving..." : configEntry.enabled === true ? "Save config" : "Enable skill"}
             </button>

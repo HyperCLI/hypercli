@@ -41,8 +41,8 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
         saving
           ? "border-[var(--border)] bg-[var(--surface-low)] opacity-70 pointer-events-none"
           : enabled
-            ? "border-[var(--primary)]/30 border-l-2 border-l-[var(--primary)] bg-[var(--primary)]/5 hover:bg-[var(--primary)]/8 hover:border-[var(--primary)]/50 hover:border-l-[var(--primary)] hover:shadow-[0_0_12px_rgba(56,211,159,0.08)]"
-            : "border-[var(--border)] hover:border-[var(--primary)]/20 hover:bg-[var(--surface-low)] hover:shadow-[0_0_8px_rgba(56,211,159,0.04)]"
+            ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] border-l-2 border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.08)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.5)] hover:border-l-[var(--selection-accent)] hover:shadow-[0_0_12px_rgb(var(--selection-accent-rgb)_/_0.08)]"
+            : "border-[var(--border)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.2)] hover:bg-[var(--surface-low)] hover:shadow-[0_0_8px_rgb(var(--selection-accent-rgb)_/_0.04)]"
       }`}
       whileHover={{ scale: 1.01 }}
       whileTap={{ scale: 0.99 }}
@@ -52,7 +52,7 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
         <div
           className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
             enabled
-              ? "bg-[var(--primary)]/15 text-[var(--primary)]"
+              ? "bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)]"
               : "bg-[var(--surface-high)] text-[var(--text-secondary)]"
           }`}
         >
@@ -68,8 +68,8 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
               aria-label={`${enabled ? "Disable" : "Enable"} ${plugin.displayName}`}
               onClick={handleToggle}
               onKeyDown={handleToggleKeyDown}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[var(--primary)]/50 ${
-                enabled ? "bg-[var(--primary)]" : "bg-[var(--surface-high)]"
+              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] ${
+                enabled ? "bg-[var(--button-primary)]" : "bg-[var(--surface-high)]"
               }`}
             >
               {saving ? (

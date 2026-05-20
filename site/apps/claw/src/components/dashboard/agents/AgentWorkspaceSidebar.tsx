@@ -23,7 +23,7 @@ import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMe
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { ClawThemePicker } from "@/components/ClawThemePicker";
 import { AgentPlanSummary } from "./AgentPlanSummary";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
@@ -91,7 +91,7 @@ function WorkspaceButton({
       ? "cursor-not-allowed text-text-muted/45"
       : item.active
         ? mobileMode
-          ? "border border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+          ? "border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
           : "bg-surface-low text-foreground"
         : `${mobileMode ? "border border-transparent" : ""} text-text-secondary hover:bg-surface-low/60 hover:text-foreground`
   }`;
@@ -175,6 +175,7 @@ export function AgentWorkspaceSidebar({
   const tokenUsageLabel = tokenTotal
     ? `${tokensUsed == null ? "--" : formatTokens(tokensUsed)} / ${formatTokens(tokenTotal)}`
     : `${tokensUsed == null ? "0" : formatTokens(tokensUsed)} / --`;
+  const selectedAgentName = selectedAgent?.name?.trim() || selectedAgent?.id || "";
 
   const agentState: AgentState | undefined = selectedAgent?.state;
   const noSelectedAgent = !selectedAgent;
@@ -240,11 +241,18 @@ export function AgentWorkspaceSidebar({
     >
       <div
         className={`flex h-14 shrink-0 items-center border-b border-border ${
-          isCollapsed ? "justify-center px-0" : "justify-between px-4"
+          isCollapsed ? "justify-center px-0" : "gap-2 px-4"
         }`}
       >
+        {!isCollapsed && !onClose && <ClawThemePicker menuAlign="start" size="sm" />}
         {!isCollapsed && (
-          <HyperClawLogoLink className="h-[31px] min-w-0 flex-1 max-w-[109px]" />
+          <div className="min-w-0 flex-1">
+            {selectedAgentName ? (
+              <p className="truncate text-[13px] font-medium leading-tight text-foreground" title={selectedAgentName}>
+                {selectedAgentName}
+              </p>
+            ) : null}
+          </div>
         )}
         {onClose ? (
           <button

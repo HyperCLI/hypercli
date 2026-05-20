@@ -11,7 +11,7 @@ export interface ShowoffTargetProps {
 }
 
 const defaultActiveClassName =
-  "pointer-events-none fixed z-40 rounded-xl border border-primary/70 ring-2 ring-primary/80 shadow-[0_0_0_9999px_rgba(0,0,0,0.62),0_0_0_8px_rgba(56,211,159,0.18),0_20px_70px_rgba(0,0,0,0.45)] transition-[top,left,width,height] duration-200 ease-out";
+  "pointer-events-none fixed z-40 rounded-xl border themed-highlight-outline transition-[top,left,width,height] duration-200 ease-out";
 
 const SPOTLIGHT_PADDING = 10;
 

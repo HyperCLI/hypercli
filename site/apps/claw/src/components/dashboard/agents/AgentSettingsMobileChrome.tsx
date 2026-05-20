@@ -4,6 +4,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { Bot, MessageSquare, SlidersHorizontal } from "lucide-react";
 
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { ClawThemePicker } from "@/components/ClawThemePicker";
 
 export interface AgentSettingsMobileSection {
   id: string;
@@ -41,6 +42,7 @@ export function AgentSettingsMobileChrome({
           <h1 className="truncate text-base font-medium text-text-muted">Settings</h1>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
+          <ClawThemePicker size="sm" />
           <AnimatePresence initial={false}>
             {showBackToChat && onBackToChat && (
               <motion.button
@@ -66,7 +68,7 @@ export function AgentSettingsMobileChrome({
             disabled={!onOpenAgentsMenu}
             className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               agentsMenuOpen
-                ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+                ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
                 : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
             }`}
           >
@@ -80,7 +82,7 @@ export function AgentSettingsMobileChrome({
             disabled={!onOpenWorkspaceMenu}
             className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               workspaceMenuOpen
-                ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+                ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
                 : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
             }`}
           >

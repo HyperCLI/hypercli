@@ -4,8 +4,9 @@
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";
 
-/* HyperClaw Design System - Dark Theme (Default) */
+/* HyperClaw Design System - Default Theme */
 :root,
+[data-theme="default"],
 [data-theme="dark"] {
   --font-size: 16px;
   --background: #0a0a0b;
@@ -34,6 +35,17 @@
   --accent-hover: #45e4ae;
   --accent-pressed: #2db789;
   --accent-subtle: #1a3f30;
+  --button-primary: #38d39f;
+  --button-primary-foreground: #0a0a0b;
+  --button-primary-hover: #45e4ae;
+  --button-primary-pressed: #2db789;
+  --button-primary-rgb: 56 211 159;
+  --selection-accent: #38d39f;
+  --selection-accent-foreground: #0a0a0b;
+  --selection-accent-rgb: 56 211 159;
+  --selection-accent-soft: rgba(56, 211, 159, 0.1);
+  --selection-accent-border: rgba(56, 211, 159, 0.3);
+  --selection-background: rgba(56, 211, 159, 0.3);
   --destructive: #d05f5f;
   --destructive-foreground: #fff;
   --success: #3ad8a0;
@@ -62,6 +74,36 @@
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: rgba(255, 255, 255, 0.18);
   --sidebar-ring: rgba(255, 255, 255, 0.2);
+}
+
+/* HyperClaw Design System - Green Theme */
+[data-theme="green"] {
+  --button-primary: #63e452;
+  --button-primary-foreground: #0a0a0b;
+  --button-primary-hover: #75ef64;
+  --button-primary-pressed: #52c943;
+  --button-primary-rgb: 99 228 82;
+  --selection-accent: #63e452;
+  --selection-accent-foreground: #0a0a0b;
+  --selection-accent-rgb: 99 228 82;
+  --selection-accent-soft: rgba(99, 228, 82, 0.1);
+  --selection-accent-border: rgba(99, 228, 82, 0.3);
+  --selection-background: rgba(99, 228, 82, 0.3);
+}
+
+/* HyperClaw Design System - Purple Theme */
+[data-theme="purple"] {
+  --button-primary: #4a20ff;
+  --button-primary-foreground: #ffffff;
+  --button-primary-hover: #5f3bff;
+  --button-primary-pressed: #3d17d6;
+  --button-primary-rgb: 74 32 255;
+  --selection-accent: #4a20ff;
+  --selection-accent-foreground: #ffffff;
+  --selection-accent-rgb: 74 32 255;
+  --selection-accent-soft: rgba(74, 32, 255, 0.12);
+  --selection-accent-border: rgba(74, 32, 255, 0.36);
+  --selection-background: rgba(74, 32, 255, 0.32);
 }
 
 /* HyperClaw Design System - Light Theme */
@@ -185,12 +227,64 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 .btn-primary {
-  background-color: var(--primary);
-  color: var(--primary-foreground);
+  background-color: var(--button-primary);
+  color: var(--button-primary-foreground);
   transition: all 0.2s ease;
 }
 .btn-primary:hover {
-  background-color: var(--primary-hover);
+  background-color: var(--button-primary-hover);
+}
+
+:where(button, a, [role="button"]).bg-primary,
+:where(button, a, [role="button"]) .bg-primary {
+  background-color: var(--button-primary);
+}
+
+:where(button, a, [role="button"]).text-primary-foreground,
+:where(button, a, [role="button"]) .text-primary-foreground {
+  color: var(--button-primary-foreground);
+}
+
+:where(button, a, [role="button"]).hover\:bg-primary-hover:hover {
+  background-color: var(--button-primary-hover);
+}
+
+:where(button, a, [role="button"]).hover\:bg-primary\/90:hover {
+  background-color: rgb(var(--button-primary-rgb) / 0.9);
+}
+
+:where(button, a, [role="button"]).focus-visible\:ring-primary\/60:focus-visible {
+  --tw-ring-color: rgb(var(--button-primary-rgb) / 0.6);
+}
+
+:where(button, [role="button"]).border-primary {
+  border-color: var(--selection-accent);
+}
+
+:where(button, [role="button"]).border-primary\/40 {
+  border-color: rgb(var(--selection-accent-rgb) / 0.4);
+}
+
+:where(button, [role="button"]).bg-primary\/10 {
+  background-color: var(--selection-accent-soft);
+}
+
+:where(button, [role="button"]).bg-primary\/15,
+:where(button, [role="button"]).hover\:bg-primary\/15:hover {
+  background-color: rgb(var(--selection-accent-rgb) / 0.15);
+}
+
+:where(button, [role="button"]).text-primary {
+  color: var(--selection-accent);
+}
+
+.themed-highlight-outline {
+  border-color: var(--selection-accent-border);
+  box-shadow:
+    0 0 0 2px rgb(var(--selection-accent-rgb) / 0.8),
+    0 0 0 9999px rgba(0, 0, 0, 0.62),
+    0 0 0 8px rgb(var(--selection-accent-rgb) / 0.18),
+    0 20px 70px rgba(0, 0, 0, 0.45);
 }
 
 .btn-secondary {
@@ -242,6 +336,24 @@ h1, h2, h3, h4, h5, h6 {
 }
 .nav-link:hover {
   color: var(--foreground);
+}
+
+.claw-logo-themed .claw-logo-theme-asset {
+  display: none;
+}
+
+.claw-logo-themed .claw-logo-theme-default {
+  display: block;
+}
+
+[data-theme="green"] .claw-logo-themed .claw-logo-theme-default,
+[data-theme="purple"] .claw-logo-themed .claw-logo-theme-default {
+  display: none;
+}
+
+[data-theme="green"] .claw-logo-themed .claw-logo-theme-green,
+[data-theme="purple"] .claw-logo-themed .claw-logo-theme-purple {
+  display: block;
 }
 
 /*
@@ -478,26 +590,26 @@ h1, h2, h3, h4, h5, h6 {
 }
 
 ::selection {
-  background-color: rgba(56, 211, 159, 0.3);
+  background-color: var(--selection-background);
   color: var(--foreground);
 }
 
 /* Highlight flash for newly-arrived activity / tool-call rows.
- * Kicks off with a soft green tint and a left accent bar, then fades to
+ * Kicks off with a soft accent tint and a left accent bar, then fades to
  * transparent over 5s. Uses background-color (not border) to avoid layout
  * shift when the highlight starts/ends. */
 @keyframes activity-flash {
   0% {
-    background-color: rgba(56, 211, 159, 0.18);
-    box-shadow: inset 2px 0 0 0 rgba(56, 211, 159, 0.7);
+    background-color: rgb(var(--selection-accent-rgb) / 0.18);
+    box-shadow: inset 2px 0 0 0 rgb(var(--selection-accent-rgb) / 0.7);
   }
   20% {
-    background-color: rgba(56, 211, 159, 0.12);
-    box-shadow: inset 2px 0 0 0 rgba(56, 211, 159, 0.5);
+    background-color: rgb(var(--selection-accent-rgb) / 0.12);
+    box-shadow: inset 2px 0 0 0 rgb(var(--selection-accent-rgb) / 0.5);
   }
   100% {
-    background-color: rgba(56, 211, 159, 0);
-    box-shadow: inset 2px 0 0 0 rgba(56, 211, 159, 0);
+    background-color: rgb(var(--selection-accent-rgb) / 0);
+    box-shadow: inset 2px 0 0 0 rgb(var(--selection-accent-rgb) / 0);
   }
 }
 

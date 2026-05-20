@@ -37,6 +37,7 @@ import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
+import { ClawThemePicker } from "@/components/ClawThemePicker";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
@@ -2593,6 +2594,7 @@ function AgentsPageContent() {
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
+            <ClawThemePicker size="sm" />
             <AnimatePresence initial={false}>
               {showMobileChatReturn && (
                 <motion.button
@@ -2620,7 +2622,7 @@ function AgentsPageContent() {
               }}
               className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
                 mobileAgentsSidebarOpen
-                  ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+                  ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
                   : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
               }`}
             >
@@ -2636,7 +2638,7 @@ function AgentsPageContent() {
               }}
               className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors ${
                 mobileWorkspaceSidebarOpen
-                  ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]"
+                  ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
                   : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
               }`}
             >
@@ -2653,7 +2655,7 @@ function AgentsPageContent() {
           className={`mx-4 mt-3 flex items-start justify-between gap-3 rounded-lg border px-3 py-2 text-sm sm:mx-6 lg:mx-8 ${
             checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
               ? "border-amber-400/25 bg-amber-400/10 text-amber-100"
-              : "border-[#38D39F]/25 bg-[#38D39F]/10 text-[#B7F5DF]"
+              : "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
           }`}
         >
           <span>{checkoutSync.message}</span>

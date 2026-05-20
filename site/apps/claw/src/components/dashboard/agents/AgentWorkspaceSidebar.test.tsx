@@ -58,6 +58,12 @@ function renderAgentWorkspaceSidebar(overrides: Partial<ComponentProps<typeof Ag
 }
 
 describe("AgentWorkspaceSidebar", () => {
+  it("shows the selected agent name in the expanded header", () => {
+    renderAgentWorkspaceSidebar();
+
+    expect(screen.getByText("Test Agent")).toBeInTheDocument();
+  });
+
   it("does not render the desktop workspace sidebar below the desktop breakpoint", () => {
     renderAgentWorkspaceSidebar({ isDesktopViewport: false });
 

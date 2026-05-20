@@ -74,7 +74,34 @@ const proAndFiveAiuCatalogPlans = [
   },
 ] as HyperAgentPlan[];
 
+function getPlanCardAction(name: string): HTMLElement {
+  return screen.getAllByRole("button", { name })[0];
+}
+
+function getPlanFooterAction(name: string): HTMLElement {
+  const actions = screen.getAllByRole("button", { name });
+  return actions[actions.length - 1];
+}
+
 describe("FirstAgentSetupWizard", () => {
+  it("generates a three-word default agent name", async () => {
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    const nameInput = screen.getByLabelText("Agent name") as HTMLInputElement;
+
+    await waitFor(() => {
+      expect(nameInput.value.split("-")).toHaveLength(3);
+    });
+    expect(nameInput.value).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
+  });
+
   it("renders catalog plan details instead of static fallback plan copy", () => {
     renderWithClient(
       <FirstAgentSetupWizard
@@ -92,12 +119,15 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Team Launch")).toBeInTheDocument();
     expect(screen.getByText("Shared agent capacity from catalog")).toBeInTheDocument();
     expect(screen.getByText("Medium slots available after purchase")).toBeInTheDocument();
-    expect(screen.getByText("Team channels")).toBeInTheDocument();
-    expect(screen.getByText("1x Medium launch slot")).toBeInTheDocument();
-    expect(screen.getAllByText("250K tokens/day")).toHaveLength(1);
-    expect(screen.queryByText("Simple")).not.toBeInTheDocument();
-    expect(screen.queryByText("Advanced workflows and analytics")).not.toBeInTheDocument();
-  });
+	    expect(screen.getByText("Team channels")).toBeInTheDocument();
+	    expect(screen.getByText("1x Medium launch slot")).toBeInTheDocument();
+	    expect(screen.getAllByText("250K tokens/day")).toHaveLength(1);
+	    expect(getPlanCardAction("View plan")).toHaveClass("bg-[var(--button-primary)]");
+	    expect(screen.getByText("Most Popular")).toHaveClass("bg-[var(--selection-accent)]");
+	    expect(screen.getByText("Most Popular")).toHaveClass("text-[var(--selection-accent-foreground)]");
+	    expect(screen.queryByText("Simple")).not.toBeInTheDocument();
+	    expect(screen.queryByText("Advanced workflows and analytics")).not.toBeInTheDocument();
+	  });
 
   it("opens plan comparison from the choose plan step", () => {
     renderWithClient(
@@ -140,7 +170,7 @@ describe("FirstAgentSetupWizard", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
-    fireEvent.click(screen.getByRole("button", { name: "View plan" }));
+    fireEvent.click(getPlanCardAction("View plan"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
     expect(onCreateAgent).not.toHaveBeenCalled();
@@ -216,7 +246,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(screen.queryByRole("heading", { name: "5 AIU" })).not.toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
       expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),
@@ -258,7 +288,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(screen.getAllByText("No slots available")).toHaveLength(2);
     expect(screen.queryByText("0 Medium slots available")).not.toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Buy more slots" }));
+    fireEvent.click(getPlanCardAction("Buy more slots"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
     expect(onCreateAgent).not.toHaveBeenCalled();
@@ -301,7 +331,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Slot being released")).toBeInTheDocument();
     expect(screen.getByText("1 Medium slot being released")).toBeInTheDocument();
     expect(screen.getByText("Refreshing slot availability")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Refreshing slots" })).toBeDisabled();
+    expect(getPlanCardAction("Refreshing slots")).toBeDisabled();
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
@@ -340,13 +370,13 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Payment active, waiting for entitlement")).toBeInTheDocument();
     expect(screen.getByText("Medium slot provisioning")).toBeInTheDocument();
     expect(screen.getByText("Launch entitlement is still provisioning")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Open plans" }));
+    fireEvent.click(getPlanCardAction("Open plans"));
 
     await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
     expect(onCreateAgent).not.toHaveBeenCalled();
   });
 
-  it("shows available slots and launches with the selected entitlement", async () => {
+  it("launches from the choose-plan card button with the selected entitlement", async () => {
     const onOpenPlanCatalog = vi.fn();
     const onCreateAgent = vi.fn(async () => "agent-1");
 
@@ -380,7 +410,47 @@ describe("FirstAgentSetupWizard", () => {
     fireEvent.click(screen.getByRole("button", { name: "Continue" }));
 
     expect(screen.getByText("1 Medium slot available")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(getPlanCardAction("Launch agent"));
+
+    await waitFor(() =>
+      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "medium" })),
+    );
+    expect(onOpenPlanCatalog).not.toHaveBeenCalled();
+  });
+
+  it("launches from the selected plan footer action", async () => {
+    const onOpenPlanCatalog = vi.fn();
+    const onCreateAgent = vi.fn(async () => "agent-1");
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={{
+          slots: {
+            medium: { granted: 1, used: 0, available: 1 },
+          },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [
+            {
+              id: "sub-1",
+              planId: "team-launch",
+              planName: "Team Launch",
+              slotGrants: { medium: 1 },
+              quantity: 1,
+            },
+          ],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(getPlanFooterAction("Launch agent"));
 
     await waitFor(() =>
       expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "medium" })),
@@ -427,7 +497,7 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
     expect(screen.getByText("Uses your active direct entitlement")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
       expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),
@@ -461,7 +531,7 @@ describe("FirstAgentSetupWizard", () => {
 
     expect(screen.getByRole("heading", { name: "Pro" })).toBeInTheDocument();
     expect(screen.getByText("1 Large slot available")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Launch agent" }));
+    fireEvent.click(getPlanCardAction("Launch agent"));
 
     await waitFor(() =>
       expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),

@@ -64,7 +64,7 @@ export function ShowoffCoach({
       <button
         type="button"
         onClick={onOpen}
-        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-lg border border-primary/30 bg-background px-3 py-2 text-sm font-semibold text-primary shadow-[0_18px_48px_rgba(0,0,0,0.35)] hover:bg-surface-low"
+        className="fixed bottom-5 right-5 z-50 inline-flex items-center gap-2 rounded-lg border border-[var(--selection-accent-border)] bg-background px-3 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_48px_rgba(0,0,0,0.35)] hover:bg-surface-low"
       >
         <Sparkles className="h-4 w-4" />
         Showoff
@@ -76,15 +76,15 @@ export function ShowoffCoach({
     <>
       <section
         aria-label={title}
-        className="fixed bottom-5 right-5 z-50 max-h-[calc(100dvh-2rem)] w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-primary/30 bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
+        className="fixed bottom-5 right-5 z-50 max-h-[calc(100dvh-2rem)] w-[min(28rem,calc(100vw-2rem))] overflow-hidden rounded-lg border border-[var(--selection-accent-border)] bg-background shadow-[0_24px_80px_rgba(0,0,0,0.45)]"
       >
         <div className="h-1 bg-border">
-          <div className="h-full bg-primary transition-[width] duration-300" style={{ width: `${progress}%` }} />
+          <div className="h-full bg-[var(--selection-accent)] transition-[width] duration-300" style={{ width: `${progress}%` }} />
         </div>
         <div className="max-h-[calc(100dvh-2.25rem)] overflow-y-auto p-4">
           <div className="flex items-start justify-between gap-4">
             <div>
-              <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase text-primary">
+              <div className="inline-flex items-center gap-2 text-xs font-semibold uppercase text-[var(--selection-accent)]">
                 <Sparkles className="h-3.5 w-3.5" />
                 {title}
               </div>
@@ -123,22 +123,22 @@ export function ShowoffCoach({
                   onClick={() => onSelectStep(index)}
                   className={`flex w-full items-start gap-3 rounded-lg border px-3 py-2 text-left transition ${
                     selected
-                      ? "border-primary/50 bg-primary/10"
-                      : "border-border bg-surface-low/50 hover:border-primary/30 hover:bg-surface-low"
+                      ? "border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)]"
+                      : "border-border bg-surface-low/50 hover:border-[var(--selection-accent-border)] hover:bg-surface-low"
                   }`}
                   aria-current={selected ? "step" : undefined}
                 >
                   <span className={`mt-0.5 flex h-5 w-5 shrink-0 items-center justify-center rounded-full border ${
                     complete
-                      ? "border-primary bg-primary text-primary-foreground"
+                      ? "border-[var(--selection-accent)] bg-[var(--selection-accent)] text-[var(--selection-accent-foreground)]"
                       : selected
-                        ? "border-primary text-primary"
+                        ? "border-[var(--selection-accent)] text-[var(--selection-accent)]"
                         : "border-border text-text-muted"
                   }`}>
                     {complete ? <CheckCircle2 className="h-3.5 w-3.5" /> : <span className="text-[10px] font-semibold">{index + 1}</span>}
                   </span>
                   <span className="min-w-0">
-                    <span className="block text-xs font-semibold uppercase text-primary">{step.eyebrow}</span>
+                    <span className="block text-xs font-semibold uppercase text-[var(--selection-accent)]">{step.eyebrow}</span>
                     <span className="block text-sm font-semibold text-foreground">{step.title}</span>
                   </span>
                 </button>
@@ -150,11 +150,11 @@ export function ShowoffCoach({
             <div className="mt-4 border-t border-border pt-4">
               <div className="flex items-start justify-between gap-3">
                 <div>
-                  <p className="text-xs font-semibold uppercase text-primary">{activeStep.eyebrow}</p>
+                  <p className="text-xs font-semibold uppercase text-[var(--selection-accent)]">{activeStep.eyebrow}</p>
                   <h2 className="mt-1 text-base font-semibold text-foreground">{activeStep.title}</h2>
                 </div>
                 {activeStepCompleted ? (
-                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-primary/30 bg-primary/10 px-2 py-1 text-xs font-semibold text-primary">
+                  <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[var(--selection-accent-border)] bg-[var(--selection-accent-soft)] px-2 py-1 text-xs font-semibold text-[var(--selection-accent)]">
                     <CheckCircle2 className="h-3.5 w-3.5" />
                     Done
                   </span>

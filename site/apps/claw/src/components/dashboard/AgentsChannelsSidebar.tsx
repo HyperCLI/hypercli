@@ -27,6 +27,7 @@ import {
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
 import { ResourceImage } from "@/components/ResourceImage";
+import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
@@ -437,7 +438,7 @@ function ThreadRow({
     <motion.div
       className={`w-full text-left px-3 ${mobileMode ? "py-3 gap-3" : "py-2.5 gap-2.5"} flex items-start transition-colors relative group/row cursor-pointer ${
         selected
-          ? "bg-surface-low border-l-2 border-[#38D39F]"
+          ? "bg-surface-low border-l-2 border-[var(--selection-accent)]"
           : "border-l-2 border-transparent hover:bg-surface-low/50"
       }`}
       initial={{ opacity: 0, y: 6 }}
@@ -466,7 +467,7 @@ function ThreadRow({
                 onKeyDown={(e) => { if (e.key === "Enter") commitEdit(); if (e.key === "Escape") setEditing(false); }}
                 onBlur={commitEdit}
                 onClick={(e) => e.stopPropagation()}
-                className="text-sm font-medium text-foreground bg-transparent border-b border-[#38D39F] focus:outline-none w-full min-w-0"
+                className="text-sm font-medium text-foreground bg-transparent border-b border-[var(--selection-accent)] focus:outline-none w-full min-w-0"
               />
             ) : (
               <>
@@ -484,7 +485,7 @@ function ThreadRow({
                 )}
               </>
             )}
-            {!editing && thread.isActive && <span className="w-1.5 h-1.5 rounded-full bg-[#38D39F] flex-shrink-0" />}
+            {!editing && thread.isActive && <span className="w-1.5 h-1.5 rounded-full bg-[var(--selection-accent)] flex-shrink-0" />}
           </div>
           {!editing && (
             <span className={`text-[10px] text-text-muted flex-shrink-0 ${mobileMode && onDelete ? "hidden" : "group-hover/row:hidden"}`}>
@@ -513,7 +514,7 @@ function ThreadRow({
             )}
           </p>
           {thread.unreadCount > 0 && (
-            <span className="flex-shrink-0 bg-[#38D39F] text-[#0a0a0b] text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
+            <span className="flex-shrink-0 bg-[var(--selection-accent)] text-[var(--selection-accent-foreground)] text-[10px] font-bold rounded-full min-w-[18px] h-[18px] flex items-center justify-center px-1">
               {thread.unreadCount}
             </span>
           )}
@@ -554,13 +555,16 @@ function SidebarHeader({
   return (
     <div className="flex-shrink-0 border-b border-border m-[-1px]">
       <div className="flex items-center justify-between px-3 h-14">
-        <span className="text-xs font-semibold text-text-secondary uppercase tracking-wider">Agents</span>
+        <HyperClawLogoLink
+          className={mobileMode ? "h-[32px] w-[164px]" : "h-[28px] w-[144px]"}
+          themeAware
+        />
         <div className="flex items-center gap-1">
           <button
             type="button"
             aria-label={showSearch ? "Close search" : "Search agents"}
             onClick={onToggleSearch}
-            className={`${actionClassName} ${showSearch ? "border-[#38D39F]/30 bg-[#38D39F]/10 text-[#38D39F]" : ""}`}
+            className={`${actionClassName} ${showSearch ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : ""}`}
           >
             {showSearch ? <X className={iconClassName} /> : <Search className={iconClassName} />}
           </button>
@@ -799,7 +803,7 @@ function FlatThreadList({
             onClick={() => setFilter(f.key)}
             className={`px-2.5 py-1 rounded-full text-[10px] font-medium border transition-colors ${
               filter === f.key
-                ? "bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30"
+                ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] border-[rgb(var(--selection-accent-rgb)_/_0.3)]"
                 : "text-text-muted hover:text-foreground border-border"
             }`}
           >
@@ -980,7 +984,7 @@ function GroupedByAgent({
                 {group.threads.length} {group.threads.length === 1 ? "thread" : "threads"}
               </span>
               {group.totalUnread > 0 && (
-                <span className="bg-[#38D39F] text-[#0a0a0b] text-[10px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1">
+                <span className="bg-[var(--selection-accent)] text-[var(--selection-accent-foreground)] text-[10px] font-bold rounded-full min-w-[16px] h-[16px] flex items-center justify-center px-1">
                   {group.totalUnread}
                 </span>
               )}
@@ -1222,7 +1226,7 @@ export function ConversationGraphModule({
                     <User className="w-3.5 h-3.5 text-text-muted" />
                     {isActive && (
                       <motion.span
-                        className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#38D39F] border border-background"
+                        className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
                         style={{ zIndex: 3 }}
                         animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
                         transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
@@ -1256,7 +1260,7 @@ export function ConversationGraphModule({
                   )}
                   {isActive && (
                     <motion.span
-                      className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#38D39F] border border-background"
+                      className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
                       style={{ zIndex: 3 }}
                       animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
                       transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
@@ -1307,7 +1311,7 @@ export function ConversationGraphModule({
         {!isEmptyGraph && !isSoloUser && (
         <motion.div
           className="absolute rounded-full pointer-events-none"
-          style={{ width: 120, height: 120, left: 70, top: isCompact ? -10 : 10, background: "radial-gradient(circle, rgba(56,211,159,0.06) 0%, transparent 70%)" }}
+          style={{ width: 120, height: 120, left: 70, top: isCompact ? -10 : 10, background: "radial-gradient(circle, rgb(var(--selection-accent-rgb) / 0.06) 0%, transparent 70%)" }}
           animate={{ scale: [1, 1.15, 1], opacity: [0.4, 0.7, 0.4] }}
           transition={{ duration: 4, repeat: Infinity, ease: "easeInOut" }}
         />)}
@@ -1317,9 +1321,9 @@ export function ConversationGraphModule({
           <defs>
             {/* Animated dash pattern for active edges */}
             <linearGradient id="edgeGradientActive" x1="0%" y1="0%" x2="100%" y2="0%">
-              <stop offset="0%" stopColor="#38D39F" stopOpacity="0.3" />
-              <stop offset="50%" stopColor="#38D39F" stopOpacity="0.9" />
-              <stop offset="100%" stopColor="#38D39F" stopOpacity="0.3" />
+              <stop offset="0%" stopColor="var(--selection-accent)" stopOpacity="0.3" />
+              <stop offset="50%" stopColor="var(--selection-accent)" stopOpacity="0.9" />
+              <stop offset="100%" stopColor="var(--selection-accent)" stopOpacity="0.3" />
             </linearGradient>
           </defs>
           {edges.map((edge, edgeIdx) => {
@@ -1343,7 +1347,7 @@ export function ConversationGraphModule({
                   <motion.line
                     x1={fromNode.x} y1={fromNode.y}
                     x2={toNode.x} y2={toNode.y}
-                    stroke="#38D39F"
+                    stroke="var(--selection-accent)"
                     strokeWidth={4}
                     strokeLinecap="round"
                     initial={{ opacity: 0 }}
@@ -1365,7 +1369,7 @@ export function ConversationGraphModule({
                   {/* Traveling particle */}
                   <motion.circle
                     r={2}
-                    fill="#38D39F"
+                    fill="var(--selection-accent)"
                     initial={{ cx: fromNode.x, cy: fromNode.y, opacity: 0 }}
                     animate={{
                       cx: [fromNode.x, toNode.x],
@@ -1426,9 +1430,9 @@ export function ConversationGraphModule({
                   scale: isDimmed ? 0.8 : 1,
                   opacity: isDimmed ? 0.4 : 1,
                   boxShadow: isSelected
-                    ? "0 0 0 2px #38D39F, 0 0 12px rgba(56,211,159,0.3)"
+                    ? "0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)"
                     : isActive
-                      ? "0 0 8px rgba(56,211,159,0.15)"
+                      ? "0 0 8px rgb(var(--selection-accent-rgb) / 0.15)"
                       : "none",
                 }}
                 transition={{ type: "spring", stiffness: 400, damping: 25, delay: nodeIdx * 0.06 }}
@@ -1440,7 +1444,7 @@ export function ConversationGraphModule({
                 {/* Active pulse ring */}
                 {isActive && !isSelected && (
                   <motion.span
-                    className="absolute inset-0 rounded-full border border-[#38D39F]/30"
+                    className="absolute inset-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)]"
                     animate={{ scale: [1, 1.6], opacity: [0.4, 0] }}
                     transition={{ duration: 2, repeat: Infinity, ease: "easeOut", delay: nodeIdx * 0.4 }}
                   />
@@ -1473,7 +1477,7 @@ export function ConversationGraphModule({
                 scale: isDimmed ? 0.8 : 1,
                 opacity: isDimmed ? 0.4 : 1,
                 boxShadow: isSelected
-                  ? `0 0 0 2px #38D39F, 0 0 12px rgba(56,211,159,0.3)`
+                  ? `0 0 0 2px var(--selection-accent), 0 0 12px rgb(var(--selection-accent-rgb) / 0.3)`
                   : isActive
                     ? `0 0 8px ${avatar.fgColor}33`
                     : "none",
@@ -1506,7 +1510,7 @@ export function ConversationGraphModule({
               {/* Working indicator — subtle breathing */}
               {isActive && (
                 <motion.span
-                  className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[#38D39F] border border-background"
+                  className="absolute -bottom-0.5 -right-0.5 w-2 h-2 rounded-full bg-[var(--selection-accent)] border border-background"
                   style={{ zIndex: 3 }}
                   animate={{ scale: [0.8, 1.2, 0.8], opacity: [0.6, 1, 0.6] }}
                   transition={{ duration: 1.5, repeat: Infinity, ease: "easeInOut" }}
@@ -1553,7 +1557,7 @@ export function ConversationGraphModule({
             onClick={() => { setGraphScope("all"); setSelectedNode(null); }}
             className={`px-2 py-0.5 rounded-full text-[9px] font-medium border transition-colors ${
               graphScope === "all"
-                ? "bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30"
+                ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] border-[rgb(var(--selection-accent-rgb)_/_0.3)]"
                 : "text-text-muted hover:text-foreground border-border"
             }`}
           >
@@ -1564,7 +1568,7 @@ export function ConversationGraphModule({
             disabled={!selectedThreadId}
             className={`px-2 py-0.5 rounded-full text-[9px] font-medium border transition-colors disabled:opacity-30 disabled:cursor-not-allowed ${
               graphScope === "thread"
-                ? "bg-[#38D39F]/10 text-[#38D39F] border-[#38D39F]/30"
+                ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] border-[rgb(var(--selection-accent-rgb)_/_0.3)]"
                 : "text-text-muted hover:text-foreground border-border"
             }`}
           >
@@ -1847,7 +1851,7 @@ function HandoffThreadView({
                 mobileMode ? "gap-3 rounded-lg px-3 py-2.5" : "gap-2.5 rounded-md px-3 py-2"
               }`}
             >
-              <span className={`flex flex-shrink-0 items-center justify-center rounded-lg border border-[#38D39F]/25 bg-[#38D39F]/10 text-[#38D39F] transition-colors group-hover/agent:border-[#38D39F]/45 group-hover/agent:bg-[#38D39F]/15 ${
+              <span className={`flex flex-shrink-0 items-center justify-center rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)] transition-colors group-hover/agent:border-[rgb(var(--selection-accent-rgb)_/_0.45)] group-hover/agent:bg-[rgb(var(--selection-accent-rgb)_/_0.15)] ${
                 mobileMode ? "h-9 w-9" : "h-7 w-7"
               }`}>
                 <Plus className={mobileMode ? "h-5 w-5" : "h-3.5 w-3.5"} />
@@ -2058,10 +2062,10 @@ function ConversationsEmptyPrompt({
           className="flex-shrink-0 px-3 py-2.5 border-b border-border"
         >
           <motion.button
-            whileHover={{ scale: 1.02, boxShadow: "0 0 16px rgba(56,211,159,0.1)" }}
+            whileHover={{ scale: 1.02, boxShadow: "0 0 16px rgb(var(--selection-accent-rgb) / 0.1)" }}
             whileTap={{ scale: 0.97 }}
             onClick={() => setShowCreator(true)}
-            className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg bg-[#38D39F]/10 border border-[#38D39F]/20 hover:border-[#38D39F]/35 transition-colors text-xs font-medium text-[#38D39F]"
+            className="flex items-center gap-2.5 w-full px-3 py-2.5 rounded-lg bg-[rgb(var(--selection-accent-rgb)_/_0.1)] border border-[rgb(var(--selection-accent-rgb)_/_0.2)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.35)] transition-colors text-xs font-medium text-[var(--selection-accent)]"
           >
             <Plus className="w-4 h-4" />
             <span>New Agent</span>

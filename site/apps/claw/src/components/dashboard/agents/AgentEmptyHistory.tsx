@@ -47,9 +47,9 @@ export function AgentEmptyHistory({
               key={prompt.id}
               type="button"
               onClick={() => onPromptSelect(prompt.label)}
-              className="group flex min-h-[3.25rem] w-full items-center gap-3 rounded-lg border border-border bg-[#2f2f2f]/55 px-3.5 py-2.5 text-left text-sm font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]/50 focus-visible:ring-offset-2 focus-visible:ring-offset-background"
+              className="group flex min-h-[3.25rem] w-full items-center gap-3 rounded-lg border border-border bg-[#2f2f2f]/55 px-3.5 py-2.5 text-left text-sm font-medium text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] focus-visible:ring-offset-2 focus-visible:ring-offset-background"
             >
-              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-text-muted transition-colors group-hover:border-[#38D39F]/30 group-hover:text-[#38D39F]">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-md border border-border bg-background text-text-muted transition-colors group-hover:border-[rgb(var(--selection-accent-rgb)_/_0.3)] group-hover:text-[var(--selection-accent)]">
                 <Icon className="h-4 w-4" />
               </span>
               <span className="min-w-0 flex-1 leading-5">{prompt.label}</span>

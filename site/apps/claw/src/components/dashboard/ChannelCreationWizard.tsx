@@ -181,11 +181,11 @@ export function ChannelCreationWizard({
                           key={a.id}
                           onClick={() => setSelectedAgentId(selected ? null : a.id)}
                           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-left text-xs ${
-                            selected ? "bg-[#38D39F]/10 text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                            selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"
                           }`}
                         >
                           <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                            selected ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
+                            selected ? "bg-[var(--selection-accent)] border-[var(--selection-accent)]" : "border-text-muted"
                           }`}>
                             {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
                           </div>

@@ -40,12 +40,12 @@ const EXTENSION_ICONS: Record<string, { icon: LucideIcon; color: string }> = {
   md: { icon: FileText, color: "#ffffff" },
   txt: { icon: FileText, color: "#9ca3af" },
   log: { icon: FileText, color: "#9ca3af" },
-  png: { icon: FileImage, color: "#38D39F" },
-  jpg: { icon: FileImage, color: "#38D39F" },
-  jpeg: { icon: FileImage, color: "#38D39F" },
-  gif: { icon: FileImage, color: "#38D39F" },
+  png: { icon: FileImage, color: "var(--selection-accent)" },
+  jpg: { icon: FileImage, color: "var(--selection-accent)" },
+  jpeg: { icon: FileImage, color: "var(--selection-accent)" },
+  gif: { icon: FileImage, color: "var(--selection-accent)" },
   svg: { icon: FileImage, color: "#ffb13b" },
-  webp: { icon: FileImage, color: "#38D39F" },
+  webp: { icon: FileImage, color: "var(--selection-accent)" },
   html: { icon: Code2, color: "#e34c26" },
   css: { icon: Code2, color: "#264de4" },
   sh: { icon: FileCode, color: "#4eaa25" },
@@ -167,7 +167,7 @@ export function FileRow({
               }}
               onBlur={commitRename}
               onClick={(e) => e.stopPropagation()}
-              className="w-full bg-transparent border-b border-[#38D39F] text-xs text-foreground focus:outline-none"
+              className="w-full bg-transparent border-b border-[var(--selection-accent)] text-xs text-foreground focus:outline-none"
             />
           ) : (
             <span className="text-xs text-foreground truncate block">

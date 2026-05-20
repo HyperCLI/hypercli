@@ -334,7 +334,7 @@ export function AgentChatPanel({
       }}
     >
       {chatDragActive && (
-        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-[#38D39F]/50 bg-[#38D39F]/8">
+        <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center border-2 border-dashed border-[rgb(var(--selection-accent-rgb)_/_0.5)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]">
           <div className="rounded-xl border border-border bg-background/95 px-4 py-3 text-center shadow-lg backdrop-blur">
             <p className="text-sm font-medium text-foreground">Drop files into chat</p>
             <p className="mt-1 text-xs text-text-muted">Images attach inline. Other files upload to the workspace and prepare a prompt.</p>
@@ -388,8 +388,8 @@ export function AgentChatPanel({
                 {connectionSuggestions.map((suggestion) => {
                   const Icon = suggestion.Icon;
                   return (
-                    <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/8 px-3 py-2 shadow-sm">
-                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[#38D39F]/15 text-[#38D39F]">
+                    <div key={suggestion.id} className="flex items-center gap-3 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.2)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-2 shadow-sm">
+                      <div className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)]">
                         <Icon className="h-4 w-4" />
                       </div>
                       <div className="min-w-0 flex-1">
@@ -399,7 +399,7 @@ export function AgentChatPanel({
                       <button
                         type="button"
                         onClick={() => onConnectionCta?.(suggestion)}
-                        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[#38D39F]/30 bg-[#38D39F]/10 px-3 py-1.5 text-xs font-medium text-[#38D39F] transition-colors hover:bg-[#38D39F]/20 disabled:opacity-50"
+                        className="inline-flex shrink-0 items-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-1.5 text-xs font-medium text-[var(--selection-accent)] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.2)] disabled:opacity-50"
                         disabled={!onConnectionCta}
                         title={`Open ${suggestion.displayName} connection setup`}
                       >
@@ -434,7 +434,7 @@ export function AgentChatPanel({
                     aria-label="Preparing image attachment"
                     className="relative flex h-16 w-16 items-center justify-center rounded-md border border-border bg-surface-low"
                   >
-                    <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[#38D39F]" />
+                    <span aria-hidden className="h-4 w-4 animate-spin rounded-full border-2 border-text-muted/25 border-t-[var(--selection-accent)]" />
                   </div>
                 ))}
               </div>
@@ -543,7 +543,7 @@ export function AgentChatPanel({
                         }}
                       />
                     </label>
-                    <button onClick={startRecording} disabled={!chat.connected || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 hover:text-[#38D39F] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[#38D39F]/15" title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
+                    <button onClick={startRecording} disabled={!chat.connected || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]" title={chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
                       <Mic className="w-4 h-4" />
                     </button>
                     <button onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">

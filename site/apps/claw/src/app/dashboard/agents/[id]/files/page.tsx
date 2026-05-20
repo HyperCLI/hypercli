@@ -223,7 +223,7 @@ export default function AgentFilesPage() {
           <ArrowLeft className="w-4 h-4" />
         </Link>
 
-        <FolderOpen className="w-4 h-4 text-[#38D39F]" />
+        <FolderOpen className="w-4 h-4 text-[var(--selection-accent)]" />
         <span className="text-sm font-semibold text-foreground truncate max-w-[200px]">
           {agent.name}
         </span>
@@ -255,7 +255,7 @@ export default function AgentFilesPage() {
           onClick={() => setShowUpload((v) => !v)}
           disabled={!connected}
           className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors disabled:opacity-40 disabled:cursor-not-allowed ${
-            showUpload ? "text-[#38D39F] bg-[#38D39F]/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+            showUpload ? "text-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]" : "text-text-muted hover:text-foreground hover:bg-surface-low"
           }`}
           title="Upload"
         >
@@ -265,7 +265,7 @@ export default function AgentFilesPage() {
         <button
           onClick={() => setShowHidden((v) => !v)}
           className={`w-7 h-7 rounded-lg flex items-center justify-center transition-colors ${
-            showHidden ? "text-[#38D39F] bg-[#38D39F]/10" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+            showHidden ? "text-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]" : "text-text-muted hover:text-foreground hover:bg-surface-low"
           }`}
           title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
         >
@@ -292,7 +292,7 @@ export default function AgentFilesPage() {
                   <button
                     key={opt.key}
                     onClick={() => toggleSort(opt.key)}
-                    className={`flex items-center justify-between w-full px-3 py-1.5 text-[11px] hover:bg-surface-low ${sortKey === opt.key ? "text-[#38D39F]" : "text-foreground"}`}
+                    className={`flex items-center justify-between w-full px-3 py-1.5 text-[11px] hover:bg-surface-low ${sortKey === opt.key ? "text-[var(--selection-accent)]" : "text-foreground"}`}
                   >
                     <span>{opt.label}</span>
                     {sortKey === opt.key && <span className="text-[9px] text-text-muted">{sortDir === "asc" ? "A-Z" : "Z-A"}</span>}
