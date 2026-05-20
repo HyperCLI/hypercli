@@ -1,203 +1,85 @@
 "use client";
 
-import { useState, useEffect, useCallback } from "react";
-import { motion } from "framer-motion";
-import {
-  Key,
-  Activity,
-  Gauge,
-  ArrowRight,
-  Zap,
-  Hash,
-  Bot,
-  Play,
-  Square,
-  ExternalLink,
-  MessageSquare,
-  Loader2,
-} from "lucide-react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient, createHyperAgentClient, startOpenClawAgent } from "@/lib/agent-client";
-import UsageChart from "@/components/dashboard/UsageChart";
-import KeyUsageTable from "@/components/dashboard/KeyUsageTable";
-import { OnboardingGuide } from "@/components/dashboard/OnboardingGuide";
-import { ResourceImage } from "@/components/ResourceImage";
-import { agentAvatar, type AgentMeta } from "@/lib/avatar";
+import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
+import { type AgentMeta } from "@/lib/avatar";
+import {
+  displayNameForDashboard,
+  greetingForDate,
+  resolveBrowserTimeZone,
+} from "@/lib/dashboard-greeting";
+import { integrationDisplayName } from "@/lib/integration-display-name";
+import { DashboardAgentRail, type DashboardRailAgent } from "@/components/dashboard/DashboardAgentRail";
+import {
+  AgentUsageTable,
+  DashboardMetricCard,
+  DashboardTimeRangeControl,
+  IntegrationUsagePanel,
+  TokenUsagePanel,
+  dashboardMetricIcons,
+  formatDashboardTokens,
+  hasCollectedData,
+  rangeDays,
+  rangePeriodLabel,
+  type DashboardAgentUsageRow,
+  type DashboardDayData,
+  type DashboardIntegrationUsage,
+  type DashboardTimeRange,
+} from "@/components/dashboard/DashboardAnalytics";
 import type {
-  HyperAgentCurrentPlan,
   HyperAgentKeyUsage,
   HyperAgentUsageHistory,
   HyperAgentUsageSummary,
 } from "@hypercli.com/sdk/agent";
 import type { Agent as SdkAgent } from "@hypercli.com/sdk/agents";
 
-// ── Types ──
-
-interface PlanLimits {
-  tpd: number;
-  tpm: number;
-  burst_tpm: number;
-  rpm: number;
-}
-
-interface PlanInfo {
-  id: string;
-  name: string;
-  price: number;
-  aiu: number;
-  features: string[];
-  expires_at: string | null;
-  provider?: string | null;
-  seconds_remaining?: number | null;
-  limits: PlanLimits;
-}
+type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
 interface UsageInfo {
-  total_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  request_count: number;
-  active_keys: number;
-  current_tpm: number;
-  current_rpm: number;
-  period: string;
+  totalTokens: number;
+  promptTokens: number;
+  completionTokens: number;
+  requestCount: number;
+  activeKeys: number;
 }
-
-interface DayData {
-  date: string;
-  total_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  requests: number;
-}
-
-interface HistoryResponse {
-  history: DayData[];
-  days: number;
-}
-
-interface KeyUsageEntry {
-  key_hash: string;
-  name: string;
-  total_tokens: number;
-  prompt_tokens: number;
-  completion_tokens: number;
-  requests: number;
-}
-
-interface KeyUsageResponse {
-  keys: KeyUsageEntry[];
-  days: number;
-}
-
-type AgentState = "PENDING" | "STARTING" | "RUNNING" | "STOPPING" | "STOPPED" | "FAILED";
 
 interface Agent {
   id: string;
   name: string;
   state: AgentState;
-  cpu: number;
-  memory: number;
-  hostname: string | null;
-  started_at: string | null;
-  last_error: string | null;
+  startedAt: string | null;
+  updatedAt: string | null;
   meta?: AgentMeta | null;
-}
-
-function formatTokens(n: number): string {
-  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)}M`;
-  if (n >= 1_000) return `${(n / 1_000).toFixed(0)}K`;
-  return n.toString();
-}
-
-function relativeTime(ts: string): string {
-  const diff = Date.now() - new Date(ts).getTime();
-  const mins = Math.floor(diff / 60000);
-  if (mins < 60) return `${mins}m`;
-  const hours = Math.floor(mins / 60);
-  if (hours < 24) return `${hours}h`;
-  return `${Math.floor(hours / 24)}d`;
-}
-
-function stateDotClass(state: AgentState): string {
-  switch (state) {
-    case "RUNNING": return "bg-[#38D39F]";
-    case "FAILED": return "bg-[#d05f5f]";
-    case "STOPPED": return "bg-text-muted";
-    default: return "bg-[#f0c56c]";
-  }
-}
-
-function x402CountdownTone(secondsRemaining: number): string {
-  const days = secondsRemaining / 86400;
-  if (days > 5) return "border-[#38D39F]/45 text-[#38D39F] bg-[#38D39F]/8";
-  if (days > 2) return "border-[#f0c56c]/45 text-[#f0c56c] bg-[#f0c56c]/10";
-  return "border-[#d05f5f]/45 text-[#d05f5f] bg-[#d05f5f]/10";
-}
-
-function x402CountdownLabel(secondsRemaining: number): string {
-  return String(Math.max(0, Math.ceil(secondsRemaining / 86400)));
-}
-
-function normalizePlan(plan: HyperAgentCurrentPlan): PlanInfo {
-  return {
-    id: plan.id,
-    name: plan.name,
-    price: typeof plan.price === "string" ? Number(plan.price) : plan.price,
-    aiu: plan.aiu ?? 0,
-    features: [],
-    expires_at: plan.expiresAt?.toISOString() ?? null,
-    provider: plan.provider ?? null,
-    seconds_remaining: plan.secondsRemaining ?? null,
-    limits: {
-      tpd: plan.pooledTpd ?? 0,
-      tpm: plan.tpmLimit,
-      burst_tpm: plan.tpmLimit,
-      rpm: plan.rpmLimit,
-    },
-  };
 }
 
 function normalizeUsage(usage: HyperAgentUsageSummary): UsageInfo {
   return {
-    total_tokens: usage.totalTokens,
-    prompt_tokens: usage.promptTokens,
-    completion_tokens: usage.completionTokens,
-    request_count: usage.requestCount,
-    active_keys: usage.activeKeys,
-    current_tpm: usage.currentTpm,
-    current_rpm: usage.currentRpm,
-    period: usage.period,
+    totalTokens: usage.totalTokens,
+    promptTokens: usage.promptTokens,
+    completionTokens: usage.completionTokens,
+    requestCount: usage.requestCount,
+    activeKeys: usage.activeKeys,
   };
 }
 
-function normalizeHistory(history: HyperAgentUsageHistory): HistoryResponse {
-  return {
-    days: history.days,
-    history: history.history.map((entry) => ({
-      date: entry.date,
-      total_tokens: entry.totalTokens,
-      prompt_tokens: entry.promptTokens,
-      completion_tokens: entry.completionTokens,
-      requests: entry.requests,
-    })),
-  };
+function normalizeHistory(history: HyperAgentUsageHistory): DashboardDayData[] {
+  return history.history.map((entry) => ({
+    date: entry.date,
+    totalTokens: entry.totalTokens,
+    promptTokens: entry.promptTokens,
+    completionTokens: entry.completionTokens,
+    requests: entry.requests,
+  }));
 }
 
-function normalizeKeyUsage(keyUsage: HyperAgentKeyUsage): KeyUsageResponse {
-  return {
-    days: keyUsage.days,
-    keys: keyUsage.keys.map((entry) => ({
-      key_hash: entry.keyHash,
-      name: entry.name,
-      total_tokens: entry.totalTokens,
-      prompt_tokens: entry.promptTokens,
-      completion_tokens: entry.completionTokens,
-      requests: entry.requests,
-    })),
-  };
+function normalizeKeyUsage(keyUsage: HyperAgentKeyUsage): DashboardIntegrationUsage[] {
+  return keyUsage.keys.map((entry) => ({
+    id: entry.keyHash,
+    name: integrationDisplayName(entry.name, entry.keyHash),
+    totalTokens: entry.totalTokens,
+    requests: entry.requests,
+  }));
 }
 
 function normalizeAgent(agent: SdkAgent): Agent {
@@ -205,346 +87,183 @@ function normalizeAgent(agent: SdkAgent): Agent {
     id: agent.id,
     name: agent.name ?? agent.id,
     state: agent.state as AgentState,
-    cpu: agent.cpu,
-    memory: agent.memory,
-    hostname: agent.hostname ?? null,
-    started_at: agent.startedAt?.toISOString() ?? null,
-    last_error: agent.lastError ?? null,
+    startedAt: agent.startedAt?.toISOString() ?? null,
+    updatedAt: agent.updatedAt?.toISOString() ?? null,
     meta: agent.meta ?? null,
   };
 }
 
-// ── Main component ──
+function relativeTime(value: string | null) {
+  if (!value) return null;
+  const diffMs = Date.now() - new Date(value).getTime();
+  if (!Number.isFinite(diffMs) || diffMs < 0) return null;
+  const minutes = Math.max(1, Math.floor(diffMs / 60_000));
+  if (minutes < 60) return `${minutes} min ago`;
+  const hours = Math.floor(minutes / 60);
+  if (hours < 24) return `${hours} hr ago`;
+  const days = Math.floor(hours / 24);
+  return `${days} day${days === 1 ? "" : "s"} ago`;
+}
+
+function sumHistory(history: DashboardDayData[]) {
+  return history.reduce(
+    (totals, day) => ({
+      tokens: totals.tokens + day.totalTokens,
+      promptTokens: totals.promptTokens + day.promptTokens,
+      completionTokens: totals.completionTokens + day.completionTokens,
+      requests: totals.requests + day.requests,
+    }),
+    { tokens: 0, promptTokens: 0, completionTokens: 0, requests: 0 },
+  );
+}
+
+function buildAgentRows({
+  agents,
+  integrations,
+  totals,
+  hasData,
+}: {
+  agents: Agent[];
+  integrations: DashboardIntegrationUsage[];
+  totals: ReturnType<typeof sumHistory>;
+  hasData: boolean;
+}): DashboardAgentUsageRow[] {
+  if (!hasData || agents.length === 0) return [];
+
+  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
+  const canAttributeUsage = agents.length === 1;
+
+  return agents.map((agent) => ({
+    id: agent.id,
+    name: agent.name,
+    status: agent.state,
+    integrations: canAttributeUsage ? activeIntegrationCount : null,
+    requests: canAttributeUsage ? totals.requests : null,
+    tokens: canAttributeUsage ? totals.tokens : null,
+    lastActivity: relativeTime(agent.updatedAt ?? agent.startedAt),
+  }));
+}
 
 export default function DashboardPage() {
-  const router = useRouter();
-  const { getToken, user } = useAgentAuth();
-  const [plan, setPlan] = useState<PlanInfo | null>(null);
+  const { getToken, user, logout } = useAgentAuth();
+  const [range, setRange] = useState<DashboardTimeRange>("7d");
   const [usage, setUsage] = useState<UsageInfo | null>(null);
-  const [history, setHistory] = useState<DayData[]>([]);
-  const [keyUsage, setKeyUsage] = useState<KeyUsageEntry[]>([]);
+  const [history, setHistory] = useState<DashboardDayData[]>([]);
+  const [integrations, setIntegrations] = useState<DashboardIntegrationUsage[]>([]);
   const [agents, setAgents] = useState<Agent[]>([]);
   const [loading, setLoading] = useState(true);
-  const [startingId, setStartingId] = useState<string | null>(null);
-  const [stoppingId, setStoppingId] = useState<string | null>(null);
-  const [openingGatewayId, setOpeningGatewayId] = useState<string | null>(null);
+  const [sidebarCollapsed, setSidebarCollapsed] = useState(true);
+  const [localizedGreeting, setLocalizedGreeting] = useState(() => greetingForDate(new Date()));
 
   const fetchData = useCallback(async () => {
+    setLoading(true);
     try {
       const token = await getToken();
       const hyperAgent = createHyperAgentClient(token);
       const deployments = createAgentClient(token);
-      const [planData, usageData, historyData, keyData, agentData] =
-        await Promise.allSettled([
-          hyperAgent.currentPlan(),
-          hyperAgent.usageSummary(),
-          hyperAgent.usageHistory(7),
-          hyperAgent.keyUsage(7),
-          deployments.list(),
-        ]);
+      const days = rangeDays(range);
+      const [usageData, historyData, integrationData, agentData] = await Promise.allSettled([
+        hyperAgent.usageSummary(),
+        hyperAgent.usageHistory(days),
+        hyperAgent.keyUsage(days),
+        deployments.list(),
+      ]);
 
-      if (planData.status === "fulfilled") setPlan(normalizePlan(planData.value));
       if (usageData.status === "fulfilled") setUsage(normalizeUsage(usageData.value));
-      if (historyData.status === "fulfilled") setHistory(normalizeHistory(historyData.value).history);
-      if (keyData.status === "fulfilled") setKeyUsage(normalizeKeyUsage(keyData.value).keys);
-      if (agentData.status === "fulfilled") {
-        setAgents(agentData.value.map(normalizeAgent));
-      }
+      if (historyData.status === "fulfilled") setHistory(normalizeHistory(historyData.value));
+      if (integrationData.status === "fulfilled") setIntegrations(normalizeKeyUsage(integrationData.value));
+      if (agentData.status === "fulfilled") setAgents(agentData.value.map(normalizeAgent));
     } catch {
-      // Graceful fallback
+      setUsage(null);
+      setHistory([]);
+      setIntegrations([]);
+      setAgents([]);
     } finally {
       setLoading(false);
     }
-  }, [getToken]);
+  }, [getToken, range]);
 
-  useEffect(() => { fetchData(); }, [fetchData]);
+  useEffect(() => {
+    void fetchData();
+  }, [fetchData]);
 
-  const handleStartAgent = async (agentId: string) => {
-    setStartingId(agentId);
-    try {
-      const token = await getToken();
-      await startOpenClawAgent(token, agentId);
-      await fetchData();
-    } catch { /* handled silently */ } finally {
-      setStartingId(null);
-    }
-  };
+  useEffect(() => {
+    const updateGreeting = () => {
+      setLocalizedGreeting(greetingForDate(new Date(), resolveBrowserTimeZone()));
+    };
 
-  const handleStopAgent = async (agentId: string) => {
-    setStoppingId(agentId);
-    try {
-      const token = await getToken();
-      await createAgentClient(token).stop(agentId);
-      await fetchData();
-    } catch { /* handled silently */ } finally {
-      setStoppingId(null);
-    }
-  };
+    updateGreeting();
+    const intervalId = window.setInterval(updateGreeting, 60_000);
+    return () => window.clearInterval(intervalId);
+  }, []);
 
-  const handleOpenGateway = useCallback(async (agentId: string) => {
-    setOpeningGatewayId(agentId);
-    try {
-      router.push(`/dashboard/agents?agentId=${encodeURIComponent(agentId)}`);
-    } catch {
-      // no-op
-    } finally {
-      setOpeningGatewayId(null);
-    }
-  }, [router]);
-
-  const showOnboarding = !loading && usage && usage.total_tokens === 0 && usage.active_keys === 0 && agents.length === 0;
+  const periodLabel = rangePeriodLabel(range);
+  const totals = useMemo(() => sumHistory(history), [history]);
+  const hasData = hasCollectedData(history, integrations);
+  const activeIntegrationCount = integrations.filter((integration) => integration.totalTokens > 0 || integration.requests > 0).length;
+  const integrationMetric = activeIntegrationCount || usage?.activeKeys || 0;
+  const agentRows = useMemo(
+    () => buildAgentRows({ agents, integrations, totals, hasData }),
+    [agents, hasData, integrations, totals],
+  );
+  const railAgents: DashboardRailAgent[] = useMemo(
+    () => agents.map((agent) => ({ id: agent.id, name: agent.name, state: agent.state, meta: agent.meta, updatedAt: agent.updatedAt })),
+    [agents],
+  );
+  const displayName = displayNameForDashboard(user);
+  const accountInitial = (displayName !== "there" ? displayName[0] : user?.email?.[0]) ?? "?";
 
   return (
-    <div>
-      {/* Welcome header */}
-      <div className="flex items-center justify-between mb-6">
-        <div>
-          <h1 className="text-2xl font-bold text-foreground">
-            Welcome back{user?.email ? `, ${user.email.split("@")[0]}` : ""}
-          </h1>
-          {plan && (
-            <div className="flex items-center gap-2 mt-1">
-              <span className="text-xs bg-surface-high text-text-secondary px-2 py-0.5 rounded-full font-medium">
-                {plan.name}
-              </span>
-              {plan.provider === "X402" && typeof plan.seconds_remaining === "number" && plan.seconds_remaining > 0 && (
-                <div className="flex items-center gap-2">
-                  <div
-                    className={`w-9 h-9 rounded-full border flex items-center justify-center font-semibold text-xs ${x402CountdownTone(plan.seconds_remaining)}`}
-                    title={`${x402CountdownLabel(plan.seconds_remaining)} days left`}
-                  >
-                    {x402CountdownLabel(plan.seconds_remaining)}
-                  </div>
-                  <span className="text-xs text-text-muted">
-                    days left
-                  </span>
-                </div>
-              )}
-              {plan.expires_at && (
-                <span className="text-xs text-text-muted">
-                  {plan.provider === "X402" ? "Expires" : "Renews"}{" "}
-                  {new Date(plan.expires_at).toLocaleDateString(undefined, { month: "short", day: "numeric" })}
-                </span>
-              )}
+    <div className="flex h-full bg-[#080809] text-foreground">
+      <DashboardAgentRail
+        agents={railAgents}
+        collapsed={sidebarCollapsed}
+        onCollapsedChange={setSidebarCollapsed}
+        accountInitial={accountInitial}
+        onLogout={logout}
+      />
+
+      <div className="flex min-w-0 flex-1 flex-col">
+        <main className="min-h-0 flex-1 overflow-y-auto">
+          <div className="mx-auto w-full max-w-[1000px] px-4 py-8 sm:px-6 lg:px-0">
+            <div className="dashboard-overview-toolbar mb-6 border-b border-white/10 pb-4">
+              <p className="text-base font-medium text-foreground">
+                {localizedGreeting}, {displayName} <span aria-hidden>👋</span>
+              </p>
+              <DashboardTimeRangeControl value={range} onChange={setRange} />
             </div>
-          )}
-        </div>
-        <Link
-          href="/agents"
-          className="btn-primary px-4 py-2 rounded-lg text-sm font-medium flex items-center gap-2"
-        >
-          <Bot className="w-4 h-4" />
-          New Agent
-        </Link>
-      </div>
 
-      {/* Onboarding guide for new users */}
-      {showOnboarding && <OnboardingGuide />}
+            <div className="grid gap-6 md:grid-cols-3">
+              <DashboardMetricCard
+                title="Tokens"
+                value={loading || totals.tokens === 0 ? "---" : formatDashboardTokens(totals.tokens)}
+                periodLabel={periodLabel}
+                icon={dashboardMetricIcons.tokens}
+              />
+              <DashboardMetricCard
+                title="Requests"
+                value={loading || totals.requests === 0 ? "---" : totals.requests.toLocaleString()}
+                periodLabel={periodLabel}
+                icon={dashboardMetricIcons.requests}
+              />
+              <DashboardMetricCard
+                title="Integrations"
+                value={loading || integrationMetric === 0 ? "---" : integrationMetric.toLocaleString()}
+                periodLabel={periodLabel}
+                icon={dashboardMetricIcons.integrations}
+              />
+            </div>
 
-      {/* Agent cards grid — the hero section */}
-      {agents.length > 0 && (
-        <div className="mb-6">
-          <div className="flex items-center justify-between mb-3">
-            <h2 className="text-lg font-semibold text-foreground">Your Agents</h2>
-            <Link href="/agents" className="text-sm font-medium text-text-secondary hover:text-foreground flex items-center gap-1.5 transition-colors">
-              Manage Agents <ArrowRight className="w-3.5 h-3.5" />
-            </Link>
+            <div className="mt-6 grid gap-6 lg:grid-cols-2">
+              <TokenUsagePanel history={loading ? [] : history} periodLabel={periodLabel} />
+              <IntegrationUsagePanel integrations={loading ? [] : integrations} periodLabel={periodLabel} />
+            </div>
+
+            <div className="mt-6">
+              <AgentUsageTable rows={loading ? [] : agentRows} />
+            </div>
           </div>
-          <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-4">
-            {agents.map((agent, i) => {
-              const avatar = agentAvatar(agent.name || agent.id, agent.meta);
-              const AvatarIcon = avatar.icon;
-              const isRunning = agent.state === "RUNNING";
-              const isStopped = agent.state === "STOPPED" || agent.state === "FAILED";
-              const isTransitioning = ["PENDING", "STARTING", "STOPPING"].includes(agent.state);
-
-              return (
-                <motion.div
-                  key={agent.id}
-                  initial={{ opacity: 0, y: 10 }}
-                  animate={{ opacity: 1, y: 0 }}
-                  transition={{ delay: i * 0.05 }}
-                  className="glass-card p-4"
-                >
-                  <div className="flex items-start gap-3 mb-3">
-                    {/* Avatar */}
-                    <div className="relative flex-shrink-0">
-                      <div
-                        className="relative w-10 h-10 rounded-full flex items-center justify-center overflow-hidden"
-                        style={{ backgroundColor: avatar.bgColor }}
-                      >
-                        {avatar.imageUrl ? (
-                          <ResourceImage src={avatar.imageUrl} alt={`${agent.name} avatar`} fill sizes="40px" className="object-cover" />
-                        ) : (
-                          <AvatarIcon className="w-5 h-5" style={{ color: avatar.fgColor }} />
-                        )}
-                      </div>
-                      <motion.div
-                        className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${stateDotClass(agent.state)}`}
-                        animate={isTransitioning ? { opacity: [0.5, 1, 0.5] } : {}}
-                        transition={isTransitioning ? { duration: 1.5, repeat: Infinity } : {}}
-                      />
-                    </div>
-
-                    <div className="min-w-0 flex-1">
-                      <Link href="/agents" className="text-sm font-semibold text-foreground truncate hover:text-accent transition-colors block">{agent.name}</Link>
-                      <p className="text-xs text-text-muted">
-                        {agent.cpu} vCPU · {agent.memory} GiB
-                      </p>
-                    </div>
-
-                    <span className={`text-[10px] font-medium px-1.5 py-0.5 rounded-full whitespace-nowrap ${
-                      isRunning ? "bg-[#38D39F]/10 text-[#38D39F]" :
-                      agent.state === "FAILED" ? "bg-[#d05f5f]/10 text-[#d05f5f]" :
-                      isStopped ? "bg-surface-low text-text-muted" :
-                      "bg-[#f0c56c]/15 text-[#f0c56c]"
-                    }`}>
-                      {agent.state}
-                    </span>
-                  </div>
-
-                  {/* Uptime / error */}
-                  {isRunning && agent.started_at && (
-                    <p className="text-xs text-text-muted mb-3">Up {relativeTime(agent.started_at)}</p>
-                  )}
-                  {agent.state === "FAILED" && agent.last_error && (
-                    <p className="text-xs text-[#d05f5f] mb-3 truncate">{agent.last_error}</p>
-                  )}
-
-                  {/* Quick actions */}
-                  <div className="flex items-center gap-2">
-                    {isStopped && (
-                      <button
-                        onClick={() => handleStartAgent(agent.id)}
-                        disabled={startingId === agent.id}
-                        className="px-2.5 py-1 rounded text-xs border border-border-medium text-foreground hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                      >
-                        {startingId === agent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
-                        Start
-                      </button>
-                    )}
-                    {(isRunning || isTransitioning) && agent.state !== "STOPPING" && (
-                      <button
-                        onClick={() => handleStopAgent(agent.id)}
-                        disabled={stoppingId === agent.id}
-                        className="px-2.5 py-1 rounded text-xs border border-[#f0c56c]/30 text-[#f0c56c] hover:bg-[#f0c56c]/10 disabled:opacity-60 flex items-center gap-1"
-                      >
-                        {stoppingId === agent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <Square className="w-3 h-3" />}
-                        Stop
-                      </button>
-                    )}
-                    {isRunning && (
-                      <Link
-                        href="/agents"
-                        className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low flex items-center gap-1"
-                      >
-                        <MessageSquare className="w-3 h-3" />
-                        Chat
-                      </Link>
-                    )}
-                    {isRunning && agent.hostname && (
-                      <button
-                        onClick={() => void handleOpenGateway(agent.id)}
-                        disabled={openingGatewayId === agent.id}
-                        className="px-2.5 py-1 rounded text-xs border border-border text-text-secondary hover:bg-surface-low disabled:opacity-60 flex items-center gap-1"
-                      >
-                        {openingGatewayId === agent.id ? <Loader2 className="w-3 h-3 animate-spin" /> : <ExternalLink className="w-3 h-3" />}
-                        Desktop
-                      </button>
-                    )}
-                  </div>
-                </motion.div>
-              );
-            })}
-          </div>
-        </div>
-      )}
-
-      {/* Stats bar — compact horizontal row */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-6">
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Activity className="w-4 h-4 text-text-tertiary" />
-            <span className="text-xs text-text-tertiary">Tokens (30d)</span>
-          </div>
-          <p className="text-xl font-bold text-foreground tabular-nums">
-            {loading ? "—" : usage ? formatTokens(usage.total_tokens) : "0"}
-          </p>
-        </div>
-
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Hash className="w-4 h-4 text-text-tertiary" />
-            <span className="text-xs text-text-tertiary">Requests</span>
-          </div>
-          <p className="text-xl font-bold text-foreground tabular-nums">
-            {loading ? "—" : usage ? usage.request_count.toLocaleString() : "0"}
-          </p>
-        </div>
-
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Key className="w-4 h-4 text-text-tertiary" />
-            <span className="text-xs text-text-tertiary">Active Keys</span>
-          </div>
-          <p className="text-xl font-bold text-foreground tabular-nums">
-            {loading ? "—" : usage ? usage.active_keys : "0"}
-          </p>
-        </div>
-
-        <div className="glass-card p-4">
-          <div className="flex items-center gap-2 mb-2">
-            <Zap className="w-4 h-4 text-text-tertiary" />
-            <span className="text-xs text-text-tertiary">Rate Limit</span>
-          </div>
-          <p className="text-xl font-bold text-foreground tabular-nums">
-            {plan ? formatTokens(plan.limits.tpd) : "—"}
-          </p>
-          {plan && <p className="text-[10px] text-text-muted mt-0.5">tokens/day</p>}
-        </div>
-      </div>
-
-      {/* Charts row */}
-      <div className="grid lg:grid-cols-2 gap-6 mb-6">
-        <UsageChart history={history} loading={loading} />
-        <KeyUsageTable keys={keyUsage} loading={loading} />
-      </div>
-
-      {/* Quick Actions */}
-      <div className="glass-card p-6">
-        <h3 className="text-lg font-semibold text-foreground mb-4">Quick Actions</h3>
-        <div className="grid sm:grid-cols-4 gap-3">
-          <Link
-            href="/agents"
-            className="flex items-center gap-3 p-3 rounded-lg border border-border hover:bg-surface-low transition-colors"
-          >
-            <Bot className="w-5 h-5 text-text-secondary" />
-            <span className="text-sm text-text-secondary">Manage Agents</span>
-          </Link>
-          <Link
-            href="/keys"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
-          >
-            <Key className="w-5 h-5 text-text-secondary" />
-            <span className="text-sm text-text-secondary">Create API Key</span>
-          </Link>
-          <Link
-            href="/plans"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
-          >
-            <Gauge className="w-5 h-5 text-text-secondary" />
-            <span className="text-sm text-text-secondary">View Plans</span>
-          </Link>
-          <a
-            href="https://docs.hypercli.com/hyperclaw"
-            target="_blank"
-            rel="noopener noreferrer"
-            className="flex items-center gap-3 p-3 rounded-lg hover:bg-surface-low transition-colors"
-          >
-            <Activity className="w-5 h-5 text-text-secondary" />
-            <span className="text-sm text-text-secondary">Documentation</span>
-          </a>
-        </div>
+        </main>
       </div>
     </div>
   );

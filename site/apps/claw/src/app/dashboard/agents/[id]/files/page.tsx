@@ -21,6 +21,7 @@ import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import { createAgentClient } from "@/lib/agent-client";
 import { isProtectedFile } from "@/lib/protected-files";
+import { downloadFileBytes } from "@/lib/download-file";
 
 const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
   { key: "name", label: "Name" },
@@ -116,6 +117,13 @@ export default function AgentFilesPage() {
     if (!agent) return;
     const token = await getToken();
     await createAgentClient(token).fileWriteBytes(agent.id, path, new TextEncoder().encode(content));
+  }, [agent, getToken]);
+
+  const handleDownloadFile = useCallback(async (entry: FileEntry) => {
+    if (!agent || entry.type === "directory") return;
+    const token = await getToken();
+    const bytes = await createAgentClient(token).fileReadBytes(agent.id, entry.path);
+    downloadFileBytes(entry.name, bytes);
   }, [agent, getToken]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
@@ -346,6 +354,7 @@ export default function AgentFilesPage() {
                 showHidden={showHidden}
                 onOpenFile={handleOpenFile}
                 onDeleteFile={handleDeleteFile}
+                onDownloadFile={handleDownloadFile}
                 onCopyPath={handleCopyPath}
               />
             )}
@@ -364,6 +373,7 @@ export default function AgentFilesPage() {
                 readOnly={isProtectedFile(previewEntry.path)}
                 onClose={() => setPreviewEntry(null)}
                 onSave={handleSaveFile}
+                onDownload={handleDownloadFile}
               />
             ) : (
               <motion.div

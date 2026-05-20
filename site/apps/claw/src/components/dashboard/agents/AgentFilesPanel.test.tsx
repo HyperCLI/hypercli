@@ -158,4 +158,34 @@ describe("AgentFilesPanel", () => {
     expect(onOpenFileBytes).toHaveBeenCalledWith("workspace/chart.png");
     expect(onOpenFile).not.toHaveBeenCalled();
   });
+
+  it("downloads the previewed file from bytes", async () => {
+    const createObjectURL = vi.fn(() => "blob:download-file");
+    const revokeObjectURL = vi.fn();
+    const linkClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: createObjectURL,
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: revokeObjectURL,
+    });
+    const onListFiles = vi.fn(async () => [
+      { name: "README.md", path: "workspace/README.md", type: "file" as const, size: 128 },
+    ]);
+    const onOpenFile = vi.fn().mockResolvedValue("# Notes");
+    const onDownloadFileBytes = vi.fn().mockResolvedValue(new Uint8Array([35, 32, 78, 111, 116, 101, 115]));
+
+    renderAgentFilesPanel({ onListFiles, onOpenFile, onDownloadFileBytes });
+
+    await userEvent.click(await screen.findByRole("button", { name: /README.md/i }));
+    await screen.findByDisplayValue("# Notes");
+
+    await userEvent.click(screen.getByTitle("Download"));
+
+    await waitFor(() => expect(onDownloadFileBytes).toHaveBeenCalledWith("workspace/README.md"));
+    expect(createObjectURL).toHaveBeenCalledTimes(1);
+    expect(linkClick).toHaveBeenCalledTimes(1);
+  });
 });

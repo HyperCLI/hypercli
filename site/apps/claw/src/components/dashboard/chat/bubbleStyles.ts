@@ -50,13 +50,13 @@ export function getToolCallClass(theme: ThemeVariant, hasResult: boolean): strin
 export function getBubbleClasses(bubblesVariant: BubblesVariant, themeVariant: ThemeVariant, isUser: boolean): string {
   let shapeClass: string;
   if (bubblesVariant === "v1") {
-    shapeClass = "min-w-0 max-w-[80%] rounded-2xl px-4 py-3 text-sm";
+    shapeClass = "min-w-0 max-w-full rounded-2xl px-4 py-3 text-sm";
   } else if (bubblesVariant === "v2") {
-    shapeClass = "min-w-0 max-w-[80%] rounded-3xl px-5 py-3 text-sm";
+    shapeClass = "min-w-0 max-w-full rounded-3xl px-5 py-3 text-sm";
   } else if (bubblesVariant === "v3") {
-    shapeClass = isUser ? "min-w-0 max-w-[80%] rounded-2xl px-4 py-3 text-sm" : "w-full min-w-0 rounded-2xl px-4 py-3 text-sm";
+    shapeClass = isUser ? "min-w-0 max-w-full rounded-2xl px-4 py-3 text-sm" : "w-full min-w-0 rounded-2xl px-4 py-3 text-sm";
   } else {
-    shapeClass = "min-w-0 max-w-[80%] rounded-lg px-4 py-2.5 text-sm";
+    shapeClass = "min-w-0 max-w-full rounded-lg px-4 py-2.5 text-sm";
   }
 
   let colorClass: string;

@@ -14,6 +14,9 @@ export interface AuthUser {
   id: string;
   email?: string;
   walletAddress?: string;
+  name?: string;
+  fullName?: string;
+  username?: string;
 }
 
 export type AuthFlowState = "checking_session" | "idle" | "exchanging" | "complete" | "error";
@@ -93,6 +96,57 @@ function decodeJwtPayload(token: string): Record<string, unknown> {
   const base64 = encodedPayload.replace(/-/g, "+").replace(/_/g, "/");
   const padded = base64.padEnd(Math.ceil(base64.length / 4) * 4, "=");
   return JSON.parse(atob(padded)) as Record<string, unknown>;
+}
+
+function firstNonEmptyString(...values: Array<string | null | undefined>): string | undefined {
+  for (const value of values) {
+    const trimmed = value?.trim();
+    if (trimmed) return trimmed;
+  }
+  return undefined;
+}
+
+function stringField(value: unknown, key: string): string | undefined {
+  if (!value || typeof value !== "object") return undefined;
+  const field = (value as Record<string, unknown>)[key];
+  return typeof field === "string" ? firstNonEmptyString(field) : undefined;
+}
+
+function fullNameFromFirstLast(value: unknown): string | undefined {
+  const firstName = stringField(value, "firstName");
+  const lastName = stringField(value, "lastName");
+  return firstNonEmptyString([firstName, lastName].filter(Boolean).join(" "));
+}
+
+function displayNameFromLinkedAccount(value: unknown): string | undefined {
+  return firstNonEmptyString(
+    stringField(value, "displayName"),
+    stringField(value, "name"),
+    fullNameFromFirstLast(value),
+    stringField(value, "username"),
+  );
+}
+
+function usernameFromLinkedAccount(value: unknown): string | undefined {
+  return firstNonEmptyString(stringField(value, "username"), stringField(value, "vanityName"));
+}
+
+function displayNameFromLinkedAccounts(accounts: unknown): string | undefined {
+  if (!Array.isArray(accounts)) return undefined;
+  for (const account of accounts) {
+    const displayName = displayNameFromLinkedAccount(account);
+    if (displayName) return displayName;
+  }
+  return undefined;
+}
+
+function usernameFromLinkedAccounts(accounts: unknown): string | undefined {
+  if (!Array.isArray(accounts)) return undefined;
+  for (const account of accounts) {
+    const username = usernameFromLinkedAccount(account);
+    if (username) return username;
+  }
+  return undefined;
 }
 
 export function isTokenExpired(token: string): boolean {
@@ -188,10 +242,35 @@ export function AuthProvider({
 
   const getUserFromPrivy = useCallback((): AuthUser | null => {
     if (!privyUser) return null;
+    const name = firstNonEmptyString(
+      stringField(privyUser.customMetadata, "fullName"),
+      stringField(privyUser.customMetadata, "displayName"),
+      stringField(privyUser.customMetadata, "name"),
+      displayNameFromLinkedAccount(privyUser.google),
+      displayNameFromLinkedAccount(privyUser.twitter),
+      displayNameFromLinkedAccount(privyUser.github),
+      displayNameFromLinkedAccount(privyUser.spotify),
+      displayNameFromLinkedAccount(privyUser.linkedin),
+      displayNameFromLinkedAccount(privyUser.farcaster),
+      displayNameFromLinkedAccount(privyUser.telegram),
+      displayNameFromLinkedAccounts(privyUser.linkedAccounts),
+    );
+    const username = firstNonEmptyString(
+      stringField(privyUser.customMetadata, "username"),
+      usernameFromLinkedAccount(privyUser.twitter),
+      usernameFromLinkedAccount(privyUser.github),
+      usernameFromLinkedAccount(privyUser.discord),
+      usernameFromLinkedAccount(privyUser.farcaster),
+      usernameFromLinkedAccount(privyUser.telegram),
+      usernameFromLinkedAccounts(privyUser.linkedAccounts),
+    );
+
     return {
       id: privyUser.id,
       email: privyUser.email?.address,
       walletAddress: privyUser.wallet?.address,
+      ...(name ? { name, fullName: name } : {}),
+      ...(username ? { username } : {}),
     };
   }, [privyUser]);
 

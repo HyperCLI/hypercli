@@ -77,6 +77,9 @@ export function ChatMessageBubble({
   const showV1Name = showAssistantName && nameVariant === "v1";
   const showV2Name = showAssistantName && nameVariant === "v2";
   const showV3Name = showAssistantName && nameVariant === "v3";
+  const messageColumnClass = isUser
+    ? "w-fit max-w-[75%] flex-none items-end"
+    : `max-w-full flex-1 items-start ${bubblesVariant === "v3" ? "min-w-0" : ""}`;
 
   const toggleToolCall = (index: number) => {
     setToolsOpen((prev) => ({ ...prev, [index]: !prev[index] }));
@@ -92,7 +95,7 @@ export function ChatMessageBubble({
         <MessageName variant="v2" placement="avatar-left" isUser={isUser} effectiveName={effectiveName} agentMeta={agentMeta} />
       )}
 
-      <div className={`flex min-w-0 max-w-full flex-1 flex-col ${isUser ? "items-end" : "items-start"} ${bubblesVariant === "v3" && !isUser ? "min-w-0" : ""}`}>
+      <div className={`flex min-w-0 flex-col ${messageColumnClass}`}>
 
         {/* v1 name: monogram above */}
         {showV1Name && (

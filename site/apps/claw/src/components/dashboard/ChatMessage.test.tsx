@@ -103,6 +103,19 @@ describe("ChatMessageBubble", () => {
     expectNoLeakSentinels(container.innerHTML);
   });
 
+  it("caps long user messages at three quarters of the chat row", () => {
+    const { container } = render(
+      <ChatMessageBubble
+        message={{
+          role: "user",
+          content: "This is a long prompt that should wrap before it takes over the entire response area.",
+        }}
+      />,
+    );
+
+    expect(container.innerHTML).toContain("max-w-[75%]");
+  });
+
   it("renders a loading placeholder for hydrated image file previews", async () => {
     vi.mocked(getStoredToken).mockReturnValue("token");
     const fileReadBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));

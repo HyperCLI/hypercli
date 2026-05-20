@@ -260,14 +260,36 @@ h1, h2, h3, h4, h5, h6 {
   display: block;
 }
 
+.dashboard-agent-rail {
+  display: none;
+}
+
+.dashboard-overview-toolbar {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
 @media (min-width: 48rem) {
   .claw-header-desktop {
+    display: flex;
+  }
+
+  .dashboard-agent-rail {
     display: flex;
   }
 
   .claw-header-mobile-toggle,
   .claw-header-mobile-menu {
     display: none;
+  }
+}
+
+@media (min-width: 40rem) {
+  .dashboard-overview-toolbar {
+    align-items: center;
+    flex-direction: row;
+    justify-content: space-between;
   }
 }
 

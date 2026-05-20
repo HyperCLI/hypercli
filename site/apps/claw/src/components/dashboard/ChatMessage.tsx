@@ -673,6 +673,9 @@ export function ChatMessageBubble({
   const fileChips = messageFiles.filter((file) => (
     !isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)
   ));
+  const messageColumnClass = isUser
+    ? "w-fit max-w-[75%] items-end"
+    : "flex-1 items-start";
 
   return (
     <motion.div
@@ -698,7 +701,7 @@ export function ChatMessageBubble({
         );
       })()}
 
-      <div className={`flex min-w-0 flex-col ${isUser ? "max-w-[calc(100%-2.25rem)] items-end" : "flex-1 items-start"}`}>
+      <div className={`flex min-w-0 flex-col ${messageColumnClass}`}>
 
         {/* v1 name: monogram + muted label above bubble */}
         {showV1Name && (() => {

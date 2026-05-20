@@ -22,6 +22,7 @@ import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
 import type { FileEntry, FileSortDir, FileSortKey } from "@/components/dashboard/files/types";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { isProtectedFile } from "@/lib/protected-files";
+import { downloadFileBytes } from "@/lib/download-file";
 
 const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "name", label: "Name" },
@@ -62,6 +63,7 @@ interface AgentFilesPanelProps {
   onListFiles: (path?: string) => Promise<FileEntry[]>;
   onOpenFile: (path: string) => Promise<string>;
   onOpenFileBytes?: (path: string) => Promise<Uint8Array>;
+  onDownloadFileBytes?: (path: string) => Promise<Uint8Array>;
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   onUploadFile: (path: string, content: string) => Promise<void>;
@@ -79,6 +81,7 @@ export function AgentFilesPanel({
   onListFiles,
   onOpenFile,
   onOpenFileBytes,
+  onDownloadFileBytes,
   onSaveFile,
   onDeleteFile,
   onUploadFile,
@@ -214,6 +217,12 @@ export function AgentFilesPanel({
     await loadFiles();
   }, [loadFiles, onUploadFile]);
 
+  const handleDownloadFile = useCallback(async (entry: FileEntry) => {
+    if (!onDownloadFileBytes || entry.type === "directory") return;
+    const bytes = await onDownloadFileBytes(entry.path);
+    downloadFileBytes(entry.name, bytes);
+  }, [onDownloadFileBytes]);
+
   const handleCopyPath = useCallback((entry: FileEntry) => {
     navigator.clipboard.writeText(entry.path).catch(() => {});
   }, []);
@@ -244,6 +253,7 @@ export function AgentFilesPanel({
       readOnly={isProtectedFile(previewEntry.path)}
       onClose={() => setPreviewEntry(null)}
       onSave={handleSaveFile}
+      onDownload={onDownloadFileBytes ? handleDownloadFile : undefined}
     />
   ) : null;
 
@@ -403,6 +413,7 @@ export function AgentFilesPanel({
                 onOpenFile={handleOpenFile}
                 onOpenDirectory={handleOpenFile}
                 onDeleteFile={handleDeleteFile}
+                onDownloadFile={onDownloadFileBytes ? handleDownloadFile : undefined}
                 onCopyPath={handleCopyPath}
               />
             )}

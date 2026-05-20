@@ -92,7 +92,7 @@ export function ClawProviders({ children }: { children: ReactNode }) {
       appId={PRIVY_APP_ID!}
       apiBaseUrl={AUTH_BASE_URL}
       tokenStorageKey="claw_auth_token"
-      logo="https://hypercli.com/logo-horizontal-white.png"
+      logo="/logo-horizontal-white.png"
     >
       {children}
     </PrivyAuthBoundary>

@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   createOpenClawConfigValue,
   describeOpenClawConfigNode,
@@ -126,6 +126,7 @@ const SCHEDULED_SECTION_DISABLED_REASON = "Scheduled workflows are not available
 const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
+const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 
 interface UpgradeDisplayProduct {
   id: string;
@@ -666,8 +667,21 @@ function getWorkspaceSidebarDisabledReason({
 // ── Main component ──
 
 export default function AgentsPage() {
+  return (
+    <React.Suspense fallback={null}>
+      <AgentsPageContent />
+    </React.Suspense>
+  );
+}
+
+function AgentsPageContent() {
   const { getToken, user, logout } = useAgentAuth();
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const requestedAgentId = searchParams.get("agentId")?.trim() || null;
+  const requestedOpen = searchParams.get("open")?.trim() || null;
+  const queryKey = searchParams.toString();
+  const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
@@ -705,6 +719,8 @@ export default function AgentsPage() {
   const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const slotReleaseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const checkoutReturnHandledRef = useRef(false);
+  const appliedAgentQueryRef = useRef<string | null>(null);
+  const appliedOpenQueryRef = useRef<string | null>(null);
 
   useEffect(() => {
     return () => {
@@ -834,13 +850,14 @@ export default function AgentsPage() {
       setSubscriptionSummary(summary);
       setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
       setAgentClusterUnavailable(false);
+      const requestedAgent = requestedAgentId
+        ? listedAgents.find((agent) => agent.id === requestedAgentId) ?? null
+        : null;
       setSelectedAgentId((currentId) => {
-        if (!currentId) {
-          return listedAgents[0]?.id ?? null;
+        if (currentId && listedAgents.some((item) => item.id === currentId)) {
+          return currentId;
         }
-        return listedAgents.some((item) => item.id === currentId)
-          ? currentId
-          : (listedAgents[0]?.id ?? null);
+        return requestedAgent?.id ?? listedAgents[0]?.id ?? null;
       });
       return { subscriptionSummary: summary, budget: nextBudget };
     } catch (err) {
@@ -855,7 +872,7 @@ export default function AgentsPage() {
     } finally {
       setAgentsLoading(false);
     }
-  }, [deployments, getToken]);
+  }, [deployments, getToken, requestedAgentId]);
 
   const refreshAgentsForChildren = useCallback(async () => {
     await fetchAgents();
@@ -954,6 +971,30 @@ export default function AgentsPage() {
   }, [catalogPlans, getToken, upgradeCatalogLoading]);
 
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
+
+  useEffect(() => {
+    if (!requestedAgentId || appliedAgentQueryRef.current === requestedAgentId) return;
+    if (!sdkAgents.some((agent) => agent.id === requestedAgentId)) return;
+
+    appliedAgentQueryRef.current = requestedAgentId;
+    setSelectedAgentId(requestedAgentId);
+    setMobileShowChat(true);
+  }, [requestedAgentId, sdkAgents]);
+
+  useEffect(() => {
+    if (!shouldOpenAgentLauncherFromQuery || appliedOpenQueryRef.current === queryKey) return;
+
+    appliedOpenQueryRef.current = queryKey;
+    setMobileShowChat(false);
+
+    if (isDesktopViewport) {
+      setSidebarCreatorSignal((value) => value + 1);
+      return;
+    }
+
+    setMobileAgentsSidebarOpen(false);
+    setMobileAgentLauncherOpen(true);
+  }, [isDesktopViewport, queryKey, shouldOpenAgentLauncherFromQuery]);
 
   useEffect(() => {
     if (checkoutReturnHandledRef.current) return;
@@ -2988,6 +3029,7 @@ export default function AgentsPage() {
               onListFiles={listAgentFiles}
               onOpenFile={readAgentFile}
               onOpenFileBytes={readAgentFileBytes}
+              onDownloadFileBytes={readAgentFileBytes}
               onSaveFile={saveAgentFile}
               onDeleteFile={deleteAgentFile}
               onUploadFile={saveAgentFile}

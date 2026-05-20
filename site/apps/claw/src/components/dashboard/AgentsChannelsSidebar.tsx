@@ -124,6 +124,8 @@ export interface AgentsChannelsSidebarProps {
   /** Increment to imperatively open the inline agent creator (e.g. from the main panel's empty state). */
   openAgentCreatorSignal?: number;
   accountInitial?: string;
+  /** Override the Agents item destination in the account menu. */
+  agentsHref?: string;
   /** When provided, the Settings account item opens the current agent workspace settings panel instead of routing. */
   onOpenAgentSettings?: () => void;
   agentSettingsActive?: boolean;
@@ -132,6 +134,7 @@ export interface AgentsChannelsSidebarProps {
 
 const DASHBOARD_LINKS = [
   { label: "Dashboard", href: "/dashboard", icon: Bot },
+  { label: "Agents", href: "/dashboard/agents", icon: Users },
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
   { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
@@ -139,13 +142,12 @@ const DASHBOARD_LINKS = [
 ];
 
 function isDashboardLinkActive(pathname: string, href: string) {
-  const alternateHref = href.startsWith("/dashboard") ? href : `/dashboard${href}`;
-  return (
-    pathname === href ||
-    pathname.startsWith(`${href}/`) ||
-    pathname === alternateHref ||
-    pathname.startsWith(`${alternateHref}/`)
-  );
+  const baseHref = href.split("?")[0] || href;
+  const hrefs = baseHref.startsWith("/dashboard") ? [baseHref] : [baseHref, `/dashboard${baseHref}`];
+  return hrefs.some((candidate) => {
+    if (pathname === candidate) return true;
+    return candidate !== "/dashboard" && pathname.startsWith(`${candidate}/`);
+  });
 }
 
 // ── Mock Data ──
@@ -607,6 +609,7 @@ export function AgentsSidebarDashboardLinks({
   compact = false,
   mobileMode = false,
   accountInitial = "?",
+  agentsHref,
   onOpenAgentSettings,
   agentSettingsActive = false,
   onLogout,
@@ -614,6 +617,7 @@ export function AgentsSidebarDashboardLinks({
   compact?: boolean;
   mobileMode?: boolean;
   accountInitial?: string;
+  agentsHref?: string;
   onOpenAgentSettings?: () => void;
   agentSettingsActive?: boolean;
   onLogout?: () => void | Promise<void>;
@@ -648,8 +652,9 @@ export function AgentsSidebarDashboardLinks({
           >
             {DASHBOARD_LINKS.map((item) => {
               const Icon = item.icon;
+              const href = item.label === "Agents" ? agentsHref ?? item.href : item.href;
               const opensAgentSettings = item.label === "Settings" && Boolean(onOpenAgentSettings);
-              const active = opensAgentSettings ? agentSettingsActive : isDashboardLinkActive(pathname, item.href);
+              const active = opensAgentSettings ? agentSettingsActive : isDashboardLinkActive(pathname, href);
 
               if (opensAgentSettings) {
                 return (
@@ -676,7 +681,7 @@ export function AgentsSidebarDashboardLinks({
               return (
                 <Link
                   key={item.href}
-                  href={item.href}
+                  href={href}
                   onClick={() => setOpen(false)}
                   role="menuitem"
                   className={`flex items-center gap-2 px-3 text-left transition-colors ${
@@ -2144,6 +2149,7 @@ export function AgentsChannelsSidebar({
   onOpenAgentLauncher,
   openAgentCreatorSignal,
   accountInitial,
+  agentsHref,
   onOpenAgentSettings,
   agentSettingsActive,
   onLogout,
@@ -2161,6 +2167,15 @@ export function AgentsChannelsSidebar({
         t.participants.some((p) => p.name.toLowerCase().includes(q))
     );
   }, [threads, searchQuery]);
+  const resolvedAgentsHref = useMemo(() => {
+    if (agentsHref) return agentsHref;
+    if (!selectedThreadId) return undefined;
+
+    const selectedThread = threads.find((thread) => thread.id === selectedThreadId);
+    const selectedAgentId = selectedThread?.participants.find((participant) => participant.type === "agent")?.id;
+
+    return selectedAgentId ? `/dashboard/agents?agentId=${encodeURIComponent(selectedAgentId)}` : undefined;
+  }, [agentsHref, selectedThreadId, threads]);
 
   return (
     <div className={`${fillParent ? "w-full min-w-0" : "w-[280px] flex-shrink-0"} relative flex h-full min-h-0 flex-col bg-[#232323]`}>
@@ -2234,6 +2249,7 @@ export function AgentsChannelsSidebar({
       <AgentsSidebarDashboardLinks
         mobileMode={mobileMode}
         accountInitial={accountInitial}
+        agentsHref={resolvedAgentsHref}
         onOpenAgentSettings={onOpenAgentSettings}
         agentSettingsActive={agentSettingsActive}
         onLogout={onLogout}

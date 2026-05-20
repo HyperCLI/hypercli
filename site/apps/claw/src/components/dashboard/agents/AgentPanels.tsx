@@ -2074,6 +2074,9 @@ export function AgentList({
             <AgentsSidebarDashboardLinks
               compact
               accountInitial={accountInitial}
+              agentsHref={
+                selectedAgentId ? `/dashboard/agents?agentId=${encodeURIComponent(selectedAgentId)}` : undefined
+              }
               onOpenAgentSettings={onOpenSettings}
               agentSettingsActive={settingsActive}
               onLogout={onLogout}

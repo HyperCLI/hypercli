@@ -37,6 +37,11 @@ function FullPageSkeleton() {
   );
 }
 
+function normalizeShellPathname(pathname: string | null) {
+  if (!pathname || pathname === "/") return pathname ?? "";
+  return pathname.replace(/\/+$/, "");
+}
+
 export function DashboardShell({
   children,
 }: {
@@ -44,12 +49,13 @@ export function DashboardShell({
 }) {
   const { isLoading, isAuthenticated, flowState, error } = useAgentAuth();
   const router = useRouter();
-  const pathname = usePathname();
+  const pathname = normalizeShellPathname(usePathname());
   const isAgentsRoute =
     pathname === "/agents" ||
     pathname.startsWith("/agents/") ||
     pathname.startsWith("/dashboard/agents") ||
     pathname.startsWith("/dev/agent-setup/agents");
+  const isDashboardHome = pathname === "/dashboard";
   const showDashboardNav = !isAgentsRoute;
   const hasTopNavOffset = showDashboardNav;
 
@@ -71,21 +77,27 @@ export function DashboardShell({
         {showDashboardNav ? <DashboardNav /> : null}
         <main
           className={
-            isAgentsRoute
-              ? `overflow-hidden pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
+            isDashboardHome
+              ? "h-dvh overflow-hidden pb-0 pt-14"
+              : isAgentsRoute
+              ? "h-dvh overflow-hidden pb-0 pt-0"
               : `pb-0 ${hasTopNavOffset ? "h-dvh pt-14" : "h-dvh pt-0"}`
           }
         >
           <div
             className={
-              isAgentsRoute
-                ? `w-full ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-hidden py-0`
+              isDashboardHome
+                ? "h-[calc(100dvh-3.5rem)] w-full overflow-hidden"
+                : isAgentsRoute
+                ? "h-dvh w-full overflow-hidden py-0"
                 : `max-w-[1400px] mx-auto px-4 sm:px-6 lg:px-8 ${hasTopNavOffset ? "h-[calc(100dvh-3.5rem)]" : "h-dvh"} overflow-y-auto py-8`
             }
           >
             {isLoading ? (
               <FullPageSkeleton />
-            ) : !isAuthenticated ? null : (
+            ) : !isAuthenticated ? null : isAgentsRoute || isDashboardHome ? (
+              <div className="h-full overflow-hidden">{children}</div>
+            ) : (
               <AnimatePresence mode="wait">
                 <motion.div
                   key={pathname}
@@ -93,7 +105,6 @@ export function DashboardShell({
                   animate={{ opacity: 1, y: 0 }}
                   exit={{ opacity: 0, y: -6 }}
                   transition={{ duration: 0.2, ease: "easeOut" }}
-                  className={isAgentsRoute ? "h-full overflow-hidden" : undefined}
                 >
                   {children}
                 </motion.div>
