@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
+import Link from "next/link";
 import { Header, Footer, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
@@ -197,18 +198,18 @@ export default function DashboardPage() {
               Console Dashboard
             </h1>
             <div className="flex items-center gap-3">
-              <button
-                onClick={() => router.push('/keys')}
+              <Link
+                href="/keys"
                 className="border border-border text-foreground font-semibold py-2 px-6 rounded-lg hover:bg-surface-low hover:border-primary transition-colors"
               >
                 API Keys
-              </button>
-              <button
-                onClick={() => router.push('/job')}
+              </Link>
+              <Link
+                href="/job"
                 className="bg-primary text-primary-foreground font-semibold py-2 px-6 rounded-lg hover:bg-primary-hover transition-colors"
               >
                 Launch GPU
-              </button>
+              </Link>
             </div>
           </div>
 
