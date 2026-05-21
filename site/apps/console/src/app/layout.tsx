@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
-import { Providers } from "@hypercli/shared-ui";
+import { AuthRouteBoundary, Providers } from "@hypercli/shared-ui";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -27,7 +27,13 @@ export default function RootLayout({
       </head>
       <body className={`${plusJakartaSans.variable} font-sans antialiased overflow-x-hidden`}>
         <Providers>
-          {children}
+          <AuthRouteBoundary
+            publicPaths={["/"]}
+            unauthenticatedRedirectTo="/"
+            authenticatedPublicRedirectTo="/dashboard"
+          >
+            {children}
+          </AuthRouteBoundary>
         </Providers>
       </body>
     </html>

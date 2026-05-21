@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getRegionFlag, getAuthBackendUrl } from "@hypercli/shared-ui";
+import { Header, Footer, formatDateTime, getBadgeClass, cookieUtils, AlertDialog, Modal, getRegionName, getRegionFlag, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 import { useRouter, useParams } from "next/navigation";
 
 interface Job {
@@ -47,7 +47,6 @@ interface InstanceType {
 }
 
 export default function JobDetailPage() {
-  const { isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const params = useParams();
   const jobId = params?.id as string;
@@ -88,18 +87,12 @@ export default function JobDetailPage() {
     type: "info",
   });
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/');
-    }
-  }, [isLoading, isAuthenticated, router]);
-
   // Fetch job details on mount
   useEffect(() => {
-    if (isAuthenticated && jobId) {
+    if (jobId) {
       fetchJob();
     }
-  }, [isAuthenticated, jobId]);
+  }, [jobId]);
 
   // Fetch instance types for cpu_cores fallback
   useEffect(() => {
@@ -244,10 +237,7 @@ export default function JobDetailPage() {
   };
 
   const getAuthToken = () => {
-    return document.cookie
-      .split('; ')
-      .find(row => row.startsWith('auth_token='))
-      ?.split('=')[1];
+    return getAuthCookieToken();
   };
 
   const fetchJob = async () => {
@@ -682,14 +672,6 @@ export default function JobDetailPage() {
 
   // Determine if we should show the terminal
   const shouldShowTerminal = job && !['queued', 'canceled'].includes(job.state);
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
 
   if (error) {
     return (

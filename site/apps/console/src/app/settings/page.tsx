@@ -21,6 +21,7 @@ import {
   CardTitle,
   cn,
   getAuthBackendUrl,
+  getAuthCookieToken,
 } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import { Navigation } from "../../components/Navigation";
@@ -178,13 +179,6 @@ class GatewayWS {
 // Settings Page
 // ---------------------------------------------------------------------------
 
-function getAuthToken(): string | null {
-  return document.cookie
-    .split("; ")
-    .find((row) => row.startsWith("auth_token="))
-    ?.split("=")[1] ?? null;
-}
-
 export default function SettingsPage() {
   const router = useRouter();
 
@@ -206,7 +200,7 @@ export default function SettingsPage() {
   useEffect(() => {
     (async () => {
       try {
-        const token = getAuthToken();
+        const token = getAuthCookieToken();
         if (!token) return;
         const res = await fetch(`${getAuthBackendUrl()}/lagoon/pods`, {
           headers: { Authorization: `Bearer ${token}` },
@@ -232,7 +226,7 @@ export default function SettingsPage() {
     setGwState((s) => ({ ...s, connected: false, connecting: true, error: null, config: null, sessions: [] }));
 
     try {
-      const token = getAuthToken();
+      const token = getAuthCookieToken();
       if (!token) throw new Error("Not authenticated");
       // Get JWT for pod
       const tokenRes = await fetch(`${getAuthBackendUrl()}/lagoon/pods/${podId}/token/refresh`, {

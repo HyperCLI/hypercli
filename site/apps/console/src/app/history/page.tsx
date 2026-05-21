@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass } from "@hypercli/shared-ui";
-import { useRouter } from "next/navigation";
+import { Header, Footer, formatDateTime, getBadgeClass } from "@hypercli/shared-ui";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
 import LLMTransactionRow from "../../components/LLMTransactionRow";
@@ -17,8 +16,6 @@ type SortColumn = 'id' | 'type' | 'status' | 'amount' | 'created_at';
 type SortDirection = 'asc' | 'desc';
 
 export default function HistoryPage() {
-  const { isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
   const [transactions, setTransactions] = useState<Transaction[]>([]);
   const [totalTxCount, setTotalTxCount] = useState(0);
   const [currentPage, setCurrentPage] = useState(1);
@@ -31,16 +28,8 @@ export default function HistoryPage() {
   const [expandedTxId, setExpandedTxId] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/');
-    }
-  }, [isLoading, isAuthenticated, router]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchTransactions();
-    }
-  }, [isAuthenticated, currentPage, typeFilter]);
+    fetchTransactions();
+  }, [currentPage, typeFilter]);
 
   const fetchTransactions = async () => {
     setLoading(true);
@@ -111,14 +100,6 @@ export default function HistoryPage() {
     setTypeFilter(filter);
     setCurrentPage(1);
   };
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">

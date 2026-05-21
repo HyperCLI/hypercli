@@ -12,6 +12,7 @@ export {
   getAppToken,
 } from "./auth/AuthProvider";
 export { PrivyAuthBoundary } from "./auth/PrivyAuthBoundary";
+export { AuthRouteBoundary as PrivyAuthRouteBoundary } from "./auth/AuthRouteBoundary";
 export type {
   AuthFlowState as PrivyAuthFlowState,
   AuthContextType as PrivyAuthContextType,
@@ -319,6 +320,8 @@ export { default as ContactModal } from "./components/ContactModal";
 export { default as PartnerFormModal } from "./components/PartnerFormModal";
 export { default as Modal } from "./components/Modal";
 export { default as AlertDialog } from "./components/AlertDialog";
+export { AuthRouteBoundary } from "./components/AuthRouteBoundary";
+export { AuthLandingPage } from "./components/AuthLandingPage";
 export { PrivyLoginModal, PrivyLoginPanel } from "./components/PrivyLogin";
 export { Providers } from "./components/Providers";
 export { AuthProvider, useAuth } from "./providers/AuthProvider";
@@ -343,6 +346,7 @@ export {
   clearAuthLogoutMarker,
   clearLocalAuthTokens,
   cookieUtils,
+  getAuthCookieToken,
   getCookieCandidateDomains,
   hasAuthLogoutMarker,
   isLocalHostname,

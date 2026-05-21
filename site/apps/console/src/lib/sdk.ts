@@ -1,5 +1,5 @@
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import { getAuthBackendUrl } from "@hypercli/shared-ui";
+import { getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 
 export interface ConsoleUserProfile {
   user_id: string;
@@ -96,13 +96,7 @@ export interface ConsoleInvoicesResponse {
 }
 
 function getAuthToken(): string | null {
-  if (typeof document === "undefined") return null;
-  return (
-    document.cookie
-      .split("; ")
-      .find((row) => row.startsWith("auth_token="))
-      ?.split("=")[1] ?? null
-  );
+  return getAuthCookieToken();
 }
 
 function getApiBaseUrl(): string {

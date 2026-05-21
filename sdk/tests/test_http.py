@@ -1,7 +1,9 @@
+import collections
 import logging
 
 import httpx
 
+from hypercli._compat import ensure_collections_compat
 from hypercli.http import APIError, _handle_response
 
 
@@ -29,3 +31,11 @@ def test_handle_response_logs_and_raises_api_error(caplog) -> None:
     assert "HyperCLI API request failed" in caplog.text
     assert "https://api.hypercli.com/api/jobs?tag=service%3Dgpu-operator" in caplog.text
     assert "TagValidationError" in caplog.text
+
+
+def test_ensure_collections_compat_restores_python312_aliases(monkeypatch) -> None:
+    monkeypatch.delattr(collections, "MutableSet", raising=False)
+
+    ensure_collections_compat()
+
+    assert collections.MutableSet is not None

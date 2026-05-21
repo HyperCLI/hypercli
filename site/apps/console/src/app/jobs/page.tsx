@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState } from "react";
-import { Header, Footer, useAuth, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getRegionFlag, getAuthBackendUrl } from "@hypercli/shared-ui";
+import { Header, Footer, formatDateTime, getBadgeClass, AlertDialog, getRegionName, getRegionFlag, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 import AmountDisplay from "../../components/AmountDisplay";
 
@@ -46,7 +46,6 @@ interface JobTransaction {
 }
 
 export default function JobsPage() {
-  const { isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
   const [jobs, setJobs] = useState<Job[]>([]);
   const [totalJobsCount, setTotalJobsCount] = useState(0);
@@ -75,27 +74,17 @@ export default function JobsPage() {
   });
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/');
-    }
-  }, [isLoading, isAuthenticated, router]);
-
-  useEffect(() => {
-    if (isAuthenticated) {
-      fetchJobs();
-    }
-  }, [isAuthenticated, stateFilter, currentPage]);
+    fetchJobs();
+  }, [stateFilter, currentPage]);
 
   // Auto-refresh jobs every 30 seconds (silent refresh)
   useEffect(() => {
-    if (!isAuthenticated) return;
-
     const interval = setInterval(() => {
       fetchJobs(true);
     }, 30000);
 
     return () => clearInterval(interval);
-  }, [isAuthenticated, stateFilter]);
+  }, [stateFilter]);
 
   const fetchJobs = async (silent = false) => {
     if (!silent) {
@@ -103,10 +92,7 @@ export default function JobsPage() {
       setError(null);
     }
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
+      const authToken = getAuthCookieToken();
 
       if (!authToken) {
         if (!silent) {
@@ -196,10 +182,7 @@ export default function JobsPage() {
       showCancel: true,
       onConfirm: async () => {
         try {
-          const authToken = document.cookie
-            .split('; ')
-            .find(row => row.startsWith('auth_token='))
-            ?.split('=')[1];
+          const authToken = getAuthCookieToken();
 
           if (!authToken) return;
 
@@ -339,10 +322,7 @@ export default function JobsPage() {
 
     // Fetch transaction for this job
     try {
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
+      const authToken = getAuthCookieToken();
 
       if (!authToken) return;
 
@@ -422,14 +402,6 @@ export default function JobsPage() {
     if (aValue > bValue) return sortDirection === 'asc' ? 1 : -1;
     return 0;
   });
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">

@@ -254,6 +254,10 @@ export const cookieUtils = {
   AUTH_COOKIE_EVENT,
 };
 
+export function getAuthCookieToken(cookieName = "auth_token"): string | null {
+  return cookieUtils.get(cookieName);
+}
+
 export function markAuthLogout(): void {
   cookieUtils.setWithMaxAge(AUTH_LOGOUT_COOKIE, String(Date.now()), 60 * 60 * 24 * 30);
 }

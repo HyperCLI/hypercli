@@ -1,4 +1,8 @@
 """HyperCLI SDK - Python client for HyperCLI API"""
+from ._compat import ensure_collections_compat
+
+ensure_collections_compat()
+
 from .client import HyperCLI
 from .config import (
     configure,

@@ -5,14 +5,12 @@ import Link from "next/link";
 import {
   Header,
   Footer,
-  useAuth,
   InvoiceList,
   ReceiptList,
   InvoiceSummaryCard,
   type InvoiceRecord,
   type ReceiptRecord,
 } from "@hypercli/shared-ui";
-import { useRouter } from "next/navigation";
 
 import {
   getConsoleInvoices,
@@ -62,21 +60,12 @@ function mapReceipt(receipt: ConsoleTransaction): ReceiptRecord {
 }
 
 export default function BillingPage() {
-  const { isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/");
-    }
-  }, [isAuthenticated, isLoading, router]);
-
-  useEffect(() => {
-    if (!isAuthenticated) return;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -104,7 +93,7 @@ export default function BillingPage() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated]);
+  }, []);
 
   const paidCount = useMemo(
     () => invoices.filter((invoice) => invoice.status === "paid").length,
@@ -118,14 +107,6 @@ export default function BillingPage() {
     () => invoices.filter((invoice) => invoice.status === "issued" || invoice.status === "processing").length,
     [invoices],
   );
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">

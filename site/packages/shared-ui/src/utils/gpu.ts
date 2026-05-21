@@ -33,6 +33,7 @@ export const REGION_INFO: Record<string, { name: string; flag: string }> = {
   se: { name: "Sweden", flag: "🇸🇪" },
   fi: { name: "Finland", flag: "🇫🇮" },
   is: { name: "Iceland", flag: "🇮🇸" },
+  jp: { name: "Japan", flag: "🇯🇵" },
   va: { name: "Virginia", flag: "🇺🇸" },
   az: { name: "Arizona", flag: "🇺🇸" },
   oh: { name: "Ohio", flag: "🇺🇸" },

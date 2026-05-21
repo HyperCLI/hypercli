@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import { useParams, useRouter } from "next/navigation";
+import { useParams } from "next/navigation";
 import {
   Footer,
   Header,
@@ -10,7 +10,6 @@ import {
   type InvoiceRecord,
   ReceiptDetailCard,
   type ReceiptRecord,
-  useAuth,
 } from "@hypercli/shared-ui";
 
 import {
@@ -61,8 +60,6 @@ function mapReceipt(receipt: ConsoleTransaction): ReceiptRecord {
 }
 
 export default function BillingInvoiceDetailPage() {
-  const { isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
   const params = useParams<{ id: string }>();
   const [receipt, setReceipt] = useState<ReceiptRecord | null>(null);
   const [invoice, setInvoice] = useState<InvoiceRecord | null>(null);
@@ -70,13 +67,7 @@ export default function BillingInvoiceDetailPage() {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/");
-    }
-  }, [isAuthenticated, isLoading, router]);
-
-  useEffect(() => {
-    if (!isAuthenticated || !params?.id) return;
+    if (!params?.id) return;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
@@ -114,15 +105,7 @@ export default function BillingInvoiceDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [isAuthenticated, params?.id]);
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
+  }, [params?.id]);
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background print:bg-white">

@@ -1,3 +1,4 @@
+import { PrivyAuthRouteBoundary } from "@hypercli/shared-ui";
 import { DashboardShell } from "@/components/dashboard/DashboardShell";
 
 export default function DashboardLayout({
@@ -5,5 +6,9 @@ export default function DashboardLayout({
 }: {
   children: React.ReactNode;
 }) {
-  return <DashboardShell>{children}</DashboardShell>;
+  return (
+    <PrivyAuthRouteBoundary unauthenticatedRedirectTo="/">
+      <DashboardShell>{children}</DashboardShell>
+    </PrivyAuthRouteBoundary>
+  );
 }

@@ -1,8 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef } from "react";
-import { Header, Footer, useAuth, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
-import { useRouter } from "next/navigation";
+import { Header, Footer, TopUpModal, AlertDialog, formatDateTime } from "@hypercli/shared-ui";
 import JobTransactionRow from "../../components/JobTransactionRow";
 import TopUpTransactionRow from "../../components/TopUpTransactionRow";
 import LLMTransactionRow from "../../components/LLMTransactionRow";
@@ -18,8 +17,6 @@ import {
 } from "../../lib/sdk";
 
 export default function DashboardPage() {
-  const { isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
   const [userProfile, setUserProfile] = useState<UserProfile | null>(null);
   const [isEditing, setIsEditing] = useState<{ name: boolean; email: boolean }>({ name: false, email: false });
   const [editValues, setEditValues] = useState({ name: "", email: "" });
@@ -53,26 +50,16 @@ export default function DashboardPage() {
     type: "info",
   });
 
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/');
-    }
-  }, [isLoading, isAuthenticated, router]);
-
   // Fetch user profile, balance, and transactions
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchUserProfile();
-      fetchBalance();
-      fetchTransactions();
-    }
-  }, [isAuthenticated]);
+    fetchUserProfile();
+    fetchBalance();
+    fetchTransactions();
+  }, []);
 
   // Refetch transactions when page changes
   useEffect(() => {
-    if (isAuthenticated) {
-      fetchTransactions();
-    }
+    fetchTransactions();
   }, [currentPage]);
 
   const fetchUserProfile = async () => {
@@ -198,14 +185,6 @@ export default function DashboardPage() {
       stopPolling();
     };
   }, []);
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">

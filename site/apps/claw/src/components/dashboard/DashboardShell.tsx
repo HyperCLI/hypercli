@@ -1,7 +1,6 @@
 "use client";
 
-import { useEffect } from "react";
-import { useRouter, usePathname } from "next/navigation";
+import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { DashboardNav } from "@/components/dashboard/DashboardNav";
@@ -48,7 +47,6 @@ export function DashboardShell({
   children: React.ReactNode;
 }) {
   const { isLoading, isAuthenticated, flowState, error } = useAgentAuth();
-  const router = useRouter();
   const pathname = normalizeShellPathname(usePathname());
   const isAgentsRoute =
     pathname === "/agents" ||
@@ -58,12 +56,6 @@ export function DashboardShell({
   const isDashboardHome = pathname === "/dashboard";
   const showDashboardNav = !isAgentsRoute;
   const hasTopNavOffset = showDashboardNav;
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/");
-    }
-  }, [isLoading, isAuthenticated, router]);
 
   return (
     <DashboardMobileAgentMenuProvider>

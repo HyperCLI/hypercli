@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
-import { Header, Footer, useAuth, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl } from "@hypercli/shared-ui";
+import { Header, Footer, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 import { useRouter } from "next/navigation";
 
 interface GPUInfo {
@@ -120,7 +120,6 @@ function saveToStorage(values: Partial<typeof DEFAULTS>) {
 }
 
 export default function LaunchPage() {
-  const { isLoading, isAuthenticated } = useAuth();
   const router = useRouter();
 
   // API Data
@@ -202,12 +201,6 @@ export default function LaunchPage() {
   useEffect(() => { saveToStorage({ httpsLbPort }); }, [httpsLbPort]);
   useEffect(() => { saveToStorage({ httpsLbAuth }); }, [httpsLbAuth]);
   useEffect(() => { saveToStorage({ runtime }); }, [runtime]);
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push('/');
-    }
-  }, [isLoading, isAuthenticated, router]);
 
   // Load cloned job config from sessionStorage
   useEffect(() => {
@@ -516,10 +509,7 @@ export default function LaunchPage() {
         return;
       }
 
-      const authToken = document.cookie
-        .split('; ')
-        .find(row => row.startsWith('auth_token='))
-        ?.split('=')[1];
+      const authToken = getAuthCookieToken();
 
       if (!authToken) {
         setError('No auth token found');
@@ -600,14 +590,6 @@ export default function LaunchPage() {
       setIsCreating(false);
     }
   };
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
 
   if (loadingState === 'error') {
     return (

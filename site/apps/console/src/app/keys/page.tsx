@@ -1,18 +1,9 @@
 "use client";
 
-import { ApiKeysManager, Footer, Header, useAuth, getAuthBackendUrl } from "@hypercli/shared-ui";
-import { useRouter } from "next/navigation";
-import { useEffect } from "react";
+import { ApiKeysManager, Footer, Header, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 
 function getConsoleToken(): Promise<string> {
-  if (typeof document === "undefined") {
-    return Promise.reject(new Error("No auth token found"));
-  }
-  const token =
-    document.cookie
-      .split("; ")
-      .find((row) => row.startsWith("auth_token="))
-      ?.split("=")[1] ?? null;
+  const token = getAuthCookieToken();
   if (!token) {
     return Promise.reject(new Error("No auth token found"));
   }
@@ -20,23 +11,6 @@ function getConsoleToken(): Promise<string> {
 }
 
 export default function ApiKeysPage() {
-  const { isLoading, isAuthenticated } = useAuth();
-  const router = useRouter();
-
-  useEffect(() => {
-    if (!isLoading && !isAuthenticated) {
-      router.push("/");
-    }
-  }, [isAuthenticated, isLoading, router]);
-
-  if (isLoading || !isAuthenticated) {
-    return (
-      <div className="min-h-screen flex items-center justify-center bg-background">
-        <div className="text-foreground text-xl">Loading...</div>
-      </div>
-    );
-  }
-
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background">
       <Header />
