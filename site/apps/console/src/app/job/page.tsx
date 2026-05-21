@@ -2,7 +2,7 @@
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Header, Footer, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
-import { useRouter, useSearchParams } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 
 import { JobDetailPage } from "./JobDetailPage";
 
@@ -122,13 +122,36 @@ function saveToStorage(values: Partial<typeof DEFAULTS>) {
 }
 
 export default function LaunchPage() {
-  const router = useRouter();
-  const searchParams = useSearchParams();
-  const jobId = searchParams.get("id")?.trim() || null;
+  const pathname = usePathname();
+  const jobId = getDeepLinkId(pathname, "/job");
 
   if (jobId) {
     return <JobDetailPage jobId={jobId} />;
   }
+
+  return <LaunchJobFormPage />;
+}
+
+function getDeepLinkId(pathname: string | null, basePath: string): string | null {
+  const prefix = `${basePath}/`;
+  if (!pathname?.startsWith(prefix)) {
+    return null;
+  }
+
+  const [rawId] = pathname.slice(prefix.length).split("/");
+  if (!rawId?.trim()) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(rawId.trim());
+  } catch {
+    return rawId.trim();
+  }
+}
+
+function LaunchJobFormPage() {
+  const router = useRouter();
 
   // API Data
   const [gpuList, setGpuList] = useState<Record<string, GPUInfo>>({});

@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import { useSearchParams } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Header,
   Footer,
@@ -62,16 +62,39 @@ function mapReceipt(receipt: ConsoleTransaction): ReceiptRecord {
 }
 
 export default function BillingPage() {
-  const searchParams = useSearchParams();
-  const recordId = searchParams.get("id")?.trim() || null;
-  const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
-  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
-  const [loading, setLoading] = useState(true);
-  const [error, setError] = useState<string | null>(null);
+  const pathname = usePathname();
+  const recordId = getDeepLinkId(pathname, "/billing");
 
   if (recordId) {
     return <BillingInvoiceDetailPage recordId={recordId} />;
   }
+
+  return <BillingIndexPage />;
+}
+
+function getDeepLinkId(pathname: string | null, basePath: string): string | null {
+  const prefix = `${basePath}/`;
+  if (!pathname?.startsWith(prefix)) {
+    return null;
+  }
+
+  const [rawId] = pathname.slice(prefix.length).split("/");
+  if (!rawId?.trim()) {
+    return null;
+  }
+
+  try {
+    return decodeURIComponent(rawId.trim());
+  } catch {
+    return rawId.trim();
+  }
+}
+
+function BillingIndexPage() {
+  const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
