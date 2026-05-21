@@ -4,7 +4,7 @@ import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Header, Footer, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
 import { useRouter, useSearchParams } from "next/navigation";
 
-import { JobDetailPage } from "./[id]/page";
+import { JobDetailPage } from "./JobDetailPage";
 
 interface GPUInfo {
   name: string;

@@ -19,7 +19,7 @@ import {
   type ConsoleInvoice,
   type ConsoleTransaction,
 } from "../../lib/sdk";
-import { BillingInvoiceDetailPage } from "./[id]/page";
+import { BillingInvoiceDetailPage } from "./BillingInvoiceDetailPage";
 
 function mapInvoice(invoice: ConsoleInvoice): InvoiceRecord {
   return {
