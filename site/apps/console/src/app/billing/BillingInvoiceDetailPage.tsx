@@ -16,7 +16,7 @@ import {
   getConsoleTransaction,
   type ConsoleInvoice,
   type ConsoleTransaction,
-} from "../../../lib/sdk";
+} from "../../lib/sdk";
 
 function mapInvoice(invoice: ConsoleInvoice): InvoiceRecord {
   return {
