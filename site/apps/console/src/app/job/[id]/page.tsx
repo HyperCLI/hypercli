@@ -46,10 +46,12 @@ interface InstanceType {
   configs: InstanceConfig[];
 }
 
-export default function JobDetailPage() {
+export interface JobDetailPageProps {
+  jobId: string;
+}
+
+export function JobDetailPage({ jobId }: JobDetailPageProps) {
   const router = useRouter();
-  const params = useParams();
-  const jobId = params?.id as string;
 
   const [job, setJob] = useState<Job | null>(null);
   const [logs, setLogs] = useState<string>("");
@@ -1220,4 +1222,19 @@ export default function JobDetailPage() {
       />
     </div>
   );
+}
+
+export default function JobDetailRoutePage() {
+  const params = useParams<{ id: string }>();
+  const jobId = params?.id?.trim();
+
+  if (!jobId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading job details...</div>
+      </div>
+    );
+  }
+
+  return <JobDetailPage jobId={jobId} />;
 }

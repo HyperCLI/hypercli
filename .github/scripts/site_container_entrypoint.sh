@@ -68,6 +68,8 @@ assemble_static_artifact() {
 
   cat > "${publish_dir}/_redirects" <<'REDIRECTS'
 /_next/static/* /_next/static/:splat 200
+/job/* /job?id=:splat 200
+/billing/* /billing?id=:splat 200
 /* /index.html 200
 REDIRECTS
 }

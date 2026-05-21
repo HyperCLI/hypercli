@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
+import { useSearchParams } from "next/navigation";
 import {
   Header,
   Footer,
@@ -18,6 +19,7 @@ import {
   type ConsoleInvoice,
   type ConsoleTransaction,
 } from "../../lib/sdk";
+import { BillingInvoiceDetailPage } from "./[id]/page";
 
 function mapInvoice(invoice: ConsoleInvoice): InvoiceRecord {
   return {
@@ -60,10 +62,16 @@ function mapReceipt(receipt: ConsoleTransaction): ReceiptRecord {
 }
 
 export default function BillingPage() {
+  const searchParams = useSearchParams();
+  const recordId = searchParams.get("id")?.trim() || null;
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
   const [invoices, setInvoices] = useState<InvoiceRecord[]>([]);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
+
+  if (recordId) {
+    return <BillingInvoiceDetailPage recordId={recordId} />;
+  }
 
   useEffect(() => {
     let cancelled = false;

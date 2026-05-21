@@ -59,23 +59,25 @@ function mapReceipt(receipt: ConsoleTransaction): ReceiptRecord {
   };
 }
 
-export default function BillingInvoiceDetailPage() {
-  const params = useParams<{ id: string }>();
+export interface BillingInvoiceDetailPageProps {
+  recordId: string;
+}
+
+export function BillingInvoiceDetailPage({ recordId }: BillingInvoiceDetailPageProps) {
   const [receipt, setReceipt] = useState<ReceiptRecord | null>(null);
   const [invoice, setInvoice] = useState<InvoiceRecord | null>(null);
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (!params?.id) return;
     let cancelled = false;
     const load = async () => {
       setLoading(true);
       setError(null);
       try {
         const [transactionResult, invoiceResult] = await Promise.allSettled([
-          getConsoleTransaction(params.id),
-          getConsoleInvoice(params.id),
+          getConsoleTransaction(recordId),
+          getConsoleInvoice(recordId),
         ]);
 
         if (cancelled) {
@@ -105,7 +107,7 @@ export default function BillingInvoiceDetailPage() {
     return () => {
       cancelled = true;
     };
-  }, [params?.id]);
+  }, [recordId]);
 
   return (
     <div className="min-h-screen flex flex-col overflow-x-hidden bg-background print:bg-white">
@@ -144,4 +146,19 @@ export default function BillingInvoiceDetailPage() {
       </div>
     </div>
   );
+}
+
+export default function BillingInvoiceDetailRoutePage() {
+  const params = useParams<{ id: string }>();
+  const recordId = params?.id?.trim();
+
+  if (!recordId) {
+    return (
+      <div className="min-h-screen flex items-center justify-center bg-background">
+        <div className="text-foreground text-xl">Loading billing record...</div>
+      </div>
+    );
+  }
+
+  return <BillingInvoiceDetailPage recordId={recordId} />;
 }

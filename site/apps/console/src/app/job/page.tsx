@@ -2,7 +2,9 @@
 
 import React, { useEffect, useState, useRef, useMemo } from "react";
 import { Header, Footer, getGPUDisplayName, getRegionFlag, getRegionName, getAuthBackendUrl, getAuthCookieToken } from "@hypercli/shared-ui";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
+
+import { JobDetailPage } from "./[id]/page";
 
 interface GPUInfo {
   name: string;
@@ -121,6 +123,12 @@ function saveToStorage(values: Partial<typeof DEFAULTS>) {
 
 export default function LaunchPage() {
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const jobId = searchParams.get("id")?.trim() || null;
+
+  if (jobId) {
+    return <JobDetailPage jobId={jobId} />;
+  }
 
   // API Data
   const [gpuList, setGpuList] = useState<Record<string, GPUInfo>>({});
