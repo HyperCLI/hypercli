@@ -1,4 +1,4 @@
-import { fireEvent, render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import {
@@ -23,6 +23,36 @@ const integrations: DashboardIntegrationUsage[] = [
   { id: "slack", name: "Slack", totalTokens: 75_000, requests: 40 },
   { id: "cli", name: "CLI", totalTokens: 120_000, requests: 146 },
 ];
+
+function buildThirtyDayHistory(): DashboardDayData[] {
+  const start = Date.UTC(2026, 3, 22);
+  return Array.from({ length: 30 }, (_, index) => {
+    const date = new Date(start + index * 86_400_000).toISOString().slice(0, 10);
+    const promptTokens = 40_000 + index * 1_000;
+    const completionTokens = 60_000 + index * 1_500;
+    return {
+      date,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      requests: 20 + index,
+    };
+  });
+}
+
+function buildHourlyHistory(): DashboardDayData[] {
+  return Array.from({ length: 24 }, (_, index) => {
+    const promptTokens = 10_000 + index * 500;
+    const completionTokens = 20_000 + index * 750;
+    return {
+      date: `2026-05-22T${String(index).padStart(2, "0")}:00:00Z`,
+      promptTokens,
+      completionTokens,
+      totalTokens: promptTokens + completionTokens,
+      requests: 3 + index,
+    };
+  });
+}
 
 describe("DashboardAnalytics", () => {
   it("formats compact token totals", () => {
@@ -90,6 +120,65 @@ describe("DashboardAnalytics", () => {
 
     expect(screen.getByText("Microsoft Teams")).toBeInTheDocument();
     expect(screen.queryByText("msteams")).not.toBeInTheDocument();
+  });
+
+  it("shows a token breakdown tooltip when hovering a bar", () => {
+    render(<TokenUsagePanel history={history} periodLabel="Last 7 days" />);
+
+    fireEvent.mouseEnter(screen.getByRole("button", { name: "May 13 token usage" }));
+
+    const tooltip = screen.getByRole("tooltip");
+    expect(within(tooltip).getByText("May 13")).toBeInTheDocument();
+    expect(within(tooltip).getByText("Prompt")).toBeInTheDocument();
+    expect(within(tooltip).getByText("Completion")).toBeInTheDocument();
+    expect(within(tooltip).getByText("100k")).toBeInTheDocument();
+    expect(within(tooltip).getByText("40")).toBeInTheDocument();
+  });
+
+  it("uses hourly ticks for the 24 hour token chart", () => {
+    render(<TokenUsagePanel history={buildHourlyHistory()} periodLabel="Last 24h" />);
+
+    expect(screen.getByText("12 AM")).toBeInTheDocument();
+    expect(screen.getByText("6 AM")).toBeInTheDocument();
+    expect(screen.getByText("12 PM")).toBeInTheDocument();
+    expect(screen.getByText("6 PM")).toBeInTheDocument();
+    expect(screen.getByText("Now")).toBeInTheDocument();
+    expect(screen.queryByText("May 22")).not.toBeInTheDocument();
+  });
+
+  it("keeps the 24 hour chart axis when the API returns one daily bucket", () => {
+    render(
+      <TokenUsagePanel
+        history={[
+          { date: "2026-05-22", promptTokens: 106_000, completionTokens: 1_000, totalTokens: 107_000, requests: 5 },
+        ]}
+        periodLabel="Last 24h"
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: "May 22 token usage" })).toHaveLength(24);
+    expect(screen.getByText("12 AM")).toBeInTheDocument();
+    expect(screen.getByText("6 AM")).toBeInTheDocument();
+    expect(screen.getByText("12 PM")).toBeInTheDocument();
+    expect(screen.getByText("6 PM")).toBeInTheDocument();
+    expect(screen.getByText("Now")).toBeInTheDocument();
+
+    const nowBucket = screen.getAllByRole("button", { name: "May 22 token usage" }).at(-1);
+    if (!nowBucket) throw new Error("Expected now bucket");
+    fireEvent.mouseEnter(nowBucket);
+    expect(within(screen.getByRole("tooltip")).getByText("107k")).toBeInTheDocument();
+  });
+
+  it("uses weekly ticks for the 30 day token chart", () => {
+    render(<TokenUsagePanel history={buildThirtyDayHistory()} periodLabel="Last 30 days" />);
+
+    expect(screen.getByText("Apr 22")).toBeInTheDocument();
+    expect(screen.getByText("Apr 29")).toBeInTheDocument();
+    expect(screen.getByText("May 6")).toBeInTheDocument();
+    expect(screen.getByText("May 13")).toBeInTheDocument();
+    expect(screen.getByText("May 20")).toBeInTheDocument();
+    expect(screen.queryByText("Apr 23")).not.toBeInTheDocument();
+    expect(screen.queryByText("Today")).not.toBeInTheDocument();
   });
 
   it("renders empty collection states", () => {

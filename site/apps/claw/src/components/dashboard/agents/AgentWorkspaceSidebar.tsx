@@ -223,7 +223,7 @@ export function AgentWorkspaceSidebar({
   const advancedItems: WorkspaceItem[] = [
     { id: "logs", label: "Logs", icon: TerminalSquare, active: activeTab === "logs", onClick: onOpenLogs, ...advancedDisabled },
     { id: "shell", label: "Shell", icon: TerminalSquare, active: activeTab === "shell", onClick: onOpenShell, ...advancedDisabled },
-    { id: "openclaw", label: "OpenClaw settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
+    { id: "openclaw", label: "OpenClaw Settings", icon: SlidersHorizontal, active: activeTab === "openclaw", onClick: onOpenOpenClaw, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
     { id: "settings", label: "Settings", icon: Settings, active: activeTab === "settings", onClick: onOpenSettings, ...(disabled || noSelectedAgent ? { disabled: true, disabledReason: advancedDropdownDisabledReason } : {}) },
   ];
 
@@ -331,7 +331,7 @@ export function AgentWorkspaceSidebar({
               <ChevronUp className={`${renderMobile ? "h-5 w-5" : "h-4 w-4"} transition-transform ${advancedItemsOpen ? "rotate-180" : ""}`} />
             </button>
             {advancedItemsOpen && (
-              <div className={renderMobile ? "mt-1 space-y-1" : "ml-7 mt-1 border-l border-border pl-3"}>
+              <div className={renderMobile ? "mt-1 space-y-1" : "ml-5 mt-1 border-l border-border pl-2.5"}>
                 {advancedItems.map((item) => (
                   renderMobile ? (
                     <WorkspaceButton key={item.id} item={item} mobileMode />
@@ -343,7 +343,7 @@ export function AgentWorkspaceSidebar({
                       disabled={item.disabled}
                       aria-disabled={item.disabled}
                       title={item.disabledReason}
-                      className={`block w-full rounded-full px-3 py-2 text-left text-sm transition-colors ${
+                      className={`block w-full whitespace-nowrap rounded-full px-3 py-2 text-left text-[12px] transition-colors ${
                         item.disabled
                           ? "cursor-not-allowed text-text-muted/45"
                           : item.active

@@ -1245,7 +1245,7 @@ export default function DevAgentSetupPage() {
           <section className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Create your first agent</h2>
+                <h2 className="text-lg font-semibold text-foreground">Create your agent</h2>
                 <p className="mt-1 text-sm text-text-secondary">
                   The {activePlan?.name ?? "selected"} plan has space ready. Choose the kind of helper you want to meet first.
                 </p>

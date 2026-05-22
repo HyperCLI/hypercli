@@ -148,7 +148,7 @@ export function LegacyAgentSidebar({
                 <p className="text-text-secondary text-sm mb-1">No agents yet</p>
                 <p className="text-xs text-text-muted mb-4">Deploy a persistent Linux container with AI capabilities</p>
                 <button onClick={onCreateAgent} className="btn-primary px-4 py-2 rounded-lg text-sm font-medium">
-                  Create Your First Agent
+                  Create your agent
                 </button>
               </>
             )}

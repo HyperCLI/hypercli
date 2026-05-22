@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import {
   BarChart3,
   Blocks,
@@ -72,10 +73,101 @@ function formatNumber(value: number | null | undefined) {
   return value.toLocaleString();
 }
 
-function formatDateLabel(value: string, todayIndex: number, currentIndex: number) {
-  if (currentIndex === todayIndex) return "Today";
-  const date = new Date(`${value}T00:00:00Z`);
+function formatDateLabel(value: string, todayIndex: number, currentIndex: number, useRelativeToday = true) {
+  if (useRelativeToday && currentIndex === todayIndex) return "Today";
+  const date = parseDashboardDate(value);
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function formatTooltipDate(value: string) {
+  const date = parseDashboardDate(value);
+  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", timeZone: "UTC" });
+}
+
+function parseDashboardDate(value: string) {
+  return new Date(value.includes("T") ? value : `${value}T00:00:00Z`);
+}
+
+function dateOnly(value: string) {
+  return value.split("T")[0] || value;
+}
+
+function hourlySlotDate(baseDate: string, hour: number) {
+  return `${dateOnly(baseDate)}T${String(hour).padStart(2, "0")}:00:00Z`;
+}
+
+function normalizeHourlyHistory(history: DashboardDayData[]): DashboardDayData[] {
+  if (history.length === 24 && history.every((entry) => entry.date.includes("T"))) {
+    return history;
+  }
+
+  const baseDate = history.find((entry) => entry.date)?.date ?? new Date().toISOString().slice(0, 10);
+  const slots = Array.from({ length: 24 }, (_, hour): DashboardDayData => ({
+    date: hourlySlotDate(baseDate, hour),
+    totalTokens: 0,
+    promptTokens: 0,
+    completionTokens: 0,
+    requests: 0,
+  }));
+
+  if (history.length === 1 && !history[0].date.includes("T")) {
+    slots[23] = { ...history[0], date: slots[23].date };
+    return slots;
+  }
+
+  for (const entry of history) {
+    const parsed = parseDashboardDate(entry.date);
+    const hour = Number.isFinite(parsed.getTime()) && entry.date.includes("T") ? parsed.getUTCHours() : 23;
+    const current = slots[hour];
+    slots[hour] = {
+      date: current.date,
+      totalTokens: current.totalTokens + entry.totalTokens,
+      promptTokens: current.promptTokens + entry.promptTokens,
+      completionTokens: current.completionTokens + entry.completionTokens,
+      requests: current.requests + entry.requests,
+    };
+  }
+
+  return slots;
+}
+
+function dateTickIndexes(entryCount: number) {
+  if (entryCount <= 10) {
+    return new Set(Array.from({ length: entryCount }, (_, index) => index));
+  }
+
+  const interval = entryCount > 21 ? 7 : Math.ceil(entryCount / 6);
+  const indexes = new Set<number>();
+  for (let index = 0; index < entryCount; index += interval) {
+    indexes.add(index);
+  }
+  if (entryCount <= 21) indexes.add(entryCount - 1);
+  return indexes;
+}
+
+function hourlyTickIndexes(entryCount: number) {
+  if (entryCount <= 0) return new Set<number>();
+  return new Set([
+    0,
+    Math.floor(entryCount * 0.25),
+    Math.floor(entryCount * 0.5),
+    Math.floor(entryCount * 0.75),
+    entryCount - 1,
+  ].filter((index) => index >= 0 && index < entryCount));
+}
+
+function formatHourlyTickLabel(index: number, total: number) {
+  if (index === total - 1) return "Now";
+  const hour = Math.round((index * 24) / Math.max(total, 1)) % 24;
+  if (hour === 0) return "12 AM";
+  if (hour === 12) return "12 PM";
+  return hour < 12 ? `${hour} AM` : `${hour - 12} PM`;
+}
+
+function tooltipPositionClass(index: number, total: number) {
+  if (index <= 1) return "left-0";
+  if (index >= total - 2) return "right-0";
+  return "left-1/2 -translate-x-1/2";
 }
 
 function statusClassName(status: string) {
@@ -171,9 +263,23 @@ export function TokenUsagePanel({
   history: DashboardDayData[];
   periodLabel: string;
 }) {
-  const hasData = history.some((day) => day.totalTokens > 0);
-  const maxTokens = Math.max(...history.map((day) => day.totalTokens), 1);
-  const todayIndex = history.length - 1;
+  const [activeIndex, setActiveIndex] = useState<number | null>(null);
+  const hourlyRange = periodLabel === "Last 24h";
+  const chartHistory = hourlyRange ? normalizeHourlyHistory(history) : history;
+  const hasData = chartHistory.some((day) => day.totalTokens > 0);
+  const maxTokens = Math.max(...chartHistory.map((day) => day.totalTokens), 1);
+  const todayIndex = chartHistory.length - 1;
+  const denseRange = !hourlyRange && chartHistory.length > 14;
+  const tickIndexes = hourlyRange ? hourlyTickIndexes(chartHistory.length) : dateTickIndexes(chartHistory.length);
+  const barGapClass = hourlyRange ? "gap-2.5" : denseRange ? "gap-1.5" : "gap-4";
+  const barShapeClass = hourlyRange
+    ? "max-w-[14px] rounded-[7px]"
+    : denseRange
+    ? "max-w-[12px] rounded-[5px]"
+    : "max-w-[50px] rounded-md";
+  const chartColumns = chartHistory.length > 0
+    ? { gridTemplateColumns: `repeat(${chartHistory.length}, minmax(0, 1fr))` }
+    : undefined;
 
   return (
     <section className="rounded-lg border border-white/12 bg-[#19191a]">
@@ -187,30 +293,96 @@ export function TokenUsagePanel({
       ) : (
         <div className="px-6 pb-6 pt-5">
           <div className="relative h-[190px]">
-            <div aria-hidden className="absolute inset-x-0 top-8 border-t border-white/8" />
-            <div aria-hidden className="absolute inset-x-0 top-20 border-t border-white/8" />
-            <div aria-hidden className="absolute inset-x-0 top-32 border-t border-white/8" />
-            <div className="relative flex h-full items-end gap-4">
-              {history.map((day, index) => {
+            <div aria-hidden className="absolute inset-x-0 top-0 h-[160px]">
+              <div className="absolute inset-x-0 top-0 border-t border-white/50" />
+              <div className="absolute inset-x-0 top-1/3 border-t border-white/35" />
+              <div className="absolute inset-x-0 top-2/3 border-t border-white/20" />
+            </div>
+            <div className={`relative grid h-[160px] items-end ${barGapClass}`} style={chartColumns}>
+              {chartHistory.map((day, index) => {
                 const totalPct = Math.max((day.totalTokens / maxTokens) * 100, day.totalTokens > 0 ? 8 : 0);
                 const promptShare = day.totalTokens > 0 ? day.promptTokens / day.totalTokens : 0;
                 const promptPct = Math.max(totalPct * promptShare, day.promptTokens > 0 ? 2 : 0);
                 const completionPct = Math.max(totalPct - promptPct, day.completionTokens > 0 ? 2 : 0);
+                const tooltipId = `token-usage-tooltip-${index}`;
 
                 return (
-                  <div key={day.date} className="flex min-w-0 flex-1 flex-col items-center gap-2">
-                    <div className="flex h-[160px] w-full max-w-[50px] flex-col justify-end overflow-hidden rounded-md">
+                  <div key={`${day.date}-${index}`} className="relative flex min-w-0 items-end justify-center">
+                    <button
+                      type="button"
+                      aria-label={`${formatTooltipDate(day.date)} token usage`}
+                      aria-describedby={activeIndex === index ? tooltipId : undefined}
+                      onFocus={() => setActiveIndex(index)}
+                      onBlur={() => setActiveIndex((current) => (current === index ? null : current))}
+                      onMouseEnter={() => setActiveIndex(index)}
+                      onMouseLeave={() => setActiveIndex((current) => (current === index ? null : current))}
+                      className={`flex h-[160px] w-full flex-col justify-end overflow-hidden outline-none transition-[filter] focus-visible:ring-2 focus-visible:ring-[#2f80ed]/70 ${barShapeClass} ${activeIndex === index ? "brightness-110" : ""}`}
+                    >
                       {day.promptTokens > 0 && (
-                        <div className="w-full bg-[#2f80ed]" style={{ height: `${promptPct}%` }} />
+                        <span className="w-full bg-[#2f80ed]" style={{ height: `${promptPct}%` }} />
                       )}
                       {day.completionTokens > 0 && (
-                        <div className="w-full bg-[#8bc3f7]" style={{ height: `${completionPct}%` }} />
+                        <span className="w-full bg-[#8bc3f7]" style={{ height: `${completionPct}%` }} />
                       )}
-                    </div>
-                    <span className="text-xs text-text-muted">{formatDateLabel(day.date, todayIndex, index)}</span>
+                    </button>
+                    {activeIndex === index && (
+                      <div
+                        id={tooltipId}
+                        role="tooltip"
+                        className={`pointer-events-none absolute bottom-full z-30 mb-2 w-[150px] rounded-lg border border-white/12 bg-[#050506] px-3 py-2 text-left text-xs text-foreground shadow-2xl ${tooltipPositionClass(index, chartHistory.length)}`}
+                      >
+                        <p className="font-medium text-foreground">{formatTooltipDate(day.date)}</p>
+                        <div className="mt-2 space-y-1">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-text-muted">
+                              <span className="h-2 w-2 rounded-full bg-[#2f80ed]" />
+                              Prompt
+                            </span>
+                            <span className="tabular-nums text-foreground">{formatDashboardTokens(day.promptTokens)}</span>
+                          </div>
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="flex items-center gap-1.5 text-text-muted">
+                              <span className="h-2 w-2 rounded-full bg-[#8bc3f7]" />
+                              Completion
+                            </span>
+                            <span className="tabular-nums text-foreground">{formatDashboardTokens(day.completionTokens)}</span>
+                          </div>
+                        </div>
+                        <div className="mt-2 border-t border-white/12 pt-2">
+                          <div className="flex items-center justify-between gap-3">
+                            <span className="text-foreground">Tokens</span>
+                            <span className="tabular-nums text-foreground">{formatDashboardTokens(day.totalTokens)}</span>
+                          </div>
+                          <div className="mt-1 flex items-center justify-between gap-3">
+                            <span className="text-foreground">Requests</span>
+                            <span className="tabular-nums text-foreground">{day.requests.toLocaleString()}</span>
+                          </div>
+                        </div>
+                      </div>
+                    )}
                   </div>
                 );
               })}
+            </div>
+            <div className="mt-2 grid" style={chartColumns}>
+              {chartHistory.map((day, index) => (
+                tickIndexes.has(index) ? (
+                  <span
+                    key={`${day.date}-${index}`}
+                    className={`whitespace-nowrap text-xs text-text-muted ${
+                      index === 0
+                        ? "justify-self-start"
+                        : index >= chartHistory.length - 2
+                        ? "justify-self-end"
+                        : "justify-self-center"
+                    }`}
+                  >
+                    {hourlyRange ? formatHourlyTickLabel(index, chartHistory.length) : formatDateLabel(day.date, todayIndex, index, !denseRange)}
+                  </span>
+                ) : (
+                  <span key={`${day.date}-${index}`} aria-hidden />
+                )
+              ))}
             </div>
           </div>
           <div className="mt-4 flex items-center gap-5 text-xs text-text-secondary">

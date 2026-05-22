@@ -102,6 +102,33 @@ describe("FirstAgentSetupWizard", () => {
     expect(nameInput.value).toMatch(/^[a-z]+-[a-z]+-[a-z]+$/);
   });
 
+  it("skips blocked words in generated agent names", async () => {
+    const randomValues = [0, 7, 0];
+    const getRandomValuesSpy = vi.spyOn(crypto, "getRandomValues").mockImplementation((array) => {
+      const view = array as Uint32Array;
+      view[0] = randomValues.shift() ?? 0;
+      return array;
+    });
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    const nameInput = screen.getByLabelText("Agent name") as HTMLInputElement;
+
+    await waitFor(() => {
+      expect(nameInput.value).toBe("bright-vector-anchor");
+    });
+    expect(nameInput.value.split("-")).not.toContain("signal");
+
+    getRandomValuesSpy.mockRestore();
+  });
+
   it("renders catalog plan details instead of static fallback plan copy", () => {
     renderWithClient(
       <FirstAgentSetupWizard

@@ -71,7 +71,7 @@ const avatarOptions: Array<{
 
 const stepCopy: Record<WizardStepId, { title: string; subtitle: string }> = {
   identity: {
-    title: "Create your first agent",
+    title: "Create your agent",
     subtitle: "Give it a name, a look, and a quick note on what it does. You can change anything later.",
   },
   knowledge: {
@@ -121,6 +121,7 @@ const agentNameThirdWords = [
   "tower",
   "works",
 ];
+const blockedAgentNameWords = new Set(["signal"]);
 
 type LaunchPlanAction = "launch" | "plans";
 
@@ -602,10 +603,16 @@ function randomIndex(max: number): number {
   return Math.floor(Math.random() * max);
 }
 
+function pickAgentNameWord(words: string[]): string {
+  const allowedWords = words.filter((word) => !blockedAgentNameWords.has(word.toLowerCase()));
+  const pool = allowedWords.length > 0 ? allowedWords : words;
+  return pool[randomIndex(pool.length)] ?? "agent";
+}
+
 function generateAgentName(): string {
-  const first = agentNameFirstWords[randomIndex(agentNameFirstWords.length)];
-  const second = agentNameSecondWords[randomIndex(agentNameSecondWords.length)];
-  const third = agentNameThirdWords[randomIndex(agentNameThirdWords.length)];
+  const first = pickAgentNameWord(agentNameFirstWords);
+  const second = pickAgentNameWord(agentNameSecondWords);
+  const third = pickAgentNameWord(agentNameThirdWords);
   return `${first}-${second}-${third}`;
 }
 
