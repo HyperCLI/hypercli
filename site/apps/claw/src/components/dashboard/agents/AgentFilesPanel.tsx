@@ -23,6 +23,7 @@ import type { FileEntry, FileSortDir, FileSortKey } from "@/components/dashboard
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { isProtectedFile } from "@/lib/protected-files";
 import { downloadFileBytes } from "@/lib/download-file";
+import { writeClipboardText } from "@/lib/browser-clipboard";
 
 const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "name", label: "Name" },
@@ -58,6 +59,7 @@ interface AgentFilesPanelProps {
   connected: boolean;
   connecting: boolean;
   hydrating: boolean;
+  initialPreviewPath?: string | null;
   isDesktopViewport?: boolean;
   error?: string | null;
   onListFiles: (path?: string) => Promise<FileEntry[]>;
@@ -76,6 +78,7 @@ export function AgentFilesPanel({
   connected,
   connecting,
   hydrating,
+  initialPreviewPath,
   isDesktopViewport = false,
   error,
   onListFiles,
@@ -197,6 +200,22 @@ export function AgentFilesPanel({
     }
   }, [onOpenFile, onOpenFileBytes]);
 
+  const normalizedInitialPreviewPath = useMemo(
+    () => initialPreviewPath ? normalizePanelPath(initialPreviewPath) : "",
+    [initialPreviewPath],
+  );
+
+  useEffect(() => {
+    if (!connected || !normalizedInitialPreviewPath) return;
+    const relativePath = pathRelativeToRoot(normalizedInitialPreviewPath, normalizedRootPath);
+    const fullPath = pathFromRoot(relativePath, normalizedRootPath);
+    const nameParts = fullPath.split("/").filter(Boolean);
+    const name = nameParts[nameParts.length - 1] ?? fullPath;
+    const parentPath = fullPath.includes("/") ? fullPath.slice(0, fullPath.lastIndexOf("/")) : normalizedRootPath;
+    setCurrentPath(parentPath || normalizedRootPath);
+    void handleOpenFile({ name, path: fullPath, type: "file" });
+  }, [connected, handleOpenFile, normalizedInitialPreviewPath, normalizedRootPath]);
+
   const handleSaveFile = useCallback(async (path: string, content: string) => {
     await onSaveFile(path, content);
     setPreviewContent(content);
@@ -224,7 +243,7 @@ export function AgentFilesPanel({
   }, [onDownloadFileBytes]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
-    navigator.clipboard.writeText(entry.path).catch(() => {});
+    void writeClipboardText(entry.path);
   }, []);
 
   const handleNavigate = useCallback((path: string) => {

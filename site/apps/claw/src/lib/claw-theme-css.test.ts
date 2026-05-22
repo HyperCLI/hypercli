@@ -26,4 +26,11 @@ describe("claw theme CSS", () => {
     expect(block).not.toMatch(/--primary\s*:/);
     expect(block).not.toMatch(/--accent\s*:/);
   });
+
+  it("includes Firefox rendering fallbacks", () => {
+    expect(globalsCss).toContain("scrollbar-width: thin");
+    expect(globalsCss).toContain("scrollbar-color: var(--border-medium) var(--background)");
+    expect(globalsCss).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
+    expect(globalsCss).toContain("@supports not (height: 100dvh)");
+  });
 });

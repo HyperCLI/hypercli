@@ -21,8 +21,6 @@ export default defineConfig({
     timeout: 20_000,
   },
   use: {
-    browserName: "chromium",
-    channel: "chromium",
     headless: true,
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
@@ -35,6 +33,15 @@ export default defineConfig({
       name: "chromium",
       use: {
         ...devices["Desktop Chrome"],
+        browserName: "chromium",
+        channel: "chromium",
+      },
+    },
+    {
+      name: "firefox",
+      use: {
+        ...devices["Desktop Firefox"],
+        browserName: "firefox",
       },
     },
   ],

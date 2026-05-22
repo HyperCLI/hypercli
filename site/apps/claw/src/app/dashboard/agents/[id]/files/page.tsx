@@ -22,6 +22,7 @@ import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import { createAgentClient } from "@/lib/agent-client";
 import { isProtectedFile } from "@/lib/protected-files";
 import { downloadFileBytes } from "@/lib/download-file";
+import { writeClipboardText } from "@/lib/browser-clipboard";
 
 const SORT_OPTIONS: { key: FileSortKey; label: string }[] = [
   { key: "name", label: "Name" },
@@ -127,7 +128,7 @@ export default function AgentFilesPage() {
   }, [agent, getToken]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
-    navigator.clipboard.writeText(entry.path).catch(() => {});
+    void writeClipboardText(entry.path);
   }, []);
 
   const handleNavigate = useCallback((path: string) => {

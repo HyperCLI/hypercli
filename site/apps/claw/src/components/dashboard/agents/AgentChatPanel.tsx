@@ -9,6 +9,11 @@ import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
 import { getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
+import {
+  AgentSlashCommandMenu,
+  type AgentSlashCommandActions,
+  type AgentSlashCommandMenuHandle,
+} from "@/components/dashboard/agents/AgentSlashCommandMenu";
 import { ResourceImage } from "@/components/ResourceImage";
 import {
   getAgentChatBootStatus,
@@ -189,6 +194,7 @@ interface AgentChatPanelProps {
   handleSendChat: () => void;
   formatDuration: (seconds: number) => string;
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
+  slashCommandActions?: AgentSlashCommandActions;
 }
 
 export function AgentChatPanel({
@@ -217,11 +223,37 @@ export function AgentChatPanel({
   handleSendChat,
   formatDuration,
   onConnectionCta,
+  slashCommandActions,
 }: AgentChatPanelProps) {
+  const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
+  const fileInputRef = React.useRef<HTMLInputElement | null>(null);
+  const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
+  const [slashMenuDismissed, setSlashMenuDismissed] = React.useState(false);
+  const [slashCommandFeedback, setSlashCommandFeedback] = React.useState("");
   const connectionSuggestions = React.useMemo(
     () => getConnectionSuggestions(chat.input, chat.config, chat.configSchema),
     [chat.config, chat.configSchema, chat.input],
   );
+  const commandActions = React.useMemo<AgentSlashCommandActions>(() => ({
+    ...slashCommandActions,
+    onTriggerFilePicker: slashCommandActions?.onTriggerFilePicker ?? (() => fileInputRef.current?.click()),
+  }), [slashCommandActions]);
+  const slashInputActive = !recording && !audioUrl && chat.input.trimStart().startsWith("/") && !chat.input.trimStart().startsWith("//");
+  const slashMenuOpen = slashInputActive && !slashMenuDismissed;
+  React.useEffect(() => {
+    setSlashMenuDismissed(false);
+  }, [chat.input]);
+  React.useEffect(() => () => {
+    if (slashFeedbackTimerRef.current) clearTimeout(slashFeedbackTimerRef.current);
+  }, []);
+  const handleSlashCommandFeedback = React.useCallback((message: string) => {
+    setSlashCommandFeedback(message);
+    if (slashFeedbackTimerRef.current) clearTimeout(slashFeedbackTimerRef.current);
+    slashFeedbackTimerRef.current = setTimeout(() => {
+      setSlashCommandFeedback("");
+      slashFeedbackTimerRef.current = null;
+    }, 2600);
+  }, []);
   const setChatInput = chat.setInput;
   const rawBootStatus = React.useMemo(
     () => getAgentChatBootStatus({
@@ -381,7 +413,7 @@ export function AgentChatPanel({
       </div>
 
       {showComposer && (
-        <div className="max-h-[45%] flex-shrink-0 overflow-y-auto px-3 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] md:max-h-[38%] md:p-3">
+        <div className={`max-h-[45%] flex-shrink-0 px-3 pt-2 pb-[max(0.625rem,env(safe-area-inset-bottom,0.625rem))] md:max-h-[38%] md:p-3 ${slashMenuOpen ? "overflow-visible" : "overflow-y-auto"}`}>
           <div className="mx-auto flex w-full max-w-5xl min-w-0 flex-col">
             {!recording && !audioUrl && displayBootStatus.status === "ready" && connectionSuggestions.length > 0 && (
               <div className="mb-2 flex flex-col gap-2">
@@ -411,6 +443,16 @@ export function AgentChatPanel({
                 })}
               </div>
             )}
+            {slashCommandFeedback ? (
+              <div
+                role="status"
+                aria-live="polite"
+                aria-label={slashCommandFeedback}
+                className="mb-2 inline-flex max-w-full self-start rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-1.5 text-xs font-medium leading-4 text-[var(--selection-accent)]"
+              >
+                <span className="truncate">{slashCommandFeedback}</span>
+              </div>
+            ) : null}
             {hasPendingAttachmentWork && (
               <div className="flex gap-2 mb-2 flex-wrap">
                 {chat.pendingAttachments.map((att, i) => (
@@ -496,13 +538,65 @@ export function AgentChatPanel({
                     aria-label="Message agent"
                     value={chat.input}
                     onChange={(e) => {
+                      setSlashMenuDismissed(false);
                       chat.setInput(e.target.value);
                       e.target.style.height = "auto";
                       e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
                     }}
                     onKeyDown={(e) => {
+                      if (slashMenuOpen && slashCommandMenuRef.current?.canHandleInput()) {
+                        if (e.key === "ArrowDown") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.moveSelection(1);
+                          return;
+                        }
+                        if (e.key === "ArrowUp") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.moveSelection(-1);
+                          return;
+                        }
+                        if (e.key === "PageDown") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.moveSelection(5);
+                          return;
+                        }
+                        if (e.key === "PageUp") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.moveSelection(-5);
+                          return;
+                        }
+                        if (e.key === "Home") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.selectFirst();
+                          return;
+                        }
+                        if (e.key === "End") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.selectLast();
+                          return;
+                        }
+                        if (e.key === "Tab") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.completeSelection();
+                          return;
+                        }
+                        if (e.key === "Escape") {
+                          e.preventDefault();
+                          slashCommandMenuRef.current.close();
+                          if (chat.input.trim() === "/") {
+                            chat.setInput("");
+                          } else {
+                            setSlashMenuDismissed(true);
+                          }
+                          return;
+                        }
+                      }
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();
+                        if (slashMenuOpen && slashCommandMenuRef.current?.canHandleInput()) {
+                          void slashCommandMenuRef.current.executeCurrentInput();
+                          return;
+                        }
                         handleSendChat();
                       }
                     }}
@@ -528,10 +622,22 @@ export function AgentChatPanel({
                     disabled={composerDisabled}
                     className="w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 pr-24 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden sm:pr-28"
                   />
+                  {slashMenuOpen ? (
+                    <AgentSlashCommandMenu
+                      ref={slashCommandMenuRef}
+                      chat={chat}
+                      input={chat.input}
+                      selectedAgentName={selectedAgent.name || "Agent"}
+                      isSelectedRunning={isSelectedRunning}
+                      actions={commandActions}
+                      onFeedback={handleSlashCommandFeedback}
+                    />
+                  ) : null}
                   <div className="absolute right-2 top-[calc(50%-3px)] -translate-y-1/2 flex items-center gap-1">
                     <label className="w-8 h-8 rounded-full text-text-muted hover:text-foreground hover:bg-surface-low cursor-pointer flex items-center justify-center transition-colors" title="Attach file">
                       <Paperclip className="w-4 h-4" />
                       <input
+                        ref={fileInputRef}
                         type="file"
                         multiple
                         className="hidden"

@@ -2,6 +2,7 @@
 
 import { useState } from "react";
 import { Loader2, Smartphone, ArrowRight, Copy, Check, Terminal } from "lucide-react";
+import { writeClipboardText } from "@/lib/browser-clipboard";
 
 interface QrLoginWizardProps {
   pluginId: string;
@@ -31,9 +32,10 @@ export function QrLoginWizard({
   const loginCommand = `openclaw channels login --channel ${pluginId}`;
 
   const handleCopy = async () => {
-    await navigator.clipboard.writeText(loginCommand);
+    const copiedToClipboard = await writeClipboardText(loginCommand);
     setCopied(true);
-    setShowCopyCheck(true);
+    setError(copiedToClipboard ? null : "Copy failed. Select the command manually, then continue.");
+    setShowCopyCheck(copiedToClipboard);
     setTimeout(() => setShowCopyCheck(false), 2000);
   };
 

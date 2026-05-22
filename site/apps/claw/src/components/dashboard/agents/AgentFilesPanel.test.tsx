@@ -118,9 +118,10 @@ describe("AgentFilesPanel", () => {
   });
 
   it("opens the file editor in a drawer on mobile", async () => {
-    const onListFiles = vi.fn(async () => [
+    const entries: FileEntry[] = [
       { name: "README.md", path: "workspace/README.md", type: "file", size: 128 },
-    ]);
+    ];
+    const onListFiles = vi.fn(async () => entries);
     const onOpenFile = vi.fn().mockResolvedValue("# Notes");
 
     renderAgentFilesPanel({ onListFiles, onOpenFile });
@@ -130,6 +131,24 @@ describe("AgentFilesPanel", () => {
     expect(await screen.findByRole("dialog", { name: /file editor/i })).toBeInTheDocument();
     expect(await screen.findByDisplayValue("# Notes")).toBeInTheDocument();
     expect(onOpenFile).toHaveBeenCalledWith("workspace/README.md");
+  });
+
+  it("opens an initial preview path when provided", async () => {
+    const entries: FileEntry[] = [
+      { name: "app.tsx", path: "workspace/src/app.tsx", type: "file", size: 128 },
+    ];
+    const onListFiles = vi.fn(async () => entries);
+    const onOpenFile = vi.fn().mockResolvedValue("export default function App() {}");
+
+    renderAgentFilesPanel({
+      initialPreviewPath: "src/app.tsx",
+      onListFiles,
+      onOpenFile,
+    });
+
+    expect(await screen.findByDisplayValue("export default function App() {}")).toBeInTheDocument();
+    expect(onOpenFile).toHaveBeenCalledWith("workspace/src/app.tsx");
+    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith("workspace/src"));
   });
 
   it("opens image previews from bytes instead of text reads", async () => {
@@ -143,9 +162,10 @@ describe("AgentFilesPanel", () => {
       configurable: true,
       value: revokeObjectURL,
     });
-    const onListFiles = vi.fn(async () => [
+    const entries: FileEntry[] = [
       { name: "chart.png", path: "workspace/chart.png", type: "file", size: 4 },
-    ]);
+    ];
+    const onListFiles = vi.fn(async () => entries);
     const onOpenFile = vi.fn().mockResolvedValue("not-image-text");
     const onOpenFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
 

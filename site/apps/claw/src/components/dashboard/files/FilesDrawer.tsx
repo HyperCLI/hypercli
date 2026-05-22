@@ -17,6 +17,7 @@ import { FileBreadcrumbs } from "./FileBreadcrumbs";
 import { FilesDirectoryTree } from "./FilesDirectoryTree";
 import { FilePreview } from "./FilePreview";
 import { FilesEmptyState } from "./FilesEmptyState";
+import { writeClipboardText } from "@/lib/browser-clipboard";
 
 // ── Types ──
 
@@ -141,7 +142,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
   }, [callbacks, loadFiles]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
-    navigator.clipboard.writeText(entry.path).catch(() => {});
+    void writeClipboardText(entry.path);
   }, []);
 
   const handleNavigate = useCallback((path: string) => {

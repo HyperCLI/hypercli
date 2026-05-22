@@ -14,6 +14,7 @@ import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
+import { writeClipboardText } from "@/lib/browser-clipboard";
 
 // ── Mock data presets ──
 
@@ -111,7 +112,7 @@ export default function DevFilesPage() {
   }, []);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
-    navigator.clipboard.writeText(entry.path).catch(() => {});
+    void writeClipboardText(entry.path);
   }, []);
 
   const handleNavigate = useCallback((path: string) => {

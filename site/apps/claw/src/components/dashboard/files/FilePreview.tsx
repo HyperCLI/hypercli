@@ -18,6 +18,7 @@ import {
 import type { FileEntry } from "./types";
 import { formatFileSize } from "./FileRow";
 import { ResourceImage } from "@/components/ResourceImage";
+import { writeClipboardText } from "@/lib/browser-clipboard";
 
 // ── Types ──
 
@@ -161,12 +162,9 @@ export function FilePreview({
   };
 
   const handleCopy = async () => {
-    try {
-      await navigator.clipboard.writeText(editContent || textContent);
+    if (await writeClipboardText(editContent || textContent)) {
       setCopied(true);
       setTimeout(() => setCopied(false), 2000);
-    } catch {
-      // Clipboard API may fail in insecure contexts
     }
   };
 

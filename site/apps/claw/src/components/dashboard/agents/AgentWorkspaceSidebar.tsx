@@ -159,7 +159,7 @@ export function AgentWorkspaceSidebar({
   fillParent = false,
   onClose,
 }: AgentWorkspaceSidebarProps) {
-  const [advancedOpen, setAdvancedOpen] = useState(() => Boolean(selectedAgent));
+  const [advancedOpen, setAdvancedOpen] = useState(false);
   const [collapsed, setCollapsed] = useState<boolean>(() => {
     if (typeof window === "undefined") return false;
     return window.localStorage.getItem(WORKSPACE_COLLAPSED_KEY) === "1";
@@ -328,7 +328,7 @@ export function AgentWorkspaceSidebar({
                 <Settings className={renderMobile ? "h-5 w-5" : "h-4 w-4"} />
                 Advanced
               </span>
-              <ChevronUp className={`${renderMobile ? "h-5 w-5" : "h-4 w-4"} transition-transform ${advancedItemsOpen ? "" : "rotate-180"}`} />
+              <ChevronUp className={`${renderMobile ? "h-5 w-5" : "h-4 w-4"} transition-transform ${advancedItemsOpen ? "rotate-180" : ""}`} />
             </button>
             {advancedItemsOpen && (
               <div className={renderMobile ? "mt-1 space-y-1" : "ml-7 mt-1 border-l border-border pl-3"}>

@@ -11,6 +11,7 @@ import {
 const THINKING_LEAK_SENTINEL = "DO_NOT_RENDER_THINKING_SENTINEL";
 const TOOL_ARG_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_ARG_SENTINEL";
 const TOOL_RESULT_LEAK_SENTINEL = "DO_NOT_RENDER_TOOL_RESULT_SENTINEL";
+const EXECUTION_OUTPUT_LEAK_SENTINEL = "PROOF ANCHORS - $82,500/month equivalent through Anthropic.";
 const WORKSPACE_PATH_DUMP = [
   "/home/node/.openclaw/workspace",
   "/home/node/.openclaw/workspace/.openclaw",
@@ -699,6 +700,56 @@ describe("openclaw chat normalization", () => {
         timestamp: 1,
       },
     ]);
+  });
+
+  it("strips internal execution output blocks from live assistant content", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: [
+        EXECUTION_OUTPUT_LEAK_SENTINEL,
+        "800 papers. 3,000 pages. One agent.",
+        "---",
+        "The visible answer starts here.",
+      ].join("\n"),
+      timestamp: 1,
+    });
+
+    expect(next).toEqual([
+      {
+        role: "assistant",
+        content: "The visible answer starts here.",
+        timestamp: 1,
+      },
+    ]);
+    expect(JSON.stringify(next)).not.toContain(EXECUTION_OUTPUT_LEAK_SENTINEL);
+  });
+
+  it("drops truncated internal assistant content chunks", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "Chief, want me to write this into a...(truncated)...",
+      timestamp: 1,
+    });
+
+    expect(next).toEqual([]);
+  });
+
+  it("redacts internal execution output from live tool result details", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "",
+      toolCalls: [
+        {
+          name: "exec",
+          args: JSON.stringify({ command: "run proof anchor check" }),
+          result: EXECUTION_OUTPUT_LEAK_SENTINEL,
+        },
+      ],
+      timestamp: 1,
+    });
+
+    expect(JSON.stringify(next)).not.toContain(EXECUTION_OUTPUT_LEAK_SENTINEL);
+    expect(next[0]?.toolCalls?.[0]?.result).toBe("[Internal tool output hidden from chat.]");
   });
 
   it("does not attach live heartbeat tool calls to the previous assistant message", () => {

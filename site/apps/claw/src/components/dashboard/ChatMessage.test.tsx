@@ -286,4 +286,29 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("docs")).toBeInTheDocument();
     expect(screen.getByText("guide.md")).toBeInTheDocument();
   });
+
+  it("does not preview raw tool execution text in collapsed tool rows", () => {
+    const rawResult = "PROOF ANCHORS - $82,500/month equivalent through Anthropic.";
+    const rawArgs = "cat /home/node/.openclaw/workspace/proof.txt";
+
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              name: "exec",
+              args: rawArgs,
+              result: rawResult,
+            },
+          ],
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Result ready")).toBeInTheDocument();
+    expect(screen.queryByText(rawResult)).not.toBeInTheDocument();
+    expect(screen.queryByText(rawArgs)).not.toBeInTheDocument();
+  });
 });

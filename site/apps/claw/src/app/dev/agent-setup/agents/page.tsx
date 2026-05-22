@@ -91,6 +91,7 @@ import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -1574,41 +1575,58 @@ export default function DevAgentSetupAgentsPage() {
   const levelAnimRef = useRef<number>(0);
 
   const startRecording = useCallback(async () => {
+    let stream: MediaStream | null = null;
+    let audioCtx: AudioContext | null = null;
+
     try {
-      const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
-      
-      // Set up audio analyser for volume visualization
-      const audioCtx = new AudioContext();
-      const source = audioCtx.createMediaStreamSource(stream);
-      const analyser = audioCtx.createAnalyser();
-      analyser.fftSize = 256;
-      source.connect(analyser);
-      audioContextRef.current = audioCtx;
-      analyserRef.current = analyser;
+      if (!navigator.mediaDevices?.getUserMedia) {
+        throw new Error("Audio recording is not available in this browser.");
+      }
 
-      // Volume level animation loop
-      const dataArray = new Uint8Array(analyser.frequencyBinCount);
-      const updateLevel = () => {
-        analyser.getByteFrequencyData(dataArray);
-        const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
-        setAudioLevel(Math.min(avg / 128, 1)); // normalize to 0-1
-        levelAnimRef.current = requestAnimationFrame(updateLevel);
-      };
-      updateLevel();
+      stream = await navigator.mediaDevices.getUserMedia({ audio: true });
 
-      const mediaRecorder = new MediaRecorder(stream, { mimeType: "audio/webm;codecs=opus" });
+      if (typeof AudioContext !== "undefined") {
+        try {
+          audioCtx = new AudioContext();
+          const source = audioCtx.createMediaStreamSource(stream);
+          const analyser = audioCtx.createAnalyser();
+          analyser.fftSize = 256;
+          source.connect(analyser);
+          audioContextRef.current = audioCtx;
+          analyserRef.current = analyser;
+
+          const dataArray = new Uint8Array(analyser.frequencyBinCount);
+          const updateLevel = () => {
+            analyser.getByteFrequencyData(dataArray);
+            const avg = dataArray.reduce((a, b) => a + b, 0) / dataArray.length;
+            setAudioLevel(Math.min(avg / 128, 1));
+            levelAnimRef.current = requestAnimationFrame(updateLevel);
+          };
+          updateLevel();
+        } catch {
+          if (audioCtx) void audioCtx.close();
+          audioCtx = null;
+          audioContextRef.current = null;
+          analyserRef.current = null;
+        }
+      }
+
+      const mediaRecorder = createAudioMediaRecorder(stream);
       audioChunksRef.current = [];
       setRecordingDuration(0);
       mediaRecorder.ondataavailable = (e) => {
         if (e.data.size > 0) audioChunksRef.current.push(e.data);
       };
       mediaRecorder.onstop = () => {
-        stream.getTracks().forEach((t) => t.stop());
-        cancelAnimationFrame(levelAnimRef.current);
-        audioCtx.close();
+        stream?.getTracks().forEach((t) => t.stop());
+        if (levelAnimRef.current) {
+          cancelAnimationFrame(levelAnimRef.current);
+          levelAnimRef.current = 0;
+        }
+        if (audioCtx) void audioCtx.close();
         if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
         setAudioLevel(0);
-        const blob = new Blob(audioChunksRef.current, { type: "audio/webm" });
+        const blob = new Blob(audioChunksRef.current, { type: mediaRecorder.mimeType || audioChunksRef.current[0]?.type || "audio/webm" });
         setAudioBlob(blob);
         setAudioUrl(URL.createObjectURL(blob));
       };
@@ -1617,7 +1635,17 @@ export default function DevAgentSetupAgentsPage() {
       setRecording(true);
       recordingTimerRef.current = setInterval(() => setRecordingDuration((d) => d + 1), 1000);
     } catch {
-      // Mic permission denied
+      stream?.getTracks().forEach((t) => t.stop());
+      if (levelAnimRef.current) {
+        cancelAnimationFrame(levelAnimRef.current);
+        levelAnimRef.current = 0;
+      }
+      if (audioCtx) void audioCtx.close();
+      if (recordingTimerRef.current) { clearInterval(recordingTimerRef.current); recordingTimerRef.current = null; }
+      audioContextRef.current = null;
+      analyserRef.current = null;
+      setAudioLevel(0);
+      setRecording(false);
     }
   }, []);
 
@@ -2049,6 +2077,62 @@ export default function DevAgentSetupAgentsPage() {
                 handleSendChat={handleSendChat}
                 formatDuration={formatDuration}
                 onConnectionCta={openConnectionSuggestion}
+                slashCommandActions={{
+                  onOpenFiles: (path) => {
+                    if (!selectedAgent) return;
+                    const base = `/dashboard/agents/${selectedAgent.id}/files`;
+                    router.push(path ? `${base}?file=${encodeURIComponent(path)}` : base);
+                  },
+                  onOpenConfig: () => {
+                    setMainTab("settings");
+                    setMobileShowChat(true);
+                  },
+                  onOpenIntegrations: () => {
+                    setDirectoryCategory(undefined);
+                    setDirectoryItemId(undefined);
+                    setDirectoryDetailOrigin(null);
+                    setMainTab("integrations");
+                    setMobileShowChat(true);
+                  },
+                  onOpenScheduled: () => {
+                    setInspectorTab("cron");
+                    setInspectorSheetOpen(true);
+                  },
+                  onOpenActivity: () => {
+                    setInspectorTab("activity");
+                    setInspectorSheetOpen(true);
+                  },
+                  onOpenLogs: () => {
+                    setMainTab("logs");
+                    setMobileShowChat(true);
+                  },
+                  onOpenShell: () => {
+                    setMainTab("shell");
+                    setMobileShowChat(true);
+                  },
+                  onOpenPlans: () => router.push("/plans"),
+                  onOpenBilling: () => router.push("/dashboard/billing"),
+                  onStartAgent: async () => {
+                    if (selectedAgent) await handleStart(selectedAgent.id);
+                  },
+                  onStopAgent: async () => {
+                    if (selectedAgent) await handleStop(selectedAgent.id);
+                  },
+                  onNewAgent: () => {
+                    setMobileShowChat(false);
+                    setSidebarCreatorSignal((v) => v + 1);
+                  },
+                  onRenameAgent: async (name) => {
+                    if (!selectedAgent) return;
+                    const token = await getToken();
+                    const updatedAgent = await createAgentClient(token).update(selectedAgent.id, { name });
+                    setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                  },
+                  onOpenAgentSettings: () => {
+                    setMainTab("settings");
+                    setMobileShowChat(true);
+                  },
+                }}
               />
             ) : mainTab === "integrations" ? (
               <IntegrationsDirectoryPanel

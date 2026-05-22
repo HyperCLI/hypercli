@@ -155,6 +155,12 @@ const INTERNAL_EXECUTION_STATUS_MARKERS = [
   /^\(?\s*process exited with code \d+\s*\)?\.?$/i,
   /^\(?\s*exit code:?\s*\d+\s*\)?\.?$/i,
 ];
+const INTERNAL_EXECUTION_OUTPUT_MARKERS = [
+  /\.\.\.\s*\(truncated\)\s*\.\.\./i,
+  /^\s*PROOF\s+ANCHORS\b/i,
+  /^\s*(?:stdout|stderr|tool output|command output|execution output|raw output)\s*[:\-]/i,
+];
+const MARKDOWN_HORIZONTAL_RULE = /^\s*[-*_]{3,}\s*$/;
 
 function stripTokenWrapper(token: string): string {
   return token
@@ -164,9 +170,11 @@ function stripTokenWrapper(token: string): string {
 
 function isLikelyInternalToolOutputText(text: string): boolean {
   const trimmed = text.trim();
-  if (!trimmed || !INTERNAL_WORKSPACE_PATH_MARKERS.some((marker) => trimmed.includes(marker))) {
+  if (!trimmed) {
     return false;
   }
+  if (INTERNAL_EXECUTION_OUTPUT_MARKERS.some((marker) => marker.test(trimmed))) return true;
+  if (!INTERNAL_WORKSPACE_PATH_MARKERS.some((marker) => trimmed.includes(marker))) return false;
 
   const tokens = trimmed.split(/\s+/).map(stripTokenWrapper).filter(Boolean);
   const pathTokens = tokens.filter((token) => INTERNAL_WORKSPACE_PATH_TOKEN.test(token));
@@ -182,6 +190,41 @@ function isLikelyInternalToolOutputText(text: string): boolean {
 function isInternalExecutionStatusText(text: string): boolean {
   const trimmed = sanitizeChatDisplayText(text).trim();
   return INTERNAL_EXECUTION_STATUS_MARKERS.some((marker) => marker.test(trimmed));
+}
+
+function isInternalExecutionOutputLine(line: string): boolean {
+  return INTERNAL_EXECUTION_OUTPUT_MARKERS.some((marker) => marker.test(line.trim()));
+}
+
+function stripInternalAssistantContent(text: string): string {
+  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const visible: string[] = [];
+
+  for (let cursor = 0; cursor < lines.length; cursor += 1) {
+    const line = lines[cursor] ?? "";
+    if (!isInternalExecutionOutputLine(line)) {
+      visible.push(line);
+      continue;
+    }
+
+    if (/\.\.\.\s*\(truncated\)\s*\.\.\./i.test(line)) {
+      continue;
+    }
+
+    cursor += 1;
+    while (cursor < lines.length) {
+      const candidate = lines[cursor] ?? "";
+      if (!candidate.trim()) break;
+      if (MARKDOWN_HORIZONTAL_RULE.test(candidate)) break;
+      cursor += 1;
+    }
+    while (cursor < lines.length && MARKDOWN_HORIZONTAL_RULE.test(lines[cursor] ?? "")) {
+      cursor += 1;
+    }
+    cursor -= 1;
+  }
+
+  return visible.join("\n").trim();
 }
 
 function hasDisplayableMessageContent(message: ChatMessage): boolean {
@@ -506,9 +549,10 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const userContent = role === "user"
     ? extractUserVisibleContentAndFiles(rawContent)
     : { content: rawContent, files: [] as ChatPendingFile[] };
-  const content = sanitizeChatDisplayText(
+  const rawSanitizedContent = sanitizeChatDisplayText(
     userContent.content,
   ).trim();
+  const content = role === "assistant" ? stripInternalAssistantContent(rawSanitizedContent) : rawSanitizedContent;
   const historyErrorContent = role === "assistant" && !content ? normalizeHistoryErrorContent(message) : null;
   if (historyErrorContent) {
     return {
@@ -611,7 +655,8 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
 }
 
 function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
-  const content = sanitizeChatDisplayText(message.content);
+  const rawContent = sanitizeChatDisplayText(message.content);
+  const content = message.role === "assistant" ? stripInternalAssistantContent(rawContent) : rawContent;
   const toolCalls = message.toolCalls?.map((toolCall) => {
     const result = toolCall.result !== undefined ? sanitizeChatDisplayText(toolCall.result) : undefined;
     return {

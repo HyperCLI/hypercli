@@ -77,11 +77,9 @@ function formatTime(ts?: number): string {
 
 function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
   if (tc.result) {
-    const trimmed = tc.result.trim().slice(0, 60);
-    return trimmed.length < tc.result.trim().length ? `${trimmed}…` : trimmed;
+    return "Result ready";
   }
-  const trimmed = tc.args.trim().slice(0, 60);
-  return trimmed.length < tc.args.trim().length ? `${trimmed}…` : trimmed;
+  return tc.args.trim() ? "Arguments ready" : "";
 }
 
 function formatToolDetail(raw: string, maxLen: number): string {

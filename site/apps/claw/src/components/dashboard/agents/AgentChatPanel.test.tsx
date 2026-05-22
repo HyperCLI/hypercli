@@ -1,5 +1,5 @@
 import { createRef, type ComponentProps } from "react";
-import { act, fireEvent, screen } from "@testing-library/react";
+import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { buildSdkAgent } from "@/test/factories";
@@ -147,6 +147,272 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
+  });
+
+  it("shows slash command options when the draft starts with slash", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/",
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("listbox", { name: /slash command menu/i })).toBeInTheDocument();
+    expect(screen.getByRole("option", { name: /\/summary/i })).toBeInTheDocument();
+  });
+
+  it("scrolls the selected slash command into view while navigating", async () => {
+    const originalScrollIntoView = Element.prototype.scrollIntoView;
+    const scrollIntoView = vi.fn();
+    Element.prototype.scrollIntoView = scrollIntoView;
+
+    try {
+      renderAgentChatPanel({
+        chat: buildChat({
+          status: "connected",
+          gatewayConnected: true,
+          ready: true,
+          connected: true,
+          input: "/",
+        }),
+        isSelectedRunning: true,
+      });
+
+      const initialCalls = scrollIntoView.mock.calls.length;
+
+      await act(async () => {
+        fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "ArrowDown" });
+      });
+
+      expect(screen.getAllByRole("option")[1]).toHaveAttribute("aria-selected", "true");
+      expect(scrollIntoView.mock.calls.length).toBeGreaterThan(initialCalls);
+      expect(scrollIntoView).toHaveBeenLastCalledWith({ block: "nearest", inline: "nearest" });
+    } finally {
+      Element.prototype.scrollIntoView = originalScrollIntoView;
+    }
+  });
+
+  it("supports slash command keyboard completion and jumps", async () => {
+    const setInput = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/",
+        setInput,
+      }),
+      isSelectedRunning: true,
+    });
+
+    const textbox = screen.getByRole("textbox", { name: /message agent/i });
+    await act(async () => {
+      fireEvent.keyDown(textbox, { key: "End" });
+    });
+    expect(screen.getAllByRole("option").at(-1)).toHaveAttribute("aria-selected", "true");
+
+    await act(async () => {
+      fireEvent.keyDown(textbox, { key: "Home" });
+    });
+    expect(screen.getAllByRole("option")[0]).toHaveAttribute("aria-selected", "true");
+
+    await act(async () => {
+      fireEvent.keyDown(textbox, { key: "PageDown" });
+    });
+    expect(screen.getAllByRole("option")[5]).toHaveAttribute("aria-selected", "true");
+
+    await act(async () => {
+      fireEvent.keyDown(textbox, { key: "Tab" });
+    });
+    expect(setInput).toHaveBeenCalledWith("/clear ");
+  });
+
+  it("sends a prompt slash command instead of forwarding slash text", async () => {
+    const setInput = vi.fn();
+    const sendMessage = vi.fn(async () => undefined);
+    const handleSendChat = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/summary",
+        setInput,
+        sendMessage,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(sendMessage).toHaveBeenCalledWith("Summarize this conversation so far with decisions, open tasks, and next actions.");
+  });
+
+  it("runs a UI slash command through the provided page callback", async () => {
+    const setInput = vi.fn();
+    const onOpenFiles = vi.fn();
+    const handleSendChat = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/files",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+      slashCommandActions: { onOpenFiles },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(onOpenFiles).toHaveBeenCalledTimes(1);
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /files opened/i })).toBeInTheDocument();
+  });
+
+  it("passes a path through the open file slash command", async () => {
+    const setInput = vi.fn();
+    const onOpenFiles = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/open src/app.tsx",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      slashCommandActions: { onOpenFiles },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(onOpenFiles).toHaveBeenCalledWith("src/app.tsx");
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /opening src\/app\.tsx/i })).toBeInTheDocument();
+  });
+
+  it("uses the app confirmation dialog for mutating slash commands", async () => {
+    const setInput = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/clear",
+        setInput,
+      }),
+      isSelectedRunning: true,
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(screen.getByRole("heading", { name: "Clear draft" })).toBeInTheDocument();
+    expect(screen.getByText("Clear the current draft? Persisted chat history will not be deleted.")).toBeInTheDocument();
+    expect(setInput).not.toHaveBeenCalledWith("");
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Clear" }));
+    });
+
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /draft cleared/i })).toBeInTheDocument();
+  });
+
+  it("shows a reason when a slash command is unavailable", async () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/",
+      }),
+      isSelectedRunning: true,
+    });
+
+    const startCommand = screen.getByRole("option", { name: /\/start/i });
+    expect(startCommand).toHaveAttribute("aria-disabled", "true");
+    expect(startCommand).not.toBeDisabled();
+
+    await act(async () => {
+      fireEvent.click(startCommand);
+    });
+
+    expect(screen.getAllByText("Agent is already running.")).toHaveLength(2);
+  });
+
+  it("keeps scheduled slash commands disabled as coming soon", async () => {
+    const setInput = vi.fn();
+    const onOpenScheduled = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      slashCommandActions: { onOpenScheduled },
+    });
+
+    for (const commandName of [/\/schedule/i, /\/run/i, /\/unschedule/i]) {
+      const command = screen.getByRole("option", { name: commandName });
+      expect(command).toHaveAttribute("aria-disabled", "true");
+      expect(within(command).getByText("Scheduled work is coming soon.")).toBeInTheDocument();
+    }
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("option", { name: /\/schedule/i }));
+    });
+
+    expect(onOpenScheduled).not.toHaveBeenCalled();
+    expect(setInput).not.toHaveBeenCalledWith("");
+    expect(screen.getAllByText("Scheduled work is coming soon.").length).toBeGreaterThan(3);
+  });
+
+  it("lets escaped slash text send as a normal chat message", () => {
+    const handleSendChat = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "//summary",
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+    });
+
+    fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+
+    expect(handleSendChat).toHaveBeenCalledTimes(1);
   });
 
   it("shows image attachment preparation before the preview is available", () => {

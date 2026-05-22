@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect } from "react";
 import { usePathname } from "next/navigation";
 import { motion, AnimatePresence } from "framer-motion";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -41,11 +42,57 @@ function normalizeShellPathname(pathname: string | null) {
   return pathname.replace(/\/+$/, "");
 }
 
+function useVisualViewportHeightVar() {
+  useEffect(() => {
+    const root = document.documentElement;
+    let frame = 0;
+    let timeouts: Array<ReturnType<typeof window.setTimeout>> = [];
+
+    const syncViewportHeight = () => {
+      frame = 0;
+      const visualHeight = window.visualViewport?.height;
+      const height = visualHeight && Number.isFinite(visualHeight)
+        ? visualHeight
+        : window.innerHeight;
+      root.style.setProperty("--claw-viewport-height", `${Math.round(height)}px`);
+    };
+
+    const scheduleSync = () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      frame = window.requestAnimationFrame(syncViewportHeight);
+      timeouts.forEach((timeout) => window.clearTimeout(timeout));
+      timeouts = [120, 320, 700].map((delay) => window.setTimeout(syncViewportHeight, delay));
+    };
+
+    syncViewportHeight();
+
+    window.addEventListener("resize", scheduleSync);
+    window.addEventListener("orientationchange", scheduleSync);
+    window.addEventListener("focusin", scheduleSync);
+    window.addEventListener("focusout", scheduleSync);
+    window.visualViewport?.addEventListener("resize", scheduleSync);
+    window.visualViewport?.addEventListener("scroll", scheduleSync);
+
+    return () => {
+      if (frame) window.cancelAnimationFrame(frame);
+      timeouts.forEach((timeout) => window.clearTimeout(timeout));
+      window.removeEventListener("resize", scheduleSync);
+      window.removeEventListener("orientationchange", scheduleSync);
+      window.removeEventListener("focusin", scheduleSync);
+      window.removeEventListener("focusout", scheduleSync);
+      window.visualViewport?.removeEventListener("resize", scheduleSync);
+      window.visualViewport?.removeEventListener("scroll", scheduleSync);
+      root.style.removeProperty("--claw-viewport-height");
+    };
+  }, []);
+}
+
 export function DashboardShell({
   children,
 }: {
   children: React.ReactNode;
 }) {
+  useVisualViewportHeightVar();
   const { isLoading, isAuthenticated, flowState, error } = useAgentAuth();
   const pathname = normalizeShellPathname(usePathname());
   const isAgentsRoute =

@@ -220,6 +220,16 @@ html, body {
 
 * {
   border-color: var(--border);
+  scrollbar-width: thin;
+  scrollbar-color: var(--border-medium) var(--background);
+}
+
+.h-dvh {
+  height: var(--claw-viewport-height, 100dvh);
+}
+
+.min-h-dvh {
+  min-height: var(--claw-viewport-height, 100dvh);
 }
 
 h1, h2, h3, h4, h5, h6 {
@@ -328,6 +338,12 @@ h1, h2, h3, h4, h5, h6 {
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
+}
+
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glassmorphism {
+    background: rgba(11, 13, 14, 0.96);
+  }
 }
 
 .nav-link {
@@ -499,6 +515,11 @@ h1, h2, h3, h4, h5, h6 {
   border-radius: var(--radius);
   transition: all 0.3s ease;
 }
+@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
+  .glass-card {
+    background: rgba(20, 20, 22, 0.94);
+  }
+}
 .glass-card:hover {
   border-color: rgba(255, 255, 255, 0.1);
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
@@ -630,6 +651,16 @@ h1, h2, h3, h4, h5, h6 {
 }
 ::-webkit-scrollbar-thumb:hover {
   background: var(--border-strong);
+}
+
+@supports not (height: 100dvh) {
+  .h-dvh {
+    height: var(--claw-viewport-height, 100vh);
+  }
+
+  .min-h-dvh {
+    min-height: var(--claw-viewport-height, 100vh);
+  }
 }
 
 *:focus-visible {

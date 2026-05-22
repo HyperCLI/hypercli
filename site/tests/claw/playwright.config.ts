@@ -23,8 +23,6 @@ export default defineConfig({
   },
   use: {
     baseURL,
-    browserName: "chromium",
-    channel: "chromium",
     headless: true,
     ignoreHTTPSErrors: true,
     screenshot: "only-on-failure",
@@ -38,6 +36,16 @@ export default defineConfig({
       testIgnore: /.*mobile\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
+        browserName: "chromium",
+        channel: "chromium",
+      },
+    },
+    {
+      name: "firefox",
+      testIgnore: /.*mobile\.spec\.ts/,
+      use: {
+        ...devices["Desktop Firefox"],
+        browserName: "firefox",
       },
     },
     {
@@ -45,6 +53,8 @@ export default defineConfig({
       testMatch: /.*mobile\.spec\.ts/,
       use: {
         ...devices["Desktop Chrome"],
+        browserName: "chromium",
+        channel: "chromium",
         viewport: { width: 390, height: 844 },
         deviceScaleFactor: 2,
         hasTouch: true,
