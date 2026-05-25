@@ -506,8 +506,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
   });
 
-  it("automatically retries three times before showing the retry action", async () => {
-    vi.useFakeTimers();
+  it("shows the retry action when the gateway reports an error", () => {
     const retry = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
@@ -517,19 +516,31 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(screen.getByRole("status", { name: /retrying connection attempt 1 of 3/i })).toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
-
-    for (let attempt = 1; attempt <= 3; attempt += 1) {
-      await act(async () => {
-        vi.advanceTimersByTime(900);
-      });
-      expect(retry).toHaveBeenCalledTimes(attempt);
-    }
-
     expect(screen.getByRole("alert", { name: /could not connect gateway handshake failed/i })).toBeInTheDocument();
     const retryButton = screen.getByRole("button", { name: /retry/i });
     fireEvent.click(retryButton);
-    expect(retry).toHaveBeenCalledTimes(4);
+    expect(retry).toHaveBeenCalledTimes(1);
+  });
+
+  it("offers to stop the agent when the gateway origin allowlist is stale", () => {
+    const retry = vi.fn();
+    const onStopAgent = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        error: "This agent was opened from another dashboard address. Stop and start it from this page, then retry.",
+        retry,
+      }),
+      isSelectedRunning: true,
+      slashCommandActions: {
+        onStopAgent,
+      },
+    });
+
+    expect(screen.getByRole("alert", { name: /another dashboard address/i })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /retry/i })).not.toBeInTheDocument();
+    const stopButton = screen.getByRole("button", { name: /stop agent/i });
+    fireEvent.click(stopButton);
+    expect(onStopAgent).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
   });
 });

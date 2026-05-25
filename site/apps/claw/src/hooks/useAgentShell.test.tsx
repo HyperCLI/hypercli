@@ -115,4 +115,67 @@ describe("useAgentShell", () => {
 
     expect(socket.send).toHaveBeenCalledWith("\x1b[8;24;80t");
   });
+
+  it("decodes binary websocket output", async () => {
+    const onData = vi.fn();
+    const socket = createSocket();
+    const deployments = {
+      shellConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+
+    const { result } = renderHookWithClient(
+      () => useAgentShell(deployments, { agentId: "agent-1", enabled: true, onData }),
+    );
+
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+    await waitFor(() => expect(socket.onmessage).toEqual(expect.any(Function)));
+
+    const messageHandler = socket.onmessage as (event: MessageEvent) => void;
+    await act(async () => {
+      messageHandler({
+        data: new TextEncoder().encode("ready\n").buffer,
+      } as MessageEvent);
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+
+    await waitFor(() => expect(onData).toHaveBeenCalledWith("ready\n"));
+  });
+
+  it("reconnects transient shell closes but not terminal closes", async () => {
+    const socket = createSocket();
+    const deployments = {
+      shellConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+
+    const transient = renderHookWithClient(
+      () => useAgentShell(deployments, { agentId: "agent-1", enabled: true }),
+    );
+
+    await waitFor(() => expect(transient.result.current.status).toBe("connected"));
+
+    act(() => {
+      socket.onclose?.({ code: 1006, reason: "" } as CloseEvent);
+    });
+
+    expect(transient.result.current.status).toBe("reconnecting");
+    transient.unmount();
+
+    const terminalSocket = createSocket();
+    const terminalDeployments = {
+      shellConnect: vi.fn().mockResolvedValue(terminalSocket),
+    } as unknown as Deployments;
+
+    const terminal = renderHookWithClient(
+      () => useAgentShell(terminalDeployments, { agentId: "agent-1", enabled: true }),
+    );
+
+    await waitFor(() => expect(terminal.result.current.status).toBe("connected"));
+
+    act(() => {
+      terminalSocket.onclose?.({ code: 1000, reason: "normal closure" } as CloseEvent);
+    });
+
+    expect(terminal.result.current.status).toBe("disconnected");
+  });
 });

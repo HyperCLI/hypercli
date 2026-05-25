@@ -1,12 +1,14 @@
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
-import { createHyperAgentClient, startOpenClawAgent } from "./agent-client";
+import { AGENT_CLEANUP_START_MESSAGE, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "./agent-client";
 
 const { deploymentsConstructor, deploymentsInstance, hyperAgentConstructor, httpClientConstructor, httpClientInstance } = vi.hoisted(() => {
   process.env.NEXT_PUBLIC_API_BASE_URL = "https://api.hypercli.com";
+  process.env.NEXT_PUBLIC_AGENTS_URL = "https://agents.hypercli.com";
   return {
     deploymentsConstructor: vi.fn(),
     deploymentsInstance: {
+      createOpenClaw: vi.fn(),
       get: vi.fn(),
       startOpenClaw: vi.fn(),
     },
@@ -47,8 +49,14 @@ vi.mock("@hypercli/shared-ui", () => ({
 describe("agent-client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS;
     deploymentsInstance.get.mockReset();
+    deploymentsInstance.createOpenClaw.mockReset();
     deploymentsInstance.startOpenClaw.mockReset();
+  });
+
+  afterEach(() => {
+    vi.useRealTimers();
   });
 
   it("constructs HyperAgent through the browser-safe SDK client", () => {
@@ -59,14 +67,22 @@ describe("agent-client", () => {
     expect(hyperAgentConstructor).toHaveBeenCalledWith(httpClientInstance, "hyper_api_test", false, "https://api.hypercli.com/agents");
   });
 
-  it("starts existing OpenClaw agents with their stored launch config", async () => {
+  it("starts existing OpenClaw agents with their stored launch config and strips stale control UI origin locks by default", async () => {
     deploymentsInstance.get.mockResolvedValue({
       launchConfig: {
+        config: {
+          gateway: {
+            controlUi: {
+              allowedOrigins: ["https://claw.hypercli.com"],
+            },
+          },
+        },
         image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
         sync_root: "/home/ubuntu",
         sync_enabled: false,
         env: {
           OPENCLAW_GATEWAY_TOKEN: "existing-gateway-token",
+          OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://claw.hypercli.com",
           FOO: "bar",
         },
         routes: {
@@ -86,6 +102,7 @@ describe("agent-client", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
       syncRoot: "/home/ubuntu",
       syncEnabled: true,
+      config: {},
       env: {
         OPENCLAW_GATEWAY_TOKEN: "existing-gateway-token",
         FOO: "bar",
@@ -95,5 +112,100 @@ describe("agent-client", () => {
         openclaw: { port: 18789, auth: false, prefix: "" },
       },
     }));
+  });
+
+  it("creates OpenClaw agents without a control UI allowlist by default", async () => {
+    deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      env: { FOO: "bar" },
+    });
+
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      config: {},
+      env: {
+        FOO: "bar",
+      },
+    }));
+  });
+
+  it("applies configured control UI origins when the allowlist is enabled", async () => {
+    const currentOrigin = window.location.origin;
+    process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS = "https://feat.hypercli.com http://localhost:4003";
+    deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      config: {
+        gateway: {
+          controlUi: {
+            allowedOrigins: ["https://claw.hypercli.com"],
+            requirePairing: true,
+          },
+        },
+      },
+      env: {
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://old.hypercli.com",
+        FOO: "bar",
+      },
+    });
+
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      config: {
+        gateway: {
+          controlUi: {
+            allowedOrigins: [
+              "https://old.hypercli.com",
+              "https://claw.hypercli.com",
+              "https://feat.hypercli.com",
+              "http://localhost:4003",
+              currentOrigin,
+            ],
+            requirePairing: true,
+          },
+        },
+      },
+      env: {
+        FOO: "bar",
+      },
+    }));
+  });
+
+  it("retries start while the agent is still cleaning up", async () => {
+    vi.useFakeTimers();
+    deploymentsInstance.get.mockResolvedValue({ launchConfig: {} });
+    deploymentsInstance.startOpenClaw
+      .mockRejectedValueOnce({
+        statusCode: 409,
+        detail: "Agent 'steady-pilot-engine' is still being cleaned up, try again in a moment",
+      })
+      .mockResolvedValueOnce({ id: "agent-123" });
+
+    const start = startOpenClawAgent("hyper_api_test", "agent-123");
+
+    await vi.waitFor(() => expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(1));
+    await vi.advanceTimersByTimeAsync(2_000);
+
+    await expect(start).resolves.toEqual({ id: "agent-123" });
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(2);
+  });
+
+  it("returns a friendly cleanup message after retrying cleanup conflicts", async () => {
+    vi.useFakeTimers();
+    deploymentsInstance.get.mockResolvedValue({ launchConfig: {} });
+    deploymentsInstance.startOpenClaw.mockRejectedValue({
+      statusCode: 409,
+      detail: "Agent 'steady-pilot-engine' is still being cleaned up, try again in a moment",
+    });
+
+    const start = startOpenClawAgent("hyper_api_test", "agent-123");
+    const expectedFailure = expect(start).rejects.toThrow(AGENT_CLEANUP_START_MESSAGE);
+
+    await vi.waitFor(() => expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(1));
+    for (const delay of [2_000, 3_000, 5_000, 8_000, 12_000]) {
+      await vi.advanceTimersByTimeAsync(delay);
+    }
+
+    await expectedFailure;
+    expect(deploymentsInstance.startOpenClaw).toHaveBeenCalledTimes(6);
   });
 });

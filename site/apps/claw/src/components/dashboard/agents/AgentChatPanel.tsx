@@ -25,8 +25,6 @@ export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/Age
 
 type ChatSession = ReturnType<typeof useOpenClawSession>;
 const CHAT_READY_SETTLE_MS = 180;
-const AUTO_RETRY_CONNECTION_ATTEMPTS = 3;
-const AUTO_RETRY_CONNECTION_DELAY_MS = 900;
 const AUDIO_BAR_WEIGHTS = [
   0.62,
   0.78,
@@ -101,71 +99,6 @@ function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStat
   }, [agentId, commitStatus, nextStatus]);
 
   return status;
-}
-
-function useConnectionAutoRetry({
-  agentId,
-  bootStatus,
-  retry,
-}: {
-  agentId: string;
-  bootStatus: AgentChatBootStatus;
-  retry: () => void;
-}) {
-  const retryRef = React.useRef(retry);
-  const [state, setState] = React.useState(() => ({
-    agentId,
-    attempts: 0,
-  }));
-
-  React.useEffect(() => {
-    retryRef.current = retry;
-  }, [retry]);
-
-  React.useEffect(() => {
-    setState((current) => (
-      current.agentId === agentId
-        ? current
-        : { agentId, attempts: 0 }
-    ));
-  }, [agentId]);
-
-  React.useEffect(() => {
-    if (bootStatus.status !== "ready" && bootStatus.status !== "stopped") return;
-    setState((current) => (
-      current.agentId === agentId && current.attempts === 0
-        ? current
-        : { agentId, attempts: 0 }
-    ));
-  }, [agentId, bootStatus.status]);
-
-  React.useEffect(() => {
-    if (bootStatus.status !== "error") return;
-    if (state.agentId !== agentId || state.attempts >= AUTO_RETRY_CONNECTION_ATTEMPTS) return;
-
-    const timeout = window.setTimeout(() => {
-      setState((current) => {
-        if (current.agentId !== agentId || current.attempts >= AUTO_RETRY_CONNECTION_ATTEMPTS) {
-          return current;
-        }
-        return {
-          ...current,
-          attempts: current.attempts + 1,
-        };
-      });
-      retryRef.current();
-    }, AUTO_RETRY_CONNECTION_DELAY_MS);
-
-    return () => window.clearTimeout(timeout);
-  }, [agentId, bootStatus.status, state.agentId, state.attempts]);
-
-  const attempts = state.agentId === agentId ? state.attempts : 0;
-
-  return {
-    attempts,
-    exhausted: attempts >= AUTO_RETRY_CONNECTION_ATTEMPTS,
-    nextAttempt: Math.min(attempts + 1, AUTO_RETRY_CONNECTION_ATTEMPTS),
-  };
 }
 
 interface AgentChatPanelProps {
@@ -278,22 +211,7 @@ export function AgentChatPanel({
     ],
   );
   const bootStatus = useSettledChatBootStatus(selectedAgent.id, rawBootStatus);
-  const autoRetry = useConnectionAutoRetry({
-    agentId: selectedAgent.id,
-    bootStatus,
-    retry: chat.retry,
-  });
-  const displayBootStatus: AgentChatBootStatus =
-    bootStatus.status === "error" && !autoRetry.exhausted
-      ? {
-          status: "loading",
-          phase: "gateway",
-          title: "Retrying connection",
-          detail: `Attempt ${autoRetry.nextAttempt} of ${AUTO_RETRY_CONNECTION_ATTEMPTS}.`,
-          tone: "connecting",
-          stage: bootStatus.stage,
-        }
-      : bootStatus;
+  const displayBootStatus = bootStatus;
   const hasPendingAttachmentWork = chat.pendingAttachments.length > 0 || chat.pendingAttachmentReads > 0;
   const canSendChatDraft =
     chat.connected &&
@@ -307,6 +225,11 @@ export function AgentChatPanel({
     chat.pendingFiles.length > 0;
   const showComposer = displayBootStatus.status === "ready" || composerHasDraft;
   const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected;
+  const originDenied = displayBootStatus.status === "error" && /another dashboard address/i.test(displayBootStatus.detail);
+  const errorActionLabel = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent ? "Stop agent" : "Retry";
+  const handleErrorAction = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent
+    ? () => { void slashCommandActions.onStopAgent?.(); }
+    : chat.retry;
   const emptyChatContent = (() => {
     if (displayBootStatus.status === "loading") {
       return (
@@ -320,8 +243,8 @@ export function AgentChatPanel({
       return (
         <AgentLoadingState
           bootStatus={displayBootStatus}
-          actionLabel="Retry"
-          onAction={chat.retry}
+          actionLabel={errorActionLabel}
+          onAction={handleErrorAction}
         />
       );
     }

@@ -195,7 +195,7 @@ export function AgentWorkspaceSidebar({
       label: "Files",
       icon: FolderOpen,
       active: activeTab === "files",
-      onClick: onOpenFiles,
+      onClick: () => onOpenFiles(),
       ...disabledItemProps,
     },
     { id: "integrations", label: "Integrations", icon: Blocks, active: activeTab === "integrations" && !skillsActive, onClick: onOpenIntegrations, ...disabledItemProps },

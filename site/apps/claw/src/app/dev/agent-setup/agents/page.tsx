@@ -38,7 +38,15 @@ import {
 import "@xterm/xterm/css/xterm.css";
 
 import { useAgentAuth } from "@/hooks/useAgentAuth";
-import { createAgentClient, createHyperAgentClient, createOpenClawAgent, startOpenClawAgent } from "@/lib/agent-client";
+import {
+  AGENT_CLEANUP_START_MESSAGE,
+  AGENT_STOP_CLEANUP_COOLDOWN_MS,
+  createAgentClient,
+  createHyperAgentClient,
+  createOpenClawAgent,
+  isAgentCleanupConflictError,
+  startOpenClawAgent,
+} from "@/lib/agent-client";
 import { formatCpu, formatMemory } from "@/lib/format";
 import { AgentHatchAnimation } from "@/components/dashboard/AgentHatchAnimation";
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
@@ -89,12 +97,15 @@ import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
+import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
+const SHELL_BUFFER_MAX_CHARS = 120_000;
+const SHELL_RESIZE_DEBOUNCE_MS = 50;
 
 function buildBillingBudget(
   summary: HyperAgentSubscriptionSummary | null,
@@ -287,6 +298,16 @@ export default function DevAgentSetupAgentsPage() {
     return () => { stoppedTimersRef.current.forEach((t) => clearTimeout(t)); };
   }, []);
 
+  const markAgentCleanupCooldown = useCallback((agentId: string) => {
+    setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
+    const existing = stoppedTimersRef.current.get(agentId);
+    if (existing) clearTimeout(existing);
+    stoppedTimersRef.current.set(agentId, setTimeout(() => {
+      setRecentlyStoppedIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
+      stoppedTimersRef.current.delete(agentId);
+    }, AGENT_STOP_CLEANUP_COOLDOWN_MS));
+  }, []);
+
   const [tierSelection, setTierSelection] = useState<AgentTierSelectionState | null>(null);
   const [pendingAgentDelete, setPendingAgentDelete] = useState<{ id: string; name: string } | null>(null);
 
@@ -322,6 +343,13 @@ export default function DevAgentSetupAgentsPage() {
   const shellFitAddonRef = useRef<FitAddon | null>(null);
   const shellSessionAgentRef = useRef<string | null>(null);
   const shellBufferRef = useRef<string[]>([]);
+  const shellBufferSizeRef = useRef(0);
+  const shellPendingOutputRef = useRef<string[]>([]);
+  const shellOutputFrameRef = useRef<number | null>(null);
+  const shellResizeTimerRef = useRef<number | null>(null);
+  const shellLatestSizeRef = useRef<{ rows: number; cols: number } | null>(null);
+  const shellLastSentSizeRef = useRef<{ rows: number; cols: number } | null>(null);
+  const shellStatusRef = useRef("disconnected");
 
   // Files panel
 
@@ -522,11 +550,61 @@ export default function DevAgentSetupAgentsPage() {
   }, [mainTab, selectedAgentId, isDesktopViewport]);
 
   // ── Gateway Chat hook ──
-  const handleShellData = useCallback((text: string) => {
-    if (!text) return;
+  const cancelShellOutputFrame = useCallback(() => {
+    if (shellOutputFrameRef.current !== null) {
+      window.cancelAnimationFrame(shellOutputFrameRef.current);
+      shellOutputFrameRef.current = null;
+    }
+  }, []);
+
+  const clearShellOutputState = useCallback((clearTerminal = true) => {
+    cancelShellOutputFrame();
+    shellBufferRef.current = [];
+    shellBufferSizeRef.current = 0;
+    shellPendingOutputRef.current = [];
+    shellLastSentSizeRef.current = null;
+    if (clearTerminal) shellTerminalRef.current?.clear();
+  }, [cancelShellOutputFrame]);
+
+  const appendShellBuffer = useCallback((text: string) => {
+    if (text.length >= SHELL_BUFFER_MAX_CHARS) {
+      shellBufferRef.current = [text.slice(-SHELL_BUFFER_MAX_CHARS)];
+      shellBufferSizeRef.current = SHELL_BUFFER_MAX_CHARS;
+      return;
+    }
+
     shellBufferRef.current.push(text);
+    shellBufferSizeRef.current += text.length;
+
+    while (shellBufferSizeRef.current > SHELL_BUFFER_MAX_CHARS && shellBufferRef.current.length > 0) {
+      const overflow = shellBufferSizeRef.current - SHELL_BUFFER_MAX_CHARS;
+      const first = shellBufferRef.current[0];
+      if (first.length <= overflow) {
+        shellBufferRef.current.shift();
+        shellBufferSizeRef.current -= first.length;
+      } else {
+        shellBufferRef.current[0] = first.slice(overflow);
+        shellBufferSizeRef.current -= overflow;
+      }
+    }
+  }, []);
+
+  const flushShellOutput = useCallback(() => {
+    shellOutputFrameRef.current = null;
+    if (shellPendingOutputRef.current.length === 0) return;
+    const text = shellPendingOutputRef.current.join("");
+    shellPendingOutputRef.current = [];
     shellTerminalRef.current?.write(text);
   }, []);
+
+  const handleShellData = useCallback((text: string) => {
+    if (!text) return;
+    appendShellBuffer(text);
+    shellPendingOutputRef.current.push(text);
+    if (shellOutputFrameRef.current === null) {
+      shellOutputFrameRef.current = window.requestAnimationFrame(flushShellOutput);
+    }
+  }, [appendShellBuffer, flushShellOutput]);
 
   const {
     logs,
@@ -545,13 +623,65 @@ export default function DevAgentSetupAgentsPage() {
     onData: handleShellData,
   });
 
+  useEffect(() => {
+    shellStatusRef.current = shellStatus;
+    if (shellTerminalRef.current) {
+      shellTerminalRef.current.options.disableStdin = shellStatus !== "connected";
+    }
+  }, [shellStatus]);
+
+  useEffect(() => {
+    if (mainTab !== "shell" || (shellStatus !== "connecting" && shellStatus !== "reconnecting")) return;
+    clearShellOutputState();
+  }, [clearShellOutputState, mainTab, shellStatus]);
+
+  const sendShellSize = useCallback((size: { rows: number; cols: number }) => {
+    if (shellStatusRef.current !== "connected") return;
+    const lastSent = shellLastSentSizeRef.current;
+    if (lastSent?.rows === size.rows && lastSent.cols === size.cols) return;
+    resizeShell(size.rows, size.cols);
+    shellLastSentSizeRef.current = size;
+  }, [resizeShell]);
+
+  const scheduleShellResize = useCallback((rows: number, cols: number, immediate = false) => {
+    if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows <= 0 || cols <= 0) return;
+
+    const nextSize = { rows, cols };
+    const latest = shellLatestSizeRef.current;
+    if (!immediate && latest?.rows === rows && latest.cols === cols) return;
+    shellLatestSizeRef.current = nextSize;
+
+    if (shellResizeTimerRef.current !== null) {
+      window.clearTimeout(shellResizeTimerRef.current);
+      shellResizeTimerRef.current = null;
+    }
+
+    const flush = () => {
+      shellResizeTimerRef.current = null;
+      const size = shellLatestSizeRef.current;
+      if (size) sendShellSize(size);
+    };
+
+    if (immediate) {
+      flush();
+    } else {
+      shellResizeTimerRef.current = window.setTimeout(flush, SHELL_RESIZE_DEBOUNCE_MS);
+    }
+  }, [sendShellSize]);
+
+  useEffect(() => {
+    if (mainTab !== "shell" || shellStatus !== "connected") return;
+    const size = shellLatestSizeRef.current ?? (
+      shellTerminalRef.current
+        ? { rows: shellTerminalRef.current.rows, cols: shellTerminalRef.current.cols }
+        : null
+    );
+    if (size) sendShellSize(size);
+  }, [mainTab, sendShellSize, shellStatus]);
+
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
-    mainTab === "chat" ||
-      mainTab === "workspace" ||
-      mainTab === "openclaw" ||
-      mainTab === "integrations" ||
-      mainTab === "settings",
+    isSelectedRunning,
   );
   const draftTeamPrompt = useCallback(() => {
     if (!teamSetupSummary) return;
@@ -1320,6 +1450,7 @@ export default function DevAgentSetupAgentsPage() {
       fontSize: 12,
       lineHeight: 1.45,
       scrollback: 3000,
+      disableStdin: shellStatusRef.current !== "connected",
       theme: {
         background: "#0c1016",
         foreground: "#d8dde7",
@@ -1332,43 +1463,53 @@ export default function DevAgentSetupAgentsPage() {
     term.loadAddon(fitAddon);
     term.open(shellBoxRef.current);
 
-    requestAnimationFrame(() => {
+    const initialFrame = window.requestAnimationFrame(() => {
       fitAddon.fit();
+      scheduleShellResize(term.rows, term.cols, true);
       term.focus();
     });
 
     if (shellSessionAgentRef.current !== selectedAgentId) {
-      shellBufferRef.current = [];
+      clearShellOutputState(false);
       shellSessionAgentRef.current = selectedAgentId;
     }
 
-    for (const chunk of shellBufferRef.current) {
-      term.write(chunk);
-    }
+    const bufferedOutput = shellBufferRef.current.join("");
+    if (bufferedOutput) term.write(bufferedOutput);
 
     const disposable = term.onData((data) => {
+      if (shellStatusRef.current !== "connected") return;
       sendShell(data);
     });
 
     const resizeDisposable = term.onResize(({ cols, rows }) => {
-      resizeShell(rows, cols);
+      scheduleShellResize(rows, cols);
     });
 
-    const onResize = () => fitAddon.fit();
+    const onResize = () => {
+      fitAddon.fit();
+      scheduleShellResize(term.rows, term.cols);
+    };
     window.addEventListener("resize", onResize);
 
     shellTerminalRef.current = term;
     shellFitAddonRef.current = fitAddon;
 
     return () => {
+      window.cancelAnimationFrame(initialFrame);
       window.removeEventListener("resize", onResize);
       resizeDisposable.dispose();
       disposable.dispose();
       term.dispose();
       shellTerminalRef.current = null;
       shellFitAddonRef.current = null;
+      if (shellResizeTimerRef.current !== null) {
+        window.clearTimeout(shellResizeTimerRef.current);
+        shellResizeTimerRef.current = null;
+      }
+      clearShellOutputState(false);
     };
-  }, [mainTab, resizeShell, selectedAgentId, sendShell]);
+  }, [clearShellOutputState, mainTab, scheduleShellResize, selectedAgentId, sendShell]);
 
   // ── Actions ──
 
@@ -1391,6 +1532,11 @@ export default function DevAgentSetupAgentsPage() {
       const startedAgent = await startOpenClawAgent(token, agentId);
       setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
     } catch (err) {
+      if (isAgentCleanupConflictError(err)) {
+        markAgentCleanupCooldown(agentId);
+        setError(AGENT_CLEANUP_START_MESSAGE);
+        return;
+      }
       const requestedTier = parseEntitlementSlotTier(err);
       if (requestedTier) {
         const fallbackPreset = getAgentSizePresets(budget)[requestedTier];
@@ -1452,11 +1598,16 @@ export default function DevAgentSetupAgentsPage() {
       const startedAgent = await startOpenClawAgent(token, agentId);
       setSdkAgents((prev) => upsertSdkAgent(prev, startedAgent));
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to resize and start agent");
+      if (isAgentCleanupConflictError(err)) {
+        markAgentCleanupCooldown(agentId);
+        setError(AGENT_CLEANUP_START_MESSAGE);
+      } else {
+        setError(err instanceof Error ? err.message : "Failed to resize and start agent");
+      }
     } finally {
       setStartingId(null);
     }
-  }, [getToken]);
+  }, [getToken, markAgentCleanupCooldown]);
 
   const selectedAgentHasTierOptions = Boolean(selectedAgentStartGuidance?.availableTiers?.length);
   const selectedAgentRecentlyStopped = Boolean(selectedAgent && recentlyStoppedIds.has(selectedAgent.id));
@@ -1490,14 +1641,7 @@ export default function DevAgentSetupAgentsPage() {
       const token = await getToken();
       const stoppedAgent = await createAgentClient(token).stop(agentId);
       setSdkAgents((prev) => upsertSdkAgent(prev, stoppedAgent));
-      // Cooldown: disable Start for 5s while the runtime finishes cleanup.
-      setRecentlyStoppedIds((prev) => new Set(prev).add(agentId));
-      const existing = stoppedTimersRef.current.get(agentId);
-      if (existing) clearTimeout(existing);
-      stoppedTimersRef.current.set(agentId, setTimeout(() => {
-        setRecentlyStoppedIds((prev) => { const next = new Set(prev); next.delete(agentId); return next; });
-        stoppedTimersRef.current.delete(agentId);
-      }, 10000));
+      markAgentCleanupCooldown(agentId);
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to stop agent");
     } finally {
@@ -1838,7 +1982,8 @@ export default function DevAgentSetupAgentsPage() {
   // ── Render ──
 
   return (
-    <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
+    <AgentGatewaySessionProvider session={chat}>
+      <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
@@ -2257,7 +2402,8 @@ export default function DevAgentSetupAgentsPage() {
           onClose={() => setTeamSetupCompanionOpen(false)}
         />
       ) : null}
-    </div>
+      </div>
+    </AgentGatewaySessionProvider>
   );
 }
 

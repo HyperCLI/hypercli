@@ -1,7 +1,11 @@
 import { act, waitFor } from "@testing-library/react";
-import { describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 
 import { renderHookWithClient } from "@/test/utils";
+import {
+  openClawChatHistoryCacheKey,
+  readCachedOpenClawChatHistory,
+} from "@/lib/openclaw-chat-history-cache";
 import { useOpenClawSession } from "./useOpenClawSession";
 
 type TestGatewayConnectionState = "connected" | "connecting" | "disconnected";
@@ -66,6 +70,10 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
 }
 
 describe("useOpenClawSession", () => {
+  beforeEach(() => {
+    window.localStorage.clear();
+  });
+
   it("tracks image attachment reads before the preview payload is ready", async () => {
     const originalFileReader = globalThis.FileReader;
     type FileReaderHandler = ((event: ProgressEvent<FileReader>) => void) | null;
@@ -183,6 +191,39 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("restores cached browser history when gateway history is empty", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const cacheKey = openClawChatHistoryCacheKey("deploy-123");
+    expect(cacheKey).toBeTruthy();
+    window.localStorage.setItem(cacheKey!, JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      messages: [
+        { role: "user", content: "old question", timestamp: 1 },
+        { role: "assistant", content: "old answer", timestamp: 2 },
+      ],
+    }));
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    expect(gateway.chatHistory).toHaveBeenCalledWith("main", 200);
+    expect(result.current.messages).toEqual([
+      { role: "user", content: "old question", timestamp: 1 },
+      { role: "assistant", content: "old answer", timestamp: 2 },
+    ]);
+    unmount();
+  });
+
   it("suppresses duplicate live chat events while the streaming helper owns the response", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -215,6 +256,10 @@ describe("useOpenClawSession", () => {
       const assistantMessages = result.current.messages.filter((message) => message.role === "assistant");
       expect(assistantMessages).toHaveLength(1);
       expect(assistantMessages[0]?.content).toBe("Hello");
+    });
+    await waitFor(() => {
+      const cachedMessages = readCachedOpenClawChatHistory("deploy-123");
+      expect(cachedMessages.map((message) => message.content)).toEqual(["hello", "Hello"]);
     });
     unmount();
   });
@@ -281,7 +326,184 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("clears hydrated session state when the SDK reports a disconnect before reconnecting", async () => {
+  it("surfaces a retryable error when opening the gateway session stalls", async () => {
+    const originalSetTimeout = window.setTimeout.bind(window);
+    const setTimeoutSpy = vi.spyOn(window, "setTimeout").mockImplementation((
+      handler: TimerHandler,
+      timeout?: number,
+      ...args: any[]
+    ) => {
+      if (timeout === 30_000 && typeof handler === "function") {
+        handler(...args);
+        return 0;
+      }
+      return originalSetTimeout(handler, timeout, ...args);
+    });
+    const gateway = buildGateway("connecting");
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    try {
+      const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+      await waitFor(() => expect(agent.gateway).toHaveBeenCalledTimes(1));
+      await waitFor(() => expect(result.current.error).toMatch(/Timed out opening the agent session/i));
+      expect(result.current.connected).toBe(false);
+      expect(result.current.connecting).toBe(false);
+      expect(gateway.connect).toHaveBeenCalledTimes(1);
+      unmount();
+    } finally {
+      setTimeoutSpy.mockRestore();
+    }
+  });
+
+  it("turns gateway origin denials into actionable UI copy", async () => {
+    const gateway = buildGateway("connecting");
+    gateway.connect.mockRejectedValue({ detail: "origin not allowed (open the Control UI from the gateway host or allow it in gateway.controlUi.allowedOrigins)" });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+    await waitFor(() => expect(result.current.error).toBe("This agent was opened from another dashboard address. Stop and start it from this page, then retry."));
+    expect(result.current.error).not.toMatch(/allowedOrigins/);
+    expect(result.current.connecting).toBe(false);
+    unmount();
+  });
+
+  it("keeps pairing-required closes in the connecting flow for auto-approval", async () => {
+    let onClose: ((info: any) => void) | null = null;
+    const gateway = buildGateway("connecting");
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn((options: { onClose?: (info: any) => void }) => {
+        onClose = options.onClose ?? null;
+        return gateway;
+      }),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+    await waitFor(() => expect(agent.gateway).toHaveBeenCalledTimes(1));
+    act(() => {
+      onClose?.({
+        code: 4008,
+        reason: "pairing required",
+        error: { code: "PAIRING_REQUIRED", message: "pairing required" },
+      });
+    });
+
+    expect(result.current.error).toBeNull();
+    expect(result.current.connecting).toBe(true);
+    unmount();
+  });
+
+  it("does not render object-shaped gateway errors as object strings", async () => {
+    const gateway = buildGateway("connecting");
+    gateway.connect.mockRejectedValue({ detail: { message: "Gateway handshake failed" } });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+    await waitFor(() => expect(result.current.error).toBe("Gateway handshake failed"));
+    expect(result.current.error).not.toBe("[object Object]");
+    expect(result.current.connecting).toBe(false);
+    unmount();
+  });
+
+  it("uses a readable fallback for opaque gateway error objects", async () => {
+    const gateway = buildGateway("connecting");
+    gateway.connect.mockRejectedValue({ code: "gateway_failed" });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true));
+
+    await waitFor(() => expect(result.current.error).toBe("Could not connect to the agent session."));
+    expect(result.current.error).not.toBe("[object Object]");
+    expect(result.current.connecting).toBe(false);
+    unmount();
+  });
+
+  it("keeps one SDK gateway client mounted across section changes while enabled", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ section }: { section: "chat" | "files" | "settings" | "logs" | "shell" }) => ({
+        section,
+        session: useOpenClawSession(agent as any, true),
+      }),
+      { initialProps: { section: "chat" } },
+    );
+
+    await waitFor(() => expect(result.current.session.connected).toBe(true));
+
+    rerender({ section: "files" });
+    rerender({ section: "settings" });
+    rerender({ section: "logs" });
+    rerender({ section: "shell" });
+
+    expect(agent.gateway).toHaveBeenCalledTimes(1);
+    expect(gateway.close).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("does not reconnect when the selected agent refreshes with the same id", async () => {
+    const gateway = buildGateway();
+    const firstAgent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const refreshedAgent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => buildGateway()),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ agent }: { agent: typeof firstAgent }) => useOpenClawSession(agent as any, true),
+      { initialProps: { agent: firstAgent } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    rerender({ agent: refreshedAgent });
+
+    expect(firstAgent.gateway).toHaveBeenCalledTimes(1);
+    expect(refreshedAgent.gateway).not.toHaveBeenCalled();
+    expect(gateway.close).not.toHaveBeenCalled();
+    unmount();
+  });
+
+  it("keeps visible conversation history when the SDK reports a disconnect before reconnecting", async () => {
     const gateway = buildGateway();
     gateway.chatHistory.mockResolvedValue([
       { role: "assistant", content: [{ type: "text", text: "Persisted response" }] },
@@ -308,7 +530,9 @@ describe("useOpenClawSession", () => {
     expect(result.current.status).toBe("connecting");
     expect(result.current.connected).toBe(false);
     expect(result.current.ready).toBe(false);
-    expect(result.current.messages).toEqual([]);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Persisted response" }),
+    ]);
     expect(result.current.files).toEqual([]);
     expect(result.current.config).toBeNull();
     unmount();

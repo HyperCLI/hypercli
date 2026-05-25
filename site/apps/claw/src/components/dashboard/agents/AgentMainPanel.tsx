@@ -9,6 +9,7 @@ import { agentAvatar } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
+import type { ShellStatus } from "@/hooks/useAgentShell";
 import type { SlotInventory } from "@/lib/format";
 
 interface AgentMainPanelProps {
@@ -22,7 +23,7 @@ interface AgentMainPanelProps {
   burstAgentId: string | null;
   onBurstComplete: () => void;
   agentStatus?: AgentStatusChipModel | null;
-  activeConnectionStatus?: "connected" | "connecting" | "disconnected" | null;
+  activeConnectionStatus?: ShellStatus | null;
   chatConnected?: boolean;
   chatConnecting?: boolean;
   startingId: string | null;
@@ -136,16 +137,18 @@ export function AgentMainPanel({
   })();
   const connectionAgentStatus: AgentStatusChipModel | null = activeConnectionStatus
     ? {
-        label: activeConnectionStatus === "connected" ? "Ready" : activeConnectionStatus === "connecting" ? "Connecting" : "Disconnected",
+        label: activeConnectionStatus === "connected" ? "Ready" : activeConnectionStatus === "reconnecting" ? "Reconnecting" : activeConnectionStatus === "connecting" ? "Connecting" : "Disconnected",
         detail: activeConnectionStatus === "connected"
           ? "Chat is available."
+          : activeConnectionStatus === "reconnecting"
+            ? "Reopening the gateway connection."
           : activeConnectionStatus === "connecting" || chatConnecting
             ? "Preparing chat."
             : chatConnected === false
               ? "Gateway disconnected."
               : "Gateway is not connected yet.",
-        tone: activeConnectionStatus === "connected" ? "ready" : activeConnectionStatus === "connecting" ? "connecting" : "disconnected",
-        loading: activeConnectionStatus === "connecting",
+        tone: activeConnectionStatus === "connected" ? "ready" : activeConnectionStatus === "connecting" || activeConnectionStatus === "reconnecting" ? "connecting" : "disconnected",
+        loading: activeConnectionStatus === "connecting" || activeConnectionStatus === "reconnecting",
       }
     : null;
   const effectiveAgentStatus = agentStatus ?? lifecycleAgentStatus ?? connectionAgentStatus;

@@ -128,6 +128,7 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(props.onSelectChat).toHaveBeenCalledTimes(1);
     expect(props.onOpenFiles).toHaveBeenCalledTimes(1);
+    expect(props.onOpenFiles).toHaveBeenCalledWith();
     expect(props.onOpenIntegrations).toHaveBeenCalledTimes(1);
     expect(props.onOpenSkills).toHaveBeenCalledTimes(1);
     expect(props.onOpenScheduled).toHaveBeenCalledTimes(1);

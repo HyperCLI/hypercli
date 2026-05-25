@@ -17,9 +17,19 @@ import {
   handleOpenClawSessionEvent,
   hydrateOpenClawSession,
 } from "@/lib/openclaw-session";
+import {
+  readCachedOpenClawChatHistory,
+  writeCachedOpenClawChatHistory,
+} from "@/lib/openclaw-chat-history-cache";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
+const GATEWAY_CONNECTING_STALL_MS = 30_000;
+const GATEWAY_CONNECTING_STALL_MESSAGE =
+  "Timed out opening the agent session. The gateway is still reconnecting in the background.";
+const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
+const OPENCLAW_ORIGIN_DENIED_MESSAGE =
+  "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
 
 function hasSeededE2EConnection(): boolean {
   if (typeof window === "undefined" || !window.navigator.webdriver) return false;
@@ -30,10 +40,52 @@ function hasSeededE2EConnection(): boolean {
   }
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return Boolean(value) && typeof value === "object" && !Array.isArray(value);
+}
+
+function stringifyErrorForSearch(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  try {
+    return JSON.stringify(value);
+  } catch {
+    return "";
+  }
+}
+
+function extractErrorMessage(value: unknown, seen = new WeakSet<object>()): string | null {
+  if (value instanceof Error) return value.message || null;
+  if (typeof value === "string") return value.trim() || null;
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  if (!isRecord(value)) return null;
+  if (seen.has(value)) return null;
+  seen.add(value);
+
+  for (const key of ["message", "detail", "error", "reason", "statusText", "title"]) {
+    const nested = extractErrorMessage(value[key], seen);
+    if (nested && nested !== "[object Object]") return nested;
+  }
+
+  return null;
+}
+
+function formatOpenClawConnectionError(value: unknown): string {
+  const searchable = stringifyErrorForSearch(value);
+  if (/origin not allowed/i.test(searchable)) return OPENCLAW_ORIGIN_DENIED_MESSAGE;
+  return extractErrorMessage(value) ?? GENERIC_OPENCLAW_CONNECTION_ERROR;
+}
+
+function isPairingProgressMessage(value: unknown): boolean {
+  return /\bpairing required\b|PAIRING_REQUIRED|pairing approved/i.test(stringifyErrorForSearch(value));
+}
+
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
   enabled: boolean = true,
 ) {
+  const agentId = agent?.id ?? null;
+  const latestAgentRef = useRef(agent);
   const [gateway, setGateway] = useState<GatewayClient | null>(null);
   const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
   const [error, setError] = useState<string | null>(null);
@@ -58,15 +110,19 @@ export function useOpenClawSession(
   const activeChatSendRef = useRef(false);
   const seededE2EConnection = hasSeededE2EConnection();
 
+  useEffect(() => {
+    latestAgentRef.current = agent;
+  }, [agent]);
+
   const retry = useCallback(() => {
     setRetrySignal((value) => value + 1);
   }, []);
 
-  const resetSessionStateForDisconnect = useCallback(() => {
+  const resetSessionStateForDisconnect = useCallback(({ preserveMessages = false }: { preserveMessages?: boolean } = {}) => {
     activeChatSendRef.current = false;
     setHydrating(false);
     setReady(false);
-    setMessages([]);
+    if (!preserveMessages) setMessages([]);
     setFiles([]);
     setConfig(null);
     setConfigSchema(null);
@@ -80,6 +136,27 @@ export function useOpenClawSession(
     setModels([]);
     setActivityFeed([]);
   }, []);
+
+  useEffect(() => {
+    const cachedMessages = readCachedOpenClawChatHistory(agentId);
+    setMessages(cachedMessages);
+  }, [agentId]);
+
+  useEffect(() => {
+    if (!agentId || messages.length === 0 || typeof window === "undefined") return;
+    const timeout = window.setTimeout(() => {
+      writeCachedOpenClawChatHistory(agentId, messages);
+    }, 250);
+    return () => window.clearTimeout(timeout);
+  }, [agentId, messages]);
+
+  useEffect(() => {
+    if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
+    const timeout = window.setTimeout(() => {
+      setError((current) => current ?? GATEWAY_CONNECTING_STALL_MESSAGE);
+    }, GATEWAY_CONNECTING_STALL_MS);
+    return () => window.clearTimeout(timeout);
+  }, [agentId, enabled, error, ready, seededE2EConnection, status]);
 
   useEffect(() => {
     let active = true;
@@ -97,7 +174,8 @@ export function useOpenClawSession(
       };
     }
 
-    if (!enabled || !agent || typeof agent.connect !== "function") {
+    const sessionAgent = latestAgentRef.current;
+    if (!enabled || !agentId || !sessionAgent || typeof sessionAgent.connect !== "function") {
       setGateway(null);
       setStatus("disconnected");
       setError(null);
@@ -115,17 +193,22 @@ export function useOpenClawSession(
 
     void (async () => {
       try {
-        await agent.waitForGatewayContext();
-        const client = agent.gateway({
+        await sessionAgent.waitForGatewayContext();
+        const client = sessionAgent.gateway({
           autoApprovePairing: true,
           onClose: ({ error: closeError, code, reason }: GatewayCloseInfo) => {
             if (!active) return;
+            if (isPairingProgressMessage(closeError) || isPairingProgressMessage(reason)) {
+              setError(null);
+              return;
+            }
             if (closeError?.message) {
-              setError(closeError.message);
+              setError(formatOpenClawConnectionError(closeError));
               return;
             }
             if (code !== 1000 && reason) {
-              setError(`Disconnected: ${reason}`);
+              const formattedReason = formatOpenClawConnectionError(reason);
+              setError(formattedReason === reason ? `Disconnected: ${formattedReason}` : formattedReason);
               return;
             }
             setError(null);
@@ -137,7 +220,7 @@ export function useOpenClawSession(
           setStatus(nextState);
           if (nextState === "disconnected") {
             setGateway(null);
-            resetSessionStateForDisconnect();
+            resetSessionStateForDisconnect({ preserveMessages: true });
             return;
           }
           if (nextState === "connecting") {
@@ -145,7 +228,6 @@ export function useOpenClawSession(
             setHydrating(false);
             setReady(false);
             setSending(false);
-            setError(null);
             return;
           }
           if (nextState === "connected") {
@@ -159,15 +241,15 @@ export function useOpenClawSession(
           if (!active) return;
           setGateway(null);
           setStatus("disconnected");
-          resetSessionStateForDisconnect();
-          setError(e instanceof Error ? e.message : String(e));
+          resetSessionStateForDisconnect({ preserveMessages: true });
+          setError(formatOpenClawConnectionError(e));
         });
       } catch (e: unknown) {
         if (!active) return;
         setGateway(null);
         setStatus("disconnected");
-        resetSessionStateForDisconnect();
-        setError(e instanceof Error ? e.message : String(e));
+        resetSessionStateForDisconnect({ preserveMessages: true });
+        setError(formatOpenClawConnectionError(e));
       }
     })();
 
@@ -176,7 +258,7 @@ export function useOpenClawSession(
       unsubscribeConnectionState?.();
       localGateway?.close();
     };
-  }, [enabled, agent, retrySignal, seededE2EConnection, resetSessionStateForDisconnect]);
+  }, [enabled, agentId, retrySignal, seededE2EConnection, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -205,12 +287,16 @@ export function useOpenClawSession(
     setHydrating(true);
     void (async () => {
       try {
-        const hydrated = await hydrateOpenClawSession(gateway, agent?.id);
+        const hydrated = await hydrateOpenClawSession(gateway, agentId);
         if (cancelled) return;
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
         if (!activeChatSendRef.current) {
-          setMessages(hydrated.messages);
+          setMessages((currentMessages) => {
+            if (hydrated.messages.length > 0) return hydrated.messages;
+            if (currentMessages.length > 0) return currentMessages;
+            return readCachedOpenClawChatHistory(agentId);
+          });
         }
         setFiles(hydrated.files);
         setGwAgentId(hydrated.gwAgentId);
@@ -221,7 +307,7 @@ export function useOpenClawSession(
       } catch (e: unknown) {
         if (cancelled) return;
         setReady(false);
-        setError(e instanceof Error ? e.message : String(e));
+        setError(formatOpenClawConnectionError(e));
       } finally {
         if (!cancelled) setHydrating(false);
       }
@@ -229,11 +315,11 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agent?.id]);
+  }, [gateway, status, agentId]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
-    resetSessionStateForDisconnect();
+    resetSessionStateForDisconnect({ preserveMessages: true });
   }, [status, resetSessionStateForDisconnect]);
 
   const addPendingMessage = useCallback((message: string) => {
@@ -331,7 +417,7 @@ export function useOpenClawSession(
 
     let handledByChatSend = false;
     try {
-      const sessionKey = resolveOpenClawSessionKey(agent?.id);
+      const sessionKey = resolveOpenClawSessionKey(agentId);
       const messageToSend = agentMessage || "What's in this image?";
       const attachmentsToSend = attachments.length > 0 ? attachments : undefined;
       if (typeof gateway.chatSend === "function") {
@@ -351,7 +437,7 @@ export function useOpenClawSession(
         await gateway.sendChat(messageToSend, sessionKey, undefined, attachmentsToSend);
       }
     } catch (e: unknown) {
-      const errMsg = e instanceof Error ? e.message : String(e);
+      const errMsg = formatOpenClawConnectionError(e);
       setMessages((prev) => [...prev, { role: "system", content: `Error: ${errMsg}`, timestamp: Date.now() }]);
       appendActivity({ type: "error", action: "Send failed", detail: errMsg });
       setSending(false);
@@ -361,7 +447,7 @@ export function useOpenClawSession(
         setSending(false);
       }
     }
-  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, agent?.id]);
+  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, agentId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -440,9 +526,9 @@ export function useOpenClawSession(
   }, [gateway, appendActivity]);
 
   const connected = seededE2EConnection || (status === "connected" && ready && !hydrating);
-  const connecting = seededE2EConnection
+  const connecting = seededE2EConnection || Boolean(error)
     ? false
-    : status === "connecting" || hydrating || (status === "connected" && !ready && !error);
+    : status === "connecting" || hydrating || (status === "connected" && !ready);
 
   return {
     gateway,

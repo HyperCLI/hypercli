@@ -20,6 +20,12 @@ type FrontendOpenClawStartOptions = Omit<OpenClawStartAgentOptions, "meta"> & {
   meta?: OpenClawAgentUiMeta;
 };
 
+const CONTROL_UI_ALLOWED_ORIGIN_ENV = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN";
+const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS";
+export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
+export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
+const AGENT_CLEANUP_RETRY_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 12_000] as const;
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -32,6 +38,131 @@ function stringRecord(value: unknown): Record<string, string> | undefined {
   if (!isRecord(value)) return undefined;
   const entries = Object.entries(value).filter((entry): entry is [string, string] => typeof entry[1] === "string");
   return entries.length > 0 ? Object.fromEntries(entries) : undefined;
+}
+
+function normalizeOrigin(value: unknown): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  if (!trimmed) return null;
+  try {
+    return new URL(trimmed).origin;
+  } catch {
+    return trimmed.replace(/\/+$/, "");
+  }
+}
+
+function parseAllowedOrigins(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return value.map(normalizeOrigin).filter((origin): origin is string => Boolean(origin));
+  }
+
+  if (typeof value !== "string") return [];
+  const trimmed = value.trim();
+  if (!trimmed) return [];
+
+  if (trimmed.startsWith("[")) {
+    try {
+      return parseAllowedOrigins(JSON.parse(trimmed));
+    } catch {}
+  }
+
+  return trimmed
+    .split(/[,\s]+/)
+    .map(normalizeOrigin)
+    .filter((origin): origin is string => Boolean(origin));
+}
+
+function errorText(value: unknown): string {
+  if (value instanceof Error) return value.message;
+  if (typeof value === "string") return value;
+  if (!isRecord(value)) return "";
+  return [value.message, value.detail, value.error, value.reason]
+    .filter((entry): entry is string => typeof entry === "string")
+    .join(" ");
+}
+
+export function isAgentCleanupConflictError(value: unknown): boolean {
+  const statusCode = isRecord(value) && typeof value.statusCode === "number" ? value.statusCode : null;
+  return statusCode === 409 && /clean(?:ed|ing) up|cleanup/i.test(errorText(value));
+}
+
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => setTimeout(resolve, ms));
+}
+
+function currentUiOrigin(): string | null {
+  if (typeof window === "undefined") return null;
+  return normalizeOrigin(window.location?.origin);
+}
+
+function configuredUiOrigins(): string[] {
+  return parseAllowedOrigins(process.env[CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV]);
+}
+
+function configAllowedOrigins(config: unknown): string[] {
+  if (!isRecord(config) || !isRecord(config.gateway) || !isRecord(config.gateway.controlUi)) return [];
+  return parseAllowedOrigins(config.gateway.controlUi.allowedOrigins);
+}
+
+function stripConfigAllowedOrigins(config: unknown): Record<string, unknown> {
+  const next = isRecord(config) ? cloneRecord(config) : {};
+  if (!isRecord(next.gateway)) return next;
+
+  const gateway = cloneRecord(next.gateway);
+  if (!isRecord(gateway.controlUi)) return next;
+
+  const controlUi = cloneRecord(gateway.controlUi);
+  delete controlUi.allowedOrigins;
+
+  if (Object.keys(controlUi).length > 0) {
+    gateway.controlUi = controlUi;
+  } else {
+    delete gateway.controlUi;
+  }
+
+  if (Object.keys(gateway).length > 0) {
+    next.gateway = gateway;
+  } else {
+    delete next.gateway;
+  }
+
+  return next;
+}
+
+function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions | FrontendOpenClawStartOptions>(options: T): T {
+  const origin = currentUiOrigin();
+  const env = { ...(options.env ?? {}) };
+  const configuredOrigins = configuredUiOrigins();
+  const config = stripConfigAllowedOrigins(options.config);
+
+  if (configuredOrigins.length === 0) {
+    delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
+    return {
+      ...options,
+      config,
+      env,
+    } as T;
+  }
+
+  const origins = [
+    ...parseAllowedOrigins(env[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
+    ...configAllowedOrigins(options.config),
+    ...configuredUiOrigins(),
+    ...(origin ? [origin] : []),
+  ].filter((value, index, list) => list.indexOf(value) === index);
+  delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
+
+  const gateway = isRecord(config.gateway) ? cloneRecord(config.gateway) : {};
+  const controlUi = isRecord(gateway.controlUi) ? cloneRecord(gateway.controlUi) : {};
+  controlUi.allowedOrigins = origins;
+  gateway.controlUi = controlUi;
+  config.gateway = gateway;
+
+  return {
+    ...options,
+    config,
+    env,
+  } as T;
 }
 
 function launchConfigStartOptions(launchConfig: Record<string, unknown> | null | undefined): FrontendOpenClawStartOptions {
@@ -106,7 +237,7 @@ export function createPublicHyperAgentClient(): HyperAgent {
 }
 
 export async function createOpenClawAgent(apiKey: string, options: FrontendOpenClawCreateOptions = {}) {
-  return createAgentClient(apiKey).createOpenClaw(options);
+  return createAgentClient(apiKey).createOpenClaw(withConfiguredControlUiOrigins(options));
 }
 
 export async function startOpenClawAgent(apiKey: string, agentId: string, options: FrontendOpenClawStartOptions = {}) {
@@ -116,5 +247,16 @@ export async function startOpenClawAgent(apiKey: string, agentId: string, option
     const existingAgent = await agentClient.get(agentId);
     existingOptions = launchConfigStartOptions(existingAgent.launchConfig);
   } catch {}
-  return agentClient.startOpenClaw(agentId, mergeStartOptions(existingOptions, options));
+  const startOptions = withConfiguredControlUiOrigins(mergeStartOptions(existingOptions, options));
+  for (let attempt = 0; attempt <= AGENT_CLEANUP_RETRY_DELAYS_MS.length; attempt += 1) {
+    try {
+      return await agentClient.startOpenClaw(agentId, startOptions);
+    } catch (error) {
+      if (!isAgentCleanupConflictError(error)) throw error;
+      const delay = AGENT_CLEANUP_RETRY_DELAYS_MS[attempt];
+      if (delay === undefined) throw new Error(AGENT_CLEANUP_START_MESSAGE);
+      await sleep(delay);
+    }
+  }
+  throw new Error(AGENT_CLEANUP_START_MESSAGE);
 }

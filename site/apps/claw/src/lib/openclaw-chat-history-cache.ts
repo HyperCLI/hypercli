@@ -1,0 +1,149 @@
+"use client";
+
+import type { ChatMessage } from "@/lib/openclaw-chat";
+
+const CACHE_VERSION = 1;
+const CACHE_KEY_PREFIX = "hypercli:openclaw-chat-history:v1";
+const MAX_CACHED_MESSAGES = 300;
+const MAX_CACHE_CHARS = 900_000;
+const MAX_MESSAGE_CONTENT_CHARS = 60_000;
+const MAX_TOOL_TEXT_CHARS = 8_000;
+const TRUNCATED_MESSAGE_SUFFIX = "\n\n[Message shortened in local history.]";
+const TRUNCATED_TOOL_SUFFIX = "\n\n[Tool output shortened in local history.]";
+
+interface CachedChatHistoryPayload {
+  version: typeof CACHE_VERSION;
+  updatedAt: number;
+  messages: ChatMessage[];
+}
+
+function storage(): Storage | null {
+  if (typeof window === "undefined") return null;
+  try {
+    return window.localStorage;
+  } catch {
+    return null;
+  }
+}
+
+function normalizedAgentId(agentId: string | null | undefined): string | null {
+  const normalized = (agentId ?? "").trim();
+  return normalized ? normalized : null;
+}
+
+export function openClawChatHistoryCacheKey(agentId: string | null | undefined): string | null {
+  const normalized = normalizedAgentId(agentId);
+  return normalized ? `${CACHE_KEY_PREFIX}:${encodeURIComponent(normalized)}` : null;
+}
+
+function trimText(value: string, maxChars: number, suffix: string): string {
+  if (value.length <= maxChars) return value;
+  return `${value.slice(0, Math.max(0, maxChars - suffix.length))}${suffix}`;
+}
+
+function compactMessage(message: ChatMessage): ChatMessage | null {
+  if (message.role !== "user" && message.role !== "assistant" && message.role !== "system") return null;
+  const content = typeof message.content === "string" ? trimText(message.content, MAX_MESSAGE_CONTENT_CHARS, TRUNCATED_MESSAGE_SUFFIX) : "";
+  const timestamp = typeof message.timestamp === "number" && Number.isFinite(message.timestamp)
+    ? message.timestamp
+    : undefined;
+  const files = Array.isArray(message.files)
+    ? message.files.slice(0, 20).map((file) => ({
+        name: String(file.name ?? ""),
+        path: String(file.path ?? ""),
+        type: String(file.type ?? ""),
+      })).filter((file) => file.name || file.path)
+    : undefined;
+  const mediaUrls = Array.isArray(message.mediaUrls)
+    ? message.mediaUrls.filter((url): url is string => typeof url === "string").slice(0, 20)
+    : undefined;
+  const toolCalls = Array.isArray(message.toolCalls)
+    ? message.toolCalls.slice(0, 40).map((toolCall) => ({
+        id: typeof toolCall.id === "string" ? toolCall.id : undefined,
+        name: typeof toolCall.name === "string" ? toolCall.name : "tool",
+        args: typeof toolCall.args === "string" ? trimText(toolCall.args, MAX_TOOL_TEXT_CHARS, TRUNCATED_TOOL_SUFFIX) : "",
+        result: typeof toolCall.result === "string" ? trimText(toolCall.result, MAX_TOOL_TEXT_CHARS, TRUNCATED_TOOL_SUFFIX) : undefined,
+      }))
+    : undefined;
+
+  if (!content && !files?.length && !mediaUrls?.length && !toolCalls?.length) return null;
+
+  return {
+    role: message.role,
+    content,
+    timestamp,
+    ...(files?.length ? { files } : {}),
+    ...(mediaUrls?.length ? { mediaUrls } : {}),
+    ...(toolCalls?.length ? { toolCalls } : {}),
+  };
+}
+
+function compactMessages(messages: ChatMessage[]): ChatMessage[] {
+  return messages
+    .map((message) => compactMessage(message))
+    .filter((message): message is ChatMessage => message !== null)
+    .slice(-MAX_CACHED_MESSAGES);
+}
+
+function serializePayload(messages: ChatMessage[]): string {
+  let compacted = compactMessages(messages);
+  let serialized = JSON.stringify({
+    version: CACHE_VERSION,
+    updatedAt: Date.now(),
+    messages: compacted,
+  } satisfies CachedChatHistoryPayload);
+
+  while (serialized.length > MAX_CACHE_CHARS && compacted.length > 1) {
+    compacted = compacted.slice(Math.max(1, Math.ceil(compacted.length * 0.1)));
+    serialized = JSON.stringify({
+      version: CACHE_VERSION,
+      updatedAt: Date.now(),
+      messages: compacted,
+    } satisfies CachedChatHistoryPayload);
+  }
+
+  return serialized;
+}
+
+function normalizeCachedMessages(value: unknown): ChatMessage[] {
+  if (!Array.isArray(value)) return [];
+  return compactMessages(value.filter((message): message is ChatMessage => {
+    if (!message || typeof message !== "object") return false;
+    const role = (message as { role?: unknown }).role;
+    const content = (message as { content?: unknown }).content;
+    return (
+      (role === "user" || role === "assistant" || role === "system") &&
+      typeof content === "string"
+    );
+  }));
+}
+
+export function readCachedOpenClawChatHistory(agentId: string | null | undefined): ChatMessage[] {
+  const key = openClawChatHistoryCacheKey(agentId);
+  const localStorage = storage();
+  if (!key || !localStorage) return [];
+
+  try {
+    const raw = localStorage.getItem(key);
+    if (!raw) return [];
+    const parsed = JSON.parse(raw) as Partial<CachedChatHistoryPayload>;
+    if (parsed.version !== CACHE_VERSION) return [];
+    return normalizeCachedMessages(parsed.messages);
+  } catch {
+    return [];
+  }
+}
+
+export function writeCachedOpenClawChatHistory(agentId: string | null | undefined, messages: ChatMessage[]): void {
+  const key = openClawChatHistoryCacheKey(agentId);
+  const localStorage = storage();
+  if (!key || !localStorage || messages.length === 0) return;
+
+  try {
+    const serialized = serializePayload(messages);
+    localStorage.setItem(key, serialized);
+  } catch {
+    // Local history is a UX fallback. Quota/private-mode failures should not
+    // interrupt live chat.
+  }
+}

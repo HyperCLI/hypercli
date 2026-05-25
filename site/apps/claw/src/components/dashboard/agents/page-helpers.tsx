@@ -47,7 +47,7 @@ export class OpenClawErrorBoundary extends React.Component<
 export type AgentStatusTone = "ready" | "starting" | "stopping" | "connecting" | "disconnected" | "stopped" | "failed";
 
 export interface AgentStatusChipModel {
-  label: "Ready" | "Provisioning" | "Booting" | "Starting" | "Stopping" | "Connecting" | "Disconnected" | "Stopped" | "Failed";
+  label: "Ready" | "Provisioning" | "Booting" | "Starting" | "Stopping" | "Connecting" | "Reconnecting" | "Disconnected" | "Stopped" | "Failed";
   detail: string;
   tone: AgentStatusTone;
   loading?: boolean;
@@ -113,10 +113,10 @@ export function AgentStatusChip({ status }: { status: AgentStatusChipModel | nul
 export function ConnectionStatusIndicator({
   status,
 }: {
-  status: "connected" | "connecting" | "disconnected";
+  status: "connected" | "connecting" | "reconnecting" | "disconnected";
 }) {
   const connected = status === "connected";
-  const connecting = status === "connecting";
+  const connecting = status === "connecting" || status === "reconnecting";
   return (
     <span
       className={`inline-flex items-center gap-1.5 text-xs font-medium min-w-[5.25rem] ${
@@ -126,7 +126,7 @@ export function ConnectionStatusIndicator({
             ? "text-[#f0c56c]"
             : "text-text-muted"
       }`}
-      title={connected ? "Connected" : connecting ? "Connecting" : "Disconnected"}
+      title={connected ? "Connected" : status === "reconnecting" ? "Reconnecting" : connecting ? "Connecting" : "Disconnected"}
     >
       {connecting ? (
         <Loader2 className="w-2 h-2 animate-spin" />
@@ -138,7 +138,7 @@ export function ConnectionStatusIndicator({
         />
       )}
       <span>
-        {connected ? "Connected" : connecting ? "Connecting" : "Disconnected"}
+        {connected ? "Connected" : status === "reconnecting" ? "Reconnecting" : connecting ? "Connecting" : "Disconnected"}
       </span>
     </span>
   );
