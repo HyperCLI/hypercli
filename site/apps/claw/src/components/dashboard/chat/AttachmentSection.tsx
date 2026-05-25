@@ -10,6 +10,16 @@ interface AttachmentSectionProps {
   mediaUrls?: string[];
 }
 
+function mediaFileNameFromUrl(url: string, fallback = "media"): string {
+  try {
+    const parsed = new URL(url, "https://hypercli.local");
+    const name = parsed.pathname.split("/").filter(Boolean).pop();
+    return name ? decodeURIComponent(name) : fallback;
+  } catch {
+    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
+  }
+}
+
 export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentSectionProps) {
   return (
     <>
@@ -25,6 +35,8 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
               height={240}
               sizes="(max-width: 640px) 100vw, 240px"
               className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
+              downloadHref={`data:${att.mimeType};base64,${att.content}`}
+              downloadFileName={att.fileName || "attachment"}
             />
           ))}
         </div>
@@ -61,6 +73,8 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
                   sizes="(max-width: 640px) 100vw, 320px"
                   className="h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]"
                   loading="lazy"
+                  downloadHref={url}
+                  downloadFileName={mediaFileNameFromUrl(url)}
                 />
               );
             }

@@ -1,9 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Download, FolderOpen, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
-import type { ChatMessage as ChatMessageType } from "@/lib/openclaw-chat";
+import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
@@ -28,6 +28,60 @@ function extractImagePath(tc: { name: string; args: string; result?: string }): 
 
 function isImageFileReference(file: { name: string; path: string; type: string }): boolean {
   return file.type.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name) || IMAGE_EXTENSIONS.test(file.path);
+}
+
+function fileLabel(file: { name?: string; path?: string }): string {
+  return file.name || file.path?.split("/").filter(Boolean).pop() || "file";
+}
+
+function mediaFileNameFromUrl(url: string): string {
+  try {
+    const parsed = new URL(url, "https://hypercli.local");
+    const name = parsed.pathname.split("/").filter(Boolean).pop();
+    return name ? decodeURIComponent(name) : "media";
+  } catch {
+    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || "media";
+  }
+}
+
+interface ChatFileActionsProps {
+  file: ChatPendingFile;
+  onOpenFile?: (path: string) => void;
+  onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
+}
+
+function ChatFileActions({ file, onOpenFile, onDownloadFile }: ChatFileActionsProps) {
+  if (!onOpenFile && !onDownloadFile) return null;
+
+  const label = fileLabel(file);
+  const buttonClass = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background/60 text-text-muted transition-colors hover:border-[#38D39F]/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]";
+
+  return (
+    <span className="ml-1 inline-flex shrink-0 items-center gap-1">
+      {onOpenFile && (
+        <button
+          type="button"
+          onClick={() => onOpenFile(file.path)}
+          className={buttonClass}
+          aria-label={`Open ${label} in files`}
+          title="Open in files"
+        >
+          <FolderOpen className="h-3.5 w-3.5" />
+        </button>
+      )}
+      {onDownloadFile && (
+        <button
+          type="button"
+          onClick={() => { void onDownloadFile(file); }}
+          className={buttonClass}
+          aria-label={`Download ${label}`}
+          title="Download"
+        >
+          <Download className="h-3.5 w-3.5" />
+        </button>
+      )}
+    </span>
+  );
 }
 
 // ── Variant types ──
@@ -58,6 +112,9 @@ interface ChatMessageProps {
   senderName?: string;
   isGroupChat?: boolean;
   compactToolCalls?: boolean;
+  onReadFileBytesFromChat?: (path: string) => Promise<Uint8Array>;
+  onOpenFileFromChat?: (path: string) => void;
+  onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
 }
 
 interface AgentFileReference {
@@ -112,11 +169,16 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
-function useAgentFileObjectState(file: AgentFileReference | null | undefined): { url: string | null; loading: boolean; failed: boolean } {
+function useAgentFileObjectState(
+  file: AgentFileReference | null | undefined,
+  readFileBytes?: (path: string) => Promise<Uint8Array>,
+): { url: string | null; loading: boolean; failed: boolean } {
   const [blobUrl, setBlobUrl] = useState<string | null>(null);
   const [failed, setFailed] = useState(false);
   const [loading, setLoading] = useState(false);
   const blobRef = useRef<string | null>(null);
+  const fileAgentId = file?.agentId;
+  const filePath = file?.path;
 
   useEffect(() => {
     setBlobUrl(null);
@@ -124,13 +186,24 @@ function useAgentFileObjectState(file: AgentFileReference | null | undefined): {
     setLoading(false);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
-    if (!file) return;
-    const token = getStoredToken();
-    if (!token) { setFailed(true); return; }
+    if (!fileAgentId || !filePath) return;
     let cancelled = false;
     setLoading(true);
 
-    createAgentClient(token).fileReadBytes(file.agentId, normalizeOpenClawWorkspaceFilePath(file.path))
+    let bytesPromise: Promise<Uint8Array>;
+    if (readFileBytes) {
+      bytesPromise = readFileBytes(filePath);
+    } else {
+      const token = getStoredToken();
+      if (!token) {
+        setFailed(true);
+        setLoading(false);
+        return;
+      }
+      bytesPromise = createAgentClient(token).fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath));
+    }
+
+    bytesPromise
       .then((bytes) => {
         if (cancelled) return;
         const blob = new Blob([toArrayBuffer(bytes)]);
@@ -152,25 +225,34 @@ function useAgentFileObjectState(file: AgentFileReference | null | undefined): {
       cancelled = true;
       if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
     };
-  }, [file?.agentId, file?.path]);
+  }, [fileAgentId, filePath, readFileBytes]);
 
   return { url: failed ? null : blobUrl, loading, failed };
 }
 
-function useAgentFileObjectUrl(file: AgentFileReference | null | undefined): string | null {
-  return useAgentFileObjectState(file).url;
+function useAgentFileObjectUrl(
+  file: AgentFileReference | null | undefined,
+  readFileBytes?: (path: string) => Promise<Uint8Array>,
+): string | null {
+  return useAgentFileObjectState(file, readFileBytes).url;
 }
 
 export function AuthImage({
   file,
   alt,
   className,
+  onOpenFile,
+  onDownload,
+  readFileBytes,
 }: {
   file: AgentFileReference;
   alt: string;
   className?: string;
+  onOpenFile?: () => void;
+  onDownload?: () => void | Promise<void>;
+  readFileBytes?: (path: string) => Promise<Uint8Array>;
 }) {
-  const { url: blobUrl, failed } = useAgentFileObjectState(file);
+  const { url: blobUrl, failed } = useAgentFileObjectState(file, readFileBytes);
 
   if (!blobUrl) {
     return (
@@ -197,6 +279,12 @@ export function AuthImage({
       sizes="(max-width: 640px) 100vw, 320px"
       className={className}
       loading="lazy"
+      downloadHref={blobUrl}
+      downloadFileName={alt}
+      downloadLabel={`Download ${alt}`}
+      onDownload={onDownload}
+      onOpenFile={onOpenFile}
+      openFileLabel={`Open ${alt} in files`}
     />
   );
 }
@@ -599,11 +687,14 @@ export function ChatMessageBubble({
   agentMeta,
   senderName,
   isGroupChat = false,
+  onReadFileBytesFromChat,
+  onOpenFileFromChat,
+  onDownloadFileFromChat,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
   const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
-  const inlineAudioUrl = useAgentFileObjectUrl(inlineAudioFile);
+  const inlineAudioUrl = useAgentFileObjectUrl(inlineAudioFile, onReadFileBytesFromChat);
 
   useEffect(() => {
     if (!inlineAudioUrl) return;
@@ -773,6 +864,8 @@ export function ChatMessageBubble({
                   height={240}
                   sizes="(max-width: 640px) 100vw, 240px"
                   className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
+                  downloadHref={attachmentSrc}
+                  downloadFileName={att.fileName || "attachment"}
                 />
               );
             })}
@@ -789,6 +882,9 @@ export function ChatMessageBubble({
                     file={{ agentId: imagePreviewAgentId, path: file.path }}
                     alt={file.name || "attachment"}
                     className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
+                    readFileBytes={onReadFileBytesFromChat}
+                    onOpenFile={onOpenFileFromChat ? () => onOpenFileFromChat(file.path) : undefined}
+                    onDownload={onDownloadFileFromChat ? () => onDownloadFileFromChat(file) : undefined}
                   />
                 ))}
               </div>
@@ -801,7 +897,12 @@ export function ChatMessageBubble({
                     className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
                   >
                     <Paperclip className="h-3.5 w-3.5 shrink-0" />
-                    <span className="truncate">{file.name}</span>
+                    <span className="truncate" title={file.name}>{file.name}</span>
+                    <ChatFileActions
+                      file={file}
+                      onOpenFile={onOpenFileFromChat}
+                      onDownloadFile={onDownloadFileFromChat}
+                    />
                   </div>
                 ))}
               </div>
@@ -825,6 +926,8 @@ export function ChatMessageBubble({
                     sizes="(max-width: 640px) 100vw, 320px"
                     className={CHAT_MARKDOWN_IMAGE_CLASS}
                     loading="lazy"
+                    downloadHref={url}
+                    downloadFileName={mediaFileNameFromUrl(url)}
                   />
                 );
               }

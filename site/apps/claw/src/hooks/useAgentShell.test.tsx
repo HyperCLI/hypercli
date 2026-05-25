@@ -3,6 +3,7 @@ import { describe, expect, it, vi } from "vitest";
 import type { Deployments } from "@hypercli.com/sdk/agents";
 import { renderHookWithClient } from "@/test/utils";
 import { useAgentShell } from "./useAgentShell";
+import { useAgentShellActivation } from "./useAgentShellActivation";
 
 type MockSocket = WebSocket & {
   send: ReturnType<typeof vi.fn>;
@@ -177,5 +178,33 @@ describe("useAgentShell", () => {
     });
 
     expect(terminal.result.current.status).toBe("disconnected");
+  });
+
+  it("keeps an activated shell socket open while the user switches to another panel", async () => {
+    const socket = createSocket();
+    const deployments = {
+      shellConnect: vi.fn().mockResolvedValue(socket),
+    } as unknown as Deployments;
+
+    const { result, rerender } = renderHookWithClient(
+      ({ activeTab }) => {
+        const enabled = useAgentShellActivation({
+          agentId: "agent-1",
+          agentState: "RUNNING",
+          activeTab,
+        });
+        return useAgentShell(deployments, { agentId: "agent-1", enabled });
+      },
+      { initialProps: { activeTab: "shell" } },
+    );
+
+    await waitFor(() => expect(deployments.shellConnect).toHaveBeenCalledWith("agent-1"));
+    await waitFor(() => expect(result.current.status).toBe("connected"));
+
+    rerender({ activeTab: "files" });
+
+    expect(socket.close).not.toHaveBeenCalled();
+    act(() => result.current.send("pwd\n"));
+    expect(socket.send).toHaveBeenCalledWith("pwd\n");
   });
 });

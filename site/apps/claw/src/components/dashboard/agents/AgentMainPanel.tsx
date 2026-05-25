@@ -36,6 +36,7 @@ interface AgentMainPanelProps {
   skillsPanelActive?: boolean;
   stoppedTabLabel: string;
   panelContent: React.ReactNode;
+  persistentPanelContent?: React.ReactNode;
   onCreate: () => void;
   onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
   budget?: {
@@ -78,6 +79,7 @@ export function AgentMainPanel({
   skillsPanelActive = false,
   stoppedTabLabel,
   panelContent,
+  persistentPanelContent,
   onCreate,
   onCreateAgent,
   budget,
@@ -392,7 +394,8 @@ export function AgentMainPanel({
             </div>
           )}
 
-          <div className="flex-1 min-h-0 overflow-hidden">
+          <div className="relative flex-1 min-h-0 overflow-hidden">
+            {persistentPanelContent}
             {renderSelectedPanelContent()}
           </div>
         </>

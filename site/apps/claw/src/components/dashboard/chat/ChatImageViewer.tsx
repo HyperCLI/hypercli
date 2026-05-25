@@ -2,7 +2,7 @@
 
 import { useEffect, useId, useState } from "react";
 import { createPortal } from "react-dom";
-import { X, ZoomIn } from "lucide-react";
+import { Download, FolderOpen, Loader2, X, ZoomIn } from "lucide-react";
 import { ResourceImage } from "@/components/ResourceImage";
 
 interface ChatImageViewerProps {
@@ -14,6 +14,12 @@ interface ChatImageViewerProps {
   height?: number;
   sizes?: string;
   loading?: "eager" | "lazy";
+  downloadHref?: string;
+  downloadFileName?: string;
+  downloadLabel?: string;
+  onDownload?: () => void | Promise<void>;
+  onOpenFile?: () => void;
+  openFileLabel?: string;
 }
 
 export function ChatImageViewer({
@@ -25,9 +31,19 @@ export function ChatImageViewer({
   height = 320,
   sizes = "(max-width: 640px) 100vw, 320px",
   loading = "lazy",
+  downloadHref,
+  downloadFileName,
+  downloadLabel,
+  onDownload,
+  onOpenFile,
+  openFileLabel,
 }: ChatImageViewerProps) {
   const [open, setOpen] = useState(false);
+  const [downloadPending, setDownloadPending] = useState(false);
   const titleId = useId();
+  const actionButtonClass = "flex h-9 w-9 items-center justify-center rounded-md border border-white/15 bg-white/10 text-white transition-colors hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F] disabled:cursor-wait disabled:opacity-60";
+  const imageDownloadLabel = downloadLabel ?? `Download ${alt}`;
+  const imageOpenFileLabel = openFileLabel ?? `Open ${alt} in files`;
 
   useEffect(() => {
     if (!open) return;
@@ -44,6 +60,16 @@ export function ChatImageViewer({
       document.removeEventListener("keydown", handleKeyDown);
     };
   }, [open]);
+
+  const handleDownload = async () => {
+    if (!onDownload || downloadPending) return;
+    setDownloadPending(true);
+    try {
+      await onDownload();
+    } finally {
+      setDownloadPending(false);
+    }
+  };
 
   return (
     <>
@@ -81,10 +107,43 @@ export function ChatImageViewer({
               <p id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium">
                 {alt}
               </p>
+              {onOpenFile && (
+                <button
+                  type="button"
+                  onClick={onOpenFile}
+                  className={actionButtonClass}
+                  aria-label={imageOpenFileLabel}
+                  title="Open in files"
+                >
+                  <FolderOpen className="h-4 w-4" />
+                </button>
+              )}
+              {onDownload ? (
+                <button
+                  type="button"
+                  onClick={() => { void handleDownload(); }}
+                  className={actionButtonClass}
+                  aria-label={imageDownloadLabel}
+                  title="Download"
+                  disabled={downloadPending}
+                >
+                  {downloadPending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Download className="h-4 w-4" />}
+                </button>
+              ) : downloadHref ? (
+                <a
+                  href={downloadHref}
+                  download={downloadFileName || alt || "image"}
+                  className={actionButtonClass}
+                  aria-label={imageDownloadLabel}
+                  title="Download"
+                >
+                  <Download className="h-4 w-4" />
+                </a>
+              ) : null}
               <button
                 type="button"
                 onClick={() => setOpen(false)}
-                className="flex h-9 w-9 items-center justify-center rounded-md border border-white/15 bg-white/10 text-white transition-colors hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]"
+                className={actionButtonClass}
                 aria-label="Close image viewer"
               >
                 <X className="h-4 w-4" />

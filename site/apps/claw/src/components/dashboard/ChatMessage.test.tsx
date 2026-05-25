@@ -147,6 +147,39 @@ describe("ChatMessageBubble", () => {
     });
   });
 
+  it("uses the page file reader when hydrating image file previews", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:chat-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+    const file = {
+      name: "bosquejo.png",
+      path: "/home/node/.openclaw/workspace/bosquejo.png",
+      type: "image/png",
+    };
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "user",
+          content: "Describe this image.",
+          files: [file],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(await screen.findByAltText("bosquejo.png")).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledWith(file.path);
+    expect(createAgentClient).not.toHaveBeenCalled();
+  });
+
   it("does not render duplicate workspace image previews when an inline attachment is present", () => {
     vi.mocked(getStoredToken).mockReturnValue("token");
 
@@ -217,6 +250,81 @@ describe("ChatMessageBubble", () => {
     fireEvent.click(screen.getByRole("button", { name: /view bosquejo\.png/i }));
 
     expect(await screen.findByRole("dialog", { name: /bosquejo\.png/i })).toBeInTheDocument();
+  });
+
+  it("offers open and download actions for workspace file chips", () => {
+    const file = {
+      name: "report.pdf",
+      path: "/home/node/.openclaw/workspace/report.pdf",
+      type: "application/pdf",
+    };
+    const onOpenFileFromChat = vi.fn();
+    const onDownloadFileFromChat = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "user",
+          content: "Use this report.",
+          files: [file],
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+        onDownloadFileFromChat={onDownloadFileFromChat}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open report\.pdf in files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /download report\.pdf/i }));
+
+    expect(onOpenFileFromChat).toHaveBeenCalledWith(file.path);
+    expect(onDownloadFileFromChat).toHaveBeenCalledWith(file);
+  });
+
+  it("offers open and download actions in hydrated image previews", async () => {
+    vi.mocked(getStoredToken).mockReturnValue("token");
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:chat-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    vi.mocked(createAgentClient).mockReturnValue({
+      fileReadBytes: vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71])),
+    } as ReturnType<typeof createAgentClient>);
+    const file = {
+      name: "bosquejo.png",
+      path: "/home/node/.openclaw/workspace/bosquejo.png",
+      type: "image/png",
+    };
+    const onOpenFileFromChat = vi.fn();
+    const onDownloadFileFromChat = vi.fn().mockResolvedValue(undefined);
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "user",
+          content: "Describe this image.",
+          files: [file],
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+        onDownloadFileFromChat={onDownloadFileFromChat}
+      />,
+    );
+
+    expect(await screen.findByAltText("bosquejo.png")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /view bosquejo\.png/i }));
+
+    expect(await screen.findByRole("dialog", { name: /bosquejo\.png/i })).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: /open bosquejo\.png in files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /download bosquejo\.png/i }));
+
+    expect(onOpenFileFromChat).toHaveBeenCalledWith(file.path);
+    await waitFor(() => {
+      expect(onDownloadFileFromChat).toHaveBeenCalledWith(file);
+    });
   });
 
   it("normalizes structured directory listings for chat visualization", () => {
@@ -310,5 +418,31 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("Result ready")).toBeInTheDocument();
     expect(screen.queryByText(rawResult)).not.toBeInTheDocument();
     expect(screen.queryByText(rawArgs)).not.toBeInTheDocument();
+  });
+
+  it("does not expose file actions from hidden tool-call file paths", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: [
+            {
+              name: "read",
+              args: JSON.stringify({ path: "/home/node/.openclaw/workspace/private-report.pdf" }),
+              result: "private report contents",
+            },
+          ],
+        }}
+        onOpenFileFromChat={vi.fn()}
+        onDownloadFileFromChat={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("Result ready")).toBeInTheDocument();
+    expect(screen.queryByText(/private-report\.pdf/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/private report contents/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open private-report\.pdf in files/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /download private-report\.pdf/i })).not.toBeInTheDocument();
   });
 });

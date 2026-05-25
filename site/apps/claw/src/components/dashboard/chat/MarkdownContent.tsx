@@ -23,6 +23,16 @@ type MarkdownSegment =
   | { type: "markdown"; text: string }
   | { type: "table"; headers: string[]; rows: string[][] };
 
+function mediaFileNameFromUrl(url: string, fallback = "image"): string {
+  try {
+    const parsed = new URL(url, "https://hypercli.local");
+    const name = parsed.pathname.split("/").filter(Boolean).pop();
+    return name ? decodeURIComponent(name) : fallback;
+  } catch {
+    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
+  }
+}
+
 const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   p: ({ children }) => <p className={MARKDOWN_BLOCK_CLASS}>{children}</p>,
   strong: ({ children }) => <strong className="font-semibold text-foreground">{children}</strong>,
@@ -71,6 +81,8 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
         className={CHAT_MARKDOWN_IMAGE_CLASS}
         containerClassName={`${CHAT_MEDIA_LINK_CLASS} my-2`}
         loading="lazy"
+        downloadHref={src}
+        downloadFileName={mediaFileNameFromUrl(src, typeof alt === "string" ? alt : "image")}
       />
     ) : null,
 };

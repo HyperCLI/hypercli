@@ -3,6 +3,7 @@
 import React from "react";
 import { ArrowRight, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
+import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
@@ -128,6 +129,9 @@ interface AgentChatPanelProps {
   formatDuration: (seconds: number) => string;
   onConnectionCta?: (suggestion: ChatConnectionSuggestion) => void;
   slashCommandActions?: AgentSlashCommandActions;
+  onReadFileBytesFromChat?: (path: string) => Promise<Uint8Array>;
+  onOpenFileFromChat?: (path: string) => void;
+  onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
 }
 
 export function AgentChatPanel({
@@ -157,6 +161,9 @@ export function AgentChatPanel({
   formatDuration,
   onConnectionCta,
   slashCommandActions,
+  onReadFileBytesFromChat,
+  onOpenFileFromChat,
+  onDownloadFileFromChat,
 }: AgentChatPanelProps) {
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -320,6 +327,9 @@ export function AgentChatPanel({
                 isStreaming={chat.sending && i === chat.messages.length - 1 && msg.role === "assistant"}
                 agentName={selectedAgent.name ?? "Agent"}
                 agentMeta={selectedAgent.meta}
+                onReadFileBytesFromChat={onReadFileBytesFromChat}
+                onOpenFileFromChat={onOpenFileFromChat}
+                onDownloadFileFromChat={onDownloadFileFromChat}
               />
             );
           })}

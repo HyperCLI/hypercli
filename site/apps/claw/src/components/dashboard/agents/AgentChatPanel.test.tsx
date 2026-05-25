@@ -7,8 +7,13 @@ import { renderWithClient } from "@/test/utils";
 import { toAgentViewModel } from "./agentViewModel";
 import { AgentChatPanel } from "./AgentChatPanel";
 
+const chatMessageBubbleMock = vi.hoisted(() => vi.fn());
+
 vi.mock("@/components/dashboard/ChatMessage", () => ({
-  ChatMessageBubble: () => null,
+  ChatMessageBubble: (props: unknown) => {
+    chatMessageBubbleMock(props);
+    return null;
+  },
   ChatThinkingIndicator: () => null,
 }));
 
@@ -104,6 +109,7 @@ function renderAgentChatPanel(overrides: Partial<AgentChatPanelProps> = {}) {
 describe("AgentChatPanel", () => {
   afterEach(() => {
     vi.useRealTimers();
+    chatMessageBubbleMock.mockClear();
   });
 
   it("keeps the composer out of the provisioning stage", () => {
@@ -116,6 +122,47 @@ describe("AgentChatPanel", () => {
     expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
     expect(screen.getByText("Reserving compute and preparing the workspace.")).toBeInTheDocument();
     expect(screen.queryByRole("textbox")).not.toBeInTheDocument();
+  });
+
+  it("passes workspace file actions to rendered chat messages", () => {
+    const selectedAgent = buildAgent();
+    const onReadFileBytesFromChat = vi.fn();
+    const onOpenFileFromChat = vi.fn();
+    const onDownloadFileFromChat = vi.fn();
+
+    renderAgentChatPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      chat: buildChat({
+        ready: true,
+        gatewayConnected: true,
+        connected: true,
+        messages: [
+          {
+            role: "user",
+            content: "See attached.",
+            files: [
+              {
+                name: "report.pdf",
+                path: "/home/node/.openclaw/workspace/report.pdf",
+                type: "application/pdf",
+              },
+            ],
+          },
+        ],
+      }),
+      onReadFileBytesFromChat,
+      onOpenFileFromChat,
+      onDownloadFileFromChat,
+    });
+
+    const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(bubbleProps).toEqual(expect.objectContaining({
+      agentId: selectedAgent.id,
+      onReadFileBytesFromChat,
+      onOpenFileFromChat,
+      onDownloadFileFromChat,
+    }));
   });
 
   it("shows workspace hydration once the gateway transport is connected", () => {

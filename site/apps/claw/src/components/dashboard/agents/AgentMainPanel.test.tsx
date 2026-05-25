@@ -267,6 +267,20 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
   });
 
+  it("keeps persistent panel content mounted beside the active panel", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      currentPanel: "chat",
+      panelContent: <div>Chat panel</div>,
+      persistentPanelContent: <div data-testid="persistent-shell">Shell runtime</div>,
+    });
+
+    expect(screen.getByText("Chat panel")).toBeInTheDocument();
+    expect(screen.getByTestId("persistent-shell")).toBeInTheDocument();
+  });
+
   it("keeps settings content available for a stopped agent", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
     renderAgentMainPanel({

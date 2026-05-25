@@ -7,8 +7,6 @@ import {
   describeOpenClawConfigNode,
   normalizeOpenClawConfigSchemaNode,
 } from "@hypercli.com/sdk/openclaw/gateway";
-import { FitAddon } from "@xterm/addon-fit";
-import { Terminal } from "@xterm/xterm";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
@@ -43,6 +41,8 @@ import { formatCpu, formatMemory, formatTokens, type SlotInventoryEntry } from "
 import { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
+import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
+import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { ClawThemePicker } from "@/components/ClawThemePicker";
@@ -124,6 +124,8 @@ import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
+import { downloadFileBytes } from "@/lib/download-file";
+import type { ChatPendingFile } from "@/lib/openclaw-chat";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -138,8 +140,6 @@ const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
-const SHELL_BUFFER_MAX_CHARS = 120_000;
-const SHELL_RESIZE_DEBOUNCE_MS = 50;
 
 interface UpgradeDisplayProduct {
   id: string;
@@ -769,18 +769,7 @@ function AgentsPageContent() {
   const logBoxRef = useRef<HTMLDivElement | null>(null);
 
   // Shell
-  const shellBoxRef = useRef<HTMLDivElement | null>(null);
-  const shellTerminalRef = useRef<Terminal | null>(null);
-  const shellFitAddonRef = useRef<FitAddon | null>(null);
-  const shellSessionAgentRef = useRef<string | null>(null);
-  const shellBufferRef = useRef<string[]>([]);
-  const shellBufferSizeRef = useRef(0);
-  const shellPendingOutputRef = useRef<string[]>([]);
-  const shellOutputFrameRef = useRef<number | null>(null);
-  const shellResizeTimerRef = useRef<number | null>(null);
-  const shellLatestSizeRef = useRef<{ rows: number; cols: number } | null>(null);
-  const shellLastSentSizeRef = useRef<{ rows: number; cols: number } | null>(null);
-  const shellStatusRef = useRef("disconnected");
+  const shellOutputHandlerRef = useRef<(text: string) => void>(() => undefined);
 
   // Files panel
   const [filesPreviewPath, setFilesPreviewPath] = useState<string | null>(null);
@@ -1176,67 +1165,21 @@ function AgentsPageContent() {
   }, [selectedAgentId]);
 
   // ── Gateway Chat hook ──
-  const cancelShellOutputFrame = useCallback(() => {
-    if (shellOutputFrameRef.current !== null) {
-      window.cancelAnimationFrame(shellOutputFrameRef.current);
-      shellOutputFrameRef.current = null;
-    }
-  }, []);
-
-  const clearShellOutputState = useCallback((clearTerminal = true) => {
-    cancelShellOutputFrame();
-    shellBufferRef.current = [];
-    shellBufferSizeRef.current = 0;
-    shellPendingOutputRef.current = [];
-    shellLastSentSizeRef.current = null;
-    if (clearTerminal) shellTerminalRef.current?.clear();
-  }, [cancelShellOutputFrame]);
-
-  const appendShellBuffer = useCallback((text: string) => {
-    if (text.length >= SHELL_BUFFER_MAX_CHARS) {
-      shellBufferRef.current = [text.slice(-SHELL_BUFFER_MAX_CHARS)];
-      shellBufferSizeRef.current = SHELL_BUFFER_MAX_CHARS;
-      return;
-    }
-
-    shellBufferRef.current.push(text);
-    shellBufferSizeRef.current += text.length;
-
-    while (shellBufferSizeRef.current > SHELL_BUFFER_MAX_CHARS && shellBufferRef.current.length > 0) {
-      const overflow = shellBufferSizeRef.current - SHELL_BUFFER_MAX_CHARS;
-      const first = shellBufferRef.current[0];
-      if (first.length <= overflow) {
-        shellBufferRef.current.shift();
-        shellBufferSizeRef.current -= first.length;
-      } else {
-        shellBufferRef.current[0] = first.slice(overflow);
-        shellBufferSizeRef.current -= overflow;
-      }
-    }
-  }, []);
-
-  const flushShellOutput = useCallback(() => {
-    shellOutputFrameRef.current = null;
-    if (shellPendingOutputRef.current.length === 0) return;
-    const text = shellPendingOutputRef.current.join("");
-    shellPendingOutputRef.current = [];
-    shellTerminalRef.current?.write(text);
-  }, []);
-
   const handleShellData = useCallback((text: string) => {
-    if (!text) return;
-    appendShellBuffer(text);
-    shellPendingOutputRef.current.push(text);
-    if (shellOutputFrameRef.current === null) {
-      shellOutputFrameRef.current = window.requestAnimationFrame(flushShellOutput);
-    }
-  }, [appendShellBuffer, flushShellOutput]);
+    shellOutputHandlerRef.current(text);
+  }, []);
 
   const {
     logs,
     status: wsStatus,
     reconnect: reconnectLogs,
   } = useAgentLogs(deployments, selectedAgentId, mainTab === "logs" && selectedAgentState === "RUNNING");
+
+  const shellEnabled = useAgentShellActivation({
+    agentId: selectedAgentId,
+    agentState: selectedAgentState,
+    activeTab: mainTab,
+  });
 
   const {
     status: shellStatus,
@@ -1245,65 +1188,30 @@ function AgentsPageContent() {
     reconnect: reconnectShell,
   } = useAgentShell(deployments, {
     agentId: selectedAgentId,
-    enabled: mainTab === "shell" && selectedAgentState === "RUNNING",
+    enabled: shellEnabled,
     onData: handleShellData,
   });
 
+  const {
+    shellBoxRef,
+    writeOutput: writeShellOutput,
+    clearOutput: clearShellOutput,
+  } = useAgentShellTerminal({
+    agentId: selectedAgentId,
+    status: shellStatus,
+    visible: mainTab === "shell" && Boolean(isSelectedRunning),
+    onInput: sendShell,
+    onResize: resizeShell,
+  });
+
   useEffect(() => {
-    shellStatusRef.current = shellStatus;
-    if (shellTerminalRef.current) {
-      shellTerminalRef.current.options.disableStdin = shellStatus !== "connected";
-    }
-  }, [shellStatus]);
+    shellOutputHandlerRef.current = writeShellOutput;
+  }, [writeShellOutput]);
 
   useEffect(() => {
     if (mainTab !== "shell" || (shellStatus !== "connecting" && shellStatus !== "reconnecting")) return;
-    clearShellOutputState();
-  }, [clearShellOutputState, mainTab, shellStatus]);
-
-  const sendShellSize = useCallback((size: { rows: number; cols: number }) => {
-    if (shellStatusRef.current !== "connected") return;
-    const lastSent = shellLastSentSizeRef.current;
-    if (lastSent?.rows === size.rows && lastSent.cols === size.cols) return;
-    resizeShell(size.rows, size.cols);
-    shellLastSentSizeRef.current = size;
-  }, [resizeShell]);
-
-  const scheduleShellResize = useCallback((rows: number, cols: number, immediate = false) => {
-    if (!Number.isFinite(rows) || !Number.isFinite(cols) || rows <= 0 || cols <= 0) return;
-
-    const nextSize = { rows, cols };
-    const latest = shellLatestSizeRef.current;
-    if (!immediate && latest?.rows === rows && latest.cols === cols) return;
-    shellLatestSizeRef.current = nextSize;
-
-    if (shellResizeTimerRef.current !== null) {
-      window.clearTimeout(shellResizeTimerRef.current);
-      shellResizeTimerRef.current = null;
-    }
-
-    const flush = () => {
-      shellResizeTimerRef.current = null;
-      const size = shellLatestSizeRef.current;
-      if (size) sendShellSize(size);
-    };
-
-    if (immediate) {
-      flush();
-    } else {
-      shellResizeTimerRef.current = window.setTimeout(flush, SHELL_RESIZE_DEBOUNCE_MS);
-    }
-  }, [sendShellSize]);
-
-  useEffect(() => {
-    if (mainTab !== "shell" || shellStatus !== "connected") return;
-    const size = shellLatestSizeRef.current ?? (
-      shellTerminalRef.current
-        ? { rows: shellTerminalRef.current.rows, cols: shellTerminalRef.current.cols }
-        : null
-    );
-    if (size) sendShellSize(size);
-  }, [mainTab, sendShellSize, shellStatus]);
+    clearShellOutput();
+  }, [clearShellOutput, mainTab, shellStatus]);
 
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
@@ -2117,79 +2025,6 @@ function AgentsPageContent() {
 
   useEffect(() => { if (logBoxRef.current) logBoxRef.current.scrollTop = logBoxRef.current.scrollHeight; }, [logs]);
 
-  useEffect(() => {
-    if (mainTab !== "shell") return;
-    if (!shellBoxRef.current) return;
-
-    const term = new Terminal({
-      convertEol: false,
-      cursorBlink: true,
-      cursorStyle: "bar",
-      fontFamily: "ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, Liberation Mono, Courier New, monospace",
-      fontSize: 12,
-      lineHeight: 1.45,
-      scrollback: 3000,
-      disableStdin: shellStatusRef.current !== "connected",
-      theme: {
-        background: "#0c1016",
-        foreground: "#d8dde7",
-        cursor: "#d8dde7",
-        selectionBackground: "#2a3445",
-      },
-    });
-
-    const fitAddon = new FitAddon();
-    term.loadAddon(fitAddon);
-    term.open(shellBoxRef.current);
-
-    const initialFrame = window.requestAnimationFrame(() => {
-      fitAddon.fit();
-      scheduleShellResize(term.rows, term.cols, true);
-      term.focus();
-    });
-
-    if (shellSessionAgentRef.current !== selectedAgentId) {
-      clearShellOutputState(false);
-      shellSessionAgentRef.current = selectedAgentId;
-    }
-
-    const bufferedOutput = shellBufferRef.current.join("");
-    if (bufferedOutput) term.write(bufferedOutput);
-
-    const disposable = term.onData((data) => {
-      if (shellStatusRef.current !== "connected") return;
-      sendShell(data);
-    });
-
-    const resizeDisposable = term.onResize(({ cols, rows }) => {
-      scheduleShellResize(rows, cols);
-    });
-
-    const onResize = () => {
-      fitAddon.fit();
-      scheduleShellResize(term.rows, term.cols);
-    };
-    window.addEventListener("resize", onResize);
-
-    shellTerminalRef.current = term;
-    shellFitAddonRef.current = fitAddon;
-
-    return () => {
-      window.cancelAnimationFrame(initialFrame);
-      window.removeEventListener("resize", onResize);
-      resizeDisposable.dispose();
-      disposable.dispose();
-      term.dispose();
-      shellTerminalRef.current = null;
-      shellFitAddonRef.current = null;
-      if (shellResizeTimerRef.current !== null) {
-        window.clearTimeout(shellResizeTimerRef.current);
-        shellResizeTimerRef.current = null;
-      }
-      clearShellOutputState(false);
-    };
-  }, [clearShellOutputState, mainTab, scheduleShellResize, selectedAgentId, sendShell]);
-
   // ── Actions ──
 
   const handleStart = async (agentId: string) => {
@@ -2700,6 +2535,11 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
+  const downloadAgentFileFromChat = useCallback(async (file: ChatPendingFile) => {
+    const bytes = await readAgentFileBytes(file.path);
+    const name = file.name || file.path.split("/").filter(Boolean).pop() || "download";
+    downloadFileBytes(name, bytes, file.type || "application/octet-stream");
+  }, [readAgentFileBytes]);
   const openIntegrationsTab = () => {
     setDirectoryCategory(undefined);
     setDirectoryItemId(undefined);
@@ -3166,6 +3006,13 @@ function AgentsPageContent() {
           currentPanel={selectedCenterPanel}
           skillsPanelActive={directoryCategory === "skills"}
           stoppedTabLabel={stoppedTabLabel[selectedCenterPanel]}
+          persistentPanelContent={
+            <AgentTerminalPanel
+              status={shellStatus}
+              shellBoxRef={shellBoxRef}
+              visible={mainTab === "shell" && Boolean(isSelectedRunning)}
+            />
+          }
           panelContent={mainTab === "chat" ? (
             <AgentChatPanel
               chat={chat}
@@ -3193,6 +3040,9 @@ function AgentsPageContent() {
               handleSendChat={handleSendChat}
               formatDuration={formatDuration}
               onConnectionCta={openConnectionSuggestion}
+              onReadFileBytesFromChat={readAgentFileBytes}
+              onOpenFileFromChat={openFilesTab}
+              onDownloadFileFromChat={downloadAgentFileFromChat}
               slashCommandActions={{
                 onOpenFiles: openFilesTab,
                 onOpenConfig: openOpenClawSettings,
@@ -3309,7 +3159,7 @@ function AgentsPageContent() {
           ) : mainTab === "logs" ? (
             <AgentLogsPanel status={wsStatus} logs={logs} logBoxRef={logBoxRef} />
           ) : mainTab === "shell" ? (
-            <AgentTerminalPanel status={shellStatus} shellBoxRef={shellBoxRef} />
+            null
           ) : null}
           onCreate={() => {
             setMobileShowChat(false);

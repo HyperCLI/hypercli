@@ -7,10 +7,11 @@ import type { ShellStatus } from "@/hooks/useAgentShell";
 
 interface AgentTerminalPanelProps {
   status: ShellStatus;
-  shellBoxRef: React.RefObject<HTMLDivElement | null>;
+  shellBoxRef: React.Ref<HTMLDivElement>;
+  visible?: boolean;
 }
 
-export function AgentTerminalPanel({ status, shellBoxRef }: AgentTerminalPanelProps) {
+export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: AgentTerminalPanelProps) {
   const connecting = status === "connecting" || status === "reconnecting";
   const bootStatus = status === "connected" ? null : getAgentGatewayPanelBootStatus({
     connected: false,
@@ -22,7 +23,10 @@ export function AgentTerminalPanel({ status, shellBoxRef }: AgentTerminalPanelPr
   });
 
   return (
-    <div className="relative h-full bg-[#0c1016] p-4">
+    <div
+      className={`${visible ? "relative z-10 h-full" : "pointer-events-none absolute inset-0 h-full opacity-0"} bg-[#0c1016] p-4`}
+      aria-hidden={!visible}
+    >
       <div ref={shellBoxRef} className={`h-full w-full ${status === "connected" ? "" : "invisible"}`} />
       {status !== "connected" && (
         <div className="absolute inset-0 p-4">
