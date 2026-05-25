@@ -264,6 +264,48 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("refreshes persisted history after chatSend completes so generated media appears without reload", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.chatSend.mockImplementation(async function* () {
+      yield { type: "content" as const, text: "MEDIA:" };
+      yield { type: "done" as const, data: {} };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "make an image" },
+      { role: "assistant", content: "MEDIA:/home/node/.openclaw/workspace/865621.jpg" },
+    ]);
+
+    act(() => {
+      result.current.setInput("make an image");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({ role: "user", content: "make an image" }),
+        expect.objectContaining({ role: "assistant", content: "MEDIA:/home/node/.openclaw/workspace/865621.jpg" }),
+      ]);
+    });
+    expect(gateway.chatHistory).toHaveBeenLastCalledWith("main", 200);
+    unmount();
+  });
+
   it("keeps the legacy send path active until a live done event when chatSend is unavailable", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);

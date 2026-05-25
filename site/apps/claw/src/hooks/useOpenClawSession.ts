@@ -16,6 +16,7 @@ import {
   handleOpenClawChatStreamEvent,
   handleOpenClawSessionEvent,
   hydrateOpenClawSession,
+  refreshOpenClawChatMessages,
 } from "@/lib/openclaw-session";
 import {
   readCachedOpenClawChatHistory,
@@ -108,11 +109,16 @@ export function useOpenClawSession(
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
   const [retrySignal, setRetrySignal] = useState(0);
   const activeChatSendRef = useRef(false);
+  const messagesRef = useRef<ChatMessage[]>([]);
   const seededE2EConnection = hasSeededE2EConnection();
 
   useEffect(() => {
     latestAgentRef.current = agent;
   }, [agent]);
+
+  useEffect(() => {
+    messagesRef.current = messages;
+  }, [messages]);
 
   const retry = useCallback(() => {
     setRetrySignal((value) => value + 1);
@@ -263,6 +269,20 @@ export function useOpenClawSession(
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
   }, []);
+
+  const refreshMessagesFromHistory = useCallback(async () => {
+    if (!gateway) return;
+    const historyMessages = await refreshOpenClawChatMessages(gateway, agentId);
+    if (historyMessages.length === 0) return;
+    const currentMessages = messagesRef.current;
+    const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
+    const historyUserCount = historyMessages.filter((message) => message.role === "user").length;
+    if (currentMessages.length > 0 && historyMessages.length < currentMessages.length && historyUserCount < currentUserCount) {
+      return;
+    }
+    messagesRef.current = historyMessages;
+    setMessages(historyMessages);
+  }, [gateway, agentId]);
 
   useEffect(() => {
     if (!gateway) return;
@@ -416,6 +436,7 @@ export function useOpenClawSession(
     appendActivity({ type: "message", action: "User message sent", detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : "") });
 
     let handledByChatSend = false;
+    let chatSendCompleted = false;
     try {
       const sessionKey = resolveOpenClawSessionKey(agentId);
       const messageToSend = agentMessage || "What's in this image?";
@@ -433,6 +454,7 @@ export function useOpenClawSession(
             appendActivity,
           });
         }
+        chatSendCompleted = true;
       } else {
         await gateway.sendChat(messageToSend, sessionKey, undefined, attachmentsToSend);
       }
@@ -446,8 +468,11 @@ export function useOpenClawSession(
       if (handledByChatSend) {
         setSending(false);
       }
+      if (handledByChatSend && chatSendCompleted) {
+        await refreshMessagesFromHistory();
+      }
     }
-  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, agentId]);
+  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, agentId, refreshMessagesFromHistory]);
 
   useEffect(() => {
     if (!ready) return;

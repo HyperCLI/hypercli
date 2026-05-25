@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
 import { getStoredToken } from "@/lib/api";
@@ -215,6 +215,324 @@ describe("ChatMessageBubble", () => {
     expect(createAgentClient).not.toHaveBeenCalled();
   });
 
+  it("renders file actions for live inline image attachments without duplicating previews", () => {
+    vi.mocked(getStoredToken).mockReturnValue("token");
+    const file = {
+      name: "bosquejo.png",
+      path: "/home/node/.openclaw/workspace/bosquejo.png",
+      type: "image/png",
+    };
+    const onOpenFileFromChat = vi.fn();
+    const onDownloadFileFromChat = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "user",
+          content: "Describe this image.",
+          attachments: [
+            {
+              type: "image",
+              mimeType: "image/png",
+              content: "aW1hZ2U=",
+              fileName: "bosquejo.png",
+            },
+          ],
+          files: [file],
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+        onDownloadFileFromChat={onDownloadFileFromChat}
+      />,
+    );
+
+    expect(screen.getByAltText("bosquejo.png")).toBeInTheDocument();
+    expect(screen.queryByRole("status", { name: /image unavailable/i })).not.toBeInTheDocument();
+    expect(createAgentClient).not.toHaveBeenCalled();
+
+    fireEvent.click(screen.getByRole("button", { name: /open bosquejo\.png in files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /download bosquejo\.png/i }));
+
+    expect(onOpenFileFromChat).toHaveBeenCalledWith(file.path);
+    expect(onDownloadFileFromChat).toHaveBeenCalledWith(file);
+  });
+
+  it("does not render raw local media handles when a workspace image preview exists", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:chat-preview"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "user",
+          content: "Describe this image.",
+          files: [
+            {
+              name: "bosquejo.png",
+              path: "/home/node/.openclaw/workspace/bosquejo.png",
+              type: "image/png",
+            },
+          ],
+          mediaUrls: ["media://inbound/bosquejo---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.png"],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(await screen.findByAltText("bosquejo.png")).toBeInTheDocument();
+    expect(screen.queryByText(/^media$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
+  });
+
+  it("renders an unavailable media component instead of raw local media alt text", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "![MEDIA](media://inbound/generated---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.png)",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /media preview unavailable/i })).toBeInTheDocument();
+    expect(screen.queryByText(/^media$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /view media/i })).not.toBeInTheDocument();
+  });
+
+  it("renders an unavailable media component for unresolvable local media urls", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          mediaUrls: ["media://inbound/generated---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.png"],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /media preview unavailable/i })).toBeInTheDocument();
+    expect(screen.queryByText(/^media$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/media:\/\/inbound/i)).not.toBeInTheDocument();
+  });
+
+  it("renders assistant MEDIA workspace paths as downloadable generated media without leaking the runtime path", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:generated-media"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([255, 216, 255]));
+    const onDownloadFileFromChat = vi.fn();
+    const onOpenFileFromChat = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Generated image:\nMEDIA:/home/node/.openclaw/workspace/865621.jpg",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+        onOpenFileFromChat={onOpenFileFromChat}
+        onDownloadFileFromChat={onDownloadFileFromChat}
+      />,
+    );
+
+    expect(await screen.findByAltText("865621.jpg")).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
+    expect(screen.getByTitle("MEDIA:/home/865621.jpg")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /open 865621\.jpg in files/i }));
+    expect(onOpenFileFromChat).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+
+    fireEvent.click(screen.getByRole("button", { name: /download 865621\.jpg/i }));
+    expect(onDownloadFileFromChat).toHaveBeenCalledWith({
+      name: "865621.jpg",
+      path: ".openclaw/workspace/865621.jpg",
+      type: "image/jpeg",
+    });
+  });
+
+  it("renders MEDIA workspace urls as generated media without showing MEDIA text", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "",
+          mediaUrls: ["MEDIA:/home/node/.openclaw/workspace/865621.jpg"],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
+  });
+
+  it("uses generated media urls while content still has a pending MEDIA sentinel", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "MEDIA:",
+          mediaUrls: ["/home/node/.openclaw/workspace/865621.jpg"],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.queryByRole("status", { name: /loading preview/i })).not.toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
+  });
+
+  it("extracts inline MEDIA workspace paths before markdown rendering", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Generated: MEDIA:/home/node/.openclaw/workspace/865621.jpg",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(screen.getByText("Generated:")).toBeInTheDocument();
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
+  });
+
+  it("suppresses incomplete MEDIA sentinel text while generated media is streaming", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "Working on it.\nMEDIA:",
+        }}
+        isStreaming
+      />,
+    );
+
+    expect(screen.getByLabelText("streaming")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /loading preview/i })).toBeInTheDocument();
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+  });
+
+  it("does not leave an incomplete MEDIA sentinel stuck after streaming ends", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "MEDIA:",
+        }}
+      />,
+    );
+
+    expect(screen.queryByRole("status", { name: /loading preview/i })).not.toBeInTheDocument();
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+  });
+
+  it("does not show MEDIA text while generated media is loading", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Generated image:\nMEDIA:/home/node/.openclaw/workspace/865621.jpg",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
+  });
+
+  it("renders streamed markdown MEDIA images as generated media instead of alt text", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "![MEDIA](/home/node/.openclaw/workspace/865621.jpg)",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expect(screen.queryByText(/^media$/i)).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /view media/i })).not.toBeInTheDocument();
+  });
+
+  it("suppresses incomplete markdown MEDIA image syntax while streaming", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "![MEDIA](",
+        }}
+        isStreaming
+      />,
+    );
+
+    expect(screen.getByLabelText("streaming")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /loading preview/i })).toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA/i)).not.toBeInTheDocument();
+  });
+
+  it("renders home MEDIA paths as generated media instead of hiding them", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "MEDIA:/home/865621.jpg",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
+    expect(screen.getByTitle("MEDIA:/home/865621.jpg")).toBeInTheDocument();
+    expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
+  });
+
   it("opens hydrated image previews in an in-chat viewer", async () => {
     vi.mocked(getStoredToken).mockReturnValue("token");
     Object.defineProperty(URL, "createObjectURL", {
@@ -280,6 +598,37 @@ describe("ChatMessageBubble", () => {
     expect(onDownloadFileFromChat).toHaveBeenCalledWith(file);
   });
 
+  it("renders file actions when history file metadata is missing a type", () => {
+    const file = {
+      name: "notes.txt",
+      path: "/home/node/.openclaw/workspace/notes.txt",
+    } as never;
+    const onOpenFileFromChat = vi.fn();
+    const onDownloadFileFromChat = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "user",
+          content: "Use these notes.",
+          files: [file],
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+        onDownloadFileFromChat={onDownloadFileFromChat}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: /open notes\.txt in files/i }));
+    fireEvent.click(screen.getByRole("button", { name: /download notes\.txt/i }));
+
+    expect(onOpenFileFromChat).toHaveBeenCalledWith("/home/node/.openclaw/workspace/notes.txt");
+    expect(onDownloadFileFromChat).toHaveBeenCalledWith({
+      name: "notes.txt",
+      path: "/home/node/.openclaw/workspace/notes.txt",
+      type: "",
+    });
+  });
+
   it("offers open and download actions in hydrated image previews", async () => {
     vi.mocked(getStoredToken).mockReturnValue("token");
     Object.defineProperty(URL, "createObjectURL", {
@@ -317,9 +666,10 @@ describe("ChatMessageBubble", () => {
     expect(await screen.findByAltText("bosquejo.png")).toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: /view bosquejo\.png/i }));
 
-    expect(await screen.findByRole("dialog", { name: /bosquejo\.png/i })).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: /open bosquejo\.png in files/i }));
-    fireEvent.click(screen.getByRole("button", { name: /download bosquejo\.png/i }));
+    const dialog = await screen.findByRole("dialog", { name: /bosquejo\.png/i });
+    expect(dialog).toBeInTheDocument();
+    fireEvent.click(within(dialog).getByRole("button", { name: /open bosquejo\.png in files/i }));
+    fireEvent.click(within(dialog).getByRole("button", { name: /download bosquejo\.png/i }));
 
     expect(onOpenFileFromChat).toHaveBeenCalledWith(file.path);
     await waitFor(() => {

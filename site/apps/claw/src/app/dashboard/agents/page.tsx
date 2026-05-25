@@ -105,6 +105,7 @@ import {
   initialBillingReflectionState,
 } from "@/lib/billing-reflection-machine";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import {
   type AgentStatusChipModel,
   type CenterPanel,
@@ -625,7 +626,7 @@ function UpgradePlanCatalogModal({
 }
 
 function normalizeAgentFilePath(path: string): string {
-  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalizeOpenClawWorkspaceFilePath(path);
 }
 
 function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {

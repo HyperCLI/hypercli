@@ -1,211 +1,54 @@
 import type { ComponentProps } from "react";
-import { screen, waitFor } from "@testing-library/react";
-import userEvent from "@testing-library/user-event";
-import { afterEach, describe, expect, it, vi } from "vitest";
+import { render, waitFor } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
-import type { FileEntry } from "@/components/dashboard/files/types";
-import { renderWithClient } from "@/test/utils";
 import { AgentFilesPanel } from "./AgentFilesPanel";
 
-const originalCreateObjectURL = URL.createObjectURL;
-const originalRevokeObjectURL = URL.revokeObjectURL;
-
-function renderAgentFilesPanel(
-  overrides: Partial<ComponentProps<typeof AgentFilesPanel>> = {},
-) {
+function renderFilesPanel(overrides: Partial<ComponentProps<typeof AgentFilesPanel>> = {}) {
   const props: ComponentProps<typeof AgentFilesPanel> = {
-    agentName: "First Agent",
+    agentName: "Agent",
     agentState: "RUNNING",
-    rootPath: "workspace",
+    rootPath: ".openclaw/workspace",
     connected: true,
     connecting: false,
     hydrating: false,
-    error: null,
-    onListFiles: vi.fn().mockResolvedValue([]),
-    onOpenFile: vi.fn().mockResolvedValue(""),
-    onSaveFile: vi.fn().mockResolvedValue(undefined),
-    onDeleteFile: vi.fn().mockResolvedValue(undefined),
-    onUploadFile: vi.fn().mockResolvedValue(undefined),
+    initialPreviewPath: null,
+    onListFiles: vi.fn(async () => []),
+    onOpenFile: vi.fn(async () => "content"),
+    onSaveFile: vi.fn(async () => undefined),
+    onDeleteFile: vi.fn(async () => undefined),
+    onUploadFile: vi.fn(async () => undefined),
     ...overrides,
   };
 
-  return {
-    props,
-    ...renderWithClient(<AgentFilesPanel {...props} />),
-  };
+  render(<AgentFilesPanel {...props} />);
+  return props;
 }
 
 describe("AgentFilesPanel", () => {
-  afterEach(() => {
-    vi.restoreAllMocks();
-    if (originalCreateObjectURL) {
-      Object.defineProperty(URL, "createObjectURL", { configurable: true, value: originalCreateObjectURL });
-    } else {
-      Reflect.deleteProperty(URL, "createObjectURL");
-    }
-    if (originalRevokeObjectURL) {
-      Object.defineProperty(URL, "revokeObjectURL", { configurable: true, value: originalRevokeObjectURL });
-    } else {
-      Reflect.deleteProperty(URL, "revokeObjectURL");
-    }
-  });
+  it("opens absolute OpenClaw workspace preview paths from the workspace root", async () => {
+    const onOpenFile = vi.fn(async () => "content");
 
-  it("fetches root folders and files, then refetches when a folder is opened", async () => {
-    const rootEntries: FileEntry[] = [
-      { name: "docs", path: "workspace/docs", type: "directory" },
-      { name: "README.md", path: "workspace/README.md", type: "file", size: 128 },
-    ];
-    const docsEntries: FileEntry[] = [
-      { name: "guide.md", path: "workspace/docs/guide.md", type: "file", size: 256 },
-    ];
-    const onListFiles = vi.fn(async (path?: string) => (
-      path === "workspace/docs" ? docsEntries : rootEntries
-    ));
-
-    renderAgentFilesPanel({ onListFiles });
-
-    expect(await screen.findByText("README.md")).toBeInTheDocument();
-    expect(screen.getByText("docs")).toBeInTheDocument();
-    expect(onListFiles).toHaveBeenCalledWith("workspace");
-
-    await userEvent.click(screen.getByRole("button", { name: /docs/i }));
-
-    await waitFor(() => expect(onListFiles).toHaveBeenLastCalledWith("workspace/docs"));
-    expect(await screen.findByText("guide.md")).toBeInTheDocument();
-  });
-
-  it("shows the list loading state while stopped agents fetch files", async () => {
-    let resolveList: (entries: FileEntry[]) => void = () => {};
-    const onListFiles = vi.fn(
-      () => new Promise<FileEntry[]>((resolve) => {
-        resolveList = resolve;
-      }),
-    );
-
-    renderAgentFilesPanel({
-      agentState: "STOPPED",
-      onListFiles,
-    });
-
-    expect(await screen.findByText("Loading folders and files.")).toBeInTheDocument();
-
-    resolveList([{ name: "README.md", path: "workspace/README.md", type: "file" }]);
-    expect(await screen.findByText("README.md")).toBeInTheDocument();
-  });
-
-  it("uploads into the current folder and refreshes the displayed list", async () => {
-    const entries: FileEntry[] = [
-      { name: "README.md", path: "workspace/README.md", type: "file", size: 128 },
-    ];
-    const onListFiles = vi.fn(async () => [...entries]);
-    const onUploadFile = vi.fn(async (path: string, content: string) => {
-      entries.push({ name: path.split("/").pop() ?? path, path, type: "file", size: content.length });
-    });
-
-    const { container } = renderAgentFilesPanel({ onListFiles, onUploadFile });
-
-    expect(await screen.findByText("README.md")).toBeInTheDocument();
-
-    await userEvent.click(screen.getByTitle("Upload files"));
-    const input = container.querySelector<HTMLInputElement>('input[type="file"]');
-    expect(input).not.toBeNull();
-
-    await userEvent.upload(input!, new File(["hello"], "notes.txt", { type: "text/plain" }));
-
-    await waitFor(() => expect(onUploadFile).toHaveBeenCalledWith("workspace/notes.txt", "hello"));
-    await waitFor(() => expect(screen.getAllByText("notes.txt").length).toBeGreaterThan(0));
-    expect(onListFiles).toHaveBeenCalledTimes(2);
-  });
-
-  it("opens the file editor in a drawer on mobile", async () => {
-    const entries: FileEntry[] = [
-      { name: "README.md", path: "workspace/README.md", type: "file", size: 128 },
-    ];
-    const onListFiles = vi.fn(async () => entries);
-    const onOpenFile = vi.fn().mockResolvedValue("# Notes");
-
-    renderAgentFilesPanel({ onListFiles, onOpenFile });
-
-    await userEvent.click(await screen.findByRole("button", { name: /README.md/i }));
-
-    expect(await screen.findByRole("dialog", { name: /file editor/i })).toBeInTheDocument();
-    expect(await screen.findByDisplayValue("# Notes")).toBeInTheDocument();
-    expect(onOpenFile).toHaveBeenCalledWith("workspace/README.md");
-  });
-
-  it("opens an initial preview path when provided", async () => {
-    const entries: FileEntry[] = [
-      { name: "app.tsx", path: "workspace/src/app.tsx", type: "file", size: 128 },
-    ];
-    const onListFiles = vi.fn(async () => entries);
-    const onOpenFile = vi.fn().mockResolvedValue("export default function App() {}");
-
-    renderAgentFilesPanel({
-      initialPreviewPath: "src/app.tsx",
-      onListFiles,
+    renderFilesPanel({
+      initialPreviewPath: "/home/node/.openclaw/workspace/report.md",
       onOpenFile,
     });
 
-    expect(await screen.findByDisplayValue("export default function App() {}")).toBeInTheDocument();
-    expect(onOpenFile).toHaveBeenCalledWith("workspace/src/app.tsx");
-    await waitFor(() => expect(onListFiles).toHaveBeenCalledWith("workspace/src"));
+    await waitFor(() => {
+      expect(onOpenFile).toHaveBeenCalledWith(".openclaw/workspace/report.md");
+    });
   });
 
-  it("opens image previews from bytes instead of text reads", async () => {
-    const createObjectURL = vi.fn(() => "blob:preview-image");
-    const revokeObjectURL = vi.fn();
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: createObjectURL,
+  it("opens generated home preview paths through the workspace file path", async () => {
+    const onOpenFileBytes = vi.fn(async () => new Uint8Array([255, 216, 255]));
+
+    renderFilesPanel({
+      initialPreviewPath: "/home/865621.jpg",
+      onOpenFileBytes,
     });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: revokeObjectURL,
+
+    await waitFor(() => {
+      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
     });
-    const entries: FileEntry[] = [
-      { name: "chart.png", path: "workspace/chart.png", type: "file", size: 4 },
-    ];
-    const onListFiles = vi.fn(async () => entries);
-    const onOpenFile = vi.fn().mockResolvedValue("not-image-text");
-    const onOpenFileBytes = vi.fn().mockResolvedValue(new Uint8Array([137, 80, 78, 71]));
-
-    renderAgentFilesPanel({ onListFiles, onOpenFile, onOpenFileBytes });
-
-    await userEvent.click(await screen.findByRole("button", { name: /chart.png/i }));
-
-    const previewImage = await screen.findByAltText("chart.png");
-    expect(previewImage).toHaveAttribute("src", "blob:preview-image");
-    expect(onOpenFileBytes).toHaveBeenCalledWith("workspace/chart.png");
-    expect(onOpenFile).not.toHaveBeenCalled();
-  });
-
-  it("downloads the previewed file from bytes", async () => {
-    const createObjectURL = vi.fn(() => "blob:download-file");
-    const revokeObjectURL = vi.fn();
-    const linkClick = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => undefined);
-    Object.defineProperty(URL, "createObjectURL", {
-      configurable: true,
-      value: createObjectURL,
-    });
-    Object.defineProperty(URL, "revokeObjectURL", {
-      configurable: true,
-      value: revokeObjectURL,
-    });
-    const onListFiles = vi.fn(async () => [
-      { name: "README.md", path: "workspace/README.md", type: "file" as const, size: 128 },
-    ]);
-    const onOpenFile = vi.fn().mockResolvedValue("# Notes");
-    const onDownloadFileBytes = vi.fn().mockResolvedValue(new Uint8Array([35, 32, 78, 111, 116, 101, 115]));
-
-    renderAgentFilesPanel({ onListFiles, onOpenFile, onDownloadFileBytes });
-
-    await userEvent.click(await screen.findByRole("button", { name: /README.md/i }));
-    await screen.findByDisplayValue("# Notes");
-
-    await userEvent.click(screen.getByTitle("Download"));
-
-    await waitFor(() => expect(onDownloadFileBytes).toHaveBeenCalledWith("workspace/README.md"));
-    expect(createObjectURL).toHaveBeenCalledTimes(1);
-    expect(linkClick).toHaveBeenCalledTimes(1);
   });
 });

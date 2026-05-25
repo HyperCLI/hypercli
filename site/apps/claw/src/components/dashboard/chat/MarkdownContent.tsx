@@ -18,6 +18,8 @@ const MARKDOWN_INLINE_CODE_CLASS = "max-w-full break-words rounded bg-background
 const MARKDOWN_PRE_CLASS = "my-2 max-w-full overflow-x-auto rounded-md border border-border bg-background/50 px-3 py-2 font-mono text-xs";
 export const CHAT_MARKDOWN_IMAGE_CLASS = "h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]";
 export const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
+const MARKDOWN_IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
+const MARKDOWN_NON_IMAGE_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
 
 type MarkdownSegment =
   | { type: "markdown"; text: string }
@@ -31,6 +33,29 @@ function mediaFileNameFromUrl(url: string, fallback = "image"): string {
   } catch {
     return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
   }
+}
+
+function isRenderableMarkdownImageSrc(src: string): boolean {
+  const trimmed = src.trim();
+  const normalized = trimmed.replace(/^\/+/, "");
+  if (!trimmed || /^media:/i.test(trimmed)) return false;
+  if (/^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(normalized)) return false;
+  if (/^(?:data:image\/|blob:)/i.test(trimmed)) return true;
+  if (MARKDOWN_IMAGE_EXTENSIONS.test(trimmed)) return true;
+  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return !MARKDOWN_NON_IMAGE_EXTENSIONS.test(trimmed);
+  return false;
+}
+
+function MarkdownMediaUnavailable() {
+  return (
+    <span
+      role="status"
+      aria-label="Media preview unavailable"
+      className="my-2 inline-flex max-w-full rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+    >
+      Preview unavailable
+    </span>
+  );
 }
 
 const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
@@ -71,7 +96,7 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   th: ({ children }) => <th className="border-b border-border px-2 py-1 font-semibold text-foreground">{children}</th>,
   td: ({ children }) => <td className="border-b border-border/60 px-2 py-1 text-text-secondary">{children}</td>,
   img: ({ src, alt }) =>
-    typeof src === "string" && src ? (
+    typeof src === "string" && src && isRenderableMarkdownImageSrc(src) ? (
       <ChatImageViewer
         src={src}
         alt={typeof alt === "string" ? alt : "image"}
@@ -84,7 +109,7 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
         downloadHref={src}
         downloadFileName={mediaFileNameFromUrl(src, typeof alt === "string" ? alt : "image")}
       />
-    ) : null,
+    ) : <MarkdownMediaUnavailable />,
 };
 
 function splitTableRow(line: string): string[] {

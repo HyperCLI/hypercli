@@ -236,6 +236,18 @@ function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
     .filter((message): message is ChatMessage => message !== null);
 }
 
+export async function refreshOpenClawChatMessages(
+  gateway: GatewayClient,
+  preferredAgentId?: string | null,
+): Promise<ChatMessage[]> {
+  const sessionKey = resolveOpenClawSessionKey((preferredAgentId ?? "").trim());
+  try {
+    return normalizeHistoryMessages(await gateway.chatHistory(sessionKey, 200));
+  } catch {
+    return [];
+  }
+}
+
 function resolveGatewayAgentId(agents: Array<Record<string, unknown>>): string {
   const mainAgent = agents.find((agent) => agent.id === CANONICAL_GATEWAY_AGENT_ID)?.id;
   if (typeof mainAgent === "string") return mainAgent;

@@ -1,12 +1,12 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Download, FolderOpen, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
-import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { normalizeOpenClawMediaDisplayPath, normalizeOpenClawMediaFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
@@ -16,6 +16,12 @@ import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboa
 // ── Helpers ──
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
+const IMAGE_URL_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
+const NON_IMAGE_URL_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
+const LOCAL_MEDIA_REFERENCE = /^media:/i;
+const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::\s*(.*))?\s*$/i;
+const CONTENT_MEDIA_MARKDOWN_LINE = /^\s*!\[([^\]]*)\](?:\(([^)]*)\))?\s*$/i;
+const CONTENT_INLINE_MEDIA_REFERENCE = /\bMEDIA:\s*(\S+)/i;
 
 function extractImagePath(tc: { name: string; args: string; result?: string }): string | null {
   try {
@@ -26,12 +32,26 @@ function extractImagePath(tc: { name: string; args: string; result?: string }): 
   return null;
 }
 
-function isImageFileReference(file: { name: string; path: string; type: string }): boolean {
-  return file.type.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name) || IMAGE_EXTENSIONS.test(file.path);
+function isImageFileReference(file: { name?: string; path?: string; type?: string }): boolean {
+  return file.type?.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name ?? "") || IMAGE_EXTENSIONS.test(file.path ?? "");
 }
 
 function fileLabel(file: { name?: string; path?: string }): string {
   return file.name || file.path?.split("/").filter(Boolean).pop() || "file";
+}
+
+function normalizeChatFileReference(file: ChatPendingFile): ChatPendingFile | null {
+  const candidate = file as Partial<ChatPendingFile>;
+  const path = typeof candidate.path === "string" ? candidate.path : "";
+  const name = typeof candidate.name === "string" && candidate.name.trim() ? candidate.name : fileLabel({ path });
+  const type = typeof candidate.type === "string" ? candidate.type : "";
+  if (!path || !name) return null;
+  return { name, path, type };
+}
+
+function findFileForAttachment(files: ChatPendingFile[], fileName: string | undefined): ChatPendingFile | null {
+  if (!fileName) return null;
+  return files.find((file) => file.name === fileName || fileLabel(file) === fileName) ?? null;
 }
 
 function mediaFileNameFromUrl(url: string): string {
@@ -44,20 +64,151 @@ function mediaFileNameFromUrl(url: string): string {
   }
 }
 
+function mediaFileNameFromReference(url: string): string {
+  const rawName = mediaFileNameFromUrl(url);
+  return rawName.replace(/---[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[^.?#]+)$/i, "$1");
+}
+
+function mediaWorkspacePathFromReference(path: string): string {
+  return path.trim().replace(/^MEDIA:\s*/i, "");
+}
+
+function isGeneratedMediaPath(path: string): boolean {
+  return /^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(
+    mediaWorkspacePathFromReference(path).replace(/^\/+/, ""),
+  );
+}
+
+function findFileForMediaReference(files: ChatPendingFile[], url: string): ChatPendingFile | null {
+  const mediaName = mediaFileNameFromReference(url);
+  return files.find((file) => {
+    const label = fileLabel(file);
+    return label === mediaName || file.name === mediaName || mediaName.startsWith(`${label}---`);
+  }) ?? null;
+}
+
+function isRenderableMediaImageUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed || LOCAL_MEDIA_REFERENCE.test(trimmed)) return false;
+  if (/^(?:data:image\/|blob:)/i.test(trimmed)) return true;
+  if (IMAGE_URL_EXTENSIONS.test(trimmed)) return true;
+  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return !NON_IMAGE_URL_EXTENSIONS.test(trimmed);
+  return false;
+}
+
+function inferChatMediaFileType(path: string): string {
+  const extension = path.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
+  switch (extension) {
+    case "bmp": return "image/bmp";
+    case "gif": return "image/gif";
+    case "ico": return "image/x-icon";
+    case "jpeg":
+    case "jpg": return "image/jpeg";
+    case "png": return "image/png";
+    case "svg": return "image/svg+xml";
+    case "webp": return "image/webp";
+    case "pdf": return "application/pdf";
+    case "txt": return "text/plain";
+    default: return "application/octet-stream";
+  }
+}
+
+interface ContentMediaReference {
+  file: ChatPendingFile;
+  displayPath: string;
+}
+
+function generatedMediaFileFromPath(path: string, matchingFile?: ChatPendingFile | null): ContentMediaReference {
+  const displayPath = normalizeOpenClawMediaDisplayPath(path);
+  const filePath = normalizeOpenClawMediaFilePath(matchingFile?.path || path);
+  return {
+    displayPath,
+    file: {
+      name: matchingFile?.name || fileLabel({ path: displayPath }),
+      path: filePath,
+      type: matchingFile?.type || inferChatMediaFileType(filePath),
+    },
+  };
+}
+
+function extractContentMediaReferences(content: string): { content: string; mediaFiles: ContentMediaReference[]; pendingMedia: boolean } {
+  const mediaFiles: ContentMediaReference[] = [];
+  const visibleLines: string[] = [];
+  let pendingMedia = false;
+
+  for (const line of content.replace(/\r\n/g, "\n").split("\n")) {
+    const markdownMediaMatch = line.match(CONTENT_MEDIA_MARKDOWN_LINE);
+    if (markdownMediaMatch && /^MEDIA\b/i.test(markdownMediaMatch[1]?.trim() ?? "")) {
+      const altPath = markdownMediaMatch[1]?.replace(/^MEDIA:?\s*/i, "").trim();
+      const srcPath = markdownMediaMatch[2]?.trim();
+      const path = mediaWorkspacePathFromReference(srcPath || altPath);
+      if (!path) {
+        pendingMedia = true;
+        continue;
+      }
+      if (!isGeneratedMediaPath(path)) {
+        visibleLines.push(line);
+        continue;
+      }
+      mediaFiles.push(generatedMediaFileFromPath(path));
+      continue;
+    }
+
+    if (/^\s*!\[MEDIA\b/i.test(line)) {
+      pendingMedia = true;
+      continue;
+    }
+
+    const match = line.match(CONTENT_MEDIA_REFERENCE_LINE);
+    if (!match) {
+      visibleLines.push(line);
+      continue;
+    }
+
+    const path = mediaWorkspacePathFromReference(match[1] ?? "");
+    if (!path) {
+      pendingMedia = true;
+      continue;
+    }
+    mediaFiles.push(generatedMediaFileFromPath(path));
+  }
+
+  const visibleContent = visibleLines
+    .map((line) => {
+      const inlineMatch = line.match(CONTENT_INLINE_MEDIA_REFERENCE);
+      if (!inlineMatch?.[1]) return line;
+      const path = mediaWorkspacePathFromReference(inlineMatch[1]);
+      if (!path) {
+        pendingMedia = true;
+        return line.replace(/\bMEDIA:?\s*$/i, "").trimEnd();
+      }
+      if (!isGeneratedMediaPath(path)) {
+        return line.replace(/\bMEDIA:?\s*$/i, "").trimEnd();
+      }
+      mediaFiles.push(generatedMediaFileFromPath(path));
+      return line.replace(inlineMatch[0], "").trimEnd();
+    })
+    .join("\n")
+    .trim();
+
+  return { content: visibleContent, mediaFiles, pendingMedia };
+}
+
 interface ChatFileActionsProps {
   file: ChatPendingFile;
   onOpenFile?: (path: string) => void;
   onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
+  className?: string;
 }
 
-function ChatFileActions({ file, onOpenFile, onDownloadFile }: ChatFileActionsProps) {
-  if (!onOpenFile && !onDownloadFile) return null;
+function ChatFileActions({ file, onOpenFile, onDownloadFile, className }: ChatFileActionsProps) {
+  if (!file.path || (!onOpenFile && !onDownloadFile)) return null;
 
   const label = fileLabel(file);
   const buttonClass = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background/60 text-text-muted transition-colors hover:border-[#38D39F]/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]";
 
   return (
-    <span className="ml-1 inline-flex shrink-0 items-center gap-1">
+    <span className={`inline-flex shrink-0 items-center gap-1 ${className ?? "ml-1"}`}>
       {onOpenFile && (
         <button
           type="button"
@@ -81,6 +232,86 @@ function ChatFileActions({ file, onOpenFile, onDownloadFile }: ChatFileActionsPr
         </button>
       )}
     </span>
+  );
+}
+
+interface GeneratedMediaFilePreviewProps {
+  file: ChatPendingFile;
+  displayPath: string;
+  imagePreviewAgentId: string;
+  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  onOpenFile?: (path: string) => void;
+  onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
+}
+
+function GeneratedMediaFilePreview({
+  file,
+  displayPath,
+  imagePreviewAgentId,
+  readFileBytes,
+  onOpenFile,
+  onDownloadFile,
+}: GeneratedMediaFilePreviewProps) {
+  if (isImageFileReference(file) && imagePreviewAgentId) {
+    return (
+      <div className="flex max-w-full flex-col gap-1">
+        <AuthImage
+          file={{ agentId: imagePreviewAgentId, path: file.path }}
+          alt={file.name}
+          className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
+          readFileBytes={readFileBytes}
+          onOpenFile={onOpenFile ? () => onOpenFile(file.path) : undefined}
+          onDownload={onDownloadFile ? () => onDownloadFile(file) : undefined}
+        />
+        <div className="flex max-w-full items-center gap-2">
+          <span className="truncate text-[11px] text-text-muted" title={`MEDIA:${displayPath}`}>{file.name}</span>
+          <ChatFileActions
+            file={file}
+            onOpenFile={onOpenFile}
+            onDownloadFile={onDownloadFile}
+            className=""
+          />
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary">
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate" title={`MEDIA:${displayPath}`}>{file.name}</span>
+      <ChatFileActions
+        file={file}
+        onOpenFile={onOpenFile}
+        onDownloadFile={onDownloadFile}
+      />
+    </div>
+  );
+}
+
+function ChatMediaUnavailable({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      aria-label="Media preview unavailable"
+      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+    >
+      <FileImage className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </div>
+  );
+}
+
+function ChatMediaLoading() {
+  return (
+    <div
+      role="status"
+      aria-label="Loading preview"
+      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+    >
+      <Loader2 className="h-3.5 w-3.5 shrink-0 animate-spin" />
+      <span className="truncate">Preparing preview</span>
+    </div>
   );
 }
 
@@ -753,8 +984,14 @@ export function ChatMessageBubble({
     }
   }
   const effectiveContent = contentIsJson ? "" : message.content;
-  const contentDirectoryListing = !isUser && effectiveContent ? parseDirectoryVisualization(effectiveContent) : null;
-  const messageFiles = message.files ?? [];
+  const extractedContentMedia = !isUser
+    ? extractContentMediaReferences(effectiveContent)
+    : { content: effectiveContent, mediaFiles: [] as ContentMediaReference[], pendingMedia: false };
+  const displayContent = extractedContentMedia.content;
+  const contentDirectoryListing = !isUser && displayContent ? parseDirectoryVisualization(displayContent) : null;
+  const messageFiles = (message.files ?? [])
+    .map(normalizeChatFileReference)
+    .filter((file): file is ChatPendingFile => Boolean(file));
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
   const imagePreviewAgentId = agentId ?? "";
@@ -762,6 +999,21 @@ export function ChatMessageBubble({
   const fileChips = messageFiles.filter((file) => (
     !isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)
   ));
+  const generatedMediaUrlReferences = !isUser
+    ? (message.mediaUrls ?? [])
+      .map((url) => {
+        const mediaPath = mediaWorkspacePathFromReference(url);
+        if (!isGeneratedMediaPath(mediaPath)) return null;
+        return {
+          sourceUrl: url,
+          ...generatedMediaFileFromPath(mediaPath, findFileForMediaReference(messageFiles, url)),
+        };
+      })
+      .filter((entry): entry is ContentMediaReference & { sourceUrl: string } => Boolean(entry))
+    : [];
+  const contentMediaDisplayPaths = new Set(extractedContentMedia.mediaFiles.map(({ displayPath }) => displayPath));
+  const generatedMediaUrlPreviews = generatedMediaUrlReferences.filter(({ displayPath }) => !contentMediaDisplayPaths.has(displayPath));
+  const nonGeneratedMediaUrls = (message.mediaUrls ?? []).filter((url) => !isGeneratedMediaPath(mediaWorkspacePathFromReference(url)));
   const messageColumnClass = isUser
     ? "w-fit max-w-[75%] items-end"
     : "flex-1 items-start";
@@ -855,18 +1107,32 @@ export function ChatMessageBubble({
           <div className="mb-2 flex max-w-full flex-wrap gap-2">
             {message.attachments.map((att, i) => {
               const attachmentSrc = `data:${att.mimeType};base64,${att.content}`;
+              const attachmentFile = findFileForAttachment(messageFiles, att.fileName);
               return (
-                <ChatImageViewer
-                  key={i}
-                  src={attachmentSrc}
-                  alt={att.fileName || "attachment"}
-                  width={240}
-                  height={240}
-                  sizes="(max-width: 640px) 100vw, 240px"
-                  className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
-                  downloadHref={attachmentSrc}
-                  downloadFileName={att.fileName || "attachment"}
-                />
+                <div key={i} className="flex max-w-full flex-col gap-1">
+                  <ChatImageViewer
+                    src={attachmentSrc}
+                    alt={att.fileName || "attachment"}
+                    width={240}
+                    height={240}
+                    sizes="(max-width: 640px) 100vw, 240px"
+                    className="h-auto max-h-[240px] max-w-full rounded-md object-cover sm:max-w-[240px]"
+                    downloadHref={attachmentSrc}
+                    downloadFileName={att.fileName || "attachment"}
+                    onOpenFile={attachmentFile && onOpenFileFromChat ? () => onOpenFileFromChat(attachmentFile.path) : undefined}
+                    onDownload={attachmentFile && onDownloadFileFromChat ? () => onDownloadFileFromChat(attachmentFile) : undefined}
+                    openFileLabel={attachmentFile ? `Open ${fileLabel(attachmentFile)} in files` : undefined}
+                    downloadLabel={`Download ${attachmentFile ? fileLabel(attachmentFile) : att.fileName || "attachment"}`}
+                  />
+                  {attachmentFile && (
+                    <ChatFileActions
+                      file={attachmentFile}
+                      onOpenFile={onOpenFileFromChat}
+                      onDownloadFile={onDownloadFileFromChat}
+                      className="self-start"
+                    />
+                  )}
+                </div>
               );
             })}
           </div>
@@ -877,15 +1143,22 @@ export function ChatMessageBubble({
             {shouldRenderImageFilePreviews && (
               <div className="mb-2 flex max-w-full flex-wrap gap-2">
                 {imageFiles.map((file, i) => (
-                  <AuthImage
-                    key={`${file.path}-${i}`}
-                    file={{ agentId: imagePreviewAgentId, path: file.path }}
-                    alt={file.name || "attachment"}
-                    className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
-                    readFileBytes={onReadFileBytesFromChat}
-                    onOpenFile={onOpenFileFromChat ? () => onOpenFileFromChat(file.path) : undefined}
-                    onDownload={onDownloadFileFromChat ? () => onDownloadFileFromChat(file) : undefined}
-                  />
+                  <div key={`${file.path}-${i}`} className="flex max-w-full flex-col gap-1">
+                    <AuthImage
+                      file={{ agentId: imagePreviewAgentId, path: file.path }}
+                      alt={file.name || "attachment"}
+                      className="h-auto max-h-[240px] max-w-full rounded-md object-contain sm:max-w-[240px]"
+                      readFileBytes={onReadFileBytesFromChat}
+                      onOpenFile={onOpenFileFromChat ? () => onOpenFileFromChat(file.path) : undefined}
+                      onDownload={onDownloadFileFromChat ? () => onDownloadFileFromChat(file) : undefined}
+                    />
+                    <ChatFileActions
+                      file={file}
+                      onOpenFile={onOpenFileFromChat}
+                      onDownloadFile={onDownloadFileFromChat}
+                      className="self-start"
+                    />
+                  </div>
                 ))}
               </div>
             )}
@@ -910,17 +1183,78 @@ export function ChatMessageBubble({
           </>
         )}
 
-        {/* Agent-sent media (URLs) */}
-        {message.mediaUrls && message.mediaUrls.length > 0 && (
+        {extractedContentMedia.mediaFiles.length > 0 && (
           <div className="mb-2 flex max-w-full flex-wrap gap-2">
-            {message.mediaUrls.map((url, i) => {
-              const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
-              if (isImage) {
+            {extractedContentMedia.mediaFiles.map(({ file, displayPath }, i) => (
+              <GeneratedMediaFilePreview
+                key={`${file.path}-${i}`}
+                file={file}
+                displayPath={displayPath}
+                imagePreviewAgentId={imagePreviewAgentId}
+                readFileBytes={onReadFileBytesFromChat}
+                onOpenFile={onOpenFileFromChat}
+                onDownloadFile={onDownloadFileFromChat}
+              />
+            ))}
+          </div>
+        )}
+
+        {generatedMediaUrlPreviews.length > 0 && (
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
+            {generatedMediaUrlPreviews.map(({ file, displayPath, sourceUrl }, i) => (
+              <GeneratedMediaFilePreview
+                key={`${sourceUrl}-${i}`}
+                file={file}
+                displayPath={displayPath}
+                imagePreviewAgentId={imagePreviewAgentId}
+                readFileBytes={onReadFileBytesFromChat}
+                onOpenFile={onOpenFileFromChat}
+                onDownloadFile={onDownloadFileFromChat}
+              />
+            ))}
+          </div>
+        )}
+
+        {isStreaming && extractedContentMedia.pendingMedia && extractedContentMedia.mediaFiles.length === 0 && generatedMediaUrlReferences.length === 0 && (
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
+            <ChatMediaLoading />
+          </div>
+        )}
+
+        {/* Agent-sent media (URLs) */}
+        {nonGeneratedMediaUrls.length > 0 && (
+          <div className="mb-2 flex max-w-full flex-wrap gap-2">
+            {nonGeneratedMediaUrls.map((url, i) => {
+              const matchingFile = findFileForMediaReference(messageFiles, url);
+              if (LOCAL_MEDIA_REFERENCE.test(url)) {
+                if (matchingFile && (isImageFileReference(matchingFile) || hasInlineImageAttachments || shouldRenderImageFilePreviews)) {
+                  return null;
+                }
+                if (matchingFile) {
+                  return (
+                    <div
+                      key={`${url}-${i}`}
+                      className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                    >
+                      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                      <span className="truncate" title={matchingFile.name}>{matchingFile.name}</span>
+                      <ChatFileActions
+                        file={matchingFile}
+                        onOpenFile={onOpenFileFromChat}
+                        onDownloadFile={onDownloadFileFromChat}
+                      />
+                    </div>
+                  );
+                }
+                return <ChatMediaUnavailable key={`${url}-${i}`} label="Preview unavailable" />;
+              }
+              if (isRenderableMediaImageUrl(url)) {
+                const mediaName = mediaFileNameFromUrl(url);
                 return (
                   <ChatImageViewer
                     key={i}
                     src={url}
-                    alt="media"
+                    alt={mediaName}
                     width={320}
                     height={320}
                     sizes="(max-width: 640px) 100vw, 320px"
@@ -932,6 +1266,10 @@ export function ChatMessageBubble({
                 );
               }
               // Non-image media: render as link
+              const label = mediaFileNameFromUrl(url);
+              if (!/^(?:https?:\/\/|\/)/i.test(url)) {
+                return <ChatMediaUnavailable key={`${url}-${i}`} label="Preview unavailable" />;
+              }
               return (
                 <a
                   key={i}
@@ -940,7 +1278,7 @@ export function ChatMessageBubble({
                   rel="noopener noreferrer"
                   className="max-w-full break-words text-xs text-accent hover:underline [overflow-wrap:anywhere]"
                 >
-                  {url.split("/").pop() || "media"}
+                  {label}
                 </a>
               );
             })}
@@ -948,7 +1286,7 @@ export function ChatMessageBubble({
         )}
 
         {/* Content */}
-        {(effectiveContent || showStreamingDot) && (
+        {(displayContent || showStreamingDot) && (
           <div className={`relative w-full min-w-0 max-w-full ${showStreamingDot ? "pb-5" : ""}`}>
             {contentDirectoryListing ? (
               <DirectoryVisualization
@@ -957,9 +1295,9 @@ export function ChatMessageBubble({
                 entries={contentDirectoryListing.entries}
                 truncated={contentDirectoryListing.truncated}
               />
-            ) : effectiveContent && (
+            ) : displayContent && (
               <MarkdownContent
-                content={effectiveContent}
+                content={displayContent}
                 typewriter={isStreaming && !isUser}
                 className="relative"
                 style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}

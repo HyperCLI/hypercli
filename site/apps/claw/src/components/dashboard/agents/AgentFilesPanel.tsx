@@ -24,6 +24,7 @@ import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/ch
 import { isProtectedFile } from "@/lib/protected-files";
 import { downloadFileBytes } from "@/lib/download-file";
 import { writeClipboardText } from "@/lib/browser-clipboard";
+import { normalizeOpenClawMediaFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 
 const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "name", label: "Name" },
@@ -32,7 +33,7 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
 ];
 
 function normalizePanelPath(path: string): string {
-  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalizeOpenClawWorkspaceFilePath(path);
 }
 
 function pathRelativeToRoot(path: string, rootPath: string): string {
@@ -201,7 +202,7 @@ export function AgentFilesPanel({
   }, [onOpenFile, onOpenFileBytes]);
 
   const normalizedInitialPreviewPath = useMemo(
-    () => initialPreviewPath ? normalizePanelPath(initialPreviewPath) : "",
+    () => initialPreviewPath ? normalizeOpenClawMediaFilePath(initialPreviewPath) : "",
     [initialPreviewPath],
   );
 
@@ -211,7 +212,9 @@ export function AgentFilesPanel({
     const fullPath = pathFromRoot(relativePath, normalizedRootPath);
     const nameParts = fullPath.split("/").filter(Boolean);
     const name = nameParts[nameParts.length - 1] ?? fullPath;
-    const parentPath = fullPath.includes("/") ? fullPath.slice(0, fullPath.lastIndexOf("/")) : normalizedRootPath;
+    const parentPath = fullPath.includes("/")
+      ? fullPath.slice(0, fullPath.lastIndexOf("/"))
+      : normalizedRootPath;
     setCurrentPath(parentPath || normalizedRootPath);
     void handleOpenFile({ name, path: fullPath, type: "file" });
   }, [connected, handleOpenFile, normalizedInitialPreviewPath, normalizedRootPath]);

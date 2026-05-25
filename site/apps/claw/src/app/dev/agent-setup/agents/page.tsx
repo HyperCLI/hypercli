@@ -90,6 +90,7 @@ import {
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
@@ -130,7 +131,7 @@ function buildBillingBudget(
 }
 
 function normalizeAgentFilePath(path: string): string {
-  return path.replace(/^\/+/, "").replace(/\/+$/, "");
+  return normalizeOpenClawWorkspaceFilePath(path);
 }
 
 function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
