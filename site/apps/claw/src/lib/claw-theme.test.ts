@@ -31,22 +31,22 @@ describe("claw theme", () => {
   });
 
   it("falls back to default without a stored theme", () => {
-    expect(getClawTheme()).toBe("default");
+    expect(getClawTheme()).toBe("green");
   });
 
-  it("reads a valid stored theme and ignores invalid values", () => {
-    window.localStorage.setItem(CLAW_THEME_STORAGE_KEY, "green");
+  it("always resolves to the green theme regardless of stored values", () => {
+    window.localStorage.setItem(CLAW_THEME_STORAGE_KEY, "purple");
     expect(getClawTheme()).toBe("green");
 
     window.localStorage.setItem(CLAW_THEME_STORAGE_KEY, "blue");
-    expect(getClawTheme()).toBe("default");
+    expect(getClawTheme()).toBe("green");
   });
 
   it("applies the theme to html and body", () => {
     applyClawTheme("purple");
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "purple");
-    expect(document.body).toHaveAttribute("data-theme", "purple");
+    expect(document.documentElement).toHaveAttribute("data-theme", "green");
+    expect(document.body).toHaveAttribute("data-theme", "green");
   });
 
   it("persists, applies, and announces theme changes", () => {
@@ -67,8 +67,8 @@ describe("claw theme", () => {
   it("initializes from the persisted theme", () => {
     window.localStorage.setItem(CLAW_THEME_STORAGE_KEY, "purple");
 
-    expect(initializeClawTheme()).toBe("purple");
-    expect(document.documentElement).toHaveAttribute("data-theme", "purple");
-    expect(document.body).toHaveAttribute("data-theme", "purple");
+    expect(initializeClawTheme()).toBe("green");
+    expect(document.documentElement).toHaveAttribute("data-theme", "green");
+    expect(document.body).toHaveAttribute("data-theme", "green");
   });
 });

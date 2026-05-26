@@ -32,6 +32,43 @@ const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent sessio
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
 
+interface SendMessageOptions {
+  displayContent?: string;
+  files?: ChatPendingFile[];
+}
+
+const VOICE_NOTE_FILE_NAME = /^(?:voice|audio)-[\w.-]+\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i;
+
+function messageFileName(file: ChatPendingFile): string {
+  return file.name || file.path.split("/").filter(Boolean).pop() || "";
+}
+
+function isVoiceNoteInstruction(content: string): boolean {
+  return /^I recorded a voice message\.\s*Run this command to transcribe it:\s*`?hyper\s+voice\s+transcribe\s+\S+\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)`?\s*$/i.test(
+    content.trim(),
+  );
+}
+
+function voiceNoteMessageKey(message: ChatMessage): string | null {
+  if (message.role !== "user") return null;
+  const voiceFile = (message.files ?? []).find((file) => VOICE_NOTE_FILE_NAME.test(messageFileName(file)));
+  if (!voiceFile) return null;
+  const content = message.content.trim();
+  if (content && !isVoiceNoteInstruction(content)) return null;
+  return messageFileName(voiceFile).toLowerCase();
+}
+
+function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
+  const seenVoiceNotes = new Set<string>();
+  return messages.filter((message) => {
+    const key = voiceNoteMessageKey(message);
+    if (!key) return true;
+    if (seenVoiceNotes.has(key)) return false;
+    seenVoiceNotes.add(key);
+    return true;
+  });
+}
+
 function hasSeededE2EConnection(): boolean {
   if (typeof window === "undefined" || !window.navigator.webdriver) return false;
   try {
@@ -145,7 +182,7 @@ export function useOpenClawSession(
 
   useEffect(() => {
     const cachedMessages = readCachedOpenClawChatHistory(agentId);
-    setMessages(cachedMessages);
+    setMessages(dedupeChatMessages(cachedMessages));
   }, [agentId]);
 
   useEffect(() => {
@@ -272,7 +309,7 @@ export function useOpenClawSession(
 
   const refreshMessagesFromHistory = useCallback(async () => {
     if (!gateway) return;
-    const historyMessages = await refreshOpenClawChatMessages(gateway, agentId);
+    const historyMessages = dedupeChatMessages(await refreshOpenClawChatMessages(gateway, agentId));
     if (historyMessages.length === 0) return;
     const currentMessages = messagesRef.current;
     const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
@@ -313,7 +350,7 @@ export function useOpenClawSession(
         setConfigSchema(hydrated.configSchema);
         if (!activeChatSendRef.current) {
           setMessages((currentMessages) => {
-            if (hydrated.messages.length > 0) return hydrated.messages;
+            if (hydrated.messages.length > 0) return dedupeChatMessages(hydrated.messages);
             if (currentMessages.length > 0) return currentMessages;
             return readCachedOpenClawChatHistory(agentId);
           });
@@ -409,19 +446,20 @@ export function useOpenClawSession(
     });
   }, []);
 
-  const sendMessage = useCallback(async (overrideInput?: string) => {
+  const sendMessage = useCallback(async (overrideInput?: string, options: SendMessageOptions = {}) => {
     if (!gateway || !ready) throw new Error("Chat is not ready");
     const nextInput = typeof overrideInput === "string" ? overrideInput : input;
     const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
-    const nextFiles = typeof overrideInput === "string" ? [] : pendingFiles;
+    const nextFiles = options.files ?? (typeof overrideInput === "string" ? [] : pendingFiles);
     const readingAttachments = typeof overrideInput !== "string" && pendingAttachmentReads > 0;
     if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sending || readingAttachments) return;
 
-    const msg = nextInput.trim();
+    const msg = (options.displayContent ?? nextInput).trim();
+    const agentInput = nextInput.trim();
     const attachments = [...nextAttachments];
     const files = [...nextFiles];
     const hiddenFileHeader = files.map((file) => `file: ${file.path}`).join("\n");
-    const agentMessage = hiddenFileHeader ? (msg ? `${hiddenFileHeader}\n\n${msg}` : `${hiddenFileHeader}\n\n`) : msg;
+    const agentMessage = hiddenFileHeader ? (agentInput ? `${hiddenFileHeader}\n\n${agentInput}` : `${hiddenFileHeader}\n\n`) : agentInput;
     setInput("");
     setPendingAttachments([]);
     setPendingFiles([]);
@@ -430,7 +468,7 @@ export function useOpenClawSession(
     const userMsg: ChatMessage = { role: "user", content: msg, timestamp: Date.now() };
     if (attachments.length > 0) userMsg.attachments = attachments;
     if (files.length > 0) userMsg.files = files;
-    setMessages((prev) => [...prev, userMsg]);
+    setMessages((prev) => dedupeChatMessages([...prev, userMsg]));
 
     const preview = msg.slice(0, 80);
     appendActivity({ type: "message", action: "User message sent", detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : "") });

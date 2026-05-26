@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Pause, Play, Wrench } from "lucide-react";
+import { Brain, Check, ChevronDown, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Wrench } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
@@ -9,6 +9,7 @@ import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawMediaDisplayPath, normalizeOpenClawMediaFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
+import { AudioPlayer } from "@/components/dashboard/chat/AudioPlayer";
 import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
 import { DirectoryVisualization, parseDirectoryVisualization } from "@/components/dashboard/chat/DirectoryVisualization";
 import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
@@ -17,6 +18,8 @@ import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboa
 
 const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 const IMAGE_URL_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
+const AUDIO_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i;
+const AUDIO_URL_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)(?:[?#].*)?$/i;
 const NON_IMAGE_URL_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
 const LOCAL_MEDIA_REFERENCE = /^media:/i;
 const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::\s*(.*))?\s*$/i;
@@ -34,6 +37,10 @@ function extractImagePath(tc: { name: string; args: string; result?: string }): 
 
 function isImageFileReference(file: { name?: string; path?: string; type?: string }): boolean {
   return file.type?.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name ?? "") || IMAGE_EXTENSIONS.test(file.path ?? "");
+}
+
+function isAudioFileReference(file: { name?: string; path?: string; type?: string }): boolean {
+  return file.type?.startsWith("audio/") || AUDIO_EXTENSIONS.test(file.name ?? "") || AUDIO_EXTENSIONS.test(file.path ?? "");
 }
 
 function fileLabel(file: { name?: string; path?: string }): string {
@@ -54,13 +61,14 @@ function findFileForAttachment(files: ChatPendingFile[], fileName: string | unde
   return files.find((file) => file.name === fileName || fileLabel(file) === fileName) ?? null;
 }
 
-function mediaFileNameFromUrl(url: string): string {
+function mediaFileNameFromUrl(url: string, fallback = "media"): string {
+  if (/^data:/i.test(url.trim())) return fallback;
   try {
     const parsed = new URL(url, "https://hypercli.local");
     const name = parsed.pathname.split("/").filter(Boolean).pop();
-    return name ? decodeURIComponent(name) : "media";
+    return name ? decodeURIComponent(name) : fallback;
   } catch {
-    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || "media";
+    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
   }
 }
 
@@ -96,9 +104,25 @@ function isRenderableMediaImageUrl(url: string): boolean {
   return false;
 }
 
+function isPlayableMediaAudioUrl(url: string): boolean {
+  const trimmed = url.trim();
+  if (!trimmed || LOCAL_MEDIA_REFERENCE.test(trimmed)) return false;
+  return /^(?:data:audio\/|blob:)/i.test(trimmed) || AUDIO_URL_EXTENSIONS.test(trimmed);
+}
+
 function inferChatMediaFileType(path: string): string {
   const extension = path.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
   switch (extension) {
+    case "aac": return "audio/aac";
+    case "flac": return "audio/flac";
+    case "m4a": return "audio/mp4";
+    case "mp3": return "audio/mpeg";
+    case "oga":
+    case "ogg":
+    case "opus": return "audio/ogg";
+    case "wav": return "audio/wav";
+    case "weba":
+    case "webm": return "audio/webm";
     case "bmp": return "image/bmp";
     case "gif": return "image/gif";
     case "ico": return "image/x-icon";
@@ -129,6 +153,57 @@ function generatedMediaFileFromPath(path: string, matchingFile?: ChatPendingFile
       type: matchingFile?.type || inferChatMediaFileType(filePath),
     },
   };
+}
+
+function escapeRegExp(value: string): string {
+  return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function isAudioReplyCarrierText(value: string): boolean {
+  return !value
+    .replace(/\b(?:audio|voice|generated|reply|message|file|saved|created|available|at|here|is|the|your|an|as)\b/gi, "")
+    .replace(/[`"'()[\]{}:;,.!?\-_/\\|]+/g, "")
+    .trim();
+}
+
+function isVoiceNoteTranscriptionInstruction(value: string): boolean {
+  return /^I recorded a voice message\.\s*Run this command to transcribe it:\s*`?hyper\s+voice\s+transcribe\s+\S+\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)`?\s*$/i.test(
+    value.trim(),
+  );
+}
+
+function stripInlineAudioReplyContent(content: string, file: AgentFileReference | null | undefined): string {
+  if (!file?.path) return content;
+
+  const fileName = fileLabel({ path: file.path });
+  const normalizedPath = normalizeOpenClawWorkspaceFilePath(file.path);
+  const references = [file.path, normalizedPath, fileName]
+    .map((value) => value.trim())
+    .filter(Boolean);
+  if (references.length === 0) return content;
+
+  const referenceSource = references.map(escapeRegExp).join("|");
+  const referencePattern = new RegExp(referenceSource, "gi");
+  const referenceTestPattern = new RegExp(referenceSource, "i");
+  const lines = content.replace(/\r\n/g, "\n").split("\n");
+  const hasAudioReference = lines.some((line) => referenceTestPattern.test(line));
+  if (!hasAudioReference) return content;
+
+  return lines
+    .filter((line) => {
+      const withoutReference = line
+        .replace(referencePattern, "")
+        .replace(/\bMEDIA:?\b/gi, "")
+        .trim();
+      referencePattern.lastIndex = 0;
+      return !isAudioReplyCarrierText(withoutReference);
+    })
+    .join("\n")
+    .trim();
+}
+
+function isSameWorkspaceFilePath(left: string, right: string): boolean {
+  return normalizeOpenClawWorkspaceFilePath(left) === normalizeOpenClawWorkspaceFilePath(right);
 }
 
 function extractContentMediaReferences(content: string): { content: string; mediaFiles: ContentMediaReference[]; pendingMedia: boolean } {
@@ -235,6 +310,43 @@ function ChatFileActions({ file, onOpenFile, onDownloadFile, className }: ChatFi
   );
 }
 
+function ChatAudioFilePreview({
+  file,
+  agentId,
+  readFileBytes,
+  onOpenFile,
+  onDownloadFile,
+}: {
+  file: ChatPendingFile;
+  agentId: string;
+  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  onOpenFile?: (path: string) => void;
+  onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
+}) {
+  const audioState = useAgentFileObjectState({ agentId, path: file.path }, readFileBytes);
+
+  return (
+    <div className="flex w-full max-w-[22rem] flex-col gap-1">
+      <AudioPlayer
+        src={audioState.url}
+        title={file.name}
+        loading={audioState.loading}
+        error={audioState.failed}
+        downloadHref={audioState.url ?? undefined}
+        downloadFileName={file.name}
+        downloadLabel={`Download ${file.name}`}
+        onDownload={onDownloadFile ? () => onDownloadFile(file) : undefined}
+      />
+      <ChatFileActions
+        file={file}
+        onOpenFile={onOpenFile}
+        onDownloadFile={undefined}
+        className="self-start"
+      />
+    </div>
+  );
+}
+
 interface GeneratedMediaFilePreviewProps {
   file: ChatPendingFile;
   displayPath: string;
@@ -252,6 +364,38 @@ function GeneratedMediaFilePreview({
   onOpenFile,
   onDownloadFile,
 }: GeneratedMediaFilePreviewProps) {
+  const isAudio = isAudioFileReference(file);
+  const audioState = useAgentFileObjectState(
+    isAudio && imagePreviewAgentId ? { agentId: imagePreviewAgentId, path: file.path } : null,
+    readFileBytes,
+  );
+
+  if (isAudio) {
+    return (
+      <div className="flex w-full max-w-[22rem] flex-col gap-1">
+        <AudioPlayer
+          src={audioState.url}
+          title={file.name}
+          loading={audioState.loading}
+          error={audioState.failed}
+          downloadHref={audioState.url ?? undefined}
+          downloadFileName={file.name}
+          downloadLabel={`Download ${file.name}`}
+          onDownload={onDownloadFile ? () => onDownloadFile(file) : undefined}
+        />
+        <div className="flex max-w-full items-center gap-2">
+          <span className="truncate text-[11px] text-text-muted" title={`MEDIA:${displayPath}`}>{file.name}</span>
+          <ChatFileActions
+            file={file}
+            onOpenFile={onOpenFile}
+            onDownloadFile={undefined}
+            className=""
+          />
+        </div>
+      </div>
+    );
+  }
+
   if (isImageFileReference(file) && imagePreviewAgentId) {
     return (
       <div className="flex max-w-full flex-col gap-1">
@@ -459,13 +603,6 @@ function useAgentFileObjectState(
   }, [fileAgentId, filePath, readFileBytes]);
 
   return { url: failed ? null : blobUrl, loading, failed };
-}
-
-function useAgentFileObjectUrl(
-  file: AgentFileReference | null | undefined,
-  readFileBytes?: (path: string) => Promise<Uint8Array>,
-): string | null {
-  return useAgentFileObjectState(file, readFileBytes).url;
 }
 
 export function AuthImage({
@@ -923,34 +1060,14 @@ export function ChatMessageBubble({
   onDownloadFileFromChat,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
-  const [inlineAudioPlaying, setInlineAudioPlaying] = useState(false);
-  const inlineAudioRef = useRef<HTMLAudioElement | null>(null);
-  const inlineAudioUrl = useAgentFileObjectUrl(inlineAudioFile, onReadFileBytesFromChat);
-
-  useEffect(() => {
-    if (!inlineAudioUrl) return;
-    const audio = new Audio(inlineAudioUrl);
-    audio.addEventListener("ended", () => setInlineAudioPlaying(false));
-    audio.addEventListener("pause", () => setInlineAudioPlaying(false));
-    audio.addEventListener("play", () => setInlineAudioPlaying(true));
-    inlineAudioRef.current = audio;
-    return () => {
-      audio.pause();
-      audio.src = "";
-      inlineAudioRef.current = null;
-      setInlineAudioPlaying(false);
-    };
-  }, [inlineAudioUrl]);
-
-  const toggleInlineAudio = useCallback(() => {
-    const audio = inlineAudioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      void audio.play();
-      return;
-    }
-    audio.pause();
-  }, []);
+  const messageFiles = (message.files ?? [])
+    .map(normalizeChatFileReference)
+    .filter((file): file is ChatPendingFile => Boolean(file));
+  const inlineAudioAlreadyAttached = Boolean(inlineAudioFile && messageFiles.some((file) => (
+    isAudioFileReference(file) && isSameWorkspaceFilePath(file.path, inlineAudioFile.path)
+  )));
+  const standaloneInlineAudioFile = inlineAudioAlreadyAttached ? null : inlineAudioFile;
+  const inlineAudioState = useAgentFileObjectState(standaloneInlineAudioFile, onReadFileBytesFromChat);
 
   const isUser = message.role === "user";
   const isSystem = message.role === "system";
@@ -983,21 +1100,22 @@ export function ChatMessageBubble({
       }
     }
   }
-  const effectiveContent = contentIsJson ? "" : message.content;
+  const rawEffectiveContent = contentIsJson ? "" : message.content;
+  const effectiveContent = !isUser && inlineAudioFile
+    ? stripInlineAudioReplyContent(rawEffectiveContent, inlineAudioFile)
+    : rawEffectiveContent;
   const extractedContentMedia = !isUser
     ? extractContentMediaReferences(effectiveContent)
     : { content: effectiveContent, mediaFiles: [] as ContentMediaReference[], pendingMedia: false };
-  const displayContent = extractedContentMedia.content;
-  const contentDirectoryListing = !isUser && displayContent ? parseDirectoryVisualization(displayContent) : null;
-  const messageFiles = (message.files ?? [])
-    .map(normalizeChatFileReference)
-    .filter((file): file is ChatPendingFile => Boolean(file));
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
+  const audioFiles = messageFiles.filter(isAudioFileReference);
   const imagePreviewAgentId = agentId ?? "";
   const shouldRenderImageFilePreviews = Boolean(imagePreviewAgentId && imageFiles.length > 0 && !hasInlineImageAttachments);
+  const shouldRenderAudioFilePreviews = Boolean(imagePreviewAgentId && audioFiles.length > 0);
   const fileChips = messageFiles.filter((file) => (
-    !isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)
+    (!isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)) &&
+    (!isAudioFileReference(file) || !shouldRenderAudioFilePreviews)
   ));
   const generatedMediaUrlReferences = !isUser
     ? (message.mediaUrls ?? [])
@@ -1013,7 +1131,28 @@ export function ChatMessageBubble({
     : [];
   const contentMediaDisplayPaths = new Set(extractedContentMedia.mediaFiles.map(({ displayPath }) => displayPath));
   const generatedMediaUrlPreviews = generatedMediaUrlReferences.filter(({ displayPath }) => !contentMediaDisplayPaths.has(displayPath));
+  const inlineAudioRenderedAsGeneratedMedia = Boolean(inlineAudioFile && (
+    inlineAudioAlreadyAttached ||
+    [
+      ...extractedContentMedia.mediaFiles,
+      ...generatedMediaUrlReferences,
+    ].some(({ file }) => isAudioFileReference(file) && isSameWorkspaceFilePath(file.path, inlineAudioFile.path))
+  ));
   const nonGeneratedMediaUrls = (message.mediaUrls ?? []).filter((url) => !isGeneratedMediaPath(mediaWorkspacePathFromReference(url)));
+  const hasAudioPresentation = Boolean(
+    inlineAudioFile ||
+    shouldRenderAudioFilePreviews ||
+    extractedContentMedia.mediaFiles.some(({ file }) => isAudioFileReference(file)) ||
+    generatedMediaUrlReferences.some(({ file }) => isAudioFileReference(file)) ||
+    nonGeneratedMediaUrls.some((url) => isPlayableMediaAudioUrl(url)),
+  );
+  const displayContent = hasAudioPresentation && (
+    (!isUser && isAudioReplyCarrierText(extractedContentMedia.content)) ||
+    (isUser && isVoiceNoteTranscriptionInstruction(extractedContentMedia.content))
+  )
+    ? ""
+    : extractedContentMedia.content;
+  const contentDirectoryListing = !isUser && displayContent ? parseDirectoryVisualization(displayContent) : null;
   const messageColumnClass = isUser
     ? "w-fit max-w-[75%] items-end"
     : "flex-1 items-start";
@@ -1162,6 +1301,20 @@ export function ChatMessageBubble({
                 ))}
               </div>
             )}
+            {shouldRenderAudioFilePreviews && (
+              <div className="mb-2 flex w-full max-w-full flex-wrap gap-2">
+                {audioFiles.map((file, i) => (
+                  <ChatAudioFilePreview
+                    key={`${file.path}-${i}`}
+                    file={file}
+                    agentId={imagePreviewAgentId}
+                    readFileBytes={onReadFileBytesFromChat}
+                    onOpenFile={onOpenFileFromChat}
+                    onDownloadFile={onDownloadFileFromChat}
+                  />
+                ))}
+              </div>
+            )}
             {fileChips.length > 0 && (
               <div className="mb-2 flex max-w-full flex-wrap gap-2">
                 {fileChips.map((file, i) => (
@@ -1227,7 +1380,13 @@ export function ChatMessageBubble({
             {nonGeneratedMediaUrls.map((url, i) => {
               const matchingFile = findFileForMediaReference(messageFiles, url);
               if (LOCAL_MEDIA_REFERENCE.test(url)) {
-                if (matchingFile && (isImageFileReference(matchingFile) || hasInlineImageAttachments || shouldRenderImageFilePreviews)) {
+                if (matchingFile && (
+                  isImageFileReference(matchingFile) ||
+                  isAudioFileReference(matchingFile) ||
+                  hasInlineImageAttachments ||
+                  shouldRenderImageFilePreviews ||
+                  shouldRenderAudioFilePreviews
+                )) {
                   return null;
                 }
                 if (matchingFile) {
@@ -1247,6 +1406,19 @@ export function ChatMessageBubble({
                   );
                 }
                 return <ChatMediaUnavailable key={`${url}-${i}`} label="Preview unavailable" />;
+              }
+              if (isPlayableMediaAudioUrl(url)) {
+                const label = mediaFileNameFromUrl(url, "audio");
+                return (
+                  <AudioPlayer
+                    key={i}
+                    src={url}
+                    title={label}
+                    downloadHref={url}
+                    downloadFileName={label}
+                    downloadLabel={`Download ${label}`}
+                  />
+                );
               }
               if (isRenderableMediaImageUrl(url)) {
                 const mediaName = mediaFileNameFromUrl(url);
@@ -1308,15 +1480,16 @@ export function ChatMessageBubble({
         )}
 
 
-        {inlineAudioUrl && (
-          <button
-            type="button"
-            onClick={toggleInlineAudio}
-            className="mt-2 inline-flex items-center justify-center rounded-md border border-border bg-background/50 p-1.5 text-text-muted hover:text-foreground"
-            title={inlineAudioPlaying ? "Pause voice message" : "Play voice message"}
-          >
-            {inlineAudioPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-          </button>
+        {standaloneInlineAudioFile && !inlineAudioRenderedAsGeneratedMedia && (
+          <AudioPlayer
+            src={inlineAudioState.url}
+            title={fileLabel({ path: standaloneInlineAudioFile.path }) || "Voice message"}
+            loading={inlineAudioState.loading}
+            error={inlineAudioState.failed}
+            downloadHref={inlineAudioState.url ?? undefined}
+            downloadFileName={fileLabel({ path: standaloneInlineAudioFile.path }) || "voice-message.webm"}
+            className="mt-2"
+          />
         )}
 
         {/* Timestamp on hover */}

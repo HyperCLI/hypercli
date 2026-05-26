@@ -1,6 +1,7 @@
 "use client";
 
 import { Paperclip } from "lucide-react";
+import { AudioPlayer } from "./AudioPlayer";
 import { ChatImageViewer } from "./ChatImageViewer";
 import type { ChatAttachment, ChatPendingFile } from "./types";
 
@@ -11,6 +12,7 @@ interface AttachmentSectionProps {
 }
 
 function mediaFileNameFromUrl(url: string, fallback = "media"): string {
+  if (/^data:/i.test(url.trim())) return fallback;
   try {
     const parsed = new URL(url, "https://hypercli.local");
     const name = parsed.pathname.split("/").filter(Boolean).pop();
@@ -18,6 +20,10 @@ function mediaFileNameFromUrl(url: string, fallback = "media"): string {
   } catch {
     return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
   }
+}
+
+function isAudioUrl(url: string): boolean {
+  return /^(?:data:audio\/|blob:)/i.test(url) || /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)(?:[?#].*)?$/i.test(url);
 }
 
 export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentSectionProps) {
@@ -75,6 +81,19 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
                   loading="lazy"
                   downloadHref={url}
                   downloadFileName={mediaFileNameFromUrl(url)}
+                />
+              );
+            }
+            if (isAudioUrl(url)) {
+              const label = mediaFileNameFromUrl(url, "audio");
+              return (
+                <AudioPlayer
+                  key={i}
+                  src={url}
+                  title={label}
+                  downloadHref={url}
+                  downloadFileName={label}
+                  downloadLabel={`Download ${label}`}
                 />
               );
             }

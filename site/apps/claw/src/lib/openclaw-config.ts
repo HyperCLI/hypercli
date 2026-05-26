@@ -76,9 +76,10 @@ export function sortOpenClawEntries(
 
 /** Extract the workspace voice file path from a chat message body. */
 export function extractVoicePathFromMessage(content: string): string | null {
-  const absoluteMatch = content.match(/\/home\/node\/\.openclaw\/workspace\/voice-[\w.-]+\.webm\b/i);
+  const audioFilePattern = String.raw`(?:voice|audio|reply)-[\w.-]+\.(?:aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)`;
+  const absoluteMatch = content.match(new RegExp(String.raw`/home/node/\.openclaw/workspace/${audioFilePattern}\b`, "i"));
   if (absoluteMatch?.[0]) return absoluteMatch[0];
-  const fileMatch = content.match(/\bvoice-[\w.-]+\.webm\b/i);
+  const fileMatch = content.match(new RegExp(String.raw`\b${audioFilePattern}\b`, "i"));
   if (!fileMatch?.[0]) return null;
   return `${OPENCLAW_WORKSPACE_DIR}/${fileMatch[0]}`;
 }

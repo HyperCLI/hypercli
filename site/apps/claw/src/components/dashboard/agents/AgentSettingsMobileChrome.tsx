@@ -3,8 +3,7 @@
 import { AnimatePresence, motion } from "framer-motion";
 import { Bot, MessageSquare, SlidersHorizontal } from "lucide-react";
 
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
-import { ClawThemePicker } from "@/components/ClawThemePicker";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 
 export interface AgentSettingsMobileSection {
   id: string;
@@ -38,11 +37,10 @@ export function AgentSettingsMobileChrome({
     <div className="flex shrink-0 flex-col bg-background">
       <div className="relative flex shrink-0 items-center justify-between border-b border-border px-4 py-4">
         <div className="flex min-w-0 items-center gap-2">
-          <HyperClawLogoLink className="h-[31px] w-[102px] shrink-0" priority />
+          <HyperCLILogoLink className="h-[31px] w-[102px] shrink-0" priority />
           <h1 className="truncate text-base font-medium text-text-muted">Settings</h1>
         </div>
         <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
-          <ClawThemePicker size="sm" />
           <AnimatePresence initial={false}>
             {showBackToChat && onBackToChat && (
               <motion.button

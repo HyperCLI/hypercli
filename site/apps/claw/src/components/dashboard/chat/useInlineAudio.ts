@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
@@ -12,58 +12,57 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
 }
 
 export function useInlineAudio(inlineAudioFile: AgentFileReference | null | undefined) {
-  const [isPlaying, setIsPlaying] = useState(false);
-  const audioRef = useRef<HTMLAudioElement | null>(null);
+  const fileAgentId = inlineAudioFile?.agentId ?? null;
+  const filePath = inlineAudioFile?.path ?? null;
+  const fileKey = fileAgentId && filePath ? `${fileAgentId}:${filePath}` : null;
+  const [state, setState] = useState({
+    key: null as string | null,
+    src: null as string | null,
+    failed: false,
+  });
   const blobUrlRef = useRef<string | null>(null);
 
   useEffect(() => {
-    if (!inlineAudioFile) return;
+    if (blobUrlRef.current) {
+      URL.revokeObjectURL(blobUrlRef.current);
+      blobUrlRef.current = null;
+    }
+
+    if (!fileAgentId || !filePath || !fileKey) return;
     let cancelled = false;
     const token = getStoredToken();
-    if (!token) return;
+    if (!token) {
+      Promise.resolve().then(() => {
+        if (!cancelled) setState({ key: fileKey, src: null, failed: true });
+      });
+      return () => {
+        cancelled = true;
+      };
+    }
 
     createAgentClient(token)
-      .fileReadBytes(inlineAudioFile.agentId, normalizeOpenClawWorkspaceFilePath(inlineAudioFile.path))
+      .fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath))
       .then((bytes) => {
         if (cancelled) return;
         const url = URL.createObjectURL(new Blob([toArrayBuffer(bytes)]));
         blobUrlRef.current = url;
-        const audio = new Audio(url);
-        audio.addEventListener("ended", () => setIsPlaying(false));
-        audio.addEventListener("pause", () => setIsPlaying(false));
-        audio.addEventListener("play", () => setIsPlaying(true));
-        audioRef.current = audio;
+        setState({ key: fileKey, src: url, failed: false });
       })
       .catch(() => {
         if (cancelled) return;
-        setIsPlaying(false);
+        setState({ key: fileKey, src: null, failed: true });
       });
 
     return () => {
       cancelled = true;
-      const audio = audioRef.current;
-      if (audio) {
-        audio.pause();
-        audio.src = "";
-      }
-      audioRef.current = null;
       if (blobUrlRef.current) {
         URL.revokeObjectURL(blobUrlRef.current);
         blobUrlRef.current = null;
       }
-      setIsPlaying(false);
     };
-  }, [inlineAudioFile?.agentId, inlineAudioFile?.path]);
+  }, [fileAgentId, filePath, fileKey]);
 
-  const toggle = useCallback(() => {
-    const audio = audioRef.current;
-    if (!audio) return;
-    if (audio.paused) {
-      void audio.play();
-      return;
-    }
-    audio.pause();
-  }, []);
-
-  return { isPlaying, toggle };
+  if (!fileKey) return { src: null, loading: false, failed: false };
+  if (state.key !== fileKey) return { src: null, loading: true, failed: false };
+  return { src: state.src, loading: false, failed: state.failed };
 }

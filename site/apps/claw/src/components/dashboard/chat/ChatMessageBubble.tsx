@@ -2,12 +2,12 @@
 
 import { useState } from "react";
 import { motion } from "framer-motion";
-import { Pause, Play } from "lucide-react";
 
 import type { ChatMessageProps } from "./types";
 import { getEntranceProps, getBubbleClasses } from "./bubbleStyles";
 import { useTypewriter } from "./useTypewriter";
 import { useInlineAudio } from "./useInlineAudio";
+import { AudioPlayer } from "./AudioPlayer";
 import { MessageName } from "./MessageName";
 import { ToolCallBlock } from "./ToolCallBlock";
 import { shouldStackToolCalls, ToolCallStack } from "./ToolCallStack";
@@ -34,7 +34,7 @@ export function ChatMessageBubble({
   isGroupChat = false,
 }: ChatMessageProps) {
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
-  const { isPlaying: inlineAudioPlaying, toggle: toggleInlineAudio } = useInlineAudio(inlineAudioFile);
+  const inlineAudio = useInlineAudio(inlineAudioFile);
 
   // Suppress content that's a JSON echo of tool results already shown in the tool call UI.
   const hasToolCalls = (message.toolCalls?.length ?? 0) > 0;
@@ -163,14 +163,15 @@ export function ChatMessageBubble({
 
         {/* Audio playback */}
         {inlineAudioFile && (
-          <button
-            type="button"
-            onClick={toggleInlineAudio}
-            className="mt-2 inline-flex items-center justify-center rounded-md border border-border bg-background/50 p-1.5 text-text-muted hover:text-foreground"
-            title={inlineAudioPlaying ? "Pause voice message" : "Play voice message"}
-          >
-            {inlineAudioPlaying ? <Pause className="h-3.5 w-3.5" /> : <Play className="h-3.5 w-3.5" />}
-          </button>
+          <AudioPlayer
+            src={inlineAudio.src}
+            title={inlineAudioFile.path.split("/").filter(Boolean).pop() || "Voice message"}
+            loading={inlineAudio.loading}
+            error={inlineAudio.failed}
+            downloadHref={inlineAudio.src ?? undefined}
+            downloadFileName={inlineAudioFile.path.split("/").filter(Boolean).pop() || "voice-message.webm"}
+            className="mt-2"
+          />
         )}
 
         {/* Timestamp outside bubble */}

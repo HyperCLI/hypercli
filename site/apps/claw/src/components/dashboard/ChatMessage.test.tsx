@@ -386,6 +386,230 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
   });
 
+  it("renders assistant MEDIA audio paths with the chat audio player", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:generated-audio"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Generated audio:\nMEDIA:/home/node/.openclaw/workspace/voice-clip.mp3",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play voice-clip\.mp3/i })).toBeInTheDocument();
+    expect(screen.queryByText("Generated audio:")).not.toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/voice-clip\.mp3/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/voice-clip.mp3");
+    });
+  });
+
+  it("suppresses assistant audio reply carrier text when an inline audio player is shown", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:inline-audio-reply"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([1, 2, 3]));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        inlineAudioFile={{
+          agentId: "agent-123",
+          path: "/home/node/.openclaw/workspace/reply-summary.mp3",
+        }}
+        message={{
+          role: "assistant",
+          content: "Audio reply saved at /home/node/.openclaw/workspace/reply-summary.mp3",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play reply-summary\.mp3/i })).toBeInTheDocument();
+    expect(screen.queryByText(/audio reply/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledWith("/home/node/.openclaw/workspace/reply-summary.mp3");
+    });
+  });
+
+  it("does not duplicate audio players when an inline audio reply is also a MEDIA reference", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        inlineAudioFile={{
+          agentId: "agent-123",
+          path: "/home/node/.openclaw/workspace/reply-summary.mp3",
+        }}
+        message={{
+          role: "assistant",
+          content: "Audio reply:\nMEDIA:/home/node/.openclaw/workspace/reply-summary.mp3",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: /play reply-summary\.mp3/i })).toHaveLength(1);
+    expect(screen.queryByText(/audio reply/i)).not.toBeInTheDocument();
+  });
+
+  it("renders direct audio media urls with playback and download controls", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "Audio reply",
+          mediaUrls: ["https://cdn.example.test/output/final.wav"],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play final\.wav/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /download final\.wav/i })).toHaveAttribute("href", "https://cdn.example.test/output/final.wav");
+    expect(screen.queryByText("https://cdn.example.test/output/final.wav")).not.toBeInTheDocument();
+    expect(screen.queryByText(/audio reply/i)).not.toBeInTheDocument();
+  });
+
+  it("renders base64 audio media urls without showing carrier text", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "Audio reply",
+          mediaUrls: ["data:audio/mpeg;base64,AAAA"],
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play audio/i })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /download audio/i })).toHaveAttribute("href", "data:audio/mpeg;base64,AAAA");
+    expect(screen.queryByText(/audio reply/i)).not.toBeInTheDocument();
+  });
+
+  it("renders workspace audio file attachments with the chat audio player", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:voice-attachment"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([4, 5, 6]));
+    const file = {
+      name: "voice-message.webm",
+      path: "/home/node/.openclaw/workspace/voice-message.webm",
+      type: "audio/webm",
+    };
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "user",
+          content: "Voice note",
+          files: [file],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play voice-message\.webm/i })).toBeInTheDocument();
+    expect(screen.queryByText("voice-message.webm")).toBeInTheDocument();
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledWith(file.path);
+    });
+  });
+
+  it("hides voice-note transcription instructions when the sent audio file is attached", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:sent-voice-note"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([7, 8, 9]));
+    const file = {
+      name: "voice-1779810078334.webm",
+      path: "/home/node/.openclaw/workspace/voice-1779810078334.webm",
+      type: "audio/webm",
+    };
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "user",
+          content: "I recorded a voice message. Run this command to transcribe it:\n`hyper voice transcribe /home/node/.openclaw/workspace/voice-1779810078334.webm`",
+          files: [file],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play voice-1779810078334\.webm/i })).toBeInTheDocument();
+    expect(screen.queryByText(/I recorded a voice message/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/hyper voice transcribe/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledWith(file.path);
+    });
+  });
+
+  it("does not render duplicate inline audio when the voice file is already attached", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:sent-voice-note"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([7, 8, 9]));
+    const file = {
+      name: "voice-1779810078334.webm",
+      path: "/home/node/.openclaw/workspace/voice-1779810078334.webm",
+      type: "audio/webm",
+    };
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        inlineAudioFile={{ agentId: "agent-123", path: file.path }}
+        message={{
+          role: "user",
+          content: "I recorded a voice message. Run this command to transcribe it:\n`hyper voice transcribe /home/node/.openclaw/workspace/voice-1779810078334.webm`",
+          files: [file],
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getAllByRole("button", { name: /play voice-1779810078334\.webm/i })).toHaveLength(1);
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledTimes(1);
+    });
+  });
+
   it("uses generated media urls while content still has a pending MEDIA sentinel", () => {
     const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
 

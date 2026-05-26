@@ -3,8 +3,8 @@ import { ClawHeader } from "@/components/landing/ClawHeader";
 import { ClawFooter } from "@/components/landing/ClawFooter";
 
 export const metadata: Metadata = {
-  title: "Privacy Policy - HyperClaw",
-  description: "HyperClaw Privacy Policy",
+  title: "Privacy Policy - HyperCLI",
+  description: "HyperCLI Privacy Policy",
 };
 
 export default function PrivacyPage() {
@@ -24,7 +24,7 @@ export default function PrivacyPage() {
                 1. Introduction
               </h2>
               <p className="text-text-secondary leading-relaxed">
-                HyperClaw (&quot;HyperClaw&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) provides a platform
+                HyperCLI (&quot;HyperCLI&quot;, &quot;we&quot;, &quot;us&quot;, or &quot;our&quot;) provides a platform
                 for GPU orchestration, AI inference, and related developer tools.
                 This Privacy Policy describes how we collect, use, and protect your
                 information when you use our platform and related services (the
@@ -226,7 +226,7 @@ export default function PrivacyPage() {
               </p>
               <ul className="list-disc list-inside text-text-secondary mt-4 space-y-2">
                 <li>Comply with applicable law or legal process</li>
-                <li>Protect the rights, property, or safety of HyperClaw, our users, or others</li>
+                <li>Protect the rights, property, or safety of HyperCLI, our users, or others</li>
                 <li>Detect, prevent, or address fraud, security, or technical issues</li>
               </ul>
 
@@ -259,7 +259,7 @@ export default function PrivacyPage() {
               </ul>
               <p className="text-text-secondary leading-relaxed mt-4">
                 We do not use advertising cookies, tracking pixels, or third-party
-                analytics services on the HyperClaw platform.
+                analytics services on the HyperCLI platform.
               </p>
             </section>
 

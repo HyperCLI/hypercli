@@ -1,6 +1,6 @@
 export type ClawTheme = "default" | "green" | "purple";
 
-export const DEFAULT_CLAW_THEME: ClawTheme = "default";
+export const DEFAULT_CLAW_THEME: ClawTheme = "green";
 export const CLAW_THEME_STORAGE_KEY = "claw_theme";
 export const CLAW_THEME_COOKIE_NAME = "claw_theme";
 export const CLAW_THEME_CHANGE_EVENT = "claw-theme-change";
@@ -12,43 +12,14 @@ export function isClawTheme(value: unknown): value is ClawTheme {
   return typeof value === "string" && CLAW_THEMES.includes(value as ClawTheme);
 }
 
-function getThemeFromCookie(): ClawTheme | null {
-  if (typeof document === "undefined") return null;
-
-  const value = document.cookie
-    .split("; ")
-    .find((row) => row.startsWith(`${CLAW_THEME_COOKIE_NAME}=`))
-    ?.split("=")[1];
-
-  if (!value) return null;
-
-  try {
-    const decodedValue = decodeURIComponent(value);
-    return isClawTheme(decodedValue) ? decodedValue : null;
-  } catch {
-    return isClawTheme(value) ? value : null;
-  }
-}
-
 function setThemeCookie(theme: ClawTheme): void {
   if (typeof document === "undefined") return;
 
   document.cookie = `${CLAW_THEME_COOKIE_NAME}=${encodeURIComponent(theme)}; path=/; max-age=${COOKIE_MAX_AGE}; SameSite=Lax`;
 }
 
-function getThemeFromStorage(): ClawTheme | null {
-  if (typeof window === "undefined") return null;
-
-  try {
-    const storedTheme = window.localStorage.getItem(CLAW_THEME_STORAGE_KEY);
-    return isClawTheme(storedTheme) ? storedTheme : null;
-  } catch {
-    return null;
-  }
-}
-
 export function getClawTheme(): ClawTheme {
-  return getThemeFromStorage() ?? getThemeFromCookie() ?? DEFAULT_CLAW_THEME;
+  return DEFAULT_CLAW_THEME;
 }
 
 export function getAppliedClawTheme(): ClawTheme {
@@ -63,24 +34,26 @@ export function getAppliedClawTheme(): ClawTheme {
 export function applyClawTheme(theme: ClawTheme): void {
   if (typeof document === "undefined") return;
 
-  document.documentElement.setAttribute("data-theme", theme);
-  document.body?.setAttribute("data-theme", theme);
+  void theme;
+  document.documentElement.setAttribute("data-theme", DEFAULT_CLAW_THEME);
+  document.body?.setAttribute("data-theme", DEFAULT_CLAW_THEME);
 }
 
 export function setClawTheme(theme: ClawTheme): void {
+  void theme;
   if (typeof window !== "undefined") {
     try {
-      window.localStorage.setItem(CLAW_THEME_STORAGE_KEY, theme);
+      window.localStorage.setItem(CLAW_THEME_STORAGE_KEY, DEFAULT_CLAW_THEME);
     } catch {
       // Ignore storage failures; the DOM theme still applies for the session.
     }
   }
 
-  setThemeCookie(theme);
-  applyClawTheme(theme);
+  setThemeCookie(DEFAULT_CLAW_THEME);
+  applyClawTheme(DEFAULT_CLAW_THEME);
 
   if (typeof window !== "undefined") {
-    window.dispatchEvent(new CustomEvent(CLAW_THEME_CHANGE_EVENT, { detail: { theme } }));
+    window.dispatchEvent(new CustomEvent(CLAW_THEME_CHANGE_EVENT, { detail: { theme: DEFAULT_CLAW_THEME } }));
   }
 }
 
@@ -113,7 +86,5 @@ export function subscribeToClawThemeChanges(callback: () => void): () => void {
 }
 
 export function getClawThemeBootstrapScript(): string {
-  const themes = JSON.stringify(CLAW_THEMES);
-
-  return `(function(){try{var key=${JSON.stringify(CLAW_THEME_STORAGE_KEY)};var cookie=${JSON.stringify(CLAW_THEME_COOKIE_NAME)};var fallback=${JSON.stringify(DEFAULT_CLAW_THEME)};var themes=${themes};var allowed=function(value){return themes.indexOf(value)!==-1;};var readCookie=function(){var prefix=cookie+"=";var rows=document.cookie?document.cookie.split("; "):[];for(var i=0;i<rows.length;i++){if(rows[i].indexOf(prefix)===0){try{return decodeURIComponent(rows[i].slice(prefix.length));}catch(e){return rows[i].slice(prefix.length);}}}return null;};var theme=null;try{theme=window.localStorage.getItem(key);}catch(e){}if(!allowed(theme)){theme=readCookie();}if(!allowed(theme)){theme=fallback;}var applyBody=function(){if(document.body){document.body.setAttribute("data-theme",theme);}};document.documentElement.setAttribute("data-theme",theme);applyBody();if(!document.body){document.addEventListener("DOMContentLoaded",applyBody,{once:true});}}catch(e){}})();`;
+  return `(function(){try{var theme=${JSON.stringify(DEFAULT_CLAW_THEME)};var applyBody=function(){if(document.body){document.body.setAttribute("data-theme",theme);}};document.documentElement.setAttribute("data-theme",theme);applyBody();if(!document.body){document.addEventListener("DOMContentLoaded",applyBody,{once:true});}}catch(e){}})();`;
 }

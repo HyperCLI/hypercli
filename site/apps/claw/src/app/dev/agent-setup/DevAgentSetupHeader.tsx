@@ -4,7 +4,7 @@ import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LayoutDashboard } from "lucide-react";
 import { useMemo, useSyncExternalStore } from "react";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 
 const navLinks = [
   { label: "Features", href: "/#features" },
@@ -38,7 +38,7 @@ export function DevAgentSetupHeader() {
   return (
     <header className="fixed left-0 right-0 top-0 z-50 border-b border-border bg-background/80 backdrop-blur-lg">
       <div className="mx-auto flex h-16 max-w-7xl items-center gap-6 px-4 sm:px-6 lg:px-8">
-        <HyperClawLogoLink className="h-[34px] w-[114px]" priority />
+        <HyperCLILogoLink className="h-[34px] w-[114px]" priority />
 
         <nav className="hidden flex-1 items-center justify-center gap-8 md:flex">
           {navLinks.map((link) => {

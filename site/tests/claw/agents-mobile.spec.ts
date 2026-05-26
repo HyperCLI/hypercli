@@ -269,7 +269,16 @@ async function openMobileAgentsDashboard(page: Page): Promise<void> {
     e2eConnected: "1",
     webdriver: true,
   });
-  await expect(page.getByRole("link", { name: /hyperclaw/i })).toBeVisible({ timeout: 20_000 });
+  await expect
+    .poll(
+      async () => {
+        const fullLogoVisible = await page.getByRole("link", { name: /hypercli/i }).isVisible().catch(() => false);
+        const collapsedRailVisible = await page.getByRole("button", { name: /expand sidebar|expand agents sidebar/i }).isVisible().catch(() => false);
+        return fullLogoVisible || collapsedRailVisible;
+      },
+      { timeout: 20_000, intervals: [250, 500, 1_000] }
+    )
+    .toBe(true);
   await page.setViewportSize(MOBILE_VIEWPORT);
   await expect(page.getByRole("button", { name: /open agents sidebar/i })).toBeVisible({ timeout: 20_000 });
   await expectNoHorizontalOverflow(page);

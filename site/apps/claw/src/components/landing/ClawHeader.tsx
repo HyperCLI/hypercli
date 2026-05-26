@@ -8,8 +8,7 @@ import { AnimatePresence, motion } from "framer-motion";
 import { PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
-import { ClawThemePicker } from "@/components/ClawThemePicker";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 
 const navLinks = [
   { label: "Features", href: "#features" },
@@ -92,7 +91,7 @@ export function ClawHeader() {
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center h-16 gap-6">
             {/* Logo */}
-            <HyperClawLogoLink className="h-[34px] w-[114px]" priority />
+            <HyperCLILogoLink className="h-[34px] w-[114px]" priority />
 
             {/* Desktop Nav */}
             <div className="claw-header-desktop flex-1 justify-center">
@@ -114,7 +113,6 @@ export function ClawHeader() {
 
             {/* Desktop Auth */}
             <div className="claw-header-desktop min-w-fit items-center justify-end gap-3">
-              <ClawThemePicker size="sm" />
               {showAuthenticatedNav ? (
                 <div className="flex items-center gap-3">
                   <button
@@ -203,9 +201,8 @@ export function ClawHeader() {
             </div>
 
             {/* Mobile Menu Button */}
-            <ClawThemePicker size="sm" className="claw-header-mobile-toggle ml-auto" />
             <button
-              className="claw-header-mobile-toggle p-2 text-text-secondary hover:text-foreground transition-colors"
+              className="claw-header-mobile-toggle ml-auto p-2 text-text-secondary hover:text-foreground transition-colors"
               onClick={() => setMobileOpen(!mobileOpen)}
             >
               {mobileOpen ? (
@@ -303,7 +300,7 @@ export function ClawHeader() {
       <PrivyLoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
-        title="Welcome to HyperClaw"
+        title="Welcome to HyperCLI"
         description="Please sign in to continue"
         apiBaseUrl={AUTH_BASE_URL}
         tokenStorageKey="claw_auth_token"

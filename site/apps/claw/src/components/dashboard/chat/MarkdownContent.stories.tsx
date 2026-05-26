@@ -33,7 +33,7 @@ Here's how to deploy your agent:
 You'll need the following:
 
 - **Node.js 20+** installed
-- Access to the *HyperClaw dashboard*
+- Access to the *HyperCLI dashboard*
 - A valid API key
 
 ## Steps

@@ -27,7 +27,7 @@ import {
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { Tooltip, TooltipTrigger, TooltipContent } from "@hypercli/shared-ui";
 import { ResourceImage } from "@/components/ResourceImage";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { AgentCardTooltip, type AgentCardTooltipData } from "./modules/AgentCardModule";
 import { QuickAgentCreator } from "./QuickAgentCreator";
 import { QuickChannelCreator } from "./QuickChannelCreator";
@@ -555,7 +555,7 @@ function SidebarHeader({
   return (
     <div className="flex-shrink-0 border-b border-border m-[-1px]">
       <div className="flex items-center justify-between px-3 h-14">
-        <HyperClawLogoLink
+        <HyperCLILogoLink
           className={mobileMode ? "h-[32px] w-[164px]" : "h-[28px] w-[144px]"}
           themeAware
         />

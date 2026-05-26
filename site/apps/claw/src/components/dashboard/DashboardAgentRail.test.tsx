@@ -63,7 +63,7 @@ describe("DashboardAgentRail", () => {
       />,
     );
 
-    expect(screen.getByRole("link", { name: "HyperClaw home" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "HyperCLI home" })).toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Launch agent" })).toBeInTheDocument();
     expect(screen.getByText("My Agents")).toBeInTheDocument();
     expect(screen.getAllByText("Dev Agent").length).toBeGreaterThan(0);

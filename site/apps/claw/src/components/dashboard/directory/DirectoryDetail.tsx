@@ -153,7 +153,7 @@ export function DirectoryDetail({
       return (
         <div className="rounded-xl border border-border bg-surface-low/30 p-4">
           <p className="text-sm text-text-muted">
-            This capability is included with your HyperClaw plan. It activates automatically when needed — no setup required.
+            This capability is included with your HyperCLI plan. It activates automatically when needed — no setup required.
           </p>
           <p className="text-xs text-text-muted mt-2">Uses pooled inference tokens.</p>
         </div>

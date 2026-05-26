@@ -12,7 +12,7 @@ import {
   UserRound,
   type LucideIcon,
 } from "lucide-react";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 
 type SignupState = "idle" | "submitting" | "complete";
 
@@ -47,7 +47,7 @@ export default function DevAgentSetupSignupPage() {
           }}
         >
           <div className="flex items-center justify-between border-b border-white/8 px-5 py-4">
-            <HyperClawLogoLink className="h-[31px] w-[102px]" />
+            <HyperCLILogoLink className="h-[31px] w-[102px]" />
             <nav className="hidden items-center gap-6 text-sm font-medium text-text-tertiary md:flex">
               <span>Features</span>
               <span>Pricing</span>
@@ -97,7 +97,7 @@ export default function DevAgentSetupSignupPage() {
             <div className="mx-auto mb-3 flex h-12 w-12 items-center justify-center rounded-xl bg-primary text-primary-foreground ring-1 ring-white/15">
               <LockKeyhole className="h-5 w-5" />
             </div>
-            <h2 className="text-lg font-semibold text-foreground">Welcome to HyperClaw</h2>
+            <h2 className="text-lg font-semibold text-foreground">Welcome to HyperCLI</h2>
             <p className="mt-1 text-sm text-text-secondary">Use an email and we will open your guided setup.</p>
           </div>
 
@@ -124,7 +124,7 @@ export default function DevAgentSetupSignupPage() {
 
           <div className="mt-5 space-y-2 border-t border-white/8 pt-5 text-xs text-text-tertiary">
             <AuthEvent done={state !== "idle"} label="Email accepted" />
-            <AuthEvent done={state === "complete"} label="HyperClaw session ready" />
+            <AuthEvent done={state === "complete"} label="HyperCLI session ready" />
             <AuthEvent done={state === "complete"} label="Setup is waiting for you" />
           </div>
         </aside>

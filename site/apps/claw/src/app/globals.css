@@ -4,7 +4,7 @@
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";
 
-/* HyperClaw Design System - Default Theme */
+/* HyperCLI Design System - Default Theme */
 :root,
 [data-theme="default"],
 [data-theme="dark"] {
@@ -76,7 +76,7 @@
   --sidebar-ring: rgba(255, 255, 255, 0.2);
 }
 
-/* HyperClaw Design System - Green Theme */
+/* HyperCLI Design System - Green Theme */
 [data-theme="green"] {
   --button-primary: #63e452;
   --button-primary-foreground: #0a0a0b;
@@ -91,7 +91,7 @@
   --selection-background: rgba(99, 228, 82, 0.3);
 }
 
-/* HyperClaw Design System - Purple Theme */
+/* HyperCLI Design System - Purple Theme */
 [data-theme="purple"] {
   --button-primary: #4a20ff;
   --button-primary-foreground: #ffffff;
@@ -106,7 +106,7 @@
   --selection-background: rgba(74, 32, 255, 0.32);
 }
 
-/* HyperClaw Design System - Light Theme */
+/* HyperCLI Design System - Light Theme */
 [data-theme="light"] {
   --font-size: 16px;
   --background: #fafafa;

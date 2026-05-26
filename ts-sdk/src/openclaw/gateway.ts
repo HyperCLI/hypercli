@@ -414,7 +414,7 @@ export function extractGatewayChatMediaUrls(message: unknown): string[] {
   }
   const mediaUrls: string[] = [];
   for (const item of asContentItems(record.content)) {
-    if (item.type !== "image") {
+    if (item.type !== "image" && item.type !== "audio" && item.type !== "input_audio" && item.type !== "output_audio") {
       continue;
     }
     const source = asRecord(item.source);
@@ -429,7 +429,9 @@ export function extractGatewayChatMediaUrls(message: unknown): string[] {
       const mimeType =
         typeof source.media_type === "string" && source.media_type.trim()
           ? source.media_type.trim()
-          : "image/png";
+          : item.type === "image"
+            ? "image/png"
+            : "audio/mpeg";
       mediaUrls.push(`data:${mimeType};base64,${source.data}`);
     }
   }

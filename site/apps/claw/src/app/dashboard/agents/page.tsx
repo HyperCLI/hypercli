@@ -45,7 +45,6 @@ import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
 import { useAgentShellTerminal } from "@/hooks/useAgentShellTerminal";
 import { agentAvatar } from "@/lib/avatar";
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import { ClawThemePicker } from "@/components/ClawThemePicker";
 import { IntegrationsDirectoryPanel } from "@/components/dashboard/integrations";
 import { useDashboardMobileAgentMenu, type AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
 import type { TabId as AgentViewTabId } from "@/components/dashboard/agentViewTypes";
@@ -120,7 +119,7 @@ import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
@@ -2376,10 +2375,9 @@ function AgentsPageContent() {
       const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${filename}`;
       const agentPath = `${OPENCLAW_WORKSPACE_DIR}/${filename}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
+      const voiceFile = { name: filename, path: agentPath, type: audioBlob.type || "audio/webm" };
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
-      // Keep input state in sync and send in one action.
-      chat.setInput(voiceMessage);
-      await chat.sendMessage(voiceMessage);
+      await chat.sendMessage(voiceMessage, { displayContent: "", files: [voiceFile] });
       discardAudio();
     } catch (e) {
       console.error("Audio upload failed:", e);
@@ -2608,11 +2606,10 @@ function AgentsPageContent() {
       {!isDesktopViewport && !useSettingsMobileChrome && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
+            <HyperCLILogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
-            <ClawThemePicker size="sm" />
             <AnimatePresence initial={false}>
               {showMobileChatReturn && (
                 <motion.button

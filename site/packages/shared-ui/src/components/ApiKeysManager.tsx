@@ -51,8 +51,165 @@ export interface ApiKeysManagerProps {
 
 type ManagedApiKey = Awaited<ReturnType<BrowserHyperCLI["keys"]["get"]>>;
 
+function asRecord(value: unknown): Record<string, unknown> | null {
+  return value && typeof value === "object" && !Array.isArray(value)
+    ? value as Record<string, unknown>
+    : null;
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== "string") continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 function normalizeApiUrl(apiBaseUrl: string): string {
-  return apiBaseUrl.trim().replace(/\/+$/, "");
+  const trimmed = apiBaseUrl.trim().replace(/\/+$/, "");
+  if (trimmed === "/api") return "";
+  return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed;
+}
+
+function hasApiKeyResponseFields(record: Record<string, unknown>): boolean {
+  return [
+    "api_key",
+    "apiKey",
+    "key",
+    "secret",
+    "token",
+    "value",
+    "key_id",
+    "keyId",
+    "id",
+  ].some((field) => field in record);
+}
+
+function apiKeyResponseRecord(data: unknown): Record<string, unknown> {
+  const record = asRecord(data);
+  if (!record) return {};
+  if (hasApiKeyResponseFields(record)) return record;
+
+  for (const field of ["data", "api_key", "apiKey", "key"]) {
+    const nested = asRecord(record[field]);
+    if (nested && hasApiKeyResponseFields(nested)) return nested;
+  }
+
+  return record;
+}
+
+function normalizeCreatedApiKey(data: unknown, fallbackName: string, fallbackTags: string[]): ManagedApiKey {
+  const record = apiKeyResponseRecord(data);
+  const tags = Array.isArray(record.tags)
+    ? record.tags.filter((tag): tag is string => typeof tag === "string")
+    : fallbackTags;
+
+  return {
+    keyId: firstString(record.key_id, record.keyId, record.id) ?? "",
+    name: firstString(record.name) ?? fallbackName,
+    tags,
+    apiKey: firstString(record.api_key, record.apiKey, record.key, record.secret, record.token, record.value),
+    apiKeyPreview: firstString(record.api_key_preview, record.apiKeyPreview, record.preview, record.masked_key, record.maskedKey),
+    last4: firstString(record.last4, record.last_4),
+    isActive: record.is_active === false || record.isActive === false || record.active === false ? false : true,
+    createdAt: firstString(record.created_at, record.createdAt) ?? "",
+    lastUsedAt: firstString(record.last_used_at, record.lastUsedAt),
+  };
+}
+
+async function apiErrorMessage(response: Response): Promise<string> {
+  const fallback = `Failed to create API key (${response.status})`;
+  const responseCopy = response.clone();
+
+  try {
+    const data = await response.json();
+    const record = asRecord(data);
+    return firstString(record?.detail, record?.message, record?.error) ?? fallback;
+  } catch {
+    const text = await responseCopy.text().catch(() => "");
+    return text.trim() || fallback;
+  }
+}
+
+async function createApiKey(
+  apiBaseUrl: string,
+  token: string,
+  name: string,
+  tags: string[]
+): Promise<ManagedApiKey> {
+  const apiRoot = normalizeApiUrl(apiBaseUrl);
+  const response = await fetch(`${apiRoot}/api/keys`, {
+    method: "POST",
+    headers: {
+      Authorization: `Bearer ${token}`,
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ name, tags }),
+  });
+
+  if (!response.ok) {
+    throw new Error(await apiErrorMessage(response));
+  }
+
+  const data = await response.json().catch(() => null);
+  return normalizeCreatedApiKey(data, name, tags);
+}
+
+async function writeClipboardText(text: string): Promise<boolean> {
+  const clipboard = typeof navigator !== "undefined" ? navigator.clipboard : undefined;
+
+  if (clipboard?.writeText) {
+    try {
+      await clipboard.writeText(text);
+      return true;
+    } catch {
+      // Fall back below for browsers or contexts that expose the API but reject writes.
+    }
+  }
+
+  return copyTextWithTextArea(text);
+}
+
+function copyTextWithTextArea(text: string): boolean {
+  if (typeof document === "undefined" || typeof document.execCommand !== "function" || !document.body) {
+    return false;
+  }
+
+  const activeElement = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+  const selection = document.getSelection();
+  const savedRanges: Range[] = [];
+
+  if (selection) {
+    for (let index = 0; index < selection.rangeCount; index += 1) {
+      savedRanges.push(selection.getRangeAt(index).cloneRange());
+    }
+  }
+
+  const textarea = document.createElement("textarea");
+  textarea.value = text;
+  textarea.setAttribute("readonly", "");
+  textarea.style.position = "fixed";
+  textarea.style.top = "0";
+  textarea.style.left = "-9999px";
+  textarea.style.opacity = "0";
+
+  document.body.appendChild(textarea);
+  textarea.focus();
+  textarea.select();
+
+  try {
+    return document.execCommand("copy");
+  } catch {
+    return false;
+  } finally {
+    document.body.removeChild(textarea);
+    if (selection) {
+      selection.removeAllRanges();
+      savedRanges.forEach((range) => selection.addRange(range));
+    }
+    activeElement?.focus();
+  }
 }
 
 function splitTagInput(raw: string): string[] {
@@ -222,9 +379,9 @@ export function ApiKeysManager({
     setCreating(true);
     setError(null);
     try {
-      const client = await clientFactory();
-      const key = await client.keys.create(newKeyName.trim(), tags);
+      const key = await createApiKey(apiBaseUrl, await getToken(), newKeyName.trim(), tags);
       setCreatedKey(key);
+      setCopied(false);
       setShowCreate(false);
       resetCreateState();
       await fetchKeys();
@@ -273,10 +430,23 @@ export function ApiKeysManager({
   };
 
   const handleCopy = async (text: string) => {
-    await navigator.clipboard.writeText(text);
+    if (!text.trim()) {
+      setError("No API key value is available to copy.");
+      return;
+    }
+
+    const copiedToClipboard = await writeClipboardText(text);
+    if (!copiedToClipboard) {
+      setError("Could not copy the API key. Select the key and copy it manually.");
+      return;
+    }
+
+    setError(null);
     setCopied(true);
     setTimeout(() => setCopied(false), 2000);
   };
+
+  const createdKeySecret = createdKey?.apiKey?.trim() || null;
 
   return (
     <div className={className}>
@@ -320,12 +490,20 @@ export function ApiKeysManager({
             ))}
           </div>
           <div className="flex items-center gap-2">
-            <code className="flex-1 break-all rounded-lg bg-background px-3 py-2 text-sm text-foreground">
-              {createdKey.apiKey}
-            </code>
+            {createdKeySecret ? (
+              <code className="flex-1 select-all break-all rounded-lg bg-background px-3 py-2 text-sm text-foreground">
+                {createdKeySecret}
+              </code>
+            ) : (
+              <div className="flex-1 rounded-lg border border-amber-500/30 bg-background px-3 py-2 text-sm text-amber-200">
+                The key was created, but the secret was not returned. Disable this key and create a new one.
+              </div>
+            )}
             <button
-              onClick={() => createdKey.apiKey && handleCopy(createdKey.apiKey)}
-              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-background"
+              onClick={() => createdKeySecret && handleCopy(createdKeySecret)}
+              disabled={!createdKeySecret}
+              aria-label="Copy API key"
+              className="rounded-lg border border-border px-3 py-2 text-sm text-foreground hover:bg-background disabled:cursor-not-allowed disabled:opacity-50"
             >
               {copied ? <Check className="w-4 h-4" /> : <Copy className="w-4 h-4" />}
             </button>

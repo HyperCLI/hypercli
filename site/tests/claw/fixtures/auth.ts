@@ -1545,6 +1545,10 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     const running = await deployments.waitRunning(created.id, timeout, 5_000);
     expect(running.state).toBe("RUNNING");
 
+    await page.goto(`/dashboard/agents?agentId=${encodeURIComponent(created.id)}`, { waitUntil: "domcontentloaded" });
+    await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
+    await captureStep(page, "agents-11-created-opened");
+
     const composer = page.getByRole("textbox", { name: /Message agent/i }).first();
     await expect(composer).toBeVisible({ timeout: 60_000 });
     await expect(composer).toBeEnabled({ timeout: 60_000 });

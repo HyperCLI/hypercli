@@ -68,7 +68,7 @@ export function ActivateCodeModal({
             <div className="max-w-xl">
               <div className="inline-flex items-center gap-2 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/10 px-4 py-2 text-sm text-[#b7f5df]">
                 <Gift className="h-4 w-4" />
-                Codes apply instantly to the signed-in HyperClaw account.
+                Codes apply instantly to the signed-in HyperCLI account.
               </div>
               <h3 className="mt-6 text-3xl font-semibold leading-tight text-foreground sm:text-4xl">
                 Redeem a grant without leaving the plans page.
@@ -83,7 +83,7 @@ export function ActivateCodeModal({
                 </div>
                 <div className="rounded-2xl border border-white/8 bg-white/4 p-4">
                   <p className="text-sm font-medium text-foreground">Who receives it</p>
-                  <p className="mt-2 text-sm text-text-secondary">The currently signed-in HyperClaw account. Codes are not shared across users or teams after redemption.</p>
+                  <p className="mt-2 text-sm text-text-secondary">The currently signed-in HyperCLI account. Codes are not shared across users or teams after redemption.</p>
                 </div>
               </div>
             </div>

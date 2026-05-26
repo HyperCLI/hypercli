@@ -414,6 +414,48 @@ describe("openclaw chat normalization", () => {
     })).toBeNull();
   });
 
+  it("drops NO_REPLY assistant sentinels from persisted history", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: "NO_REPLY",
+    })).toBeNull();
+  });
+
+  it("drops standalone audio reply carriers from persisted history", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: "Audio reply",
+    })).toBeNull();
+  });
+
+  it("extracts base64 audio content blocks from persisted history", () => {
+    const normalized = normalizeHistoryMessage({
+      role: "assistant",
+      timestamp: 123,
+      content: [
+        {
+          type: "text",
+          text: "Audio reply",
+        },
+        {
+          type: "audio",
+          source: {
+            type: "base64",
+            media_type: "audio/mpeg",
+            data: "AAAA",
+          },
+        },
+      ],
+    });
+
+    expect(normalized).toEqual({
+      role: "assistant",
+      content: "Audio reply",
+      mediaUrls: ["data:audio/mpeg;base64,AAAA"],
+      timestamp: 123,
+    });
+  });
+
   it("drops persisted toolResult records instead of rendering them as assistant messages", () => {
     expect(normalizeHistoryMessage({
       role: "toolResult",
@@ -425,6 +467,19 @@ describe("openclaw chat normalization", () => {
           text: "\n\n(Command exited with code 1)",
         },
       ],
+    })).toBeNull();
+  });
+
+  it("drops async command completion status history messages", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        "System (untrusted): [2026-05-26 15:55:05 UTC] Exec completed (fast-kel, code 0) :: Model: turbo | Device: cpu | Compute: int8",
+        "File: /home/node/.openclaw/workspace/voice-1779810830903.webm (58.8 KB)",
+        "Warning: You are sending unauthenticated requests to the HF Hub.",
+        "",
+        "An async command you ran earlier has completed. The result is shown in the system messages above. Handle the result internally.",
+      ].join("\n"),
     })).toBeNull();
   });
 
@@ -697,6 +752,58 @@ describe("openclaw chat normalization", () => {
       {
         role: "assistant",
         content: "Done.",
+        timestamp: 1,
+      },
+    ]);
+  });
+
+  it("drops live NO_REPLY assistant sentinels", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "NO_REPLY",
+      timestamp: 1,
+    });
+
+    expect(next).toEqual([]);
+  });
+
+  it("drops live standalone audio reply carriers", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "Audio reply",
+      timestamp: 1,
+    });
+
+    expect(next).toEqual([]);
+  });
+
+  it("drops live async command completion status messages", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: [
+        "System (untrusted): [2026-05-26 15:55:05 UTC] Exec completed (fast-kel, code 0) :: Model: turbo",
+        "File: /home/node/.openclaw/workspace/voice-1779810830903.webm (58.8 KB)",
+        "An async command you ran earlier has completed.",
+      ].join("\n"),
+      timestamp: 1,
+    });
+
+    expect(next).toEqual([]);
+  });
+
+  it("keeps live audio reply carriers when audio media is attached", () => {
+    const next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "Audio reply",
+      mediaUrls: ["https://cdn.example.test/reply.wav"],
+      timestamp: 1,
+    });
+
+    expect(next).toEqual([
+      {
+        role: "assistant",
+        content: "Audio reply",
+        mediaUrls: ["https://cdn.example.test/reply.wav"],
         timestamp: 1,
       },
     ]);

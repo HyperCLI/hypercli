@@ -165,6 +165,67 @@ describe("AgentChatPanel", () => {
     }));
   });
 
+  it("passes assistant audio reply files to chat message bubbles", () => {
+    const selectedAgent = buildAgent();
+
+    renderAgentChatPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      chat: buildChat({
+        ready: true,
+        gatewayConnected: true,
+        connected: true,
+        messages: [
+          {
+            role: "assistant",
+            content: "Audio reply saved at /home/node/.openclaw/workspace/reply-summary.mp3",
+          },
+        ],
+      }),
+    });
+
+    const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(bubbleProps).toEqual(expect.objectContaining({
+      inlineAudioFile: {
+        agentId: selectedAgent.id,
+        path: "/home/node/.openclaw/workspace/reply-summary.mp3",
+      },
+    }));
+  });
+
+  it("does not pass duplicate inline audio for sent voice messages with attached files", () => {
+    const selectedAgent = buildAgent();
+    const voicePath = "/home/node/.openclaw/workspace/voice-1779810078334.webm";
+
+    renderAgentChatPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      chat: buildChat({
+        ready: true,
+        gatewayConnected: true,
+        connected: true,
+        messages: [
+          {
+            role: "user",
+            content: `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${voicePath}\``,
+            files: [
+              {
+                name: "voice-1779810078334.webm",
+                path: voicePath,
+                type: "audio/webm",
+              },
+            ],
+          },
+        ],
+      }),
+    });
+
+    const bubbleProps = chatMessageBubbleMock.mock.calls[0]?.[0] as Record<string, unknown> | undefined;
+    expect(bubbleProps).toEqual(expect.objectContaining({
+      inlineAudioFile: null,
+    }));
+  });
+
   it("shows workspace hydration once the gateway transport is connected", () => {
     renderAgentChatPanel({
       chat: buildChat({

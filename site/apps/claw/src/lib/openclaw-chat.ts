@@ -57,14 +57,24 @@ function maybeDecodeMojibake(text: string): string {
 const BINARY_CONTENT_OMITTED_MESSAGE = "[Binary file content omitted from chat preview.]";
 const INTERNAL_TOOL_OUTPUT_OMITTED_MESSAGE = "[Internal tool output hidden from chat.]";
 const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
+  aac: "audio/aac",
   bmp: "image/bmp",
+  flac: "audio/flac",
   gif: "image/gif",
   ico: "image/x-icon",
   jpeg: "image/jpeg",
   jpg: "image/jpeg",
+  m4a: "audio/mp4",
+  mp3: "audio/mpeg",
+  oga: "audio/ogg",
+  ogg: "audio/ogg",
+  opus: "audio/ogg",
   png: "image/png",
   svg: "image/svg+xml",
   webp: "image/webp",
+  wav: "audio/wav",
+  weba: "audio/webm",
+  webm: "audio/webm",
   csv: "text/csv",
   md: "text/markdown",
   pdf: "application/pdf",
@@ -135,6 +145,9 @@ const INTERNAL_HISTORY_CONTENT_TYPES = new Set([
   "tooluse",
   "tool_result",
   "toolresult",
+  "audio",
+  "input_audio",
+  "output_audio",
   "image",
 ]);
 const INTERNAL_TOOL_OUTPUT_CONTENT_TYPES = new Set([
@@ -161,6 +174,11 @@ const INTERNAL_EXECUTION_OUTPUT_MARKERS = [
   /^\s*(?:stdout|stderr|tool output|command output|execution output|raw output)\s*[:\-]/i,
 ];
 const MARKDOWN_HORIZONTAL_RULE = /^\s*[-*_]{3,}\s*$/;
+const INTERNAL_ASYNC_COMMAND_COMPLETION_MARKERS = [
+  /\bSystem\s*\(untrusted\):\s*\[[^\]]+\]\s*Exec completed\b/i,
+  /\bAn async command you ran earlier has completed\b/i,
+  /^\s*Exec completed\s*\([^)]*\bcode\s+\d+\b/i,
+];
 
 function stripTokenWrapper(token: string): string {
   return token
@@ -190,6 +208,11 @@ function isLikelyInternalToolOutputText(text: string): boolean {
 function isInternalExecutionStatusText(text: string): boolean {
   const trimmed = sanitizeChatDisplayText(text).trim();
   return INTERNAL_EXECUTION_STATUS_MARKERS.some((marker) => marker.test(trimmed));
+}
+
+function isInternalAsyncCommandCompletionText(text: string): boolean {
+  const trimmed = sanitizeChatDisplayText(text).trim();
+  return INTERNAL_ASYNC_COMMAND_COMPLETION_MARKERS.some((marker) => marker.test(trimmed));
 }
 
 function isInternalExecutionOutputLine(line: string): boolean {
@@ -228,6 +251,8 @@ function stripInternalAssistantContent(text: string): string {
 }
 
 function hasDisplayableMessageContent(message: ChatMessage): boolean {
+  if (isInternalNoReplyMessage(message)) return false;
+  if (isInternalAudioReplyCarrierMessage(message)) return false;
   return Boolean(
     message.content.trim() ||
     (message.toolCalls?.length ?? 0) > 0 ||
@@ -235,6 +260,34 @@ function hasDisplayableMessageContent(message: ChatMessage): boolean {
     (message.attachments?.length ?? 0) > 0 ||
     (message.files?.length ?? 0) > 0
   );
+}
+
+function isInternalNoReplyText(text: string): boolean {
+  return /^NO_REPLY$/i.test(sanitizeChatDisplayText(text).trim());
+}
+
+function isInternalNoReplyMessage(message: ChatMessage): boolean {
+  return message.role === "assistant" &&
+    isInternalNoReplyText(message.content) &&
+    !message.thinking?.trim() &&
+    (message.toolCalls?.length ?? 0) === 0 &&
+    (message.mediaUrls?.length ?? 0) === 0 &&
+    (message.attachments?.length ?? 0) === 0 &&
+    (message.files?.length ?? 0) === 0;
+}
+
+function isInternalAudioReplyCarrierText(text: string): boolean {
+  return /^audio\s+reply[:.!?]*$/i.test(sanitizeChatDisplayText(text).trim());
+}
+
+function isInternalAudioReplyCarrierMessage(message: ChatMessage): boolean {
+  return message.role === "assistant" &&
+    isInternalAudioReplyCarrierText(message.content) &&
+    !message.thinking?.trim() &&
+    (message.toolCalls?.length ?? 0) === 0 &&
+    (message.mediaUrls?.length ?? 0) === 0 &&
+    (message.attachments?.length ?? 0) === 0 &&
+    (message.files?.length ?? 0) === 0;
 }
 
 function containsInternalHeartbeatMarker(value: unknown): boolean {
@@ -288,6 +341,60 @@ function asRecord(value: unknown): Record<string, unknown> | null {
   return value && typeof value === "object" && !Array.isArray(value)
     ? value as Record<string, unknown>
     : null;
+}
+
+function uniqueStrings(values: string[]): string[] {
+  return Array.from(new Set(values));
+}
+
+function extractAudioDataUrlFromContentItem(item: unknown): string | null {
+  const record = asRecord(item);
+  if (!record) return null;
+
+  const type = typeof record.type === "string" ? record.type.trim().toLowerCase() : "";
+  if (type !== "audio" && type !== "input_audio" && type !== "output_audio") {
+    return null;
+  }
+
+  const directSource = asRecord(record.source);
+  const nestedSource = asRecord(record.audio) ?? asRecord(record.input_audio) ?? asRecord(record.output_audio);
+  const source = directSource ?? nestedSource ?? record;
+  const sourceType = typeof source.type === "string" ? source.type.trim().toLowerCase() : "";
+
+  if (sourceType === "url" && typeof source.url === "string" && source.url.trim()) {
+    return source.url.trim();
+  }
+  if (sourceType && sourceType !== "base64" && sourceType !== "input_audio" && sourceType !== "output_audio") {
+    return null;
+  }
+
+  const data = typeof source.data === "string" ? source.data.trim() : "";
+  if (!data) return null;
+  if (/^data:audio\//i.test(data)) return data;
+
+  const mimeType =
+    (typeof source.media_type === "string" && source.media_type.trim()) ||
+    (typeof source.mime_type === "string" && source.mime_type.trim()) ||
+    (typeof record.media_type === "string" && record.media_type.trim()) ||
+    (typeof record.mime_type === "string" && record.mime_type.trim()) ||
+    "audio/mpeg";
+  return `data:${mimeType};base64,${data}`;
+}
+
+function extractGatewayContentAudioUrls(value: unknown): string[] {
+  if (Array.isArray(value)) {
+    return uniqueStrings(value.flatMap((entry) => extractGatewayContentAudioUrls(entry)));
+  }
+
+  const record = asRecord(value);
+  if (!record) return [];
+
+  const directAudio = extractAudioDataUrlFromContentItem(record);
+  const nestedAudio = extractGatewayContentAudioUrls(record.content);
+  return uniqueStrings([
+    ...(directAudio ? [directAudio] : []),
+    ...nestedAudio,
+  ]);
 }
 
 function isHistoryWrapperLabelText(text: string): boolean {
@@ -553,6 +660,9 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
     userContent.content,
   ).trim();
   const content = role === "assistant" ? stripInternalAssistantContent(rawSanitizedContent) : rawSanitizedContent;
+  if (isInternalAsyncCommandCompletionText(content)) {
+    return null;
+  }
   const historyErrorContent = role === "assistant" && !content ? normalizeHistoryErrorContent(message) : null;
   if (historyErrorContent) {
     return {
@@ -567,7 +677,16 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   if (historyToolCalls?.some((toolCall) => isInternalHeartbeatMessage({ toolCalls: [toolCall] }))) {
     return null;
   }
-  const mediaUrls = normalized?.mediaUrls ?? [];
+  const mediaUrls = uniqueStrings([
+    ...(normalized?.mediaUrls ?? []),
+    ...extractGatewayContentAudioUrls(message),
+  ]);
+  if (role === "assistant" && isInternalNoReplyText(content)) {
+    return null;
+  }
+  if (role === "assistant" && isInternalAudioReplyCarrierText(content) && mediaUrls.length === 0) {
+    return null;
+  }
   if (role === "assistant" && (isLikelyInternalToolOutputText(content) || isInternalExecutionStatusText(content))) {
     return null;
   }
@@ -669,7 +788,12 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
   });
   return {
     role: message.role,
-    content: message.role === "assistant" && (isLikelyInternalToolOutputText(content) || isInternalExecutionStatusText(content)) ? "" : content,
+    content: message.role === "assistant" && (
+      isInternalNoReplyText(content) ||
+      isLikelyInternalToolOutputText(content) ||
+      isInternalAsyncCommandCompletionText(content) ||
+      isInternalExecutionStatusText(content)
+    ) ? "" : content,
     ...(toolCalls && toolCalls.length > 0 ? { toolCalls } : {}),
     ...(message.mediaUrls && message.mediaUrls.length > 0 ? { mediaUrls: message.mediaUrls } : {}),
     ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
@@ -688,6 +812,12 @@ function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): Cha
     const last = prev[prev.length - 1];
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
   }
+  if (isInternalNoReplyMessage(sanitizedIncoming)) {
+    return prev;
+  }
+  if (isInternalAudioReplyCarrierMessage(sanitizedIncoming)) {
+    return prev;
+  }
   if (!hasDisplayableMessageContent(sanitizedIncoming)) {
     return prev;
   }
@@ -698,7 +828,12 @@ function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): Cha
   } else {
     next = [...prev, sanitizedIncoming];
   }
-  return next.filter((message) => !isInternalHeartbeatMessage(message) && hasDisplayableMessageContent(message));
+  return next.filter((message) => (
+    !isInternalHeartbeatMessage(message) &&
+    !isInternalNoReplyMessage(message) &&
+    !isInternalAudioReplyCarrierMessage(message) &&
+    hasDisplayableMessageContent(message)
+  ));
 }
 
 function normalizeLiveToolCall(

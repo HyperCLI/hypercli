@@ -854,6 +854,33 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("normalizes base64 audio content blocks as media urls", () => {
+    const normalized = normalizeGatewayChatMessage({
+      role: "assistant",
+      timestamp: 123,
+      content: [
+        { type: "text", text: "Audio reply" },
+        {
+          type: "audio",
+          source: {
+            type: "base64",
+            media_type: "audio/mpeg",
+            data: "AAAA",
+          },
+        },
+      ],
+    });
+
+    expect(normalized).toEqual({
+      role: "assistant",
+      text: "Audio reply",
+      thinking: "",
+      toolCalls: [],
+      mediaUrls: ["data:audio/mpeg;base64,AAAA"],
+      timestamp: 123,
+    });
+  });
+
   it("chatSend emits thinking and tool events from final structured snapshots", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

@@ -10,7 +10,7 @@ import {
   type ConversationThread,
   type Participant,
 } from "@/components/dashboard/AgentsChannelsSidebar";
-import { HyperClawLogoMark } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
@@ -106,7 +106,7 @@ export function DashboardAgentRail({
               onClick={() => onCollapsedChange(false)}
               className="flex h-8 w-8 items-center justify-center rounded-md text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
             >
-              <HyperClawLogoMark className="h-[17px] w-[17px]" />
+              <HyperCLILogoMark className="h-[17px] w-[17px]" />
             </button>
           </div>
 

@@ -2,6 +2,7 @@
 
 import React from "react";
 import { ArrowRight, Loader2, Mic, Paperclip, Pause, Play, Send, Sparkles, Square, X } from "lucide-react";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { extractVoicePathFromMessage } from "@/lib/openclaw-config";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
@@ -48,6 +49,19 @@ const AUDIO_BAR_WEIGHTS = [
   0.64,
   0.8,
 ] as const;
+
+function fileNameFromPath(path: string): string {
+  return path.split(/[?#]/)[0].split("/").filter(Boolean).pop()?.toLowerCase() ?? "";
+}
+
+function hasMatchingVoiceFile(files: ChatPendingFile[] | undefined, voicePath: string): boolean {
+  const normalizedVoicePath = normalizeOpenClawWorkspaceFilePath(voicePath);
+  const voiceFileName = fileNameFromPath(voicePath);
+  return (files ?? []).some((file) => (
+    normalizeOpenClawWorkspaceFilePath(file.path) === normalizedVoicePath ||
+    Boolean(voiceFileName && file.name.toLowerCase() === voiceFileName)
+  ));
+}
 
 function ChatEmptyStateFrame({ children }: { children: React.ReactNode }) {
   return (
@@ -310,8 +324,10 @@ export function AgentChatPanel({
           )}
 
           {chat.messages.map((msg, i) => {
-            const voicePath = msg.role === "user" ? extractVoicePathFromMessage(msg.content) : null;
-            const inlineAudioFile = voicePath ? { agentId: selectedAgent.id, path: voicePath } : null;
+            const voicePath = extractVoicePathFromMessage(msg.content);
+            const inlineAudioFile = voicePath && !hasMatchingVoiceFile(msg.files, voicePath)
+              ? { agentId: selectedAgent.id, path: voicePath }
+              : null;
             return (
               <ChatMessageBubble
                 key={i}

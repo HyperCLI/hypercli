@@ -100,7 +100,7 @@ import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 
 type MainTab = AgentMainTab;
@@ -1694,10 +1694,9 @@ export default function DevAgentSetupAgentsPage() {
       const uploadPath = `${OPENCLAW_WORKSPACE_PREFIX}/${filename}`;
       const agentPath = `${OPENCLAW_WORKSPACE_DIR}/${filename}`;
       const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${agentPath}\``;
+      const voiceFile = { name: filename, path: agentPath, type: audioBlob.type || "audio/webm" };
       await createAgentClient(token).fileWriteBytes(selectedAgent.id, uploadPath, await audioBlob.arrayBuffer());
-      // Keep input state in sync and send in one action.
-      chat.setInput(voiceMessage);
-      await chat.sendMessage(voiceMessage);
+      await chat.sendMessage(voiceMessage, { displayContent: "", files: [voiceFile] });
       discardAudio();
     } catch (e) {
       console.error("Audio upload failed:", e);
@@ -1822,7 +1821,7 @@ export default function DevAgentSetupAgentsPage() {
       {!isDesktopViewport && (
         <div className="relative flex items-center justify-between px-4 py-4 border-b border-border">
           <div className="flex items-center gap-2">
-            <HyperClawLogoLink className="h-[31px] w-[102px]" priority />
+            <HyperCLILogoLink className="h-[31px] w-[102px]" priority />
             <span className="text-text-muted font-medium">Agents</span>
           </div>
           <button

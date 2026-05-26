@@ -40,7 +40,7 @@ export function isTokenExpired(token: string): boolean {
   return isSharedTokenExpired(token);
 }
 
-// Exchange Privy access token for HyperClaw app JWT
+// Exchange Privy access token for HyperCLI app JWT
 export async function exchangeToken(privyToken: string): Promise<string> {
   return exchangePrivyToken(AUTH_BASE_URL, privyToken, TOKEN_KEY);
 }

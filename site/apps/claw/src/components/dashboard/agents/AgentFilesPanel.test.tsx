@@ -51,4 +51,20 @@ describe("AgentFilesPanel", () => {
       expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/865621.jpg");
     });
   });
+
+  it("opens ZIP previews through the byte reader instead of text read", async () => {
+    const onOpenFile = vi.fn(async () => "text");
+    const onOpenFileBytes = vi.fn(async () => new Uint8Array([80, 75, 5, 6]));
+
+    renderFilesPanel({
+      initialPreviewPath: ".openclaw/workspace/archive.zip",
+      onOpenFile,
+      onOpenFileBytes,
+    });
+
+    await waitFor(() => {
+      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/archive.zip");
+    });
+    expect(onOpenFile).not.toHaveBeenCalled();
+  });
 });

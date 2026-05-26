@@ -12,8 +12,8 @@ vi.mock("@hypercli/shared-ui", () => ({
   TooltipContent: ({ children }: { children: ReactNode }) => <>{children}</>,
 }));
 
-vi.mock("@/components/HyperClawLogoLink", () => ({
-  HyperClawLogoLink: () => <div>HyperClaw</div>,
+vi.mock("@/components/HyperCLILogoLink", () => ({
+  HyperCLILogoLink: () => <div>HyperCLI</div>,
 }));
 
 const agent: Agent = {

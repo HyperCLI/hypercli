@@ -16,7 +16,7 @@ import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashbo
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
-import { HyperClawLogoMark } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
@@ -2019,7 +2019,7 @@ export function AgentList({
                 title="Expand sidebar"
                 className="w-8 h-8 rounded-md flex items-center justify-center text-text-muted hover:text-foreground hover:bg-surface-low transition-colors"
               >
-                <HyperClawLogoMark className="h-[17px] w-[17px]" />
+                <HyperCLILogoMark className="h-[17px] w-[17px]" />
               </button>
             </div>
             <div className="flex flex-1 flex-col items-center gap-3 overflow-y-auto py-3">

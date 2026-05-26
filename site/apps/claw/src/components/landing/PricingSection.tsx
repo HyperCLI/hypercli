@@ -167,7 +167,7 @@ export function PricingSection() {
       <PrivyLoginModal
         isOpen={isLoginModalOpen}
         onClose={() => setIsLoginModalOpen(false)}
-        title="Welcome to HyperClaw"
+        title="Welcome to HyperCLI"
         description="Please sign in to continue"
         apiBaseUrl={AUTH_BASE_URL}
         tokenStorageKey="claw_auth_token"

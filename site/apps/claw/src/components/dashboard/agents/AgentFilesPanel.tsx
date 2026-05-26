@@ -14,7 +14,7 @@ import {
 } from "lucide-react";
 
 import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
-import { FilePreview, isImageFileName } from "@/components/dashboard/files/FilePreview";
+import { FilePreview, isArchiveFileName, isImageFileName } from "@/components/dashboard/files/FilePreview";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
@@ -190,7 +190,7 @@ export function AgentFilesPanel({
     setPreviewLoading(true);
     try {
       setPreviewContent(
-        isImageFileName(entry.name) && onOpenFileBytes
+        (isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes
           ? await onOpenFileBytes(entry.path)
           : await onOpenFile(entry.path),
       );

@@ -52,7 +52,7 @@ const MOCK_READINESS: Record<DirectoryCategory, { active: boolean; label: string
   channels: { active: false, label: "Not connected", detail: "No messaging platforms" },
   tools: { active: true, label: "1 active", detail: "Memory (Core)" },
   skills: { active: true, label: "Available", detail: "App skills directory" },
-  media: { active: true, label: "Available", detail: "Requires HyperClaw balance" },
+  media: { active: true, label: "Available", detail: "Requires HyperCLI balance" },
 };
 
 // ── Category icon map ──
@@ -89,7 +89,7 @@ export function ReadinessSidebar({
     const connectedTools = toolPlugins.filter((p) => isPluginConnected(p.id, config));
 
     return {
-      intelligence: { active: true, label: "Kimi K2.5", detail: "HyperClaw inference active" },
+      intelligence: { active: true, label: "Kimi K2.5", detail: "HyperCLI inference active" },
       web: connectedWeb.length > 0
         ? { active: true, label: `${connectedWeb.length} active`, detail: connectedWeb.map((p) => p.displayName).join(", ") }
         : { active: false, label: "Not configured", detail: "Your agent can\u2019t search the internet" },
@@ -100,7 +100,7 @@ export function ReadinessSidebar({
         ? { active: true, label: `${connectedTools.length} active`, detail: connectedTools.map((p) => p.displayName).join(", ") }
         : { active: false, label: "Minimal", detail: "Browse available tools" },
       skills: { active: true, label: "Available", detail: "App skills directory" },
-      media: { active: true, label: "Available", detail: "Requires HyperClaw balance" },
+      media: { active: true, label: "Available", detail: "Requires HyperCLI balance" },
     } satisfies Record<DirectoryCategory, { active: boolean; label: string; detail: string }>;
   }, [config]);
 

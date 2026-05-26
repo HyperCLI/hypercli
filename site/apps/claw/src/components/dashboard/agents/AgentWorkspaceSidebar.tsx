@@ -23,7 +23,6 @@ import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMe
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
-import { ClawThemePicker } from "@/components/ClawThemePicker";
 import { AgentPlanSummary } from "./AgentPlanSummary";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
@@ -244,7 +243,6 @@ export function AgentWorkspaceSidebar({
           isCollapsed ? "justify-center px-0" : "gap-2 px-4"
         }`}
       >
-        {!isCollapsed && !onClose && <ClawThemePicker menuAlign="start" size="sm" />}
         {!isCollapsed && (
           <div className="min-w-0 flex-1">
             {selectedAgentName ? (

@@ -169,7 +169,7 @@ function renderSettingsSection({
     case "general":
       return (
         <>
-          <SettingsCard title="Account" description="Basic identity for this HyperClaw session.">
+          <SettingsCard title="Account" description="Basic identity for this HyperCLI session.">
             <div className="space-y-3">
               <SettingsInfoRow
                 icon={User}
@@ -194,7 +194,7 @@ function renderSettingsSection({
             <div className="flex flex-col gap-3 rounded-lg border border-[#d05f5f]/20 bg-[#d05f5f]/5 p-4 sm:flex-row sm:items-center sm:justify-between">
               <div>
                 <p className="text-sm font-semibold text-foreground">Sign out</p>
-                <p className="mt-1 text-sm text-text-secondary">End your HyperClaw session on this browser.</p>
+                <p className="mt-1 text-sm text-text-secondary">End your HyperCLI session on this browser.</p>
               </div>
               <button
                 type="button"

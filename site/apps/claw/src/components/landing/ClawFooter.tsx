@@ -1,6 +1,6 @@
 "use client";
 
-import { HyperClawLogoLink } from "@/components/HyperClawLogoLink";
+import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 
 const footerLinks = {
   Product: [
@@ -26,7 +26,7 @@ export function ClawFooter() {
         <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
           {/* Brand */}
           <div className="col-span-2 md:col-span-1">
-            <HyperClawLogoLink className="h-[31px] w-[102px]" />
+            <HyperCLILogoLink className="h-[31px] w-[102px]" />
             <p className="text-sm text-text-muted mt-2 leading-relaxed">
               Unlimited agent inference.
               <br />
@@ -58,7 +58,7 @@ export function ClawFooter() {
 
         <div className="border-t border-border mt-8 pt-8 text-center">
           <p className="text-xs text-text-muted">
-            &copy; {new Date().getFullYear()} HyperClaw. All rights reserved.
+            &copy; {new Date().getFullYear()} HyperCLI. All rights reserved.
           </p>
         </div>
       </div>

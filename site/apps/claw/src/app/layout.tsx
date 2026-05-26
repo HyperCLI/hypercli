@@ -11,7 +11,7 @@ const plusJakartaSans = Plus_Jakarta_Sans({
 });
 
 export const metadata: Metadata = {
-  title: "HyperClaw - Unlimited Agent Inference",
+  title: "HyperCLI - Unlimited Agent Inference",
   description: "Flat-rate, unlimited LLM inference for AI agents. OpenAI-compatible API on NVIDIA B200 GPUs.",
   manifest: "/site.webmanifest",
   icons: {
@@ -30,7 +30,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }>) {
   return (
-    <html lang="en" className="scroll-smooth" data-theme="default" suppressHydrationWarning>
+    <html lang="en" className="scroll-smooth" data-theme="green" suppressHydrationWarning>
       <head>
         <script
           id="claw-theme-bootstrap"
@@ -44,7 +44,7 @@ export default function RootLayout({
       </head>
       <body
         className={`${plusJakartaSans.variable} font-sans antialiased overflow-x-hidden`}
-        data-theme="default"
+        data-theme="green"
         suppressHydrationWarning
       >
         <ClawProviders>

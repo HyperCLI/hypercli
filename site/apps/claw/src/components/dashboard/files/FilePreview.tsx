@@ -12,6 +12,8 @@ import {
   FileText,
   FileImage,
   FileCode,
+  FileArchive,
+  Folder,
   AlertCircle,
   Lock,
 } from "lucide-react";
@@ -19,6 +21,7 @@ import type { FileEntry } from "./types";
 import { formatFileSize } from "./FileRow";
 import { ResourceImage } from "@/components/ResourceImage";
 import { writeClipboardText } from "@/lib/browser-clipboard";
+import { parseZipPreview } from "@/lib/zip-preview";
 
 // ── Types ──
 
@@ -42,6 +45,7 @@ interface FilePreviewProps {
 // ── Helpers ──
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
+const ARCHIVE_EXTENSIONS = new Set(["zip"]);
 const CODE_EXTENSIONS = new Set([
   "ts", "tsx", "js", "jsx", "py", "rs", "go", "rb", "java", "c", "cpp", "h",
   "sh", "bash", "zsh", "css", "scss", "html", "xml", "sql", "graphql",
@@ -56,9 +60,10 @@ function getFileExtension(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
 }
 
-function getPreviewType(name: string): "image" | "code" | "markdown" | "text" | "binary" {
+function getPreviewType(name: string): "image" | "archive" | "code" | "markdown" | "text" | "binary" {
   const ext = getFileExtension(name);
   if (IMAGE_EXTENSIONS.has(ext)) return "image";
+  if (ARCHIVE_EXTENSIONS.has(ext)) return "archive";
   if (CODE_EXTENSIONS.has(ext)) return "code";
   if (MARKDOWN_EXTENSIONS.has(ext)) return "markdown";
   if (ext === "json" || ext === "txt" || ext === "log" || ext === "csv") return "text";
@@ -67,6 +72,10 @@ function getPreviewType(name: string): "image" | "code" | "markdown" | "text" | 
 
 export function isImageFileName(name: string): boolean {
   return IMAGE_EXTENSIONS.has(getFileExtension(name));
+}
+
+export function isArchiveFileName(name: string): boolean {
+  return ARCHIVE_EXTENSIONS.has(getFileExtension(name));
 }
 
 function imageMimeType(name: string): string {
@@ -111,6 +120,7 @@ function useImagePreviewSrc(name: string, content: string | Uint8Array | null): 
 function getPreviewIcon(type: string) {
   switch (type) {
     case "image": return FileImage;
+    case "archive": return FileArchive;
     case "code": return FileCode;
     default: return FileText;
   }
@@ -141,6 +151,14 @@ export function FilePreview({
   const isEditable = previewType === "code" || previewType === "text" || previewType === "markdown";
   const textContent = typeof content === "string" ? content : "";
   const imageSrc = useImagePreviewSrc(entry.name, content);
+  const archivePreview = useMemo(() => {
+    if (previewType !== "archive" || !(content instanceof Uint8Array)) return null;
+    try {
+      return { data: parseZipPreview(content), error: null };
+    } catch (err) {
+      return { data: null, error: err instanceof Error ? err.message : "Could not preview archive." };
+    }
+  }, [content, previewType]);
 
   // Sync content when loaded
   const [lastContent, setLastContent] = useState(content);
@@ -291,6 +309,59 @@ export function FilePreview({
                     </div>
                   )}
                 </div>
+              </div>
+            ) : previewType === "archive" ? (
+              <div className="flex min-h-full flex-col">
+                {archivePreview?.error ? (
+                  <div className="flex flex-col items-center justify-center h-full gap-2 px-6">
+                    <AlertCircle className="w-6 h-6 text-[#d05f5f]" />
+                    <p className="text-xs text-[#d05f5f] text-center">{archivePreview.error}</p>
+                  </div>
+                ) : archivePreview?.data ? (
+                  <>
+                    <div className="flex flex-shrink-0 items-center gap-3 border-b border-border px-3 py-2 text-[11px] text-text-muted">
+                      <span>{archivePreview.data.fileCount.toLocaleString()} files</span>
+                      <span>{archivePreview.data.directoryCount.toLocaleString()} folders</span>
+                      {archivePreview.data.truncated && (
+                        <span>Showing first {archivePreview.data.entries.length.toLocaleString()} of {archivePreview.data.totalEntries.toLocaleString()}</span>
+                      )}
+                    </div>
+                    {archivePreview.data.entries.length > 0 ? (
+                      <div className="divide-y divide-border">
+                        {archivePreview.data.entries.map((archiveEntry, index) => {
+                          const ArchiveEntryIcon = archiveEntry.directory ? Folder : FileText;
+                          return (
+                            <div key={`${archiveEntry.name}-${index}`} className="flex min-w-0 items-center gap-2 px-3 py-2 text-xs">
+                              <ArchiveEntryIcon className="h-3.5 w-3.5 shrink-0 text-text-muted" />
+                              <div className="min-w-0 flex-1">
+                                <p className="truncate font-mono text-foreground" title={archiveEntry.name}>{archiveEntry.name}</p>
+                                {archiveEntry.unsafePath && (
+                                  <p className="mt-0.5 text-[10px] text-[#f0c56c]">Potentially unsafe path</p>
+                                )}
+                              </div>
+                              {!archiveEntry.directory && (
+                                <div className="shrink-0 text-right text-[10px] text-text-muted">
+                                  <p>{formatFileSize(archiveEntry.uncompressedSize)}</p>
+                                  {archiveEntry.compressedSize !== archiveEntry.uncompressedSize && (
+                                    <p>{formatFileSize(archiveEntry.compressedSize)} compressed</p>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          );
+                        })}
+                      </div>
+                    ) : (
+                      <div className="flex h-full items-center justify-center px-6 text-center text-xs text-text-muted">
+                        This archive is empty.
+                      </div>
+                    )}
+                  </>
+                ) : (
+                  <div className="flex h-full items-center justify-center px-6 text-center text-xs text-text-muted">
+                    Archive preview needs file bytes.
+                  </div>
+                )}
               </div>
             ) : isEditable ? (
               <textarea

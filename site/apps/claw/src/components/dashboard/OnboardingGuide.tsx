@@ -33,7 +33,7 @@ export function OnboardingGuide({ onDismiss }: OnboardingGuideProps) {
     >
       <div className="flex items-start justify-between mb-4">
         <div>
-          <h2 className="text-lg font-semibold text-foreground">Get Started with HyperClaw</h2>
+          <h2 className="text-lg font-semibold text-foreground">Get Started with HyperCLI</h2>
           <p className="text-sm text-text-muted mt-1">Choose your path to get up and running.</p>
         </div>
         <button onClick={handleDismiss} className="text-text-muted hover:text-foreground p-1">

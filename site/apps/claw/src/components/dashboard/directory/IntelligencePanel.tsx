@@ -55,9 +55,9 @@ export function IntelligencePanel({ config, onSaveConfig }: IntelligencePanelPro
             <Sparkles className="w-6 h-6 text-[#38D39F]" />
           </div>
           <div className="flex-1">
-            <h3 className="text-lg font-semibold text-foreground">HyperClaw Intelligence</h3>
+            <h3 className="text-lg font-semibold text-foreground">HyperCLI Intelligence</h3>
             <p className="text-sm text-text-muted mt-1">
-              Your agent&apos;s reasoning is powered by HyperClaw&apos;s inference network.
+              Your agent&apos;s reasoning is powered by HyperCLI&apos;s inference network.
             </p>
           </div>
         </div>
@@ -133,7 +133,7 @@ export function IntelligencePanel({ config, onSaveConfig }: IntelligencePanelPro
             className="mt-3 rounded-xl border border-border bg-surface-low/30 p-4"
           >
             <p className="text-sm text-text-muted mb-3">
-              HyperClaw provides all the intelligence your agent needs. Add external providers if you have specific model requirements.
+              HyperCLI provides all the intelligence your agent needs. Add external providers if you have specific model requirements.
             </p>
             <p className="text-xs text-text-muted">
               Configure external providers in the{" "}

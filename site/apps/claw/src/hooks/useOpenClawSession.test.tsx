@@ -191,6 +191,92 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("can send voice-note instructions while showing only the attached audio file", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const voiceFile = {
+      name: "voice-1.webm",
+      path: "/home/node/.openclaw/workspace/voice-1.webm",
+      type: "audio/webm",
+    };
+    const voiceMessage = "I recorded a voice message. Run this command to transcribe it:\n`hyper voice transcribe /home/node/.openclaw/workspace/voice-1.webm`";
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    await act(async () => {
+      await result.current.sendMessage(voiceMessage, { displayContent: "", files: [voiceFile] });
+    });
+
+    expect(gateway.chatSend).toHaveBeenCalledWith(
+      `file: ${voiceFile.path}\n\n${voiceMessage}`,
+      "main",
+      undefined,
+    );
+    expect(result.current.messages[0]).toEqual(expect.objectContaining({
+      role: "user",
+      content: "",
+      files: [voiceFile],
+    }));
+    unmount();
+  });
+
+  it("dedupes refreshed voice-note history and drops async transcription status", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const voicePath = "/home/node/.openclaw/workspace/voice-1779810830903.webm";
+    const voiceMessage = `I recorded a voice message. Run this command to transcribe it:\n\`hyper voice transcribe ${voicePath}\``;
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: `file: ${voicePath}\n\n${voiceMessage}` },
+      { role: "user", content: `file: ${voicePath}\n\n${voiceMessage}` },
+      {
+        role: "assistant",
+        content: [
+          "System (untrusted): [2026-05-26 15:55:05 UTC] Exec completed (fast-kel, code 0) :: Model: turbo",
+          `File: ${voicePath} (58.8 KB)`,
+          "An async command you ran earlier has completed.",
+        ].join("\n"),
+      },
+    ]);
+
+    await act(async () => {
+      await result.current.sendMessage(voiceMessage, {
+        displayContent: "",
+        files: [{ name: "voice-1779810830903.webm", path: voicePath, type: "audio/webm" }],
+      });
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toHaveLength(1);
+      expect(result.current.messages[0]).toEqual(expect.objectContaining({
+        role: "user",
+        files: [{ name: "voice-1779810830903.webm", path: voicePath, type: "audio/webm" }],
+      }));
+    });
+    expect(JSON.stringify(result.current.messages)).not.toContain("Exec completed");
+    unmount();
+  });
+
   it("restores cached browser history when gateway history is empty", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);

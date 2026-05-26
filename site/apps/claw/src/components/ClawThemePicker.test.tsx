@@ -18,18 +18,18 @@ describe("ClawThemePicker", () => {
   it("opens the theme menu and shows all theme choices", () => {
     render(<ClawThemePicker />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Theme: Default" }));
+    fireEvent.click(screen.getByRole("button", { name: "Theme: Green" }));
 
     expect(screen.getByRole("menu", { name: "Theme" })).toBeInTheDocument();
-    expect(screen.getByRole("menuitemradio", { name: /default/i })).toHaveAttribute("aria-checked", "true");
-    expect(screen.getByRole("menuitemradio", { name: /green/i })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("menuitemradio", { name: /default/i })).toHaveAttribute("aria-checked", "false");
+    expect(screen.getByRole("menuitemradio", { name: /green/i })).toHaveAttribute("aria-checked", "true");
     expect(screen.getByRole("menuitemradio", { name: /purple/i })).toHaveAttribute("aria-checked", "false");
   });
 
   it("can align the theme menu from the start edge", () => {
     render(<ClawThemePicker menuAlign="start" />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Theme: Default" }));
+    fireEvent.click(screen.getByRole("button", { name: "Theme: Green" }));
 
     expect(screen.getByRole("menu", { name: "Theme" })).toHaveClass("left-0");
     expect(screen.getByRole("menu", { name: "Theme" })).not.toHaveClass("right-0");
@@ -38,13 +38,13 @@ describe("ClawThemePicker", () => {
   it("selects and persists a theme", () => {
     render(<ClawThemePicker />);
 
-    fireEvent.click(screen.getByRole("button", { name: "Theme: Default" }));
+    fireEvent.click(screen.getByRole("button", { name: "Theme: Green" }));
     fireEvent.click(screen.getByRole("menuitemradio", { name: /purple/i }));
 
-    expect(document.documentElement).toHaveAttribute("data-theme", "purple");
-    expect(document.body).toHaveAttribute("data-theme", "purple");
-    expect(window.localStorage.getItem(CLAW_THEME_STORAGE_KEY)).toBe("purple");
-    expect(screen.getByRole("button", { name: "Theme: Purple" })).toBeInTheDocument();
+    expect(document.documentElement).toHaveAttribute("data-theme", "green");
+    expect(document.body).toHaveAttribute("data-theme", "green");
+    expect(window.localStorage.getItem(CLAW_THEME_STORAGE_KEY)).toBe("green");
+    expect(screen.getByRole("button", { name: "Theme: Green" })).toBeInTheDocument();
     expect(screen.queryByRole("menu", { name: "Theme" })).not.toBeInTheDocument();
   });
 
