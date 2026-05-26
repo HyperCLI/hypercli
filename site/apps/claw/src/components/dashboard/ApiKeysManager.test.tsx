@@ -5,19 +5,23 @@ import { ApiKeysManager } from "../../../../../packages/shared-ui/src/components
 
 const sdkMocks = vi.hoisted(() => ({
   list: vi.fn(),
+  create: vi.fn(),
   disable: vi.fn(),
   rename: vi.fn(),
 }));
 
 vi.mock("@hypercli.com/sdk/browser", () => ({
-  BrowserHyperCLI: vi.fn().mockImplementation(() => ({
+  BrowserHyperCLI: vi.fn(function BrowserHyperCLIMock() {
+    return {
     keys: sdkMocks,
-  })),
+    };
+  }),
 }));
 
 describe("ApiKeysManager", () => {
   beforeEach(() => {
     sdkMocks.list.mockReset();
+    sdkMocks.create.mockReset();
     sdkMocks.disable.mockReset();
     sdkMocks.rename.mockReset();
     sdkMocks.list.mockResolvedValue([]);
@@ -29,25 +33,19 @@ describe("ApiKeysManager", () => {
   });
 
   it("shows and copies the one-time API key returned by the create endpoint", async () => {
-    const fetchMock = vi.fn().mockResolvedValue(
-      new Response(
-        JSON.stringify({
-          key_id: "key-123",
-          name: "team-dev",
-          tags: ["*:*"],
-          key: "hyper_api_live_from_create",
-          is_active: true,
-          created_at: "2026-05-26T00:00:00Z",
-        }),
-        {
-          status: 200,
-          headers: { "Content-Type": "application/json" },
-        },
-      ),
-    );
+    sdkMocks.create.mockResolvedValue({
+      keyId: "key-123",
+      name: "team-dev",
+      tags: ["*:*"],
+      apiKey: "hyper_api_live_from_create",
+      apiKeyPreview: null,
+      last4: null,
+      isActive: true,
+      createdAt: "2026-05-26T00:00:00Z",
+      lastUsedAt: null,
+    });
     const clipboardWrite = vi.fn().mockResolvedValue(undefined);
 
-    vi.stubGlobal("fetch", fetchMock);
     Object.defineProperty(navigator, "clipboard", {
       configurable: true,
       value: { writeText: clipboardWrite },
@@ -70,17 +68,7 @@ describe("ApiKeysManager", () => {
     fireEvent.click(screen.getAllByRole("button", { name: "Create Key" }).at(-1)!);
 
     expect(await screen.findByText("hyper_api_live_from_create")).toBeInTheDocument();
-    expect(fetchMock).toHaveBeenCalledWith(
-      "https://api.dev.hypercli.com/api/keys",
-      expect.objectContaining({
-        method: "POST",
-        headers: expect.objectContaining({
-          Authorization: "Bearer app-token",
-          "Content-Type": "application/json",
-        }),
-        body: JSON.stringify({ name: "team-dev", tags: ["*:*"] }),
-      }),
-    );
+    expect(sdkMocks.create).toHaveBeenCalledWith("team-dev", ["*:*"]);
 
     fireEvent.click(screen.getByRole("button", { name: "Copy API key" }));
 

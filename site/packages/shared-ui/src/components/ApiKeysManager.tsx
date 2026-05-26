@@ -51,109 +51,10 @@ export interface ApiKeysManagerProps {
 
 type ManagedApiKey = Awaited<ReturnType<BrowserHyperCLI["keys"]["get"]>>;
 
-function asRecord(value: unknown): Record<string, unknown> | null {
-  return value && typeof value === "object" && !Array.isArray(value)
-    ? value as Record<string, unknown>
-    : null;
-}
-
-function firstString(...values: unknown[]): string | null {
-  for (const value of values) {
-    if (typeof value !== "string") continue;
-    const trimmed = value.trim();
-    if (trimmed) return trimmed;
-  }
-  return null;
-}
-
 function normalizeApiUrl(apiBaseUrl: string): string {
   const trimmed = apiBaseUrl.trim().replace(/\/+$/, "");
   if (trimmed === "/api") return "";
   return trimmed.endsWith("/api") ? trimmed.slice(0, -4) : trimmed;
-}
-
-function hasApiKeyResponseFields(record: Record<string, unknown>): boolean {
-  return [
-    "api_key",
-    "apiKey",
-    "key",
-    "secret",
-    "token",
-    "value",
-    "key_id",
-    "keyId",
-    "id",
-  ].some((field) => field in record);
-}
-
-function apiKeyResponseRecord(data: unknown): Record<string, unknown> {
-  const record = asRecord(data);
-  if (!record) return {};
-  if (hasApiKeyResponseFields(record)) return record;
-
-  for (const field of ["data", "api_key", "apiKey", "key"]) {
-    const nested = asRecord(record[field]);
-    if (nested && hasApiKeyResponseFields(nested)) return nested;
-  }
-
-  return record;
-}
-
-function normalizeCreatedApiKey(data: unknown, fallbackName: string, fallbackTags: string[]): ManagedApiKey {
-  const record = apiKeyResponseRecord(data);
-  const tags = Array.isArray(record.tags)
-    ? record.tags.filter((tag): tag is string => typeof tag === "string")
-    : fallbackTags;
-
-  return {
-    keyId: firstString(record.key_id, record.keyId, record.id) ?? "",
-    name: firstString(record.name) ?? fallbackName,
-    tags,
-    apiKey: firstString(record.api_key, record.apiKey, record.key, record.secret, record.token, record.value),
-    apiKeyPreview: firstString(record.api_key_preview, record.apiKeyPreview, record.preview, record.masked_key, record.maskedKey),
-    last4: firstString(record.last4, record.last_4),
-    isActive: record.is_active === false || record.isActive === false || record.active === false ? false : true,
-    createdAt: firstString(record.created_at, record.createdAt) ?? "",
-    lastUsedAt: firstString(record.last_used_at, record.lastUsedAt),
-  };
-}
-
-async function apiErrorMessage(response: Response): Promise<string> {
-  const fallback = `Failed to create API key (${response.status})`;
-  const responseCopy = response.clone();
-
-  try {
-    const data = await response.json();
-    const record = asRecord(data);
-    return firstString(record?.detail, record?.message, record?.error) ?? fallback;
-  } catch {
-    const text = await responseCopy.text().catch(() => "");
-    return text.trim() || fallback;
-  }
-}
-
-async function createApiKey(
-  apiBaseUrl: string,
-  token: string,
-  name: string,
-  tags: string[]
-): Promise<ManagedApiKey> {
-  const apiRoot = normalizeApiUrl(apiBaseUrl);
-  const response = await fetch(`${apiRoot}/api/keys`, {
-    method: "POST",
-    headers: {
-      Authorization: `Bearer ${token}`,
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ name, tags }),
-  });
-
-  if (!response.ok) {
-    throw new Error(await apiErrorMessage(response));
-  }
-
-  const data = await response.json().catch(() => null);
-  return normalizeCreatedApiKey(data, name, tags);
 }
 
 async function writeClipboardText(text: string): Promise<boolean> {
@@ -379,7 +280,8 @@ export function ApiKeysManager({
     setCreating(true);
     setError(null);
     try {
-      const key = await createApiKey(apiBaseUrl, await getToken(), newKeyName.trim(), tags);
+      const client = await clientFactory();
+      const key = await client.keys.create(newKeyName.trim(), tags);
       setCreatedKey(key);
       setCopied(false);
       setShowCreate(false);

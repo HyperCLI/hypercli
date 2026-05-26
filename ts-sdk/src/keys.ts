@@ -35,17 +35,34 @@ export interface ApiKey {
   lastUsedAt: string | null;
 }
 
+function asRecord(value: unknown): Record<string, unknown> {
+  if (value && typeof value === 'object' && !Array.isArray(value)) {
+    return value as Record<string, unknown>;
+  }
+  return {};
+}
+
+function firstString(...values: unknown[]): string | null {
+  for (const value of values) {
+    if (typeof value !== 'string') continue;
+    const trimmed = value.trim();
+    if (trimmed) return trimmed;
+  }
+  return null;
+}
+
 function apiKeyFromDict(data: any): ApiKey {
+  const record = asRecord(data);
   return {
-    keyId: data.key_id || '',
-    name: data.name || '',
-    tags: Array.isArray(data.tags) ? data.tags : [],
-    apiKey: data.api_key || null,
-    apiKeyPreview: data.api_key_preview || null,
-    last4: data.last4 || null,
-    isActive: data.is_active !== false,
-    createdAt: data.created_at || '',
-    lastUsedAt: data.last_used_at || null,
+    keyId: firstString(record.key_id, record.keyId, record.id) || '',
+    name: firstString(record.name) || '',
+    tags: Array.isArray(record.tags) ? record.tags.filter((tag): tag is string => typeof tag === 'string') : [],
+    apiKey: firstString(record.api_key, record.apiKey, record.key, record.secret, record.token, record.value),
+    apiKeyPreview: firstString(record.api_key_preview, record.apiKeyPreview, record.preview, record.masked_key, record.maskedKey),
+    last4: firstString(record.last4, record.last_4),
+    isActive: record.is_active === false || record.isActive === false || record.active === false ? false : true,
+    createdAt: firstString(record.created_at, record.createdAt) || '',
+    lastUsedAt: firstString(record.last_used_at, record.lastUsedAt),
   };
 }
 

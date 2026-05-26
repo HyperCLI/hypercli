@@ -27,6 +27,35 @@ describe('Keys SDK', () => {
     ]);
   });
 
+  it('normalizes alternate create response field names', async () => {
+    const http = {
+      post: vi.fn().mockResolvedValue({
+        id: 'key-456',
+        name: 'team-ops',
+        tags: ['*:*'],
+        key: 'hyper_api_live_alias',
+        preview: 'hyper_api_****lias',
+        active: true,
+        createdAt: '2026-05-26T00:00:00Z',
+        lastUsedAt: '2026-05-26T01:00:00Z',
+      }),
+    } as unknown as HTTPClient;
+
+    const keys = new KeysAPI(http);
+    const created = await keys.create('team-ops', ['*:*']);
+
+    expect(created).toEqual(expect.objectContaining({
+      keyId: 'key-456',
+      name: 'team-ops',
+      tags: ['*:*'],
+      apiKey: 'hyper_api_live_alias',
+      apiKeyPreview: 'hyper_api_****lias',
+      isActive: true,
+      createdAt: '2026-05-26T00:00:00Z',
+      lastUsedAt: '2026-05-26T01:00:00Z',
+    }));
+  });
+
   it('lists masked API keys', async () => {
     const http = {
       get: vi.fn().mockResolvedValue([
