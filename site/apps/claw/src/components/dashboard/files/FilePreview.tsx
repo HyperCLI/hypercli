@@ -45,7 +45,7 @@ interface FilePreviewProps {
 // ── Helpers ──
 
 const IMAGE_EXTENSIONS = new Set(["png", "jpg", "jpeg", "gif", "webp", "svg", "bmp", "ico"]);
-const ARCHIVE_EXTENSIONS = new Set(["zip"]);
+const ARCHIVE_EXTENSIONS = new Set(["zip", "epub"]);
 const CODE_EXTENSIONS = new Set([
   "ts", "tsx", "js", "jsx", "py", "rs", "go", "rb", "java", "c", "cpp", "h",
   "sh", "bash", "zsh", "css", "scss", "html", "xml", "sql", "graphql",

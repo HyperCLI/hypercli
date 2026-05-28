@@ -134,7 +134,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
     }
   }, [callbacks, previewEntry]);
 
-  const handleUploadFile = useCallback(async (path: string, content: string) => {
+  const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
     if (!callbacks) return;
     await callbacks.onUploadFile(path, content);
     // Refresh file list after upload

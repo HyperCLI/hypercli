@@ -76,6 +76,7 @@ const FILE_TYPE_BY_EXTENSION: Record<string, string> = {
   weba: "audio/webm",
   webm: "audio/webm",
   csv: "text/csv",
+  epub: "application/epub+zip",
   md: "text/markdown",
   pdf: "application/pdf",
   txt: "text/plain",
@@ -875,10 +876,11 @@ function normalizeLiveToolCall(
 function normalizeLiveToolResult(
   payload: Record<string, unknown>,
 ): NonNullable<ChatMessage["toolCalls"]>[number] | null {
-  const result = formatToolValue(payload.result ?? payload.content ?? payload.text ?? payload.partialResult);
-  if (!result) {
+  const resultValue = payload.result ?? payload.meta ?? payload.content ?? payload.text ?? payload.partialResult;
+  if (resultValue == null) {
     return null;
   }
+  const result = formatToolValue(resultValue);
   const name =
     (typeof payload.name === "string" && payload.name.trim()) ||
     (typeof payload.toolName === "string" && payload.toolName.trim()) ||

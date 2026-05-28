@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { render, waitFor } from "@testing-library/react";
+import { render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentFilesPanel } from "./AgentFilesPanel";
@@ -66,5 +66,37 @@ describe("AgentFilesPanel", () => {
       expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/archive.zip");
     });
     expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("opens EPUB previews through the byte reader instead of text read", async () => {
+    const onOpenFile = vi.fn(async () => "text");
+    const onOpenFileBytes = vi.fn(async () => new Uint8Array([80, 75, 3, 4]));
+
+    renderFilesPanel({
+      initialPreviewPath: ".openclaw/workspace/book.epub",
+      onOpenFile,
+      onOpenFileBytes,
+    });
+
+    await waitFor(() => {
+      expect(onOpenFileBytes).toHaveBeenCalledWith(".openclaw/workspace/book.epub");
+    });
+    expect(onOpenFile).not.toHaveBeenCalled();
+  });
+
+  it("updates the preview entry when a recovered read returns a renamed path", async () => {
+    const onOpenFile = vi.fn(async () => ({
+      content: "content",
+      path: ".openclaw/workspace/agent-landing-page-demo-architecture.md",
+    }));
+
+    renderFilesPanel({
+      initialPreviewPath: ".openclaw/workspace/Agent Landing Page — Demo Architecture.md",
+      onOpenFile,
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("agent-landing-page-demo-architecture.md")).toBeInTheDocument();
+    });
   });
 });

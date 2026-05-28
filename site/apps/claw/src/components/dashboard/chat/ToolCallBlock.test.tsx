@@ -32,6 +32,20 @@ describe("ToolCallBlock", () => {
     expect(container.querySelector(".animate-spin")).toBeNull();
   });
 
+  it("treats empty tool results as completed", () => {
+    const { container } = render(
+      <ToolCallBlock
+        {...baseProps}
+        toolCall={{ name: "exec", args: '{"command":"true"}', result: "" }}
+        isStreaming
+      />,
+    );
+
+    expect(screen.getByText("Done")).toBeInTheDocument();
+    expect(screen.getByText("Result ready")).toBeInTheDocument();
+    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
   it("stops the running animation after the pending timeout", () => {
     vi.useFakeTimers();
     const { container } = render(

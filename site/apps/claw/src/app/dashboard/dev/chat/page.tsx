@@ -2123,10 +2123,10 @@ export default function DevChatPage() {
             setMockFiles((prev) => prev.filter((f) => f.path !== path));
             setMockFileContents((prev) => { const next = { ...prev }; delete next[path]; return next; });
           },
-          onUploadFile: async (path: string, content: string) => {
+          onUploadFile: async (path: string, content: Uint8Array) => {
             const name = path.split("/").pop() ?? path;
-            setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
-            setMockFileContents((prev) => ({ ...prev, [path]: content }));
+            setMockFiles((prev) => [...prev, { name, path, type: "file", size: content.byteLength }]);
+            setMockFileContents((prev) => ({ ...prev, [path]: new TextDecoder().decode(content) }));
           },
         } : undefined}
       />

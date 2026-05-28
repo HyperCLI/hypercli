@@ -33,9 +33,9 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
   const error = queryError ? (queryError instanceof Error ? queryError.message : String(queryError)) : null;
 
   const uploadMutation = useMutation({
-    mutationFn: async ({ path, content }: { path: string; content: string }) => {
+    mutationFn: async ({ path, content }: { path: string; content: Uint8Array }) => {
       if (!deployments || !agentId) throw new Error("SDK not ready");
-      return deployments.fileWrite(agentId, path, content);
+      return deployments.fileWriteBytes(agentId, path, content);
     },
     onSuccess: () => {
       queryClient.invalidateQueries({ queryKey: agentFilesKeys.list(agentId ?? "", prefix) });
@@ -53,7 +53,7 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
   });
 
   const uploadFile = useCallback(
-    async (path: string, content: string) => uploadMutation.mutateAsync({ path, content }),
+    async (path: string, content: Uint8Array) => uploadMutation.mutateAsync({ path, content }),
     [uploadMutation],
   );
 

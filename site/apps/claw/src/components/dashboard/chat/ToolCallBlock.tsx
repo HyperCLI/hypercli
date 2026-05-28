@@ -21,7 +21,7 @@ interface ToolCallBlockProps {
 const TOOL_PENDING_TIMEOUT_MS = 45_000;
 
 export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVariant, agentId, isStreaming = false }: ToolCallBlockProps) {
-  const hasResult = Boolean(tc.result);
+  const hasResult = tc.result !== undefined;
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
   const summary = toolCallSummary(tc);
   const imagePath = agentId ? extractImagePath(tc) : null;
@@ -29,8 +29,8 @@ export function ToolCallBlock({ toolCall: tc, index, isOpen, onToggle, themeVari
   const rawPending = !hasResult && isStreaming;
   const pending = rawPending && !pendingTimedOut;
   const argsDetail = formatToolDetail(tc.args, 280);
-  const resultDetail = tc.result ? formatToolDetail(tc.result, 520) : null;
-  const directoryListing = tc.result ? parseDirectoryVisualization(tc.result) : null;
+  const resultDetail = tc.result !== undefined ? formatToolDetail(tc.result, 520) : null;
+  const directoryListing = tc.result !== undefined ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
     if (!rawPending) return;

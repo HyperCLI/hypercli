@@ -37,7 +37,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
 
-  const pendingCount = toolCalls.filter((tc) => !tc.result).length;
+  const pendingCount = toolCalls.filter((tc) => tc.result === undefined).length;
   const completedCount = toolCalls.length - pendingCount;
   const rawPending = pendingCount > 0 && isStreaming;
   const pending = rawPending && !pendingTimedOut;
@@ -145,7 +145,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
             >
               {toolCalls.map((tc, index) => (
                 <motion.div
-                  key={tc.id ?? `${tc.name}-${index}`}
+                  key={`${tc.id ?? tc.name}-${index}`}
                   variants={{
                     closed: { opacity: 0, y: -6, scale: 0.99 },
                     open: { opacity: 1, y: 0, scale: 1 },

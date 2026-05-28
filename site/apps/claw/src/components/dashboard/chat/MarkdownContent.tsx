@@ -15,7 +15,10 @@ interface MarkdownContentProps {
 const MARKDOWN_WRAP_CLASS = "min-w-0 max-w-full break-words [overflow-wrap:anywhere]";
 const MARKDOWN_BLOCK_CLASS = `${MARKDOWN_WRAP_CLASS} mb-2 last:mb-0`;
 const MARKDOWN_INLINE_CODE_CLASS = "max-w-full break-words rounded bg-background/50 px-1 py-0.5 font-mono text-xs text-[#f0c56c] [overflow-wrap:anywhere]";
-const MARKDOWN_PRE_CLASS = "my-2 max-w-full overflow-x-auto rounded-md border border-border bg-background/50 px-3 py-2 font-mono text-xs";
+const MARKDOWN_PRE_CLASS = `${MARKDOWN_WRAP_CLASS} my-2 overflow-hidden whitespace-pre-wrap rounded-md border border-border bg-background/50 px-3 py-2 font-mono text-xs`;
+const MARKDOWN_TABLE_WRAP_CLASS = "my-2 w-full max-w-full overflow-hidden";
+const MARKDOWN_TABLE_CLASS = "w-full table-fixed border-collapse text-left text-xs";
+const MARKDOWN_TABLE_CELL_CLASS = "border-b border-border/60 px-2 py-1 align-top break-words [overflow-wrap:anywhere]";
 export const CHAT_MARKDOWN_IMAGE_CLASS = "h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]";
 export const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
 const MARKDOWN_IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
@@ -66,7 +69,7 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
     const isBlock = className?.includes("language-");
     return isBlock ? (
       <pre className={MARKDOWN_PRE_CLASS}>
-        <code>{children}</code>
+        <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{children}</code>
       </pre>
     ) : (
       <code className={MARKDOWN_INLINE_CODE_CLASS}>{children}</code>
@@ -89,12 +92,12 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   ),
   hr: () => <hr className="border-border my-3" />,
   table: ({ children }) => (
-    <div className="my-2 max-w-full overflow-x-auto">
-      <table className="w-full min-w-max text-left text-xs">{children}</table>
+    <div className={MARKDOWN_TABLE_WRAP_CLASS}>
+      <table className={MARKDOWN_TABLE_CLASS}>{children}</table>
     </div>
   ),
-  th: ({ children }) => <th className="border-b border-border px-2 py-1 font-semibold text-foreground">{children}</th>,
-  td: ({ children }) => <td className="border-b border-border/60 px-2 py-1 text-text-secondary">{children}</td>,
+  th: ({ children }) => <th className={`${MARKDOWN_TABLE_CELL_CLASS} font-semibold text-foreground`}>{children}</th>,
+  td: ({ children }) => <td className={`${MARKDOWN_TABLE_CELL_CLASS} text-text-secondary`}>{children}</td>,
   img: ({ src, alt }) =>
     typeof src === "string" && src && isRenderableMarkdownImageSrc(src) ? (
       <ChatImageViewer
@@ -178,18 +181,18 @@ export function MarkdownContent({ content, typewriter = false, className, style 
   const segments = useMemo(() => splitMarkdownTables(displayedContent), [displayedContent]);
 
   return (
-    <div className={`prose-chat max-w-full leading-relaxed ${className ?? ""}`} style={style}>
+    <div className={`prose-chat min-w-0 max-w-full overflow-hidden break-words leading-relaxed [overflow-wrap:anywhere] ${className ?? ""}`} style={style}>
       {segments.map((segment, index) => {
         if (segment.type === "markdown") {
-          return <div key={`markdown-${index}`}>{renderMarkdown(segment.text)}</div>;
+          return <div key={`markdown-${index}`} className="min-w-0 max-w-full overflow-hidden">{renderMarkdown(segment.text)}</div>;
         }
         return (
-          <div key={`table-${index}`} className="my-2 max-w-full overflow-x-auto">
-            <table className="w-full min-w-max text-left text-xs">
+          <div key={`table-${index}`} className={MARKDOWN_TABLE_WRAP_CLASS}>
+            <table className={MARKDOWN_TABLE_CLASS}>
               <thead>
                 <tr>
                   {segment.headers.map((header, headerIndex) => (
-                    <th key={`${header}-${headerIndex}`} className="border-b border-border px-2 py-1 font-semibold text-foreground">
+                    <th key={`${header}-${headerIndex}`} className={`${MARKDOWN_TABLE_CELL_CLASS} font-semibold text-foreground`}>
                       {header}
                     </th>
                   ))}
@@ -199,7 +202,7 @@ export function MarkdownContent({ content, typewriter = false, className, style 
                 {segment.rows.map((row, rowIndex) => (
                   <tr key={`row-${rowIndex}`}>
                     {segment.headers.map((_, cellIndex) => (
-                      <td key={`cell-${rowIndex}-${cellIndex}`} className="border-b border-border/60 px-2 py-1 text-text-secondary">
+                      <td key={`cell-${rowIndex}-${cellIndex}`} className={`${MARKDOWN_TABLE_CELL_CLASS} text-text-secondary`}>
                         {row[cellIndex] ?? ""}
                       </td>
                     ))}

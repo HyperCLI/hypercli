@@ -105,10 +105,10 @@ export default function DevFilesPage() {
     if (previewEntry?.path === entry.path) setPreviewEntry(null);
   }, [previewEntry]);
 
-  const handleUploadFile = useCallback(async (path: string, content: string) => {
+  const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
     const name = path.split("/").pop() ?? path;
-    setFiles((prev) => [...prev, { name, path, type: "file", size: content.length }]);
-    setFileContents((prev) => ({ ...prev, [path]: content }));
+    setFiles((prev) => [...prev, { name, path, type: "file", size: content.byteLength }]);
+    setFileContents((prev) => ({ ...prev, [path]: new TextDecoder().decode(content) }));
   }, []);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {

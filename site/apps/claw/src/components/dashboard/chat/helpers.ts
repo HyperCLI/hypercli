@@ -65,7 +65,7 @@ export function extractReadableSummary(raw: string, maxLen: number): string {
 }
 
 export function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
-  if (tc.result) return "Result ready";
+  if (tc.result !== undefined) return "Result ready";
   return tc.args.trim() ? "Arguments ready" : "";
 }
 

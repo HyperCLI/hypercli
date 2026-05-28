@@ -994,6 +994,54 @@ describe("ChatMessageBubble", () => {
     expect(screen.queryByText(rawArgs)).not.toBeInTheDocument();
   });
 
+  it("counts empty results in stacked tool-call progress", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "",
+          toolCalls: ["one", "two", "three", "four"].map((name) => ({
+            id: name,
+            name,
+            args: "{}",
+            result: "",
+          })),
+        }}
+        isStreaming
+      />,
+    );
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Done");
+    expect(screen.queryByText(/0\/4 done/)).not.toBeInTheDocument();
+  });
+
+  it("renders stacked tool calls with duplicate gateway ids without key warnings", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      render(
+        <ChatMessageBubble
+          message={{
+            role: "assistant",
+            content: "",
+            toolCalls: ["one", "two", "three", "four"].map((name) => ({
+              id: "functions.web_fetch:5",
+              name,
+              args: "{}",
+              result: "ok",
+            })),
+          }}
+        />,
+      );
+
+      fireEvent.click(screen.getByRole("button", { name: /4 tool calls/i }));
+
+      expect(consoleError.mock.calls.some((call) => call.join(" ").includes("same key"))).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("does not expose file actions from hidden tool-call file paths", () => {
     render(
       <ChatMessageBubble

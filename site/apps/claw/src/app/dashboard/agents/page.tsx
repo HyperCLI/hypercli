@@ -125,6 +125,13 @@ import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
+import {
+  buildSafeFileRenameCommand,
+  openClawWorkspacePathToPodPath,
+  podPathToOpenClawWorkspaceFilePath,
+  readAgentFileWithRecovery,
+  type AgentFileReadRecoveryResult,
+} from "@/lib/agent-file-recovery";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
 
 type MainTab = AgentMainTab;
@@ -637,6 +644,23 @@ function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
     size: entry.size,
     lastModified: entry.last_modified,
   };
+}
+
+async function readAgentFileWithSourceFallback<T>(
+  source: AgentFileSource,
+  read: (source: AgentFileSource) => Promise<T>,
+): Promise<T> {
+  try {
+    return await read(source);
+  } catch (err) {
+    if (source !== "auto") throw err;
+    for (const fallbackSource of ["s3", "pod"] as const) {
+      try {
+        return await read(fallbackSource);
+      } catch {}
+    }
+    throw err;
+  }
 }
 
 function upsertSdkAgent(prev: SdkAgent[], nextAgent: SdkAgent): SdkAgent[] {
@@ -1251,41 +1275,80 @@ function AgentsPageContent() {
     return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
   }, [getToken, selectedAgentId]);
 
-  const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
-    if (!selectedAgentId) return "";
+  const renameAgentFileToSafeName = useCallback(async (
+    agentClient: Deployments,
+    fromPath: string,
+    safeCandidatePath: string,
+  ) => {
+    const agentId = selectedAgentId;
+    if (!agentId) throw new Error("No agent selected");
+
+    const sourcePodPath = openClawWorkspacePathToPodPath(fromPath);
+    const candidatePodPath = openClawWorkspacePathToPodPath(safeCandidatePath);
+    if (!sourcePodPath || !candidatePodPath) {
+      throw new Error("Only workspace files can be renamed safely.");
+    }
+
+    const result = await agentClient.exec(
+      agentId,
+      buildSafeFileRenameCommand(sourcePodPath, candidatePodPath),
+      { timeout: 10_000 },
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || result.stdout || `Rename failed with exit code ${result.exitCode}`);
+    }
+
+    const outputPath = result.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
+    return outputPath ? podPathToOpenClawWorkspaceFilePath(outputPath) ?? safeCandidatePath : safeCandidatePath;
+  }, [selectedAgentId]);
+
+  const readAgentFileResult = useCallback(async (
+    path: string,
+    source: AgentFileSource = "auto",
+  ): Promise<AgentFileReadRecoveryResult<string>> => {
+    const agentId = selectedAgentId;
+    const normalizedPath = normalizeAgentFilePath(path);
+    if (!agentId) return { content: "", path: normalizedPath, renamed: false };
+
     const token = await getToken();
     const agentClient = createAgentClient(token);
+    return readAgentFileWithRecovery({
+      path: normalizedPath,
+      read: (targetPath) => readAgentFileWithSourceFallback(source, (readSource) => (
+        agentClient.fileRead(agentId, targetPath, readSource)
+      )),
+      rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
+    });
+  }, [getToken, renameAgentFileToSafeName, selectedAgentId]);
+
+  const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
+    const result = await readAgentFileResult(path, source);
+    return result.content;
+  }, [readAgentFileResult]);
+
+  const readAgentFileBytesResult = useCallback(async (
+    path: string,
+    source: AgentFileSource = "auto",
+  ): Promise<AgentFileReadRecoveryResult<Uint8Array>> => {
+    const agentId = selectedAgentId;
     const normalizedPath = normalizeAgentFilePath(path);
-    try {
-      return await agentClient.fileRead(selectedAgentId, normalizedPath, source);
-    } catch (err) {
-      if (source !== "auto") throw err;
-      for (const fallbackSource of ["s3", "pod"] as const) {
-        try {
-          return await agentClient.fileRead(selectedAgentId, normalizedPath, fallbackSource);
-        } catch {}
-      }
-      throw err;
-    }
-  }, [getToken, selectedAgentId]);
+    if (!agentId) return { content: new Uint8Array(), path: normalizedPath, renamed: false };
+
+    const token = await getToken();
+    const agentClient = createAgentClient(token);
+    return readAgentFileWithRecovery({
+      path: normalizedPath,
+      read: (targetPath) => readAgentFileWithSourceFallback(source, (readSource) => (
+        agentClient.fileReadBytes(agentId, targetPath, readSource)
+      )),
+      rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
+    });
+  }, [getToken, renameAgentFileToSafeName, selectedAgentId]);
 
   const readAgentFileBytes = useCallback(async (path: string, source: AgentFileSource = "auto") => {
-    if (!selectedAgentId) return new Uint8Array();
-    const token = await getToken();
-    const agentClient = createAgentClient(token);
-    const normalizedPath = normalizeAgentFilePath(path);
-    try {
-      return await agentClient.fileReadBytes(selectedAgentId, normalizedPath, source);
-    } catch (err) {
-      if (source !== "auto") throw err;
-      for (const fallbackSource of ["s3", "pod"] as const) {
-        try {
-          return await agentClient.fileReadBytes(selectedAgentId, normalizedPath, fallbackSource);
-        } catch {}
-      }
-      throw err;
-    }
-  }, [getToken, selectedAgentId]);
+    const result = await readAgentFileBytesResult(path, source);
+    return result.content;
+  }, [readAgentFileBytesResult]);
 
   const loadAgentSkills = useCallback(async () => {
     if (!selectedAgentId) return [];
@@ -1301,6 +1364,12 @@ function AgentsPageContent() {
     if (!selectedAgentId) return;
     const token = await getToken();
     await createAgentClient(token).fileWrite(selectedAgentId, normalizeAgentFilePath(path), content);
+  }, [getToken, selectedAgentId]);
+
+  const uploadAgentFile = useCallback(async (path: string, content: Uint8Array) => {
+    if (!selectedAgentId) return;
+    const token = await getToken();
+    await createAgentClient(token).fileWriteBytes(selectedAgentId, normalizeAgentFilePath(path), content);
   }, [getToken, selectedAgentId]);
 
   const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
@@ -2535,10 +2604,12 @@ function AgentsPageContent() {
     setMobileWorkspaceSidebarOpen(false);
   };
   const downloadAgentFileFromChat = useCallback(async (file: ChatPendingFile) => {
-    const bytes = await readAgentFileBytes(file.path);
-    const name = file.name || file.path.split("/").filter(Boolean).pop() || "download";
-    downloadFileBytes(name, bytes, file.type || "application/octet-stream");
-  }, [readAgentFileBytes]);
+    const result = await readAgentFileBytesResult(file.path);
+    const name = result.renamed
+      ? result.path.split("/").filter(Boolean).pop() || file.name || "download"
+      : file.name || file.path.split("/").filter(Boolean).pop() || "download";
+    downloadFileBytes(name, result.content, file.type || "application/octet-stream");
+  }, [readAgentFileBytesResult]);
   const openIntegrationsTab = () => {
     setDirectoryCategory(undefined);
     setDirectoryItemId(undefined);
@@ -3083,12 +3154,12 @@ function AgentsPageContent() {
               isDesktopViewport={isDesktopViewport}
               error={null}
               onListFiles={listAgentFiles}
-              onOpenFile={readAgentFile}
-              onOpenFileBytes={readAgentFileBytes}
-              onDownloadFileBytes={readAgentFileBytes}
+              onOpenFile={readAgentFileResult}
+              onOpenFileBytes={readAgentFileBytesResult}
+              onDownloadFileBytes={readAgentFileBytesResult}
               onSaveFile={saveAgentFile}
               onDeleteFile={deleteAgentFile}
-              onUploadFile={saveAgentFile}
+              onUploadFile={uploadAgentFile}
             />
           ) : mainTab === "integrations" ? (
             <IntegrationsDirectoryPanel

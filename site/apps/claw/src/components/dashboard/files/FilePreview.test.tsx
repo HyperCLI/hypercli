@@ -99,6 +99,25 @@ describe("FilePreview", () => {
     expect(screen.getByText("assets/logo.png")).toBeInTheDocument();
   });
 
+  it("previews EPUB files as ZIP-based archives", () => {
+    render(
+      <FilePreview
+        entry={{ name: "guide.epub", path: ".openclaw/workspace/guide.epub", type: "file", size: 128 }}
+        content={createZip([
+          { name: "mimetype", content: "application/epub+zip" },
+          { name: "META-INF/container.xml", content: "<container />" },
+        ])}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByText("2 files")).toBeInTheDocument();
+    expect(screen.getByText("mimetype")).toBeInTheDocument();
+    expect(screen.getByText("META-INF/container.xml")).toBeInTheDocument();
+  });
+
   it("shows an archive preview error for invalid ZIP bytes", () => {
     render(
       <FilePreview

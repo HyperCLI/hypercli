@@ -942,6 +942,55 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("chatSend maps agent tool result metadata as result content", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "agent-tool-meta-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Run true", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "agent-tool-meta-run",
+        sessionKey: "main",
+        stream: "tool",
+        data: { phase: "result", name: "exec", meta: "" },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "agent-tool-meta-run",
+        sessionKey: "main",
+        stream: "lifecycle",
+        data: { phase: "end" },
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["tool_result", "done"]);
+    expect(events[0]?.data).toMatchObject({ name: "exec", result: "" });
+  });
+
   it("chatSend falls back to lifecycle end when chat final is missing", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

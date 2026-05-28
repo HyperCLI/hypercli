@@ -13,7 +13,7 @@ import { FilesSearchBar } from "@/components/dashboard/files/FilesSearchBar";
 import { FilesUploadZone } from "@/components/dashboard/files/FilesUploadZone";
 import { FileBreadcrumbs } from "@/components/dashboard/files/FileBreadcrumbs";
 import { FilesDirectoryTree } from "@/components/dashboard/files/FilesDirectoryTree";
-import { FilePreview, isImageFileName } from "@/components/dashboard/files/FilePreview";
+import { FilePreview, isArchiveFileName, isImageFileName } from "@/components/dashboard/files/FilePreview";
 import { FilesEmptyState } from "@/components/dashboard/files/FilesEmptyState";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
@@ -92,7 +92,7 @@ export default function AgentFilesPage() {
     setPreviewError(null);
     setPreviewLoading(true);
     try {
-      const content = isImageFileName(entry.name)
+      const content = isImageFileName(entry.name) || isArchiveFileName(entry.name)
         ? await createAgentClient(await getToken()).fileReadBytes(agentId, entry.path)
         : await chat.openFile(entry.path);
       setPreviewContent(content);
@@ -114,10 +114,10 @@ export default function AgentFilesPage() {
     if (previewEntry?.path === entry.path) setPreviewEntry(null);
   }, [agent, getToken, previewEntry]);
 
-  const handleUploadFile = useCallback(async (path: string, content: string) => {
+  const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
     if (!agent) return;
     const token = await getToken();
-    await createAgentClient(token).fileWriteBytes(agent.id, path, new TextEncoder().encode(content));
+    await createAgentClient(token).fileWriteBytes(agent.id, path, content);
   }, [agent, getToken]);
 
   const handleDownloadFile = useCallback(async (entry: FileEntry) => {

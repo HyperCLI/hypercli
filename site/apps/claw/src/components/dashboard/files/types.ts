@@ -58,5 +58,5 @@ export interface FilesCallbacks {
   onGetFile: (path: string) => Promise<string>;
   onSetFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string) => Promise<void>;
-  onUploadFile: (path: string, content: string) => Promise<void>;
+  onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
 }

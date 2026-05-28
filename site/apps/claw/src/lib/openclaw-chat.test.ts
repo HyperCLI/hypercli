@@ -975,6 +975,15 @@ describe("openclaw chat normalization", () => {
     expect(normalized?.result).toContain("Binary file content omitted");
   });
 
+  it("normalizes empty and meta-based live tool results", () => {
+    expect(normalizeLiveToolResult({ name: "exec", result: "" })).toEqual({
+      name: "exec",
+      args: "",
+      result: "",
+    });
+    expect(normalizeLiveToolResult({ name: "exec", meta: "completed" })?.result).toBe("completed");
+  });
+
   it("keeps binary placeholders compact when additional chunks arrive", () => {
     const previous: ChatMessage[] = [
       {

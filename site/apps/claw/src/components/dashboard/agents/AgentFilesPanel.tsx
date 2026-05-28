@@ -53,6 +53,31 @@ function pathFromRoot(path: string, rootPath: string): string {
   return normalizedPath ? `${normalizedRoot}/${normalizedPath}` : normalizedRoot;
 }
 
+interface AgentFileOpenResult<T extends string | Uint8Array> {
+  content: T;
+  path?: string;
+  name?: string;
+  renamed?: boolean;
+}
+
+type AgentFileOpenResponse<T extends string | Uint8Array> = T | AgentFileOpenResult<T>;
+
+function isAgentFileOpenResult<T extends string | Uint8Array>(
+  value: AgentFileOpenResponse<T>,
+): value is AgentFileOpenResult<T> {
+  return Boolean(value) && typeof value === "object" && !(value instanceof Uint8Array) && "content" in value;
+}
+
+function resolveAgentFileOpenResult<T extends string | Uint8Array>(
+  value: AgentFileOpenResponse<T>,
+): AgentFileOpenResult<T> {
+  return isAgentFileOpenResult(value) ? value : { content: value };
+}
+
+function fileNameFromPath(path: string): string {
+  return path.split("/").filter(Boolean).pop() || path || "file";
+}
+
 interface AgentFilesPanelProps {
   agentName?: string | null;
   agentState?: string | null;
@@ -64,12 +89,12 @@ interface AgentFilesPanelProps {
   isDesktopViewport?: boolean;
   error?: string | null;
   onListFiles: (path?: string) => Promise<FileEntry[]>;
-  onOpenFile: (path: string) => Promise<string>;
-  onOpenFileBytes?: (path: string) => Promise<Uint8Array>;
-  onDownloadFileBytes?: (path: string) => Promise<Uint8Array>;
+  onOpenFile: (path: string) => Promise<AgentFileOpenResponse<string>>;
+  onOpenFileBytes?: (path: string) => Promise<AgentFileOpenResponse<Uint8Array>>;
+  onDownloadFileBytes?: (path: string) => Promise<AgentFileOpenResponse<Uint8Array>>;
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
-  onUploadFile: (path: string, content: string) => Promise<void>;
+  onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
 }
 
 export function AgentFilesPanel({
@@ -189,17 +214,24 @@ export function AgentFilesPanel({
     setPreviewError(null);
     setPreviewLoading(true);
     try {
-      setPreviewContent(
-        (isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes
-          ? await onOpenFileBytes(entry.path)
-          : await onOpenFile(entry.path),
+      const result = resolveAgentFileOpenResult(
+        await ((isImageFileName(entry.name) || isArchiveFileName(entry.name)) && onOpenFileBytes
+          ? onOpenFileBytes(entry.path)
+          : onOpenFile(entry.path)),
       );
+      const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
+      const nextName = result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name);
+      if (nextPath !== entry.path || nextName !== entry.name) {
+        setPreviewEntry({ ...entry, path: nextPath, name: nextName });
+        void loadFiles();
+      }
+      setPreviewContent(result.content);
     } catch (err) {
       setPreviewError(err instanceof Error ? err.message : "Failed to load file");
     } finally {
       setPreviewLoading(false);
     }
-  }, [onOpenFile, onOpenFileBytes]);
+  }, [loadFiles, onOpenFile, onOpenFileBytes]);
 
   const normalizedInitialPreviewPath = useMemo(
     () => initialPreviewPath ? normalizeOpenClawMediaFilePath(initialPreviewPath) : "",
@@ -234,16 +266,18 @@ export function AgentFilesPanel({
     await loadFiles();
   }, [loadFiles, onDeleteFile, previewEntry]);
 
-  const handleUploadFile = useCallback(async (path: string, content: string) => {
+  const handleUploadFile = useCallback(async (path: string, content: Uint8Array) => {
     await onUploadFile(path, content);
     await loadFiles();
   }, [loadFiles, onUploadFile]);
 
   const handleDownloadFile = useCallback(async (entry: FileEntry) => {
     if (!onDownloadFileBytes || entry.type === "directory") return;
-    const bytes = await onDownloadFileBytes(entry.path);
-    downloadFileBytes(entry.name, bytes);
-  }, [onDownloadFileBytes]);
+    const result = resolveAgentFileOpenResult(await onDownloadFileBytes(entry.path));
+    const nextPath = result.path ? normalizePanelPath(result.path) : entry.path;
+    downloadFileBytes(result.name || (nextPath !== entry.path ? fileNameFromPath(nextPath) : entry.name), result.content);
+    if (nextPath !== entry.path) void loadFiles();
+  }, [loadFiles, onDownloadFileBytes]);
 
   const handleCopyPath = useCallback((entry: FileEntry) => {
     void writeClipboardText(entry.path);

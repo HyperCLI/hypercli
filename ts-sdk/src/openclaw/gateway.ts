@@ -2348,7 +2348,7 @@ export class GatewayClient {
               data: {
                 ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
                 name: toolPayload.name,
-                result: toolPayload.result,
+                result: toolPayload.result ?? toolPayload.meta ?? toolPayload.content ?? toolPayload.text ?? toolPayload.partialResult,
                 isError: toolPayload.isError,
               },
             };

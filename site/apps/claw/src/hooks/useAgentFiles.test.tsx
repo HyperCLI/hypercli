@@ -53,9 +53,10 @@ describe("useAgentFiles", () => {
   it("uploads and deletes files through deployments and invalidates the list", async () => {
     const deployments = {
       filesList: vi.fn().mockResolvedValue([buildAgentFileEntry()]),
-      fileWrite: vi.fn().mockResolvedValue(undefined),
+      fileWriteBytes: vi.fn().mockResolvedValue(undefined),
       fileDelete: vi.fn().mockResolvedValue(undefined),
     };
+    const bytes = new TextEncoder().encode("hello");
 
     const { result } = renderHookWithClient(() => useAgentFiles("agent-1"), {
       provider: providerFor({ deployments: deployments as any, ready: true }),
@@ -64,9 +65,9 @@ describe("useAgentFiles", () => {
     await waitFor(() => expect(deployments.filesList).toHaveBeenCalledTimes(1));
 
     await act(async () => {
-      await result.current.uploadFile("/workspace/new.md", "hello");
+      await result.current.uploadFile("/workspace/new.md", bytes);
     });
-    await waitFor(() => expect(deployments.fileWrite).toHaveBeenCalledWith("agent-1", "/workspace/new.md", "hello"));
+    await waitFor(() => expect(deployments.fileWriteBytes).toHaveBeenCalledWith("agent-1", "/workspace/new.md", bytes));
     await waitFor(() => expect(deployments.filesList).toHaveBeenCalledTimes(2));
 
     await act(async () => {
@@ -127,7 +128,7 @@ describe("useAgentFiles", () => {
     });
 
     await act(async () => {
-      await expect(missing.result.current.uploadFile("/workspace/new.md", "hello")).rejects.toThrow("SDK not ready");
+      await expect(missing.result.current.uploadFile("/workspace/new.md", new Uint8Array())).rejects.toThrow("SDK not ready");
     });
     await act(async () => {
       await expect(missing.result.current.deleteFile("/workspace/new.md")).rejects.toThrow("SDK not ready");

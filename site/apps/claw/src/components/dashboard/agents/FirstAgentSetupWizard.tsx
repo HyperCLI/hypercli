@@ -928,12 +928,12 @@ export function FirstAgentSetupWizard({
                     click to browse
                   </button>
                 </p>
-                <p className="mt-2 text-[13px] leading-tight text-[#858585] sm:text-[14px]">PDF, DOCX, TXT, or CSV - up to 25 MB each</p>
+                <p className="mt-2 text-[13px] leading-tight text-[#858585] sm:text-[14px]">PDF, DOCX, EPUB, TXT, or CSV - up to 25 MB each</p>
                 <input
                   ref={fileInputRef}
                   type="file"
                   multiple
-                  accept=".pdf,.doc,.docx,.txt,.csv"
+                  accept=".pdf,.doc,.docx,.epub,.txt,.csv"
                   className="hidden"
                   onChange={(event) => handleFileSelection(event.target.files)}
                 />

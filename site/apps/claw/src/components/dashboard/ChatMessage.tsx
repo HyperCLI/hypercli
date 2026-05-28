@@ -131,6 +131,7 @@ function inferChatMediaFileType(path: string): string {
     case "png": return "image/png";
     case "svg": return "image/svg+xml";
     case "webp": return "image/webp";
+    case "epub": return "application/epub+zip";
     case "pdf": return "application/pdf";
     case "txt": return "text/plain";
     default: return "application/octet-stream";
@@ -508,7 +509,7 @@ function formatTime(ts?: number): string {
 }
 
 function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
-  if (tc.result) {
+  if (tc.result !== undefined) {
     return "Result ready";
   }
   return tc.args.trim() ? "Arguments ready" : "";
@@ -808,7 +809,7 @@ function ToolCallDisclosure({
   agentId?: string | null;
   isStreaming: boolean;
 }) {
-  const hasResult = Boolean(tc.result);
+  const hasResult = tc.result !== undefined;
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
   const rawPending = !hasResult && isStreaming;
   const pending = rawPending && !pendingTimedOut;
@@ -816,8 +817,8 @@ function ToolCallDisclosure({
   const imagePath = agentId ? extractImagePath(tc) : null;
   const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
   const argsDetail = formatToolDetail(tc.args, 280);
-  const resultDetail = tc.result ? formatToolDetail(tc.result, 520) : "";
-  const directoryListing = tc.result ? parseDirectoryVisualization(tc.result) : null;
+  const resultDetail = tc.result !== undefined ? formatToolDetail(tc.result, 520) : "";
+  const directoryListing = tc.result !== undefined ? parseDirectoryVisualization(tc.result) : null;
 
   useEffect(() => {
     if (!rawPending) return;
@@ -903,7 +904,7 @@ function ToolCallStackDisclosure({
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
 
-  const pendingCount = toolCalls.filter((tc) => !tc.result).length;
+  const pendingCount = toolCalls.filter((tc) => tc.result === undefined).length;
   const completedCount = toolCalls.length - pendingCount;
   const rawPending = pendingCount > 0 && isStreaming;
   const pending = rawPending && !pendingTimedOut;
@@ -1010,7 +1011,7 @@ function ToolCallStackDisclosure({
                 const isToolOpen = toolsOpen[index] ?? defaultToolOpen;
                 return (
                   <motion.div
-                    key={tc.id ?? `${tc.name}-${index}`}
+                    key={`${tc.id ?? tc.name}-${index}`}
                     variants={{
                       closed: { opacity: 0, y: -6, scale: 0.99 },
                       open: { opacity: 1, y: 0, scale: 1 },

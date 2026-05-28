@@ -20,7 +20,7 @@ const MAX_FILE_SIZE = 50 * 1024 * 1024; // 50 MB
 
 interface FilesUploadZoneProps {
   currentPath: string;
-  onUpload: (path: string, content: string) => Promise<void>;
+  onUpload: (path: string, content: Uint8Array) => Promise<void>;
   compact?: boolean;
 }
 
@@ -50,7 +50,7 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
       );
 
       try {
-        const content = await readFileAsText(item.file);
+        const content = await readFileAsBytes(item.file);
 
         setUploads((prev) =>
           prev.map((u) => (u.id === item.id ? { ...u, progress: 60 } : u)),
@@ -86,7 +86,7 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
     );
 
     try {
-      const content = await readFileAsText(item.file);
+      const content = await readFileAsBytes(item.file);
       const targetPath = currentPath ? `${currentPath}/${item.file.name}` : item.file.name;
       await onUpload(targetPath, content);
       setUploads((prev) =>
@@ -247,11 +247,25 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
 
 // ── Helpers ──
 
-function readFileAsText(file: File): Promise<string> {
+async function readFileAsBytes(file: File): Promise<Uint8Array> {
+  if (typeof file.arrayBuffer === "function") {
+    try {
+      return new Uint8Array(await file.arrayBuffer());
+    } catch {
+      // Fall through to FileReader for browser/test runtimes with incomplete Blob support.
+    }
+  }
+
   return new Promise((resolve, reject) => {
     const reader = new FileReader();
-    reader.onload = () => resolve(reader.result as string);
+    reader.onload = () => {
+      if (reader.result instanceof ArrayBuffer) {
+        resolve(new Uint8Array(reader.result));
+      } else {
+        reject(new Error("Failed to read file"));
+      }
+    };
     reader.onerror = () => reject(new Error("Failed to read file"));
-    reader.readAsText(file);
+    reader.readAsArrayBuffer(file);
   });
 }

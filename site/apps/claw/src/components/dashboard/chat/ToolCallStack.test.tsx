@@ -36,6 +36,29 @@ describe("ToolCallStack", () => {
     expect(screen.getByText("four")).toBeInTheDocument();
   });
 
+  it("counts empty tool results as completed", () => {
+    const emptyResultToolCalls = toolCalls.map((toolCall) => ({ ...toolCall, result: "" }));
+    render(<ToolCallStack toolCalls={emptyResultToolCalls} themeVariant="off" isStreaming />);
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Done");
+    expect(screen.queryByText(/0\/4 done/)).not.toBeInTheDocument();
+  });
+
+  it("renders duplicate gateway ids without key warnings", () => {
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    try {
+      const duplicateIdToolCalls = toolCalls.map((toolCall) => ({ ...toolCall, id: "functions.web_fetch:5" }));
+      render(<ToolCallStack toolCalls={duplicateIdToolCalls} themeVariant="off" />);
+
+      fireEvent.click(screen.getByRole("button", { name: /4 tool calls/i }));
+
+      expect(consoleError.mock.calls.some((call) => call.join(" ").includes("same key"))).toBe(false);
+    } finally {
+      consoleError.mockRestore();
+    }
+  });
+
   it("stops the stack running animation after the pending timeout", () => {
     vi.useFakeTimers();
     const pendingToolCalls = toolCalls.map((toolCall) => ({ ...toolCall, result: undefined }));
