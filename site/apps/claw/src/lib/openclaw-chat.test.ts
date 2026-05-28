@@ -483,6 +483,32 @@ describe("openclaw chat normalization", () => {
     })).toBeNull();
   });
 
+  it("drops persisted heartbeat control prompts without dropping normal file listings", () => {
+    const heartbeatPrompt = [
+      "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly.",
+      "Do not infer or repeat old tasks from prior chats.",
+      "If nothing needs attention, reply HEARTBEAT_OK.",
+      "When reading HEARTBEAT.md, use workspace file /home/node/.openclaw/workspace/HEARTBEAT.md (exact case).",
+      "Current time: Tuesday, May 26th, 2026 - 5:19 PM (UTC) / 2026-05-26 17:19 UTC",
+    ].join(" ");
+
+    expect(normalizeHistoryMessage({
+      role: "system",
+      content: heartbeatPrompt,
+    })).toBeNull();
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: heartbeatPrompt,
+    })).toBeNull();
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: "Workspace files include HEARTBEAT.md and README.md.",
+    })).toEqual(expect.objectContaining({
+      role: "assistant",
+      content: "Workspace files include HEARTBEAT.md and README.md.",
+    }));
+  });
+
   it("keeps the persisted README answer while dropping toolResult history", () => {
     const normalized = README_REFRESH_HISTORY
       .map((message) => normalizeHistoryMessage(message))
@@ -789,6 +815,23 @@ describe("openclaw chat normalization", () => {
     });
 
     expect(next).toEqual([]);
+  });
+
+  it("drops live heartbeat control prompts", () => {
+    const previous: ChatMessage[] = [
+      {
+        role: "assistant",
+        content: "Visible answer",
+        timestamp: 1,
+      },
+    ];
+    const next = upsertAssistantMessage(previous, {
+      role: "assistant",
+      content: "Read HEARTBEAT.md if it exists (workspace context). Follow it strictly. Do not infer or repeat old tasks from prior chats. If nothing needs attention, reply HEARTBEAT_OK.",
+      timestamp: 2,
+    });
+
+    expect(next).toEqual(previous);
   });
 
   it("keeps live audio reply carriers when audio media is attached", () => {

@@ -15,6 +15,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 
+import { UpdatePaymentDetailsModal } from "@/components/billing/UpdatePaymentDetailsModal";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 
 type SettingsSection = "general" | "agent" | "billing" | "usage";
@@ -156,13 +157,39 @@ function SettingsButtonLink({
   );
 }
 
+function SettingsButton({
+  children,
+  onClick,
+  tone = "default",
+}: {
+  children: ReactNode;
+  onClick: () => void;
+  tone?: "default" | "danger";
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className={`inline-flex h-9 items-center justify-center rounded-lg border px-3 text-sm font-semibold transition-colors ${
+        tone === "danger"
+          ? "border-[#d05f5f]/30 bg-[#d05f5f]/10 text-[#d05f5f] hover:bg-[#d05f5f]/20"
+          : "border-border bg-background text-foreground hover:bg-surface-low"
+      }`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function renderSettingsSection({
   activeSection,
   logout,
+  onManagePaymentMethod,
   user,
 }: {
   activeSection: SettingsSection;
   logout: () => Promise<void>;
+  onManagePaymentMethod: () => void;
   user: ReturnType<typeof useAgentAuth>["user"];
 }) {
   switch (activeSection) {
@@ -245,7 +272,7 @@ function renderSettingsSection({
                 <p className="mt-1 text-sm text-text-secondary">Your subscription will auto renew on May 21, 2026.</p>
               </div>
             </div>
-            <SettingsButtonLink href="/plans">Adjust plan</SettingsButtonLink>
+            <SettingsButtonLink href="/adjust-plan">Adjust plan</SettingsButtonLink>
           </div>
 
           <div className="flex flex-col gap-3 border-b border-border-medium p-5 sm:flex-row sm:items-center sm:justify-between">
@@ -253,7 +280,7 @@ function renderSettingsSection({
               <p className="text-sm font-semibold text-foreground">Payment</p>
               <p className="mt-1 text-sm text-text-secondary">Mastercard •••• 1234</p>
             </div>
-            <SettingsButtonLink href="/dashboard/billing">Update</SettingsButtonLink>
+            <SettingsButton onClick={onManagePaymentMethod}>Manage</SettingsButton>
           </div>
 
           <div className="border-b border-border-medium p-5">
@@ -328,6 +355,7 @@ function renderSettingsSection({
 export default function SettingsPage() {
   const { user, logout } = useAgentAuth();
   const [activeSection, setActiveSection] = useState<SettingsSection>("general");
+  const [paymentDetailsOpen, setPaymentDetailsOpen] = useState(false);
   const active = SETTINGS_SECTIONS.find((section) => section.id === activeSection) ?? SETTINGS_SECTIONS[0];
   const ActiveIcon = active.icon;
 
@@ -378,9 +406,20 @@ export default function SettingsPage() {
             </div>
           </div>
 
-          {renderSettingsSection({ activeSection, logout, user })}
+          {renderSettingsSection({
+            activeSection,
+            logout,
+            onManagePaymentMethod: () => setPaymentDetailsOpen(true),
+            user,
+          })}
         </div>
       </div>
+
+      <UpdatePaymentDetailsModal
+        isOpen={paymentDetailsOpen}
+        initialValues={{ email: user?.email ?? "" }}
+        onClose={() => setPaymentDetailsOpen(false)}
+      />
     </div>
   );
 }

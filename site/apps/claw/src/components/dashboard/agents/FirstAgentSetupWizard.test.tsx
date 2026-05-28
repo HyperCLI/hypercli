@@ -181,6 +181,26 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.queryByRole("dialog", { name: "Plan comparison" })).not.toBeInTheDocument();
   });
 
+  it("calls the close handler from the choose-plan step", () => {
+    const onClose = vi.fn();
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={vi.fn(async () => null)}
+        onClose={onClose}
+        budget={null}
+        subscriptionSummary={null}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Close choose plan" }));
+
+    expect(onClose).toHaveBeenCalledTimes(1);
+  });
+
   it("opens the plan catalog modal for catalog plans when no entitlement can launch", async () => {
     const onOpenPlanCatalog = vi.fn();
     const onCreateAgent = vi.fn(async () => null);

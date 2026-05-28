@@ -383,6 +383,18 @@ export interface HyperAgentStripeCheckoutResponse {
   checkoutUrl: string;
 }
 
+export type HyperAgentStripeBillingPortalFlowType = 'payment_method_update';
+
+export interface HyperAgentStripeBillingPortalSessionRequest {
+  returnUrl: string;
+  flowType: HyperAgentStripeBillingPortalFlowType;
+}
+
+export interface HyperAgentStripeBillingPortalSessionResponse {
+  id: string | null;
+  url: string;
+}
+
 export interface HyperAgentX402CheckoutRequest {
   quantity?: number;
   bundle?: Record<string, number>;
@@ -820,6 +832,15 @@ function hyperAgentStripeCheckoutResponseFromDict(data: any): HyperAgentStripeCh
   };
 }
 
+function hyperAgentStripeBillingPortalSessionResponseFromDict(
+  data: any,
+): HyperAgentStripeBillingPortalSessionResponse {
+  return {
+    id: data?.id ? String(data.id) : null,
+    url: String(data?.url || ''),
+  };
+}
+
 function hyperAgentX402CheckoutResponseFromDict(data: any): HyperAgentX402CheckoutResponse {
   return {
     ok: Boolean(data?.ok),
@@ -1178,6 +1199,17 @@ export class HyperAgent {
     };
     const path = planId ? `/stripe/${encodeURIComponent(planId)}` : '/stripe/checkout';
     return hyperAgentStripeCheckoutResponseFromDict(await this.controlPost(path, payload));
+  }
+
+  async createStripeBillingPortalSession(
+    request: HyperAgentStripeBillingPortalSessionRequest,
+  ): Promise<HyperAgentStripeBillingPortalSessionResponse> {
+    return hyperAgentStripeBillingPortalSessionResponseFromDict(
+      await this.controlPost('/stripe/billing-portal', {
+        return_url: request.returnUrl,
+        flow_data: { type: request.flowType },
+      }),
+    );
   }
 
   async purchaseViaX402(

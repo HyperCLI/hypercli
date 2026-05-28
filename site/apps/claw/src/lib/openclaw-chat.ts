@@ -122,6 +122,13 @@ const INTERNAL_HEARTBEAT_PRELUDE_MARKERS = [
   /\bThe user wants me to read\b/i,
   /\bLet me read the file first\b/i,
 ];
+const INTERNAL_HEARTBEAT_CONTROL_PROMPT_START = /\bRead\s+HEARTBEAT\.md\s+if\s+it\s+exists\b/i;
+const INTERNAL_HEARTBEAT_CONTROL_PROMPT_DETAILS = [
+  /\bworkspace context\b/i,
+  /\bDo\s+not\s+infer\s+or\s+repeat\s+old\s+tasks\s+from\s+prior\s+chats\b/i,
+  /\breply\s+HEARTBEAT_OK\b/i,
+  /\/home\/node\/\.openclaw\/workspace\/HEARTBEAT\.md/i,
+];
 const INTERNAL_HISTORY_CONTENT_TYPES = new Set([
   "computer_call",
   "computer_call_output",
@@ -213,6 +220,12 @@ function isInternalExecutionStatusText(text: string): boolean {
 function isInternalAsyncCommandCompletionText(text: string): boolean {
   const trimmed = sanitizeChatDisplayText(text).trim();
   return INTERNAL_ASYNC_COMMAND_COMPLETION_MARKERS.some((marker) => marker.test(trimmed));
+}
+
+function isInternalHeartbeatControlPromptText(text: string): boolean {
+  const trimmed = sanitizeChatDisplayText(text).trim();
+  if (!INTERNAL_HEARTBEAT_CONTROL_PROMPT_START.test(trimmed)) return false;
+  return INTERNAL_HEARTBEAT_CONTROL_PROMPT_DETAILS.some((marker) => marker.test(trimmed));
 }
 
 function isInternalExecutionOutputLine(line: string): boolean {
@@ -660,6 +673,9 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
     userContent.content,
   ).trim();
   const content = role === "assistant" ? stripInternalAssistantContent(rawSanitizedContent) : rawSanitizedContent;
+  if (isInternalHeartbeatControlPromptText(content)) {
+    return null;
+  }
   if (isInternalAsyncCommandCompletionText(content)) {
     return null;
   }
@@ -790,6 +806,7 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
     role: message.role,
     content: message.role === "assistant" && (
       isInternalNoReplyText(content) ||
+      isInternalHeartbeatControlPromptText(content) ||
       isLikelyInternalToolOutputText(content) ||
       isInternalAsyncCommandCompletionText(content) ||
       isInternalExecutionStatusText(content)

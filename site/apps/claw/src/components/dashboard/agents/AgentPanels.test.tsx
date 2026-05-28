@@ -20,6 +20,16 @@ const sdkMocks = vi.hoisted(() => ({
   userUpdate: vi.fn(),
 }));
 
+const portalMocks = vi.hoisted(() => {
+  const hyperAgent = { id: "hyper-agent-client" };
+  return {
+    createHyperAgentClient: vi.fn(() => hyperAgent),
+    createPaymentMethodUpdatePortalUrl: vi.fn(async () => "https://billing.stripe.com/p/session/test"),
+    hyperAgent,
+    openBillingPortalUrl: vi.fn(),
+  };
+});
+
 vi.mock("@hypercli.com/sdk/browser", () => ({
   BrowserHyperCLI: vi.fn(function BrowserHyperCLI() {
     return {
@@ -29,6 +39,15 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
       },
     };
   }),
+}));
+
+vi.mock("@/lib/agent-client", () => ({
+  createHyperAgentClient: portalMocks.createHyperAgentClient,
+}));
+
+vi.mock("@/components/billing/stripe-billing-portal", () => ({
+  createPaymentMethodUpdatePortalUrl: portalMocks.createPaymentMethodUpdatePortalUrl,
+  openBillingPortalUrl: portalMocks.openBillingPortalUrl,
 }));
 
 import { AgentList, AgentScheduledEmptyState, AgentSettingsPanel } from "./AgentPanels";
@@ -49,6 +68,8 @@ beforeEach(() => {
     isActive: true,
     createdAt: "2026-05-05T00:00:00Z",
   });
+  portalMocks.createHyperAgentClient.mockReturnValue(portalMocks.hyperAgent);
+  portalMocks.createPaymentMethodUpdatePortalUrl.mockResolvedValue("https://billing.stripe.com/p/session/test");
 });
 
 const agent: Agent = {
@@ -431,14 +452,23 @@ describe("AgentSettingsPanel", () => {
     expect(screen.queryByText("Starting...")).not.toBeInTheDocument();
   });
 
-  it("renders billing and usage sections when selected", () => {
-    renderAgentSettingsPanel();
+  it("renders billing and usage sections when selected", async () => {
+    const getToken = vi.fn(async () => "token");
+    renderAgentSettingsPanel({ getToken });
 
     fireEvent.click(screen.getByRole("button", { name: "Billing" }));
     expect(screen.getByRole("button", { name: "Billing" })).toHaveAttribute("aria-current", "page");
     expect(screen.getAllByText("Pro Plan").length).toBeGreaterThan(0);
     expect(screen.getAllByText(/Renews May 21, 2026/i).length).toBeGreaterThan(0);
+    expect(screen.getByRole("link", { name: "Adjust plan" })).toHaveAttribute("href", "/adjust-plan");
     expect(screen.getByText("Payment method is managed by Stripe.")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+    await waitFor(() => {
+      expect(portalMocks.openBillingPortalUrl).toHaveBeenCalledWith("https://billing.stripe.com/p/session/test");
+    });
+    expect(getToken).toHaveBeenCalled();
+    expect(portalMocks.createHyperAgentClient).toHaveBeenCalledWith("token");
+    expect(portalMocks.createPaymentMethodUpdatePortalUrl).toHaveBeenCalledWith(portalMocks.hyperAgent);
     expect(screen.getByText("Plan limits")).toBeInTheDocument();
     expect(screen.getByText("Subscriptions")).toBeInTheDocument();
     expect(screen.getAllByText("Stripe").length).toBeGreaterThan(0);
@@ -453,22 +483,41 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("API keys")).toBeInTheDocument();
   });
 
-  it("renders the compact mobile billing layout", () => {
-    renderAgentSettingsPanel({ isDesktopViewport: false });
+  it("renders the compact mobile billing layout", async () => {
+    const getToken = vi.fn(async () => "token");
+    renderAgentSettingsPanel({ getToken, isDesktopViewport: false });
 
     fireEvent.click(screen.getByRole("button", { name: "Billing" }));
 
     expect(screen.getByRole("heading", { name: "Agent Settings" })).toBeInTheDocument();
     expect(screen.getAllByText("Pro Plan").length).toBeGreaterThan(0);
     expect(screen.getByText(/auto renew on May 21, 2026/i)).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Adjust plan" })).toBeInTheDocument();
-    expect(screen.getByRole("link", { name: "Update" })).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: "Adjust plan" })).toHaveAttribute("href", "/adjust-plan");
+    fireEvent.click(screen.getByRole("button", { name: "Update" }));
+    await waitFor(() => {
+      expect(portalMocks.openBillingPortalUrl).toHaveBeenCalledWith("https://billing.stripe.com/p/session/test");
+    });
+    expect(getToken).toHaveBeenCalled();
     expect(screen.getByRole("heading", { name: "Invoices" })).toBeInTheDocument();
     expect(screen.getByText("Receipt")).toBeInTheDocument();
     expect(screen.getByText("Total")).toBeInTheDocument();
     expect(screen.getByText("Status")).toBeInTheDocument();
     expect(screen.queryByText("Plan limits")).not.toBeInTheDocument();
     expect(screen.queryByText("Subscriptions")).not.toBeInTheDocument();
+  });
+
+  it("shows an inline error when payment settings cannot be opened", async () => {
+    const getToken = vi.fn(async () => "token");
+    portalMocks.createPaymentMethodUpdatePortalUrl.mockRejectedValueOnce(new Error("Portal unavailable"));
+    renderAgentSettingsPanel({ getToken });
+
+    fireEvent.click(screen.getByRole("button", { name: "Billing" }));
+    fireEvent.click(screen.getByRole("button", { name: "Manage" }));
+
+    await waitFor(() => {
+      expect(screen.getByText("Unable to open payment settings. Please try again.")).toBeInTheDocument();
+    });
+    expect(portalMocks.openBillingPortalUrl).not.toHaveBeenCalled();
   });
 });
 

@@ -408,6 +408,53 @@ describe('HyperAgent API', () => {
     }
   });
 
+  it('creates a Stripe billing portal session for payment method updates', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          id: 'bps_123',
+          url: 'https://billing.stripe.com/p/session/test',
+        }),
+        {
+          status: 200,
+          headers: { 'Content-Type': 'application/json' },
+        },
+      );
+    }) as typeof fetch;
+
+    try {
+      const result = await agent.createStripeBillingPortalSession({
+        returnUrl: 'https://claw.hypercli.com/dashboard/agents',
+        flowType: 'payment_method_update',
+      });
+
+      expect(result.id).toBe('bps_123');
+      expect(result.url).toBe('https://billing.stripe.com/p/session/test');
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/stripe/billing-portal');
+      expect(calls[0]?.init?.method).toBe('POST');
+      expect(calls[0]?.init?.headers).toEqual(
+        expect.objectContaining({
+          Authorization: 'Bearer sk-hyper-test',
+          'Content-Type': 'application/json',
+        }),
+      );
+      expect(calls[0]?.init?.body).toBe(
+        JSON.stringify({
+          return_url: 'https://claw.hypercli.com/dashboard/agents',
+          flow_data: { type: 'payment_method_update' },
+        }),
+      );
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
   it('purchases a balance-funded entitlement on the primary API host', async () => {
     const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
     const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');

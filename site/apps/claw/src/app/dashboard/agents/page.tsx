@@ -2789,6 +2789,7 @@ function AgentsPageContent() {
                 catalogPlans={catalogPlans}
                 pendingSlotReleases={pendingSlotReleases}
                 onOpenPlanCatalog={openUpgradeCatalog}
+                onClose={() => setMobileAgentLauncherOpen(false)}
                 onCreateAgent={createMobileAgentFromLauncher}
               />
             </motion.div>

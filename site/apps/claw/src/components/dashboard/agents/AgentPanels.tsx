@@ -14,10 +14,15 @@ import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
+import {
+  createPaymentMethodUpdatePortalUrl,
+  openBillingPortalUrl,
+} from "@/components/billing/stripe-billing-portal";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
+import { createHyperAgentClient } from "@/lib/agent-client";
 import { agentAvatar } from "@/lib/avatar";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
@@ -994,6 +999,33 @@ function AgentSettingsLinkButton({
   );
 }
 
+function AgentSettingsActionButton({
+  children,
+  disabled = false,
+  onClick,
+  tone = "default",
+}: {
+  children: React.ReactNode;
+  disabled?: boolean;
+  onClick: () => void;
+  tone?: "default" | "danger";
+}) {
+  return (
+    <button
+      type="button"
+      disabled={disabled}
+      onClick={onClick}
+      className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-3 text-xs font-medium transition-colors ${
+        tone === "danger"
+          ? "border-[#d05f5f]/30 bg-background text-[#d05f5f] hover:bg-[#d05f5f]/10"
+          : "border-border bg-surface-low text-foreground hover:bg-surface-high"
+      } disabled:cursor-not-allowed disabled:opacity-60`}
+    >
+      {children}
+    </button>
+  );
+}
+
 function formatBillingDate(date: Date | null | undefined): string | null {
   if (!date || Number.isNaN(date.getTime())) return null;
   return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
@@ -1139,18 +1171,22 @@ function formatSubscriptionTotal(subscription: HyperAgentSubscription): string {
 }
 
 function AgentBillingSettingsContent({
+  getToken,
   planName,
   subscriptionSummary,
   tokenUsage,
   tokenLimit,
   isDesktopViewport = true,
 }: {
+  getToken?: () => Promise<string>;
   planName?: string | null;
   subscriptionSummary?: HyperAgentSubscriptionSummary | null;
   tokenUsage?: number | null;
   tokenLimit?: number | null;
   isDesktopViewport?: boolean;
 }) {
+  const [paymentMethodOpening, setPaymentMethodOpening] = React.useState(false);
+  const [paymentMethodError, setPaymentMethodError] = React.useState<string | null>(null);
   const currentSubscription = getCurrentBillingSubscription(subscriptionSummary);
   const subscriptions = getBillingSubscriptions(subscriptionSummary);
   const resetAt = getBillingResetAt(subscriptionSummary, currentSubscription);
@@ -1178,13 +1214,33 @@ function AgentBillingSettingsContent({
       : "No cancellable subscription returned by billing data.";
   const mobileInvoiceRows = subscriptions.length > 0 ? subscriptions : currentSubscription ? [currentSubscription] : [];
 
+  const managePaymentMethod = async () => {
+    if (!getToken) {
+      setPaymentMethodError("Unable to open payment settings. Please try again.");
+      return;
+    }
+
+    setPaymentMethodOpening(true);
+    setPaymentMethodError(null);
+    try {
+      const hyperAgent = createHyperAgentClient(await getToken());
+      const portalUrl = await createPaymentMethodUpdatePortalUrl(hyperAgent);
+      openBillingPortalUrl(portalUrl);
+    } catch {
+      setPaymentMethodError("Unable to open payment settings. Please try again.");
+    } finally {
+      setPaymentMethodOpening(false);
+    }
+  };
+
   if (!isDesktopViewport) {
     const cadenceLabel = billingCadenceLabel(currentSubscription);
     return (
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7">
-        <div className="mx-auto w-full max-w-[844px]">
-          <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
-          <section className="mt-7 border-b border-foreground">
+      <>
+        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7">
+          <div className="mx-auto w-full max-w-[844px]">
+            <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
+            <section className="mt-7 border-b border-foreground">
             <div className="flex min-h-[92px] items-center justify-between gap-3 border-b border-foreground py-5">
               <div className="flex min-w-0 items-center gap-3">
                 <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center rounded-[12px] border border-border bg-[#2a2b2e]">
@@ -1200,7 +1256,7 @@ function AgentBillingSettingsContent({
                   </p>
                 </div>
               </div>
-              <AgentSettingsLinkButton href="/plans">Adjust plan</AgentSettingsLinkButton>
+              <AgentSettingsLinkButton href="/adjust-plan">Adjust plan</AgentSettingsLinkButton>
             </div>
 
             <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-5">
@@ -1209,8 +1265,14 @@ function AgentBillingSettingsContent({
                 <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">
                   {describePaymentMethod(currentSubscription)}
                 </p>
+                {paymentMethodError ? <p className="mt-2 text-[12px] font-medium leading-5 text-red-300">{paymentMethodError}</p> : null}
               </div>
-              <AgentSettingsLinkButton href="/dashboard/billing">Update</AgentSettingsLinkButton>
+              <AgentSettingsActionButton
+                onClick={() => { void managePaymentMethod(); }}
+                disabled={paymentMethodOpening}
+              >
+                {paymentMethodOpening ? "Opening..." : "Update"}
+              </AgentSettingsActionButton>
             </div>
 
             <div className="border-b border-foreground py-7">
@@ -1263,16 +1325,18 @@ function AgentBillingSettingsContent({
                 </AgentSettingsLinkButton>
               </div>
             </div>
-          </section>
+            </section>
+          </div>
         </div>
-      </div>
+      </>
     );
   }
 
   return (
-    <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-      <div className="mx-auto w-full max-w-[844px]">
-        <section className="border-b border-foreground">
+    <>
+      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
+        <div className="mx-auto w-full max-w-[844px]">
+          <section className="border-b border-foreground">
           <div className="flex min-h-[92px] items-center justify-between gap-4 border-b border-foreground py-5">
             <div className="flex min-w-0 items-center gap-3">
               <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center rounded-[12px] border border-border bg-[#2a2b2e]">
@@ -1288,7 +1352,7 @@ function AgentBillingSettingsContent({
                 </p>
               </div>
             </div>
-            <AgentSettingsLinkButton href="/plans">Adjust plan</AgentSettingsLinkButton>
+            <AgentSettingsLinkButton href="/adjust-plan">Adjust plan</AgentSettingsLinkButton>
           </div>
 
           <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-5">
@@ -1301,8 +1365,14 @@ function AgentBillingSettingsContent({
                     ? `Activated through ${formatBillingProvider(currentSubscription.provider)}.`
                     : "Payment data unavailable from billing data."}
               </p>
+              {paymentMethodError ? <p className="mt-2 text-[12px] font-medium leading-5 text-red-300">{paymentMethodError}</p> : null}
             </div>
-            <AgentSettingsLinkButton href="/dashboard/billing">Manage</AgentSettingsLinkButton>
+            <AgentSettingsActionButton
+              onClick={() => { void managePaymentMethod(); }}
+              disabled={paymentMethodOpening}
+            >
+              {paymentMethodOpening ? "Opening..." : "Manage"}
+            </AgentSettingsActionButton>
           </div>
 
           <div className="border-b border-foreground py-7">
@@ -1387,9 +1457,10 @@ function AgentBillingSettingsContent({
               </AgentSettingsLinkButton>
             </div>
           </div>
-        </section>
+          </section>
+        </div>
       </div>
-    </div>
+    </>
   );
 }
 
@@ -1745,6 +1816,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
           />
         ) : activeSettingsSection === "billing" ? (
           <AgentBillingSettingsContent
+            getToken={getToken}
             planName={planName}
             subscriptionSummary={subscriptionSummary}
             tokenUsage={tokenUsage}
@@ -2170,6 +2242,7 @@ export function AgentList({
                 catalogPlans={catalogPlans}
                 pendingSlotReleases={pendingSlotReleases}
                 onOpenPlanCatalog={onOpenPlanCatalog}
+                onClose={() => setShowAgentLauncher(false)}
                 onCreateAgent={createAgentFromLauncher}
               />
             </motion.div>
@@ -2222,6 +2295,7 @@ export function LaunchFirstAgentEmptyState({
         catalogPlans={catalogPlans}
         pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
+        onClose={() => setShowWizard(false)}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
           return null;
@@ -2294,6 +2368,7 @@ export function AgentEmptyState({
         catalogPlans={catalogPlans}
         pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
+        onClose={() => setShowWizard(false)}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
           return null;
@@ -2348,6 +2423,7 @@ export function AgentFilesEmptyState({
         catalogPlans={catalogPlans}
         pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
+        onClose={() => setShowWizard(false)}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
           return null;
@@ -2473,6 +2549,7 @@ export function AgentIntegrationsEmptyState({
         catalogPlans={catalogPlans}
         pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
+        onClose={() => setShowWizard(false)}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
           return null;
@@ -2524,6 +2601,7 @@ export function AgentSkillsEmptyState({
         catalogPlans={catalogPlans}
         pendingSlotReleases={pendingSlotReleases}
         onOpenPlanCatalog={onOpenPlanCatalog}
+        onClose={() => setShowWizard(false)}
         onCreateAgent={onCreateAgent ?? (async () => {
           onCreate();
           return null;

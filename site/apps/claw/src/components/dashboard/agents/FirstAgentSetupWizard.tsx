@@ -13,6 +13,7 @@ import {
   Rocket,
   Shield,
   Sparkles,
+  X,
   Zap,
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
@@ -40,6 +41,7 @@ import {
 interface FirstAgentSetupWizardProps {
   onCreateAgent: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
   onOpenPlanCatalog?: () => void | Promise<void>;
+  onClose?: () => void;
   budget?: {
     slots: SlotInventory;
     pooled_tpd: number;
@@ -647,6 +649,7 @@ function WizardButton({
 export function FirstAgentSetupWizard({
   onCreateAgent,
   onOpenPlanCatalog,
+  onClose,
   budget,
   subscriptionSummary,
   catalogPlans,
@@ -782,19 +785,31 @@ export function FirstAgentSetupWizard({
         transition={{ duration: 0.2 }}
         className="flex h-full max-h-[680px] min-h-0 w-full max-w-[980px] flex-col overflow-hidden rounded-[20px] border border-[#353535] bg-[#171717] text-foreground shadow-[0_20px_56px_rgba(0,0,0,0.46)]"
       >
-        <header className="relative flex-shrink-0 border-b border-[#333333] px-5 py-4 pr-[164px] sm:px-6 sm:pr-[172px] lg:px-7 lg:pr-[180px]">
-          <div className="min-w-0">
+        <header className="relative flex-shrink-0 border-b border-[#333333] px-5 py-4 sm:px-6 lg:px-7">
+          <div className={cx("min-w-0", currentStep === "plan" && "sm:pr-[190px]")}>
             <h2 className="text-[20px] font-medium leading-tight text-[#f3f3f3] sm:text-[24px]">{currentCopy.title}</h2>
             <p className="mt-2 text-[13px] leading-snug text-[#858585] sm:text-[15px] lg:text-[16px]">{currentCopy.subtitle}</p>
           </div>
           {currentStep === "plan" && (
-            <button
-              type="button"
-              onClick={() => setPlanComparisonOpen(true)}
-              className="absolute right-5 top-4 inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[#4a4a4d] bg-[#232323] px-3.5 text-[14px] font-medium text-[#f5f5f5] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b] sm:right-6 lg:right-7"
-            >
-              Compare plans
-            </button>
+            <div className="mt-4 flex items-center justify-end gap-2 sm:absolute sm:right-6 sm:top-4 sm:mt-0 lg:right-7">
+              <button
+                type="button"
+                onClick={() => setPlanComparisonOpen(true)}
+                className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[#4a4a4d] bg-[#232323] px-3.5 text-[14px] font-medium text-[#f5f5f5] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b]"
+              >
+                Compare plans
+              </button>
+              {onClose ? (
+                <button
+                  type="button"
+                  aria-label="Close choose plan"
+                  onClick={onClose}
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[#4a4a4d] bg-[#232323] text-[#d0d0d2] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b] hover:text-[#f5f5f5]"
+                >
+                  <X className="h-4 w-4" />
+                </button>
+              ) : null}
+            </div>
           )}
         </header>
 
