@@ -7,6 +7,7 @@ import {
   Eye,
   EyeOff,
   FileText,
+  FolderPlus,
   FolderOpen,
   Loader2,
   Upload,
@@ -95,6 +96,7 @@ interface AgentFilesPanelProps {
   onSaveFile: (path: string, content: string) => Promise<void>;
   onDeleteFile: (path: string, options?: { recursive?: boolean }) => Promise<void>;
   onUploadFile: (path: string, content: Uint8Array) => Promise<void>;
+  onCreateDirectory?: (path: string) => Promise<void>;
 }
 
 export function AgentFilesPanel({
@@ -114,12 +116,17 @@ export function AgentFilesPanel({
   onSaveFile,
   onDeleteFile,
   onUploadFile,
+  onCreateDirectory,
 }: AgentFilesPanelProps) {
   const normalizedRootPath = useMemo(() => normalizePanelPath(rootPath), [rootPath]);
   const [searchQuery, setSearchQuery] = useState("");
   const [currentPath, setCurrentPath] = useState(() => normalizedRootPath);
   const [showHidden, setShowHidden] = useState(false);
   const [showUpload, setShowUpload] = useState(false);
+  const [showCreateFolder, setShowCreateFolder] = useState(false);
+  const [newFolderName, setNewFolderName] = useState("");
+  const [newFolderError, setNewFolderError] = useState<string | null>(null);
+  const [creatingFolder, setCreatingFolder] = useState(false);
   const [sortKey, setSortKey] = useState<FileSortKey>("name");
   const [sortDir, setSortDir] = useState<FileSortDir>("asc");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
@@ -271,6 +278,37 @@ export function AgentFilesPanel({
     await loadFiles();
   }, [loadFiles, onUploadFile]);
 
+  const validateNewFolderName = useCallback((name: string): string | null => {
+    if (!name.trim()) return "Folder name is required.";
+    if (name === "." || name === "..") return "Use a real folder name.";
+    if (/[\\/]/.test(name)) return "Create one folder at a time.";
+    return null;
+  }, []);
+
+  const handleCreateDirectory = useCallback(async () => {
+    if (!onCreateDirectory) return;
+    const trimmedName = newFolderName.trim();
+    const validationError = validateNewFolderName(trimmedName);
+    if (validationError) {
+      setNewFolderError(validationError);
+      return;
+    }
+
+    const targetPath = currentPath ? `${currentPath}/${trimmedName}` : trimmedName;
+    setCreatingFolder(true);
+    setNewFolderError(null);
+    try {
+      await onCreateDirectory(targetPath);
+      setNewFolderName("");
+      setShowCreateFolder(false);
+      await loadFiles();
+    } catch (err) {
+      setNewFolderError(err instanceof Error ? err.message : "Failed to create folder.");
+    } finally {
+      setCreatingFolder(false);
+    }
+  }, [currentPath, loadFiles, newFolderName, onCreateDirectory, validateNewFolderName]);
+
   const handleDownloadFile = useCallback(async (entry: FileEntry) => {
     if (!onDownloadFileBytes || entry.type === "directory") return;
     const result = resolveAgentFileOpenResult(await onDownloadFileBytes(entry.path));
@@ -335,9 +373,31 @@ export function AgentFilesPanel({
           </div>
         )}
 
+        {onCreateDirectory && (
+          <button
+            type="button"
+            onClick={() => {
+              setShowCreateFolder((open) => !open);
+              setShowUpload(false);
+              setNewFolderError(null);
+            }}
+            disabled={!connected}
+            className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
+              showCreateFolder ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+            }`}
+            title="New folder"
+            aria-label="New folder"
+          >
+            <FolderPlus className="h-3.5 w-3.5" />
+          </button>
+        )}
+
         <button
           type="button"
-          onClick={() => setShowUpload((open) => !open)}
+          onClick={() => {
+            setShowUpload((open) => !open);
+            setShowCreateFolder(false);
+          }}
           disabled={!connected}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
             showUpload ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
@@ -396,6 +456,64 @@ export function AgentFilesPanel({
           </AnimatePresence>
         </div>
       </div>
+
+      <AnimatePresence>
+        {showCreateFolder && connected && onCreateDirectory && (
+          <motion.div
+            initial={{ height: 0, opacity: 0 }}
+            animate={{ height: "auto", opacity: 1 }}
+            exit={{ height: 0, opacity: 0 }}
+            transition={{ duration: 0.18 }}
+            className="flex-shrink-0 overflow-hidden border-b border-border"
+          >
+            <form
+              className="flex flex-wrap items-start gap-2 px-4 py-3"
+              onSubmit={(event) => {
+                event.preventDefault();
+                void handleCreateDirectory();
+              }}
+            >
+              <div className="min-w-0 flex-1">
+                <label htmlFor="agent-files-new-folder" className="sr-only">Folder name</label>
+                <input
+                  id="agent-files-new-folder"
+                  type="text"
+                  value={newFolderName}
+                  onChange={(event) => {
+                    setNewFolderName(event.target.value);
+                    if (newFolderError) setNewFolderError(null);
+                  }}
+                  placeholder="Folder name"
+                  className="h-8 w-full rounded-lg border border-border bg-surface-low px-3 text-xs text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-[var(--selection-accent)]"
+                  autoComplete="off"
+                  disabled={creatingFolder}
+                />
+                {newFolderError && <p className="mt-1 text-[10px] text-[#d05f5f]">{newFolderError}</p>}
+              </div>
+              <button
+                type="submit"
+                disabled={creatingFolder}
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--selection-accent)] px-3 text-[11px] font-medium text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                {creatingFolder && <Loader2 className="h-3 w-3 animate-spin" />}
+                Create
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setShowCreateFolder(false);
+                  setNewFolderName("");
+                  setNewFolderError(null);
+                }}
+                disabled={creatingFolder}
+                className="h-8 rounded-lg px-3 text-[11px] text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-60"
+              >
+                Cancel
+              </button>
+            </form>
+          </motion.div>
+        )}
+      </AnimatePresence>
 
       <AnimatePresence>
         {showUpload && connected && (

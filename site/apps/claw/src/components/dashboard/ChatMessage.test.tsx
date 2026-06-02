@@ -103,6 +103,27 @@ describe("ChatMessageBubble", () => {
     expectNoLeakSentinels(container.innerHTML);
   });
 
+  it("does not show the file preview raw switch for normal chat markdown", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: [
+            "# Chat preview",
+            "",
+            "```tsx",
+            "const value = 1;",
+            "```",
+          ].join("\n"),
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Chat preview" })).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Raw" })).not.toBeInTheDocument();
+  });
+
   it("caps long user messages at three quarters of the chat row", () => {
     const { container } = render(
       <ChatMessageBubble
@@ -650,6 +671,26 @@ describe("ChatMessageBubble", () => {
     expect(screen.getByText("Generated:")).toBeInTheDocument();
     expect(screen.queryByText(/^media:?$/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
+  });
+
+  it("extracts quoted inline MEDIA workspace paths before markdown rendering", () => {
+    const readFileBytes = vi.fn(() => new Promise<Uint8Array>(() => {}));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Generated: MEDIA:\"/home/node/.openclaw/workspace/865621.jpg\"",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("status", { name: /loading image/i })).toBeInTheDocument();
+    expect(screen.getByText("Generated:")).toBeInTheDocument();
+    expect(screen.queryByText(/MEDIA:/i)).not.toBeInTheDocument();
+    expect(screen.queryByText(/\/home\/node\/\.openclaw\/workspace\/865621\.jpg/i)).not.toBeInTheDocument();
   });
 
   it("suppresses incomplete MEDIA sentinel text while generated media is streaming", () => {

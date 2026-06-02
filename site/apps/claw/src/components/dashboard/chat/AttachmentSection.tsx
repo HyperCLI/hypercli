@@ -1,6 +1,7 @@
 "use client";
 
 import { Paperclip } from "lucide-react";
+import { classifyChatMediaReference, getChatFileLabel } from "@/lib/chat-media";
 import { AudioPlayer } from "./AudioPlayer";
 import { ChatImageViewer } from "./ChatImageViewer";
 import type { ChatAttachment, ChatPendingFile } from "./types";
@@ -11,19 +12,17 @@ interface AttachmentSectionProps {
   mediaUrls?: string[];
 }
 
-function mediaFileNameFromUrl(url: string, fallback = "media"): string {
-  if (/^data:/i.test(url.trim())) return fallback;
-  try {
-    const parsed = new URL(url, "https://hypercli.local");
-    const name = parsed.pathname.split("/").filter(Boolean).pop();
-    return name ? decodeURIComponent(name) : fallback;
-  } catch {
-    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
-  }
-}
-
-function isAudioUrl(url: string): boolean {
-  return /^(?:data:audio\/|blob:)/i.test(url) || /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)(?:[?#].*)?$/i.test(url);
+function MediaUnavailable({ label }: { label: string }) {
+  return (
+    <div
+      role="status"
+      aria-label="Media preview unavailable"
+      className="inline-flex max-w-full items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+    >
+      <Paperclip className="h-3.5 w-3.5 shrink-0" />
+      <span className="truncate">{label}</span>
+    </div>
+  );
 }
 
 export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentSectionProps) {
@@ -57,7 +56,7 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
               className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
             >
               <Paperclip className="h-3.5 w-3.5 shrink-0" />
-              <span className="truncate">{file.name}</span>
+              <span className="truncate">{getChatFileLabel(file)}</span>
             </div>
           ))}
         </div>
@@ -67,45 +66,62 @@ export function AttachmentSection({ attachments, files, mediaUrls }: AttachmentS
       {mediaUrls && mediaUrls.length > 0 && (
         <div className="mb-2 flex max-w-full flex-wrap gap-2">
           {mediaUrls.map((url, i) => {
-            const isImage = /\.(png|jpe?g|gif|webp|svg)(\?.*)?$/i.test(url) || url.startsWith("data:image/");
-            if (isImage) {
+            const reference = classifyChatMediaReference(url);
+            if (reference.kind === "workspace") {
+              return (
+                <div
+                  key={`${reference.raw}-${i}`}
+                  className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
+                >
+                  <Paperclip className="h-3.5 w-3.5 shrink-0" />
+                  <span className="truncate">{getChatFileLabel(reference.media.file)}</span>
+                </div>
+              );
+            }
+
+            if (reference.kind === "image") {
               return (
                 <ChatImageViewer
-                  key={i}
-                  src={url}
-                  alt="media"
+                  key={`${reference.raw}-${i}`}
+                  src={reference.url}
+                  alt={reference.fileName}
                   width={320}
                   height={320}
                   sizes="(max-width: 640px) 100vw, 320px"
                   className="h-auto max-h-[320px] max-w-full rounded-md object-contain sm:max-w-[320px]"
                   loading="lazy"
-                  downloadHref={url}
-                  downloadFileName={mediaFileNameFromUrl(url)}
+                  downloadHref={reference.url}
+                  downloadFileName={reference.fileName}
                 />
               );
             }
-            if (isAudioUrl(url)) {
-              const label = mediaFileNameFromUrl(url, "audio");
+
+            if (reference.kind === "audio") {
               return (
                 <AudioPlayer
-                  key={i}
-                  src={url}
-                  title={label}
-                  downloadHref={url}
-                  downloadFileName={label}
-                  downloadLabel={`Download ${label}`}
+                  key={`${reference.raw}-${i}`}
+                  src={reference.url}
+                  title={reference.fileName}
+                  downloadHref={reference.url}
+                  downloadFileName={reference.fileName}
+                  downloadLabel={`Download ${reference.fileName}`}
                 />
               );
             }
+
+            if (reference.kind === "local" || reference.kind === "unsupported") {
+              return <MediaUnavailable key={`${reference.raw}-${i}`} label={reference.label} />;
+            }
+
             return (
               <a
-                key={i}
-                href={url}
+                key={`${reference.raw}-${i}`}
+                href={reference.url}
                 target="_blank"
                 rel="noopener noreferrer"
                 className="max-w-full break-words text-xs text-accent hover:underline [overflow-wrap:anywhere]"
               >
-                {url.split("/").pop() || "media"}
+                {reference.fileName}
               </a>
             );
           })}

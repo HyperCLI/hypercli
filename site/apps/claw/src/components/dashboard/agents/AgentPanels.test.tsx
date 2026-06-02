@@ -1,4 +1,4 @@
-import { fireEvent, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps, ReactNode } from "react";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -23,6 +23,7 @@ const sdkMocks = vi.hoisted(() => ({
 const portalMocks = vi.hoisted(() => {
   const hyperAgent = { id: "hyper-agent-client" };
   return {
+    createAgentClient: vi.fn(() => ({ fileWriteBytes: vi.fn(async () => undefined) })),
     createHyperAgentClient: vi.fn(() => hyperAgent),
     createPaymentMethodUpdatePortalUrl: vi.fn(async () => "https://billing.stripe.com/p/session/test"),
     hyperAgent,
@@ -42,6 +43,7 @@ vi.mock("@hypercli.com/sdk/browser", () => ({
 }));
 
 vi.mock("@/lib/agent-client", () => ({
+  createAgentClient: portalMocks.createAgentClient,
   createHyperAgentClient: portalMocks.createHyperAgentClient,
 }));
 
@@ -50,7 +52,7 @@ vi.mock("@/components/billing/stripe-billing-portal", () => ({
   openBillingPortalUrl: portalMocks.openBillingPortalUrl,
 }));
 
-import { AgentList, AgentScheduledEmptyState, AgentSettingsPanel } from "./AgentPanels";
+import { AgentList, AgentScheduledEmptyState, AgentSettingsPanel, ErrorBanner } from "./AgentPanels";
 
 beforeEach(() => {
   vi.clearAllMocks();
@@ -69,6 +71,7 @@ beforeEach(() => {
     createdAt: "2026-05-05T00:00:00Z",
   });
   portalMocks.createHyperAgentClient.mockReturnValue(portalMocks.hyperAgent);
+  portalMocks.createAgentClient.mockReturnValue({ fileWriteBytes: vi.fn(async () => undefined) });
   portalMocks.createPaymentMethodUpdatePortalUrl.mockResolvedValue("https://billing.stripe.com/p/session/test");
 });
 
@@ -407,6 +410,20 @@ describe("AgentSettingsPanel", () => {
     expect(screen.getByText("Profile updated.")).toBeInTheDocument();
   });
 
+  it("saves the agent name through the agent update callback", async () => {
+    const onUpdateAgentName = vi.fn(async () => undefined);
+    renderAgentSettingsPanel({ onUpdateAgentName });
+
+    fireEvent.click(screen.getByRole("button", { name: "Agent" }));
+    fireEvent.change(screen.getByDisplayValue("Test Agent"), { target: { value: "Renamed Agent" } });
+    fireEvent.click(screen.getByRole("button", { name: "Save changes" }));
+
+    await waitFor(() => {
+      expect(onUpdateAgentName).toHaveBeenCalledWith("agent-1", "Renamed Agent");
+    });
+    expect(screen.getByText("Agent settings updated.")).toBeInTheDocument();
+  });
+
   it("lists OpenClaw models and saves the selected default model through config patch", async () => {
     const onSaveOpenClawConfig = vi.fn(async () => undefined);
     renderAgentSettingsPanel({ onSaveOpenClawConfig });
@@ -518,6 +535,29 @@ describe("AgentSettingsPanel", () => {
       expect(screen.getByText("Unable to open payment settings. Please try again.")).toBeInTheDocument();
     });
     expect(portalMocks.openBillingPortalUrl).not.toHaveBeenCalled();
+  });
+});
+
+describe("ErrorBanner", () => {
+  it("renders capacity errors with inventory and a plan catalog CTA", () => {
+    const onOpenPlanCatalog = vi.fn();
+
+    render(
+      <ErrorBanner
+        error="API Error 429: No available 'large' entitlement slots. Requested tier inventory: 1 free / 2 total (used 1). Available slots on this account: large 1 free / 2 total, medium 0 free / 0 total, small 0 free / 0 total. Stop an existing agent or purchase more capacity."
+        onDismiss={vi.fn()}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+      />,
+    );
+
+    expect(screen.getByText("Large capacity unavailable")).toBeInTheDocument();
+    expect(screen.getByText("Requested 1 free / 2 total")).toBeInTheDocument();
+    expect(screen.getByText("large: 1 free / 2 total")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /add capacity/i }));
+
+    expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1);
+    expect(screen.queryByText(/No available 'large' entitlement slots/)).not.toBeInTheDocument();
   });
 });
 

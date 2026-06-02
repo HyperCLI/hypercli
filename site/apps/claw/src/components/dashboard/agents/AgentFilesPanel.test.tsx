@@ -1,5 +1,5 @@
 import type { ComponentProps } from "react";
-import { render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentFilesPanel } from "./AgentFilesPanel";
@@ -98,5 +98,40 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("agent-landing-page-demo-architecture.md")).toBeInTheDocument();
     });
+  });
+
+  it("creates a folder in the current directory", async () => {
+    const onCreateDirectory = vi.fn(async () => undefined);
+    const onListFiles = vi.fn(async () => []);
+    renderFilesPanel({ onCreateDirectory, onListFiles });
+
+    await waitFor(() => expect(onListFiles).toHaveBeenCalled());
+    onListFiles.mockClear();
+
+    fireEvent.click(screen.getByRole("button", { name: /new folder/i }));
+    fireEvent.change(screen.getByLabelText(/folder name/i), { target: { value: "reports" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    await waitFor(() => {
+      expect(onCreateDirectory).toHaveBeenCalledWith(".openclaw/workspace/reports");
+    });
+    await waitFor(() => {
+      expect(onListFiles).toHaveBeenCalledTimes(1);
+    });
+  });
+
+  it("rejects nested folder names", async () => {
+    const onCreateDirectory = vi.fn(async () => undefined);
+    const onListFiles = vi.fn(async () => []);
+    renderFilesPanel({ onCreateDirectory, onListFiles });
+
+    await waitFor(() => expect(onListFiles).toHaveBeenCalled());
+
+    fireEvent.click(screen.getByRole("button", { name: /new folder/i }));
+    fireEvent.change(screen.getByLabelText(/folder name/i), { target: { value: "reports/2026" } });
+    fireEvent.click(screen.getByRole("button", { name: /^create$/i }));
+
+    expect(screen.getByText("Create one folder at a time.")).toBeInTheDocument();
+    expect(onCreateDirectory).not.toHaveBeenCalled();
   });
 });

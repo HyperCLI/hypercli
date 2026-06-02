@@ -22,8 +22,10 @@ import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createHyperAgentClient } from "@/lib/agent-client";
+import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
+import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { agentAvatar } from "@/lib/avatar";
+import { parseAgentCapacityError } from "@/lib/agent-tier";
 import type { WorkspaceFile } from "@/lib/openclaw-chat";
 import type { ActivityEntry } from "@/lib/openclaw-session";
 import {
@@ -33,7 +35,7 @@ import {
   type OpenClawModelOption,
 } from "@/lib/openclaw-models";
 import { OpenClawErrorBoundary } from "./page-helpers";
-import { FirstAgentSetupWizard } from "./FirstAgentSetupWizard";
+import { FirstAgentSetupWizard, type FirstAgentSetupCreateParams } from "./FirstAgentSetupWizard";
 import { AgentSettingsMobileChrome } from "./AgentSettingsMobileChrome";
 import { AgentTeamSettingsContent } from "./AgentTeamSettingsContent";
 import { getAgentGatewayPanelBootStatus } from "./chat-boot-stage";
@@ -502,6 +504,7 @@ interface AgentSettingsPanelProps {
   tokenLimit?: number | null;
   openclawConfig?: Record<string, unknown> | null;
   openclawModels?: Array<Record<string, unknown>> | null;
+  onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   isDesktopViewport?: boolean;
   agentsMenuOpen?: boolean;
@@ -1531,6 +1534,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     tokenLimit = null,
     openclawConfig = null,
     openclawModels = null,
+    onUpdateAgentName,
     onSaveOpenClawConfig,
     isDesktopViewport = true,
     agentsMenuOpen = false,
@@ -1655,10 +1659,24 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     setAgentSettingsError(null);
     setAgentSettingsSuccess(null);
 
+    if (!agent) return;
     if (!hasSettingsChanges) return;
 
     if (profileChanged && !getToken) {
       setProfileError("Profile updates are unavailable without an authenticated account session.");
+      return;
+    }
+
+    const agentNameChanged = agentNameDraft !== savedAgentName;
+    const nextAgentName = agentNameDraft.trim();
+
+    if (agentNameChanged && !nextAgentName) {
+      setAgentSettingsError("Agent name is required.");
+      return;
+    }
+
+    if (agentNameChanged && !onUpdateAgentName) {
+      setAgentSettingsError("Agent name updates are unavailable.");
       return;
     }
 
@@ -1668,9 +1686,10 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     }
 
     setProfileSaving(true);
-    let savingModel = false;
+    let savingSection: "profile" | "agent" | null = null;
     try {
       if (profileChanged && getToken) {
+        savingSection = "profile";
         const token = await getToken();
         const client = new BrowserHyperCLI({ apiUrl: AUTH_BASE_URL, token });
         const updated = await client.user.update({ name: profileName.trim() });
@@ -1680,20 +1699,27 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         setProfileSuccess("Profile updated.");
       }
 
+      if (agentNameChanged && onUpdateAgentName) {
+        savingSection = "agent";
+        await onUpdateAgentName(agent.id, nextAgentName);
+        setAgentNameDraft(nextAgentName);
+        setSavedAgentName(nextAgentName);
+        setAgentSettingsSuccess("Agent settings updated.");
+      }
+
       if (modelChanged && onSaveOpenClawConfig) {
-        savingModel = true;
+        savingSection = "agent";
         await onSaveOpenClawConfig(buildOpenClawDefaultModelPatch(modelDraft));
         setSavedModelDraft(modelDraft);
         setAgentSettingsSuccess("Agent settings updated.");
       }
 
       setSavedProfileAvatar(profileAvatar);
-      setSavedAgentName(agentNameDraft);
       setSavedAgentAvatar(agentAvatarDraft);
       setSavedArchiveDraft(archiveDraft);
     } catch (error) {
       const message = error instanceof Error ? error.message : "Failed to save settings.";
-      if (savingModel) {
+      if (savingSection === "agent") {
         setAgentSettingsError(message);
       } else {
         setProfileError(message);
@@ -1704,15 +1730,18 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
   }, [
     agentAvatarDraft,
     agentNameDraft,
+    agent,
     archiveDraft,
     getToken,
     hasSettingsChanges,
     modelChanged,
     modelDraft,
+    onUpdateAgentName,
     onSaveOpenClawConfig,
     profileAvatar,
     profileChanged,
     profileName,
+    savedAgentName,
   ]);
 
   const handleAvatarSelect = React.useCallback((event: React.ChangeEvent<HTMLInputElement>) => {
@@ -1856,7 +1885,17 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
 }
 
 
-export function ErrorBanner({ error, onDismiss }: { error: string | null; onDismiss: () => void }) {
+export function ErrorBanner({
+  error,
+  onDismiss,
+  onOpenPlanCatalog,
+}: {
+  error: string | null;
+  onDismiss: () => void;
+  onOpenPlanCatalog?: () => void | Promise<void>;
+}) {
+  const capacityError = React.useMemo(() => parseAgentCapacityError(error), [error]);
+
   return (
     <AnimatePresence>
       {error && (
@@ -1866,12 +1905,53 @@ export function ErrorBanner({ error, onDismiss }: { error: string | null; onDism
           exit={{ height: 0, opacity: 0 }}
           className="overflow-hidden"
         >
-          <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
-            <span>{error}</span>
-            <button onClick={onDismiss} className="ml-2 hover:text-foreground">
-              <X className="w-3.5 h-3.5" />
-            </button>
-          </div>
+          {capacityError ? (
+            <div className="mx-4 mt-3 rounded-[14px] border border-[#f0c56c]/25 bg-[#f0c56c]/10 p-4 text-sm text-[#f0c56c] sm:mx-6 lg:mx-8">
+              <div className="flex items-start gap-3">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#f0c56c]/25 bg-[#f0c56c]/10">
+                  <Sparkles className="h-3.5 w-3.5" />
+                </span>
+                <div className="min-w-0 flex-1">
+                  <p className="font-semibold text-foreground">{capacityError.title}</p>
+                  <p className="mt-1 max-w-3xl text-[13px] leading-5 text-text-secondary">{capacityError.message}</p>
+                  {(capacityError.requestedInventory || capacityError.accountInventory.length > 0) && (
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      {capacityError.requestedInventory && (
+                        <span className="rounded-full border border-[#f0c56c]/25 bg-background/40 px-2.5 py-1 text-[11px] font-medium text-[#f0c56c]">
+                          Requested {capacityError.requestedInventory.free} free / {capacityError.requestedInventory.total} total
+                        </span>
+                      )}
+                      {capacityError.accountInventory.map((entry) => (
+                        <span key={entry.tier} className="rounded-full border border-border bg-background/40 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
+                          {entry.tier}: {entry.free} free / {entry.total} total
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                  {onOpenPlanCatalog && (
+                    <button
+                      type="button"
+                      onClick={() => { void onOpenPlanCatalog(); }}
+                      className="mt-3 inline-flex h-8 items-center gap-2 rounded-lg bg-[var(--button-primary)] px-3 text-xs font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)]"
+                    >
+                      Add capacity
+                      <ArrowRight className="h-3.5 w-3.5" />
+                    </button>
+                  )}
+                </div>
+                <button type="button" onClick={onDismiss} className="rounded-md p-1 text-[#f0c56c]/80 transition-colors hover:bg-[#f0c56c]/10 hover:text-foreground" aria-label="Dismiss capacity alert">
+                  <X className="h-3.5 w-3.5" />
+                </button>
+              </div>
+            </div>
+          ) : (
+            <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
+              <span>{error}</span>
+              <button onClick={onDismiss} className="ml-2 hover:text-foreground">
+                <X className="w-3.5 h-3.5" />
+              </button>
+            </div>
+          )}
         </motion.div>
       )}
     </AnimatePresence>
@@ -2043,7 +2123,7 @@ export function AgentList({
     return next;
   }, [agents, agentCardDataById]);
 
-  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size }: { name: string; iconIndex: number; size: string }) => {
+  const createAgentFromLauncher = React.useCallback(async ({ name, iconIndex, size, files }: FirstAgentSetupCreateParams) => {
     try {
       const token = await getToken();
       const created = await createOpenClawAgent(token, {
@@ -2052,12 +2132,30 @@ export function AgentList({
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
       });
-      await fetchAgents();
       const createdId = created.id ?? null;
       if (createdId) {
+        if (files.length > 0) {
+          try {
+            const agentClient = createAgentClient(token);
+            await uploadAgentStarterFiles({
+              agentId: createdId,
+              files,
+              writeFileBytes: (agentId, path, content, destination) => (
+                agentClient.fileWriteBytes(agentId, path, content, destination)
+              ),
+            });
+          } catch (uploadError) {
+            setError(uploadError instanceof Error
+              ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
+              : "Agent created, but starter files could not be uploaded.");
+          }
+        }
+        await fetchAgents();
         setSelectedAgentId(createdId);
         setMobileShowChat(true);
         setShowAgentLauncher(false);
+      } else {
+        await fetchAgents();
       }
       return createdId;
     } catch (err) {
@@ -2257,7 +2355,7 @@ export { AgentList as AgentSidebarPane };
 
 type AgentEmptyStateProps = {
   onCreate: () => void;
-  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  onCreateAgent?: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
   budget?: {
     slots: Record<string, { granted: number; used: number; available: number }>;
     pooled_tpd: number;

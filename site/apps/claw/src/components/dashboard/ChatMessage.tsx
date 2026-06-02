@@ -6,7 +6,18 @@ import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
 import { createAgentClient } from "@/lib/agent-client";
-import { normalizeOpenClawMediaDisplayPath, normalizeOpenClawMediaFilePath, normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import {
+  classifyChatMediaReference,
+  extractContentMediaReferences,
+  findFileForMediaReference,
+  getChatFileLabel,
+  isAudioFileReference,
+  isImageFileReference,
+  type ContentMediaReference,
+  type DirectChatMediaReference,
+  type ExtractedContentMediaReferences,
+} from "@/lib/chat-media";
 import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { AudioPlayer } from "@/components/dashboard/chat/AudioPlayer";
@@ -16,41 +27,19 @@ import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboa
 
 // ── Helpers ──
 
-const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
-const IMAGE_URL_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
-const AUDIO_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i;
-const AUDIO_URL_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)(?:[?#].*)?$/i;
-const NON_IMAGE_URL_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
-const LOCAL_MEDIA_REFERENCE = /^media:/i;
-const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::\s*(.*))?\s*$/i;
-const CONTENT_MEDIA_MARKDOWN_LINE = /^\s*!\[([^\]]*)\](?:\(([^)]*)\))?\s*$/i;
-const CONTENT_INLINE_MEDIA_REFERENCE = /\bMEDIA:\s*(\S+)/i;
-
 function extractImagePath(tc: { name: string; args: string; result?: string }): string | null {
   try {
     const args = JSON.parse(tc.args);
     const path = args.file_path || args.path || "";
-    if (typeof path === "string" && IMAGE_EXTENSIONS.test(path)) return path;
+    if (typeof path === "string" && isImageFileReference({ path })) return path;
   } catch { /* ignore */ }
   return null;
-}
-
-function isImageFileReference(file: { name?: string; path?: string; type?: string }): boolean {
-  return file.type?.startsWith("image/") || IMAGE_EXTENSIONS.test(file.name ?? "") || IMAGE_EXTENSIONS.test(file.path ?? "");
-}
-
-function isAudioFileReference(file: { name?: string; path?: string; type?: string }): boolean {
-  return file.type?.startsWith("audio/") || AUDIO_EXTENSIONS.test(file.name ?? "") || AUDIO_EXTENSIONS.test(file.path ?? "");
-}
-
-function fileLabel(file: { name?: string; path?: string }): string {
-  return file.name || file.path?.split("/").filter(Boolean).pop() || "file";
 }
 
 function normalizeChatFileReference(file: ChatPendingFile): ChatPendingFile | null {
   const candidate = file as Partial<ChatPendingFile>;
   const path = typeof candidate.path === "string" ? candidate.path : "";
-  const name = typeof candidate.name === "string" && candidate.name.trim() ? candidate.name : fileLabel({ path });
+  const name = typeof candidate.name === "string" && candidate.name.trim() ? candidate.name : getChatFileLabel({ path });
   const type = typeof candidate.type === "string" ? candidate.type : "";
   if (!path || !name) return null;
   return { name, path, type };
@@ -58,102 +47,7 @@ function normalizeChatFileReference(file: ChatPendingFile): ChatPendingFile | nu
 
 function findFileForAttachment(files: ChatPendingFile[], fileName: string | undefined): ChatPendingFile | null {
   if (!fileName) return null;
-  return files.find((file) => file.name === fileName || fileLabel(file) === fileName) ?? null;
-}
-
-function mediaFileNameFromUrl(url: string, fallback = "media"): string {
-  if (/^data:/i.test(url.trim())) return fallback;
-  try {
-    const parsed = new URL(url, "https://hypercli.local");
-    const name = parsed.pathname.split("/").filter(Boolean).pop();
-    return name ? decodeURIComponent(name) : fallback;
-  } catch {
-    return url.split(/[?#]/)[0].split("/").filter(Boolean).pop() || fallback;
-  }
-}
-
-function mediaFileNameFromReference(url: string): string {
-  const rawName = mediaFileNameFromUrl(url);
-  return rawName.replace(/---[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(\.[^.?#]+)$/i, "$1");
-}
-
-function mediaWorkspacePathFromReference(path: string): string {
-  return path.trim().replace(/^MEDIA:\s*/i, "");
-}
-
-function isGeneratedMediaPath(path: string): boolean {
-  return /^(?:home\/node\/\.openclaw\/workspace|\.?openclaw\/workspace|workspace|home)(?:\/|$)/i.test(
-    mediaWorkspacePathFromReference(path).replace(/^\/+/, ""),
-  );
-}
-
-function findFileForMediaReference(files: ChatPendingFile[], url: string): ChatPendingFile | null {
-  const mediaName = mediaFileNameFromReference(url);
-  return files.find((file) => {
-    const label = fileLabel(file);
-    return label === mediaName || file.name === mediaName || mediaName.startsWith(`${label}---`);
-  }) ?? null;
-}
-
-function isRenderableMediaImageUrl(url: string): boolean {
-  const trimmed = url.trim();
-  if (!trimmed || LOCAL_MEDIA_REFERENCE.test(trimmed)) return false;
-  if (/^(?:data:image\/|blob:)/i.test(trimmed)) return true;
-  if (IMAGE_URL_EXTENSIONS.test(trimmed)) return true;
-  if (/^(?:https?:\/\/|\/)/i.test(trimmed)) return !NON_IMAGE_URL_EXTENSIONS.test(trimmed);
-  return false;
-}
-
-function isPlayableMediaAudioUrl(url: string): boolean {
-  const trimmed = url.trim();
-  if (!trimmed || LOCAL_MEDIA_REFERENCE.test(trimmed)) return false;
-  return /^(?:data:audio\/|blob:)/i.test(trimmed) || AUDIO_URL_EXTENSIONS.test(trimmed);
-}
-
-function inferChatMediaFileType(path: string): string {
-  const extension = path.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
-  switch (extension) {
-    case "aac": return "audio/aac";
-    case "flac": return "audio/flac";
-    case "m4a": return "audio/mp4";
-    case "mp3": return "audio/mpeg";
-    case "oga":
-    case "ogg":
-    case "opus": return "audio/ogg";
-    case "wav": return "audio/wav";
-    case "weba":
-    case "webm": return "audio/webm";
-    case "bmp": return "image/bmp";
-    case "gif": return "image/gif";
-    case "ico": return "image/x-icon";
-    case "jpeg":
-    case "jpg": return "image/jpeg";
-    case "png": return "image/png";
-    case "svg": return "image/svg+xml";
-    case "webp": return "image/webp";
-    case "epub": return "application/epub+zip";
-    case "pdf": return "application/pdf";
-    case "txt": return "text/plain";
-    default: return "application/octet-stream";
-  }
-}
-
-interface ContentMediaReference {
-  file: ChatPendingFile;
-  displayPath: string;
-}
-
-function generatedMediaFileFromPath(path: string, matchingFile?: ChatPendingFile | null): ContentMediaReference {
-  const displayPath = normalizeOpenClawMediaDisplayPath(path);
-  const filePath = normalizeOpenClawMediaFilePath(matchingFile?.path || path);
-  return {
-    displayPath,
-    file: {
-      name: matchingFile?.name || fileLabel({ path: displayPath }),
-      path: filePath,
-      type: matchingFile?.type || inferChatMediaFileType(filePath),
-    },
-  };
+  return files.find((file) => file.name === fileName || getChatFileLabel(file) === fileName) ?? null;
 }
 
 function escapeRegExp(value: string): string {
@@ -176,7 +70,7 @@ function isVoiceNoteTranscriptionInstruction(value: string): boolean {
 function stripInlineAudioReplyContent(content: string, file: AgentFileReference | null | undefined): string {
   if (!file?.path) return content;
 
-  const fileName = fileLabel({ path: file.path });
+  const fileName = getChatFileLabel({ path: file.path });
   const normalizedPath = normalizeOpenClawWorkspaceFilePath(file.path);
   const references = [file.path, normalizedPath, fileName]
     .map((value) => value.trim())
@@ -207,69 +101,6 @@ function isSameWorkspaceFilePath(left: string, right: string): boolean {
   return normalizeOpenClawWorkspaceFilePath(left) === normalizeOpenClawWorkspaceFilePath(right);
 }
 
-function extractContentMediaReferences(content: string): { content: string; mediaFiles: ContentMediaReference[]; pendingMedia: boolean } {
-  const mediaFiles: ContentMediaReference[] = [];
-  const visibleLines: string[] = [];
-  let pendingMedia = false;
-
-  for (const line of content.replace(/\r\n/g, "\n").split("\n")) {
-    const markdownMediaMatch = line.match(CONTENT_MEDIA_MARKDOWN_LINE);
-    if (markdownMediaMatch && /^MEDIA\b/i.test(markdownMediaMatch[1]?.trim() ?? "")) {
-      const altPath = markdownMediaMatch[1]?.replace(/^MEDIA:?\s*/i, "").trim();
-      const srcPath = markdownMediaMatch[2]?.trim();
-      const path = mediaWorkspacePathFromReference(srcPath || altPath);
-      if (!path) {
-        pendingMedia = true;
-        continue;
-      }
-      if (!isGeneratedMediaPath(path)) {
-        visibleLines.push(line);
-        continue;
-      }
-      mediaFiles.push(generatedMediaFileFromPath(path));
-      continue;
-    }
-
-    if (/^\s*!\[MEDIA\b/i.test(line)) {
-      pendingMedia = true;
-      continue;
-    }
-
-    const match = line.match(CONTENT_MEDIA_REFERENCE_LINE);
-    if (!match) {
-      visibleLines.push(line);
-      continue;
-    }
-
-    const path = mediaWorkspacePathFromReference(match[1] ?? "");
-    if (!path) {
-      pendingMedia = true;
-      continue;
-    }
-    mediaFiles.push(generatedMediaFileFromPath(path));
-  }
-
-  const visibleContent = visibleLines
-    .map((line) => {
-      const inlineMatch = line.match(CONTENT_INLINE_MEDIA_REFERENCE);
-      if (!inlineMatch?.[1]) return line;
-      const path = mediaWorkspacePathFromReference(inlineMatch[1]);
-      if (!path) {
-        pendingMedia = true;
-        return line.replace(/\bMEDIA:?\s*$/i, "").trimEnd();
-      }
-      if (!isGeneratedMediaPath(path)) {
-        return line.replace(/\bMEDIA:?\s*$/i, "").trimEnd();
-      }
-      mediaFiles.push(generatedMediaFileFromPath(path));
-      return line.replace(inlineMatch[0], "").trimEnd();
-    })
-    .join("\n")
-    .trim();
-
-  return { content: visibleContent, mediaFiles, pendingMedia };
-}
-
 interface ChatFileActionsProps {
   file: ChatPendingFile;
   onOpenFile?: (path: string) => void;
@@ -280,7 +111,7 @@ interface ChatFileActionsProps {
 function ChatFileActions({ file, onOpenFile, onDownloadFile, className }: ChatFileActionsProps) {
   if (!file.path || (!onOpenFile && !onDownloadFile)) return null;
 
-  const label = fileLabel(file);
+  const label = getChatFileLabel(file);
   const buttonClass = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background/60 text-text-muted transition-colors hover:border-[#38D39F]/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]";
 
   return (
@@ -460,6 +291,42 @@ function ChatMediaLoading() {
   );
 }
 
+interface DirectMediaRenderReference {
+  reference: DirectChatMediaReference;
+  matchingFile: ChatPendingFile | null;
+  sourceKey: string;
+}
+
+function directMediaReferenceValue(reference: DirectChatMediaReference): string {
+  return reference.kind === "image" || reference.kind === "audio" || reference.kind === "link"
+    ? reference.url
+    : reference.raw;
+}
+
+function directMediaReferenceKey(reference: DirectChatMediaReference): string {
+  return `${reference.kind}:${directMediaReferenceValue(reference)}`;
+}
+
+function directMediaRenderReference(
+  reference: DirectChatMediaReference,
+  files: ChatPendingFile[],
+): DirectMediaRenderReference {
+  return {
+    reference,
+    matchingFile: findFileForMediaReference(files, directMediaReferenceValue(reference)),
+    sourceKey: directMediaReferenceKey(reference),
+  };
+}
+
+function uniqueDirectMediaReferences(references: DirectMediaRenderReference[]): DirectMediaRenderReference[] {
+  const seen = new Set<string>();
+  return references.filter((entry) => {
+    if (seen.has(entry.sourceKey)) return false;
+    seen.add(entry.sourceKey);
+    return true;
+  });
+}
+
 // ── Variant types ──
 
 export type FeatureVariant = "off" | "v1" | "v2" | "v3";
@@ -549,22 +416,21 @@ function useAgentFileObjectState(
   file: AgentFileReference | null | undefined,
   readFileBytes?: (path: string) => Promise<Uint8Array>,
 ): { url: string | null; loading: boolean; failed: boolean } {
-  const [blobUrl, setBlobUrl] = useState<string | null>(null);
-  const [failed, setFailed] = useState(false);
-  const [loading, setLoading] = useState(false);
+  const [objectState, setObjectState] = useState<{ key: string; url: string | null; failed: boolean }>({
+    key: "",
+    url: null,
+    failed: false,
+  });
   const blobRef = useRef<string | null>(null);
   const fileAgentId = file?.agentId;
   const filePath = file?.path;
+  const fileKey = fileAgentId && filePath ? `${fileAgentId}\n${filePath}` : "";
 
   useEffect(() => {
-    setBlobUrl(null);
-    setFailed(false);
-    setLoading(false);
     if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
 
     if (!fileAgentId || !filePath) return;
     let cancelled = false;
-    setLoading(true);
 
     let bytesPromise: Promise<Uint8Array>;
     if (readFileBytes) {
@@ -572,11 +438,10 @@ function useAgentFileObjectState(
     } else {
       const token = getStoredToken();
       if (!token) {
-        setFailed(true);
-        setLoading(false);
-        return;
+        bytesPromise = Promise.reject(new Error("Missing auth token"));
+      } else {
+        bytesPromise = createAgentClient(token).fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath));
       }
-      bytesPromise = createAgentClient(token).fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath));
     }
 
     bytesPromise
@@ -585,25 +450,23 @@ function useAgentFileObjectState(
         const blob = new Blob([toArrayBuffer(bytes)]);
         const url = URL.createObjectURL(blob);
         blobRef.current = url;
-        setBlobUrl(url);
-        setFailed(false);
+        setObjectState({ key: fileKey, url, failed: false });
       })
       .catch(() => {
         if (cancelled) return;
-        setFailed(true);
-      })
-      .finally(() => {
-        if (cancelled) return;
-        setLoading(false);
+        setObjectState({ key: fileKey, url: null, failed: true });
       });
 
     return () => {
       cancelled = true;
       if (blobRef.current) { URL.revokeObjectURL(blobRef.current); blobRef.current = null; }
     };
-  }, [fileAgentId, filePath, readFileBytes]);
+  }, [fileAgentId, fileKey, filePath, readFileBytes]);
 
-  return { url: failed ? null : blobUrl, loading, failed };
+  const stale = objectState.key !== fileKey;
+  const failed = Boolean(fileKey && !stale && objectState.failed);
+  const url = fileKey && !stale && !failed ? objectState.url : null;
+  return { url, loading: Boolean(fileKey && stale), failed };
 }
 
 export function AuthImage({
@@ -1105,9 +968,9 @@ export function ChatMessageBubble({
   const effectiveContent = !isUser && inlineAudioFile
     ? stripInlineAudioReplyContent(rawEffectiveContent, inlineAudioFile)
     : rawEffectiveContent;
-  const extractedContentMedia = !isUser
+  const extractedContentMedia: ExtractedContentMediaReferences = !isUser
     ? extractContentMediaReferences(effectiveContent)
-    : { content: effectiveContent, mediaFiles: [] as ContentMediaReference[], pendingMedia: false };
+    : { content: effectiveContent, mediaFiles: [] as ContentMediaReference[], directMedia: [], pendingMedia: false };
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
   const audioFiles = messageFiles.filter(isAudioFileReference);
@@ -1118,20 +981,29 @@ export function ChatMessageBubble({
     (!isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)) &&
     (!isAudioFileReference(file) || !shouldRenderAudioFilePreviews)
   ));
+  const mediaUrlReferences = (message.mediaUrls ?? []).map((url) => {
+    const matchingFile = findFileForMediaReference(messageFiles, url);
+    return {
+      sourceUrl: url,
+      matchingFile,
+      reference: classifyChatMediaReference(url, matchingFile),
+    };
+  });
   const generatedMediaUrlReferences = !isUser
-    ? (message.mediaUrls ?? [])
-      .map((url) => {
-        const mediaPath = mediaWorkspacePathFromReference(url);
-        if (!isGeneratedMediaPath(mediaPath)) return null;
-        return {
-          sourceUrl: url,
-          ...generatedMediaFileFromPath(mediaPath, findFileForMediaReference(messageFiles, url)),
-        };
-      })
-      .filter((entry): entry is ContentMediaReference & { sourceUrl: string } => Boolean(entry))
+    ? mediaUrlReferences.flatMap(({ sourceUrl, reference }) => (
+      reference.kind === "workspace" ? [{ sourceUrl, ...reference.media }] : []
+    ))
     : [];
   const contentMediaDisplayPaths = new Set(extractedContentMedia.mediaFiles.map(({ displayPath }) => displayPath));
   const generatedMediaUrlPreviews = generatedMediaUrlReferences.filter(({ displayPath }) => !contentMediaDisplayPaths.has(displayPath));
+  const directMediaReferences = uniqueDirectMediaReferences([
+    ...extractedContentMedia.directMedia.map((reference) => directMediaRenderReference(reference, messageFiles)),
+    ...mediaUrlReferences.flatMap(({ matchingFile, reference }) => (
+      reference.kind === "workspace"
+        ? []
+        : [{ reference, matchingFile, sourceKey: directMediaReferenceKey(reference) }]
+    )),
+  ]);
   const inlineAudioRenderedAsGeneratedMedia = Boolean(inlineAudioFile && (
     inlineAudioAlreadyAttached ||
     [
@@ -1139,13 +1011,12 @@ export function ChatMessageBubble({
       ...generatedMediaUrlReferences,
     ].some(({ file }) => isAudioFileReference(file) && isSameWorkspaceFilePath(file.path, inlineAudioFile.path))
   ));
-  const nonGeneratedMediaUrls = (message.mediaUrls ?? []).filter((url) => !isGeneratedMediaPath(mediaWorkspacePathFromReference(url)));
   const hasAudioPresentation = Boolean(
     inlineAudioFile ||
     shouldRenderAudioFilePreviews ||
     extractedContentMedia.mediaFiles.some(({ file }) => isAudioFileReference(file)) ||
     generatedMediaUrlReferences.some(({ file }) => isAudioFileReference(file)) ||
-    nonGeneratedMediaUrls.some((url) => isPlayableMediaAudioUrl(url)),
+    directMediaReferences.some(({ reference }) => reference.kind === "audio"),
   );
   const displayContent = hasAudioPresentation && (
     (!isUser && isAudioReplyCarrierText(extractedContentMedia.content)) ||
@@ -1261,8 +1132,8 @@ export function ChatMessageBubble({
                     downloadFileName={att.fileName || "attachment"}
                     onOpenFile={attachmentFile && onOpenFileFromChat ? () => onOpenFileFromChat(attachmentFile.path) : undefined}
                     onDownload={attachmentFile && onDownloadFileFromChat ? () => onDownloadFileFromChat(attachmentFile) : undefined}
-                    openFileLabel={attachmentFile ? `Open ${fileLabel(attachmentFile)} in files` : undefined}
-                    downloadLabel={`Download ${attachmentFile ? fileLabel(attachmentFile) : att.fileName || "attachment"}`}
+                    openFileLabel={attachmentFile ? `Open ${getChatFileLabel(attachmentFile)} in files` : undefined}
+                    downloadLabel={`Download ${attachmentFile ? getChatFileLabel(attachmentFile) : att.fileName || "attachment"}`}
                   />
                   {attachmentFile && (
                     <ChatFileActions
@@ -1369,18 +1240,17 @@ export function ChatMessageBubble({
           </div>
         )}
 
-        {isStreaming && extractedContentMedia.pendingMedia && extractedContentMedia.mediaFiles.length === 0 && generatedMediaUrlReferences.length === 0 && (
+        {isStreaming && extractedContentMedia.pendingMedia && extractedContentMedia.mediaFiles.length === 0 && generatedMediaUrlReferences.length === 0 && directMediaReferences.length === 0 && (
           <div className="mb-2 flex max-w-full flex-wrap gap-2">
             <ChatMediaLoading />
           </div>
         )}
 
-        {/* Agent-sent media (URLs) */}
-        {nonGeneratedMediaUrls.length > 0 && (
+        {/* Agent-sent media (URLs and local handles) */}
+        {directMediaReferences.length > 0 && (
           <div className="mb-2 flex max-w-full flex-wrap gap-2">
-            {nonGeneratedMediaUrls.map((url, i) => {
-              const matchingFile = findFileForMediaReference(messageFiles, url);
-              if (LOCAL_MEDIA_REFERENCE.test(url)) {
+            {directMediaReferences.map(({ reference, matchingFile, sourceKey }, i) => {
+              if (reference.kind === "local") {
                 if (matchingFile && (
                   isImageFileReference(matchingFile) ||
                   isAudioFileReference(matchingFile) ||
@@ -1393,7 +1263,7 @@ export function ChatMessageBubble({
                 if (matchingFile) {
                   return (
                     <div
-                      key={`${url}-${i}`}
+                      key={`${sourceKey}-${i}`}
                       className="inline-flex max-w-full min-w-0 items-center gap-2 rounded-md border border-border bg-background/50 px-2.5 py-1.5 text-xs text-text-secondary"
                     >
                       <Paperclip className="h-3.5 w-3.5 shrink-0" />
@@ -1406,52 +1276,52 @@ export function ChatMessageBubble({
                     </div>
                   );
                 }
-                return <ChatMediaUnavailable key={`${url}-${i}`} label="Preview unavailable" />;
+                return <ChatMediaUnavailable key={`${sourceKey}-${i}`} label={reference.label} />;
               }
-              if (isPlayableMediaAudioUrl(url)) {
-                const label = mediaFileNameFromUrl(url, "audio");
+
+              if (reference.kind === "audio") {
                 return (
                   <AudioPlayer
-                    key={i}
-                    src={url}
-                    title={label}
-                    downloadHref={url}
-                    downloadFileName={label}
-                    downloadLabel={`Download ${label}`}
+                    key={`${sourceKey}-${i}`}
+                    src={reference.url}
+                    title={reference.fileName}
+                    downloadHref={reference.url}
+                    downloadFileName={reference.fileName}
+                    downloadLabel={`Download ${reference.fileName}`}
                   />
                 );
               }
-              if (isRenderableMediaImageUrl(url)) {
-                const mediaName = mediaFileNameFromUrl(url);
+
+              if (reference.kind === "image") {
                 return (
                   <ChatImageViewer
-                    key={i}
-                    src={url}
-                    alt={mediaName}
+                    key={`${sourceKey}-${i}`}
+                    src={reference.url}
+                    alt={reference.fileName}
                     width={320}
                     height={320}
                     sizes="(max-width: 640px) 100vw, 320px"
                     className={CHAT_MARKDOWN_IMAGE_CLASS}
                     loading="lazy"
-                    downloadHref={url}
-                    downloadFileName={mediaFileNameFromUrl(url)}
+                    downloadHref={reference.url}
+                    downloadFileName={reference.fileName}
                   />
                 );
               }
-              // Non-image media: render as link
-              const label = mediaFileNameFromUrl(url);
-              if (!/^(?:https?:\/\/|\/)/i.test(url)) {
-                return <ChatMediaUnavailable key={`${url}-${i}`} label="Preview unavailable" />;
+
+              if (reference.kind === "unsupported") {
+                return <ChatMediaUnavailable key={`${sourceKey}-${i}`} label={reference.label} />;
               }
+
               return (
                 <a
-                  key={i}
-                  href={url}
+                  key={`${sourceKey}-${i}`}
+                  href={reference.url}
                   target="_blank"
                   rel="noopener noreferrer"
                   className="max-w-full break-words text-xs text-accent hover:underline [overflow-wrap:anywhere]"
                 >
-                  {label}
+                  {reference.fileName}
                 </a>
               );
             })}
@@ -1484,11 +1354,11 @@ export function ChatMessageBubble({
         {standaloneInlineAudioFile && !inlineAudioRenderedAsGeneratedMedia && (
           <AudioPlayer
             src={inlineAudioState.url}
-            title={fileLabel({ path: standaloneInlineAudioFile.path }) || "Voice message"}
+            title={getChatFileLabel({ path: standaloneInlineAudioFile.path }) || "Voice message"}
             loading={inlineAudioState.loading}
             error={inlineAudioState.failed}
             downloadHref={inlineAudioState.url ?? undefined}
-            downloadFileName={fileLabel({ path: standaloneInlineAudioFile.path }) || "voice-message.webm"}
+            downloadFileName={getChatFileLabel({ path: standaloneInlineAudioFile.path }) || "voice-message.webm"}
             className="mt-2"
           />
         )}

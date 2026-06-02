@@ -53,7 +53,7 @@ import { ChannelCreationWizard } from "@/components/dashboard/ChannelCreationWiz
 import { getCategoryForPlugin, type DirectoryCategory } from "@/components/dashboard/directory/directory-utils";
 import { buildSkillsSnapshotCommand, parseSkillSnapshotOutput } from "@/components/dashboard/directory/workspace-skills";
 import { PlanComparisonModal } from "@/components/dashboard/agents/PlanComparisonModal";
-import { FirstAgentSetupWizard } from "@/components/dashboard/agents/FirstAgentSetupWizard";
+import { FirstAgentSetupWizard, type FirstAgentSetupCreateParams } from "@/components/dashboard/agents/FirstAgentSetupWizard";
 import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
@@ -71,6 +71,7 @@ import {
   describeAgentsPageError,
   getAgentSizePresets,
   inferAgentTier,
+  parseAgentCapacityError,
   parseEntitlementSlotTier,
   titleizeTier,
   type AgentTierSelectionState,
@@ -125,6 +126,7 @@ import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle } from "@/lib/subscriptions";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
+import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import {
   buildSafeFileRenameCommand,
   openClawWorkspacePathToPodPath,
@@ -633,6 +635,29 @@ function UpgradePlanCatalogModal({
 
 function normalizeAgentFilePath(path: string): string {
   return normalizeOpenClawWorkspaceFilePath(path);
+}
+
+function buildCreateWorkspaceDirectoryCommand(targetPodPath: string): string {
+  return [
+    "node - <<'NODE'",
+    "const fs = require('fs');",
+    "const path = require('path');",
+    `const workspace = ${JSON.stringify(OPENCLAW_WORKSPACE_DIR)};`,
+    `const target = ${JSON.stringify(targetPodPath)};`,
+    "const workspaceResolved = path.resolve(workspace);",
+    "const targetResolved = path.resolve(target);",
+    "if (targetResolved === workspaceResolved || !targetResolved.startsWith(`${workspaceResolved}${path.sep}`)) {",
+    "  console.error('Folder must be inside the workspace.');",
+    "  process.exit(1);",
+    "}",
+    "if (fs.existsSync(targetResolved)) {",
+    "  console.error('A file or folder already exists at that path.');",
+    "  process.exit(1);",
+    "}",
+    "fs.mkdirSync(targetResolved, { recursive: false });",
+    "process.stdout.write(`${targetResolved}\\n`);",
+    "NODE",
+  ].join("\n");
 }
 
 function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
@@ -1370,6 +1395,23 @@ function AgentsPageContent() {
     if (!selectedAgentId) return;
     const token = await getToken();
     await createAgentClient(token).fileWriteBytes(selectedAgentId, normalizeAgentFilePath(path), content);
+  }, [getToken, selectedAgentId]);
+
+  const createAgentDirectory = useCallback(async (path: string) => {
+    if (!selectedAgentId) return;
+    const normalizedPath = normalizeAgentFilePath(path);
+    const targetPodPath = openClawWorkspacePathToPodPath(normalizedPath);
+    if (!targetPodPath) throw new Error("Folders can only be created inside the workspace.");
+
+    const token = await getToken();
+    const result = await createAgentClient(token).exec(
+      selectedAgentId,
+      buildCreateWorkspaceDirectoryCommand(targetPodPath),
+      { timeout: 10_000 },
+    );
+    if (result.exitCode !== 0) {
+      throw new Error(result.stderr || result.stdout || `Folder creation failed with exit code ${result.exitCode}`);
+    }
   }, [getToken, selectedAgentId]);
 
   const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
@@ -2120,6 +2162,10 @@ function AgentsPageContent() {
         setError(AGENT_CLEANUP_START_MESSAGE);
         return;
       }
+      if (parseAgentCapacityError(err)) {
+        setError(err instanceof Error ? err.message : String(err));
+        return;
+      }
       const requestedTier = parseEntitlementSlotTier(err);
       if (requestedTier) {
         const fallbackPreset = getAgentSizePresets(budget)[requestedTier];
@@ -2143,7 +2189,7 @@ function AgentsPageContent() {
     }
   };
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size }: { name: string; iconIndex: number; size: string }) => {
+  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files }: FirstAgentSetupCreateParams) => {
     try {
       setError(null);
       const token = await getToken();
@@ -2153,18 +2199,37 @@ function AgentsPageContent() {
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
       });
-      await fetchAgents();
       if (created.id) {
+        if (files.length > 0) {
+          try {
+            const agentClient = createAgentClient(token);
+            await uploadAgentStarterFiles({
+              agentId: created.id,
+              files,
+              writeFileBytes: (agentId, path, content, destination) => (
+                agentClient.fileWriteBytes(agentId, path, content, destination)
+              ),
+            });
+          } catch (uploadError) {
+            setError(uploadError instanceof Error
+              ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
+              : "Agent created, but starter files could not be uploaded.");
+          }
+        }
+        await fetchAgents();
         setSelectedAgentId(created.id);
         setMainTab("chat");
         setMobileShowChat(true);
         return created.id;
       }
+      await fetchAgents();
       setError("Agent was created, but no agent id was returned.");
       return null;
     } catch (err) {
       const message = err instanceof Error ? err.message : "Failed to create agent";
-      setError(message);
+      if (!parseAgentCapacityError(err)) {
+        setError(message);
+      }
       throw err;
     }
   }, [fetchAgents, getToken]);
@@ -2655,7 +2720,7 @@ function AgentsPageContent() {
     setMobileAgentsSidebarOpen(false);
     setMobileAgentLauncherOpen(true);
   };
-  const createMobileAgentFromLauncher = async (params: { name: string; iconIndex: number; size: string }) => {
+  const createMobileAgentFromLauncher = async (params: FirstAgentSetupCreateParams) => {
     try {
       const createdId = await handleCreateFirstAgent(params);
       if (createdId) {
@@ -2734,7 +2799,7 @@ function AgentsPageContent() {
         </div>
       )}
 
-      <ErrorBanner error={error} onDismiss={() => setError(null)} />
+      <ErrorBanner error={error} onDismiss={() => setError(null)} onOpenPlanCatalog={openUpgradeCatalog} />
 
       {checkoutSync && (
         <div
@@ -3139,6 +3204,9 @@ function AgentsPageContent() {
                   setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
                 },
                 onOpenAgentSettings: openAgentSettingsTab,
+                onCreateDirectory: async (name) => {
+                  await createAgentDirectory(`${OPENCLAW_WORKSPACE_PREFIX}/${name}`);
+                },
               }}
             />
           ) : mainTab === "files" ? (
@@ -3160,6 +3228,7 @@ function AgentsPageContent() {
               onSaveFile={saveAgentFile}
               onDeleteFile={deleteAgentFile}
               onUploadFile={uploadAgentFile}
+              onCreateDirectory={createAgentDirectory}
             />
           ) : mainTab === "integrations" ? (
             <IntegrationsDirectoryPanel
@@ -3211,6 +3280,11 @@ function AgentsPageContent() {
               tokenLimit={budget?.pooled_tpd ?? null}
               openclawConfig={chat.config}
               openclawModels={chat.models}
+              onUpdateAgentName={async (agentId, name) => {
+                const token = await getToken();
+                const updatedAgent = await createAgentClient(token).update(agentId, { name });
+                setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+              }}
               onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
               isDesktopViewport={isDesktopViewport}
               showBackToChat={showMobileChatReturn}

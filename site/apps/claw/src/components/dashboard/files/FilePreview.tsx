@@ -20,6 +20,7 @@ import {
 import type { FileEntry } from "./types";
 import { formatFileSize } from "./FileRow";
 import { ResourceImage } from "@/components/ResourceImage";
+import { MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 import { writeClipboardText } from "@/lib/browser-clipboard";
 import { parseZipPreview } from "@/lib/zip-preview";
 
@@ -55,6 +56,7 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "mdx"]);
 const PREVIEW_ACTION_BUTTON_CLASS =
   "flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
+const MARKDOWN_MODE_BUTTON_CLASS = "rounded-md px-2 py-1 text-[10px] font-medium transition-colors";
 
 function getFileExtension(name: string): string {
   return name.split(".").pop()?.toLowerCase() ?? "";
@@ -145,9 +147,11 @@ export function FilePreview({
   const [editContent, setEditContent] = useState(typeof content === "string" ? content : "");
   const [saving, setSaving] = useState(false);
   const [copied, setCopied] = useState(false);
+  const [markdownMode, setMarkdownMode] = useState<"preview" | "raw">("preview");
 
   const previewType = getPreviewType(entry.name);
   const PreviewIcon = getPreviewIcon(previewType);
+  const isMarkdown = previewType === "markdown";
   const isEditable = previewType === "code" || previewType === "text" || previewType === "markdown";
   const textContent = typeof content === "string" ? content : "";
   const imageSrc = useImagePreviewSrc(entry.name, content);
@@ -207,6 +211,26 @@ export function FilePreview({
           )}
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
+          {isMarkdown && (
+            <div className="mr-1 flex items-center rounded-lg border border-border bg-background/40 p-0.5" aria-label="Markdown view mode">
+              <button
+                type="button"
+                onClick={() => setMarkdownMode("preview")}
+                aria-pressed={markdownMode === "preview"}
+                className={`${MARKDOWN_MODE_BUTTON_CLASS} ${markdownMode === "preview" ? "bg-surface-low text-foreground" : "text-text-muted hover:text-foreground"}`}
+              >
+                Preview
+              </button>
+              <button
+                type="button"
+                onClick={() => setMarkdownMode("raw")}
+                aria-pressed={markdownMode === "raw"}
+                className={`${MARKDOWN_MODE_BUTTON_CLASS} ${markdownMode === "raw" ? "bg-surface-low text-foreground" : "text-text-muted hover:text-foreground"}`}
+              >
+                Raw
+              </button>
+            </div>
+          )}
           {readOnly && (
             <span
               title="This file is read-only. Download, edit locally, then re-upload."
@@ -362,6 +386,10 @@ export function FilePreview({
                     Archive preview needs file bytes.
                   </div>
                 )}
+              </div>
+            ) : isMarkdown && markdownMode === "preview" ? (
+              <div className="min-h-full p-4 text-sm text-text-secondary">
+                <MarkdownContent content={editContent} className="text-sm" />
               </div>
             ) : isEditable ? (
               <textarea

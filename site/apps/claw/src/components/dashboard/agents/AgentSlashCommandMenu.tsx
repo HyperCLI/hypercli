@@ -8,6 +8,7 @@ import {
   Check,
   CreditCard,
   FileText,
+  FolderPlus,
   FolderOpen,
   HelpCircle,
   ListTree,
@@ -51,6 +52,7 @@ export interface AgentSlashCommandActions {
   onRenameAgent?: (name: string) => void | Promise<void>;
   onOpenAgentSettings?: () => void;
   onTriggerFilePicker?: () => void;
+  onCreateDirectory?: (name: string) => void | Promise<void>;
 }
 
 export interface AgentSlashCommandMenuHandle {
@@ -149,6 +151,14 @@ function runAction(action: (() => void | Promise<void>) | undefined, disabledMes
 function promptWithContext(prompt: string, args: string): string {
   const context = args.trim();
   return context ? `${prompt}\n\nAdditional context: ${context}` : prompt;
+}
+
+function validateSingleFolderName(name: string): string | null {
+  const trimmed = name.trim();
+  if (!trimmed) return "Pass a folder name, for example /mkdir reports.";
+  if (trimmed === "." || trimmed === "..") return "Use a real folder name.";
+  if (/[\\/]/.test(trimmed)) return "Create one folder at a time.";
+  return null;
 }
 
 function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["run"] {
@@ -400,6 +410,41 @@ function buildSlashCommands(): SlashCommand[] {
       mode: "ui",
       Icon: PanelRightOpen,
       run: runAction(undefined, "File picker is unavailable here."),
+    },
+    {
+      id: "mkdir",
+      aliases: ["mkdir", "folder"],
+      title: "New folder",
+      description: "Create one folder in the workspace root.",
+      category: "Workspace",
+      mode: "confirm",
+      Icon: FolderPlus,
+      requiresRunningAgent: true,
+      isEnabled: ({ actions, args }) => {
+        if (!actions.onCreateDirectory) return "Folder creation is unavailable here.";
+        return validateSingleFolderName(args) ?? true;
+      },
+      confirm: ({ args }) => {
+        const name = args.trim();
+        return validateSingleFolderName(name) ? null : {
+          title: "Create folder",
+          message: `Create folder "${name}" in the workspace root?`,
+          confirmLabel: "Create folder",
+        };
+      },
+      run: async ({ actions, args, chat, setStatus, close, showFeedback }) => {
+        const name = args.trim();
+        const error = validateSingleFolderName(name);
+        if (error) {
+          setStatus(error);
+          return;
+        }
+        await actions.onCreateDirectory?.(name);
+        actions.onOpenFiles?.();
+        chat.setInput("");
+        showFeedback(`Folder "${name}" created.`);
+        close();
+      },
     },
     {
       id: "write",

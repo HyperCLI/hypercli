@@ -712,6 +712,43 @@ describe("openclaw chat normalization", () => {
     expect(next).toEqual([]);
   });
 
+  it("preserves leading spaces in live assistant content deltas", () => {
+    let next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "I'll",
+      timestamp: 1,
+    });
+
+    next = upsertAssistantMessage(next, {
+      role: "assistant",
+      content: " lookup",
+      timestamp: 2,
+    });
+
+    expect(next[0]?.content).toBe("I'll lookup");
+  });
+
+  it("preserves standalone whitespace live assistant content deltas", () => {
+    let next = upsertAssistantMessage([], {
+      role: "assistant",
+      content: "get",
+      timestamp: 1,
+    });
+
+    next = upsertAssistantMessage(next, {
+      role: "assistant",
+      content: " ",
+      timestamp: 2,
+    });
+    next = upsertAssistantMessage(next, {
+      role: "assistant",
+      content: "bread",
+      timestamp: 3,
+    });
+
+    expect(next[0]?.content).toBe("get bread");
+  });
+
   it("does not add live raw workspace path dumps to chat messages", () => {
     const previous: ChatMessage[] = [
       {

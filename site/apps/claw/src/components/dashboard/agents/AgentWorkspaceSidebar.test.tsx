@@ -147,9 +147,11 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onUpgrade).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the highest value purchased plan and lists all plans on hover", () => {
+  it("shows daily token usage without plan names", () => {
     renderAgentWorkspaceSidebar({
       planName: "Plus",
+      tokenUsed: 1_200,
+      tokenLimit: 5_000,
       catalogPlans: [
         { id: "plus", name: "Plus", price: 20, priceUsd: 20, limits: { tpd: 50_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
         { id: "pro", name: "Pro", price: 79, priceUsd: 79, limits: { tpd: 250_000_000, tpm: 0, burstTpm: 0, rpm: 0 } },
@@ -205,10 +207,12 @@ describe("AgentWorkspaceSidebar", () => {
       } as any,
     });
 
-    expect(screen.getAllByText("Teams plan").length).toBeGreaterThan(0);
-    expect(screen.getByText("Purchased plans")).toBeInTheDocument();
-    expect(screen.getAllByText("Plus plan").length).toBeGreaterThan(0);
-    expect(screen.getAllByText("Pro plan").length).toBeGreaterThan(0);
+    expect(screen.getByText("Tokens today")).toBeInTheDocument();
+    expect(screen.getByText("1.2K / 5K")).toBeInTheDocument();
+    expect(screen.queryByText("Purchased plans")).not.toBeInTheDocument();
+    expect(screen.queryByText("Teams plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Plus plan")).not.toBeInTheDocument();
+    expect(screen.queryByText("Pro plan")).not.toBeInTheDocument();
     expect(screen.queryByText("5 AIU plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Enterprise plan")).not.toBeInTheDocument();
     expect(screen.queryByText("Empty plan")).not.toBeInTheDocument();

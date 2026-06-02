@@ -1,8 +1,19 @@
-import { render, screen } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { FilePreview } from "./FilePreview";
+
+const mermaidMock = vi.hoisted(() => ({
+  initialize: vi.fn(),
+  render: vi.fn(async (_id: string, chart: string) => ({
+    svg: `<svg data-testid="mermaid-svg"><text>${chart}</text></svg>`,
+  })),
+}));
+
+vi.mock("mermaid", () => ({
+  default: mermaidMock,
+}));
 
 vi.mock("framer-motion", () => ({
   motion: {
@@ -130,5 +141,117 @@ describe("FilePreview", () => {
     );
 
     expect(screen.getByText(/does not look like a ZIP archive/i)).toBeInTheDocument();
+  });
+
+  it("renders markdown preview and toggles to raw source", () => {
+    const content = "# Release notes\n\n- Shipped markdown preview";
+
+    render(
+      <FilePreview
+        entry={{ name: "README.md", path: ".openclaw/workspace/README.md", type: "file", size: content.length }}
+        content={content}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Release notes" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Preview" })).toHaveAttribute("aria-pressed", "true");
+
+    fireEvent.click(screen.getByRole("button", { name: "Raw" }));
+
+    expect(screen.getByRole("textbox")).toHaveValue(content);
+    expect(screen.getByRole("button", { name: "Raw" })).toHaveAttribute("aria-pressed", "true");
+  });
+
+  it("does not show the markdown view switch for non-markdown files", () => {
+    render(
+      <FilePreview
+        entry={{ name: "notes.txt", path: ".openclaw/workspace/notes.txt", type: "file", size: 12 }}
+        content="# Notes"
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("button", { name: "Preview" })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Raw" })).not.toBeInTheDocument();
+    expect(screen.getByRole("textbox")).toHaveValue("# Notes");
+  });
+
+  it("does not render raw HTML in markdown preview", () => {
+    render(
+      <FilePreview
+        entry={{ name: "README.md", path: ".openclaw/workspace/README.md", type: "file", size: 128 }}
+        content={'<section><h2>HTML preview</h2><p>Rendered from HTML.</p></section>\n\n**Markdown survives**\n\n<script>alert("x")</script>'}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.queryByRole("heading", { name: "HTML preview" })).not.toBeInTheDocument();
+    expect(screen.queryByText(/Rendered from HTML/i)).not.toBeInTheDocument();
+    expect(screen.getByText("Markdown survives")).toHaveClass("font-semibold");
+    expect(screen.queryByText(/alert\("x"\)/i)).not.toBeInTheDocument();
+  });
+
+  it("renders markdown block math in preview mode", () => {
+    const content = [
+      "# Formula",
+      "",
+      "$$",
+      "E = mc^2",
+      "$$",
+    ].join("\n");
+
+    const { container } = render(
+      <FilePreview
+        entry={{ name: "README.md", path: ".openclaw/workspace/README.md", type: "file", size: content.length }}
+        content={content}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Formula" })).toBeInTheDocument();
+    expect(container.querySelector(".katex-display")).toBeInTheDocument();
+    expect(container.querySelector(".katex-display .katex")).toBeInTheDocument();
+  });
+
+  it("renders Mermaid diagram fences in markdown preview mode", async () => {
+    mermaidMock.render.mockClear();
+    const content = [
+      "# Diagram",
+      "",
+      "```mermaid",
+      "flowchart TD",
+      "  A[Start] --> B[Done]",
+      "```",
+    ].join("\n");
+
+    render(
+      <FilePreview
+        entry={{ name: "README.md", path: ".openclaw/workspace/README.md", type: "file", size: content.length }}
+        content={content}
+        loading={false}
+        error={null}
+        onClose={vi.fn()}
+      />,
+    );
+
+    expect(screen.getByRole("heading", { name: "Diagram" })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /rendering diagram/i })).toBeInTheDocument();
+    await waitFor(() => {
+      expect(mermaidMock.render).toHaveBeenCalledWith(
+        expect.stringMatching(/^markdown-mermaid-/),
+        "flowchart TD\n  A[Start] --> B[Done]",
+      );
+    });
+    expect(screen.getByRole("img", { name: /mermaid diagram/i })).toBeInTheDocument();
+    expect(screen.getByTestId("mermaid-svg")).toBeInTheDocument();
   });
 });

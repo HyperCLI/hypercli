@@ -410,6 +410,34 @@ describe("openclaw session keys", () => {
     expect(serialized).not.toContain("/home/node/.openclaw/workspace/.git/refs");
   });
 
+  it("preserves spaces across streamed assistant content chunks", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const context = {
+      gateway: { sessionsList: vi.fn(async () => []) } as any,
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      appendActivity: vi.fn(),
+    };
+
+    for (const text of ["I'll", " lookup", " and get", " ", "bread"]) {
+      handleOpenClawChatStreamEvent({
+        ...context,
+        chatEvent: { type: "content", text } as any,
+      });
+    }
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "I'll lookup and get bread",
+      }),
+    ]);
+  });
+
   it("hydrates message wrappers with nested output instead of the wrapper label", async () => {
     const gateway = {
       configGet: vi.fn(async () => ({})),

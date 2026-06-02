@@ -4,6 +4,7 @@ import React, { type ComponentType } from "react";
 import { motion } from "framer-motion";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import {
+  ArrowRight,
   Bot,
   Brain,
   Check,
@@ -18,6 +19,7 @@ import {
 } from "lucide-react";
 import type { SlotInventory } from "@/lib/format";
 import { formatTokens } from "@/lib/format";
+import { parseAgentCapacityError } from "@/lib/agent-tier";
 import {
   hasPlanWord,
   isFiveAiuPlan,
@@ -38,8 +40,15 @@ import {
   firstAgentWizardReducer,
 } from "./first-agent-wizard-machine";
 
+export interface FirstAgentSetupCreateParams {
+  name: string;
+  iconIndex: number;
+  size: string;
+  files: File[];
+}
+
 interface FirstAgentSetupWizardProps {
-  onCreateAgent: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  onCreateAgent: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
   onOpenPlanCatalog?: () => void | Promise<void>;
   onClose?: () => void;
   budget?: {
@@ -646,6 +655,90 @@ function WizardButton({
   );
 }
 
+function LaunchCapacityFallback({
+  error,
+  onOpenPlanCatalog,
+}: {
+  error: string;
+  onOpenPlanCatalog?: () => void | Promise<void>;
+}) {
+  const capacityError = React.useMemo(() => parseAgentCapacityError(error), [error]);
+  const [openingPlans, setOpeningPlans] = React.useState(false);
+  const [openError, setOpenError] = React.useState<string | null>(null);
+
+  if (!capacityError) {
+    return (
+      <div className="mb-4 rounded-[12px] border border-[#d05f5f]/40 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#ffb3b3]">
+        {error}
+      </div>
+    );
+  }
+
+  const tierLabel = titleizeTier(capacityError.tier);
+  const handleAcquireCapacity = async () => {
+    setOpenError(null);
+    if (!onOpenPlanCatalog) {
+      if (typeof window !== "undefined") window.location.assign("/plans");
+      return;
+    }
+
+    setOpeningPlans(true);
+    try {
+      await onOpenPlanCatalog();
+    } catch (nextError) {
+      setOpenError(nextError instanceof Error ? nextError.message : "Plan catalog is unavailable right now.");
+    } finally {
+      setOpeningPlans(false);
+    }
+  };
+
+  return (
+    <div role="alert" className="mb-4 rounded-[14px] border border-[#f0c56c]/30 bg-[#f0c56c]/10 p-4 text-sm shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+      <div className="flex items-start gap-3">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[#f0c56c]/30 bg-[#f0c56c]/10 text-[#f0c56c]">
+          <Sparkles className="h-4 w-4" />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="font-semibold text-[#f7f7f7]">{capacityError.title}</p>
+          <p className="mt-1 text-[13px] leading-5 text-[#d7caa4]">
+            Your {tierLabel} launch slot could not be reserved. Add another slot now, or stop an existing {tierLabel} agent to free capacity.
+          </p>
+
+          {(capacityError.requestedInventory || capacityError.accountInventory.length > 0) && (
+            <div className="mt-3 flex flex-wrap gap-2">
+              {capacityError.requestedInventory && (
+                <span className="rounded-full border border-[#f0c56c]/25 bg-[#111111]/60 px-2.5 py-1 text-[11px] font-medium text-[#f0c56c]">
+                  Requested {tierLabel}: {capacityError.requestedInventory.free} free / {capacityError.requestedInventory.total} total
+                </span>
+              )}
+              {capacityError.accountInventory.map((entry) => (
+                <span key={entry.tier} className="rounded-full border border-[#3c3c3f] bg-[#111111]/60 px-2.5 py-1 text-[11px] font-medium text-[#d8d8d8]">
+                  {entry.tier}: {entry.free} free / {entry.total} total
+                </span>
+              ))}
+            </div>
+          )}
+
+          <div className="mt-3 flex flex-wrap items-center gap-2.5">
+            <button
+              type="button"
+              onClick={() => { void handleAcquireCapacity(); }}
+              disabled={openingPlans}
+              className="inline-flex h-9 items-center gap-2 rounded-[9px] bg-[var(--button-primary)] px-3.5 text-[13px] font-semibold text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-wait disabled:opacity-70"
+            >
+              {openingPlans ? "Opening plans..." : `Add ${tierLabel} capacity`}
+              <ArrowRight className="h-3.5 w-3.5" />
+            </button>
+            <span className="text-[12px] leading-4 text-[#a8a09a]">Need it immediately? Stop a running {tierLabel} agent and retry.</span>
+          </div>
+
+          {openError && <p className="mt-2 text-[12px] text-[#ffb3b3]">{openError}</p>}
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function FirstAgentSetupWizard({
   onCreateAgent,
   onOpenPlanCatalog,
@@ -760,6 +853,7 @@ export function FirstAgentSetupWizard({
         name: displayName,
         iconIndex: selectedIconIndex,
         size: plan.size,
+        files,
       });
       if (!createdId) {
         dispatchWizard({ type: "CREATE_FINISHED_WITHOUT_ID" });
@@ -966,11 +1060,7 @@ export function FirstAgentSetupWizard({
         {currentStep === "plan" && (
           <>
             <div className="min-h-0 flex-1 overflow-y-auto px-5 py-5 sm:px-6 lg:px-7">
-              {createError && (
-                <div className="mb-4 rounded-[12px] border border-[#d05f5f]/40 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#ffb3b3]">
-                  {createError}
-                </div>
-              )}
+              {createError && <LaunchCapacityFallback error={createError} onOpenPlanCatalog={onOpenPlanCatalog} />}
               <div className="grid min-h-0 gap-3 sm:grid-cols-2 xl:grid-cols-4">
                 {planOptions.map((plan) => {
                   const Icon = plan.icon;

@@ -450,6 +450,65 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("status", { name: /draft cleared/i })).toBeInTheDocument();
   });
 
+  it("creates a workspace folder through a confirmed slash command", async () => {
+    const setInput = vi.fn();
+    const onCreateDirectory = vi.fn(async () => undefined);
+    const onOpenFiles = vi.fn();
+    const handleSendChat = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/mkdir reports",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+      slashCommandActions: { onCreateDirectory, onOpenFiles },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(screen.getByRole("heading", { name: "Create folder" })).toBeInTheDocument();
+    expect(screen.getByText('Create folder "reports" in the workspace root?')).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Create folder" }));
+    });
+
+    expect(onCreateDirectory).toHaveBeenCalledWith("reports");
+    expect(onOpenFiles).toHaveBeenCalledTimes(1);
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /folder "reports" created/i })).toBeInTheDocument();
+  });
+
+  it("rejects nested folder names in the folder slash command", async () => {
+    const onCreateDirectory = vi.fn(async () => undefined);
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/mkdir reports/2026",
+      }),
+      isSelectedRunning: true,
+      slashCommandActions: { onCreateDirectory },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(screen.getAllByText("Create one folder at a time.").length).toBeGreaterThan(0);
+    expect(onCreateDirectory).not.toHaveBeenCalled();
+  });
+
   it("shows a reason when a slash command is unavailable", async () => {
     renderAgentChatPanel({
       chat: buildChat({

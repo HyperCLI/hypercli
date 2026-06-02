@@ -19,6 +19,21 @@ export interface AgentTierSelectionState {
   guidance: AgentTierStartGuidance;
 }
 
+export interface AgentCapacitySlotInventory {
+  tier: string;
+  free: number;
+  total: number;
+  used: number | null;
+}
+
+export interface AgentCapacityErrorDetails {
+  tier: string;
+  title: string;
+  message: string;
+  requestedInventory: AgentCapacitySlotInventory | null;
+  accountInventory: AgentCapacitySlotInventory[];
+}
+
 export function titleizeTier(value: string): string {
   return value.replace(/-/g, " ").replace(/\b\w/g, (match) => match.toUpperCase());
 }
@@ -114,6 +129,51 @@ export function parseEntitlementSlotTier(error: unknown): string | null {
   const plainMatch = message.match(/No available ([a-z-]+) entitlement slots/i);
   if (plainMatch?.[1]) return plainMatch[1].toLowerCase();
   return null;
+}
+
+function parseSlotInventoryEntry(tier: string, raw: string): AgentCapacitySlotInventory | null {
+  const match = raw.match(/(\d+)\s+free\s*\/\s*(\d+)\s+total(?:\s*\(used\s*(\d+)\))?/i);
+  if (!match) return null;
+
+  const free = Number.parseInt(match[1], 10);
+  const total = Number.parseInt(match[2], 10);
+  const used = match[3] ? Number.parseInt(match[3], 10) : Math.max(total - free, 0);
+  return {
+    tier: tier.toLowerCase(),
+    free,
+    total,
+    used: Number.isFinite(used) ? used : null,
+  };
+}
+
+export function parseAgentCapacityError(error: unknown): AgentCapacityErrorDetails | null {
+  const raw = error instanceof Error ? error.message : String(error ?? "");
+  const tier = parseEntitlementSlotTier(raw);
+  if (!tier) return null;
+
+  const requestedMatch = raw.match(/Requested tier inventory:\s*([^.]*)/i);
+  const requestedInventory = requestedMatch?.[1]
+    ? parseSlotInventoryEntry(tier, requestedMatch[1])
+    : null;
+  const accountInventoryMatch = raw.match(/Available slots on this account:\s*([^.]*)/i);
+  const accountInventory = accountInventoryMatch?.[1]
+    ? accountInventoryMatch[1]
+        .split(",")
+        .map((entry) => {
+          const match = entry.trim().match(/^([a-z][a-z0-9-]*)\s+(.+)$/i);
+          return match ? parseSlotInventoryEntry(match[1], match[2]) : null;
+        })
+        .filter((entry): entry is AgentCapacitySlotInventory => Boolean(entry))
+    : [];
+  const label = titleizeTier(tier);
+
+  return {
+    tier,
+    title: `${label} capacity unavailable`,
+    message: `This launch needs a ${label} slot, but one could not be reserved for this account. Stop an existing agent or add capacity to continue.`,
+    requestedInventory,
+    accountInventory,
+  };
 }
 
 export function describeAgentsPageError(error: unknown): { message: string; clusterUnavailable: boolean } {

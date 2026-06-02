@@ -11,6 +11,7 @@ import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, Age
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import type { ShellStatus } from "@/hooks/useAgentShell";
 import type { SlotInventory } from "@/lib/format";
+import type { FirstAgentSetupCreateParams } from "@/components/dashboard/agents/FirstAgentSetupWizard";
 
 interface AgentMainPanelProps {
   isDesktopViewport: boolean;
@@ -38,7 +39,7 @@ interface AgentMainPanelProps {
   panelContent: React.ReactNode;
   persistentPanelContent?: React.ReactNode;
   onCreate: () => void;
-  onCreateAgent?: (params: { name: string; iconIndex: number; size: string }) => Promise<string | null>;
+  onCreateAgent?: (params: FirstAgentSetupCreateParams) => Promise<string | null>;
   budget?: {
     slots: SlotInventory;
     pooled_tpd: number;

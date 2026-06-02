@@ -23,7 +23,6 @@ import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMe
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
-import { AgentPlanSummary } from "./AgentPlanSummary";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
 
@@ -133,9 +132,6 @@ export function AgentWorkspaceSidebar({
   selectedAgent,
   activeTab,
   skillsActive = false,
-  planName,
-  subscriptionSummary,
-  catalogPlans,
   tokenUsed,
   tokenLimit,
   disabled = false,
@@ -361,33 +357,21 @@ export function AgentWorkspaceSidebar({
 
       <div className={isCollapsed ? "p-1.5" : "p-3"}>
         {isCollapsed ? (
-          <AgentPlanSummary
-            planName={planName}
-            subscriptionSummary={subscriptionSummary}
-            catalogPlans={catalogPlans}
-            tokenLimit={tokenTotal}
-            tokenUsageLabel={tokenUsageLabel}
-            tooltipSide="right"
-            trigger={
+          <Tooltip delayDuration={300}>
+            <TooltipTrigger asChild>
               <button
                 type="button"
                 onClick={onUpgrade}
-                aria-label="Upgrade plan"
+                aria-label={`Tokens today: ${tokenUsageLabel}`}
                 className="flex h-9 w-9 items-center justify-center rounded-full border border-border bg-background text-text-muted transition-colors hover:bg-surface-low hover:text-foreground"
               >
                 <Sparkles className="h-4 w-4" />
               </button>
-            }
-          />
+            </TooltipTrigger>
+            <TooltipContent side="right">Tokens today: {tokenUsageLabel}</TooltipContent>
+          </Tooltip>
         ) : (
           <div className="space-y-2">
-            <AgentPlanSummary
-              planName={planName}
-              subscriptionSummary={subscriptionSummary}
-              catalogPlans={catalogPlans}
-              tokenLimit={tokenTotal}
-              tokenUsageLabel={tokenUsageLabel}
-            />
             <div className="flex items-center justify-between gap-3 text-xs">
               <span className="text-text-muted">Tokens today</span>
               <span className="font-medium text-foreground">{tokenUsageLabel}</span>

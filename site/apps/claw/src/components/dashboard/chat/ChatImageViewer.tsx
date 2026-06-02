@@ -8,6 +8,7 @@ import { ResourceImage } from "@/components/ResourceImage";
 interface ChatImageViewerProps {
   src: string;
   alt: string;
+  title?: string;
   className?: string;
   containerClassName?: string;
   width?: number;
@@ -25,6 +26,7 @@ interface ChatImageViewerProps {
 export function ChatImageViewer({
   src,
   alt,
+  title,
   className,
   containerClassName,
   width = 320,
@@ -80,10 +82,12 @@ export function ChatImageViewer({
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`View ${alt}`}
+        title={title}
       >
         <ResourceImage
           src={src}
           alt={alt}
+          title={title}
           width={width}
           height={height}
           sizes={sizes}
@@ -105,7 +109,7 @@ export function ChatImageViewer({
           <div className="flex h-full min-h-0 w-full flex-col">
             <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-white/10 px-4">
               <p id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium">
-                {alt}
+                {title || alt}
               </p>
               {onOpenFile && (
                 <button
@@ -153,6 +157,7 @@ export function ChatImageViewer({
               <ResourceImage
                 src={src}
                 alt={alt}
+                title={title}
                 fill
                 sizes="100vw"
                 className="object-contain"

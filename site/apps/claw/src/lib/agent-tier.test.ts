@@ -4,6 +4,7 @@ import {
   describeAgentsPageError,
   getAgentSizePresets,
   inferAgentTier,
+  parseAgentCapacityError,
   parseEntitlementSlotTier,
   titleizeTier,
 } from "./agent-tier";
@@ -86,6 +87,25 @@ describe("agent tier helpers", () => {
       clusterUnavailable: false,
       message: "Failed to load agents",
     });
+  });
+
+  it("parses capacity errors into product-facing details", () => {
+    const details = parseAgentCapacityError(
+      "API Error 429: No available 'large' entitlement slots. Requested tier inventory: 1 free / 2 total (used 1). Available slots on this account: large 1 free / 2 total, medium 0 free / 0 total, small 0 free / 0 total. Stop an existing agent or purchase more capacity.",
+    );
+
+    expect(details).toMatchObject({
+      tier: "large",
+      title: "Large capacity unavailable",
+      requestedInventory: { tier: "large", free: 1, total: 2, used: 1 },
+      accountInventory: [
+        { tier: "large", free: 1, total: 2, used: 1 },
+        { tier: "medium", free: 0, total: 0, used: 0 },
+        { tier: "small", free: 0, total: 0, used: 0 },
+      ],
+    });
+    expect(details?.message).toContain("This launch needs a Large slot");
+    expect(parseAgentCapacityError("Other error")).toBeNull();
   });
 
   it("titleizes tier names", () => {

@@ -91,8 +91,10 @@ import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
+import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
+import type { FirstAgentSetupCreateParams } from "@/components/dashboard/agents/FirstAgentSetupWizard";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
@@ -1394,7 +1396,7 @@ export default function DevAgentSetupAgentsPage() {
     }
   };
 
-  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size }: { name: string; iconIndex: number; size: string }) => {
+  const handleCreateFirstAgent = useCallback(async ({ name, iconIndex, size, files }: FirstAgentSetupCreateParams) => {
     try {
       setError(null);
       const token = await getToken();
@@ -1404,13 +1406,30 @@ export default function DevAgentSetupAgentsPage() {
         size,
         meta: { ui: { avatar: { icon_index: iconIndex } } },
       });
-      await fetchAgents();
       if (created.id) {
+        if (files.length > 0) {
+          try {
+            const agentClient = createAgentClient(token);
+            await uploadAgentStarterFiles({
+              agentId: created.id,
+              files,
+              writeFileBytes: (agentId, path, content, destination) => (
+                agentClient.fileWriteBytes(agentId, path, content, destination)
+              ),
+            });
+          } catch (uploadError) {
+            setError(uploadError instanceof Error
+              ? `Agent created, but starter files could not be uploaded: ${uploadError.message}`
+              : "Agent created, but starter files could not be uploaded.");
+          }
+        }
+        await fetchAgents();
         setSelectedAgentId(created.id);
         setMainTab("chat");
         setMobileShowChat(true);
         return created.id;
       }
+      await fetchAgents();
       setError("Agent was created, but no agent id was returned.");
       return null;
     } catch (err) {
@@ -2167,6 +2186,11 @@ export default function DevAgentSetupAgentsPage() {
                 tokenLimit={budget?.pooled_tpd ?? null}
                 openclawConfig={chat.config}
                 openclawModels={chat.models}
+                onUpdateAgentName={async (agentId, name) => {
+                  const token = await getToken();
+                  const updatedAgent = await createAgentClient(token).update(agentId, { name });
+                  setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
+                }}
                 onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
               />
             ) : mainTab === "logs" ? (

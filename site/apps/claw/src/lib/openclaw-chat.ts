@@ -236,6 +236,7 @@ function isInternalExecutionOutputLine(line: string): boolean {
 function stripInternalAssistantContent(text: string): string {
   const lines = text.replace(/\r\n/g, "\n").split("\n");
   const visible: string[] = [];
+  let strippedInternalBlock = false;
 
   for (let cursor = 0; cursor < lines.length; cursor += 1) {
     const line = lines[cursor] ?? "";
@@ -244,6 +245,7 @@ function stripInternalAssistantContent(text: string): string {
       continue;
     }
 
+    strippedInternalBlock = true;
     if (/\.\.\.\s*\(truncated\)\s*\.\.\./i.test(line)) {
       continue;
     }
@@ -261,7 +263,8 @@ function stripInternalAssistantContent(text: string): string {
     cursor -= 1;
   }
 
-  return visible.join("\n").trim();
+  const visibleText = visible.join("\n");
+  return strippedInternalBlock ? visibleText.trim() : visibleText;
 }
 
 function hasDisplayableMessageContent(message: ChatMessage): boolean {
@@ -821,8 +824,8 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
 }
 
 function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): ChatMessage[] {
+  const last = prev[prev.length - 1];
   if (isInternalHeartbeatMessage(incoming)) {
-    const last = prev[prev.length - 1];
     return last && isLikelyInternalHeartbeatPrelude(last) ? prev.slice(0, -1) : prev;
   }
   const sanitizedIncoming = sanitizeAssistantMessage(incoming);
@@ -837,9 +840,9 @@ function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): Cha
     return prev;
   }
   if (!hasDisplayableMessageContent(sanitizedIncoming)) {
-    return prev;
+    const canMergeWhitespaceDelta = last?.role === "assistant" && sanitizedIncoming.role === "assistant" && sanitizedIncoming.content.length > 0;
+    if (!canMergeWhitespaceDelta) return prev;
   }
-  const last = prev[prev.length - 1];
   let next: ChatMessage[];
   if (last?.role === "assistant") {
     next = [...prev.slice(0, -1), mergeAssistantMessage(last, sanitizedIncoming)];

@@ -465,6 +465,47 @@ describe("FirstAgentSetupWizard", () => {
     expect(onOpenPlanCatalog).not.toHaveBeenCalled();
   });
 
+  it("forwards selected knowledge files when launching", async () => {
+    const onCreateAgent = vi.fn(async () => "agent-1");
+    const file = new File(["launch brief"], "Launch Brief.txt", { type: "text/plain" });
+    const { container } = renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        budget={{
+          slots: {
+            medium: { granted: 1, used: 0, available: 1 },
+          },
+          pooled_tpd: 250000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "team-launch",
+          activeSubscriptions: [
+            {
+              id: "sub-1",
+              planId: "team-launch",
+              planName: "Team Launch",
+              slotGrants: { medium: 1 },
+              quantity: 1,
+            },
+          ],
+        } as any}
+        catalogPlans={catalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    const fileInput = container.querySelector('input[type="file"]') as HTMLInputElement;
+    fireEvent.change(fileInput, { target: { files: [file] } });
+    expect(screen.getByText("Launch Brief.txt - 12 B")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(getPlanCardAction("Launch agent"));
+
+    await waitFor(() =>
+      expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ files: [file], size: "medium" })),
+    );
+  });
+
   it("launches from the selected plan footer action", async () => {
     const onOpenPlanCatalog = vi.fn();
     const onCreateAgent = vi.fn(async () => "agent-1");
@@ -583,6 +624,47 @@ describe("FirstAgentSetupWizard", () => {
     await waitFor(() =>
       expect(onCreateAgent).toHaveBeenCalledWith(expect.objectContaining({ size: "large" })),
     );
+  });
+
+  it("shows an acquisition CTA when backend capacity reservation rejects launch", async () => {
+    const onOpenPlanCatalog = vi.fn();
+    const onCreateAgent = vi.fn(async () => {
+      throw new Error(
+        "API Error 429: No available 'large' entitlement slots. Requested tier inventory: 1 free / 2 total (used 1). Available slots on this account: large 1 free / 2 total, medium 0 free / 0 total, small 0 free / 0 total. Stop an existing agent or purchase more capacity.",
+      );
+    });
+
+    renderWithClient(
+      <FirstAgentSetupWizard
+        onCreateAgent={onCreateAgent}
+        onOpenPlanCatalog={onOpenPlanCatalog}
+        budget={{
+          slots: {
+            large: { granted: 2, used: 1, available: 1 },
+          },
+          pooled_tpd: 250000000,
+        }}
+        subscriptionSummary={{
+          effectivePlanId: "catalog-pro",
+          activeSubscriptions: [],
+          activeEntitlementCount: 2,
+        } as any}
+        catalogPlans={proAndFiveAiuCatalogPlans}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(screen.getByRole("button", { name: "Continue" }));
+    fireEvent.click(getPlanCardAction("Launch agent"));
+
+    await waitFor(() => expect(screen.getByText("Large capacity unavailable")).toBeInTheDocument());
+    expect(screen.getByText(/Your Large launch slot could not be reserved/i)).toBeInTheDocument();
+    expect(screen.getByText("Requested Large: 1 free / 2 total")).toBeInTheDocument();
+    expect(screen.getByText("large: 1 free / 2 total")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /Add Large capacity/i }));
+
+    await waitFor(() => expect(onOpenPlanCatalog).toHaveBeenCalledTimes(1));
   });
 
   it("groups repeated active subscriptions for the same plan and slot tier", () => {
