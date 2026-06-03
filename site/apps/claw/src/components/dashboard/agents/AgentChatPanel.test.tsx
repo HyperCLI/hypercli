@@ -57,6 +57,7 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     models: [],
     activityFeed: [],
     refreshSessions: vi.fn(async () => undefined),
+    createSession: vi.fn(async () => "session-test"),
     refreshCron: vi.fn(async () => undefined),
     addCron: vi.fn(async () => undefined),
     removeCron: vi.fn(async () => undefined),
@@ -364,7 +365,7 @@ describe("AgentChatPanel", () => {
 
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(setInput).toHaveBeenCalledWith("");
-    expect(sendMessage).toHaveBeenCalledWith("Summarize this conversation so far with decisions, open tasks, and next actions.");
+    expect(sendMessage).toHaveBeenCalledWith("Summarize this project so far with decisions, open tasks, and next actions.");
   });
 
   it("runs a UI slash command through the provided page callback", async () => {
@@ -393,6 +394,34 @@ describe("AgentChatPanel", () => {
     expect(onOpenFiles).toHaveBeenCalledTimes(1);
     expect(setInput).toHaveBeenCalledWith("");
     expect(screen.getByRole("status", { name: /files opened/i })).toBeInTheDocument();
+  });
+
+  it("starts a new project through the slash command callback", async () => {
+    const setInput = vi.fn();
+    const onNewConversation = vi.fn(async () => undefined);
+    const handleSendChat = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/new",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      handleSendChat,
+      slashCommandActions: { onNewConversation },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(handleSendChat).not.toHaveBeenCalled();
+    expect(onNewConversation).toHaveBeenCalledTimes(1);
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /new project opened/i })).toBeInTheDocument();
   });
 
   it("passes a path through the open file slash command", async () => {

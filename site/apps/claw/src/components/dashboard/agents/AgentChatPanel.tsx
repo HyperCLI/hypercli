@@ -10,6 +10,7 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
+import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
 import { getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import {
   AgentSlashCommandMenu,
@@ -146,6 +147,7 @@ interface AgentChatPanelProps {
   onReadFileBytesFromChat?: (path: string) => Promise<Uint8Array>;
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
+  journeyIntro?: (JourneyIntroPanelProps & { enabled: boolean }) | null;
 }
 
 export function AgentChatPanel({
@@ -178,6 +180,7 @@ export function AgentChatPanel({
   onReadFileBytesFromChat,
   onOpenFileFromChat,
   onDownloadFileFromChat,
+  journeyIntro,
 }: AgentChatPanelProps) {
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
@@ -271,6 +274,7 @@ export function AgentChatPanel({
     }
 
     if (displayBootStatus.status === "ready") {
+      if (journeyIntro?.enabled) return <JourneyIntroPanel {...journeyIntro} />;
       return <AgentEmptyHistory onPromptSelect={setChatInput} />;
     }
 

@@ -27,7 +27,7 @@ import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 const dropdownNavItems = [
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+  { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
 ];
 
 export function DashboardNav() {
@@ -38,9 +38,11 @@ export function DashboardNav() {
   const [userMenuOpen, setUserMenuOpen] = useState(false);
   const userMenuRef = useRef<HTMLDivElement>(null);
 
-  const isActive = (href: string) =>
-    pathname === href ||
-    (href !== "/dashboard" && pathname.startsWith(href));
+  const isActive = (href: string) => {
+    const baseHref = href.split("?")[0] || href;
+    return pathname === baseHref ||
+      (baseHref !== "/dashboard" && pathname.startsWith(baseHref));
+  };
   const hideMobileHamburger =
     pathname === "/agents" ||
     pathname.startsWith("/agents/") ||

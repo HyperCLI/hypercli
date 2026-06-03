@@ -139,7 +139,7 @@ const DASHBOARD_LINKS = [
   { label: "Agents", href: "/dashboard/agents", icon: Users },
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+  { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
   { label: "Settings", href: "/dashboard/settings", icon: Settings },
 ];
 
@@ -500,7 +500,7 @@ function ThreadRow({
               className={`flex-shrink-0 items-center justify-center text-text-muted transition-colors hover:bg-[#d05f5f]/10 hover:text-[#d05f5f] ${
                 mobileMode ? "flex h-8 w-8 rounded-lg" : "hidden h-5 w-5 rounded group-hover/row:flex"
               }`}
-              title="Delete conversation"
+              title="Delete project"
             >
               <Trash2 className={mobileMode ? "h-4 w-4" : "h-3 w-3"} />
             </button>
@@ -664,7 +664,7 @@ export function AgentsSidebarDashboardLinks({
               if (opensAgentSettings) {
                 return (
                   <button
-                    key={item.href}
+                    key={`${item.label}:${item.href}`}
                     type="button"
                     onClick={() => {
                       setOpen(false);
@@ -685,7 +685,7 @@ export function AgentsSidebarDashboardLinks({
 
               return (
                 <Link
-                  key={item.href}
+                  key={`${item.label}:${item.href}`}
                   href={href}
                   onClick={() => setOpen(false)}
                   role="menuitem"
@@ -818,7 +818,7 @@ function FlatThreadList({
         {privateThreads.length === 0 && groupThreads.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-text-muted">
             <MessageSquare className="w-6 h-6 mb-2" />
-            <p className="text-xs">No conversations</p>
+            <p className="text-xs">No projects</p>
           </div>
         ) : (
           <>
@@ -1294,7 +1294,7 @@ export function ConversationGraphModule({
         {isEmptyGraph && (
           <div className="absolute inset-0 flex flex-col items-center justify-center text-text-muted">
             <MessageSquare className="w-6 h-6 mb-1.5 text-text-muted/30" />
-            <p className="text-[11px]">No conversations yet</p>
+            <p className="text-[11px]">No projects yet</p>
             <p className="text-[10px] text-text-muted/50">Start one to see the network</p>
           </div>
         )}

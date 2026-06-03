@@ -48,6 +48,7 @@ export interface AgentSlashCommandActions {
   onOpenActivity?: () => void;
   onStartAgent?: () => void | Promise<void>;
   onStopAgent?: () => void | Promise<void>;
+  onNewConversation?: () => void | Promise<void>;
   onNewAgent?: () => void;
   onRenameAgent?: (name: string) => void | Promise<void>;
   onOpenAgentSettings?: () => void;
@@ -108,13 +109,13 @@ interface SlashCommand {
 }
 
 const PROMPTS = {
-  summary: "Summarize this conversation so far with decisions, open tasks, and next actions.",
+  summary: "Summarize this project so far with decisions, open tasks, and next actions.",
   retry: "Retry your last answer. Keep the same goal, but correct any errors.",
   fix: "Inspect the current issue, identify the likely cause, and propose the smallest safe fix.",
   test: "Run the relevant checks for this workspace and summarize the results.",
   ship: "Prepare a handoff: what changed, checks run, risks, and next steps.",
   explain: "Explain the current workspace or selected file in plain language.",
-  todo: "Extract open tasks from this conversation and group them by priority.",
+  todo: "Extract open tasks from this project and group them by priority.",
   handoff: "Create a concise handoff for another operator continuing this work.",
   diff: "Review workspace changes and summarize the diff.",
 };
@@ -216,12 +217,12 @@ function buildSlashCommands(): SlashCommand[] {
     {
       id: "new",
       aliases: ["new"],
-      title: "New conversation",
-      description: "Start a fresh main conversation when session reset is exposed.",
+      title: "New Project",
+      description: "Start a fresh project.",
       category: "Chat",
-      mode: "confirm",
+      mode: "ui",
       Icon: MessageSquarePlus,
-      run: ({ setStatus }) => setStatus("New conversations need the gateway session reset helper exposed first."),
+      run: runAction(undefined, "New Project is unavailable here."),
     },
     {
       id: "abort",
@@ -237,7 +238,7 @@ function buildSlashCommands(): SlashCommand[] {
       id: "summary",
       aliases: ["summary", "summarize"],
       title: "Summarize chat",
-      description: "Ask for a conversation summary.",
+      description: "Ask for a project summary.",
       category: "Chat",
       mode: "prompt",
       Icon: ListTree,
@@ -774,6 +775,7 @@ function buildSlashCommands(): SlashCommand[] {
 
 function bindAction(command: SlashCommand, actions: AgentSlashCommandActions): SlashCommand {
   const actionByCommand: Partial<Record<string, (() => void | Promise<void>) | undefined>> = {
+    new: actions.onNewConversation,
     "new-agent": actions.onNewAgent,
     files: actions.onOpenFiles,
     upload: actions.onTriggerFilePicker,

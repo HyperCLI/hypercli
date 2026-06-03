@@ -31,9 +31,20 @@ function normalizedAgentId(agentId: string | null | undefined): string | null {
   return normalized ? normalized : null;
 }
 
-export function openClawChatHistoryCacheKey(agentId: string | null | undefined): string | null {
+function normalizedSessionKey(sessionKey: string | null | undefined): string | null {
+  const normalized = (sessionKey ?? "").trim();
+  return normalized && normalized !== "main" ? normalized : null;
+}
+
+export function openClawChatHistoryCacheKey(
+  agentId: string | null | undefined,
+  sessionKey?: string | null,
+): string | null {
   const normalized = normalizedAgentId(agentId);
-  return normalized ? `${CACHE_KEY_PREFIX}:${encodeURIComponent(normalized)}` : null;
+  if (!normalized) return null;
+  const session = normalizedSessionKey(sessionKey);
+  const agentKey = `${CACHE_KEY_PREFIX}:${encodeURIComponent(normalized)}`;
+  return session ? `${agentKey}:session:${encodeURIComponent(session)}` : agentKey;
 }
 
 function trimText(value: string, maxChars: number, suffix: string): string {
@@ -118,8 +129,11 @@ function normalizeCachedMessages(value: unknown): ChatMessage[] {
   }));
 }
 
-export function readCachedOpenClawChatHistory(agentId: string | null | undefined): ChatMessage[] {
-  const key = openClawChatHistoryCacheKey(agentId);
+export function readCachedOpenClawChatHistory(
+  agentId: string | null | undefined,
+  sessionKey?: string | null,
+): ChatMessage[] {
+  const key = openClawChatHistoryCacheKey(agentId, sessionKey);
   const localStorage = storage();
   if (!key || !localStorage) return [];
 
@@ -134,8 +148,12 @@ export function readCachedOpenClawChatHistory(agentId: string | null | undefined
   }
 }
 
-export function writeCachedOpenClawChatHistory(agentId: string | null | undefined, messages: ChatMessage[]): void {
-  const key = openClawChatHistoryCacheKey(agentId);
+export function writeCachedOpenClawChatHistory(
+  agentId: string | null | undefined,
+  messages: ChatMessage[],
+  sessionKey?: string | null,
+): void {
+  const key = openClawChatHistoryCacheKey(agentId, sessionKey);
   const localStorage = storage();
   if (!key || !localStorage || messages.length === 0) return;
 
@@ -146,4 +164,17 @@ export function writeCachedOpenClawChatHistory(agentId: string | null | undefine
     // Local history is a UX fallback. Quota/private-mode failures should not
     // interrupt live chat.
   }
+}
+
+export function clearCachedOpenClawChatHistory(
+  agentId: string | null | undefined,
+  sessionKey?: string | null,
+): void {
+  const key = openClawChatHistoryCacheKey(agentId, sessionKey);
+  const localStorage = storage();
+  if (!key || !localStorage) return;
+
+  try {
+    localStorage.removeItem(key);
+  } catch {}
 }

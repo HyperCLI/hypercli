@@ -93,6 +93,20 @@ describe("DashboardShell", () => {
     expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-0");
   });
 
+  it("keeps dashboard settings in the same immersive shell", () => {
+    mocks.pathname = "/dashboard/settings";
+
+    render(
+      <DashboardShell>
+        <div>Settings page</div>
+      </DashboardShell>,
+    );
+
+    expect(screen.queryByTestId("dashboard-nav")).not.toBeInTheDocument();
+    expect(screen.queryByTestId("motion-route")).not.toBeInTheDocument();
+    expect(screen.getByRole("main")).toHaveClass("h-dvh", "pt-0");
+  });
+
   it("keeps the top nav for non-immersive dashboard pages", () => {
     mocks.pathname = "/dashboard/billing";
 

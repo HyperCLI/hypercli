@@ -119,6 +119,9 @@ import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
+import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
+import { JOURNEY_DAYS } from "@/components/dashboard/journey/journey-days";
+import { useJourney } from "@/components/dashboard/journey/useJourney";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { PlanCheckoutModal } from "@/components/PlanCheckoutModal";
@@ -135,6 +138,7 @@ import {
   type AgentFileReadRecoveryResult,
 } from "@/lib/agent-file-recovery";
 import type { ChatPendingFile } from "@/lib/openclaw-chat";
+import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/journey/types";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -149,6 +153,10 @@ const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
+
+function journeyPromptFor(dayId: string): string {
+  return JOURNEY_DAYS.find((day) => day.id === dayId)?.prompt ?? "";
+}
 
 interface UpgradeDisplayProduct {
   id: string;
@@ -506,7 +514,7 @@ function UpgradePlanCatalogModal({
         <div className="flex items-start justify-between gap-4 border-b border-[#303033] px-5 py-4">
           <div>
             <div className="flex items-center gap-2">
-              <Sparkles className="h-4 w-4 text-[#36c99b]" />
+              <Sparkles className="h-4 w-4 text-[var(--selection-accent)]" />
               <h2 className="text-[18px] font-semibold leading-tight text-[#f5f5f5]">Upgrade plan</h2>
             </div>
             <p className="mt-2 text-[13px] leading-snug text-[#858585]">Choose a plan for checkout.</p>
@@ -569,7 +577,7 @@ function UpgradePlanCatalogModal({
                     className="relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]"
                   >
                     {product.highlighted && (
-                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[#063f31] px-2.5 py-1 text-[12px] font-medium leading-none text-[#36d399]">
+                      <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
                         Most Popular
                       </span>
                     )}
@@ -580,7 +588,7 @@ function UpgradePlanCatalogModal({
                       </span>
                       <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{product.name}</h3>
                       {ownedCount > 0 && (
-                        <span className="ml-auto shrink-0 rounded-full border border-[#36c99b]/30 bg-[#36c99b]/10 px-2 py-0.5 text-[11px] font-medium text-[#36d399]">
+                        <span className="ml-auto shrink-0 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2 py-0.5 text-[11px] font-medium text-[var(--selection-accent)]">
                           You own {ownedCount}
                         </span>
                       )}
@@ -602,7 +610,7 @@ function UpgradePlanCatalogModal({
                       onClick={() => onSelectPlan(product)}
                       className={`mt-3 flex h-8 w-full items-center justify-center rounded-[8px] px-3 text-[13px] font-medium leading-tight transition-colors ${
                         product.highlighted
-                          ? "bg-[#36c99b] text-[#06251c] hover:bg-[#43dbad]"
+                          ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
                           : "border border-[#444448] bg-[#202020] text-[#f5f5f5] hover:bg-[#262626]"
                       }`}
                     >
@@ -746,6 +754,9 @@ function AgentsPageContent() {
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
+  const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
+  const journeyChatCompletionRef = useRef<JourneyCompletionEvent | null>(null);
+  const completeJourneyForEvent = journey.completeForEvent;
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
@@ -806,6 +817,7 @@ function AgentsPageContent() {
 
   // Selection and tabs
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
+  const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>({});
   const [mainTab, setMainTab] = useState<MainTab>("chat");
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
@@ -878,13 +890,14 @@ function AgentsPageContent() {
       setDirectoryDetailOrigin("chat");
       setMainTab("integrations");
       setMobileShowChat(true);
+      completeJourneyForEvent("integrations-opened");
       return;
     }
 
     if (!SHOW_AGENT_INSPECTOR) return;
     setInspectorTab("connections");
     setInspectorSheetOpen(true);
-  }, []);
+  }, [completeJourneyForEvent]);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
@@ -912,7 +925,20 @@ function AgentsPageContent() {
         : rawSummary;
       const typeCatalog = (typeCatalogData as HyperAgentTypeCatalog | null) || null;
       const nextBudget = buildBillingBudget(summary, normalizedCurrentPlan, typeCatalog);
+      const listedAgentIds = new Set(listedAgents.map((agent) => agent.id));
       setSdkAgents(listedAgents);
+      setSelectedSessionKeysByAgent((current) => {
+        let changed = false;
+        const next: Record<string, string> = {};
+        for (const [agentId, sessionKey] of Object.entries(current)) {
+          if (listedAgentIds.has(agentId)) {
+            next[agentId] = sessionKey;
+          } else {
+            changed = true;
+          }
+        }
+        return changed ? next : current;
+      });
       setBudget(nextBudget);
       setCatalogPlans(plans);
       setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
@@ -1262,9 +1288,14 @@ function AgentsPageContent() {
     clearShellOutput();
   }, [clearShellOutput, mainTab, shellStatus]);
 
+  const selectedSessionKey = selectedAgentId
+    ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
+    : resolveOpenClawSessionKey(null);
+
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     isSelectedRunning,
+    selectedSessionKey,
   );
   const activeConnectionStatus = useMemo(() => {
     if (!isSelectedRunning) return null;
@@ -1676,11 +1707,11 @@ function AgentsPageContent() {
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
     return chat.sessions.map((s) => {
-      const entry = s as Record<string, unknown>;
+      const entry = s as unknown as Record<string, unknown>;
       const key = typeof entry.key === "string" ? entry.key : String(entry.id ?? "");
       const clientMode = typeof entry.clientMode === "string" ? entry.clientMode : (typeof entry.client === "string" ? entry.client : "unknown");
       const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
-      const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : Date.now();
+      const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : 0;
       const lastMessageAt = typeof entry.lastMessageAt === "number" ? entry.lastMessageAt : createdAt;
       return { key, clientMode, clientDisplayName, createdAt, lastMessageAt };
     });
@@ -1849,12 +1880,13 @@ function AgentsPageContent() {
       setOpenclawJsonDrafts({});
       setOpenclawJsonDraftErrors({});
       setOpenclawSuccess(successText);
+      completeJourneyForEvent("rules-confirmed");
     } catch (err) {
       setOpenclawError(err instanceof Error ? err.message : "Failed to save OpenClaw config");
     } finally {
       setOpenclawSaving(false);
     }
-  }, [chat, openclawJsonDraftErrors]);
+  }, [chat, completeJourneyForEvent, openclawJsonDraftErrors]);
 
   const saveOpenclawSection = useCallback(async (sectionKey: string) => {
     if (!openclawDraft) return;
@@ -2220,6 +2252,7 @@ function AgentsPageContent() {
         setSelectedAgentId(created.id);
         setMainTab("chat");
         setMobileShowChat(true);
+        completeJourneyForEvent("agent-created");
         return created.id;
       }
       await fetchAgents();
@@ -2232,7 +2265,7 @@ function AgentsPageContent() {
       }
       throw err;
     }
-  }, [fetchAgents, getToken]);
+  }, [completeJourneyForEvent, fetchAgents, getToken]);
 
   const handleResizeAndStart = useCallback(async (agentId: string, tier: string) => {
     setStartingId(agentId);
@@ -2317,6 +2350,12 @@ function AgentsPageContent() {
       const replacementIndex = deletedIndex === -1 ? 0 : Math.min(deletedIndex, nextAgents.length - 1);
       const replacementAgentId = nextAgents[replacementIndex]?.id ?? null;
       setSdkAgents(nextAgents);
+      setSelectedSessionKeysByAgent((current) => {
+        if (!Object.prototype.hasOwnProperty.call(current, agentId)) return current;
+        const next = { ...current };
+        delete next[agentId];
+        return next;
+      });
       setSelectedAgentId((currentId) => {
         if (currentId === agentId) return replacementAgentId;
         if (currentId && nextAgents.some((agent) => agent.id === currentId)) return currentId;
@@ -2557,12 +2596,22 @@ function AgentsPageContent() {
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
+    const hasChatWork = chat.input.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
+    const journeyCompletionEvent = journeyChatCompletionRef.current;
     if (chat.sending) {
       chat.setInput("");
       chat.addPendingMessage(chat.input);
+      if (hasChatWork) {
+        completeJourneyForEvent(journeyCompletionEvent ?? "chat-sent");
+        journeyChatCompletionRef.current = null;
+      }
       return;
     }
     chat.sendMessage();
+    if (hasChatWork) {
+      completeJourneyForEvent(journeyCompletionEvent ?? "chat-sent");
+      journeyChatCompletionRef.current = null;
+    }
   };
 
   const selectedCenterPanel: CenterPanel =
@@ -2661,6 +2710,26 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     closeMobileSidebars();
   };
+  const selectSession = (sessionKey: string) => {
+    if (!selectedAgentId) return;
+    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
+    openChatTab();
+  };
+  const renameSession = async (sessionKey: string, title: string) => {
+    await chat.renameSession(sessionKey, title);
+  };
+  const deleteSession = async (sessionKey: string) => {
+    await chat.deleteSession(sessionKey);
+    if (!selectedAgentId || sessionKey !== selectedSessionKey) return;
+    const fallbackSessionKey = chat.sessions.find((session) => session.key !== sessionKey)?.key ?? resolveOpenClawSessionKey(selectedAgentId);
+    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: fallbackSessionKey }));
+  };
+  const createSession = async () => {
+    if (!selectedAgentId) return;
+    const sessionKey = await chat.createSession();
+    setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: sessionKey }));
+    openChatTab();
+  };
   const openFilesTab = (path?: string) => {
     const previewPath = typeof path === "string" ? path.trim() : "";
     setFilesPreviewPath(previewPath || null);
@@ -2682,6 +2751,7 @@ function AgentsPageContent() {
     setMainTab("integrations");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
+    completeJourneyForEvent("integrations-opened");
   };
   const openSkillsTab = () => {
     setDirectoryCategory("skills");
@@ -2716,6 +2786,11 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
+  const setJourneyPrompt = (prompt: string, completionEvent: JourneyCompletionEvent | null = null) => {
+    journeyChatCompletionRef.current = completionEvent;
+    if (prompt) chat.setInput(prompt);
+    openChatTab();
+  };
   const openMobileAgentLauncher = () => {
     setMobileAgentsSidebarOpen(false);
     setMobileAgentLauncherOpen(true);
@@ -2730,6 +2805,47 @@ function AgentsPageContent() {
       return createdId;
     } catch {
       return null;
+    }
+  };
+  const runJourneyDayAction = (day: JourneyDay) => {
+    if (day.actionKind === "create-agent") {
+      if (selectedAgent) {
+        openAgentSettingsTab();
+        return;
+      }
+
+      setMobileShowChat(false);
+      if (isDesktopViewport) {
+        setSidebarCreatorSignal((value) => value + 1);
+      } else {
+        openMobileAgentLauncher();
+      }
+      return;
+    }
+
+    if (day.actionKind === "open-files") {
+      openFilesTab();
+      return;
+    }
+
+    if (day.actionKind === "open-settings") {
+      openAgentSettingsTab();
+      return;
+    }
+
+    if (day.actionKind === "open-integrations") {
+      openIntegrationsTab();
+      return;
+    }
+
+    if (day.actionKind === "set-chat-prompt") {
+      if (day.id === "understanding") {
+        setJourneyPrompt(day.prompt ?? "", "reviewed-understanding");
+      } else if (day.id === "repeatable") {
+        setJourneyPrompt(day.prompt ?? "", "workflow-drafted");
+      } else {
+        setJourneyPrompt(day.prompt ?? "");
+      }
     }
   };
   const showMobileChatReturn = !isDesktopViewport && (mainTab !== "chat" || openclawSettingsOpen);
@@ -3026,9 +3142,6 @@ function AgentsPageContent() {
                 selectedAgent={selectedAgent}
                 activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
                 skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
-                planName={planName}
-                subscriptionSummary={subscriptionSummary}
-                catalogPlans={catalogPlans}
                 tokenUsed={tokenUsage}
                 tokenLimit={budget?.pooled_tpd ?? null}
                 disabled={workspaceSidebarDisabled}
@@ -3040,7 +3153,15 @@ function AgentsPageContent() {
                 forceExpanded
                 fillParent
                 onClose={() => setMobileWorkspaceSidebarOpen(false)}
-                onSelectChat={openChatTab}
+                sessions={chat.sessions}
+                sessionsFetched={chat.sessionsFetched}
+                sessionPreviews={chat.sessionPreviews}
+                creatingSessionKeys={chat.creatingSessionKeys}
+                selectedSessionKey={selectedSessionKey}
+                onSelectSession={selectSession}
+                onRenameSession={renameSession}
+                onDeleteSession={deleteSession}
+                onCreateSession={createSession}
                 onOpenFiles={openFilesTab}
                 onOpenIntegrations={openIntegrationsTab}
                 onOpenSkills={openSkillsTab}
@@ -3096,9 +3217,6 @@ function AgentsPageContent() {
           selectedAgent={selectedAgent}
           activeTab={openclawSettingsOpen && selectedAgent ? "openclaw" : mainTab}
           skillsActive={mainTab === "integrations" && directoryCategory === "skills"}
-          planName={planName}
-          subscriptionSummary={subscriptionSummary}
-          catalogPlans={catalogPlans}
           tokenUsed={tokenUsage}
           tokenLimit={budget?.pooled_tpd ?? null}
           disabled={workspaceSidebarDisabled}
@@ -3106,7 +3224,15 @@ function AgentsPageContent() {
           scheduledDisabled={!SCHEDULED_SECTION_ENABLED}
           scheduledDisabledReason={SCHEDULED_SECTION_DISABLED_REASON}
           isDesktopViewport={isDesktopViewport}
-          onSelectChat={openChatTab}
+          sessions={chat.sessions}
+          sessionsFetched={chat.sessionsFetched}
+          sessionPreviews={chat.sessionPreviews}
+          creatingSessionKeys={chat.creatingSessionKeys}
+          selectedSessionKey={selectedSessionKey}
+          onSelectSession={selectSession}
+          onRenameSession={renameSession}
+          onDeleteSession={deleteSession}
+          onCreateSession={createSession}
           onOpenFiles={openFilesTab}
           onOpenIntegrations={openIntegrationsTab}
           onOpenSkills={openSkillsTab}
@@ -3178,6 +3304,14 @@ function AgentsPageContent() {
               onReadFileBytesFromChat={readAgentFileBytes}
               onOpenFileFromChat={openFilesTab}
               onDownloadFileFromChat={downloadAgentFileFromChat}
+              journeyIntro={journey.enabled ? {
+                enabled: true,
+                agentName: selectedAgent?.name || selectedAgent?.pod_name || "your agent",
+                onStartBrief: () => setJourneyPrompt(journeyPromptFor("brief")),
+                onAddSource: openFilesTab,
+                onSetRules: () => setJourneyPrompt(journeyPromptFor("rules")),
+                onTryWork: () => setJourneyPrompt(journeyPromptFor("real-work")),
+              } : undefined}
               slashCommandActions={{
                 onOpenFiles: openFilesTab,
                 onOpenConfig: openOpenClawSettings,
@@ -3186,7 +3320,8 @@ function AgentsPageContent() {
                 onOpenLogs: openLogsTab,
                 onOpenShell: openShellTab,
                 onOpenPlans: openUpgradeCatalog,
-                onOpenBilling: () => router.push("/dashboard/billing"),
+                onOpenBilling: () => router.push("/dashboard/settings"),
+                onNewConversation: createSession,
                 onStartAgent: async () => {
                   if (selectedAgent) await handleStart(selectedAgent.id);
                 },
@@ -3225,10 +3360,19 @@ function AgentsPageContent() {
               onOpenFile={readAgentFileResult}
               onOpenFileBytes={readAgentFileBytesResult}
               onDownloadFileBytes={readAgentFileBytesResult}
-              onSaveFile={saveAgentFile}
+              onSaveFile={async (path, content) => {
+                await saveAgentFile(path, content);
+                completeJourneyForEvent("source-added");
+              }}
               onDeleteFile={deleteAgentFile}
-              onUploadFile={uploadAgentFile}
-              onCreateDirectory={createAgentDirectory}
+              onUploadFile={async (path, content) => {
+                await uploadAgentFile(path, content);
+                completeJourneyForEvent("source-added");
+              }}
+              onCreateDirectory={async (path) => {
+                await createAgentDirectory(path);
+                completeJourneyForEvent("source-added");
+              }}
             />
           ) : mainTab === "integrations" ? (
             <IntegrationsDirectoryPanel
@@ -3274,10 +3418,6 @@ function AgentsPageContent() {
               agentDeleting={Boolean(selectedAgent && deletingId === selectedAgent.id)}
               agentStartBlocked={selectedAgentLaunchBlocked}
               agentStartBlockedReason={selectedAgentStartBlockedTitle}
-              planName={planName}
-              subscriptionSummary={subscriptionSummary}
-              tokenUsage={tokenUsage}
-              tokenLimit={budget?.pooled_tpd ?? null}
               openclawConfig={chat.config}
               openclawModels={chat.models}
               onUpdateAgentName={async (agentId, name) => {
@@ -3285,7 +3425,10 @@ function AgentsPageContent() {
                 const updatedAgent = await createAgentClient(token).update(agentId, { name });
                 setSdkAgents((prev) => upsertSdkAgent(prev, updatedAgent));
               }}
-              onSaveOpenClawConfig={async (patch) => { await chat.saveConfig(patch); }}
+              onSaveOpenClawConfig={async (patch) => {
+                await chat.saveConfig(patch);
+                completeJourneyForEvent("rules-confirmed");
+              }}
               isDesktopViewport={isDesktopViewport}
               showBackToChat={showMobileChatReturn}
               onBackToChat={openChatTab}
@@ -3394,6 +3537,8 @@ function AgentsPageContent() {
         openclawPaneRef={openclawPaneRef}
         isDesktopViewport={isDesktopViewport}
       />
+
+      <JourneyFloatingPanel journey={journey} onRunDayAction={runJourneyDayAction} />
 
       </div>
     </AgentGatewaySessionProvider>

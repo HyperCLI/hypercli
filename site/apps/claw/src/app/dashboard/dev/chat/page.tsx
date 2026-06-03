@@ -230,7 +230,7 @@ const SCENARIOS: Scenario[] = [
     connected: false,
   },
   {
-    name: "Simple conversation",
+    name: "Simple project",
     messages: [MOCK_MESSAGES.userSimple, MOCK_MESSAGES.assistantSimple],
     sending: false,
     connecting: false,
@@ -306,7 +306,7 @@ const SCENARIOS: Scenario[] = [
     connected: true,
   },
   {
-    name: "Full conversation",
+    name: "Full project",
     messages: [
       MOCK_MESSAGES.userSimple,
       MOCK_MESSAGES.assistantSimple,
@@ -326,7 +326,7 @@ const SCENARIOS: Scenario[] = [
   },
 ];
 
-// ── Mock group conversation messages ──
+// ── Mock group project messages ──
 
 interface GroupMessage extends ChatMessage {
   senderId: string;
@@ -347,7 +347,7 @@ const MOCK_GROUP_MESSAGES: GroupMessage[] = [
     timestamp: Date.now() - 360000,
   },
   { role: "assistant", content: "Confirmed — those 2 entries correlate with a schema change in the ingestion pipeline deployed on March 15. The `revenue_amount` field was briefly parsed as cents instead of dollars.", senderId: "agent-data", senderName: "data-bot", timestamp: Date.now() - 300000 },
-  { role: "system", content: "code-bot joined the conversation", senderId: "system", senderName: "System", timestamp: Date.now() - 240000 },
+  { role: "system", content: "code-bot joined the project", senderId: "system", senderName: "System", timestamp: Date.now() - 240000 },
   { role: "assistant", content: "I can see the commit that caused this — `a]c3f29` in the ingestion service. I can prepare a fix and a backfill script for the affected entries. Want me to proceed?", senderId: "agent-code", senderName: "code-bot", timestamp: Date.now() - 180000 },
   { role: "user", content: "Yes, prepare the fix but don't deploy yet. We need Myo to approve before pushing to production.", senderId: "user-1", senderName: "You", timestamp: Date.now() - 120000 },
   {
@@ -422,7 +422,7 @@ export default function DevChatPage() {
   const [gatewayStatusVariant, setGatewayStatusVariant] = useState<FeatureVariant>("off");
   const [workspaceFilesVariant, setWorkspaceFilesVariant] = useState<FeatureVariant>("off");
 
-  // ── Group conversation modules ──
+  // ── Group project modules ──
   const [membersVariant, setMembersVariant] = useState<FeatureVariant>("v1");
   const [agentRosterVariant, setAgentRosterVariant] = useState<FeatureVariant>("v1");
   const [groupActivityFeedVariant, setGroupActivityFeedVariant] = useState<FeatureVariant>("v1");
@@ -448,7 +448,7 @@ export default function DevChatPage() {
   const [themeVariant, setThemeVariant] = useState<ThemeVariant>("off");
   const [streamingVariant, setStreamingVariant] = useState<StreamingVariant>("off");
 
-  // ── Conversations Sidebar ──
+  // ── Projects Sidebar ──
   const [conversationsSidebarVariant, setAgentsChannelsSidebarVariant] = useState<AgentsChannelsSidebarVariant | "off">("off");
   const [selectedThreadId, setSelectedThreadId] = useState<string | null>(null);
   const [threads, setThreads] = useState<typeof MOCK_CONVERSATION_THREADS>([]);
@@ -1079,7 +1079,7 @@ export default function DevChatPage() {
         <div className="space-y-4 pt-1 border-t border-border">
           <p className="text-[11px] font-semibold text-[#f0c56c] uppercase tracking-wider">Layout</p>
           <VariantGroup
-            label="Conversations Sidebar"
+            label="Projects Sidebar"
             value={conversationsSidebarVariant}
             onChange={setAgentsChannelsSidebarVariant}
             options={[
@@ -1400,9 +1400,9 @@ export default function DevChatPage() {
             ]} />
           </div>
 
-          {/* Group Conversation Modules */}
+          {/* Group Project Modules */}
           <div className="space-y-4 pt-1 border-t border-border">
-            <p className="text-[11px] font-semibold text-[#d05f5f] uppercase tracking-wider">Group Conversation</p>
+            <p className="text-[11px] font-semibold text-[#d05f5f] uppercase tracking-wider">Group Project</p>
             <VariantGroup label="Members" value={membersVariant} onChange={setMembersVariant} options={[
               { value: "off", label: "Off" },
               { value: "v1", label: "Alt 1 — list rows" },
@@ -1481,7 +1481,7 @@ export default function DevChatPage() {
               { value: "v2", label: "Alt 2 — bullet card" },
               { value: "v3", label: "Alt 3 — summary" },
             ]} />
-            <VariantGroup label="Conversation Graph" value={conversationGraphVariant} onChange={setConversationGraphVariant} options={[
+            <VariantGroup label="Project Graph" value={conversationGraphVariant} onChange={setConversationGraphVariant} options={[
               { value: "off", label: "Off" },
               { value: "v1", label: "Alt 1 — full graph" },
               { value: "v2", label: "Alt 2 — compact" },
@@ -1669,7 +1669,7 @@ export default function DevChatPage() {
         </>
       )}
 
-      {/* ── Conversations Sidebar ── */}
+      {/* ── Projects Sidebar ── */}
       {conversationsSidebarVariant !== "off" && (
         <AgentsChannelsSidebar
           variant={conversationsSidebarVariant}
@@ -1687,7 +1687,7 @@ export default function DevChatPage() {
       <div className="flex-1 flex flex-col min-h-0 min-w-0">
         {/* Header bar */}
         <div className="flex-shrink-0 flex items-center gap-3 border-b border-border px-4 py-3">
-          {/* Dynamic avatar based on conversation */}
+          {/* Dynamic avatar based on project */}
           {(() => {
             if (!selectedThread) {
               // Default — single bot icon
@@ -1705,7 +1705,7 @@ export default function DevChatPage() {
             const isGroup = selectedThread.participants.length > 2 || selectedThread.kind === "group";
 
             if (agents.length === 0) {
-              // New conversation with no agents yet
+              // New Project with no agents yet
               return (
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-surface-low flex items-center justify-center">
@@ -1766,7 +1766,7 @@ export default function DevChatPage() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground truncate">
               {selectedThread
-                ? (selectedThread.title ?? activeAgentName ?? "New conversation")
+                ? (selectedThread.title ?? activeAgentName ?? "New Project")
                 : "Select or create an agent"}
             </p>
             <p className="text-xs text-text-muted">
@@ -1842,11 +1842,11 @@ export default function DevChatPage() {
           <div className="mx-auto flex min-h-full w-3/4 max-w-[75%] min-w-0 flex-col space-y-4">
             {devTab === "ux-kit" && <InChatUxKitDemo />}
 
-            {/* Empty state: new conversation with only "You" */}
+            {/* Empty state: new project with only "You" */}
             {devTab !== "ux-kit" && selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
               <div className="flex min-h-full flex-col items-center justify-center text-text-muted">
                 <Users className="w-10 h-10 mb-3 text-text-muted/40" />
-                <p className="text-sm font-medium text-foreground mb-1">New conversation</p>
+                <p className="text-sm font-medium text-foreground mb-1">New Project</p>
                 <p className="text-xs text-text-muted text-center max-w-[220px]">
                   Add agents or team members to start collaborating.
                 </p>
@@ -1883,7 +1883,7 @@ export default function DevChatPage() {
                 ) : connected ? (
                   <>
                     <MessageSquare className="w-8 h-8 opacity-30" />
-                    <p className="text-sm font-medium text-foreground">Start a conversation</p>
+                    <p className="text-sm font-medium text-foreground">Start a project</p>
                     <p className="text-xs text-text-muted text-center max-w-[220px]">
                       Send a message to start chatting with {activeAgentName ?? "your agent"}
                     </p>
@@ -2144,7 +2144,7 @@ export default function DevChatPage() {
                   <Trash2 className="w-4 h-4 text-[#d05f5f]" />
                 </div>
                 <div>
-                  <p className="text-sm font-medium text-foreground">Delete conversation?</p>
+                  <p className="text-sm font-medium text-foreground">Delete project?</p>
                   <p className="text-[11px] text-text-muted">This will disconnect {agentNames.length} agent{agentNames.length !== 1 ? "s" : ""}</p>
                 </div>
               </div>

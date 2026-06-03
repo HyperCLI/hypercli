@@ -105,7 +105,7 @@ function uniqueFeatures(plans: ComparisonPlan[]): string[] {
 function valueCell(value: string | boolean) {
   if (typeof value === "boolean") {
     return value ? (
-      <Check className="h-4 w-4 text-[#f1f1f1]" aria-label="Included" />
+      <Check className="h-4 w-4 text-[var(--selection-accent)]" aria-label="Included" />
     ) : (
       <X className="h-4 w-4 text-[#4c4c4f]" aria-label="Not included" />
     );
@@ -114,12 +114,6 @@ function valueCell(value: string | boolean) {
 }
 
 export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanComparisonModalProps) {
-  const [mounted, setMounted] = React.useState(false);
-
-  React.useEffect(() => {
-    setMounted(true);
-  }, []);
-
   React.useEffect(() => {
     if (!open) return;
     const handleKeyDown = (event: KeyboardEvent) => {
@@ -129,7 +123,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
     return () => document.removeEventListener("keydown", handleKeyDown);
   }, [onClose, open]);
 
-  if (!open || !mounted) return null;
+  if (!open || typeof document === "undefined") return null;
 
   const comparisonPlans = visibleCatalogPlans(catalogPlans);
   const featureRows = uniqueFeatures(comparisonPlans);
@@ -187,6 +181,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
 
   return createPortal(
     <div
+      data-theme="green"
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
       onClick={(event) => event.stopPropagation()}
     >
@@ -194,13 +189,13 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
         role="dialog"
         aria-modal="true"
         aria-label="Plan comparison"
-        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[#343434] bg-[#191919] text-[#f3f3f3] shadow-[0_24px_70px_rgba(0,0,0,0.55)]"
+        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-[#171717] text-[#f3f3f3] shadow-[0_24px_70px_rgba(0,0,0,0.55),0_0_80px_rgb(var(--selection-accent-rgb)_/_0.08)]"
       >
         <button
           type="button"
           aria-label="Close plan comparison"
           onClick={onClose}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-[8px] text-[#b9b9bc] transition-colors hover:bg-[#262626] hover:text-white"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-[8px] text-[#b9b9bc] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.12)] hover:text-[var(--selection-accent)]"
         >
           <X className="h-4 w-4" />
         </button>
@@ -211,8 +206,8 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
               Plan comparison is unavailable right now.
             </div>
           ) : (
-            <div className="min-w-[760px] overflow-hidden rounded-[14px] border border-[#333336] bg-[#141414]">
-              <div className="grid border-b border-[#303033] bg-[#191919]" style={{ gridTemplateColumns: columnTemplate }}>
+            <div className="min-w-[760px] overflow-hidden rounded-[14px] border border-[rgb(var(--selection-accent-rgb)_/_0.16)] bg-[#141414] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
+              <div className="grid border-b border-[rgb(var(--selection-accent-rgb)_/_0.18)] bg-[#191919]" style={{ gridTemplateColumns: columnTemplate }}>
                 <div className="px-6 py-7" />
                 {comparisonPlans.map((plan) => (
                   <div key={plan.id} className="flex items-center gap-3 px-6 py-7">
@@ -220,7 +215,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
                       {plan.name}
                     </span>
                     {plan.plan.highlighted && (
-                      <span className="rounded-full bg-[#063f31] px-2 py-1 text-[12px] font-semibold leading-none text-[#48e1b1]">
+                      <span className="rounded-full bg-[var(--selection-accent)] px-2 py-1 text-[12px] font-semibold leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
                         Popular
                       </span>
                     )}
@@ -230,7 +225,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
 
               {rows.map((row, rowIndex) => {
                 const Icon = row.icon;
-                const rowBackground = rowIndex % 2 === 0 ? "bg-[#1b1b1a]" : "bg-[#151517]";
+                const rowBackground = rowIndex % 2 === 0 ? "bg-[#1a1a19]" : "bg-[#141416]";
                 return (
                   <div
                     key={row.label}
@@ -238,7 +233,7 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
                     style={{ gridTemplateColumns: columnTemplate }}
                   >
                     <div className="flex items-center gap-3 px-6 py-4 text-[14px] text-[#e4e4e7]">
-                      <Icon className="h-4 w-4 text-[#e7e7e7]" />
+                      <Icon className="h-4 w-4 text-[var(--selection-accent)]" />
                       <span>{row.label}</span>
                     </div>
                     {comparisonPlans.map((plan) => (

@@ -16,7 +16,7 @@ export const DIRECTORY_DESCRIPTIONS: Record<string, string> = {
   telegram:
     "Connect your agent to Telegram. Users can DM your agent or add it to group chats. One of the easiest channels to set up — create a bot with BotFather and paste the token.",
   discord:
-    "Bring your agent into Discord servers. It can respond to messages, join conversations, and help your community. Set up a Discord bot and invite it to your server.",
+    "Bring your agent into Discord servers. It can respond to messages, join projects, and help your community. Set up a Discord bot and invite it to your server.",
   slack:
     "Add your agent to your Slack workspace. It can respond in channels and DMs, making it accessible to your whole team without leaving the tools they already use.",
   whatsapp:
@@ -28,9 +28,9 @@ export const DIRECTORY_DESCRIPTIONS: Record<string, string> = {
 
   // Tools
   "memory-core":
-    "Gives your agent persistent memory across conversations. It remembers context, preferences, and past interactions. Built-in and ready to go — just enable it.",
+    "Gives your agent persistent memory across projects. It remembers context, preferences, and past interactions. Built-in and ready to go — just enable it.",
   "memory-lancedb":
-    "Vector-powered memory for smarter recall. Your agent can search through past conversations by meaning, not just keywords. Upgrade from Core memory for agents that handle complex, ongoing work.",
+    "Vector-powered memory for smarter recall. Your agent can search through past projects by meaning, not just keywords. Upgrade from Core memory for agents that handle complex, ongoing work.",
   openshell:
     "Lets your agent execute shell commands in a sandboxed environment. Essential for agents that need to run code, install packages, or automate system tasks.",
   "diagnostics-otel":

@@ -460,7 +460,7 @@ export const OVERVIEW_MODULE_KEYS: ModuleDefinition[] = [
   { key: "agentChangelog", label: "Agent Changelog", section: "group-conversation", contextFilter: ["group"], tier: "basic" },
   { key: "decisionLog", label: "Decision Log", section: "group-conversation", contextFilter: ["group"], tier: "advanced" },
   { key: "handoff", label: "Handoff", section: "group-conversation", contextFilter: ["group"], tier: "advanced" },
-  { key: "conversationGraph", label: "Conversation Graph", section: "group-conversation", contextFilter: ["group"], tier: "advanced" },
+  { key: "conversationGraph", label: "Project Graph", section: "group-conversation", contextFilter: ["group"], tier: "advanced" },
 ];
 
 // ── Handoff presets ──

@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { GatewayClient, GatewayCloseInfo, GatewayConnectionState, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
@@ -19,18 +19,39 @@ import {
   refreshOpenClawChatMessages,
 } from "@/lib/openclaw-session";
 import {
+  clearCachedOpenClawChatHistory,
   readCachedOpenClawChatHistory,
   writeCachedOpenClawChatHistory,
 } from "@/lib/openclaw-chat-history-cache";
-import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import {
+  type OpenClawSessionPreviewMap,
+  type OpenClawSessionRecord,
+  OPENCLAW_NEW_SESSION_TITLE,
+  applyOpenClawSessionTitleMap,
+  createOpenClawSession,
+  deleteOpenClawSession,
+  fallbackOpenClawSessionDisplayName,
+  listOpenClawSessions,
+  loadOpenClawSessionPreviews,
+  normalizeOpenClawSessionDisplayName,
+  normalizeOpenClawSessions,
+  openClawSessionTitleMapKeys,
+  resolveOpenClawActiveSessionKey,
+  sameOpenClawSessionKey,
+  sendOpenClawChatFallback,
+  streamOpenClawChat,
+} from "@/lib/openclaw-session-sdk-surface";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
+const OPENCLAW_SESSION_TITLE_STORAGE_PREFIX = "openclaw.sessionTitles.v1";
+const OPENCLAW_SESSION_LIST_STORAGE_PREFIX = "openclaw.sessions.v1";
 const GATEWAY_CONNECTING_STALL_MS = 30_000;
 const GATEWAY_CONNECTING_STALL_MESSAGE =
   "Timed out opening the agent session. The gateway is still reconnecting in the background.";
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
+let fallbackSessionCounter = 0;
 
 interface SendMessageOptions {
   displayContent?: string;
@@ -78,6 +99,105 @@ function hasSeededE2EConnection(): boolean {
   }
 }
 
+function sessionTitleStorageKey(agentId: string): string {
+  return `${OPENCLAW_SESSION_TITLE_STORAGE_PREFIX}:${agentId}`;
+}
+
+function sessionListStorageKey(agentId: string): string {
+  return `${OPENCLAW_SESSION_LIST_STORAGE_PREFIX}:${agentId}`;
+}
+
+function createOpenClawSessionKey(existingSessions: OpenClawSessionRecord[]): string {
+  const existingKeys = new Set(existingSessions.flatMap((session) => openClawSessionTitleMapKeys(session.key)));
+  for (let attempt = 0; attempt < 10; attempt += 1) {
+    const suffix = typeof globalThis.crypto?.randomUUID === "function"
+      ? globalThis.crypto.randomUUID()
+      : `local-${(fallbackSessionCounter += 1).toString(36)}`;
+    const key = `session-${suffix}`;
+    if (!existingKeys.has(key)) return key;
+  }
+  fallbackSessionCounter += 1;
+  return `session-local-${fallbackSessionCounter.toString(36)}`;
+}
+
+function newOpenClawSessionRecord(sessionKey: string): OpenClawSessionRecord {
+  return localOpenClawSessionRecord(sessionKey, OPENCLAW_NEW_SESSION_TITLE);
+}
+
+function localOpenClawSessionRecord(sessionKey: string, title = fallbackOpenClawSessionDisplayName(sessionKey)): OpenClawSessionRecord {
+  const now = Date.now();
+  return {
+    key: sessionKey,
+    clientMode: "openclaw",
+    clientDisplayName: title,
+    createdAt: now,
+    lastMessageAt: now,
+    title,
+    messageCount: 0,
+    raw: { key: sessionKey, title },
+  };
+}
+
+function readStoredSessionTitles(agentId: string | null): Record<string, string> {
+  if (!agentId || typeof window === "undefined") return {};
+  try {
+    const raw = window.localStorage.getItem(sessionTitleStorageKey(agentId));
+    const parsed = raw ? JSON.parse(raw) : null;
+    if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) return {};
+    return Object.fromEntries(
+      Object.entries(parsed)
+        .filter((entry): entry is [string, string] => typeof entry[1] === "string" && entry[1].trim().length > 0)
+        .map(([key, value]) => [key, normalizeOpenClawSessionDisplayName(value, key)])
+        .filter((entry): entry is [string, string] => entry[1] !== null),
+    );
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredSessionTitles(agentId: string | null, titles: Record<string, string>): void {
+  if (!agentId || typeof window === "undefined") return;
+  try {
+    const normalizedTitles = Object.fromEntries(
+      Object.entries(titles)
+        .map(([key, value]) => [key, normalizeOpenClawSessionDisplayName(value, key)])
+        .filter((entry): entry is [string, string] => entry[1] !== null),
+    );
+    window.localStorage.setItem(sessionTitleStorageKey(agentId), JSON.stringify(normalizedTitles));
+  } catch {}
+}
+
+function readStoredSessions(agentId: string | null): OpenClawSessionRecord[] {
+  if (!agentId || typeof window === "undefined") return [];
+  try {
+    const raw = window.localStorage.getItem(sessionListStorageKey(agentId));
+    const parsed = raw ? JSON.parse(raw) : null;
+    const sessions = isRecord(parsed) ? parsed.sessions : parsed;
+    return normalizeOpenClawSessions(sessions);
+  } catch {
+    return [];
+  }
+}
+
+function writeStoredSessions(agentId: string | null, sessions: OpenClawSessionRecord[]): void {
+  if (!agentId || typeof window === "undefined") return;
+  try {
+    window.localStorage.setItem(sessionListStorageKey(agentId), JSON.stringify({
+      version: 1,
+      updatedAt: Date.now(),
+      sessions: sessions.map((session) => ({
+        key: session.key,
+        clientMode: session.clientMode,
+        clientDisplayName: session.clientDisplayName,
+        createdAt: session.createdAt,
+        lastMessageAt: session.lastMessageAt,
+        title: session.title,
+        messageCount: session.messageCount,
+      })),
+    }));
+  } catch {}
+}
+
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
@@ -121,8 +241,10 @@ function isPairingProgressMessage(value: unknown): boolean {
 export function useOpenClawSession(
   agent: OpenClawAgent | null,
   enabled: boolean = true,
+  requestedActiveSessionKey?: string | null,
 ) {
   const agentId = agent?.id ?? null;
+  const activeSessionKey = resolveOpenClawActiveSessionKey(agentId, requestedActiveSessionKey);
   const latestAgentRef = useRef(agent);
   const [gateway, setGateway] = useState<GatewayClient | null>(null);
   const [status, setStatus] = useState<"connected" | "connecting" | "disconnected">("disconnected");
@@ -137,7 +259,12 @@ export function useOpenClawSession(
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configSchema, setConfigSchema] = useState<OpenClawConfigSchemaResponse | null>(null);
   const [gwAgentId, setGwAgentId] = useState("main");
-  const [sessions, setSessions] = useState<Array<Record<string, unknown>>>([]);
+  const [sessions, setSessions] = useState<OpenClawSessionRecord[]>([]);
+  const [sessionsAgentId, setSessionsAgentId] = useState<string | null>(null);
+  const [sessionsFetchedAgentId, setSessionsFetchedAgentId] = useState<string | null>(null);
+  const [sessionPreviews, setSessionPreviews] = useState<OpenClawSessionPreviewMap>({});
+  const [creatingSessionKeys, setCreatingSessionKeys] = useState<string[]>([]);
+  const [deletedSessionKeys, setDeletedSessionKeys] = useState<Set<string>>(new Set());
   const [cronJobs, setCronJobs] = useState<Array<Record<string, unknown>>>([]);
   const [models, setModels] = useState<Array<Record<string, unknown>>>([]);
   const [activityFeed, setActivityFeed] = useState<ActivityEntry[]>([]);
@@ -147,6 +274,8 @@ export function useOpenClawSession(
   const [retrySignal, setRetrySignal] = useState(0);
   const activeChatSendRef = useRef(false);
   const messagesRef = useRef<ChatMessage[]>([]);
+  const sessionTitleMapRef = useRef<Record<string, string>>({});
+  const creatingSessionKeysRef = useRef<Set<string>>(new Set());
   const seededE2EConnection = hasSeededE2EConnection();
 
   useEffect(() => {
@@ -156,6 +285,20 @@ export function useOpenClawSession(
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useLayoutEffect(() => {
+    const titleMap = readStoredSessionTitles(agentId);
+    writeStoredSessionTitles(agentId, titleMap);
+    const cachedSessions = applyOpenClawSessionTitleMap(readStoredSessions(agentId), titleMap);
+    setDeletedSessionKeys(new Set());
+    setSessions(cachedSessions);
+    setSessionsAgentId(agentId);
+    setSessionsFetchedAgentId(null);
+    setSessionPreviews({});
+    creatingSessionKeysRef.current = new Set();
+    setCreatingSessionKeys([]);
+    sessionTitleMapRef.current = titleMap;
+  }, [agentId]);
 
   const retry = useCallback(() => {
     setRetrySignal((value) => value + 1);
@@ -175,23 +318,29 @@ export function useOpenClawSession(
     setPendingAttachmentReads(0);
     setPendingFiles([]);
     setSessions([]);
+    setSessionsAgentId(null);
+    setSessionsFetchedAgentId(null);
+    setSessionPreviews({});
+    creatingSessionKeysRef.current = new Set();
+    setCreatingSessionKeys([]);
+    setDeletedSessionKeys(new Set());
     setCronJobs([]);
     setModels([]);
     setActivityFeed([]);
   }, []);
 
   useEffect(() => {
-    const cachedMessages = readCachedOpenClawChatHistory(agentId);
+    const cachedMessages = readCachedOpenClawChatHistory(agentId, activeSessionKey);
     setMessages(dedupeChatMessages(cachedMessages));
-  }, [agentId]);
+  }, [agentId, activeSessionKey]);
 
   useEffect(() => {
     if (!agentId || messages.length === 0 || typeof window === "undefined") return;
     const timeout = window.setTimeout(() => {
-      writeCachedOpenClawChatHistory(agentId, messages);
+      writeCachedOpenClawChatHistory(agentId, messages, activeSessionKey);
     }, 250);
     return () => window.clearTimeout(timeout);
-  }, [agentId, messages]);
+  }, [agentId, activeSessionKey, messages]);
 
   useEffect(() => {
     if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
@@ -307,9 +456,19 @@ export function useOpenClawSession(
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
   }, []);
 
+  const setTitledSessions = useCallback((value: OpenClawSessionRecord[] | ((prev: OpenClawSessionRecord[]) => OpenClawSessionRecord[])) => {
+    setSessionsAgentId(agentId);
+    setSessions((prev) => {
+      const next = typeof value === "function" ? value(prev) : value;
+      const titledSessions = applyOpenClawSessionTitleMap(next, sessionTitleMapRef.current);
+      writeStoredSessions(agentId, titledSessions);
+      return titledSessions;
+    });
+  }, [agentId]);
+
   const refreshMessagesFromHistory = useCallback(async () => {
     if (!gateway) return;
-    const historyMessages = dedupeChatMessages(await refreshOpenClawChatMessages(gateway, agentId));
+    const historyMessages = dedupeChatMessages(await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey));
     if (historyMessages.length === 0) return;
     const currentMessages = messagesRef.current;
     const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
@@ -319,7 +478,12 @@ export function useOpenClawSession(
     }
     messagesRef.current = historyMessages;
     setMessages(historyMessages);
-  }, [gateway, agentId]);
+  }, [gateway, agentId, activeSessionKey]);
+
+  const finishCreatingSession = useCallback((sessionKey: string) => {
+    creatingSessionKeysRef.current.delete(sessionKey);
+    setCreatingSessionKeys((prev) => prev.filter((key) => key !== sessionKey));
+  }, []);
 
   useEffect(() => {
     if (!gateway) return;
@@ -329,22 +493,29 @@ export function useOpenClawSession(
         gatewayEvent,
         setMessages,
         setSending,
-        setSessions,
+        setSessions: setTitledSessions,
         appendActivity,
+        activeSessionKey,
         suppressChatStreamEvents: activeChatSendRef.current,
       });
     });
     return unsubscribe;
-  }, [gateway, appendActivity]);
+  }, [gateway, activeSessionKey, appendActivity, setTitledSessions]);
 
   useEffect(() => {
     if (!gateway || status !== "connected") return;
+    if (creatingSessionKeysRef.current.has(activeSessionKey)) {
+      setReady(true);
+      setHydrating(false);
+      setMessages([]);
+      return;
+    }
     let cancelled = false;
     setReady(false);
     setHydrating(true);
     void (async () => {
       try {
-        const hydrated = await hydrateOpenClawSession(gateway, agentId);
+        const hydrated = await hydrateOpenClawSession(gateway, agentId, activeSessionKey);
         if (cancelled) return;
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
@@ -352,12 +523,16 @@ export function useOpenClawSession(
           setMessages((currentMessages) => {
             if (hydrated.messages.length > 0) return dedupeChatMessages(hydrated.messages);
             if (currentMessages.length > 0) return currentMessages;
-            return readCachedOpenClawChatHistory(agentId);
+            return readCachedOpenClawChatHistory(agentId, activeSessionKey);
           });
         }
         setFiles(hydrated.files);
         setGwAgentId(hydrated.gwAgentId);
-        setSessions(hydrated.sessions);
+        if (hydrated.sessionsFetched) {
+          setTitledSessions(hydrated.sessions);
+          setSessionsFetchedAgentId(agentId);
+        }
+        setSessionPreviews(hydrated.sessionPreviews);
         setCronJobs(hydrated.cronJobs);
         setModels(hydrated.models);
         setReady(true);
@@ -372,12 +547,27 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId]);
+  }, [gateway, status, agentId, activeSessionKey, setTitledSessions]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
+    if (enabled && agentId) return;
     resetSessionStateForDisconnect({ preserveMessages: true });
-  }, [status, resetSessionStateForDisconnect]);
+  }, [status, enabled, agentId, resetSessionStateForDisconnect]);
+
+  useEffect(() => {
+    if (!gateway || sessions.length === 0) return;
+
+    let cancelled = false;
+    void loadOpenClawSessionPreviews(gateway, sessions).then((previews) => {
+      if (!cancelled) setSessionPreviews(previews);
+    }).catch(() => {
+      if (!cancelled) setSessionPreviews({});
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [gateway, sessions]);
 
   const addPendingMessage = useCallback((message: string) => {
     setPendingInput((prev) => [...prev, message]);
@@ -465,36 +655,53 @@ export function useOpenClawSession(
     setPendingFiles([]);
     setSending(true);
 
-    const userMsg: ChatMessage = { role: "user", content: msg, timestamp: Date.now() };
+    const messageTimestamp = Date.now();
+    const userMsg: ChatMessage = { role: "user", content: msg, timestamp: messageTimestamp };
     if (attachments.length > 0) userMsg.attachments = attachments;
     if (files.length > 0) userMsg.files = files;
     setMessages((prev) => dedupeChatMessages([...prev, userMsg]));
 
     const preview = msg.slice(0, 80);
     appendActivity({ type: "message", action: "User message sent", detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : "") });
+    setSessionPreviews((prev) => ({
+      ...prev,
+      [activeSessionKey]: { key: activeSessionKey, text: preview, role: "user", timestamp: messageTimestamp },
+    }));
+    setTitledSessions((prev) => {
+      const existing = prev.find((session) => sameOpenClawSessionKey(session.key, activeSessionKey));
+      const touchedSession = {
+        ...(existing ?? localOpenClawSessionRecord(activeSessionKey)),
+        lastMessageAt: messageTimestamp,
+        messageCount: existing ? existing.messageCount + 1 : 1,
+      };
+      return [
+        touchedSession,
+        ...prev.filter((session) => !sameOpenClawSessionKey(session.key, activeSessionKey)),
+      ];
+    });
 
     let handledByChatSend = false;
     let chatSendCompleted = false;
     try {
-      const sessionKey = resolveOpenClawSessionKey(agentId);
+      const sessionKey = activeSessionKey;
       const messageToSend = agentMessage || "What's in this image?";
       const attachmentsToSend = attachments.length > 0 ? attachments : undefined;
       if (typeof gateway.chatSend === "function") {
         handledByChatSend = true;
         activeChatSendRef.current = true;
-        for await (const chatEvent of gateway.chatSend(messageToSend, sessionKey, attachmentsToSend)) {
+        for await (const chatEvent of streamOpenClawChat(gateway, messageToSend, sessionKey, attachmentsToSend)) {
           handleOpenClawChatStreamEvent({
             gateway,
             chatEvent,
             setMessages,
             setSending,
-            setSessions,
+            setSessions: setTitledSessions,
             appendActivity,
           });
         }
         chatSendCompleted = true;
       } else {
-        await gateway.sendChat(messageToSend, sessionKey, undefined, attachmentsToSend);
+        await sendOpenClawChatFallback(gateway, messageToSend, sessionKey, attachmentsToSend);
       }
     } catch (e: unknown) {
       const errMsg = formatOpenClawConnectionError(e);
@@ -508,9 +715,15 @@ export function useOpenClawSession(
       }
       if (handledByChatSend && chatSendCompleted) {
         await refreshMessagesFromHistory();
+        try {
+          const nextSessions = await listOpenClawSessions(gateway);
+          setTitledSessions(nextSessions);
+          setSessionsFetchedAgentId(agentId);
+          setSessionPreviews(await loadOpenClawSessionPreviews(gateway, nextSessions));
+        } catch {}
       }
     }
-  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, agentId, refreshMessagesFromHistory]);
+  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, activeSessionKey, refreshMessagesFromHistory, setTitledSessions, agentId]);
 
   useEffect(() => {
     if (!ready) return;
@@ -558,8 +771,113 @@ export function useOpenClawSession(
 
   const refreshSessions = useCallback(async () => {
     if (!gateway) return;
-    try { setSessions(await gateway.sessionsList() as Array<Record<string, unknown>>); } catch {}
-  }, [gateway]);
+    try {
+      const nextSessions = await listOpenClawSessions(gateway);
+      setTitledSessions(nextSessions);
+      setSessionsFetchedAgentId(agentId);
+      setSessionPreviews(await loadOpenClawSessionPreviews(gateway, nextSessions));
+    } catch {}
+  }, [gateway, setTitledSessions, agentId]);
+
+  const createSession = useCallback(async () => {
+    if (!gateway) throw new Error("Not connected");
+    if (sending) throw new Error("Wait for the current reply to finish.");
+    if (sessionsFetchedAgentId !== agentId) throw new Error("Projects are still loading.");
+
+    const sessionKey = createOpenClawSessionKey(sessions);
+    clearCachedOpenClawChatHistory(agentId, sessionKey);
+    const nextTitleMap = { ...sessionTitleMapRef.current, [sessionKey]: OPENCLAW_NEW_SESSION_TITLE };
+    sessionTitleMapRef.current = nextTitleMap;
+    writeStoredSessionTitles(agentId, nextTitleMap);
+    creatingSessionKeysRef.current.add(sessionKey);
+    setCreatingSessionKeys((prev) => prev.includes(sessionKey) ? prev : [...prev, sessionKey]);
+    messagesRef.current = [];
+    setMessages([]);
+    setInput("");
+    setPendingInput([]);
+    setPendingAttachments([]);
+    setPendingFiles([]);
+    setDeletedSessionKeys((prev) => {
+      if (!prev.has(sessionKey)) return prev;
+      const next = new Set(prev);
+      next.delete(sessionKey);
+      return next;
+    });
+    setSessionPreviews((prev) => {
+      const next = { ...prev };
+      delete next[sessionKey];
+      return next;
+    });
+    setTitledSessions((prev) => [
+      newOpenClawSessionRecord(sessionKey),
+      ...prev.filter((session) => session.key !== sessionKey),
+    ]);
+    appendActivity({ type: "system", action: OPENCLAW_NEW_SESSION_TITLE });
+    void (async () => {
+      try {
+        await createOpenClawSession(gateway, sessionKey);
+        finishCreatingSession(sessionKey);
+        try {
+          const nextSessions = await listOpenClawSessions(gateway);
+          const refreshedSessions = nextSessions.some((session) => sameOpenClawSessionKey(session.key, sessionKey))
+            ? nextSessions
+            : [newOpenClawSessionRecord(sessionKey), ...nextSessions];
+          setTitledSessions(refreshedSessions);
+          setSessionsFetchedAgentId(agentId);
+          setSessionPreviews(await loadOpenClawSessionPreviews(gateway, refreshedSessions));
+        } catch {}
+      } catch (e: unknown) {
+        finishCreatingSession(sessionKey);
+        const errMsg = formatOpenClawConnectionError(e);
+        setError(errMsg);
+        appendActivity({ type: "error", action: "Project creation failed", detail: errMsg });
+      }
+    })();
+    return sessionKey;
+  }, [gateway, sending, sessionsFetchedAgentId, agentId, sessions, setTitledSessions, appendActivity, finishCreatingSession]);
+
+  const renameSession = useCallback(async (sessionKey: string, title: string) => {
+    if (!agentId) throw new Error("Session rename is unavailable.");
+    const trimmedTitle = normalizeOpenClawSessionDisplayName(title, sessionKey);
+    if (!trimmedTitle) throw new Error("Choose a different project name.");
+    const nextTitleMap = { ...sessionTitleMapRef.current, [sessionKey]: trimmedTitle };
+    sessionTitleMapRef.current = nextTitleMap;
+    writeStoredSessionTitles(agentId, nextTitleMap);
+    setSessions((prev) => {
+      const next = prev.map((session) => (
+        session.key === sessionKey
+          ? { ...session, title: trimmedTitle, clientDisplayName: trimmedTitle }
+          : session
+      ));
+      writeStoredSessions(agentId, next);
+      return next;
+    });
+  }, [agentId]);
+
+  const removeSession = useCallback(async (sessionKey: string) => {
+    if (!gateway) throw new Error("Not connected");
+    await deleteOpenClawSession(gateway, sessionKey);
+    clearCachedOpenClawChatHistory(agentId, sessionKey);
+    const nextTitleMap = { ...sessionTitleMapRef.current };
+    delete nextTitleMap[sessionKey];
+    sessionTitleMapRef.current = nextTitleMap;
+    writeStoredSessionTitles(agentId, nextTitleMap);
+    setDeletedSessionKeys((prev) => new Set(prev).add(sessionKey));
+    setSessions((prev) => {
+      const next = prev.filter((session) => session.key !== sessionKey);
+      writeStoredSessions(agentId, next);
+      return next;
+    });
+    setSessionPreviews((prev) => {
+      const next = { ...prev };
+      delete next[sessionKey];
+      return next;
+    });
+    if (sessionKey === activeSessionKey) {
+      messagesRef.current = [];
+      setMessages([]);
+    }
+  }, [gateway, agentId, activeSessionKey]);
 
   const refreshCron = useCallback(async () => {
     if (!gateway) return;
@@ -592,6 +910,10 @@ export function useOpenClawSession(
   const connecting = seededE2EConnection || Boolean(error)
     ? false
     : status === "connecting" || hydrating || (status === "connected" && !ready);
+  const activeSessions = sessionsAgentId === agentId ? sessions : [];
+  const sessionsFetched = Boolean(agentId && sessionsFetchedAgentId === agentId);
+  const activeSessionPreviews = sessionsAgentId === agentId ? sessionPreviews : {};
+  const visibleSessions = activeSessions.filter((session) => !deletedSessionKeys.has(session.key));
 
   return {
     gateway,
@@ -608,6 +930,7 @@ export function useOpenClawSession(
     setInput,
     pendingInput,
     addPendingMessage,
+    activeSessionKey,
     sending,
     files,
     config,
@@ -624,11 +947,17 @@ export function useOpenClawSession(
     addAttachments,
     removePendingFile,
     removeAttachment,
-    sessions,
+    sessions: visibleSessions,
+    sessionsFetched,
+    sessionPreviews: activeSessionPreviews,
+    creatingSessionKeys,
     cronJobs,
     models,
     activityFeed,
+    createSession,
     refreshSessions,
+    renameSession,
+    deleteSession: removeSession,
     refreshCron,
     addCron,
     removeCron,

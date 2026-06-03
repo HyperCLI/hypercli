@@ -1,6 +1,15 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { ChatEvent, GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
-import { resolveOpenClawSessionKey } from "./openclaw-session-key";
+import {
+  type OpenClawSessionPreviewMap,
+  type OpenClawSessionRecord,
+  listOpenClawSessions,
+  loadOpenClawChatHistory,
+  normalizeOpenClawSessions,
+  openClawEventMatchesSession,
+  resolveOpenClawActiveSessionKey,
+  sameOpenClawSessionKey,
+} from "@/lib/openclaw-session-sdk-surface";
 import {
   type ChatMessage,
   type WorkspaceFile,
@@ -41,8 +50,9 @@ interface SessionEventContext {
   gatewayEvent: GatewayEvent;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setSending: Dispatch<SetStateAction<boolean>>;
-  setSessions: Dispatch<SetStateAction<Array<Record<string, unknown>>>>;
+  setSessions: Dispatch<SetStateAction<OpenClawSessionRecord[]>>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
+  activeSessionKey: string;
   suppressChatStreamEvents?: boolean;
 }
 
@@ -51,7 +61,7 @@ interface ChatStreamEventContext {
   chatEvent: ChatEvent;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setSending: Dispatch<SetStateAction<boolean>>;
-  setSessions: Dispatch<SetStateAction<Array<Record<string, unknown>>>>;
+  setSessions: Dispatch<SetStateAction<OpenClawSessionRecord[]>>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
@@ -105,7 +115,7 @@ export function handleOpenClawChatStreamEvent({
     if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
     setSending(false);
     appendActivity({ type: "message", action: "Assistant response complete" });
-    void gateway.sessionsList().then((list) => setSessions(list as Array<Record<string, unknown>>)).catch(() => {});
+    void listOpenClawSessions(gateway).then(setSessions).catch(() => {});
   } else if (chatEvent.type === "error") {
     const message = chatEvent.text || "Unknown error";
     setSending(false);
@@ -121,10 +131,15 @@ export function handleOpenClawSessionEvent({
   setSending,
   setSessions,
   appendActivity,
+  activeSessionKey,
   suppressChatStreamEvents = false,
 }: SessionEventContext): void {
   const event = gatewayEvent.event;
   const payload = gatewayEvent.payload ?? {};
+
+  if (isGatewayChatStreamEvent(event, payload) && !openClawEventMatchesSession(payload, activeSessionKey)) {
+    return;
+  }
 
   if (suppressChatStreamEvents && isGatewayChatStreamEvent(event, payload)) {
     return;
@@ -168,10 +183,10 @@ export function handleOpenClawSessionEvent({
     if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
   } else if (event === "chat.done") {
     setSending(false);
-    void gateway.sessionsList().then((list) => setSessions(list as Array<Record<string, unknown>>)).catch(() => {});
+    void listOpenClawSessions(gateway).then(setSessions).catch(() => {});
   } else if (event === "sessions.updated") {
     const list = (payload as Record<string, unknown>).sessions;
-    if (Array.isArray(list)) setSessions(list as Array<Record<string, unknown>>);
+    if (Array.isArray(list)) setSessions(normalizeOpenClawSessions(list));
   } else if (event === "chat.error") {
     setSending(false);
     setMessages((prev) => [...prev, { role: "system", content: `Error: ${(payload as Record<string, unknown>).message ?? "Unknown error"}`, timestamp: Date.now() }]);
@@ -214,7 +229,9 @@ export interface HydratedOpenClawSession {
   messages: ChatMessage[];
   files: WorkspaceFile[];
   gwAgentId: string;
-  sessions: Array<Record<string, unknown>>;
+  sessions: OpenClawSessionRecord[];
+  sessionsFetched: boolean;
+  sessionPreviews: OpenClawSessionPreviewMap;
   cronJobs: Array<Record<string, unknown>>;
   models: Array<Record<string, unknown>>;
 }
@@ -239,10 +256,11 @@ function normalizeHistoryMessages(messages: unknown): ChatMessage[] {
 export async function refreshOpenClawChatMessages(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
+  activeSessionKey?: string | null,
 ): Promise<ChatMessage[]> {
-  const sessionKey = resolveOpenClawSessionKey((preferredAgentId ?? "").trim());
+  const sessionKey = resolveOpenClawActiveSessionKey((preferredAgentId ?? "").trim(), activeSessionKey);
   try {
-    return normalizeHistoryMessages(await gateway.chatHistory(sessionKey, 200));
+    return normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, 200));
   } catch {
     return [];
   }
@@ -258,17 +276,9 @@ function resolveGatewayAgentId(agents: Array<Record<string, unknown>>): string {
   return CANONICAL_GATEWAY_AGENT_ID;
 }
 
-function sessionKeyFromRecord(session: Record<string, unknown>): string | null {
-  for (const key of ["id", "key", "sessionKey", "session_key", "sessionId", "session_id"]) {
-    const value = session[key];
-    if (typeof value === "string" && value.trim()) return value.trim();
-  }
-  return null;
-}
-
 function legacySessionKeyCandidates(
   preferredAgentId: string,
-  sessions: Array<Record<string, unknown>>,
+  sessions: OpenClawSessionRecord[],
 ): string[] {
   const candidates: Array<string | null | undefined> = [];
   if (preferredAgentId && preferredAgentId !== CANONICAL_GATEWAY_AGENT_ID) {
@@ -276,7 +286,7 @@ function legacySessionKeyCandidates(
   }
 
   for (const session of sessions) {
-    const sessionKey = sessionKeyFromRecord(session);
+    const sessionKey = session.key;
     if (!sessionKey || sessionKey === CANONICAL_GATEWAY_AGENT_ID) continue;
     if (!preferredAgentId || sessionKey.includes(preferredAgentId) || sessionKey.startsWith("agent:")) {
       candidates.push(sessionKey);
@@ -289,7 +299,7 @@ function legacySessionKeyCandidates(
 async function loadLegacyHistory(
   gateway: GatewayClient,
   preferredAgentId: string,
-  sessions: Array<Record<string, unknown>>,
+  sessions: OpenClawSessionRecord[],
 ): Promise<ChatMessage[]> {
   for (const sessionKey of legacySessionKeyCandidates(preferredAgentId, sessions)) {
     try {
@@ -378,27 +388,30 @@ async function recoverLegacyGatewayFiles(
 export async function hydrateOpenClawSession(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
+  activeSessionKey?: string | null,
 ): Promise<HydratedOpenClawSession> {
   const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
-  const sessionKey = resolveOpenClawSessionKey(normalizedPreferredAgentId);
+  const sessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
   const [cfgResult, schemaResult, historyResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
     gateway.configGet(),
     gateway.configSchema(),
-    gateway.chatHistory(sessionKey, 200),
+    loadOpenClawChatHistory(gateway, sessionKey, 200),
     gateway.agentsList(),
-    gateway.sessionsList(),
+    listOpenClawSessions(gateway),
     gateway.cronList(),
     gateway.modelsList(),
   ]);
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
-  const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value as Array<Record<string, unknown>> : [];
+  const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : [];
   const canonicalMessages = historyResult.status === "fulfilled"
     ? normalizeHistoryMessages(historyResult.value)
     : [];
   const messages = canonicalMessages.length > 0
     ? canonicalMessages
-    : await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions);
+    : sameOpenClawSessionKey(sessionKey, CANONICAL_GATEWAY_AGENT_ID)
+      ? await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions)
+      : [];
   const resolvedGatewayAgentId = resolveGatewayAgentId(agents);
   let activeGatewayAgentId = resolvedGatewayAgentId;
   let files: WorkspaceFile[] = [];
@@ -422,6 +435,8 @@ export async function hydrateOpenClawSession(
     files,
     gwAgentId: activeGatewayAgentId,
     sessions,
+    sessionsFetched: sessionsRes.status === "fulfilled",
+    sessionPreviews: {},
     cronJobs: cronRes.status === "fulfilled" ? cronRes.value as Array<Record<string, unknown>> : [],
     models: modelsRes.status === "fulfilled" ? modelsRes.value as Array<Record<string, unknown>> : [],
   };

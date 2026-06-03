@@ -3,9 +3,9 @@
 import Link from "next/link";
 import React from "react";
 import { AnimatePresence, motion } from "framer-motion";
-import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, Rocket, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
+import { ArrowLeft, ArrowRight, BarChart3, Blocks, Check, Codepen, FolderOpen, KeyRound, Loader2, LogOut, MessageSquare, Plus, Play, SlidersHorizontal, Sparkles, Square, X } from "lucide-react";
 import { BrowserHyperCLI } from "@hypercli.com/sdk/browser";
-import type { HyperAgentPlan, HyperAgentSubscription, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
+import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import type { OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 
 import type { Agent, JsonObject } from "@/app/dashboard/agents/types";
@@ -14,15 +14,11 @@ import { asObject, getOpenClawUiHint, humanizeKey } from "@/lib/openclaw-config"
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { AgentCardTooltip, type AgentCardTooltipData } from "@/components/dashboard/modules/AgentCardModule";
 import { AgentsChannelsSidebar, AgentsSidebarDashboardLinks, type ConversationThread } from "@/components/dashboard/AgentsChannelsSidebar";
-import {
-  createPaymentMethodUpdatePortalUrl,
-  openBillingPortalUrl,
-} from "@/components/billing/stripe-billing-portal";
 import { FilePreview } from "@/components/dashboard/files/FilePreview";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import { HyperCLILogoMark } from "@/components/HyperCLILogoLink";
 import { ResourceImage } from "@/components/ResourceImage";
-import { createAgentClient, createHyperAgentClient } from "@/lib/agent-client";
+import { createAgentClient } from "@/lib/agent-client";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { agentAvatar } from "@/lib/avatar";
 import { parseAgentCapacityError } from "@/lib/agent-tier";
@@ -498,10 +494,6 @@ interface AgentSettingsPanelProps {
   agentDeleting?: boolean;
   agentStartBlocked?: boolean;
   agentStartBlockedReason?: string | null;
-  planName?: string | null;
-  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
-  tokenUsage?: number | null;
-  tokenLimit?: number | null;
   openclawConfig?: Record<string, unknown> | null;
   openclawModels?: Array<Record<string, unknown>> | null;
   onUpdateAgentName?: (agentId: string, name: string) => Promise<void>;
@@ -516,12 +508,11 @@ interface AgentSettingsPanelProps {
   workspaceMenuOpen?: boolean;
 }
 
-type AgentSettingsSection = "general" | "agent" | "billing" | "usage" | "team";
+type AgentSettingsSection = "general" | "agent" | "usage" | "team";
 
 const AGENT_SETTINGS_SECTIONS: Array<{ id: AgentSettingsSection; label: string }> = [
   { id: "general", label: "General" },
   { id: "agent", label: "Agent" },
-  { id: "billing", label: "Billing" },
   { id: "usage", label: "Usage" },
   { id: "team", label: "Team" },
 ];
@@ -941,9 +932,9 @@ function AgentSectionSettingsContent({
             </select>
           </AgentProfileSettingsRow>
 
-          <AgentProfileSettingsRow label="Auto-archive idle conversations" description="Archive inactive chats automatically.">
+          <AgentProfileSettingsRow label="Auto-archive idle projects" description="Archive inactive projects automatically.">
             <select
-              aria-label="Auto-archive idle conversations"
+              aria-label="Auto-archive idle projects"
               value={archiveDraft}
               onChange={(event) => onArchiveChange(event.target.value)}
               className={SETTINGS_FIELD_CLASS}
@@ -999,471 +990,6 @@ function AgentSettingsLinkButton({
     >
       {children}
     </Link>
-  );
-}
-
-function AgentSettingsActionButton({
-  children,
-  disabled = false,
-  onClick,
-  tone = "default",
-}: {
-  children: React.ReactNode;
-  disabled?: boolean;
-  onClick: () => void;
-  tone?: "default" | "danger";
-}) {
-  return (
-    <button
-      type="button"
-      disabled={disabled}
-      onClick={onClick}
-      className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-3 text-xs font-medium transition-colors ${
-        tone === "danger"
-          ? "border-[#d05f5f]/30 bg-background text-[#d05f5f] hover:bg-[#d05f5f]/10"
-          : "border-border bg-surface-low text-foreground hover:bg-surface-high"
-      } disabled:cursor-not-allowed disabled:opacity-60`}
-    >
-      {children}
-    </button>
-  );
-}
-
-function formatBillingDate(date: Date | null | undefined): string | null {
-  if (!date || Number.isNaN(date.getTime())) return null;
-  return date.toLocaleDateString(undefined, { month: "short", day: "numeric", year: "numeric" });
-}
-
-function formatBillingNumber(value: number | null | undefined): string {
-  if (typeof value !== "number" || !Number.isFinite(value) || value <= 0) return "Unavailable";
-  return value.toLocaleString();
-}
-
-function humanizeBillingPlanId(planId: string | null | undefined): string {
-  const words = (planId || "").split(/[-_]/).filter(Boolean);
-  if (words.length === 0) return "Current plan";
-  return words.map((word) => `${word[0]?.toUpperCase() ?? ""}${word.slice(1)}`).join(" ");
-}
-
-function formatBillingProvider(provider: string | null | undefined): string {
-  if (!provider) return "Provider unavailable";
-  if (provider.toLowerCase() === "stripe") return "Stripe";
-  return humanizeBillingPlanId(provider);
-}
-
-function formatBillingStatus(status: string | null | undefined): string {
-  if (!status) return "Unknown";
-  return humanizeBillingPlanId(status);
-}
-
-function getBillingSubscriptions(summary: HyperAgentSubscriptionSummary | null | undefined): HyperAgentSubscription[] {
-  if (!summary) return [];
-  const byId = new Map<string, HyperAgentSubscription>();
-  for (const subscription of [...(summary.activeSubscriptions ?? []), ...(summary.subscriptions ?? [])]) {
-    if (!subscription.id) continue;
-    byId.set(subscription.id, subscription);
-  }
-  return Array.from(byId.values());
-}
-
-function getCurrentBillingSubscription(summary: HyperAgentSubscriptionSummary | null | undefined): HyperAgentSubscription | null {
-  const subscriptions = getBillingSubscriptions(summary);
-  return subscriptions.find((subscription) => subscription.isCurrent) ?? summary?.activeSubscriptions?.[0] ?? subscriptions[0] ?? null;
-}
-
-function getBillingResetAt(
-  summary: HyperAgentSubscriptionSummary | null | undefined,
-  subscription: HyperAgentSubscription | null,
-): Date | null {
-  return summary?.entitlements?.billingResetAt ?? summary?.billingResetAt ?? subscription?.expiresAt ?? null;
-}
-
-function describeBillingCycle(subscription: HyperAgentSubscription | null, resetAt: Date | null): string {
-  if (subscription?.cancelAtPeriodEnd) {
-    const endDate = formatBillingDate(subscription.expiresAt);
-    return endDate ? `Cancels on ${endDate}.` : "Cancels at the end of the current period.";
-  }
-  if (subscription?.expiresAt) {
-    return `Renews ${formatBillingDate(subscription.expiresAt) ?? "at period end"}.`;
-  }
-  if (resetAt) {
-    return `Usage resets ${formatBillingDate(resetAt) ?? "soon"}.`;
-  }
-  if (subscription) {
-    return "Renewal date unavailable from billing data.";
-  }
-  return "No active paid subscription returned by billing data.";
-}
-
-function describeSubscriptionDate(subscription: HyperAgentSubscription): string {
-  if (!subscription.expiresAt) {
-    return subscription.cancelAtPeriodEnd ? "Ends at period end" : "Unavailable";
-  }
-  const label = subscription.cancelAtPeriodEnd ? "Ends" : "Renews";
-  return `${label} ${formatBillingDate(subscription.expiresAt) ?? "at period end"}`;
-}
-
-function BillingStatusPill({ status }: { status: string }) {
-  const normalized = status.toLowerCase();
-  const active = normalized === "active" || normalized === "trialing";
-  const pending = normalized === "incomplete" || normalized === "past_due" || normalized === "pending";
-  return (
-    <span
-      className={`inline-flex h-6 items-center rounded-full px-3 text-[12px] font-medium ${
-        active
-          ? "bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"
-          : pending
-            ? "bg-[#4d3a12] text-[#f0c36a]"
-            : "bg-surface-low text-text-secondary"
-      }`}
-    >
-      {formatBillingStatus(status)}
-    </span>
-  );
-}
-
-function billingCadenceLabel(subscription: HyperAgentSubscription | null): string | null {
-  if (!subscription) return null;
-  return subscription.provider.toLowerCase() === "stripe" ? "Monthly" : formatBillingProvider(subscription.provider);
-}
-
-function describePaymentMethod(subscription: HyperAgentSubscription | null): string {
-  if (subscription?.provider.toLowerCase() === "stripe") {
-    return "Payment method is managed by Stripe.";
-  }
-  if (subscription) {
-    return `Activated through ${formatBillingProvider(subscription.provider)}.`;
-  }
-  return "Payment data unavailable.";
-}
-
-function describeMobileBillingCycle(subscription: HyperAgentSubscription | null, resetAt: Date | null): string {
-  if (subscription?.cancelAtPeriodEnd) {
-    const endDate = formatBillingDate(subscription.expiresAt);
-    return endDate ? `Your subscription cancels on ${endDate}.` : "Your subscription cancels at period end.";
-  }
-  const renewalDate = formatBillingDate(subscription?.expiresAt ?? resetAt);
-  if (renewalDate) return `Your subscription will auto renew on ${renewalDate}.`;
-  return describeBillingCycle(subscription, resetAt);
-}
-
-function compactBillingIdentifier(value: string | null | undefined): string {
-  if (!value) return "Unavailable";
-  return value.length > 12 ? value.slice(0, 8) : value;
-}
-
-function numericMetaValue(meta: Record<string, any> | null | undefined, keys: string[]): number | null {
-  if (!meta) return null;
-  for (const key of keys) {
-    const value = Number(meta[key]);
-    if (Number.isFinite(value) && value >= 0) return value;
-  }
-  return null;
-}
-
-function formatSubscriptionTotal(subscription: HyperAgentSubscription): string {
-  const amount =
-    numericMetaValue(subscription.meta, ["amountUsd", "amount_usd", "priceUsd", "price_usd", "totalUsd", "total_usd"]) ??
-    null;
-  if (amount !== null) return `$${amount.toLocaleString()}`;
-
-  const cents = numericMetaValue(subscription.meta, ["amount_cents", "unit_amount_cents"]);
-  if (cents !== null && cents > 0) return `$${(cents / 100).toLocaleString()}`;
-
-  return "Unavailable";
-}
-
-function AgentBillingSettingsContent({
-  getToken,
-  planName,
-  subscriptionSummary,
-  tokenUsage,
-  tokenLimit,
-  isDesktopViewport = true,
-}: {
-  getToken?: () => Promise<string>;
-  planName?: string | null;
-  subscriptionSummary?: HyperAgentSubscriptionSummary | null;
-  tokenUsage?: number | null;
-  tokenLimit?: number | null;
-  isDesktopViewport?: boolean;
-}) {
-  const [paymentMethodOpening, setPaymentMethodOpening] = React.useState(false);
-  const [paymentMethodError, setPaymentMethodError] = React.useState<string | null>(null);
-  const currentSubscription = getCurrentBillingSubscription(subscriptionSummary);
-  const subscriptions = getBillingSubscriptions(subscriptionSummary);
-  const resetAt = getBillingResetAt(subscriptionSummary, currentSubscription);
-  const effectivePlanName =
-    currentSubscription?.planName ||
-    planName ||
-    humanizeBillingPlanId(subscriptionSummary?.effectivePlanId);
-  const providerLabel = currentSubscription ? formatBillingProvider(currentSubscription.provider) : null;
-  const activeEntitlementCount =
-    subscriptionSummary?.entitlements?.activeEntitlementCount ??
-    subscriptionSummary?.activeEntitlementCount ??
-    subscriptionSummary?.activeSubscriptionCount ??
-    0;
-  const pooledTpd = subscriptionSummary?.entitlements?.pooledTpd ?? subscriptionSummary?.pooledTpd ?? tokenLimit ?? null;
-  const pooledTpm = subscriptionSummary?.entitlements?.pooledTpmLimit ?? subscriptionSummary?.pooledTpmLimit ?? null;
-  const pooledRpm = subscriptionSummary?.entitlements?.pooledRpmLimit ?? subscriptionSummary?.pooledRpmLimit ?? null;
-  const usageText = tokenUsage != null
-    ? `${formatBillingNumber(tokenUsage)} tokens used`
-    : "Usage unavailable";
-  const cancellationSubscription = subscriptions.find((subscription) => subscription.canCancel && !subscription.cancelAtPeriodEnd) ?? null;
-  const cancellationDescription = cancellationSubscription
-    ? `${cancellationSubscription.planName || "Current plan"} can be managed from Billing.`
-    : currentSubscription?.cancelAtPeriodEnd
-      ? describeBillingCycle(currentSubscription, resetAt)
-      : "No cancellable subscription returned by billing data.";
-  const mobileInvoiceRows = subscriptions.length > 0 ? subscriptions : currentSubscription ? [currentSubscription] : [];
-
-  const managePaymentMethod = async () => {
-    if (!getToken) {
-      setPaymentMethodError("Unable to open payment settings. Please try again.");
-      return;
-    }
-
-    setPaymentMethodOpening(true);
-    setPaymentMethodError(null);
-    try {
-      const hyperAgent = createHyperAgentClient(await getToken());
-      const portalUrl = await createPaymentMethodUpdatePortalUrl(hyperAgent);
-      openBillingPortalUrl(portalUrl);
-    } catch {
-      setPaymentMethodError("Unable to open payment settings. Please try again.");
-    } finally {
-      setPaymentMethodOpening(false);
-    }
-  };
-
-  if (!isDesktopViewport) {
-    const cadenceLabel = billingCadenceLabel(currentSubscription);
-    return (
-      <>
-        <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7">
-          <div className="mx-auto w-full max-w-[844px]">
-            <h2 className="text-[20px] font-semibold leading-none text-foreground">Agent Settings</h2>
-            <section className="mt-7 border-b border-foreground">
-            <div className="flex min-h-[92px] items-center justify-between gap-3 border-b border-foreground py-5">
-              <div className="flex min-w-0 items-center gap-3">
-                <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center rounded-[12px] border border-border bg-[#2a2b2e]">
-                  <Rocket className="h-5 w-5 text-foreground" />
-                </div>
-                <div className="min-w-0">
-                  <p className="truncate text-[20px] font-semibold leading-6 text-foreground">
-                    {effectivePlanName}
-                    {cadenceLabel ? <span className="text-text-muted"> / {cadenceLabel}</span> : null}
-                  </p>
-                  <p className="mt-1 max-w-[180px] text-[13px] font-semibold leading-5 text-text-muted">
-                    {describeMobileBillingCycle(currentSubscription, resetAt)}
-                  </p>
-                </div>
-              </div>
-              <AgentSettingsLinkButton href="/adjust-plan">Adjust plan</AgentSettingsLinkButton>
-            </div>
-
-            <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-5">
-              <div className="min-w-0">
-                <p className="text-[14px] font-semibold leading-5 text-foreground">Payment</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">
-                  {describePaymentMethod(currentSubscription)}
-                </p>
-                {paymentMethodError ? <p className="mt-2 text-[12px] font-medium leading-5 text-red-300">{paymentMethodError}</p> : null}
-              </div>
-              <AgentSettingsActionButton
-                onClick={() => { void managePaymentMethod(); }}
-                disabled={paymentMethodOpening}
-              >
-                {paymentMethodOpening ? "Opening..." : "Update"}
-              </AgentSettingsActionButton>
-            </div>
-
-            <div className="border-b border-foreground py-7">
-              <h2 className="text-[20px] font-semibold leading-none text-foreground">Invoices</h2>
-              <div className="mt-8 overflow-hidden rounded-[10px] border border-foreground">
-                <table className="w-full table-fixed text-left">
-                  <thead>
-                    <tr className="border-b border-border">
-                      <th className="w-[42%] px-3 py-3 text-[13px] font-semibold text-foreground">Receipt</th>
-                      <th className="w-[25%] px-3 py-3 text-[13px] font-semibold text-foreground">Total</th>
-                      <th className="w-[33%] px-3 py-3 text-[13px] font-semibold text-foreground">Status</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {mobileInvoiceRows.length > 0 ? (
-                      mobileInvoiceRows.map((subscription) => (
-                        <tr key={subscription.id} className="border-b border-border last:border-b-0">
-                          <td className="truncate px-3 py-3 text-[14px] font-semibold text-foreground">
-                            {compactBillingIdentifier(subscription.stripeSubscriptionId || subscription.id)}
-                          </td>
-                          <td className="truncate px-3 py-3 text-[14px] font-semibold text-foreground">
-                            {formatSubscriptionTotal(subscription)}
-                          </td>
-                          <td className="px-3 py-3">
-                            <BillingStatusPill status={subscription.status} />
-                          </td>
-                        </tr>
-                      ))
-                    ) : (
-                      <tr>
-                        <td colSpan={3} className="px-3 py-4 text-[13px] font-medium text-text-muted">
-                          No invoices yet.
-                        </td>
-                      </tr>
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-
-            <div className="py-7">
-              <h2 className="text-[20px] font-semibold leading-none text-foreground">Cancellation</h2>
-              <div className="mt-7 flex min-h-[68px] items-center justify-between gap-4">
-                <div className="min-w-0">
-                  <p className="text-[14px] font-semibold leading-5 text-foreground">Cancel Plan</p>
-                  <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">{cancellationDescription}</p>
-                </div>
-                <AgentSettingsLinkButton href="/dashboard/billing" tone={cancellationSubscription ? "danger" : "default"}>
-                  {cancellationSubscription ? "Cancel" : "Manage"}
-                </AgentSettingsLinkButton>
-              </div>
-            </div>
-            </section>
-          </div>
-        </div>
-      </>
-    );
-  }
-
-  return (
-    <>
-      <div className="min-h-0 flex-1 overflow-y-auto px-5 py-7 md:px-8">
-        <div className="mx-auto w-full max-w-[844px]">
-          <section className="border-b border-foreground">
-          <div className="flex min-h-[92px] items-center justify-between gap-4 border-b border-foreground py-5">
-            <div className="flex min-w-0 items-center gap-3">
-              <div className="flex h-[64px] w-[64px] shrink-0 items-center justify-center rounded-[12px] border border-border bg-[#2a2b2e]">
-                <Rocket className="h-5 w-5 text-foreground" />
-              </div>
-              <div className="min-w-0">
-                <p className="truncate text-[20px] font-semibold leading-6 text-foreground">
-                  {effectivePlanName}
-                  {providerLabel ? <span className="text-text-muted"> / {providerLabel}</span> : null}
-                </p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">
-                  {describeBillingCycle(currentSubscription, resetAt)}
-                </p>
-              </div>
-            </div>
-            <AgentSettingsLinkButton href="/adjust-plan">Adjust plan</AgentSettingsLinkButton>
-          </div>
-
-          <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-5">
-            <div className="min-w-0">
-              <p className="text-[14px] font-semibold leading-5 text-foreground">Payment</p>
-              <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">
-                {currentSubscription?.provider.toLowerCase() === "stripe"
-                  ? "Payment method is managed by Stripe."
-                  : currentSubscription
-                    ? `Activated through ${formatBillingProvider(currentSubscription.provider)}.`
-                    : "Payment data unavailable from billing data."}
-              </p>
-              {paymentMethodError ? <p className="mt-2 text-[12px] font-medium leading-5 text-red-300">{paymentMethodError}</p> : null}
-            </div>
-            <AgentSettingsActionButton
-              onClick={() => { void managePaymentMethod(); }}
-              disabled={paymentMethodOpening}
-            >
-              {paymentMethodOpening ? "Opening..." : "Manage"}
-            </AgentSettingsActionButton>
-          </div>
-
-          <div className="border-b border-foreground py-7">
-            <h2 className="text-[20px] font-semibold leading-none text-foreground">Plan limits</h2>
-            <div className="mt-7 grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-              <div className="rounded-lg border border-border bg-surface-low/30 px-3 py-3">
-                <p className="text-[12px] font-medium text-text-muted">Daily tokens</p>
-                <p className="mt-1 text-[15px] font-semibold text-foreground">{formatBillingNumber(pooledTpd)}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-surface-low/30 px-3 py-3">
-                <p className="text-[12px] font-medium text-text-muted">Tokens per minute</p>
-                <p className="mt-1 text-[15px] font-semibold text-foreground">{formatBillingNumber(pooledTpm)}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-surface-low/30 px-3 py-3">
-                <p className="text-[12px] font-medium text-text-muted">Requests per minute</p>
-                <p className="mt-1 text-[15px] font-semibold text-foreground">{formatBillingNumber(pooledRpm)}</p>
-              </div>
-              <div className="rounded-lg border border-border bg-surface-low/30 px-3 py-3">
-                <p className="text-[12px] font-medium text-text-muted">Entitlements</p>
-                <p className="mt-1 text-[15px] font-semibold text-foreground">{activeEntitlementCount.toLocaleString()}</p>
-              </div>
-            </div>
-            <p className="mt-3 text-[12px] font-medium text-text-muted">{usageText}</p>
-          </div>
-
-          <div className="border-b border-foreground py-7">
-            <h2 className="text-[20px] font-semibold leading-none text-foreground">Subscriptions</h2>
-            <div className="mt-8 overflow-x-auto">
-              <table className="w-full min-w-[620px] text-left">
-                <thead>
-                  <tr className="border-b border-border">
-                    <th className="px-2 pb-3 text-[14px] font-semibold text-foreground">Plan</th>
-                    <th className="px-2 pb-3 text-[14px] font-semibold text-foreground">Provider</th>
-                    <th className="px-2 pb-3 text-[14px] font-semibold text-foreground">Status</th>
-                    <th className="px-2 pb-3 text-[14px] font-semibold text-foreground">Renewal</th>
-                  </tr>
-                </thead>
-                <tbody>
-                  {subscriptions.length > 0 ? (
-                    subscriptions.map((subscription) => (
-                      <tr key={subscription.id} className="border-b border-border">
-                        <td className="px-2 py-3 align-top">
-                          <Link href="/dashboard/billing" className="block text-[14px] font-semibold text-foreground hover:text-[var(--selection-accent)]">
-                            {subscription.planName || humanizeBillingPlanId(subscription.planId)}
-                          </Link>
-                          <p className="mt-1 max-w-[260px] truncate text-[12px] font-medium text-text-muted">
-                            {subscription.id}
-                          </p>
-                        </td>
-                        <td className="px-2 py-3 align-top text-[14px] font-semibold text-foreground">
-                          {formatBillingProvider(subscription.provider)}
-                        </td>
-                        <td className="px-2 py-3 align-top">
-                          <BillingStatusPill status={subscription.status} />
-                        </td>
-                        <td className="px-2 py-3 align-top text-[14px] font-semibold text-foreground">
-                          {describeSubscriptionDate(subscription)}
-                        </td>
-                      </tr>
-                    ))
-                  ) : (
-                    <tr className="border-b border-border">
-                      <td colSpan={4} className="px-2 py-4 text-[13px] font-medium text-text-muted">
-                        No subscription records returned by billing data.
-                      </td>
-                    </tr>
-                  )}
-                </tbody>
-              </table>
-            </div>
-          </div>
-
-          <div className="py-7">
-            <h2 className="text-[20px] font-semibold leading-none text-foreground">Cancellation</h2>
-            <div className="mt-7 flex min-h-[68px] items-center justify-between gap-4">
-              <div className="min-w-0">
-                <p className="text-[14px] font-semibold leading-5 text-foreground">Cancel Plan</p>
-                <p className="mt-1 text-[13px] font-semibold leading-5 text-text-muted">{cancellationDescription}</p>
-              </div>
-              <AgentSettingsLinkButton href="/dashboard/billing" tone={cancellationSubscription ? "danger" : "default"}>
-                {cancellationSubscription ? "Cancel" : "Manage"}
-              </AgentSettingsLinkButton>
-            </div>
-          </div>
-          </section>
-        </div>
-      </div>
-    </>
   );
 }
 
@@ -1528,10 +1054,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     agentDeleting = false,
     agentStartBlocked = false,
     agentStartBlockedReason = null,
-    planName = null,
-    subscriptionSummary = null,
-    tokenUsage = null,
-    tokenLimit = null,
     openclawConfig = null,
     openclawModels = null,
     onUpdateAgentName,
@@ -1842,15 +1364,6 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
             agentDeleting={agentDeleting}
             agentStartBlocked={agentStartBlocked}
             agentStartBlockedReason={agentStartBlockedReason}
-          />
-        ) : activeSettingsSection === "billing" ? (
-          <AgentBillingSettingsContent
-            getToken={getToken}
-            planName={planName}
-            subscriptionSummary={subscriptionSummary}
-            tokenUsage={tokenUsage}
-            tokenLimit={tokenLimit}
-            isDesktopViewport={isDesktopViewport}
           />
         ) : activeSettingsSection === "usage" ? (
           <AgentUsageSettingsContent />
@@ -2414,7 +1927,7 @@ export function LaunchFirstAgentEmptyState({
           Launch your first agent
         </h1>
         <p className="mt-6 text-[16px] font-medium leading-6 text-text-muted">
-          Agents handle conversations, tasks, and workflows on your behalf.
+          Agents handle projects, tasks, and workflows on your behalf.
         </p>
 
         <motion.button
@@ -2476,7 +1989,7 @@ export function AgentEmptyState({
   }
 
   const examples = [
-    "Ask questions across Slack, email, docs, and CRM data in one conversation",
+    "Ask questions across Slack, email, docs, and CRM data in one project",
     "Get instant answers with company-specific context instead of generic AI responses",
     "Trigger actions like drafting replies, updating records, or creating follow-ups directly from chat",
   ];

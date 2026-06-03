@@ -947,11 +947,11 @@ export function FirstAgentSetupWizard({
                         className={cx(
                           "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] sm:text-[14px]",
                           selected
-                            ? "border-[rgb(var(--selection-accent-rgb)_/_0.55)] bg-[rgb(var(--selection-accent-rgb)_/_0.14)] text-[var(--selection-accent)] shadow-[0_0_0_1px_rgb(var(--selection-accent-rgb)_/_0.14),0_8px_20px_rgb(var(--selection-accent-rgb)_/_0.08)]"
+                            ? "border-[rgb(var(--selection-accent-rgb)_/_0.72)] bg-[#1f1f21] text-[var(--selection-accent)] shadow-[0_0_0_1px_rgb(var(--selection-accent-rgb)_/_0.38)]"
                             : "border-[#3f3f44] bg-[#1f1f21] text-[#d9d9dd] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:border-[#5f5f66] hover:bg-[#28282b] hover:text-[#f5f5f5]",
                         )}
                       >
-                        <Check className={cx("h-3.5 w-3.5 shrink-0 transition-opacity", selected ? "opacity-100" : "opacity-0")} />
+                        {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
                         {category}
                       </button>
                     );
@@ -1017,7 +1017,7 @@ export function FirstAgentSetupWizard({
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="underline underline-offset-4 transition-colors hover:text-[#36c99b]"
+                    className="underline underline-offset-4 transition-colors hover:text-[var(--selection-accent)]"
                   >
                     click to browse
                   </button>

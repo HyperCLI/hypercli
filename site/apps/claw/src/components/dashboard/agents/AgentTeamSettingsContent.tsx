@@ -35,7 +35,7 @@ export function AgentTeamSettingsContent() {
               <div className="min-w-0">
                 <p className="text-[14px] font-semibold leading-5 text-foreground">Shared channels</p>
                 <p className="mt-1 text-[13px] font-medium leading-5 text-text-muted">
-                  Coordinate agent conversations with teammates.
+                  Coordinate agent projects with teammates.
                 </p>
               </div>
             </div>

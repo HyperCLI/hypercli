@@ -391,6 +391,7 @@ describe("openclaw session keys", () => {
       setSending: vi.fn(),
       setSessions: vi.fn(),
       appendActivity: vi.fn(),
+      activeSessionKey: "main",
     });
 
     expect(messages).toEqual([

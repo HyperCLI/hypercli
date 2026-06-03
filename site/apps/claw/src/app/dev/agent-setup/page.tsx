@@ -403,7 +403,7 @@ const controlCenterPreviews = [
   { label: "Config", detail: "Review harmless metadata and channel draft settings.", icon: Settings },
   { label: "Desktop", detail: "Open a visual workspace when a running agent exposes one.", icon: Gauge },
   { label: "Shell", detail: "Available later for operators; no shell commands run in setup.", icon: TerminalSquare },
-  { label: "Sessions", detail: "See conversations and reset context when needed.", icon: MessageSquare },
+  { label: "Sessions", detail: "See projects and reset context when needed.", icon: MessageSquare },
 ];
 
 const automationPreviews = [
@@ -1669,7 +1669,7 @@ export default function DevAgentSetupPage() {
           <section className="space-y-5">
             <div className="flex flex-col gap-3 sm:flex-row sm:items-start sm:justify-between">
               <div>
-                <h2 className="text-lg font-semibold text-foreground">Preview the first team conversation</h2>
+                <h2 className="text-lg font-semibold text-foreground">Preview the first team project</h2>
                 <p className="mt-1 max-w-2xl text-sm leading-6 text-text-secondary">
                   These prompts show sessions, chat history, and team context without sending anything during setup.
                 </p>
@@ -1845,7 +1845,7 @@ export default function DevAgentSetupPage() {
                 </h2>
                 <p className="mt-1 text-left text-sm text-text-secondary">
                   {launchContextComplete
-                    ? "Everything is in place. Open the workspace to start the real conversation."
+                    ? "Everything is in place. Open the workspace to start the real project."
                     : "Tell the agent how it should operate. You can change any answer later from the workspace."}
                 </p>
               </div>

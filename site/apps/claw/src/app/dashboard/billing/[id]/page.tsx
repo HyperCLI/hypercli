@@ -136,8 +136,8 @@ export default function BillingDetailPage() {
 
   return (
     <div className="space-y-6">
-      <Link href="/dashboard/billing" className="text-sm font-medium text-primary hover:underline">
-        ← Back to billing
+      <Link href="/dashboard/settings" className="text-sm font-medium text-primary hover:underline">
+        Back to billing
       </Link>
 
       {loading ? (

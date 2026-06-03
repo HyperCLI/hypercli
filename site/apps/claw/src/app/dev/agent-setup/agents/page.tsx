@@ -524,7 +524,7 @@ export default function DevAgentSetupAgentsPage() {
     { label: "Agents", href: "/agents", icon: Bot },
     { label: "API Keys", href: "/keys", icon: Key },
     { label: "Plans", href: "/plans", icon: CreditCard },
-    { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+    { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
     { label: "Settings", href: "/dashboard/settings", icon: Settings },
   ];
 
@@ -915,7 +915,7 @@ export default function DevAgentSetupAgentsPage() {
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
     return chat.sessions.map((s) => {
-      const entry = s as Record<string, unknown>;
+      const entry = s as unknown as Record<string, unknown>;
       const key = typeof entry.key === "string" ? entry.key : String(entry.id ?? "");
       const clientMode = typeof entry.clientMode === "string" ? entry.clientMode : (typeof entry.client === "string" ? entry.client : "unknown");
       const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
@@ -2120,7 +2120,7 @@ export default function DevAgentSetupAgentsPage() {
                     setMobileShowChat(true);
                   },
                   onOpenPlans: () => router.push("/plans"),
-                  onOpenBilling: () => router.push("/dashboard/billing"),
+                  onOpenBilling: () => router.push("/dashboard/settings"),
                   onStartAgent: async () => {
                     if (selectedAgent) await handleStart(selectedAgent.id);
                   },
@@ -2180,10 +2180,6 @@ export default function DevAgentSetupAgentsPage() {
                 agentStopping={Boolean(selectedAgent && stoppingId === selectedAgent.id)}
                 agentStartBlocked={selectedAgentLaunchBlocked}
                 agentStartBlockedReason={selectedAgentStartBlockedTitle}
-                planName={planName}
-                subscriptionSummary={subscriptionSummary}
-                tokenUsage={tokenUsage}
-                tokenLimit={budget?.pooled_tpd ?? null}
                 openclawConfig={chat.config}
                 openclawModels={chat.models}
                 onUpdateAgentName={async (agentId, name) => {

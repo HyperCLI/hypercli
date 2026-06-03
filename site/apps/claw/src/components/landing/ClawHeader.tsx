@@ -23,7 +23,7 @@ const navLinks = [
 const dropdownNavItems = [
   { label: "API Keys", href: "/keys", icon: Key },
   { label: "Plans", href: "/plans", icon: CreditCard },
-  { label: "Billing", href: "/dashboard/billing", icon: CreditCard },
+  { label: "Billing", href: "/dashboard/settings", icon: CreditCard },
 ];
 const POST_LOGIN_PATH = "/dashboard/agents";
 

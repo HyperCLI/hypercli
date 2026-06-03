@@ -56,6 +56,7 @@ const MARKDOWN_EXTENSIONS = new Set(["md", "mdx"]);
 const PREVIEW_ACTION_BUTTON_CLASS =
   "flex h-7 w-7 items-center justify-center rounded-lg text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:cursor-not-allowed disabled:opacity-30";
 const PREVIEW_ACTION_ICON_CLASS = "h-3.5 w-3.5";
+const PREVIEW_HEADER_ICON_CLASS = "w-4 h-4 text-text-muted flex-shrink-0";
 const MARKDOWN_MODE_BUTTON_CLASS = "rounded-md px-2 py-1 text-[10px] font-medium transition-colors";
 
 function getFileExtension(name: string): string {
@@ -119,12 +120,12 @@ function useImagePreviewSrc(name: string, content: string | Uint8Array | null): 
   return null;
 }
 
-function getPreviewIcon(type: string) {
+function renderPreviewIcon(type: string) {
   switch (type) {
-    case "image": return FileImage;
-    case "archive": return FileArchive;
-    case "code": return FileCode;
-    default: return FileText;
+    case "image": return <FileImage className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "archive": return <FileArchive className={PREVIEW_HEADER_ICON_CLASS} />;
+    case "code": return <FileCode className={PREVIEW_HEADER_ICON_CLASS} />;
+    default: return <FileText className={PREVIEW_HEADER_ICON_CLASS} />;
   }
 }
 
@@ -150,7 +151,6 @@ export function FilePreview({
   const [markdownMode, setMarkdownMode] = useState<"preview" | "raw">("preview");
 
   const previewType = getPreviewType(entry.name);
-  const PreviewIcon = getPreviewIcon(previewType);
   const isMarkdown = previewType === "markdown";
   const isEditable = previewType === "code" || previewType === "text" || previewType === "markdown";
   const textContent = typeof content === "string" ? content : "";
@@ -200,7 +200,7 @@ export function FilePreview({
     >
       {/* Header */}
       <div className="flex items-center gap-2 px-3 py-2.5 border-b border-border flex-shrink-0">
-        <PreviewIcon className="w-4 h-4 text-text-muted flex-shrink-0" />
+        {renderPreviewIcon(previewType)}
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-foreground truncate">
             {entry.name}
