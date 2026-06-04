@@ -49,6 +49,7 @@ vi.mock("@hypercli/shared-ui", () => ({
 describe("agent-client", () => {
   beforeEach(() => {
     vi.clearAllMocks();
+    delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK;
     delete process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS;
     deploymentsInstance.get.mockReset();
     deploymentsInstance.createOpenClaw.mockReset();
@@ -102,6 +103,7 @@ describe("agent-client", () => {
       image: "ghcr.io/hypercli/hypercli-openclaw:legacy",
       syncRoot: "/home/ubuntu",
       syncEnabled: true,
+      controlUiOriginLock: true,
       config: {},
       env: {
         OPENCLAW_GATEWAY_TOKEN: "existing-gateway-token",
@@ -114,7 +116,7 @@ describe("agent-client", () => {
     }));
   });
 
-  it("creates OpenClaw agents without a control UI allowlist by default", async () => {
+  it("creates OpenClaw agents with origin locking on by default", async () => {
     deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
 
     await createOpenClawAgent("hyper_api_test", {
@@ -122,6 +124,7 @@ describe("agent-client", () => {
     });
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      controlUiOriginLock: true,
       config: {},
       env: {
         FOO: "bar",
@@ -150,6 +153,7 @@ describe("agent-client", () => {
     });
 
     expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      controlUiOriginLock: true,
       config: {
         gateway: {
           controlUi: {
@@ -160,6 +164,41 @@ describe("agent-client", () => {
               "http://localhost:4003",
               currentOrigin,
             ],
+            requirePairing: true,
+          },
+        },
+      },
+      env: {
+        FOO: "bar",
+      },
+    }));
+  });
+
+  it("disables the control UI origin lock when configured off", async () => {
+    process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK = "off";
+    process.env.NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS = "https://feat.hypercli.com";
+    deploymentsInstance.createOpenClaw.mockResolvedValue({ id: "agent-123" });
+
+    await createOpenClawAgent("hyper_api_test", {
+      config: {
+        gateway: {
+          controlUi: {
+            allowedOrigins: ["https://claw.hypercli.com"],
+            requirePairing: true,
+          },
+        },
+      },
+      env: {
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: "https://old.hypercli.com",
+        FOO: "bar",
+      },
+    });
+
+    expect(deploymentsInstance.createOpenClaw).toHaveBeenCalledWith(expect.objectContaining({
+      controlUiOriginLock: false,
+      config: {
+        gateway: {
+          controlUi: {
             requirePairing: true,
           },
         },

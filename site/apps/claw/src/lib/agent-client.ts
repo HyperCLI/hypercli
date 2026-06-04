@@ -21,10 +21,13 @@ type FrontendOpenClawStartOptions = Omit<OpenClawStartAgentOptions, "meta"> & {
 };
 
 const CONTROL_UI_ALLOWED_ORIGIN_ENV = "OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN";
+const CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ORIGIN_LOCK";
 const CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV = "NEXT_PUBLIC_OPENCLAW_CONTROL_UI_ALLOWED_ORIGINS";
 export const AGENT_CLEANUP_START_MESSAGE = "Agent is finishing shutdown. Try again shortly.";
 export const AGENT_STOP_CLEANUP_COOLDOWN_MS = 30_000;
 const AGENT_CLEANUP_RETRY_DELAYS_MS = [2_000, 3_000, 5_000, 8_000, 12_000] as const;
+const ENABLED_ENV_VALUES = new Set(["1", "true", "yes", "on", "enabled"]);
+const DISABLED_ENV_VALUES = new Set(["0", "false", "no", "off", "disabled"]);
 
 function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
@@ -99,6 +102,13 @@ function configuredUiOrigins(): string[] {
   return parseAllowedOrigins(process.env[CONTROL_UI_ALLOWED_ORIGINS_CONFIG_ENV]);
 }
 
+function configuredUiOriginLock(): boolean {
+  const value = process.env[CONTROL_UI_ORIGIN_LOCK_CONFIG_ENV]?.trim().toLowerCase() ?? "";
+  if (DISABLED_ENV_VALUES.has(value)) return false;
+  if (ENABLED_ENV_VALUES.has(value)) return true;
+  return true;
+}
+
 function configAllowedOrigins(config: unknown): string[] {
   if (!isRecord(config) || !isRecord(config.gateway) || !isRecord(config.gateway.controlUi)) return [];
   return parseAllowedOrigins(config.gateway.controlUi.allowedOrigins);
@@ -134,6 +144,17 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions 
   const env = { ...(options.env ?? {}) };
   const configuredOrigins = configuredUiOrigins();
   const config = stripConfigAllowedOrigins(options.config);
+  const controlUiOriginLock = configuredUiOriginLock();
+
+  if (!controlUiOriginLock) {
+    delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
+    return {
+      ...options,
+      config,
+      env,
+      controlUiOriginLock,
+    } as T;
+  }
 
   if (configuredOrigins.length === 0) {
     delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
@@ -141,13 +162,14 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions 
       ...options,
       config,
       env,
+      controlUiOriginLock,
     } as T;
   }
 
   const origins = [
     ...parseAllowedOrigins(env[CONTROL_UI_ALLOWED_ORIGIN_ENV]),
     ...configAllowedOrigins(options.config),
-    ...configuredUiOrigins(),
+    ...configuredOrigins,
     ...(origin ? [origin] : []),
   ].filter((value, index, list) => list.indexOf(value) === index);
   delete env[CONTROL_UI_ALLOWED_ORIGIN_ENV];
@@ -162,6 +184,7 @@ function withConfiguredControlUiOrigins<T extends FrontendOpenClawCreateOptions 
     ...options,
     config,
     env,
+    controlUiOriginLock,
   } as T;
 }
 

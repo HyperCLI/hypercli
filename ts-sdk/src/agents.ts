@@ -109,6 +109,8 @@ export interface BuildAgentConfigOptions {
   registryAuth?: RegistryAuth | null;
   gatewayToken?: string | null;
   heartbeat?: OpenClawHeartbeatConfig | null;
+  /** Disable to avoid automatically locking browser control UI access to globalThis.location.origin. */
+  controlUiOriginLock?: boolean | null;
 }
 
 export interface OpenClawRouteOptions {
@@ -554,7 +556,7 @@ export function buildAgentConfig(
   }
 
   env.OPENCLAW_GATEWAY_TOKEN = gatewayToken;
-  if (!env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
+  if (options.controlUiOriginLock !== false && !env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN?.trim()) {
     const controlUiOrigin = defaultControlUiAllowedOrigin();
     if (controlUiOrigin) {
       env.OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN = controlUiOrigin;

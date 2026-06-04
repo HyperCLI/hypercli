@@ -82,6 +82,13 @@ export interface GatewayChatMessageSummary {
   timestamp?: number;
 }
 
+export interface GatewaySessionPatch {
+  key: string;
+  model?: string;
+  thinkingLevel?: string;
+  [key: string]: unknown;
+}
+
 export interface GatewayChatAttachmentPayload {
   type: string;
   mimeType?: string;
@@ -2167,7 +2174,7 @@ export class GatewayClient {
     return res?.previews?.[0]?.items ?? [];
   }
 
-  async sessionsPatch(patch: Record<string, any> & { key: string }): Promise<Record<string, any>> {
+  async sessionsPatch(patch: GatewaySessionPatch): Promise<Record<string, any>> {
     return await this.rpc("sessions.patch", patch);
   }
 

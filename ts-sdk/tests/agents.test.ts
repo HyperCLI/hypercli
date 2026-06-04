@@ -1,8 +1,51 @@
 import { describe, expect, it, vi } from 'vitest';
-import { Deployments, OpenClawAgent } from '../src/agents.js';
-import { HTTPClient } from '../src/http.js';
+import { afterEach, describe, expect, it, vi } from 'vitest';
+import { buildAgentConfig, Deployments, OpenClawAgent } from '../src/agents.js';
+import type { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
+  afterEach(() => {
+    vi.unstubAllGlobals();
+  });
+
+  it('adds the current browser origin to OpenClaw launch env by default', () => {
+    vi.stubGlobal('location', { origin: 'https://agents.hypercli.com' });
+
+    const { config } = buildAgentConfig({}, { gatewayToken: 'gw-test' });
+
+    expect(config.env).toEqual({
+      OPENCLAW_GATEWAY_TOKEN: 'gw-test',
+      OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://agents.hypercli.com',
+    });
+  });
+
+  it('can disable the automatic browser control UI origin lock', () => {
+    vi.stubGlobal('location', { origin: 'https://agents.hypercli.com' });
+
+    const { config } = buildAgentConfig({}, { gatewayToken: 'gw-test', controlUiOriginLock: false });
+
+    expect(config.env).toEqual({
+      OPENCLAW_GATEWAY_TOKEN: 'gw-test',
+    });
+  });
+
+  it('preserves explicit control UI origins when the automatic lock is disabled', () => {
+    vi.stubGlobal('location', { origin: 'https://agents.hypercli.com' });
+
+    const { config } = buildAgentConfig({}, {
+      gatewayToken: 'gw-test',
+      controlUiOriginLock: false,
+      env: {
+        OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://console.hypercli.com',
+      },
+    });
+
+    expect(config.env).toEqual({
+      OPENCLAW_CONTROL_UI_ALLOWED_ORIGIN: 'https://console.hypercli.com',
+      OPENCLAW_GATEWAY_TOKEN: 'gw-test',
+    });
+  });
+
   it('hydrates tags on agent responses', async () => {
     const http = {
       get: vi.fn().mockResolvedValue({

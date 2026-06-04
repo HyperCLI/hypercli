@@ -1,4 +1,0 @@
-Claw frontend work must use SDK-provided functions only. Do not add raw fetch,
-WebSocket, axios, or ad hoc API calls for agent sessions, chat, channels, files,
-billing, or account data. If the SDK is missing a required capability, add it to
-the SDK first or raise an SDK/API requirement.
