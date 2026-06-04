@@ -1,6 +1,6 @@
 import { describe, expect, it, vi } from 'vitest';
 import { Deployments, OpenClawAgent } from '../src/agents.js';
-import type { HTTPClient } from '../src/http.js';
+import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
   it('hydrates tags on agent responses', async () => {
@@ -73,6 +73,31 @@ describe('Agents SDK', () => {
       '/deployments/agent-123/keys',
       { name: 'agent-client' },
     ]);
+  });
+
+  it('searches the web through the Brave proxy', async () => {
+    const fetchMock = vi.fn(async () => new Response(
+      JSON.stringify({ web: { results: [{ title: 'HyperCLI', url: 'https://hypercli.com' }] } }),
+      { status: 200, headers: { 'Content-Type': 'application/json' } },
+    ));
+    vi.stubGlobal('fetch', fetchMock);
+
+    const deployments = new Deployments(
+      new HTTPClient('https://api.test.hypercli.com', 'hyper_api_test'),
+      'hyper_api_test',
+      'https://api.test.hypercli.com/agents',
+    );
+    const result = await deployments.webSearch('hypercli', { count: 1 });
+
+    expect(result.web?.results?.[0]?.title).toBe('HyperCLI');
+    expect(fetchMock).toHaveBeenCalledWith(
+      'https://api.test.hypercli.com/agents/brave/res/v1/web/search?q=hypercli&count=1',
+      expect.objectContaining({
+        headers: expect.objectContaining({ 'X-Subscription-Token': 'hyper_api_test' }),
+        method: 'GET',
+      }),
+    );
+    vi.unstubAllGlobals();
   });
 
   it('updates agents through the public patch surface', async () => {

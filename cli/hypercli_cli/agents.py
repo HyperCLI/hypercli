@@ -436,6 +436,36 @@ def list_agents(
 
     console.print()
     console.print(table)
+
+
+@app.command("web-search")
+def web_search_cmd(
+    query: str = typer.Argument(..., help="Search query"),
+    count: int = typer.Option(5, "--count", "-n", min=1, max=20, help="Number of Brave results to request"),
+    json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
+):
+    """Search the web through the HyperClaw Brave proxy."""
+    agents = _get_deployments_client()
+    try:
+        payload = agents.web_search(query, count=count)
+    except Exception as e:
+        console.print(f"[red]❌ Web search failed: {e}[/red]")
+        raise typer.Exit(1)
+
+    if json_output:
+        console.print(json.dumps(payload, indent=2))
+        return
+
+    web = payload.get("web") if isinstance(payload, dict) else None
+    results = web.get("results") if isinstance(web, dict) else []
+    table = Table(title="Web Search")
+    table.add_column("Title")
+    table.add_column("URL")
+    for item in results or []:
+        if not isinstance(item, dict):
+            continue
+        table.add_row(str(item.get("title") or ""), str(item.get("url") or ""))
+    console.print(table)
     console.print()
 
 

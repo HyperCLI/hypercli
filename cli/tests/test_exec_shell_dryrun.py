@@ -189,3 +189,18 @@ def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
     assert result.exit_code == 1
     assert "Path is a directory: .openclaw." in result.stdout
     assert "Copy expects a file path, not a directory." in result.stdout
+
+
+def test_agents_web_search_command(monkeypatch):
+    class FakeDeployments:
+        def web_search(self, query, count=5):
+            assert query == "hypercli"
+            assert count == 1
+            return {"web": {"results": [{"title": "HyperCLI", "url": "https://hypercli.com"}]}}
+
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: FakeDeployments())
+
+    result = runner.invoke(app, ["agents", "web-search", "hypercli", "--count", "1", "--json"])
+
+    assert result.exit_code == 0
+    assert '"HyperCLI"' in result.stdout

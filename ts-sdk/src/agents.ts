@@ -64,6 +64,23 @@ export interface AgentLogsTokenResponse {
   ws_url?: string;
 }
 
+export interface BraveWebSearchOptions {
+  count?: number;
+  country?: string;
+  searchLang?: string;
+  uiLang?: string;
+  freshness?: string;
+}
+
+export interface BraveWebSearchResponse {
+  query?: Record<string, any>;
+  web?: {
+    results?: Array<Record<string, any>>;
+    [key: string]: any;
+  };
+  [key: string]: any;
+}
+
 export interface AgentRouteConfig {
   port: number;
   prefix?: string;
@@ -1560,6 +1577,26 @@ export class Deployments {
     const payload: Record<string, string> = {};
     if (name) payload.name = name;
     return this.agentHttp.post(`${DEPLOYMENTS_API_PREFIX}/${agentId}/keys`, Object.keys(payload).length ? payload : undefined);
+  }
+
+  async webSearch(query: string, options: BraveWebSearchOptions = {}): Promise<BraveWebSearchResponse> {
+    const params: Record<string, string | number> = {
+      q: query,
+      count: options.count ?? 5,
+    };
+    if (options.country) params.country = options.country;
+    if (options.searchLang) params.search_lang = options.searchLang;
+    if (options.uiLang) params.ui_lang = options.uiLang;
+    if (options.freshness) params.freshness = options.freshness;
+
+    const headers = { 'X-Subscription-Token': this.apiKey };
+    if (this.agentHttp instanceof HTTPClient) {
+      return this.agentHttp.getWithHeaders<BraveWebSearchResponse>('/brave/res/v1/web/search', params, headers);
+    }
+    const response = await this.fetchRaw(`/brave/res/v1/web/search?${new URLSearchParams(
+      Object.fromEntries(Object.entries(params).map(([key, value]) => [key, String(value)])),
+    ).toString()}`, { headers });
+    return (await response.json()) as BraveWebSearchResponse;
   }
 
   async logsToken(agentId: string): Promise<AgentLogsTokenResponse> {

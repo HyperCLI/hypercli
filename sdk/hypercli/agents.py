@@ -1413,6 +1413,34 @@ class Deployments:
         payload = {"name": name} if name is not None else {}
         return self._post(f"{AGENTS_API_PREFIX}/{agent_id}/keys", json=payload or None)
 
+    def web_search(self, query: str, *, count: int = 5, **params: Any) -> dict:
+        """Run Brave web search through the HyperClaw agents API proxy.
+
+        Returns the raw Brave-compatible JSON payload. The request uses the
+        agent API key as `X-Subscription-Token`; the backend substitutes its
+        configured Brave API key upstream.
+        """
+        search_params: dict[str, Any] = {"q": query, "count": int(count)}
+        for key, value in params.items():
+            if value is not None:
+                search_params[key] = value
+        with httpx.Client(timeout=30) as client:
+            resp = client.get(
+                f"{self._api_base}/brave/res/v1/web/search",
+                headers={
+                    "Accept": "application/json",
+                    "X-Subscription-Token": self._api_key,
+                },
+                params=search_params,
+            )
+        if resp.status_code >= 400:
+            try:
+                detail = resp.json().get("detail", resp.text)
+            except Exception:
+                detail = resp.text
+            raise APIError(resp.status_code, detail)
+        return resp.json()
+
     def purchase_entitlement_from_balance(
         self,
         plan_id: str,

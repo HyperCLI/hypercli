@@ -160,6 +160,21 @@ export class HTTPClient {
     return handleResponse<T>(response);
   }
 
+  async getWithHeaders<T = any>(
+    path: string,
+    params?: Record<string, string | number | Array<string | number>>,
+    headers?: Record<string, string>,
+  ): Promise<T> {
+    const response = await requestWithRetry({
+      method: 'GET',
+      url: `${this.baseUrl}${path}`,
+      headers: { ...this.headers, ...(headers ?? {}) },
+      params,
+      timeout: this.timeout,
+    });
+    return handleResponse<T>(response);
+  }
+
   async post<T = any>(path: string, body?: any): Promise<T> {
     const response = await requestWithRetry({
       method: 'POST',

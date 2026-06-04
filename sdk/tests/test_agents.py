@@ -1010,6 +1010,27 @@ def test_agents_budget(agents_client):
         assert budget["available"]["cpu"] == 12
 
 
+def test_agents_web_search_uses_subscription_token_header(agents_client):
+    with patch("httpx.Client") as mock_client_class:
+        mock_client = MagicMock()
+        mock_response = Mock()
+        mock_response.status_code = 200
+        mock_response.json.return_value = {"web": {"results": [{"title": "HyperCLI", "url": "https://hypercli.com"}]}}
+        mock_client.get.return_value = mock_response
+        mock_client.__enter__.return_value = mock_client
+        mock_client.__exit__.return_value = False
+        mock_client_class.return_value = mock_client
+
+        payload = agents_client.web_search("hypercli", count=1)
+
+        assert payload["web"]["results"][0]["title"] == "HyperCLI"
+        url = mock_client.get.call_args[0][0]
+        kwargs = mock_client.get.call_args[1]
+        assert url == "https://api.test.hypercli.com/agents/brave/res/v1/web/search"
+        assert kwargs["headers"]["X-Subscription-Token"] == "sk-hyper-test123"
+        assert kwargs["params"] == {"q": "hypercli", "count": 1}
+
+
 def test_agents_refresh_token(agents_client):
     with patch("httpx.Client") as mock_client_class:
         mock_client = MagicMock()
