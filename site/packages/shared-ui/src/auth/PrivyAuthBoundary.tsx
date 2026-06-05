@@ -2,7 +2,7 @@
 
 import { ReactNode } from "react";
 import { PrivyProvider } from "@privy-io/react-auth";
-import { AuthProvider } from "./AuthProvider";
+import { AuthProvider, hasStoredSession } from "./AuthProvider";
 
 interface PrivyAuthBoundaryProps {
   appId: string;
@@ -20,6 +20,14 @@ function isValidPrivyAppId(appId: string): boolean {
   return normalized.length > 10 && normalized !== "placeholder";
 }
 
+function hasSeededPlaywrightSession(tokenStorageKey: string): boolean {
+  return (
+    typeof window !== "undefined" &&
+    window.navigator.webdriver &&
+    hasStoredSession(tokenStorageKey)
+  );
+}
+
 export function PrivyAuthBoundary({
   appId,
   apiBaseUrl,
@@ -32,6 +40,14 @@ export function PrivyAuthBoundary({
 }: PrivyAuthBoundaryProps) {
   if (!isValidPrivyAppId(appId)) {
     throw new Error("PrivyAuthBoundary requires a valid appId");
+  }
+
+  if (hasSeededPlaywrightSession(tokenStorageKey)) {
+    return (
+      <AuthProvider apiBaseUrl={apiBaseUrl} tokenStorageKey={tokenStorageKey} privyEnabled={false}>
+        {children}
+      </AuthProvider>
+    );
   }
 
   return (

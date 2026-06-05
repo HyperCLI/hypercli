@@ -39,6 +39,7 @@ export interface AuthProviderProps {
   children: ReactNode;
   tokenStorageKey?: string;
   cookieName?: string;
+  privyEnabled?: boolean;
 }
 
 function trimTrailingSlash(value: string): string {
@@ -76,6 +77,10 @@ function getStoredSession(tokenStorageKey = "app_auth_token", cookieName = "auth
   }
 
   return null;
+}
+
+export function hasStoredSession(tokenStorageKey = "app_auth_token", cookieName = "auth_token"): boolean {
+  return Boolean(getStoredSession(tokenStorageKey, cookieName));
 }
 
 export function setStoredToken(token: string, tokenStorageKey = "app_auth_token"): void {
@@ -220,6 +225,117 @@ export function useAuth(): AuthContextType {
 }
 
 export function AuthProvider({
+  apiBaseUrl,
+  children,
+  tokenStorageKey = "app_auth_token",
+  cookieName = "auth_token",
+  privyEnabled = true,
+}: AuthProviderProps) {
+  if (!privyEnabled) {
+    return (
+      <StoredSessionAuthProvider
+        apiBaseUrl={apiBaseUrl}
+        tokenStorageKey={tokenStorageKey}
+        cookieName={cookieName}
+      >
+        {children}
+      </StoredSessionAuthProvider>
+    );
+  }
+
+  return (
+    <PrivySessionAuthProvider
+      apiBaseUrl={apiBaseUrl}
+      tokenStorageKey={tokenStorageKey}
+      cookieName={cookieName}
+    >
+      {children}
+    </PrivySessionAuthProvider>
+  );
+}
+
+function StoredSessionAuthProvider({
+  children,
+  tokenStorageKey = "app_auth_token",
+  cookieName = "auth_token",
+}: AuthProviderProps) {
+  const [isAuthenticated, setIsAuthenticated] = useState(() => hasStoredSession(tokenStorageKey, cookieName));
+  const [error, setError] = useState<string | null>(null);
+
+  const resetSession = useCallback((nextError: string | null = null) => {
+    clearStoredToken(tokenStorageKey);
+    setError(nextError);
+    setIsAuthenticated(false);
+  }, [tokenStorageKey]);
+
+  const syncStoredSession = useCallback(() => {
+    const hasSession = hasStoredSession(tokenStorageKey, cookieName);
+    setIsAuthenticated(hasSession);
+    setError(null);
+    return hasSession;
+  }, [cookieName, tokenStorageKey]);
+
+  useEffect(() => {
+    syncStoredSession();
+
+    const handleCookieChange = (event: Event) => {
+      const detail = (event as CustomEvent<{ name?: string }>).detail;
+      if (detail?.name && detail.name !== cookieName && detail.name !== "hypercli_logged_out") return;
+      syncStoredSession();
+    };
+
+    window.addEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener);
+    window.addEventListener("focus", syncStoredSession);
+
+    return () => {
+      window.removeEventListener(cookieUtils.AUTH_COOKIE_EVENT, handleCookieChange as EventListener);
+      window.removeEventListener("focus", syncStoredSession);
+    };
+  }, [cookieName, syncStoredSession]);
+
+  const login = useCallback(() => {
+    clearAuthLogoutMarker();
+    syncStoredSession();
+  }, [syncStoredSession]);
+
+  const logout = useCallback(async () => {
+    markAuthLogout();
+    clearStoredToken(tokenStorageKey);
+    clearLocalAuthTokens("app_auth_token", "claw_auth_token");
+    cookieUtils.remove(cookieName);
+    resetSession();
+  }, [cookieName, resetSession, tokenStorageKey]);
+
+  const getToken = useCallback(async (): Promise<string> => {
+    const storedSession = getStoredSession(tokenStorageKey, cookieName);
+    if (!storedSession) {
+      resetSession("Not authenticated");
+      throw new Error("Not authenticated");
+    }
+    return storedSession;
+  }, [cookieName, resetSession, tokenStorageKey]);
+
+  const flowState: AuthFlowState = isAuthenticated ? "complete" : "idle";
+
+  return (
+    <AuthContext.Provider
+      value={{
+        isLoading: false,
+        isAuthenticated,
+        user: isAuthenticated ? { id: "stored-session" } : null,
+        flowState,
+        error,
+        login,
+        logout,
+        getToken,
+      }}
+    >
+      {children}
+    </AuthContext.Provider>
+  );
+}
+
+function PrivySessionAuthProvider({
   apiBaseUrl,
   children,
   tokenStorageKey = "app_auth_token",

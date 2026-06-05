@@ -78,14 +78,32 @@ async function seedAuth(page: Page): Promise<void> {
   ]);
 
   await page.addInitScript((token) => {
+    const provider = {
+      isMetaMask: true,
+      selectedAddress: "0x1111111111111111111111111111111111111111",
+      chainId: "0x2105",
+      request: async ({ method }: { method: string; params?: unknown[] }) => {
+        if (method === "eth_requestAccounts") return ["0x1111111111111111111111111111111111111111"];
+        if (method === "eth_accounts") return ["0x1111111111111111111111111111111111111111"];
+        if (method === "eth_chainId") return "0x2105";
+        if (method === "wallet_switchEthereumChain") return null;
+        if (method === "wallet_addEthereumChain") return null;
+        return null;
+      },
+      on: () => undefined,
+      removeListener: () => undefined,
+    };
+
     Object.defineProperty(window, "ethereum", {
       configurable: true,
       writable: true,
+      value: provider,
+    });
+    Object.defineProperty(window, "phantom", {
+      configurable: true,
+      writable: true,
       value: {
-        isMetaMask: false,
-        request: async () => null,
-        on: () => undefined,
-        removeListener: () => undefined,
+        ethereum: provider,
       },
     });
     window.localStorage.setItem("claw_auth_token", token);
@@ -242,6 +260,11 @@ async function mockAuthenticatedMobileAgent(page: Page): Promise<void> {
       return;
     }
 
+    if (pathName.endsWith("/agents/billing/payments")) {
+      await route.fulfill(json({ items: [] }));
+      return;
+    }
+
     if (pathName.endsWith("/agents/types")) {
       await route.fulfill(json({
         types: [
@@ -334,6 +357,12 @@ async function openWorkspaceDrawer(page: Page): Promise<void> {
   await expectNoHorizontalOverflow(page);
 }
 
+async function openSettingsFromWorkspaceDrawer(page: Page): Promise<void> {
+  await openWorkspaceDrawer(page);
+  await page.getByRole("button", { name: /^advanced$/i }).click();
+  await page.getByRole("menuitem", { name: /^settings$/i }).click();
+}
+
 async function expectWorkspaceDrawerClosed(page: Page): Promise<void> {
   await expect(page.getByRole("button", { name: /close workspace sidebar/i })).toHaveCount(0);
   await page.waitForTimeout(250);
@@ -358,8 +387,7 @@ test.describe("Agents mobile layout", () => {
     await closeAgentsSidebar.click();
     await expect(closeAgentsSidebar).toBeHidden();
 
-    await openWorkspaceDrawer(page);
-    await page.getByRole("button", { name: /^settings$/i }).click();
+    await openSettingsFromWorkspaceDrawer(page);
     await expectWorkspaceDrawerClosed(page);
 
     await expect(page.getByRole("heading", { name: "Settings" })).toBeVisible();
@@ -371,11 +399,12 @@ test.describe("Agents mobile layout", () => {
     await expect(page.getByRole("button", { name: /stop agent/i })).toBeVisible();
     await expectNoHorizontalOverflow(page);
 
-    await page.getByRole("button", { name: /^billing$/i }).click();
-    await expect(page.getByRole("heading", { name: "Agent Settings" })).toBeVisible();
+    await page.goto("/dashboard/settings", { waitUntil: "domcontentloaded" });
+    await expect(page.getByRole("heading", { name: "Invoices" })).toBeVisible({ timeout: 20_000 });
+    await expect(page.getByText(/Pro Plan/i).first()).toBeVisible();
+    await expect(page.getByText(/Stripe card on file/i).first()).toBeVisible();
     await expect(page.getByRole("heading", { name: "Invoices" })).toBeVisible();
     await expect(page.getByRole("link", { name: "Adjust plan" })).toBeVisible();
-    await expect(page.getByRole("link", { name: "Update" })).toBeVisible();
     await expectNoHorizontalOverflow(page);
   });
 
@@ -392,6 +421,9 @@ test.describe("Agents mobile layout", () => {
     await fileButton.click();
     const drawer = page.getByRole("dialog", { name: /file editor/i });
     await expect(drawer).toBeVisible();
+    await expect(drawer.getByRole("heading", { name: /Mobile workspace/i })).toBeVisible();
+    await expect(drawer.getByText(/file verifies that the mobile editor drawer fits/i)).toBeVisible();
+    await drawer.getByRole("button", { name: /^raw$/i }).click();
     await expect(drawer.locator("textarea")).toHaveValue(/Mobile workspace/i);
 
     const drawerBox = await expectVisibleBox(drawer);

@@ -1482,6 +1482,30 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
   const token = await getClawAuthToken(page);
   const deployments = await getDeploymentsClient(token);
 
+  const waitForAgentDashboardFetches = async (): Promise<void> => {
+    const requiredPaths = new Set([
+      "/agents/deployments",
+      "/agents/plans",
+      "/agents/plans/current",
+      "/agents/subscriptions/summary",
+      "/agents/types",
+      "/agents/usage/history",
+    ]);
+
+    await Promise.all(
+      Array.from(requiredPaths).map((requiredPath) =>
+        page.waitForResponse(
+          (response) => {
+            if (!response.ok()) return false;
+            const url = new URL(response.url());
+            return url.pathname === requiredPath;
+          },
+          { timeout: 120_000 }
+        )
+      )
+    );
+  };
+
   const findLastVisible = async (locator: Locator, timeoutMs = 2_000): Promise<Locator | null> => {
     const deadline = Date.now() + timeoutMs;
     do {
@@ -1497,21 +1521,28 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     return null;
   };
 
+  const dashboardFetches = waitForAgentDashboardFetches();
   await page.goto("/dashboard/agents", { waitUntil: "domcontentloaded" });
-  await expect(page.getByText("Loading agents", { exact: true })).not.toBeVisible({ timeout: 90_000 });
+  await dashboardFetches;
+  await expect(page.getByRole("status", { name: /Loading agents/i })).not.toBeVisible({ timeout: 90_000 });
+  await expect(
+    page.locator("main").getByText(/Checking your workspace before selecting an agent/i).first()
+  ).not.toBeVisible({ timeout: 90_000 });
 
   const createButton = page.locator("main").locator("button").filter({ hasText: /Create an agent/i }).last();
+  const launchAgentButton = page.locator("main").getByRole("button", { name: /^launch agent$/i });
   const launchFirstAgentButton = page
     .locator("main")
     .locator("section, [data-testid='agent-empty-state']")
     .getByRole("button", { name: /^launch agent$/i })
     .last();
-  const launcherEntryButton = (await createButton.isVisible({ timeout: 30_000 }).catch(() => false))
-    ? createButton
-    : launchFirstAgentButton;
-  await expect(launcherEntryButton).toBeVisible({ timeout: 30_000 });
+  const launcherEntryButton =
+    await findLastVisible(createButton, 30_000) ??
+    await findLastVisible(launchAgentButton, 30_000) ??
+    await findLastVisible(launchFirstAgentButton, 30_000);
+  expect(launcherEntryButton, "expected a visible launch/create agent entry button").not.toBeNull();
   await captureStep(page, "agents-10-dashboard");
-  await launcherEntryButton.click();
+  await launcherEntryButton!.click();
 
   const wizardSurface = page
     .locator("main, [role='dialog'], section")
@@ -1550,12 +1581,30 @@ export async function launchClawAgentAndWaitForGateway(page: Page, timeout = 240
     await captureStep(page, "agents-11-created-opened");
 
     const composer = page.getByRole("textbox", { name: /Message agent/i }).first();
-    await expect(composer).toBeVisible({ timeout: 60_000 });
-    await expect(composer).toBeEnabled({ timeout: 60_000 });
-    await expect(page.getByText("Ready", { exact: true }).first()).toBeVisible({ timeout: 60_000 });
-    await expect(
-      page.getByText("Connecting to gateway...", { exact: true }).first()
-    ).not.toBeVisible({ timeout: 60_000 });
+    const readyStatus = page.getByText("Ready", { exact: true }).first();
+    const connectingStatus = page
+      .locator("main")
+      .getByText(/Connecting|Preparing chat|Loading workspace|Fetching messages/i)
+      .first();
+    await expect
+      .poll(
+        async () => {
+          const composerVisible = await composer.isVisible().catch(() => false);
+          const composerEnabled = composerVisible ? await composer.isEnabled().catch(() => false) : false;
+          const readyVisible = await readyStatus.isVisible().catch(() => false);
+          if (composerVisible && composerEnabled && readyVisible) {
+            return "ready";
+          }
+          const waitingText = await connectingStatus.textContent({ timeout: 500 }).catch(() => "");
+          return waitingText ? `waiting:${waitingText.trim()}` : "waiting";
+        },
+        { timeout: 180_000, intervals: [1_000, 2_000, 5_000] }
+      )
+      .toBe("ready");
+    await expect(composer).toBeVisible({ timeout: 5_000 });
+    await expect(composer).toBeEnabled({ timeout: 5_000 });
+    await expect(readyStatus).toBeVisible({ timeout: 5_000 });
+    await expect(connectingStatus).not.toBeVisible({ timeout: 5_000 });
     await captureStep(page, "agents-12-gateway-connected");
 
     return created;

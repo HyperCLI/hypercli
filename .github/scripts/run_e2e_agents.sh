@@ -231,6 +231,7 @@ wait_for_url "${TEST_BASE_URL}" "Claw" "${CLAW_LOG}" "${CLAW_PID}"
 set +e
 npx playwright test \
   --config tests/claw/playwright.config.ts \
+  --workers=1 \
   tests/claw/agents-subscription.spec.ts \
   tests/claw/agents-mobile.spec.ts
 status=$?
