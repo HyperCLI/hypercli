@@ -72,6 +72,14 @@ def test_agent_transcribe_command_is_removed():
     assert "No such command 'transcribe'" in result.stdout
 
 
+def test_agent_voice_transcribe_command_is_registered():
+    result = runner.invoke(app, ["agent", "voice", "--help"])
+
+    assert result.exit_code == 0
+    assert "Voice commands" in result.stdout
+    assert "transcribe" in result.stdout
+
+
 def test_voice_tts_forwards_timeout(monkeypatch, tmp_path):
     import hypercli_cli.voice as voice
 
