@@ -104,7 +104,7 @@ class GatewayWS {
             method: "connect",
             params: {
               minProtocol: 3,
-              maxProtocol: 3,
+              maxProtocol: 4,
               client: { id: "hypercli-console", version: "1.0.3", platform: "browser", mode: "webchat" },
               auth: { token: "traefik-forwarded-auth-not-used" },
               role: "operator",

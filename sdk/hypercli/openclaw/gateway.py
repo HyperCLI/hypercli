@@ -28,7 +28,8 @@ from nacl.signing import SigningKey
 from websockets.asyncio.client import ClientConnection
 
 
-PROTOCOL_VERSION = 3
+MIN_PROTOCOL_VERSION = 3
+PROTOCOL_VERSION = 4
 DEFAULT_TIMEOUT = 15.0
 CHAT_TIMEOUT = 120.0
 INITIAL_RECONNECT_DELAY = 0.8
@@ -967,7 +968,7 @@ class GatewayClient:
         )
         request_id = str(uuid.uuid4())
         params: dict[str, Any] = {
-            "minProtocol": PROTOCOL_VERSION,
+            "minProtocol": MIN_PROTOCOL_VERSION,
             "maxProtocol": PROTOCOL_VERSION,
             "client": {
                 "id": self.client_id,
@@ -1552,10 +1553,18 @@ class GatewayClient:
 
             state = str(payload.get("state") or "").lower()
             current_text = _extract_message_text(payload.get("message"))
+            current_delta_text = str(payload.get("deltaText") or "")
             normalized_message = normalize_gateway_chat_message(payload.get("message"))
             if state == "delta":
                 deadline = asyncio.get_running_loop().time() + self.chat_timeout
-                delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
+                if current_text:
+                    delta_text, last_legacy_text = _stream_delta(last_legacy_text, current_text)
+                else:
+                    delta_text = current_delta_text
+                    if delta_text:
+                        last_legacy_text = (
+                            delta_text if payload.get("replace") else last_legacy_text + delta_text
+                        )
                 if delta_text:
                     streamed_display_text = True
                     yield ChatEvent(type="content", text=delta_text, data=payload)

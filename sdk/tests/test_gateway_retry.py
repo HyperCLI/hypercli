@@ -72,6 +72,8 @@ async def test_connect_retries_transient_503(monkeypatch: pytest.MonkeyPatch) ->
     while not connection.sent:
         await asyncio.sleep(0)
     request = connection.sent[0]
+    assert request["params"]["minProtocol"] == 3
+    assert request["params"]["maxProtocol"] == 4
     connection.push(
         {
             "type": "res",

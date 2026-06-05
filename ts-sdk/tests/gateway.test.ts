@@ -194,6 +194,8 @@ describe("GatewayClient", () => {
     const { client, request } = await connectClient();
 
     expect(request.method).toBe("connect");
+    expect(request.params.minProtocol).toBe(3);
+    expect(request.params.maxProtocol).toBe(4);
     expect(request.params.client.id).toBe("cli");
     expect(request.params.client.mode).toBe("cli");
     expect(request.params.role).toBe("operator");
@@ -618,6 +620,59 @@ describe("GatewayClient", () => {
       event: "chat",
       payload: {
         runId: "legacy-run-1",
+        sessionKey: "main",
+        state: "final",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["content", "content", "done"]);
+    expect(events.filter((event) => event.type === "content").map((event) => event.text).join("")).toBe("Hello world");
+  });
+
+  it("chatSend streams v4 chat deltaText without message snapshots", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockResolvedValue({ runId: "delta-text-run-1" });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Say hello", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "delta-text-run-1",
+        sessionKey: "main",
+        state: "delta",
+        deltaText: "Hello ",
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "delta-text-run-1",
+        sessionKey: "main",
+        state: "delta",
+        deltaText: "world",
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat",
+      payload: {
+        runId: "delta-text-run-1",
         sessionKey: "main",
         state: "final",
       },

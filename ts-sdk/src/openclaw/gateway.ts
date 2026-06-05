@@ -4,7 +4,7 @@
  * Connects to an agent's OpenClaw gateway over WebSocket for real-time
  * configuration, chat, session management, and file operations.
  *
- * Protocol: OpenClaw Gateway v3
+ * Protocol: OpenClaw Gateway v3-v4
  */
 
 import { getPublicKeyAsync, signAsync, utils as edUtils } from "@noble/ed25519";
@@ -220,7 +220,8 @@ class GatewayRequestError extends Error {
   }
 }
 
-const PROTOCOL_VERSION = 3;
+const MIN_PROTOCOL_VERSION = 3;
+const PROTOCOL_VERSION = 4;
 const DEFAULT_TIMEOUT = 15_000;
 const CHAT_TIMEOUT = 120_000;
 const RECONNECT_CLOSE_CODE = 4008;
@@ -1773,7 +1774,7 @@ export class GatewayClient {
       const signature = await signDevicePayload(identity.privateKey, payload);
 
       const params: Record<string, any> = {
-        minProtocol: PROTOCOL_VERSION,
+        minProtocol: MIN_PROTOCOL_VERSION,
         maxProtocol: PROTOCOL_VERSION,
         client: {
           id: this.clientId,
@@ -2453,9 +2454,19 @@ export class GatewayClient {
 
         const state = typeof payload.state === "string" ? payload.state.trim().toLowerCase() : "";
         const currentText = extractMessageText(payload.message) ?? "";
+        const currentDeltaText = typeof payload.deltaText === "string" ? payload.deltaText : "";
         const normalizedMessage = normalizeGatewayChatMessage(payload.message);
         if (state === "delta") {
-          const streamed = streamDelta(lastLegacyText, currentText);
+          const streamed = currentText
+            ? streamDelta(lastLegacyText, currentText)
+            : {
+                delta: currentDeltaText,
+                nextText: currentDeltaText
+                  ? payload.replace === true
+                    ? currentDeltaText
+                    : lastLegacyText + currentDeltaText
+                  : lastLegacyText,
+              };
           lastLegacyText = streamed.nextText;
           if (streamed.delta) {
             streamedDisplayText = true;

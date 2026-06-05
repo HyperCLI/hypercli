@@ -69,6 +69,8 @@ async def test_connection_state_transitions(monkeypatch: pytest.MonkeyPatch) -> 
     while not first.sent:
         await asyncio.sleep(0)
     connect_request = first.sent[0]
+    assert connect_request["params"]["minProtocol"] == 3
+    assert connect_request["params"]["maxProtocol"] == 4
     first.push({
         "type": "res",
         "id": connect_request["id"],
@@ -154,6 +156,8 @@ async def test_connect_auto_approves_pairing_and_reconnects(monkeypatch: pytest.
     while not second.sent:
         await asyncio.sleep(0)
     reconnect_request = second.sent[0]
+    assert reconnect_request["params"]["minProtocol"] == 3
+    assert reconnect_request["params"]["maxProtocol"] == 4
     second.push(
         {
             "type": "res",
@@ -241,6 +245,8 @@ async def test_connect_treats_unknown_request_id_as_concurrent_pairing_approval(
     while not second.sent:
         await asyncio.sleep(0)
     reconnect_request = second.sent[0]
+    assert reconnect_request["params"]["minProtocol"] == 3
+    assert reconnect_request["params"]["maxProtocol"] == 4
     second.push(
         {
             "type": "res",
@@ -447,6 +453,65 @@ async def test_chat_send_streams_legacy_chat_events_and_treats_final_without_mes
                     "sessionKey": "main",
                     "state": "delta",
                     "message": {"role": "assistant", "content": [{"type": "text", "text": "Hello world"}]},
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "final",
+                },
+            }
+        )
+
+    producer = asyncio.create_task(produce())
+    chunks = [event async for event in client.chat_send("Say hello")]
+    await producer
+
+    assert [chunk.type for chunk in chunks] == ["content", "content", "done"]
+    assert "".join(chunk.text or "" for chunk in chunks if chunk.type == "content") == "Hello world"
+
+
+@pytest.mark.asyncio
+async def test_chat_send_streams_v4_chat_delta_text_without_message_snapshots() -> None:
+    client = GatewayClient(url="wss://openclaw-agent.example")
+    client._connected = True
+    server_run_id = "delta-text-run-1"
+
+    async def fake_call(method: str, params: dict | None = None, timeout: float | None = None):
+        if method == "chat.send":
+            return {"runId": server_run_id}
+        raise AssertionError(f"Unexpected RPC {method}")
+
+    client.call = fake_call  # type: ignore[method-assign]
+
+    async def produce() -> None:
+        await asyncio.sleep(0)
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "delta",
+                    "deltaText": "Hello ",
+                },
+            }
+        )
+        client._event_queue.put_nowait(
+            {
+                "type": "event",
+                "event": "chat",
+                "payload": {
+                    "runId": server_run_id,
+                    "sessionKey": "main",
+                    "state": "delta",
+                    "deltaText": "world",
                 },
             }
         )
