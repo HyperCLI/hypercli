@@ -83,7 +83,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
   const day = journey.currentDay;
 
   const dayComplete = day ? journey.completedIds.has(day.id) : false;
-  const progressLabel = `${journey.completedCount} of ${journey.days.length} days shaped`;
+  const progressLabel = `${journey.completedCount} of ${journey.days.length} missions complete`;
   const positionedClassName = position ? "" : journey.panelOpen ? "bottom-3 right-3 sm:bottom-5 sm:right-5" : "bottom-4 right-4 sm:bottom-5 sm:right-5";
   const floatingStyle = position ? { left: position.left, top: position.top } : undefined;
   const setFloatingRef = useCallback((node: HTMLElement | null) => {
@@ -198,11 +198,11 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
         }}
         style={floatingStyle}
         className={`fixed ${positionedClassName} z-50 inline-flex touch-none items-center gap-2 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[#101011]/95 px-3.5 py-2 text-sm font-semibold text-[var(--selection-accent)] shadow-[0_18px_56px_rgba(0,0,0,0.38)] backdrop-blur transition-colors hover:bg-[#171719] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.55)] ${dragging ? "cursor-grabbing" : "cursor-grab"}`}
-        aria-label={`Open Journey Day ${day.day}`}
+        aria-label={`Open Journey mission ${day.day}`}
         title="Drag to move. Click to open Journey."
       >
         <Sparkles className="h-4 w-4" />
-        <span>Journey - Day {day.day}</span>
+        <span>Journey · Mission {day.day}</span>
       </button>
     );
   }
@@ -273,7 +273,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
             </div>
           </div>
 
-          <div className="mt-4 flex items-center gap-1.5" aria-label="Journey days">
+          <div className="mt-4 flex items-center gap-1.5" aria-label="Journey missions">
             {journey.days.map((entry) => {
               const selected = entry.id === day.id;
               const complete = journey.completedIds.has(entry.id);
@@ -282,7 +282,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
                   key={entry.id}
                   type="button"
                   onClick={() => journey.selectDay(entry.id)}
-                  aria-label={`Open Journey day ${entry.day}: ${entry.title}`}
+                  aria-label={`Open Journey mission ${entry.day}: ${entry.title}`}
                   aria-current={selected ? "step" : undefined}
                   className={`h-2 flex-1 rounded-full transition-colors ${
                     complete
@@ -300,14 +300,14 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
             <div className="flex items-start justify-between gap-3">
               <div>
                 <p className="text-xs font-semibold uppercase tracking-[0.12em] text-[var(--selection-accent)]">
-                  Day {day.day} of {journey.days.length}
+                  Mission {day.day} of {journey.days.length}
                 </p>
                 <h2 className="mt-1 text-lg font-semibold leading-tight text-foreground">{day.title}</h2>
               </div>
               {dayComplete && (
                 <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-2 py-1 text-xs font-semibold text-[var(--selection-accent)]">
                   <CheckCircle2 className="h-3.5 w-3.5" />
-                  Shaped
+                  Added
                 </span>
               )}
             </div>
@@ -316,7 +316,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
             <p className="mt-2 text-sm leading-6 text-text-secondary">{day.why}</p>
 
             <div className="mt-4 rounded-xl border border-white/8 bg-black/20 p-3">
-              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Agent brief focus</p>
+              <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-text-muted">Agent Brief</p>
               <div className="mt-2 flex flex-wrap gap-1.5">
                 {day.briefFocus.map((item) => (
                   <span key={item} className="rounded-full border border-white/10 bg-white/[0.035] px-2 py-1 text-xs font-medium text-text-secondary">
@@ -337,8 +337,9 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
             ) : null}
 
             {receiptIsCurrent(day, journey) && journey.lastReceipt ? (
-              <div className="mt-4 rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-2 text-sm leading-5 text-[var(--selection-accent)]">
-                {journey.lastReceipt.text}
+              <div className="mt-4 rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-2.5">
+                <p className="text-[11px] font-semibold uppercase tracking-[0.14em] text-[var(--selection-accent)]">Receipt</p>
+                <p className="mt-1 text-sm leading-5 text-[var(--selection-accent)]">{journey.lastReceipt.text}</p>
               </div>
             ) : null}
 
@@ -357,7 +358,7 @@ export function JourneyFloatingPanel({ journey, onRunDayAction }: JourneyFloatin
                   onClick={() => journey.skipDay(day.id)}
                   className="h-9 rounded-full px-3 text-sm font-medium text-text-muted transition-colors hover:bg-white/8 hover:text-foreground"
                 >
-                  Skip for now
+                  Not now
                 </button>
               )}
             </div>

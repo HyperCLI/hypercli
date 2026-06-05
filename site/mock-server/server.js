@@ -180,6 +180,7 @@ const mockData = {
   plans: new Map(),
   subscriptions: new Map(),
   payments: new Map(),
+  cronJobs: new Map(),
 };
 
 // Initialize with some fake data
@@ -198,6 +199,37 @@ function initializeData() {
   presetAgents.forEach((preset) => {
     const agent = generateAgent(preset);
     mockData.agents.set(agent.id, agent);
+  });
+
+  mockData.cronJobs.set('cron-daily-summary', {
+    id: 'cron-daily-summary',
+    name: 'Daily activity summary',
+    sessionTarget: { sessionKey: 'main' },
+    schedule: { cron: '0 9 * * *' },
+    payload: { kind: 'message', text: 'Generate a daily summary of yesterday\'s activity and email it to me.', deliver: false },
+    enabled: true,
+    lastRun: Date.now() - 1000 * 60 * 60 * 18,
+    nextRun: Date.now() + 1000 * 60 * 60 * 6,
+  });
+  mockData.cronJobs.set('cron-weekly-report', {
+    id: 'cron-weekly-report',
+    name: 'Weekly progress report',
+    sessionTarget: { sessionKey: 'main' },
+    schedule: { cron: '0 10 * * 1' },
+    payload: { kind: 'message', text: 'Compile a weekly progress report from project notes.', deliver: false },
+    enabled: true,
+    lastRun: Date.now() - 1000 * 60 * 60 * 24 * 4,
+    nextRun: Date.now() + 1000 * 60 * 60 * 24 * 3,
+  });
+  mockData.cronJobs.set('cron-cleanup', {
+    id: 'cron-cleanup',
+    name: 'Weekly cleanup',
+    sessionTarget: { sessionKey: 'main' },
+    schedule: { cron: '0 3 * * 0' },
+    payload: { kind: 'message', text: 'Clean up temp files and old log entries.', deliver: false },
+    enabled: false,
+    lastRun: Date.now() - 1000 * 60 * 60 * 24 * 14,
+    nextRun: Date.now() + 1000 * 60 * 60 * 24 * 4,
   });
 
   // Create some API keys
@@ -840,6 +872,10 @@ function startBackgroundActivity(ws) {
 
 function gwResponse(ws, id, payload) {
   ws.send(JSON.stringify({ type: 'res', id, ok: true, payload: payload || {} }));
+}
+
+function gwError(ws, id, error) {
+  ws.send(JSON.stringify({ type: 'res', id, ok: false, error }));
 }
 
 /**
@@ -1960,46 +1996,60 @@ wss.on('connection', (ws, req) => {
       // ---- Cron ----
       case 'cron.list':
         gwResponse(ws, id, {
-          jobs: [
-            {
-              id: 'cron-daily-summary',
-              schedule: '0 9 * * *',
-              prompt: 'Generate a daily summary of yesterday\'s activity and email it to me.',
-              description: 'Daily activity summary',
-              enabled: true,
-              lastRun: Date.now() - 1000 * 60 * 60 * 18,
-              nextRun: Date.now() + 1000 * 60 * 60 * 6,
-            },
-            {
-              id: 'cron-weekly-report',
-              schedule: '0 10 * * 1',
-              prompt: 'Compile a weekly progress report from project notes.',
-              description: 'Weekly progress report',
-              enabled: true,
-              lastRun: Date.now() - 1000 * 60 * 60 * 24 * 4,
-              nextRun: Date.now() + 1000 * 60 * 60 * 24 * 3,
-            },
-            {
-              id: 'cron-cleanup',
-              schedule: '0 3 * * 0',
-              prompt: 'Clean up temp files and old log entries.',
-              description: 'Weekly cleanup',
-              enabled: false,
-              lastRun: Date.now() - 1000 * 60 * 60 * 24 * 14,
-              nextRun: Date.now() + 1000 * 60 * 60 * 24 * 4,
-            },
-          ],
+          jobs: Array.from(mockData.cronJobs.values()),
         });
         break;
 
-      case 'cron.add':
-        gwResponse(ws, id, { jobId: `cron-${uuidv4().slice(0, 8)}` });
+      case 'cron.add': {
+        const job = message.params || {};
+        if (!job.sessionTarget || !job.payload || !job.schedule || typeof job.command === 'string' || typeof job.schedule === 'string') {
+          gwError(ws, id, 'invalid cron.add params: must include sessionTarget, object schedule, and payload');
+          break;
+        }
+        const jobId = typeof job.id === 'string' && job.id ? job.id : `cron-${uuidv4().slice(0, 8)}`;
+        const schedule = job.schedule && typeof job.schedule === 'object' ? job.schedule : {};
+        const payload = job.payload && typeof job.payload === 'object' ? job.payload : {};
+        const sessionTarget = job.sessionTarget && typeof job.sessionTarget === 'object' ? job.sessionTarget : {};
+        const targetSessionKey = typeof sessionTarget.sessionKey === 'string' ? sessionTarget.sessionKey.trim() : '';
+        const cron = typeof schedule.cron === 'string' ? schedule.cron.trim() : '';
+        const text = typeof payload.text === 'string' ? payload.text : '';
+        if (!targetSessionKey || !cron || !text || payload.kind !== 'message' || payload.deliver !== false || typeof payload.message === 'string' || typeof payload.sessionKey === 'string') {
+          gwError(ws, id, 'invalid cron.add params: sessionTarget.sessionKey, schedule.cron, and payload { kind: message, text, deliver: false } are required');
+          break;
+        }
+        const nextJob = {
+          id: jobId,
+          name: typeof job.name === 'string' ? job.name : 'Scheduled job',
+          sessionTarget: { sessionKey: targetSessionKey },
+          schedule: { cron },
+          payload: { kind: 'message', text, deliver: false },
+          enabled: job.enabled !== false,
+          nextRun: Date.now() + 1000 * 60 * 60,
+        };
+        mockData.cronJobs.set(jobId, nextJob);
+        gwResponse(ws, id, { jobId, job: nextJob });
         break;
+      }
 
-      case 'cron.remove':
-      case 'cron.run':
+      case 'cron.remove': {
+        const jobId = message.params?.jobId;
+        if (typeof jobId === 'string') mockData.cronJobs.delete(jobId);
         gwResponse(ws, id, { ok: true });
         break;
+      }
+
+      case 'cron.run': {
+        const jobId = message.params?.jobId;
+        const job = typeof jobId === 'string' ? mockData.cronJobs.get(jobId) : null;
+        if (job) {
+          mockData.cronJobs.set(job.id, {
+            ...job,
+            lastRun: Date.now(),
+          });
+        }
+        gwResponse(ws, id, { ok: true });
+        break;
+      }
 
       case 'cron.patch':
         gwResponse(ws, id, { ok: true });

@@ -500,6 +500,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(props.onOpenIntegrations).toHaveBeenCalledTimes(1);
     expect(props.onOpenSkills).toHaveBeenCalledTimes(1);
     expect(props.onOpenScheduled).toHaveBeenCalledTimes(1);
+    expect(props.onOpenScheduled).toHaveBeenCalledWith();
   });
 
   it("keeps the upgrade action available while the workspace is disabled", () => {

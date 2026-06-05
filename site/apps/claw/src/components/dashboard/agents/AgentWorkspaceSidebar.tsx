@@ -117,7 +117,7 @@ function WorkspaceButton({
         <TooltipTrigger asChild>
           <button
             type="button"
-            onClick={disabled ? undefined : item.onClick}
+            onClick={disabled ? undefined : () => item.onClick()}
             disabled={disabled}
             aria-label={item.label}
             aria-disabled={disabled}
@@ -134,7 +134,7 @@ function WorkspaceButton({
   return (
     <button
       type="button"
-      onClick={disabled ? undefined : item.onClick}
+      onClick={disabled ? undefined : () => item.onClick()}
       disabled={disabled}
       aria-disabled={disabled}
       aria-busy={item.busy || undefined}

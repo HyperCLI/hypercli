@@ -39,12 +39,6 @@ vi.mock("@/components/dashboard/agents/AgentPanels", () => {
     AgentFilesEmptyState: emptyStateButton("Files empty state", "Launch files agent"),
     AgentIntegrationsEmptyState: emptyStateButton("Integrations empty state", "Launch integrations agent"),
     AgentSkillsEmptyState: emptyStateButton("Skills empty state", "Launch skills agent"),
-    AgentScheduledEmptyState: () => (
-      <section aria-label="Scheduled coming soon">
-        <p>Coming Soon</p>
-        <p>Your work, on autopilot</p>
-      </section>
-    ),
     LaunchFirstAgentEmptyState: emptyStateButton("First agent empty state", "Create an agent"),
   };
 });
@@ -250,7 +244,7 @@ describe("AgentMainPanel", () => {
     expect(onStart).toHaveBeenCalledTimes(1);
   });
 
-  it("shows the scheduled coming soon panel without a start CTA", () => {
+  it("shows scheduled panel content without a start CTA", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
     renderAgentMainPanel({
       selectedAgent,
@@ -260,10 +254,7 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Live panel</div>,
     });
 
-    expect(screen.getByRole("region", { name: /scheduled coming soon/i })).toBeInTheDocument();
-    expect(screen.getByText("Coming Soon")).toBeInTheDocument();
-    expect(screen.getByText("Your work, on autopilot")).toBeInTheDocument();
-    expect(screen.queryByText("Live panel")).not.toBeInTheDocument();
+    expect(screen.getByText("Live panel")).toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
   });
 

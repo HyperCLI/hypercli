@@ -7,7 +7,7 @@ import type { Agent } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
 import { agentAvatar } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
-import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentScheduledEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
+import { AgentEmptyState, AgentFilesEmptyState, AgentIntegrationsEmptyState, AgentSkillsEmptyState, LaunchFirstAgentEmptyState } from "@/components/dashboard/agents/AgentPanels";
 import { AgentLaunchPrompt, AgentLoadingState, AgentStatusChip, ConnectionStatusIndicator, type AgentStatusChipModel, type CenterPanel } from "@/components/dashboard/agents/page-helpers";
 import type { ShellStatus } from "@/hooks/useAgentShell";
 import type { SlotInventory } from "@/lib/format";
@@ -261,7 +261,7 @@ export function AgentMainPanel({
     }
 
     if (currentPanel === "scheduled") {
-      return <AgentScheduledEmptyState {...stoppedEmptyStateProps} />;
+      return panelContent;
     }
 
     if (stoppedPanelContent) {

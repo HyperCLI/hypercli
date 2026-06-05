@@ -40,7 +40,7 @@ export interface AgentSlashCommandActions {
   onOpenFiles?: (path?: string) => void;
   onOpenConfig?: () => void;
   onOpenIntegrations?: () => void;
-  onOpenScheduled?: () => void;
+  onOpenScheduled?: (draft?: string) => void;
   onOpenLogs?: () => void;
   onOpenShell?: () => void;
   onOpenPlans?: () => void | Promise<void>;
@@ -119,8 +119,6 @@ const PROMPTS = {
   handoff: "Create a concise handoff for another operator continuing this work.",
   diff: "Review workspace changes and summarize the diff.",
 };
-const SCHEDULE_COMMANDS_DISABLED_REASON = "Scheduled work is coming soon.";
-
 function slashInput(input: string): string | null {
   const trimmedStart = input.trimStart();
   if (!trimmedStart.startsWith("/") || trimmedStart.startsWith("//")) return null;
@@ -588,18 +586,15 @@ function buildSlashCommands(): SlashCommand[] {
       category: "Schedule",
       mode: "ui",
       Icon: CalendarClock,
-      isEnabled: () => SCHEDULE_COMMANDS_DISABLED_REASON,
-      run: ({ actions, args, chat, setStatus, close }) => {
-        if (args) {
-          chat.setInput(`Create a scheduled task for this agent: ${args}. Ask me to confirm the schedule before saving it.`);
-          close();
-          return;
-        }
+      isEnabled: ({ actions }) => actions.onOpenScheduled ? true : "Scheduled work is unavailable here.",
+      run: ({ actions, args, chat, setStatus, close, showFeedback }) => {
         if (!actions.onOpenScheduled) {
           setStatus("Scheduled work is unavailable here.");
           return;
         }
-        actions.onOpenScheduled();
+        const draft = args.trim();
+        showFeedback(draft ? "Scheduled draft opened." : "Scheduled opened.");
+        actions.onOpenScheduled(draft || undefined);
         chat.setInput("");
         close();
       },
@@ -612,7 +607,8 @@ function buildSlashCommands(): SlashCommand[] {
       category: "Schedule",
       mode: "confirm",
       Icon: Play,
-      isEnabled: () => SCHEDULE_COMMANDS_DISABLED_REASON,
+      requiresRunningAgent: true,
+      isEnabled: ({ chat }) => chat.connected ? true : "Connect the gateway before running scheduled jobs.",
       confirm: ({ args }) => {
         const jobId = args.trim();
         return jobId ? {
@@ -628,6 +624,7 @@ function buildSlashCommands(): SlashCommand[] {
           return;
         }
         await chat.runCron(jobId);
+        await chat.refreshCron();
         chat.setInput("");
         showFeedback("Scheduled job run requested.");
         close();
@@ -642,7 +639,8 @@ function buildSlashCommands(): SlashCommand[] {
       mode: "confirm",
       Icon: Trash2,
       danger: true,
-      isEnabled: () => SCHEDULE_COMMANDS_DISABLED_REASON,
+      requiresRunningAgent: true,
+      isEnabled: ({ chat }) => chat.connected ? true : "Connect the gateway before removing scheduled jobs.",
       confirm: ({ args }) => {
         const jobId = args.trim();
         return jobId ? {

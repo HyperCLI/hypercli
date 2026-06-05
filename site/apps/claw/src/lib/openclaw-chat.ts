@@ -229,12 +229,34 @@ function isInternalHeartbeatControlPromptText(text: string): boolean {
   return INTERNAL_HEARTBEAT_CONTROL_PROMPT_DETAILS.some((marker) => marker.test(trimmed));
 }
 
+const CRON_ASSISTANT_UUID_ENVELOPE = /^\s*\[cron:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}(?:\s+[^\]]*)?\]\s*/i;
+const CRON_ASSISTANT_CONTEXTUAL_ENVELOPE = /^\s*\[cron:[^\]\n<]{1,240}(?:\]|(?=<system-reminder>))\s*/i;
+const CRON_USER_MESSAGE_PREFIX = /^\s*\[cron/i;
+const CRON_DELIVERY_REMINDER = /Return your response as plain text; it will be delivered automatically\.\s*If the task explicitly calls for messaging a specific external recipient, note who\/where it should go instead of sending it yourself\.?/i;
+const SYSTEM_REMINDER_TAG = /<system-reminder>[\s\S]*?<\/system-reminder>/i;
+
+function hasCronAssistantEnvelope(text: string): boolean {
+  if (CRON_ASSISTANT_UUID_ENVELOPE.test(text)) return true;
+  if (!CRON_ASSISTANT_CONTEXTUAL_ENVELOPE.test(text)) return false;
+  return SYSTEM_REMINDER_TAG.test(text) || CRON_DELIVERY_REMINDER.test(text);
+}
+
+function stripCronInstructionLeak(text: string): string {
+  if (!hasCronAssistantEnvelope(text)) return text;
+  return "";
+}
+
+function isCronUserControlMessage(text: string): boolean {
+  return CRON_USER_MESSAGE_PREFIX.test(text);
+}
+
 function isInternalExecutionOutputLine(line: string): boolean {
   return INTERNAL_EXECUTION_OUTPUT_MARKERS.some((marker) => marker.test(line.trim()));
 }
 
 function stripInternalAssistantContent(text: string): string {
-  const lines = text.replace(/\r\n/g, "\n").split("\n");
+  const withoutCronInstructions = stripCronInstructionLeak(text);
+  const lines = withoutCronInstructions.replace(/\r\n/g, "\n").split("\n");
   const visible: string[] = [];
   let strippedInternalBlock = false;
 
@@ -676,6 +698,9 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
   const rawSanitizedContent = sanitizeChatDisplayText(
     userContent.content,
   ).trim();
+  if (role === "user" && isCronUserControlMessage(rawSanitizedContent)) {
+    return null;
+  }
   const content = role === "assistant" ? stripInternalAssistantContent(rawSanitizedContent) : rawSanitizedContent;
   if (isInternalHeartbeatControlPromptText(content)) {
     return null;

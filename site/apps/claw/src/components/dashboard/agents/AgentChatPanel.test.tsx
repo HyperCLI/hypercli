@@ -561,7 +561,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getAllByText("Agent is already running.")).toHaveLength(2);
   });
 
-  it("keeps scheduled slash commands disabled as coming soon", async () => {
+  it("opens scheduled work from the slash command menu", async () => {
     const setInput = vi.fn();
     const onOpenScheduled = vi.fn();
     renderAgentChatPanel({
@@ -577,19 +577,96 @@ describe("AgentChatPanel", () => {
       slashCommandActions: { onOpenScheduled },
     });
 
-    for (const commandName of [/\/schedule/i, /\/run/i, /\/unschedule/i]) {
-      const command = screen.getByRole("option", { name: commandName });
-      expect(command).toHaveAttribute("aria-disabled", "true");
-      expect(within(command).getByText("Scheduled work is coming soon.")).toBeInTheDocument();
-    }
+    const command = screen.getByRole("option", { name: /\/schedule/i });
+    expect(command).not.toHaveAttribute("aria-disabled", "true");
 
     await act(async () => {
-      fireEvent.click(screen.getByRole("option", { name: /\/schedule/i }));
+      fireEvent.click(command);
     });
 
-    expect(onOpenScheduled).not.toHaveBeenCalled();
-    expect(setInput).not.toHaveBeenCalledWith("");
-    expect(screen.getAllByText("Scheduled work is coming soon.").length).toBeGreaterThan(3);
+    expect(onOpenScheduled).toHaveBeenCalledTimes(1);
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /scheduled opened/i })).toBeInTheDocument();
+  });
+
+  it("passes schedule slash command text into the scheduled draft", async () => {
+    const setInput = vi.fn();
+    const onOpenScheduled = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/schedule Every weekday at 9am, send a standup digest",
+        setInput,
+      }),
+      isSelectedRunning: true,
+      slashCommandActions: { onOpenScheduled },
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(onOpenScheduled).toHaveBeenCalledWith("Every weekday at 9am, send a standup digest");
+    expect(setInput).toHaveBeenCalledWith("");
+    expect(screen.getByRole("status", { name: /scheduled draft opened/i })).toBeInTheDocument();
+  });
+
+  it("runs and removes scheduled jobs from slash commands", async () => {
+    const setInput = vi.fn();
+    const runCron = vi.fn(async () => undefined);
+    const removeCron = vi.fn(async () => undefined);
+    const refreshCron = vi.fn(async () => undefined);
+
+    const runChat = buildChat({
+      status: "connected",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+      input: "/run job-1",
+      setInput,
+      runCron,
+      refreshCron,
+    });
+    const { rerender } = renderAgentChatPanel({ chat: runChat, isSelectedRunning: true });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+    expect(screen.getByRole("heading", { name: "Run scheduled job" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Run" }));
+    });
+
+    expect(runCron).toHaveBeenCalledWith("job-1");
+    expect(refreshCron).toHaveBeenCalledTimes(1);
+    expect(setInput).toHaveBeenCalledWith("");
+
+    const removeChat = buildChat({
+      status: "connected",
+      gatewayConnected: true,
+      ready: true,
+      connected: true,
+      input: "/unschedule job-1",
+      setInput,
+      removeCron,
+      refreshCron,
+    });
+    rerender(<AgentChatPanel {...buildAgentChatPanelProps({ chat: removeChat, isSelectedRunning: true })} />);
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+    expect(screen.getByRole("heading", { name: "Remove scheduled job" })).toBeInTheDocument();
+
+    await act(async () => {
+      fireEvent.click(screen.getByRole("button", { name: "Remove" }));
+    });
+
+    expect(removeCron).toHaveBeenCalledWith("job-1");
   });
 
   it("lets escaped slash text send as a normal chat message", () => {

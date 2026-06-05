@@ -60,9 +60,12 @@ export interface AgentSession {
 
 export interface CronJob {
   id: string;
+  name?: string;
   schedule: string;
+  command?: string;
   prompt: string;
   description: string;
+  targetSessionKey?: string;
   enabled: boolean;
   lastRun?: number;
   nextRun?: number;

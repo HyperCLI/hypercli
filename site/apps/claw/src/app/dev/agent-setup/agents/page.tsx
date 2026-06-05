@@ -104,6 +104,7 @@ import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/Agent
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
+import { normalizeCronJob } from "@/lib/cron-jobs";
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
@@ -897,18 +898,7 @@ export default function DevAgentSetupAgentsPage() {
   // Derive CronJob[] from chat.cronJobs
   const agentCronJobsForView = useMemo(() => {
     if (!chat.cronJobs || chat.cronJobs.length === 0) return null;
-    return chat.cronJobs.map((j) => {
-      const entry = j as Record<string, unknown>;
-      return {
-        id: typeof entry.id === "string" ? entry.id : String(entry.id ?? ""),
-        schedule: typeof entry.schedule === "string" ? entry.schedule : "",
-        prompt: typeof entry.prompt === "string" ? entry.prompt : "",
-        description: typeof entry.description === "string" ? entry.description : "",
-        enabled: entry.enabled !== false,
-        lastRun: typeof entry.lastRun === "number" ? entry.lastRun : undefined,
-        nextRun: typeof entry.nextRun === "number" ? entry.nextRun : undefined,
-      };
-    });
+    return chat.cronJobs.map(normalizeCronJob);
   }, [chat.cronJobs]);
 
   // Derive AgentSession[] from chat.sessions

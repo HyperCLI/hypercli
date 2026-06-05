@@ -35,12 +35,14 @@ import {
   loadOpenClawSessionPreviews,
   normalizeOpenClawSessionDisplayName,
   normalizeOpenClawSessions,
+  openClawEventMatchesSession,
   openClawSessionTitleMapKeys,
   resolveOpenClawActiveSessionKey,
   sameOpenClawSessionKey,
   sendOpenClawChatFallback,
   streamOpenClawChat,
 } from "@/lib/openclaw-session-sdk-surface";
+import { cronScheduleLabel } from "@/lib/cron-jobs";
 
 const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
 const OPENCLAW_SESSION_TITLE_STORAGE_PREFIX = "openclaw.sessionTitles.v1";
@@ -488,6 +490,7 @@ export function useOpenClawSession(
   useEffect(() => {
     if (!gateway) return;
     const unsubscribe = gateway.onEvent((gatewayEvent) => {
+      const eventMatchesActiveSession = openClawEventMatchesSession(gatewayEvent.payload, activeSessionKey);
       handleOpenClawSessionEvent({
         gateway,
         gatewayEvent,
@@ -498,9 +501,21 @@ export function useOpenClawSession(
         activeSessionKey,
         suppressChatStreamEvents: activeChatSendRef.current,
       });
+      const payload = gatewayEvent.payload ?? {};
+      const payloadRecord = payload as Record<string, unknown>;
+      const lifecycleData = payloadRecord.data as Record<string, unknown> | undefined;
+      const isAgentLifecycleEnd = gatewayEvent.event === "agent" &&
+        String(payloadRecord.stream || "").toLowerCase() === "lifecycle" &&
+        String(lifecycleData?.phase || "").toLowerCase() === "end";
+      const isPassiveCompletion = !activeChatSendRef.current && eventMatchesActiveSession && (
+        gatewayEvent.event === "chat.done" ||
+        (gatewayEvent.event === "chat" && payloadRecord.state === "final") ||
+        isAgentLifecycleEnd
+      );
+      if (isPassiveCompletion) void refreshMessagesFromHistory().catch(() => {});
     });
     return unsubscribe;
-  }, [gateway, activeSessionKey, appendActivity, setTitledSessions]);
+  }, [gateway, activeSessionKey, appendActivity, refreshMessagesFromHistory, setTitledSessions]);
 
   useEffect(() => {
     if (!gateway || status !== "connected") return;
@@ -880,17 +895,17 @@ export function useOpenClawSession(
   }, [gateway, agentId, activeSessionKey]);
 
   const refreshCron = useCallback(async () => {
-    if (!gateway) return;
-    try { setCronJobs(await gateway.cronList() as Array<Record<string, unknown>>); } catch {}
+    if (!gateway) throw new Error("Not connected");
+    setCronJobs(await gateway.cronList() as Array<Record<string, unknown>>);
   }, [gateway]);
 
   const addCron = useCallback(async (job: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");
     await gateway.cronAdd(job);
     await refreshCron();
-    const schedule = typeof job.schedule === "string" ? job.schedule : "";
-    const description = typeof job.description === "string" ? job.description : "";
-    appendActivity({ type: "cron", action: "Cron added", detail: [description, schedule].filter(Boolean).join(" · ") });
+    const schedule = cronScheduleLabel(job.schedule);
+    const name = typeof job.name === "string" ? job.name : (typeof job.description === "string" ? job.description : "");
+    appendActivity({ type: "cron", action: "Cron added", detail: [name, schedule].filter(Boolean).join(" · ") });
   }, [gateway, refreshCron, appendActivity]);
 
   const removeCron = useCallback(async (jobId: string) => {
@@ -900,10 +915,31 @@ export function useOpenClawSession(
     appendActivity({ type: "cron", action: "Cron removed", detail: jobId });
   }, [gateway, refreshCron, appendActivity]);
 
+  const updateCron = useCallback(async (jobId: string, job: Record<string, unknown>) => {
+    if (!gateway) throw new Error("Not connected");
+    let addedUpdatedJob = false;
+    try {
+      await gateway.cronAdd(job);
+      addedUpdatedJob = true;
+      await gateway.cronRemove(jobId);
+    } catch (err) {
+      if (addedUpdatedJob) {
+        await refreshCron().catch(() => undefined);
+        throw new Error("Saved the updated schedule, but could not remove the old one. Delete the old schedule manually.");
+      }
+      throw err;
+    }
+    await refreshCron();
+    const schedule = cronScheduleLabel(job.schedule);
+    const name = typeof job.name === "string" ? job.name : (typeof job.description === "string" ? job.description : "");
+    appendActivity({ type: "cron", action: "Cron updated", detail: [name, schedule].filter(Boolean).join(" · ") || jobId });
+  }, [gateway, refreshCron, appendActivity]);
+
   const runCron = useCallback(async (jobId: string) => {
     if (!gateway) throw new Error("Not connected");
+    const result = await gateway.cronRun(jobId);
     appendActivity({ type: "cron", action: "Cron run", detail: jobId });
-    return gateway.cronRun(jobId);
+    return result;
   }, [gateway, appendActivity]);
 
   const connected = seededE2EConnection || (status === "connected" && ready && !hydrating);
@@ -960,6 +996,7 @@ export function useOpenClawSession(
     deleteSession: removeSession,
     refreshCron,
     addCron,
+    updateCron,
     removeCron,
     runCron,
     retry,

@@ -2594,7 +2594,7 @@ export class GatewayClient {
   }
 
   async cronAdd(job: Record<string, any>): Promise<any> {
-    return this.rpc("cron.add", { job });
+    return this.rpc("cron.add", job);
   }
 
   async cronRemove(jobId: string): Promise<void> {

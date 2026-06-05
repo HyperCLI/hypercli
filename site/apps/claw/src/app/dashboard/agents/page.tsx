@@ -105,6 +105,7 @@ import {
   initialBillingReflectionState,
 } from "@/lib/billing-reflection-machine";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import { sameOpenClawSessionKey } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import {
   type AgentStatusChipModel,
@@ -114,6 +115,7 @@ import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, Op
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentFilesPanel } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
+import { AgentScheduledPanel } from "@/components/dashboard/agents/AgentScheduledPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
@@ -130,6 +132,7 @@ import { bundleKey, CLAW_PRODUCTS, compactBundle, formatBundle, type SlotBundle 
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
 import { downloadFileBytes } from "@/lib/download-file";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
+import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
   buildSafeFileRenameCommand,
   openClawWorkspacePathToPodPath,
@@ -819,6 +822,8 @@ function AgentsPageContent() {
   const [selectedAgentId, setSelectedAgentId] = useState<string | null>(null);
   const [selectedSessionKeysByAgent, setSelectedSessionKeysByAgent] = useState<Record<string, string>>({});
   const [mainTab, setMainTab] = useState<MainTab>("chat");
+  const [scheduledInitialCommand, setScheduledInitialCommand] = useState<{ id: number; command: string } | null>(null);
+  const scheduledInitialCommandIdRef = useRef(0);
   const [mobileShowChat, setMobileShowChat] = useState(false);
   const [mobileAgentsSidebarOpen, setMobileAgentsSidebarOpen] = useState(false);
   const [mobileWorkspaceSidebarOpen, setMobileWorkspaceSidebarOpen] = useState(false);
@@ -1306,7 +1311,7 @@ function AgentsPageContent() {
     }
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
-    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "settings") {
+    if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "scheduled" || mainTab === "settings") {
       if (chat.connected) return "connected" as const;
       if (chat.connecting) return "connecting" as const;
       return "disconnected" as const;
@@ -1689,18 +1694,7 @@ function AgentsPageContent() {
   // Derive CronJob[] from chat.cronJobs
   const agentCronJobsForView = useMemo(() => {
     if (!chat.cronJobs || chat.cronJobs.length === 0) return null;
-    return chat.cronJobs.map((j) => {
-      const entry = j as Record<string, unknown>;
-      return {
-        id: typeof entry.id === "string" ? entry.id : String(entry.id ?? ""),
-        schedule: typeof entry.schedule === "string" ? entry.schedule : "",
-        prompt: typeof entry.prompt === "string" ? entry.prompt : "",
-        description: typeof entry.description === "string" ? entry.description : "",
-        enabled: entry.enabled !== false,
-        lastRun: typeof entry.lastRun === "number" ? entry.lastRun : undefined,
-        nextRun: typeof entry.nextRun === "number" ? entry.nextRun : undefined,
-      };
-    });
+    return chat.cronJobs.map(normalizeCronJob);
   }, [chat.cronJobs]);
 
   // Derive AgentSession[] from chat.sessions
@@ -1716,6 +1710,21 @@ function AgentsPageContent() {
       return { key, clientMode, clientDisplayName, createdAt, lastMessageAt };
     });
   }, [chat.sessions]);
+
+  const scheduledProjectOptions = useMemo(() => {
+    const options: Array<{ key: string; label: string }> = [];
+    const addProject = (key: string, label: string) => {
+      const normalizedKey = key.trim();
+      if (!normalizedKey || options.some((option) => sameOpenClawSessionKey(option.key, normalizedKey))) return;
+      options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Project" : "Current Project") });
+    };
+
+    for (const session of chat.sessions ?? []) {
+      addProject(session.key, session.title || session.clientDisplayName || session.key);
+    }
+    addProject(selectedSessionKey, selectedSessionKey === "main" ? "Main Project" : "Current Project");
+    return options;
+  }, [chat.sessions, selectedSessionKey]);
 
   // Derive Connection[] from channelsStatus response
   const agentConnectionsForView = useMemo(() => {
@@ -2761,11 +2770,19 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
-  const openScheduledTab = () => {
+  const openScheduledTab = (draftCommand?: unknown) => {
     if (!SCHEDULED_SECTION_ENABLED) return;
+    const command = typeof draftCommand === "string" ? draftCommand.trim() : "";
+    if (command) {
+      scheduledInitialCommandIdRef.current += 1;
+      setScheduledInitialCommand({ id: scheduledInitialCommandIdRef.current, command });
+    } else {
+      setScheduledInitialCommand(null);
+    }
     setMainTab("scheduled");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
+    if (chat.connected) void chat.refreshCron().catch(() => undefined);
   };
   const openLogsTab = () => {
     setMainTab("logs");
@@ -3395,6 +3412,39 @@ function AgentsPageContent() {
               onLoadSkills={loadAgentSkills}
               onListFiles={listAgentFiles}
               onReadFile={readAgentFile}
+            />
+          ) : mainTab === "scheduled" ? (
+            <AgentScheduledPanel
+              key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
+              agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
+              sessionKey={selectedSessionKey}
+              projectOptions={scheduledProjectOptions}
+              jobs={agentCronJobsForView ?? []}
+              connected={chat.connected}
+              connecting={chat.connecting}
+              hydrating={chat.hydrating}
+              error={chat.error}
+              isSelectedRunning={Boolean(isSelectedRunning)}
+              onRefresh={async () => {
+                await chat.refreshCron();
+              }}
+              onCreate={async (job) => {
+                await chat.addCron(job);
+              }}
+              onUpdate={async (jobId, job) => {
+                await chat.updateCron(jobId, job);
+              }}
+              onRun={async (jobId) => {
+                await chat.runCron(jobId);
+                await chat.refreshCron();
+              }}
+              onDelete={async (jobId) => {
+                await chat.removeCron(jobId);
+              }}
+              onStartAgent={async () => {
+                if (selectedAgent) await handleStart(selectedAgent.id);
+              }}
+              initialCommand={scheduledInitialCommand?.command ?? null}
             />
           ) : mainTab === "settings" ? (
             <AgentSettingsPanel

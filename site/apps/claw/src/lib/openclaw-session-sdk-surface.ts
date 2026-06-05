@@ -56,7 +56,9 @@ function firstNonEmptyString(...values: unknown[]): string | null {
 export function unscopedOpenClawSessionKey(value: string | null | undefined): string {
   const key = (value ?? "").trim();
   const prefixed = /^agent:[^:]+:(.+)$/.exec(key);
-  return prefixed?.[1]?.trim() || key;
+  const withoutAgentScope = prefixed?.[1]?.trim() || key;
+  const sessionTarget = /^session:(.+)$/.exec(withoutAgentScope);
+  return sessionTarget?.[1]?.trim() || withoutAgentScope;
 }
 
 export function openClawSessionTitleMapKeys(sessionKey: string): string[] {

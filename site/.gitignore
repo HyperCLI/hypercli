@@ -32,6 +32,9 @@ coverage
 *.p12
 *.pfx
 
+# Local Journey planning docs
+apps/claw/docs/journey/
+
 # Dev server — ignore all secrets/state
 .dev-server/.env
 .dev-server/acme/

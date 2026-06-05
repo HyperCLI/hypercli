@@ -108,7 +108,7 @@ export function JourneyIntroPanel({
             Welcome to {displayName}
           </h2>
           <p className="mt-4 max-w-[35rem] text-[15px] leading-7 text-text-secondary sm:text-base">
-            Let&apos;s turn this agent into a useful teammate. Start with one clear move, then add context only when it helps.
+            Journey helps you shape this agent into a useful teammate. Teach it what matters, then add context as the work becomes clearer.
           </p>
 
           <div className="mt-5 flex flex-wrap items-center gap-2">
@@ -119,7 +119,7 @@ export function JourneyIntroPanel({
               </span>
             ))}
             <span className="inline-flex items-center gap-1.5 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-2.5 py-1 text-xs font-semibold text-[var(--selection-accent)]">
-              Step {safeActiveActionIndex + 1} of {actions.length}: {activeAction.shortLabel}
+              Mission {safeActiveActionIndex + 1} of {actions.length}: {activeAction.shortLabel}
             </span>
             {nextActionLabel ? (
               <span className="text-xs text-text-muted">Next: {nextActionLabel}</span>

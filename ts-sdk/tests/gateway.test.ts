@@ -494,6 +494,48 @@ describe("GatewayClient", () => {
     expect(attempts).toBe(2);
   });
 
+  it("sends cron.add job fields at the request params root", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const sent: string[] = [];
+    (client as any).connected = true;
+    (client as any).ws = {
+      readyState: MockWebSocket.OPEN,
+      send: (data: string) => sent.push(data),
+    };
+
+    const addPromise = client.cronAdd({
+      name: "Daily summary",
+      sessionTarget: { sessionKey: "main" },
+      schedule: { cron: "0 9 * * *" },
+      payload: { kind: "message", text: "Summarize yesterday.", deliver: false },
+    });
+
+    expect(sent).toHaveLength(1);
+    const request = JSON.parse(sent[0] ?? "{}") as {
+      id: string;
+      method: string;
+      params: Record<string, unknown>;
+    };
+    expect(request.method).toBe("cron.add");
+    expect(request.params).toEqual({
+      name: "Daily summary",
+      sessionTarget: { sessionKey: "main" },
+      schedule: { cron: "0 9 * * *" },
+      payload: { kind: "message", text: "Summarize yesterday.", deliver: false },
+    });
+
+    (client as any).handleMessage(JSON.stringify({
+      type: "res",
+      id: request.id,
+      ok: true,
+      payload: { jobId: "cron-1" },
+    }));
+    await expect(addPromise).resolves.toEqual({ jobId: "cron-1" });
+  });
+
   it("chatSend accepts server runId events and ends on chat.done", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",

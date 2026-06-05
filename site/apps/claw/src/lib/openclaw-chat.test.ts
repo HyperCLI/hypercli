@@ -509,6 +509,102 @@ describe("openclaw chat normalization", () => {
     }));
   });
 
+  it("preserves normal assistant text that resembles cron or reminder content", () => {
+    const examples = [
+      "Hello World",
+      "The current time is 7:46 UTC.",
+      "Return your response as plain text; this is a quoted instruction I found.",
+      "[cron:example] is a label I want to discuss.",
+      "[cron:session-main] is a label I want to discuss.",
+      "<system-reminder>example</system-reminder> is literal markup from the document.",
+    ];
+
+    for (const content of examples) {
+      expect(normalizeHistoryMessage({ role: "assistant", content })).toEqual(expect.objectContaining({
+        role: "assistant",
+        content,
+      }));
+    }
+  });
+
+  it("drops user cron-prefixed control messages from history", () => {
+    for (const content of [
+      "[cron:job-1] every minute say hello",
+      "  [cron:d670a898-c9ed-49ab-8d65-edca7d05931d Every 5 minutes] Current time: Friday",
+      "[cron<system-reminder>Current time: Friday</system-reminder>",
+    ]) {
+      expect(normalizeHistoryMessage({ role: "user", content })).toBeNull();
+    }
+
+    expect(normalizeHistoryMessage({
+      role: "user",
+      content: "Please explain what [cron:example] means.",
+    })).toEqual(expect.objectContaining({
+      role: "user",
+      content: "Please explain what [cron:example] means.",
+    }));
+  });
+
+  it("drops cron instruction envelope leaks", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        "[cron:1824d15b-b08c-484d-bf41-28deea1b31b5 Every 1 minute send this message:] every 1 minute send this message: Hello World Current time: Friday, June 5th, 2026 - 7:46 AM (UTC) / 2026-06-05 07:46 UTC",
+        "",
+        "Return your response as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.",
+      ].join("\n"),
+    })).toBeNull();
+  });
+
+  it("strips non-uuid cron envelopes only when backend reminder context is present", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: "[cron:session-main Every 1 minute] The cron label itself matters here.",
+    })).toEqual(expect.objectContaining({
+      role: "assistant",
+      content: "[cron:session-main Every 1 minute] The cron label itself matters here.",
+    }));
+
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        "[cron:session-main Every 1 minute send this message:] every 1 minute send this message: Hello from cron",
+        "",
+        "Return your response as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.",
+      ].join("\n"),
+    })).toBeNull();
+  });
+
+  it("strips malformed cron envelopes that run into system reminders", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        "[cron:session-main Every 1 minute send this message:<system-reminder>Current time: Friday, June 5th, 2026 - 7:46 AM (UTC)</system-reminder>",
+        "every 1 minute send this message: Hello World",
+      ].join(""),
+    })).toBeNull();
+  });
+
+  it("drops recent cron envelope leaks with injected current time reminders", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        "[cron:ea069af5-e640-4e6e-aaba-539f8c589a6a I also work here!] i also work here! Current time: Friday, June 5th, 2026 - 8:40 AM (UTC) / 2026-06-05 08:40 UTC",
+        "",
+        "Return your response as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.",
+      ].join("\n"),
+    })).toBeNull();
+
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [
+        "[cron:d670a898-c9ed-49ab-8d65-edca7d05931d Every 5 minutes give me the] every 5 minutes give me the wheater report Current time: Friday, June 5th, 2026 - 8:40 AM (UTC) / 2026-06-05 08:40 UTC",
+        "",
+        "Return your response as plain text; it will be delivered automatically. If the task explicitly calls for messaging a specific external recipient, note who/where it should go instead of sending it yourself.",
+      ].join("\n"),
+    })).toBeNull();
+  });
+
   it("keeps the persisted README answer while dropping toolResult history", () => {
     const normalized = README_REFRESH_HISTORY
       .map((message) => normalizeHistoryMessage(message))
