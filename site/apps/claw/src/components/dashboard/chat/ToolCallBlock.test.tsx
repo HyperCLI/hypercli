@@ -32,6 +32,23 @@ describe("ToolCallBlock", () => {
     expect(container.querySelector(".animate-spin")).toBeNull();
   });
 
+  it("exposes disclosure state to assistive technology", () => {
+    render(
+      <ToolCallBlock
+        {...baseProps}
+        isOpen
+        toolCall={{ name: "read_file", args: '{"path":"/tmp/example.txt"}', result: "ok" }}
+      />,
+    );
+
+    const button = screen.getByRole("button", { name: /read_file/i });
+    const controls = button.getAttribute("aria-controls");
+
+    expect(button).toHaveAttribute("aria-expanded", "true");
+    expect(controls).toBeTruthy();
+    expect(document.getElementById(controls ?? "")).not.toBeNull();
+  });
+
   it("treats empty tool results as completed", () => {
     const { container } = render(
       <ToolCallBlock
@@ -42,7 +59,7 @@ describe("ToolCallBlock", () => {
     );
 
     expect(screen.getByText("Done")).toBeInTheDocument();
-    expect(screen.getByText("Result ready")).toBeInTheDocument();
+    expect(screen.getByText("$ true")).toBeInTheDocument();
     expect(container.querySelector(".animate-spin")).toBeNull();
   });
 

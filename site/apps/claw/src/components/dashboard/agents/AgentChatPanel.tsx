@@ -11,6 +11,7 @@ import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
+import { JourneyMissionChatCard, type JourneyMissionChatCardProps } from "@/components/dashboard/journey/JourneyMissionChatCard";
 import { getConnectionSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import {
   AgentSlashCommandMenu,
@@ -83,6 +84,19 @@ function StoppedChatEmptyState() {
   );
 }
 
+function resizeComposer(textarea: HTMLTextAreaElement): void {
+  textarea.style.height = "auto";
+  textarea.style.height = `${Math.min(textarea.scrollHeight, 160)}px`;
+}
+
+function caretIsOnFirstLogicalLine(textarea: HTMLTextAreaElement): boolean {
+  return !textarea.value.slice(0, textarea.selectionStart ?? 0).includes("\n");
+}
+
+function caretIsOnLastLogicalLine(textarea: HTMLTextAreaElement): boolean {
+  return !textarea.value.slice(textarea.selectionEnd ?? 0).includes("\n");
+}
+
 function useSettledChatBootStatus(agentId: string, nextStatus: AgentChatBootStatus) {
   const [status, setStatus] = React.useState(nextStatus);
   const statusRef = React.useRef(nextStatus);
@@ -148,6 +162,7 @@ interface AgentChatPanelProps {
   onOpenFileFromChat?: (path: string) => void;
   onDownloadFileFromChat?: (file: ChatPendingFile) => void | Promise<void>;
   journeyIntro?: (JourneyIntroPanelProps & { enabled: boolean }) | null;
+  journeyMissionCard?: (JourneyMissionChatCardProps & { enabled: boolean }) | null;
 }
 
 export function AgentChatPanel({
@@ -181,12 +196,17 @@ export function AgentChatPanel({
   onOpenFileFromChat,
   onDownloadFileFromChat,
   journeyIntro,
+  journeyMissionCard,
 }: AgentChatPanelProps) {
   const slashCommandMenuRef = React.useRef<AgentSlashCommandMenuHandle>(null);
   const fileInputRef = React.useRef<HTMLInputElement | null>(null);
   const slashFeedbackTimerRef = React.useRef<ReturnType<typeof setTimeout> | null>(null);
   const [slashMenuDismissed, setSlashMenuDismissed] = React.useState(false);
   const [slashCommandFeedback, setSlashCommandFeedback] = React.useState("");
+  const textareaRef = React.useRef<HTMLTextAreaElement | null>(null);
+  const historyIndexRef = React.useRef<number | null>(null);
+  const draftBeforeHistoryRef = React.useRef("");
+  const pendingHistoryInputRef = React.useRef<string | null>(null);
   const connectionSuggestions = React.useMemo(
     () => getConnectionSuggestions(chat.input, chat.config, chat.configSchema),
     [chat.config, chat.configSchema, chat.input],
@@ -212,6 +232,78 @@ export function AgentChatPanel({
     }, 2600);
   }, []);
   const setChatInput = chat.setInput;
+  const promptHistory = React.useMemo(() => {
+    const history: string[] = [];
+    for (const message of chat.messages) {
+      const content = message.role === "user" ? message.content.trim() : "";
+      if (!content) continue;
+      if (history[history.length - 1] !== content) history.push(content);
+    }
+    return history;
+  }, [chat.messages]);
+  const resetPromptHistoryNavigation = React.useCallback(() => {
+    historyIndexRef.current = null;
+    draftBeforeHistoryRef.current = "";
+  }, []);
+  const applyPromptHistoryInput = React.useCallback((value: string) => {
+    pendingHistoryInputRef.current = value;
+    setChatInput(value);
+    window.requestAnimationFrame(() => {
+      const textarea = textareaRef.current;
+      if (!textarea) return;
+      textarea.focus();
+      textarea.setSelectionRange(value.length, value.length);
+      resizeComposer(textarea);
+    });
+  }, [setChatInput]);
+  React.useEffect(() => {
+    resetPromptHistoryNavigation();
+  }, [chat.activeSessionKey, promptHistory, resetPromptHistoryNavigation, selectedAgent.id]);
+  React.useEffect(() => {
+    if (pendingHistoryInputRef.current === chat.input) {
+      pendingHistoryInputRef.current = null;
+      return;
+    }
+    resetPromptHistoryNavigation();
+  }, [chat.input, resetPromptHistoryNavigation]);
+  const handlePromptHistoryKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLTextAreaElement>) => {
+    if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return false;
+    if (promptHistory.length === 0) return false;
+
+    const textarea = event.currentTarget;
+    if (event.key === "ArrowUp") {
+      const currentIndex = historyIndexRef.current;
+      if (currentIndex === null && !caretIsOnFirstLogicalLine(textarea)) return false;
+
+      event.preventDefault();
+      if (currentIndex === null) draftBeforeHistoryRef.current = chat.input;
+      const nextIndex = currentIndex === null
+        ? promptHistory.length - 1
+        : Math.max(0, currentIndex - 1);
+      historyIndexRef.current = nextIndex;
+      applyPromptHistoryInput(promptHistory[nextIndex]);
+      return true;
+    }
+
+    if (event.key === "ArrowDown") {
+      const currentIndex = historyIndexRef.current;
+      if (currentIndex === null || !caretIsOnLastLogicalLine(textarea)) return false;
+
+      event.preventDefault();
+      if (currentIndex < promptHistory.length - 1) {
+        const nextIndex = currentIndex + 1;
+        historyIndexRef.current = nextIndex;
+        applyPromptHistoryInput(promptHistory[nextIndex]);
+      } else {
+        historyIndexRef.current = null;
+        applyPromptHistoryInput(draftBeforeHistoryRef.current);
+        draftBeforeHistoryRef.current = "";
+      }
+      return true;
+    }
+
+    return false;
+  }, [applyPromptHistoryInput, chat.input, promptHistory]);
   const rawBootStatus = React.useMemo(
     () => getAgentChatBootStatus({
       agentState: selectedAgent.state,
@@ -249,6 +341,11 @@ export function AgentChatPanel({
     chat.pendingFiles.length > 0;
   const showComposer = displayBootStatus.status === "ready" || composerHasDraft;
   const composerDisabled = displayBootStatus.status !== "ready" || !chat.connected;
+  React.useLayoutEffect(() => {
+    const textarea = textareaRef.current;
+    if (!textarea) return;
+    resizeComposer(textarea);
+  }, [audioUrl, chat.input, recording, showComposer]);
   const originDenied = displayBootStatus.status === "error" && /another dashboard address/i.test(displayBootStatus.detail);
   const errorActionLabel = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent ? "Stop agent" : "Retry";
   const handleErrorAction = originDenied && isSelectedRunning && slashCommandActions?.onStopAgent
@@ -275,6 +372,7 @@ export function AgentChatPanel({
 
     if (displayBootStatus.status === "ready") {
       if (journeyIntro?.enabled) return <JourneyIntroPanel {...journeyIntro} />;
+      if (journeyMissionCard?.enabled) return <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />;
       return <AgentEmptyHistory onPromptSelect={setChatInput} />;
     }
 
@@ -353,6 +451,12 @@ export function AgentChatPanel({
               />
             );
           })}
+
+          {chat.messages.length > 0 && displayBootStatus.status === "ready" && journeyMissionCard?.enabled ? (
+            <div className="flex justify-center py-1">
+              <JourneyMissionChatCard key={journeyMissionCard.day.id} {...journeyMissionCard} />
+            </div>
+          ) : null}
 
           {(() => {
             if (!chat.sending) return null;
@@ -488,13 +592,14 @@ export function AgentChatPanel({
               ) : (
                 <div className="relative flex-1 min-w-0">
                   <textarea
+                    ref={textareaRef}
                     aria-label="Message agent"
                     value={chat.input}
                     onChange={(e) => {
+                      resetPromptHistoryNavigation();
                       setSlashMenuDismissed(false);
-                      chat.setInput(e.target.value);
-                      e.target.style.height = "auto";
-                      e.target.style.height = `${Math.min(e.target.scrollHeight, 160)}px`;
+                      setChatInput(e.target.value);
+                      resizeComposer(e.target);
                     }}
                     onKeyDown={(e) => {
                       if (slashMenuOpen && slashCommandMenuRef.current?.canHandleInput()) {
@@ -543,6 +648,9 @@ export function AgentChatPanel({
                           }
                           return;
                         }
+                      }
+                      if ((e.key === "ArrowUp" || e.key === "ArrowDown") && handlePromptHistoryKeyDown(e)) {
+                        return;
                       }
                       if (e.key === "Enter" && !e.shiftKey) {
                         e.preventDefault();

@@ -64,9 +64,116 @@ export function extractReadableSummary(raw: string, maxLen: number): string {
   return trimmed.length > maxLen ? `${trimmed.slice(0, maxLen)}…` : trimmed;
 }
 
+const TOOL_ARG_SUMMARY_KEYS = ["command", "cmd", "query", "url", "pattern", "glob", "name"];
+const TOOL_PATH_KEYS = new Set(["path", "file_path", "filePath", "fullPath"]);
+
+function parseJsonRecord(raw: string): Record<string, unknown> | null {
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith("{") || !trimmed.endsWith("}")) return null;
+  try {
+    const parsed = JSON.parse(trimmed);
+    return parsed && typeof parsed === "object" && !Array.isArray(parsed) ? parsed as Record<string, unknown> : null;
+  } catch {
+    return null;
+  }
+}
+
+function clipSummary(value: string, maxLen: number): string {
+  const singleLine = value.replace(/\s+/g, " ").trim();
+  return singleLine.length > maxLen ? `${singleLine.slice(0, maxLen).trimEnd()}…` : singleLine;
+}
+
+function scalarSummary(value: unknown): string {
+  if (typeof value === "string") return value.trim();
+  if (typeof value === "number" || typeof value === "boolean") return String(value);
+  return "";
+}
+
+function summarizeStructuredArgs(raw: string, maxLen: number): string {
+  const trimmed = raw.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return "";
+
+  const record = parseJsonRecord(trimmed);
+  if (!record) return "";
+
+  try {
+    for (const key of TOOL_ARG_SUMMARY_KEYS) {
+      const value = scalarSummary(record[key]);
+      if (!value) continue;
+      if (key === "command" || key === "cmd") return clipSummary(`$ ${value}`, maxLen);
+      return clipSummary(`${key}: ${value}`, maxLen);
+    }
+
+    for (const key of TOOL_PATH_KEYS) {
+      if (scalarSummary(record[key])) return "path provided";
+    }
+
+    const entries = Object.entries(record)
+      .filter(([key, value]) => !TOOL_PATH_KEYS.has(key) && scalarSummary(value))
+      .slice(0, 2)
+      .map(([key, value]) => `${key}: ${scalarSummary(value)}`);
+
+    return entries.length > 0 ? clipSummary(entries.join(" · "), maxLen) : "";
+  } catch {
+    return "";
+  }
+}
+
+function summarizeStructuredResult(raw: string, maxLen: number): string {
+  const trimmed = raw.trim();
+  if (!trimmed || (!trimmed.startsWith("{") && !trimmed.startsWith("["))) return "";
+
+  const record = parseJsonRecord(trimmed);
+  if (!record) return "";
+
+  try {
+    if (typeof record.error === "string" && record.error.trim()) return clipSummary(`Error: ${record.error}`, maxLen);
+    if (record.ok === true) return "Success";
+    if (record.ok === false) return "Failed";
+    return "";
+  } catch {
+    return "";
+  }
+}
+
 export function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
-  if (tc.result !== undefined) return "Result ready";
+  const argsSummary = summarizeStructuredArgs(tc.args, 120);
+  if (argsSummary) return argsSummary;
+
+  if (tc.result !== undefined) {
+    return summarizeStructuredResult(tc.result, 100) || "Result ready";
+  }
+
   return tc.args.trim() ? "Arguments ready" : "";
+}
+
+function argRecordForToolCall(tc: { args: string }): Record<string, unknown> | null {
+  return parseJsonRecord(tc.args);
+}
+
+export function toolCallArgsLabel(tc: { args: string }): string {
+  const record = argRecordForToolCall(tc);
+  if (!record) return "Arguments";
+
+  if (scalarSummary(record.command) || scalarSummary(record.cmd)) return "Command";
+  if (scalarSummary(record.query)) return "Query";
+  if (scalarSummary(record.url)) return "URL";
+  if (scalarSummary(record.pattern) || scalarSummary(record.glob)) return "Pattern";
+  if (Array.from(TOOL_PATH_KEYS).some((key) => scalarSummary(record[key]))) return "Path";
+  return "Arguments";
+}
+
+export function toolCallResultLabel(tc: { args: string; result?: string }): string {
+  const resultRecord = tc.result !== undefined ? parseJsonRecord(tc.result) : null;
+  if (typeof resultRecord?.error === "string" && resultRecord.error.trim()) return "Error";
+
+  const argsRecord = argRecordForToolCall(tc);
+  if (!argsRecord) return "Result";
+
+  if (scalarSummary(argsRecord.command) || scalarSummary(argsRecord.cmd)) return "Command output";
+  if (scalarSummary(argsRecord.query)) return "Search results";
+  if (scalarSummary(argsRecord.url)) return "Fetch result";
+  return "Result";
 }
 
 export function formatToolDetail(raw: string, maxLen: number): { text: string; clipped: boolean } {
@@ -83,6 +190,10 @@ export function formatToolDetail(raw: string, maxLen: number): { text: string; c
           .map((entry: unknown) => (entry as Record<string, string>).text.trim())
           .filter(Boolean);
         display = textBlocks.length > 0 ? textBlocks.join("\n\n") : JSON.stringify(parsed, null, 2);
+      } else if (parsed && typeof parsed === "object") {
+        const record = parsed as Record<string, unknown>;
+        const command = scalarSummary(record.command) || scalarSummary(record.cmd);
+        display = command || JSON.stringify(parsed, null, 2);
       } else {
         display = JSON.stringify(parsed, null, 2);
       }

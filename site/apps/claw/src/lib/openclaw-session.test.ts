@@ -740,6 +740,47 @@ describe("openclaw session keys", () => {
     expect(messages).toEqual([]);
   });
 
+  it("shows passive agent tool start events with alternate tool field names", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      gateway: { sessionsList: vi.fn(async () => []) } as any,
+      gatewayEvent: {
+        event: "agent",
+        payload: {
+          sessionKey: "main",
+          stream: "tool",
+          data: {
+            phase: "start",
+            tool_call_id: "tool-1",
+            tool_name: "functions.read",
+            args: { path: "/tmp/demo.zip" },
+          },
+        },
+      } as any,
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        toolCalls: [
+          expect.objectContaining({
+            id: "tool-1",
+            name: "functions.read",
+          }),
+        ],
+      }),
+    ]);
+  });
+
   it("migrates legacy UUID workspace files into the canonical main workspace", async () => {
     const deploymentId = "550e8400-e29b-41d4-a716-446655440000";
     const canonicalFiles: Array<{ name: string; size: number; missing: boolean }> = [];

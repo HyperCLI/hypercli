@@ -44,8 +44,9 @@ export interface JourneyController {
   lastReceipt: JourneyReceipt | null;
   setPanelOpen: (open: boolean) => void;
   selectDay: (dayId: string) => void;
-  completeDay: (dayId: string) => void;
+  completeDay: (dayId: string, receiptText?: string) => void;
   completeForEvent: (event: JourneyCompletionEvent) => void;
+  recordReceipt: (dayId: string, receiptText: string) => void;
   skipDay: (dayId: string) => void;
   reset: () => void;
 }
@@ -221,7 +222,7 @@ export function useJourney({
     setPanelOpen(true);
   }, [enabled, validDayIds]);
 
-  const completeDay = useCallback((dayId: string) => {
+  const completeDay = useCallback((dayId: string, receiptText?: string) => {
     if (!enabled || !validDayIds.has(dayId)) return;
     const day = days.find((entry) => entry.id === dayId);
     if (!day) return;
@@ -235,7 +236,7 @@ export function useJourney({
       next.delete(dayId);
       return next;
     });
-    setLastReceipt({ dayId, text: day.receipt, timestamp: Date.now() });
+    setLastReceipt({ dayId, text: receiptText?.trim() || day.receipt, timestamp: Date.now() });
     setActiveDayId((current) => current === dayId
       ? nextIncompleteDayId(days, completedWithDay, dayId) ?? dayId
       : current ?? firstIncompleteDayId(days, completedWithDay));
@@ -247,6 +248,14 @@ export function useJourney({
     const targetDay = days.find((day) => day.completionEvents.includes(event) && !completedIds.has(day.id));
     if (targetDay) completeDay(targetDay.id);
   }, [completeDay, completedIds, days, enabled]);
+
+  const recordReceipt = useCallback((dayId: string, receiptText: string) => {
+    if (!enabled || !validDayIds.has(dayId)) return;
+    const text = receiptText.trim();
+    if (!text) return;
+    setLastReceipt({ dayId, text, timestamp: Date.now() });
+    setPanelOpen(true);
+  }, [enabled, validDayIds]);
 
   const skipDay = useCallback((dayId: string) => {
     if (!enabled || !validDayIds.has(dayId)) return;
@@ -281,6 +290,7 @@ export function useJourney({
     selectDay,
     completeDay,
     completeForEvent,
+    recordReceipt,
     skipDay,
     reset,
   };

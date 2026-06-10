@@ -9,6 +9,7 @@ import rehypeSanitize, { defaultSchema, type Options as RehypeSanitizeOptions } 
 import remarkEmoji from "remark-emoji";
 import remarkGfm from "remark-gfm";
 import remarkMath from "remark-math";
+import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { ChatImageViewer } from "./ChatImageViewer";
 import { useTypewriter } from "./useTypewriter";
 import { ResourceImage } from "@/components/ResourceImage";
@@ -18,6 +19,7 @@ interface MarkdownContentProps {
   typewriter?: boolean;
   className?: string;
   style?: CSSProperties;
+  onOpenWorkspaceFile?: (path: string) => void;
 }
 
 const MARKDOWN_WRAP_CLASS = "min-w-0 max-w-full break-words [overflow-wrap:anywhere]";
@@ -34,6 +36,13 @@ export const CHAT_MEDIA_LINK_CLASS = "block max-w-full";
 const CODE_META_MARKER = "__OPENCLAW_CODE_META__:";
 const MARKDOWN_IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
 const MARKDOWN_NON_IMAGE_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
+const WORKSPACE_FILE_LINK_PREFIX = "#openclaw-file/";
+const FILE_MENTION_EXTENSIONS = "a|aac|avi|bmp|c|cc|cjs|cpp|cs|css|csv|doc|docx|env|epub|fish|flac|gif|go|gz|h|hpp|htm|html|ico|java|jpeg|jpg|js|json|jsonc|jsx|kt|lock|log|m4a|md|mdx|mjs|mov|mp3|mp4|oga|ogg|opus|pdf|php|png|ppt|pptx|ps1|py|rb|rs|sass|scss|sh|sql|svg|swift|tar|tgz|toml|ts|tsx|tsv|txt|wav|weba|webm|webp|xls|xlsx|xml|yaml|yml|zip|zsh";
+const FILE_MENTION_EXTENSION_SET = new Set(FILE_MENTION_EXTENSIONS.split("|"));
+const FILE_MENTION_PATTERN = new RegExp(
+  `(^|[\\s([{<"'])([^\\s)\\]}>"',;:!?]+\\.(?:${FILE_MENTION_EXTENSIONS}))(?=$|[\\s)\\]}>"',.;:!?])`,
+  "gi",
+);
 const MARKDOWN_SANITIZE_SCHEMA: RehypeSanitizeOptions = {
   ...defaultSchema,
   tagNames: [...(defaultSchema.tagNames ?? []), "abbr"],
@@ -47,6 +56,7 @@ const MARKDOWN_REHYPE_PLUGINS: NonNullable<Parameters<typeof Markdown>[0]["rehyp
   rehypeKatex,
 ];
 const MarkdownLinkContext = createContext(false);
+const MarkdownWorkspaceFileContext = createContext<((path: string) => void) | undefined>(undefined);
 
 interface MarkdownAbbreviation {
   term: string;
@@ -69,6 +79,76 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 
 function escapeRegExp(value: string): string {
   return value.replace(/[.*+?^${}()|[\]\\]/g, "\\$&");
+}
+
+function workspaceFileHref(path: string): string {
+  return `${WORKSPACE_FILE_LINK_PREFIX}${encodeURIComponent(path)}`;
+}
+
+function workspacePathFromHref(href: string | undefined): string | null {
+  if (!href?.startsWith(WORKSPACE_FILE_LINK_PREFIX)) return null;
+  try {
+    return decodeURIComponent(href.slice(WORKSPACE_FILE_LINK_PREFIX.length));
+  } catch {
+    return null;
+  }
+}
+
+function stripFileMentionPunctuation(value: string): string {
+  let next = value.trim();
+  while (/[),.;!?]$/.test(next)) {
+    const candidate = next.slice(0, -1).trimEnd();
+    if (!/\.(?:[A-Za-z0-9]{1,8})$/i.test(candidate)) break;
+    next = candidate;
+  }
+  return next;
+}
+
+function isCommonBareWorkspaceFileName(value: string): boolean {
+  const lower = value.toLowerCase();
+  return (
+    /^(?:readme|license|licence|changelog|agents|package|package-lock|pnpm-lock|yarn|tsconfig|jsconfig)\.[a-z0-9.]+$/.test(lower) ||
+    /^(?:next|vite|tailwind|postcss|eslint|prettier|vitest|playwright|turbo)\.config\.[a-z0-9.]+$/.test(lower) ||
+    /^\.[a-z0-9_-]+$/.test(lower)
+  );
+}
+
+function normalizedWorkspaceFileMention(value: string): string | null {
+  const trimmed = stripFileMentionPunctuation(value).replace(/\\/g, "/");
+  if (!trimmed || /^(?:https?:|mailto:|data:|blob:|media:)/i.test(trimmed) || trimmed.includes("://")) return null;
+  if (/^\//.test(trimmed) && !/^\/home\/node\/\.openclaw\/workspace\//i.test(trimmed)) return null;
+  if (/^[A-Za-z0-9-]+\.[A-Za-z0-9.-]+\//.test(trimmed)) return null;
+  if (!trimmed.includes("/") && !isCommonBareWorkspaceFileName(trimmed)) return null;
+  const pathWithoutQuery = trimmed.split(/[?#]/)[0] ?? trimmed;
+  const extension = pathWithoutQuery.split(".").pop()?.toLowerCase() ?? "";
+  if (!FILE_MENTION_EXTENSION_SET.has(extension)) return null;
+  return normalizeOpenClawWorkspaceFilePath(trimmed);
+}
+
+function fileMentionNodes(text: string): Array<Record<string, unknown>> {
+  const nodes: Array<Record<string, unknown>> = [];
+  let cursor = 0;
+
+  for (const match of text.matchAll(FILE_MENTION_PATTERN)) {
+    const fullMatch = match[0] ?? "";
+    const prefix = match[1] ?? "";
+    const rawPath = match[2] ?? "";
+    const start = match.index ?? 0;
+    const pathStart = start + prefix.length;
+    const normalizedPath = normalizedWorkspaceFileMention(rawPath);
+    if (!normalizedPath) continue;
+
+    if (pathStart > cursor) nodes.push({ type: "text", value: text.slice(cursor, pathStart) });
+    nodes.push({
+      type: "link",
+      url: workspaceFileHref(normalizedPath),
+      children: [{ type: "text", value: rawPath }],
+    });
+    cursor = start + fullMatch.length;
+  }
+
+  if (cursor < text.length) nodes.push({ type: "text", value: text.slice(cursor) });
+  return nodes.length > 0 ? nodes : [{ type: "text", value: text }];
 }
 
 function isFenceClose(line: string, fence: string): boolean {
@@ -197,8 +277,38 @@ function applyAbbreviationsToAst(node: unknown, abbreviations: MarkdownAbbreviat
       index += nextNodes.length - 1;
       continue;
     }
-    if (child.type === "code" || child.type === "inlineCode" || child.type === "html") continue;
+    if (child.type === "code" || child.type === "inlineCode" || child.type === "html" || child.type === "link") continue;
     applyAbbreviationsToAst(child, abbreviations);
+  }
+}
+
+function applyWorkspaceFileLinksToAst(node: unknown): void {
+  if (!isRecord(node)) return;
+  const children = Array.isArray(node.children) ? node.children : null;
+  if (!children) return;
+
+  for (let index = 0; index < children.length; index += 1) {
+    const child = children[index];
+    if (!isRecord(child)) continue;
+    if (child.type === "text" && typeof child.value === "string") {
+      const nextNodes = fileMentionNodes(child.value);
+      children.splice(index, 1, ...nextNodes);
+      index += nextNodes.length - 1;
+      continue;
+    }
+    if (child.type === "inlineCode" && typeof child.value === "string") {
+      const normalizedPath = normalizedWorkspaceFileMention(child.value);
+      if (normalizedPath) {
+        children.splice(index, 1, {
+          type: "link",
+          url: workspaceFileHref(normalizedPath),
+          children: [child],
+        });
+      }
+      continue;
+    }
+    if (child.type === "code" || child.type === "html" || child.type === "link" || child.type === "image") continue;
+    applyWorkspaceFileLinksToAst(child);
   }
 }
 
@@ -231,13 +341,18 @@ function remarkCodeMeta() {
   return (tree: unknown) => applyCodeMetaToAst(tree);
 }
 
-function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[]): NonNullable<Parameters<typeof Markdown>[0]["remarkPlugins"]> {
+function remarkWorkspaceFileLinks() {
+  return (tree: unknown) => applyWorkspaceFileLinksToAst(tree);
+}
+
+function markdownRemarkPlugins(abbreviations: MarkdownAbbreviation[], linkWorkspaceFiles: boolean): NonNullable<Parameters<typeof Markdown>[0]["remarkPlugins"]> {
   return [
     remarkGfm,
     remarkMath,
     [remarkEmoji, { emoticon: false }],
     remarkCodeMeta,
     remarkAbbreviations(abbreviations),
+    ...(linkWorkspaceFiles ? [remarkWorkspaceFileLinks] : []),
   ];
 }
 
@@ -445,14 +560,21 @@ function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: 
 }
 
 function MarkdownLink({ href, children, className }: { href?: string; children?: ReactNode; className?: string }) {
+  const onOpenWorkspaceFile = useContext(MarkdownWorkspaceFileContext);
+  const workspacePath = workspacePathFromHref(href);
   const isExternal = typeof href === "string" && /^(?:https?:|mailto:|irc:|ircs:|xmpp:)/i.test(href);
   return (
     <MarkdownLinkContext.Provider value={Boolean(href)}>
       <a
         href={href}
+        onClick={workspacePath && onOpenWorkspaceFile ? (event) => {
+          event.preventDefault();
+          onOpenWorkspaceFile(workspacePath);
+        } : undefined}
         target={isExternal ? "_blank" : undefined}
         rel={isExternal ? "noopener noreferrer" : undefined}
         className={`${className ?? ""} break-words text-accent hover:underline [overflow-wrap:anywhere]`}
+        title={workspacePath ? "Open in files" : undefined}
       >
         {children}
       </a>
@@ -538,13 +660,13 @@ const CHAT_MARKDOWN_COMPONENTS: Parameters<typeof Markdown>[0]["components"] = {
   ),
 };
 
-function renderMarkdown(text: string) {
+function renderMarkdown(text: string, linkWorkspaceFiles: boolean) {
   const prepared = prepareMarkdownContent(text);
   return (
     <Markdown
       components={CHAT_MARKDOWN_COMPONENTS}
       rehypePlugins={MARKDOWN_REHYPE_PLUGINS}
-      remarkPlugins={markdownRemarkPlugins(prepared.abbreviations)}
+      remarkPlugins={markdownRemarkPlugins(prepared.abbreviations, linkWorkspaceFiles)}
       skipHtml
     >
       {prepared.content}
@@ -552,13 +674,16 @@ function renderMarkdown(text: string) {
   );
 }
 
-export function MarkdownContent({ content, typewriter = false, className, style }: MarkdownContentProps) {
+export function MarkdownContent({ content, typewriter = false, className, style, onOpenWorkspaceFile }: MarkdownContentProps) {
   const displayedContent = useTypewriter(content, typewriter);
-  const renderedContent = useMemo(() => renderMarkdown(displayedContent), [displayedContent]);
+  const linkWorkspaceFiles = Boolean(onOpenWorkspaceFile);
+  const renderedContent = useMemo(() => renderMarkdown(displayedContent, linkWorkspaceFiles), [displayedContent, linkWorkspaceFiles]);
 
   return (
-    <div className={`prose-chat min-w-0 max-w-full overflow-hidden break-words leading-relaxed [overflow-wrap:anywhere] ${className ?? ""}`} style={style}>
-      <div className="min-w-0 max-w-full overflow-hidden">{renderedContent}</div>
-    </div>
+    <MarkdownWorkspaceFileContext.Provider value={onOpenWorkspaceFile}>
+      <div className={`prose-chat min-w-0 max-w-full overflow-hidden break-words leading-relaxed [overflow-wrap:anywhere] ${className ?? ""}`} style={style}>
+        <div className="min-w-0 max-w-full overflow-hidden">{renderedContent}</div>
+      </div>
+    </MarkdownWorkspaceFileContext.Provider>
   );
 }

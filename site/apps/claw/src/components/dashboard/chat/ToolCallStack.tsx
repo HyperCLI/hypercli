@@ -1,10 +1,10 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useEffect, useId, useState } from "react";
 import { Check, ChevronRight, Loader2, Wrench } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
-import { getToolCallClass } from "./bubbleStyles";
+import { getToolCallClass, getToolCallStatusClass } from "./bubbleStyles";
 import { ToolCallBlock } from "./ToolCallBlock";
 import type { ChatMessageType, ThemeVariant } from "./types";
 
@@ -33,6 +33,7 @@ function toolNamesSummary(toolCalls: ToolCall[]): string {
 }
 
 export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = false }: ToolCallStackProps) {
+  const detailId = useId();
   const [open, setOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
@@ -45,11 +46,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
   const summary = toolNamesSummary(toolCalls);
   const statusLabel = pending ? "Running" : allDone ? "Done" : "Called";
   const progressPercent = toolCalls.length === 0 ? 0 : Math.round((completedCount / toolCalls.length) * 100);
-  const statusClass = pending
-    ? "border-[#f0c56c]/30 bg-[#f0c56c]/15 text-[#f0c56c]"
-    : allDone
-      ? "border-[#38D39F]/30 bg-[#38D39F]/15 text-[#38D39F]"
-      : "border-white/10 bg-white/[0.04] text-text-muted";
+  const statusClass = getToolCallStatusClass(allDone, pending);
 
   useEffect(() => {
     if (!rawPending) return;
@@ -64,40 +61,38 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
   return (
     <motion.div
       layout
-      className={`${getToolCallClass(themeVariant, allDone)} relative shadow-[0_10px_30px_rgba(0,0,0,0.18)] ring-1 ring-white/[0.03]`}
+      className={`${getToolCallClass(themeVariant, allDone, pending)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
       transition={{ layout: { duration: 0.2, ease: "easeOut" } }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(56,211,159,0.13),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent)]" />
-      <div className="pointer-events-none absolute inset-x-3 top-1 h-px bg-white/10" />
-      <div className="pointer-events-none absolute inset-x-6 top-2 h-px bg-white/[0.06]" />
       <button
         type="button"
+        aria-controls={detailId}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-low/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-inset"
       >
         <motion.span
-          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-background/70"
-          animate={pending ? { scale: [1, 1.04, 1] } : { scale: 1 }}
-          transition={pending ? { repeat: Infinity, duration: 1.2, ease: "easeInOut" } : { duration: 0.16 }}
+          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-surface-low/35"
+          animate={pending ? { scale: [1, 1.02, 1] } : { scale: 1 }}
+          transition={pending ? { repeat: Infinity, duration: 1.6, ease: "easeInOut" } : { duration: 0.16 }}
         >
           {pending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[#f0c56c]" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--selection-accent)]" />
           ) : allDone ? (
-            <Check className="h-3.5 w-3.5 text-[#38D39F]" />
+            <Check className="h-3.5 w-3.5 text-[var(--selection-accent)] opacity-75" />
           ) : (
             <Wrench className="h-3.5 w-3.5 text-text-muted" />
           )}
           <span
             aria-hidden="true"
-            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-[#f0c56c] px-1 text-[9px] font-bold leading-none text-black"
+            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-surface-high px-1 text-[9px] font-bold leading-none text-foreground"
           >
             {toolCalls.length}
           </span>
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
+            <span className="min-w-0 truncate font-medium text-foreground">{toolCalls.length} tool calls</span>
             <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
               {statusLabel}
             </span>
@@ -115,9 +110,9 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
           <ChevronRight className="h-3.5 w-3.5" />
         </motion.span>
       </button>
-      <div className="relative h-px bg-white/[0.06]">
+      <div className="relative h-px bg-border/50">
         <motion.div
-          className={`h-px ${allDone ? "bg-[#38D39F]" : "bg-[#f0c56c]"}`}
+          className="h-px bg-[rgb(var(--selection-accent-rgb)_/_0.62)]"
           initial={false}
           animate={{ width: `${progressPercent}%` }}
           transition={{ duration: 0.28, ease: "easeOut" }}
@@ -127,6 +122,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
         {open && (
           <motion.div
             key="stack-body"
+            id={detailId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}

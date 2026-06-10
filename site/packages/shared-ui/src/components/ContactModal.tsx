@@ -88,7 +88,7 @@ export default function ContactModal({ isOpen, onClose, source }: ContactModalPr
             <>
               <h2 className="text-3xl font-bold text-foreground mb-2">Get Started</h2>
               <p className="text-muted-foreground mb-6">
-                Fill out the form below and we'll get back to you within 24 hours.
+                Fill out the form below and we&apos;ll get back to you within 24 hours.
               </p>
 
               <form
@@ -102,7 +102,7 @@ export default function ContactModal({ isOpen, onClose, source }: ContactModalPr
                 <input type="hidden" name="source" value={formData.source} />
                 <p className="hidden">
                   <label>
-                    Don't fill this out: <input name="bot-field" />
+                    Don&apos;t fill this out: <input name="bot-field" />
                   </label>
                 </p>
 
@@ -198,7 +198,7 @@ export default function ContactModal({ isOpen, onClose, source }: ContactModalPr
                 </svg>
               </div>
               <h3 className="text-2xl font-bold text-foreground mb-2">Thank You!</h3>
-              <p className="text-muted-foreground">We'll be in touch shortly.</p>
+              <p className="text-muted-foreground">We&apos;ll be in touch shortly.</p>
             </div>
           )}
         </div>

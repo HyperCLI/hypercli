@@ -305,7 +305,7 @@ export default function EnterprisePage() {
               viewport={{ once: true }}
               transition={{ duration: 0.5, delay: 0.6 }}
             >
-              HyperCLI simplifies everything between "We want AI" and "It's in production."
+              HyperCLI simplifies everything between &quot;We want AI&quot; and &quot;It&apos;s in production.&quot;
             </motion.p>
           </div>
         </section>

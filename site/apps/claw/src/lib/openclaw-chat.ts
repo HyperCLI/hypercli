@@ -882,20 +882,41 @@ function upsertAssistantMessage(prev: ChatMessage[], incoming: ChatMessage): Cha
   ));
 }
 
-function normalizeLiveToolCall(
-  payload: Record<string, unknown>,
-): NonNullable<ChatMessage["toolCalls"]>[number] | null {
+function liveToolCallId(payload: Record<string, unknown>): string | undefined {
+  const id =
+    (typeof payload.id === "string" && payload.id.trim()) ||
+    (typeof payload.toolCallId === "string" && payload.toolCallId.trim()) ||
+    (typeof payload.tool_call_id === "string" && payload.tool_call_id.trim());
+  return id || undefined;
+}
+
+function liveToolName(payload: Record<string, unknown>): string | undefined {
   const name =
     (typeof payload.name === "string" && payload.name.trim()) ||
     (typeof payload.toolName === "string" && payload.toolName.trim()) ||
     (typeof payload.tool_name === "string" && payload.tool_name.trim());
+  return name || undefined;
+}
+
+function hasLiveToolCallShape(payload: Record<string, unknown>): boolean {
+  return Boolean(
+    liveToolCallId(payload) ||
+    liveToolName(payload) ||
+    Object.prototype.hasOwnProperty.call(payload, "args") ||
+    Object.prototype.hasOwnProperty.call(payload, "arguments")
+  );
+}
+
+function normalizeLiveToolCall(
+  payload: Record<string, unknown>,
+): NonNullable<ChatMessage["toolCalls"]>[number] | null {
+  const id = liveToolCallId(payload);
+  const name = liveToolName(payload) ?? (hasLiveToolCallShape(payload) ? "tool" : undefined);
   if (!name) {
     return null;
   }
   return {
-    ...(typeof payload.toolCallId === "string" && payload.toolCallId.trim()
-      ? { id: payload.toolCallId.trim() }
-      : {}),
+    ...(id ? { id } : {}),
     name,
     args: formatToolValue(payload.args ?? payload.arguments),
   };
@@ -908,16 +929,12 @@ function normalizeLiveToolResult(
   if (resultValue == null) {
     return null;
   }
-  const result = formatToolValue(resultValue);
-  const name =
-    (typeof payload.name === "string" && payload.name.trim()) ||
-    (typeof payload.toolName === "string" && payload.toolName.trim()) ||
-    (typeof payload.tool_name === "string" && payload.tool_name.trim()) ||
-    "tool";
+  const rawResult = formatToolValue(resultValue);
+  const result = payload.isError === true ? `Error${rawResult ? `: ${rawResult}` : ""}` : rawResult;
+  const id = liveToolCallId(payload);
+  const name = liveToolName(payload) ?? "tool";
   return {
-    ...(typeof payload.toolCallId === "string" && payload.toolCallId.trim()
-      ? { id: payload.toolCallId.trim() }
-      : {}),
+    ...(id ? { id } : {}),
     name,
     args: formatToolValue(payload.args ?? payload.arguments),
     result,

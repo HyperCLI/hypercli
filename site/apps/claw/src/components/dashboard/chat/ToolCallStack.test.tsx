@@ -27,12 +27,15 @@ describe("ToolCallStack", () => {
   it("collapses more than three tool calls by default", () => {
     render(<ToolCallStack toolCalls={toolCalls} themeVariant="off" />);
 
-    expect(screen.getByRole("button", { name: /4 tool calls/i })).toHaveAttribute("aria-expanded", "false");
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveAttribute("aria-expanded", "false");
+    expect(stackButton).toHaveAttribute("aria-controls");
     expect(screen.queryByText("four")).toBeNull();
 
-    fireEvent.click(screen.getByRole("button", { name: /4 tool calls/i }));
+    fireEvent.click(stackButton);
 
-    expect(screen.getByRole("button", { name: /4 tool calls/i })).toHaveAttribute("aria-expanded", "true");
+    expect(stackButton).toHaveAttribute("aria-expanded", "true");
+    expect(document.getElementById(stackButton.getAttribute("aria-controls") ?? "")).not.toBeNull();
     expect(screen.getByText("four")).toBeInTheDocument();
   });
 

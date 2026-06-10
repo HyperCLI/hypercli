@@ -4,7 +4,6 @@ interface HyperCLILogoLinkProps {
   className?: string;
   imageClassName?: string;
   priority?: boolean;
-  themeAware?: boolean;
 }
 
 interface HyperCLILogoMarkProps {
@@ -15,10 +14,8 @@ export function HyperCLILogoLink({
   className = "h-[31px] w-[102px]",
   imageClassName = "",
   priority = false,
-  themeAware = false,
 }: HyperCLILogoLinkProps) {
   void priority;
-  void themeAware;
 
   return (
     <Link

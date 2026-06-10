@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest";
 import {
   isInternalHeartbeatMessage,
   normalizeHistoryMessage,
+  normalizeLiveToolCall,
   normalizeLiveToolResult,
   upsertAssistantMessage,
   type ChatMessage,
@@ -1106,6 +1107,43 @@ describe("openclaw chat normalization", () => {
     });
 
     expect(normalized?.result).toContain("Binary file content omitted");
+  });
+
+  it("normalizes live tool-call id and name aliases", () => {
+    const normalized = normalizeLiveToolCall({
+      tool_call_id: "tool-1",
+      tool_name: "functions.read",
+      args: { path: "/tmp/demo.zip" },
+    });
+
+    expect(normalized).toMatchObject({
+      id: "tool-1",
+      name: "functions.read",
+    });
+    expect(normalized?.args).toContain("/tmp/demo.zip");
+  });
+
+  it("keeps identified live tool calls visible without a tool name", () => {
+    expect(normalizeLiveToolCall({ id: "tool-1", arguments: { query: "status" } })).toMatchObject({
+      id: "tool-1",
+      name: "tool",
+      args: expect.stringContaining("status"),
+    });
+    expect(normalizeLiveToolCall({})).toBeNull();
+  });
+
+  it("normalizes live tool-result aliases and error metadata", () => {
+    expect(normalizeLiveToolResult({
+      tool_call_id: "tool-1",
+      tool_name: "exec",
+      meta: "command failed",
+      isError: true,
+    })).toEqual({
+      id: "tool-1",
+      name: "exec",
+      args: "",
+      result: "Error: command failed",
+    });
   });
 
   it("normalizes empty and meta-based live tool results", () => {

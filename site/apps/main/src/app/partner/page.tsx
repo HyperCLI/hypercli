@@ -349,7 +349,7 @@ export default function PartnerPage() {
             transition={{ duration: 0.6, delay: 0.2 }}
           >
             <p className="text-3xl text-white mb-12 leading-tight max-w-2xl">
-              We don't compete with you. We scale you.
+              We don&apos;t compete with you. We scale you.
             </p>
 
             <p className="text-lg text-muted-foreground mb-5 leading-relaxed max-w-2xl">

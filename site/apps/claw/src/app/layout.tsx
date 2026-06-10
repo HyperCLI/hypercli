@@ -2,7 +2,6 @@ import type { Metadata } from "next";
 import { Plus_Jakarta_Sans } from "next/font/google";
 import "./globals.css";
 import { ClawProviders } from "@/components/ClawProviders";
-import { getClawThemeBootstrapScript } from "@/lib/claw-theme";
 
 const plusJakartaSans = Plus_Jakarta_Sans({
   subsets: ["latin"],
@@ -32,10 +31,6 @@ export default function RootLayout({
   return (
     <html lang="en" className="scroll-smooth" data-theme="green" suppressHydrationWarning>
       <head>
-        <script
-          id="claw-theme-bootstrap"
-          dangerouslySetInnerHTML={{ __html: getClawThemeBootstrapScript() }}
-        />
         <link rel="icon" href="/favicon.ico" sizes="any" />
         <link rel="icon" href="/favicon-32x32.png" type="image/png" sizes="32x32" />
         <link rel="icon" href="/favicon-16x16.png" type="image/png" sizes="16x16" />

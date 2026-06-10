@@ -1,5 +1,5 @@
-import { render, screen, within } from "@testing-library/react";
-import { describe, expect, it } from "vitest";
+import { fireEvent, render, screen, within } from "@testing-library/react";
+import { describe, expect, it, vi } from "vitest";
 
 import { MarkdownContent } from "./MarkdownContent";
 
@@ -129,5 +129,53 @@ describe("MarkdownContent", () => {
     expect(screen.getByText(/🚀/)).toBeInTheDocument();
     expect(screen.getByText("Footnote detail.")).toBeInTheDocument();
     expect(screen.getByRole("link", { name: "1" })).toHaveAttribute("href", "#user-content-fn-1");
+  });
+
+  it("links file mentions to the workspace file opener", () => {
+    const onOpenWorkspaceFile = vi.fn();
+    render(
+      <MarkdownContent
+        content="Updated src/app.tsx and /home/node/.openclaw/workspace/report.md."
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "src/app.tsx" }));
+    fireEvent.click(screen.getByRole("link", { name: "/home/node/.openclaw/workspace/report.md" }));
+
+    expect(onOpenWorkspaceFile).toHaveBeenCalledWith("src/app.tsx");
+    expect(onOpenWorkspaceFile).toHaveBeenCalledWith(".openclaw/workspace/report.md");
+  });
+
+  it("links inline-code file mentions to the workspace file opener", () => {
+    const onOpenWorkspaceFile = vi.fn();
+    render(<MarkdownContent content="Open `src/app.tsx`." onOpenWorkspaceFile={onOpenWorkspaceFile} />);
+
+    const link = screen.getByRole("link", { name: "src/app.tsx" });
+    expect(within(link).getByText("src/app.tsx")).toHaveClass("font-mono");
+    fireEvent.click(link);
+
+    expect(onOpenWorkspaceFile).toHaveBeenCalledWith("src/app.tsx");
+  });
+
+  it("does not linkify file mentions inside code blocks", () => {
+    const onOpenWorkspaceFile = vi.fn();
+    const { container } = render(
+      <MarkdownContent
+        content={["```text", "src/app.tsx", "```"].join("\n")}
+        onOpenWorkspaceFile={onOpenWorkspaceFile}
+      />,
+    );
+
+    expect(screen.queryByRole("link", { name: "src/app.tsx" })).not.toBeInTheDocument();
+    expect(container.querySelector("pre code")).toHaveTextContent("src/app.tsx");
+  });
+
+  it("does not linkify common technology names as bare files", () => {
+    const onOpenWorkspaceFile = vi.fn();
+    render(<MarkdownContent content="The project runs on Node.js." onOpenWorkspaceFile={onOpenWorkspaceFile} />);
+
+    expect(screen.queryByRole("link", { name: "Node.js" })).not.toBeInTheDocument();
+    expect(screen.getByText(/node\.js/i)).toBeInTheDocument();
   });
 });

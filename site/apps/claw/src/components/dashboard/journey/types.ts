@@ -1,9 +1,12 @@
 export type JourneyCompletionEvent =
   | "agent-created"
+  | "brief-started"
   | "source-added"
   | "rules-confirmed"
   | "chat-sent"
   | "reviewed-understanding"
+  | "capability-opened"
+  | "capability-used"
   | "integrations-opened"
   | "workflow-drafted";
 
@@ -33,4 +36,10 @@ export interface JourneyReceipt {
   dayId: string;
   text: string;
   timestamp: number;
+}
+
+export interface JourneyBriefPreviewItem {
+  id: string;
+  label: string;
+  complete: boolean;
 }

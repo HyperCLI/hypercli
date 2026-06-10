@@ -2,6 +2,16 @@ import type { Preview } from '@storybook/nextjs-vite';
 import '../src/app/globals.css';
 
 const preview: Preview = {
+  decorators: [
+    (Story) => {
+      if (typeof document !== 'undefined') {
+        document.documentElement.setAttribute('data-theme', 'green');
+        document.body?.setAttribute('data-theme', 'green');
+      }
+
+      return Story();
+    },
+  ],
   parameters: {
     backgrounds: {
       default: 'dark',

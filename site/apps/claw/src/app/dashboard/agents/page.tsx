@@ -89,6 +89,7 @@ import {
   sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
+import { displayNameForDashboard } from "@/lib/dashboard-greeting";
 import {
   clearStripeCheckoutReturnState,
   clearPendingPlanCheckout,
@@ -122,7 +123,8 @@ import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
 import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
-import { JOURNEY_DAYS } from "@/components/dashboard/journey/journey-days";
+import type { JourneyCapabilityCard } from "@/components/dashboard/journey/journey-capabilities";
+import { buildJourneyBriefPrompt, buildJourneyCapabilityPrompt, buildJourneyPrompt } from "@/components/dashboard/journey/journey-prompt-builder";
 import { useJourney } from "@/components/dashboard/journey/useJourney";
 import { getAgentGatewayPanelBootStatus } from "@/components/dashboard/agents/chat-boot-stage";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
@@ -145,6 +147,11 @@ import type { JourneyCompletionEvent, JourneyDay } from "@/components/dashboard/
 
 type MainTab = AgentMainTab;
 type AgentFileSource = "auto" | "pod" | "s3";
+type PendingJourneyChatCompletion = {
+  event: JourneyCompletionEvent | null;
+  dayId?: string | null;
+  receiptText?: string | null;
+};
 type SubscriptionSummaryWithEntitlementItems = HyperAgentSubscriptionSummary & {
   entitlementItems?: HyperAgentEntitlement[];
 };
@@ -156,9 +163,19 @@ const BILLING_MOCK_PARAM = "billingMock";
 const BILLING_MOCK_ACTIVE_NO_SLOT = "active-no-slot";
 const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
+const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
+const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
 
-function journeyPromptFor(dayId: string): string {
-  return JOURNEY_DAYS.find((day) => day.id === dayId)?.prompt ?? "";
+function pendingFileMatches(file: ChatPendingFile, mimePrefix: string, extensionPattern: RegExp): boolean {
+  return file.type.toLowerCase().startsWith(mimePrefix) || extensionPattern.test(file.name) || extensionPattern.test(file.path);
+}
+
+function pendingFileIsImage(file: ChatPendingFile): boolean {
+  return pendingFileMatches(file, "image/", /\.(avif|bmp|gif|heic|jpeg|jpg|png|svg|webp)$/i);
+}
+
+function pendingFileIsAudio(file: ChatPendingFile): boolean {
+  return pendingFileMatches(file, "audio/", /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i);
 }
 
 interface UpgradeDisplayProduct {
@@ -208,6 +225,11 @@ const FALLBACK_PRODUCTS_BY_ID = new Map(CLAW_PRODUCTS.map((product) => [product.
 function finiteNumber(value: unknown, fallback = 0): number {
   const numeric = Number(value);
   return Number.isFinite(numeric) ? numeric : fallback;
+}
+
+function dailyTokenUsageTotal(usage: { history?: Array<{ totalTokens?: unknown }> } | null | undefined): number | null {
+  if (!Array.isArray(usage?.history)) return null;
+  return usage.history.reduce((total, entry) => total + finiteNumber(entry.totalTokens), 0);
 }
 
 function normalizeBundle(value: unknown): SlotBundle {
@@ -756,10 +778,14 @@ function AgentsPageContent() {
   const queryKey = searchParams.toString();
   const shouldOpenAgentLauncherFromQuery = requestedOpen ? AGENT_LAUNCHER_OPEN_VALUES.has(requestedOpen) : false;
   const { setAgentMenu } = useDashboardMobileAgentMenu();
+  const dashboardDisplayName = displayNameForDashboard(user);
+  const suggestedJourneyUserName = dashboardDisplayName === "there" ? null : dashboardDisplayName;
   const accountInitial = user?.email?.trim()[0]?.toUpperCase() || "?";
   const journey = useJourney({ searchParams, searchKey: queryKey, storageScope: user?.email ?? null });
-  const journeyChatCompletionRef = useRef<JourneyCompletionEvent | null>(null);
+  const journeyChatCompletionRef = useRef<PendingJourneyChatCompletion | null>(null);
   const completeJourneyForEvent = journey.completeForEvent;
+  const completeJourneyDay = journey.completeDay;
+  const recordJourneyReceipt = journey.recordReceipt;
   const [isDesktopViewport, setIsDesktopViewport] = useState(() => {
     if (typeof window === "undefined") return true;
     return window.matchMedia(AGENTS_DESKTOP_MEDIA_QUERY).matches;
@@ -794,6 +820,8 @@ function AgentsPageContent() {
   const [pendingSlotReleases, setPendingSlotReleases] = useState<Record<string, number>>({});
   const stoppedTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
   const slotReleaseTimersRef = useRef<Map<string, ReturnType<typeof setTimeout>>>(new Map());
+  const tokenUsageRefreshTimersRef = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const tokenUsageRefreshInFlightRef = useRef(false);
   const checkoutReturnHandledRef = useRef(false);
   const appliedAgentQueryRef = useRef<string | null>(null);
   const appliedOpenQueryRef = useRef<string | null>(null);
@@ -802,6 +830,8 @@ function AgentsPageContent() {
     return () => {
       stoppedTimersRef.current.forEach((t) => clearTimeout(t));
       slotReleaseTimersRef.current.forEach((t) => clearTimeout(t));
+      tokenUsageRefreshTimersRef.current.forEach((t) => clearTimeout(t));
+      tokenUsageRefreshTimersRef.current = [];
     };
   }, []);
 
@@ -906,6 +936,35 @@ function AgentsPageContent() {
 
   const chatEndRef = useRef<HTMLDivElement>(null);
 
+  const clearScheduledTokenUsageRefreshes = useCallback(() => {
+    tokenUsageRefreshTimersRef.current.forEach((timer) => clearTimeout(timer));
+    tokenUsageRefreshTimersRef.current = [];
+  }, []);
+
+  const refreshTokenUsage = useCallback(async () => {
+    if (tokenUsageRefreshInFlightRef.current) return;
+    tokenUsageRefreshInFlightRef.current = true;
+    try {
+      const hyperAgent = createHyperAgentClient(await getToken());
+      const dailyUsage = await hyperAgent.usageHistory(1);
+      setTokenUsage(dailyTokenUsageTotal(dailyUsage));
+    } catch {
+      // Keep the last displayed value on transient usage refresh failures.
+    } finally {
+      tokenUsageRefreshInFlightRef.current = false;
+    }
+  }, [getToken]);
+
+  const refreshTokenUsageAfterChat = useCallback(() => {
+    clearScheduledTokenUsageRefreshes();
+    void refreshTokenUsage();
+    tokenUsageRefreshTimersRef.current = TOKEN_USAGE_RECONCILE_DELAYS_MS.map((delay) => (
+      setTimeout(() => {
+        void refreshTokenUsage();
+      }, delay)
+    ));
+  }, [clearScheduledTokenUsageRefreshes, refreshTokenUsage]);
+
   const fetchAgents = useCallback(async (): Promise<FetchAgentsResult | null> => {
     try {
       const token = await getToken();
@@ -948,7 +1007,7 @@ function AgentsPageContent() {
       setCatalogPlans(plans);
       setPlanName(getEffectivePlanName(summary, normalizedCurrentPlan, plans));
       setSubscriptionSummary(summary);
-      setTokenUsage(dailyUsage?.history?.reduce((total, entry) => total + entry.totalTokens, 0) ?? null);
+      setTokenUsage(dailyTokenUsageTotal(dailyUsage));
       setAgentClusterUnavailable(false);
       const requestedAgent = requestedAgentId
         ? listedAgents.find((agent) => agent.id === requestedAgentId) ?? null
@@ -1220,6 +1279,29 @@ function AgentsPageContent() {
 
     return () => clearInterval(timer);
   }, [fetchAgents, selectedAgentId, selectedAgentState]);
+
+  useEffect(() => {
+    if (typeof window === "undefined" || typeof document === "undefined") return;
+    const refreshIfVisible = () => {
+      if (document.visibilityState === "hidden") return;
+      void refreshTokenUsage();
+    };
+    window.addEventListener("focus", refreshIfVisible);
+    document.addEventListener("visibilitychange", refreshIfVisible);
+    return () => {
+      window.removeEventListener("focus", refreshIfVisible);
+      document.removeEventListener("visibilitychange", refreshIfVisible);
+    };
+  }, [refreshTokenUsage]);
+
+  useEffect(() => {
+    if (!isSelectedRunning || typeof window === "undefined") return;
+    const timer = setInterval(() => {
+      if (typeof document !== "undefined" && document.visibilityState === "hidden") return;
+      void refreshTokenUsage();
+    }, TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS);
+    return () => clearInterval(timer);
+  }, [isSelectedRunning, refreshTokenUsage]);
 
   const selectedAgentStartGuidance = useMemo(
     () =>
@@ -2159,12 +2241,13 @@ function AgentsPageContent() {
   useEffect(() => {
     if (prevSendingRef.current && !chat.sending) {
       isNearBottomRef.current = true;
+      refreshTokenUsageAfterChat();
       requestAnimationFrame(() => {
         chatEndRef.current?.scrollIntoView({ behavior: "smooth" });
       });
     }
     prevSendingRef.current = chat.sending;
-  }, [chat.sending]);
+  }, [chat.sending, refreshTokenUsageAfterChat]);
 
   // Scroll to bottom when user switches back to chat tab.
   // useLayoutEffect runs synchronously after DOM commit (refs are set)
@@ -2606,20 +2689,26 @@ function AgentsPageContent() {
 
   const handleSendChat = () => {
     const hasChatWork = chat.input.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
-    const journeyCompletionEvent = journeyChatCompletionRef.current;
+    const pendingJourneyCompletion = journeyChatCompletionRef.current;
+    const completePendingJourney = () => {
+      if (pendingJourneyCompletion?.dayId) {
+        completeJourneyDay(pendingJourneyCompletion.dayId, pendingJourneyCompletion.receiptText ?? undefined);
+      } else {
+        completeJourneyForEvent(pendingJourneyCompletion?.event ?? "chat-sent");
+      }
+      journeyChatCompletionRef.current = null;
+    };
     if (chat.sending) {
       chat.setInput("");
       chat.addPendingMessage(chat.input);
       if (hasChatWork) {
-        completeJourneyForEvent(journeyCompletionEvent ?? "chat-sent");
-        journeyChatCompletionRef.current = null;
+        completePendingJourney();
       }
       return;
     }
     chat.sendMessage();
     if (hasChatWork) {
-      completeJourneyForEvent(journeyCompletionEvent ?? "chat-sent");
-      journeyChatCompletionRef.current = null;
+      completePendingJourney();
     }
   };
 
@@ -2632,6 +2721,38 @@ function AgentsPageContent() {
     mainTab === "settings"
       ? mainTab
       : "chat";
+  const journeyCapabilityContext = useMemo(() => {
+    const hasImageAttachment =
+      chat.pendingAttachments.some((attachment) => attachment.mimeType?.toLowerCase().startsWith("image/")) ||
+      chat.pendingFiles.some(pendingFileIsImage);
+    const hasAudioAttachment =
+      Boolean(audioUrl) ||
+      chat.pendingAttachments.some((attachment) => attachment.mimeType?.toLowerCase().startsWith("audio/")) ||
+      chat.pendingFiles.some(pendingFileIsAudio);
+
+    return {
+      input: chat.input,
+      hasImageAttachment,
+      hasAudioAttachment,
+      hasFileAttachment: chat.pendingAttachments.length > 0 || chat.pendingFiles.length > 0,
+    };
+  }, [audioUrl, chat.input, chat.pendingAttachments, chat.pendingFiles]);
+  const journeyMissionDay = journey.currentDay;
+  const selectedJourneyAgentName = selectedAgent?.name || selectedAgent?.pod_name || "your agent";
+  const journeyIntroVisibleInChat = Boolean(
+    journey.enabled &&
+    mainTab === "chat" &&
+    chat.messages.length === 0 &&
+    journeyMissionDay?.id === "brief",
+  );
+  const journeyMissionCardVisibleInChat = Boolean(
+    journey.enabled &&
+    mainTab === "chat" &&
+    journeyMissionDay &&
+    !journey.completedIds.has(journeyMissionDay.id) &&
+    (journeyMissionDay.id !== "brief" || chat.messages.length > 0),
+  );
+  const journeyChatSurfaceVisible = journeyIntroVisibleInChat || journeyMissionCardVisibleInChat;
 
   useEffect(() => {
     if (!SCHEDULED_SECTION_ENABLED && mainTab === "scheduled") {
@@ -2762,6 +2883,19 @@ function AgentsPageContent() {
     setMobileWorkspaceSidebarOpen(false);
     completeJourneyForEvent("integrations-opened");
   };
+  const openJourneyCapability = (capability: JourneyCapabilityCard, day?: JourneyDay | null) => {
+    setDirectoryCategory(getCategoryForPlugin(capability.pluginId) ?? undefined);
+    setDirectoryItemId(capability.pluginId);
+    setDirectoryDetailOrigin("chat");
+    setMainTab("integrations");
+    setMobileShowChat(true);
+    setMobileWorkspaceSidebarOpen(false);
+    if (day?.id === "connections") {
+      completeJourneyDay(day.id, capability.receipt);
+    } else if (day?.id) {
+      recordJourneyReceipt(day.id, capability.receipt);
+    }
+  };
   const openSkillsTab = () => {
     setDirectoryCategory("skills");
     setDirectoryItemId(undefined);
@@ -2803,10 +2937,29 @@ function AgentsPageContent() {
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
-  const setJourneyPrompt = (prompt: string, completionEvent: JourneyCompletionEvent | null = null) => {
-    journeyChatCompletionRef.current = completionEvent;
+  const setJourneyPrompt = (
+    prompt: string,
+    completionEvent: JourneyCompletionEvent | null = null,
+    completionDayId: string | null = null,
+    receiptText: string | null = null,
+  ) => {
+    journeyChatCompletionRef.current = completionEvent || completionDayId
+      ? { event: completionEvent, dayId: completionDayId, receiptText }
+      : null;
     if (prompt) chat.setInput(prompt);
     openChatTab();
+  };
+  const setJourneyPromptResult = (result: ReturnType<typeof buildJourneyPrompt>) => {
+    setJourneyPrompt(result.prompt, result.completionEvent, result.completionDayId, result.receiptText);
+  };
+  const runJourneyCapabilityPrompt = (capability: JourneyCapabilityCard, day: JourneyDay) => {
+    setJourneyPromptResult(buildJourneyCapabilityPrompt({
+      dayId: day.id,
+      agentName: selectedJourneyAgentName,
+      preferredName: suggestedJourneyUserName,
+      selectedCapabilityId: capability.id,
+      capabilityContext: journeyCapabilityContext,
+    }));
   };
   const openMobileAgentLauncher = () => {
     setMobileAgentsSidebarOpen(false);
@@ -2827,7 +2980,10 @@ function AgentsPageContent() {
   const runJourneyDayAction = (day: JourneyDay) => {
     if (day.actionKind === "create-agent") {
       if (selectedAgent) {
-        openAgentSettingsTab();
+        setJourneyPromptResult(buildJourneyBriefPrompt({
+          agentName: selectedJourneyAgentName,
+          preferredName: suggestedJourneyUserName,
+        }));
         return;
       }
 
@@ -2856,13 +3012,12 @@ function AgentsPageContent() {
     }
 
     if (day.actionKind === "set-chat-prompt") {
-      if (day.id === "understanding") {
-        setJourneyPrompt(day.prompt ?? "", "reviewed-understanding");
-      } else if (day.id === "repeatable") {
-        setJourneyPrompt(day.prompt ?? "", "workflow-drafted");
-      } else {
-        setJourneyPrompt(day.prompt ?? "");
-      }
+      setJourneyPromptResult(buildJourneyPrompt({
+        dayId: day.id,
+        agentName: selectedJourneyAgentName,
+        preferredName: suggestedJourneyUserName,
+        capabilityContext: journeyCapabilityContext,
+      }));
     }
   };
   const showMobileChatReturn = !isDesktopViewport && (mainTab !== "chat" || openclawSettingsOpen);
@@ -3321,13 +3476,26 @@ function AgentsPageContent() {
               onReadFileBytesFromChat={readAgentFileBytes}
               onOpenFileFromChat={openFilesTab}
               onDownloadFileFromChat={downloadAgentFileFromChat}
-              journeyIntro={journey.enabled ? {
+              journeyIntro={journeyIntroVisibleInChat ? {
                 enabled: true,
-                agentName: selectedAgent?.name || selectedAgent?.pod_name || "your agent",
-                onStartBrief: () => setJourneyPrompt(journeyPromptFor("brief")),
-                onAddSource: openFilesTab,
-                onSetRules: () => setJourneyPrompt(journeyPromptFor("rules")),
-                onTryWork: () => setJourneyPrompt(journeyPromptFor("real-work")),
+                agentName: selectedJourneyAgentName,
+                suggestedUserName: suggestedJourneyUserName,
+                onStartBrief: (starterDirection, preferredName) => setJourneyPromptResult(buildJourneyBriefPrompt({
+                  agentName: selectedJourneyAgentName,
+                  preferredName,
+                  starterDirection,
+                })),
+              } : undefined}
+              journeyMissionCard={journeyMissionCardVisibleInChat && journeyMissionDay ? {
+                enabled: true,
+                agentName: selectedJourneyAgentName,
+                preferredName: suggestedJourneyUserName,
+                day: journeyMissionDay,
+                capabilityContext: journeyCapabilityContext,
+                onSetPrompt: setJourneyPrompt,
+                onRunDayAction: runJourneyDayAction,
+                onRunCapabilityPrompt: runJourneyCapabilityPrompt,
+                onOpenCapability: openJourneyCapability,
               } : undefined}
               slashCommandActions={{
                 onOpenFiles: openFilesTab,
@@ -3588,7 +3756,15 @@ function AgentsPageContent() {
         isDesktopViewport={isDesktopViewport}
       />
 
-      <JourneyFloatingPanel journey={journey} onRunDayAction={runJourneyDayAction} />
+      {!journeyChatSurfaceVisible ? (
+        <JourneyFloatingPanel
+          journey={journey}
+          onRunDayAction={runJourneyDayAction}
+          onRunCapabilityPrompt={runJourneyCapabilityPrompt}
+          onOpenCapability={openJourneyCapability}
+          capabilityContext={journeyCapabilityContext}
+        />
+      ) : null}
 
       </div>
     </AgentGatewaySessionProvider>

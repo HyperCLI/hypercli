@@ -74,6 +74,7 @@ import {
 } from "./agentViewMockData";
 import { BRAND_ICONS } from "./BrandIcons";
 import { relativeTime } from "./agentViewUtils";
+import { toolCallSummary } from "./chat/helpers";
 
 export type { TabId, StyleVariant } from "./agentViewTypes";
 
@@ -987,7 +988,7 @@ export function AgentView({
                   onClick={() => setActivityFilter(t.value)}
                   whileTap={{ scale: 0.92 }}
                   className={`text-[10px] px-2 py-0.5 rounded-full font-medium transition-colors ${activityFilter === t.value
-                      ? "bg-[#38D39F]/15 text-[#38D39F]"
+                      ? "bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)]"
                       : "bg-surface-low text-text-muted hover:text-text-secondary"
                     }`}
                 >
@@ -1005,41 +1006,37 @@ export function AgentView({
                 ) : (
                   recentToolCallsSource.map((tc, i) => {
                     const renderKey = `${tc.id}:${tc.timestamp}:${i}`;
+                    const running = !tc.result;
+                    const summary = toolCallSummary(tc);
                     return (
                       <motion.div
                         key={renderKey}
                         initial={{ opacity: 0, y: 8 }}
                         animate={{ opacity: 1, y: 0 }}
                         transition={{ duration: 0.2, delay: i * 0.04 }}
-                        className={`flex items-start gap-2.5 px-3 py-2 rounded-lg hover:bg-surface-low transition-colors ${isHighlighted(tc.id) ? "activity-flash" : ""}`}
+                        className={`flex items-start gap-2.5 rounded-lg border border-border/45 bg-surface-low/20 px-3 py-2 transition-colors hover:bg-surface-low/45 ${isHighlighted(tc.id) ? "activity-flash" : ""}`}
                       >
-                      <motion.div
-                        animate={!tc.result ? { rotate: [0, 180, 360] } : {}}
-                        transition={!tc.result ? { repeat: Infinity, duration: 2, ease: "linear" } : {}}
-                      >
-                        <Wrench className="w-3.5 h-3.5 text-[#f0c56c] mt-0.5 shrink-0" />
-                      </motion.div>
+                      <div>
+                        <Wrench className={`w-3.5 h-3.5 mt-0.5 shrink-0 ${running ? "text-[var(--selection-accent)]" : "text-text-muted"} opacity-80`} />
+                      </div>
                       <div className="flex-1 min-w-0">
                         <div className="flex items-center gap-1.5">
                           <span className="text-xs font-mono font-medium text-foreground">{tc.name}</span>
                           {tc.result ? (
                             <motion.div initial={{ scale: 0 }} animate={{ scale: 1 }} transition={{ type: "spring", stiffness: 500, damping: 20 }}>
-                              <Check className="w-3 h-3 text-[#38D39F]" />
+                              <Check className="w-3 h-3 text-[var(--selection-accent)] opacity-75" />
                             </motion.div>
                           ) : (
                             <motion.span
-                              className="inline-block w-1.5 h-1.5 rounded-full bg-[#f0c56c]"
+                              className="inline-block w-1.5 h-1.5 rounded-full bg-[var(--selection-accent)]"
                               animate={{ scale: [0.75, 1.35, 0.75], opacity: [0.5, 1, 0.5] }}
                               transition={{ repeat: Infinity, duration: 1.0, ease: "easeInOut" }}
                             />
                           )}
                         </div>
                         <div className="text-[10px] text-text-muted mt-0.5 truncate font-mono">
-                          {tc.args.length > 60 ? tc.args.slice(0, 60) + "..." : tc.args}
+                          {summary}
                         </div>
-                        {tc.result && (
-                          <div className="text-[10px] text-text-secondary mt-0.5 truncate">{tc.result}</div>
-                        )}
                       </div>
                       <span className="text-[10px] text-text-muted whitespace-nowrap mt-0.5">{relativeTime(tc.timestamp)}</span>
                       </motion.div>

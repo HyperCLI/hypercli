@@ -95,7 +95,12 @@ export function AgentMainPanel({
   onStart,
   onReconnect,
 }: AgentMainPanelProps) {
-  const isStopping = selectedAgent?.state === "STOPPING";
+  const selectedAgentState = selectedAgent?.state ?? null;
+  const isProvisioning = selectedAgentState === "PENDING";
+  const isBooting = selectedAgentState === "STARTING";
+  const isStopping = selectedAgentState === "STOPPING";
+  const isLifecycleBusy = isProvisioning || isBooting || isStopping;
+  const isStartable = selectedAgentState === "STOPPED" || selectedAgentState === "FAILED";
   const lifecycleAgentStatus: AgentStatusChipModel | null = (() => {
     if (!selectedAgent) return null;
     if (selectedAgent.state === "FAILED") {
@@ -157,8 +162,10 @@ export function AgentMainPanel({
   const effectiveAgentStatus = agentStatus ?? lifecycleAgentStatus ?? connectionAgentStatus;
   const legacyConnectionStatus = activeConnectionStatus ?? null;
   const shouldShowStartupAnimation =
-    (isSelectedTransitioning && (selectedAgent?.state === "PENDING" || selectedAgent?.state === "STARTING")) ||
-    (selectedAgent?.state === "RUNNING" && burstAgentId === selectedAgent.id);
+    isProvisioning ||
+    isBooting ||
+    (isSelectedTransitioning && (selectedAgentState === "PENDING" || selectedAgentState === "STARTING")) ||
+    (selectedAgentState === "RUNNING" && selectedAgent !== null && burstAgentId === selectedAgent.id);
   React.useEffect(() => {
     if (selectedAgent?.state !== "RUNNING" || burstAgentId !== selectedAgent.id) return;
 
@@ -209,9 +216,7 @@ export function AgentMainPanel({
     const chatPanelOwnsBootState =
       currentPanel === "chat" &&
       (
-        activeAgent.state === "PENDING" ||
-        activeAgent.state === "STARTING" ||
-        activeAgent.state === "STOPPING" ||
+        isLifecycleBusy ||
         (activeAgent.state === "RUNNING" && shouldShowStartupAnimation)
       );
 
@@ -272,7 +277,7 @@ export function AgentMainPanel({
       return panelContent;
     }
 
-    if (!isSelectedRunning) {
+    if (!isSelectedRunning && isStartable) {
       return (
         <AgentLaunchPrompt
           label={stoppedTabLabel}

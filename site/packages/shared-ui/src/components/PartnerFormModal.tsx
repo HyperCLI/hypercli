@@ -111,7 +111,7 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                 <input type="hidden" name="form-name" value="partner-inquiry" />
                 <p className="hidden">
                   <label>
-                    Don't fill this out: <input name="bot-field" />
+                    Don&apos;t fill this out: <input name="bot-field" />
                   </label>
                 </p>
 
@@ -235,7 +235,7 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
                 </button>
 
                 <p className="mt-4 text-xs text-[#6B7280] text-center">
-                  We'll review your application and get back to you within 48 hours.
+                  We&apos;ll review your application and get back to you within 48 hours.
                 </p>
               </form>
             </>
@@ -259,7 +259,7 @@ export default function PartnerFormModal({ isOpen, onClose }: PartnerFormModalPr
               <h3 className="text-xl font-semibold text-white mb-2">Application Received</h3>
               <p className="text-[#9BA0A2] text-sm">
                 Thank you for your interest in partnering with us.<br />
-                We'll be in touch soon.
+                We&apos;ll be in touch soon.
               </p>
             </div>
           )}

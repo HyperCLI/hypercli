@@ -2,35 +2,36 @@ import { readFileSync } from "node:fs";
 import path from "node:path";
 import { describe, expect, it } from "vitest";
 
-const globalsCss = readFileSync(path.resolve(process.cwd(), "src/app/globals.css"), "utf8");
+const clawThemeCss = readFileSync(
+  path.resolve(process.cwd(), "../../packages/shared-ui/src/styles/claw.css"),
+  "utf8",
+);
 
-function themeBlock(theme: "green" | "purple") {
-  const match = globalsCss.match(new RegExp(`\\[data-theme="${theme}"\\]\\s*\\{([\\s\\S]*?)\\n\\}`));
-  if (!match) throw new Error(`Missing ${theme} theme block`);
+const fixedGreenBlock = (() => {
+  const match = clawThemeCss.match(/\[data-theme="green"\]\s*\{([\s\S]*?)\n\}/);
+  if (!match) throw new Error("Missing fixed green theme block");
   return match[1];
-}
+})();
 
 describe("claw theme CSS", () => {
-  it.each(["green", "purple"] as const)("keeps %s scoped to buttons and selections", (theme) => {
-    const block = themeBlock(theme);
-
-    expect(block).toContain("--button-primary:");
-    expect(block).toContain("--button-primary-rgb:");
-    expect(block).toContain("--selection-accent:");
-    expect(block).toContain("--selection-accent-rgb:");
-    expect(block).toContain("--selection-background:");
-    expect(block).not.toMatch(/--background\s*:/);
-    expect(block).not.toMatch(/--foreground\s*:/);
-    expect(block).not.toMatch(/--text-/);
-    expect(block).not.toMatch(/--surface-/);
-    expect(block).not.toMatch(/--primary\s*:/);
-    expect(block).not.toMatch(/--accent\s*:/);
+  it("defines the fixed green button and selection contract", () => {
+    expect(fixedGreenBlock).toContain("--button-primary: #63e452;");
+    expect(fixedGreenBlock).toContain("--button-primary-rgb: 99 228 82;");
+    expect(fixedGreenBlock).toContain("--selection-accent: #63e452;");
+    expect(fixedGreenBlock).toContain("--selection-accent-rgb: 99 228 82;");
+    expect(fixedGreenBlock).toContain("--selection-background: rgba(99, 228, 82, 0.3);");
   });
 
-  it("includes Firefox rendering fallbacks", () => {
-    expect(globalsCss).toContain("scrollbar-width: thin");
-    expect(globalsCss).toContain("scrollbar-color: var(--border-medium) var(--background)");
-    expect(globalsCss).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
-    expect(globalsCss).toContain("@supports not (height: 100dvh)");
+  it("does not include removed theme variants", () => {
+    expect(clawThemeCss).not.toContain('[data-theme="default"]');
+    expect(clawThemeCss).not.toContain('[data-theme="purple"]');
+  });
+
+  it("includes rendering fallbacks and Claw utility classes", () => {
+    expect(clawThemeCss).toContain("scrollbar-width: thin");
+    expect(clawThemeCss).toContain("scrollbar-color: var(--border-medium) var(--background)");
+    expect(clawThemeCss).toContain("@supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px)))");
+    expect(clawThemeCss).toContain(".glass-card");
+    expect(clawThemeCss).toContain(".btn-primary");
   });
 });

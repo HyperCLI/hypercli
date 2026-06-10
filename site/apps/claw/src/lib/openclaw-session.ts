@@ -65,16 +65,6 @@ interface ChatStreamEventContext {
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
-function formatSessionToolValue(value: unknown): string {
-  if (value == null) return "";
-  if (typeof value === "string") return sanitizeChatDisplayText(value);
-  try {
-    return sanitizeChatDisplayText(JSON.stringify(value, null, 2));
-  } catch {
-    return sanitizeChatDisplayText(String(value));
-  }
-}
-
 function isGatewayChatStreamEvent(event: string, payload: unknown): boolean {
   if (event === "chat" || event.startsWith("chat.")) return true;
   if (event !== "agent") return false;
@@ -148,18 +138,14 @@ export function handleOpenClawSessionEvent({
   if (event === "agent" && String((payload as Record<string, unknown>).stream || "") === "tool") {
     const data = (payload as Record<string, unknown>).data as Record<string, unknown> | undefined;
     if (data) {
-      const phase = data.phase as string;
-      const toolName = (data.name as string) || "";
-      const toolCallId = data.toolCallId as string | undefined;
-      if (phase === "start" && toolName) {
-        const args = formatSessionToolValue(data.args);
-        setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args }], timestamp: Date.now() }));
-      } else if (phase === "result" && toolName) {
-        const meta = (data.meta as string) || "";
-        const isError = Boolean(data.isError);
-        const resultText = isError ? `Error: ${sanitizeChatDisplayText(meta)}` : sanitizeChatDisplayText(meta);
-        if (resultText) {
-          setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [{ ...(toolCallId ? { id: toolCallId } : {}), name: toolName, args: "", result: resultText }], timestamp: Date.now() }));
+      const phase = typeof data.phase === "string" ? data.phase.toLowerCase() : "";
+      if (phase === "start") {
+        const toolCall = normalizeLiveToolCall(data);
+        if (toolCall) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolCall], timestamp: Date.now() }));
+      } else if (phase === "result") {
+        const toolResult = normalizeLiveToolResult(data);
+        if (toolResult) {
+          setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
         }
       }
     }

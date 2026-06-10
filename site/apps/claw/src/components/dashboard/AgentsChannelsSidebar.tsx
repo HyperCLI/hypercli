@@ -558,7 +558,6 @@ function SidebarHeader({
       <div className="flex items-center justify-between px-3 h-14">
         <HyperCLILogoLink
           className={mobileMode ? "h-[32px] w-[164px]" : "h-[28px] w-[144px]"}
-          themeAware
         />
         <div className="flex items-center gap-1">
           <button

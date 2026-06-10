@@ -26,24 +26,35 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
   return {};
 }
 
-export function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
-  const baseClass = "mb-2 w-full min-w-0 max-w-full overflow-hidden text-xs";
-  if (theme === "v1") {
-    return hasResult
-      ? `${baseClass} rounded-md border border-[#38D39F]/25 bg-[#38D39F]/8`
-      : `${baseClass} rounded-md border border-[#f0c56c]/25 bg-[#f0c56c]/8`;
-  }
+export function getToolCallClass(theme: ThemeVariant, hasResult: boolean, isRunning = false): string {
+  const baseClass = "mb-1.5 w-full min-w-0 max-w-full overflow-hidden text-xs";
+  const activeClass = "border-border bg-surface-low/40";
+  const runningClass = "border-[rgb(var(--selection-accent-rgb)_/_0.32)] bg-surface-low/45";
+  const neutralClass = "border-border bg-surface-low/35";
+  const stateClass = hasResult ? activeClass : isRunning ? runningClass : neutralClass;
+
   if (theme === "v2") {
-    return hasResult
-      ? `${baseClass} rounded-md border-l-4 border-[#38D39F] bg-[#38D39F]/8`
-      : `${baseClass} rounded-md border-l-4 border-[#f0c56c] bg-[#f0c56c]/8`;
+    const leftBorder = isRunning
+      ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.72)]"
+      : hasResult
+        ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+        : "border-l-border";
+    return `${baseClass} rounded-lg border border-l-2 ${leftBorder} ${stateClass}`;
   }
-  if (theme === "v3") {
-    return hasResult
-      ? `${baseClass} rounded-md border border-[#38D39F]/30 bg-[#38D39F]/10`
-      : `${baseClass} rounded-md border border-[#f0c56c]/30 bg-[#f0c56c]/10`;
+
+  return `${baseClass} rounded-lg border ${stateClass}`;
+}
+
+export function getToolCallStatusClass(hasResult: boolean, isRunning = false): string {
+  if (isRunning) {
+    return "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] text-[var(--selection-accent)]";
   }
-  return `${baseClass} rounded-md border border-border bg-background/50`;
+
+  if (hasResult) {
+    return "border-border bg-background/35 text-text-secondary";
+  }
+
+  return "border-border bg-background/35 text-text-muted";
 }
 
 /** Compute combined bubble classes from shape + color variants. */

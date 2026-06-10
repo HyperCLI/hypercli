@@ -1,4 +1,4 @@
-import { createRef, type ComponentProps } from "react";
+import { createRef, useState, type ComponentProps } from "react";
 import { act, fireEvent, screen, within } from "@testing-library/react";
 import { afterEach, describe, expect, it, vi } from "vitest";
 
@@ -105,6 +105,36 @@ function buildAgentChatPanelProps(overrides: Partial<AgentChatPanelProps> = {}):
 function renderAgentChatPanel(overrides: Partial<AgentChatPanelProps> = {}) {
   const props = buildAgentChatPanelProps(overrides);
   return renderWithClient(<AgentChatPanel {...props} />);
+}
+
+function renderAgentChatPanelWithInputState({
+  initialInput = "",
+  messages,
+}: {
+  initialInput?: string;
+  messages: ChatSession["messages"];
+}) {
+  function StatefulAgentChatPanel() {
+    const [input, setInput] = useState(initialInput);
+    return (
+      <AgentChatPanel
+        {...buildAgentChatPanelProps({
+          chat: buildChat({
+            status: "connected",
+            gatewayConnected: true,
+            ready: true,
+            connected: true,
+            input,
+            setInput,
+            messages,
+          }),
+          isSelectedRunning: true,
+        })}
+      />
+    );
+  }
+
+  return renderWithClient(<StatefulAgentChatPanel />);
 }
 
 describe("AgentChatPanel", () => {
@@ -256,6 +286,113 @@ describe("AgentChatPanel", () => {
 
     expect(screen.getByRole("textbox", { name: /message agent/i })).toBeInTheDocument();
     expect(screen.queryByText("Connecting gateway")).not.toBeInTheDocument();
+  });
+
+  it("resizes the composer when input changes outside textarea events", async () => {
+    const originalScrollHeight = Object.getOwnPropertyDescriptor(HTMLTextAreaElement.prototype, "scrollHeight");
+    let setExternalInput: ((value: string) => void) | undefined;
+
+    Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", {
+      configurable: true,
+      get() {
+        return this.value.includes("\n") ? 124 : 40;
+      },
+    });
+
+    try {
+      const selectedAgent = buildAgent();
+      function StatefulAgentChatPanel() {
+        const [input, setInput] = useState("");
+        setExternalInput = setInput;
+
+        return (
+          <AgentChatPanel
+            {...buildAgentChatPanelProps({
+              selectedAgent,
+              chat: buildChat({
+                status: "connected",
+                gatewayConnected: true,
+                ready: true,
+                connected: true,
+                input,
+                setInput,
+              }),
+              isSelectedRunning: true,
+            })}
+          />
+        );
+      }
+
+      renderWithClient(<StatefulAgentChatPanel />);
+
+      const textbox = screen.getByRole("textbox", { name: /message agent/i }) as HTMLTextAreaElement;
+      expect(textbox).toHaveStyle({ height: "40px" });
+
+      await act(async () => {
+        setExternalInput?.("line one\nline two\nline three");
+      });
+
+      expect(textbox).toHaveValue("line one\nline two\nline three");
+      expect(textbox).toHaveStyle({ height: "124px" });
+
+      await act(async () => {
+        setExternalInput?.("");
+      });
+
+      expect(textbox).toHaveValue("");
+      expect(textbox).toHaveStyle({ height: "40px" });
+    } finally {
+      if (originalScrollHeight) {
+        Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", originalScrollHeight);
+      } else {
+        delete (HTMLTextAreaElement.prototype as Partial<HTMLTextAreaElement>).scrollHeight;
+      }
+    }
+  });
+
+  it("recalls previous prompts with up and down arrows", () => {
+    renderAgentChatPanelWithInputState({
+      initialInput: "unsent draft",
+      messages: [
+        { role: "user", content: "first prompt" },
+        { role: "assistant", content: "first answer" },
+        { role: "user", content: "second prompt" },
+      ],
+    });
+
+    const textbox = screen.getByRole("textbox", { name: /message agent/i }) as HTMLTextAreaElement;
+    expect(textbox).toHaveValue("unsent draft");
+
+    fireEvent.keyDown(textbox, { key: "ArrowUp" });
+    expect(textbox).toHaveValue("second prompt");
+
+    fireEvent.keyDown(textbox, { key: "ArrowUp" });
+    expect(textbox).toHaveValue("first prompt");
+
+    fireEvent.keyDown(textbox, { key: "ArrowDown" });
+    expect(textbox).toHaveValue("second prompt");
+
+    fireEvent.keyDown(textbox, { key: "ArrowDown" });
+    expect(textbox).toHaveValue("unsent draft");
+  });
+
+  it("leaves multiline arrow movement alone away from textarea edges", () => {
+    renderAgentChatPanelWithInputState({
+      initialInput: "line one\nline two",
+      messages: [
+        { role: "user", content: "previous prompt" },
+      ],
+    });
+
+    const textbox = screen.getByRole("textbox", { name: /message agent/i }) as HTMLTextAreaElement;
+    textbox.setSelectionRange(textbox.value.length, textbox.value.length);
+
+    fireEvent.keyDown(textbox, { key: "ArrowUp" });
+    expect(textbox).toHaveValue("line one\nline two");
+
+    textbox.setSelectionRange(0, 0);
+    fireEvent.keyDown(textbox, { key: "ArrowUp" });
+    expect(textbox).toHaveValue("previous prompt");
   });
 
   it("shows slash command options when the draft starts with slash", () => {

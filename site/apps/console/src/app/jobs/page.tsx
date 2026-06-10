@@ -444,7 +444,7 @@ export default function JobsPage() {
 
           {!loading && !error && jobs.length === 0 && (
             <div className="bg-surface-low border border-border p-8 rounded-lg text-center">
-              <p className="text-muted-foreground mb-4">You don't have any jobs yet.</p>
+              <p className="text-muted-foreground mb-4">You don&apos;t have any jobs yet.</p>
             </div>
           )}
 

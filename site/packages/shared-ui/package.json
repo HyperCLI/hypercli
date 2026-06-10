@@ -6,7 +6,10 @@
   "types": "./src/index.ts",
   "exports": {
     ".": "./src/index.ts",
-    "./styles": "./src/styles/globals.css"
+    "./styles": "./src/styles/globals.css",
+    "./styles/base": "./src/styles/base.css",
+    "./styles/claw": "./src/styles/claw.css",
+    "./styles/billing-print": "./src/styles/billing-print.css"
   },
   "scripts": {
     "lint": "eslint",

@@ -863,6 +863,26 @@ describe("ChatMessageBubble", () => {
     expect(onDownloadFileFromChat).toHaveBeenCalledWith(file);
   });
 
+  it("opens files mentioned in assistant markdown responses", () => {
+    const onOpenFileFromChat = vi.fn();
+
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "Updated `src/app.tsx` and /home/node/.openclaw/workspace/report.md.",
+        }}
+        onOpenFileFromChat={onOpenFileFromChat}
+      />,
+    );
+
+    fireEvent.click(screen.getByRole("link", { name: "src/app.tsx" }));
+    fireEvent.click(screen.getByRole("link", { name: "/home/node/.openclaw/workspace/report.md" }));
+
+    expect(onOpenFileFromChat).toHaveBeenCalledWith("src/app.tsx");
+    expect(onOpenFileFromChat).toHaveBeenCalledWith(".openclaw/workspace/report.md");
+  });
+
   it("renders file actions when history file metadata is missing a type", () => {
     const file = {
       name: "notes.txt",
@@ -1102,7 +1122,7 @@ describe("ChatMessageBubble", () => {
       />,
     );
 
-    expect(screen.getByText("Result ready")).toBeInTheDocument();
+    expect(screen.getByText("path provided")).toBeInTheDocument();
     expect(screen.queryByText(/private-report\.pdf/i)).not.toBeInTheDocument();
     expect(screen.queryByText(/private report contents/i)).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /open private-report\.pdf in files/i })).not.toBeInTheDocument();

@@ -472,7 +472,7 @@ export default async function TemplatePage({ params }: { params: Promise<{ templ
                     <span className="text-xs text-muted-foreground font-semibold uppercase tracking-wide">Prompt Example</span>
                   </div>
                   <div className="p-6">
-                    <p className="text-secondary-foreground leading-relaxed italic">"{sections["Example Prompt"]}"</p>
+                    <p className="text-secondary-foreground leading-relaxed italic">{`"${sections["Example Prompt"]}"`}</p>
                   </div>
                 </div>
               </div>

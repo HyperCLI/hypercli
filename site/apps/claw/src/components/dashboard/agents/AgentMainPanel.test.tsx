@@ -208,6 +208,37 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
   });
 
+  it("keeps pending agents covered when the transition flag is stale", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedTransitioning: false,
+      isSelectedRunning: false,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+      panelContent: <div>Files panel</div>,
+    });
+
+    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
+  it("does not let scheduled content show a start CTA while pending", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "PENDING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedTransitioning: false,
+      isSelectedRunning: false,
+      currentPanel: "scheduled",
+      stoppedTabLabel: "Scheduled",
+      panelContent: <button type="button">Start agent</button>,
+    });
+
+    expect(screen.getByText("Provisioning runtime")).toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /start agent/i })).not.toBeInTheDocument();
+  });
+
   it("does not render the boot animation for a stopped agent with a stale burst id", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
     renderAgentMainPanel({

@@ -59,6 +59,9 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     sessionsPatch: vi.fn(async () => ({ ok: true })),
     sessionsReset: vi.fn(async () => undefined),
     cronList: vi.fn(async () => []),
+    cronAdd: vi.fn(async () => ({ id: "new-cron-job" })),
+    cronRemove: vi.fn(async () => undefined),
+    cronRun: vi.fn(async () => ({ ok: true })),
     modelsList: vi.fn(async () => []),
     filesList: vi.fn(async () => []),
     sendChat: vi.fn(async () => ({ runId: "run-1" })),
@@ -173,6 +176,85 @@ describe("useOpenClawSession", () => {
 
     expect(agent.gateway).toHaveBeenCalledTimes(1);
     expect(gateway.connect).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("updates cron jobs by adding a replacement before removing the old job", async () => {
+    const gateway = buildGateway();
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const updatedJob = {
+      name: "Updated summary",
+      sessionTarget: "session:main",
+      schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "Summarize updates." },
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const listCallsBeforeUpdate = gateway.cronList.mock.calls.length;
+
+    await act(async () => {
+      await result.current.updateCron("old-cron-job", updatedJob);
+    });
+
+    expect(gateway.cronAdd).toHaveBeenCalledWith(updatedJob);
+    expect(gateway.cronRemove).toHaveBeenCalledWith("old-cron-job");
+    expect(gateway.cronList.mock.calls.length).toBeGreaterThan(listCallsBeforeUpdate);
+    expect(result.current.activityFeed).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        type: "cron",
+        action: "Cron updated",
+        detail: expect.stringContaining("Updated summary"),
+      }),
+    ]));
+    unmount();
+  });
+
+  it("refreshes cron jobs and reports when old-job removal fails after adding an update", async () => {
+    const gateway = buildGateway();
+    gateway.cronRemove.mockRejectedValueOnce(new Error("remove failed"));
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+    const updatedJob = {
+      name: "Updated summary",
+      sessionTarget: "session:main",
+      schedule: { kind: "cron", expr: "*/5 * * * *", tz: "UTC" },
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "Summarize updates." },
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    const listCallsBeforeUpdate = gateway.cronList.mock.calls.length;
+    let thrown: unknown;
+
+    await act(async () => {
+      try {
+        await result.current.updateCron("old-cron-job", updatedJob);
+      } catch (err) {
+        thrown = err;
+      }
+    });
+
+    expect(gateway.cronAdd).toHaveBeenCalledWith(updatedJob);
+    expect(gateway.cronRemove).toHaveBeenCalledWith("old-cron-job");
+    expect(gateway.cronList.mock.calls.length).toBeGreaterThan(listCallsBeforeUpdate);
+    expect(thrown).toBeInstanceOf(Error);
+    expect((thrown as Error).message).toBe("Saved the updated schedule, but could not remove the old one. Delete the old schedule manually.");
     unmount();
   });
 
@@ -756,6 +838,135 @@ describe("useOpenClawSession", () => {
     await waitFor(() => {
       const cachedMessages = readCachedOpenClawChatHistory("deploy-123");
       expect(cachedMessages.map((message) => message.content)).toEqual(["hello", "Hello"]);
+    });
+    unmount();
+  });
+
+  it("shows pending streamed tool calls before the tool result arrives", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const toolResult = deferred<void>();
+    gateway.chatSend.mockImplementation(async function* () {
+      yield {
+        type: "tool_call" as const,
+        data: {
+          tool_call_id: "tool-1",
+          tool_name: "functions.read",
+          args: { path: "/tmp/demo.zip" },
+        },
+      };
+      await toolResult.promise;
+      yield {
+        type: "tool_result" as const,
+        data: {
+          tool_call_id: "tool-1",
+          tool_name: "functions.read",
+          result: "done",
+        },
+      };
+      yield { type: "done" as const, data: {} };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("inspect zip");
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => {
+      const assistant = result.current.messages.find((message) => message.role === "assistant");
+      expect(assistant?.toolCalls?.[0]).toMatchObject({
+        id: "tool-1",
+        name: "functions.read",
+      });
+      expect(assistant?.toolCalls?.[0]?.result).toBeUndefined();
+    });
+    expect(result.current.sending).toBe(true);
+
+    await act(async () => {
+      toolResult.resolve();
+      await sendPromise;
+    });
+    unmount();
+  });
+
+  it("preserves streamed tool calls after post-send history refresh", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.chatSend.mockImplementation(async function* () {
+      yield {
+        type: "tool_call" as const,
+        data: {
+          toolCallId: "tool-1",
+          name: "functions.read",
+          args: { path: "/tmp/demo.zip" },
+        },
+      };
+      yield {
+        type: "tool_result" as const,
+        data: {
+          toolCallId: "tool-1",
+          name: "functions.read",
+          result: "Read complete",
+        },
+      };
+      yield { type: "content" as const, text: "Live summary" };
+      yield { type: "done" as const, data: {} };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    gateway.chatHistory.mockResolvedValue([
+      { role: "user", content: "inspect zip" },
+      { role: "assistant", content: "History summary" },
+    ]);
+
+    act(() => {
+      result.current.setInput("inspect zip");
+    });
+
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    await waitFor(() => {
+      expect(result.current.messages).toEqual([
+        expect.objectContaining({ role: "user", content: "inspect zip" }),
+        expect.objectContaining({
+          role: "assistant",
+          content: "History summary",
+          toolCalls: [
+            expect.objectContaining({
+              id: "tool-1",
+              name: "functions.read",
+              result: "Read complete",
+            }),
+          ],
+        }),
+      ]);
     });
     unmount();
   });

@@ -469,6 +469,78 @@ describe("GatewayClient", () => {
     });
   });
 
+  it("sends skills read RPCs with protocol payloads", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc");
+    rpc
+      .mockResolvedValueOnce({ workspaceDir: "/workspace", managedSkillsDir: "/home/node/.openclaw/skills", skills: [] })
+      .mockResolvedValueOnce({ results: [{ score: 1, slug: "calendar", displayName: "Calendar" }] })
+      .mockResolvedValueOnce({ skill: { slug: "calendar", displayName: "Calendar", createdAt: 1, updatedAt: 2 } })
+      .mockResolvedValueOnce({ schema: "openclaw.skills.security-verdicts.v1", items: [] })
+      .mockResolvedValueOnce({
+        schema: "openclaw.skills.skill-card.v1",
+        skillKey: "calendar",
+        path: "/workspace/skills/calendar/skill-card.md",
+        sizeBytes: 12,
+        content: "# Card",
+      });
+
+    await expect(client.skillsStatus({ agentId: "main" })).resolves.toMatchObject({ workspaceDir: "/workspace" });
+    await expect(client.skillsSearch({ query: "calendar", limit: 10 })).resolves.toMatchObject({
+      results: [{ slug: "calendar" }],
+    });
+    await expect(client.skillsDetail({ slug: "calendar" })).resolves.toMatchObject({
+      skill: { slug: "calendar" },
+    });
+    await expect(client.skillsSecurityVerdicts({ agentId: "main" })).resolves.toMatchObject({
+      schema: "openclaw.skills.security-verdicts.v1",
+    });
+    await expect(client.skillsSkillCard({ agentId: "main", skillKey: "calendar" })).resolves.toMatchObject({
+      skillKey: "calendar",
+      content: "# Card",
+    });
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "skills.status", { agentId: "main" });
+    expect(rpc).toHaveBeenNthCalledWith(2, "skills.search", { query: "calendar", limit: 10 });
+    expect(rpc).toHaveBeenNthCalledWith(3, "skills.detail", { slug: "calendar" });
+    expect(rpc).toHaveBeenNthCalledWith(4, "skills.securityVerdicts", { agentId: "main" });
+    expect(rpc).toHaveBeenNthCalledWith(5, "skills.skillCard", { agentId: "main", skillKey: "calendar" });
+  });
+
+  it("sends skills mutation RPCs with install-safe timeouts", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc");
+    rpc
+      .mockResolvedValueOnce({ ok: true, slug: "calendar", version: "1.0.0", targetDir: "/workspace/skills/calendar" })
+      .mockResolvedValueOnce({ ok: true, skillKey: "calendar", config: { source: "clawhub", results: [] } })
+      .mockResolvedValueOnce({ ok: true, skillKey: "calendar", config: { enabled: true } });
+
+    await client.skillsInstall({ source: "clawhub", slug: "calendar", version: "1.0.0" });
+    await client.skillsUpdate({ source: "clawhub", slug: "calendar" });
+    await client.skillsUpdate({ skillKey: "calendar", enabled: true, env: { GOOGLE_CALENDAR_ID: "primary" } });
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "skills.install", {
+      source: "clawhub",
+      slug: "calendar",
+      version: "1.0.0",
+    }, 300_000);
+    expect(rpc).toHaveBeenNthCalledWith(2, "skills.update", {
+      source: "clawhub",
+      slug: "calendar",
+    }, 300_000);
+    expect(rpc).toHaveBeenNthCalledWith(3, "skills.update", {
+      skillKey: "calendar",
+      enabled: true,
+      env: { GOOGLE_CALENDAR_ID: "primary" },
+    }, undefined);
+  });
+
   it("waitReady retries until configGet succeeds", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
@@ -510,9 +582,10 @@ describe("GatewayClient", () => {
 
     const addPromise = client.cronAdd({
       name: "Daily summary",
-      sessionTarget: { sessionKey: "main" },
-      schedule: { cron: "0 9 * * *" },
-      payload: { kind: "message", text: "Summarize yesterday.", deliver: false },
+      sessionTarget: "session:main",
+      schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "Summarize yesterday." },
     });
 
     expect(sent).toHaveLength(1);
@@ -524,9 +597,10 @@ describe("GatewayClient", () => {
     expect(request.method).toBe("cron.add");
     expect(request.params).toEqual({
       name: "Daily summary",
-      sessionTarget: { sessionKey: "main" },
-      schedule: { cron: "0 9 * * *" },
-      payload: { kind: "message", text: "Summarize yesterday.", deliver: false },
+      sessionTarget: "session:main",
+      schedule: { kind: "cron", expr: "0 9 * * *", tz: "UTC" },
+      wakeMode: "now",
+      payload: { kind: "agentTurn", message: "Summarize yesterday." },
     });
 
     (client as any).handleMessage(JSON.stringify({
@@ -1086,6 +1160,84 @@ describe("GatewayClient", () => {
     const events = await streamPromise;
     expect(events.map((event) => event.type)).toEqual(["tool_result", "done"]);
     expect(events[0]?.data).toMatchObject({ name: "exec", result: "" });
+  });
+
+  it("chatSend emits agent tool start events before results", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    (client as any).connected = true;
+    (client as any).ws = { readyState: MockWebSocket.OPEN };
+    vi.spyOn(client as any, "rpc").mockImplementation(async (method: string) => {
+      if (method === "chat.send") {
+        return { runId: "agent-tool-stream-run" };
+      }
+      throw new Error(`unexpected RPC ${method}`);
+    });
+
+    const streamPromise = (async () => {
+      const events = [];
+      for await (const event of client.chatSend("Inspect this zip", "main")) {
+        events.push(event);
+      }
+      return events;
+    })();
+
+    await flushMicrotasks();
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "agent-tool-stream-run",
+        sessionKey: "main",
+        stream: "tool",
+        data: {
+          phase: "start",
+          tool_call_id: "tool-1",
+          tool_name: "functions.read",
+          args: { path: "/tmp/demo.zip" },
+        },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "agent",
+      payload: {
+        runId: "agent-tool-stream-run",
+        sessionKey: "main",
+        stream: "tool",
+        data: {
+          phase: "result",
+          tool_call_id: "tool-1",
+          tool_name: "functions.read",
+          result: { ok: true },
+          isError: false,
+        },
+      },
+    }));
+    (client as any).handleMessage(JSON.stringify({
+      type: "event",
+      event: "chat.done",
+      payload: {
+        runId: "agent-tool-stream-run",
+        sessionKey: "main",
+      },
+    }));
+
+    const events = await streamPromise;
+    expect(events.map((event) => event.type)).toEqual(["tool_call", "tool_result", "done"]);
+    expect(events[0]?.data).toEqual({
+      toolCallId: "tool-1",
+      name: "functions.read",
+      args: { path: "/tmp/demo.zip" },
+    });
+    expect(events[1]?.data).toEqual({
+      toolCallId: "tool-1",
+      name: "functions.read",
+      result: { ok: true },
+      isError: false,
+    });
   });
 
   it("chatSend falls back to lifecycle end when chat final is missing", async () => {

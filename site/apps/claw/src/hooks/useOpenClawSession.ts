@@ -92,6 +92,54 @@ function dedupeChatMessages(messages: ChatMessage[]): ChatMessage[] {
   });
 }
 
+function mergeCurrentToolCallsIntoHistory(
+  historyMessages: ChatMessage[],
+  currentMessages: ChatMessage[],
+): ChatMessage[] {
+  let currentAssistantIndex = -1;
+  for (let index = currentMessages.length - 1; index >= 0; index -= 1) {
+    const message = currentMessages[index];
+    if (message?.role === "assistant" && (message.toolCalls?.length ?? 0) > 0) {
+      currentAssistantIndex = index;
+      break;
+    }
+  }
+  if (currentAssistantIndex === -1) return historyMessages;
+
+  const currentAssistant = currentMessages[currentAssistantIndex];
+  const currentToolCalls = currentAssistant?.toolCalls;
+  if (!currentToolCalls?.length) return historyMessages;
+
+  const currentUserCount = currentMessages
+    .slice(0, currentAssistantIndex)
+    .filter((message) => message.role === "user").length;
+  let historyUserCount = 0;
+  let historyAssistantIndex = -1;
+  for (let index = 0; index < historyMessages.length; index += 1) {
+    const message = historyMessages[index];
+    if (!message) continue;
+    if (message.role === "user") {
+      historyUserCount += 1;
+      continue;
+    }
+    if (message.role === "assistant" && historyUserCount === currentUserCount) {
+      historyAssistantIndex = index;
+    }
+  }
+  if (historyAssistantIndex === -1) return historyMessages;
+
+  const historyAssistant = historyMessages[historyAssistantIndex];
+  if (!historyAssistant) return historyMessages;
+  return historyMessages.map((message, index) => (
+    index === historyAssistantIndex
+      ? {
+          ...historyAssistant,
+          toolCalls: historyAssistant.toolCalls?.length ? historyAssistant.toolCalls : currentToolCalls,
+        }
+      : message
+  ));
+}
+
 function hasSeededE2EConnection(): boolean {
   if (typeof window === "undefined" || !window.navigator.webdriver) return false;
   try {
@@ -472,14 +520,17 @@ export function useOpenClawSession(
     if (!gateway) return;
     const historyMessages = dedupeChatMessages(await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey));
     if (historyMessages.length === 0) return;
-    const currentMessages = messagesRef.current;
-    const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
-    const historyUserCount = historyMessages.filter((message) => message.role === "user").length;
-    if (currentMessages.length > 0 && historyMessages.length < currentMessages.length && historyUserCount < currentUserCount) {
-      return;
-    }
-    messagesRef.current = historyMessages;
-    setMessages(historyMessages);
+    setMessages((currentMessages) => {
+      const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
+      const historyUserCount = historyMessages.filter((message) => message.role === "user").length;
+      if (currentMessages.length > 0 && historyMessages.length < currentMessages.length && historyUserCount < currentUserCount) {
+        messagesRef.current = currentMessages;
+        return currentMessages;
+      }
+      const mergedMessages = mergeCurrentToolCallsIntoHistory(historyMessages, currentMessages);
+      messagesRef.current = mergedMessages;
+      return mergedMessages;
+    });
   }, [gateway, agentId, activeSessionKey]);
 
   const finishCreatingSession = useCallback((sessionKey: string) => {

@@ -157,6 +157,262 @@ export interface OpenClawConfigNodeDescriptor {
   isDynamicMap: boolean;
 }
 
+export interface GatewaySkillsStatusParams {
+  agentId?: string;
+}
+
+export interface GatewaySkillsSearchParams {
+  query?: string;
+  limit?: number;
+}
+
+export interface GatewaySkillSearchOwner {
+  handle?: string | null;
+  displayName?: string | null;
+  image?: string | null;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillSearchResultItem {
+  score: number;
+  slug: string;
+  displayName: string;
+  summary?: string;
+  version?: string | null;
+  updatedAt?: number;
+  ownerHandle?: string;
+  owner?: GatewaySkillSearchOwner;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsSearchResult {
+  results: GatewaySkillSearchResultItem[];
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsDetailParams {
+  slug: string;
+}
+
+export interface GatewaySkillsDetailResult {
+  skill: {
+    slug: string;
+    displayName: string;
+    summary?: string;
+    tags?: Record<string, string>;
+    createdAt: number;
+    updatedAt: number;
+    [key: string]: unknown;
+  } | null;
+  latestVersion?: {
+    version: string;
+    createdAt: number;
+    changelog?: string;
+    license?: string | null;
+    [key: string]: unknown;
+  } | null;
+  metadata?: {
+    os?: string[] | null;
+    systems?: string[] | null;
+    [key: string]: unknown;
+  } | null;
+  owner?: GatewaySkillSearchOwner | null;
+  [key: string]: unknown;
+}
+
+export type GatewaySkillInstallKind = "brew" | "node" | "go" | "uv" | "download" | (string & {});
+
+export interface GatewaySkillInstallOption {
+  id: string;
+  kind: GatewaySkillInstallKind;
+  label: string;
+  bins: string[];
+  [key: string]: unknown;
+}
+
+export type GatewayClawHubSkillStatusLink =
+  | {
+      status: "linked";
+      valid: true;
+      registry: string;
+      slug: string;
+      installedVersion: string;
+      installedAt: number;
+      originPath?: string;
+      lockPath?: string;
+    }
+  | {
+      status: "invalid";
+      valid: false;
+      reason: string;
+      registry?: string;
+      slug?: string;
+      installedVersion?: string;
+      installedAt?: number;
+      originPath?: string;
+      lockPath?: string;
+    };
+
+export interface GatewayLocalSkillCardStatus {
+  present: true;
+  path: string;
+  sizeBytes: number;
+}
+
+export interface GatewaySkillStatusConfigCheck {
+  path: string;
+  expected?: unknown;
+  actual?: unknown;
+  satisfied?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillStatusEntry {
+  name: string;
+  description: string;
+  source: string;
+  bundled: boolean;
+  filePath: string;
+  baseDir: string;
+  skillKey: string;
+  primaryEnv?: string;
+  emoji?: string;
+  homepage?: string;
+  always: boolean;
+  disabled: boolean;
+  blockedByAllowlist: boolean;
+  blockedByAgentFilter: boolean;
+  eligible: boolean;
+  modelVisible: boolean;
+  userInvocable: boolean;
+  commandVisible: boolean;
+  requirements: Record<string, unknown>;
+  missing: Record<string, unknown>;
+  configChecks: GatewaySkillStatusConfigCheck[];
+  install: GatewaySkillInstallOption[];
+  clawhub?: GatewayClawHubSkillStatusLink;
+  skillCard?: GatewayLocalSkillCardStatus;
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsStatusReport {
+  workspaceDir: string;
+  managedSkillsDir: string;
+  agentId?: string;
+  agentSkillFilter?: string[];
+  skills: GatewaySkillStatusEntry[];
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsSecurityVerdictsParams {
+  agentId?: string;
+}
+
+export interface GatewaySkillSecurityVerdictItem {
+  registry: string;
+  ok: boolean;
+  decision: string;
+  reasons: string[];
+  requestedSlug: string;
+  requestedVersion: string;
+  slug?: string | null;
+  version?: string | null;
+  displayName?: string | null;
+  publisherHandle?: string | null;
+  publisherDisplayName?: string | null;
+  createdAt?: number | null;
+  checkedAt?: number | null;
+  skillUrl?: string | null;
+  securityAuditUrl?: string | null;
+  securityStatus?: string | null;
+  securityPassed?: boolean | null;
+  error?: {
+    code?: string;
+    message?: string;
+  };
+  [key: string]: unknown;
+}
+
+export interface GatewaySkillsSecurityVerdictsResult {
+  schema: "openclaw.skills.security-verdicts.v1";
+  items: GatewaySkillSecurityVerdictItem[];
+}
+
+export interface GatewaySkillsSkillCardParams {
+  agentId?: string;
+  skillKey: string;
+}
+
+export interface GatewaySkillsSkillCardResult {
+  schema: "openclaw.skills.skill-card.v1";
+  skillKey: string;
+  path: string;
+  sizeBytes: number;
+  content: string;
+}
+
+export interface GatewayClawHubSkillInstallParams {
+  source: "clawhub";
+  slug: string;
+  version?: string;
+  force?: boolean;
+  timeoutMs?: number;
+}
+
+export interface GatewayLocalSkillInstallParams {
+  name: string;
+  installId: string;
+  dangerouslyForceUnsafeInstall?: boolean;
+  timeoutMs?: number;
+}
+
+export interface GatewayUploadedSkillInstallParams {
+  source: "upload";
+  uploadId: string;
+  slug: string;
+  force?: boolean;
+  sha256?: string;
+  timeoutMs?: number;
+}
+
+export type GatewaySkillsInstallParams =
+  | GatewayClawHubSkillInstallParams
+  | GatewayLocalSkillInstallParams
+  | GatewayUploadedSkillInstallParams;
+
+export type GatewaySkillsInstallResult = {
+  ok: boolean;
+  message?: string;
+  stdout?: string;
+  stderr?: string;
+  code?: number | null;
+  slug?: string;
+  version?: string;
+  targetDir?: string;
+  warnings?: string[];
+  [key: string]: unknown;
+};
+
+export interface GatewaySkillConfigUpdateParams {
+  skillKey: string;
+  enabled?: boolean;
+  apiKey?: string;
+  env?: Record<string, string>;
+}
+
+export type GatewayClawHubSkillsUpdateParams =
+  | { source: "clawhub"; slug: string; all?: never }
+  | { source: "clawhub"; all: true; slug?: never };
+
+export type GatewaySkillsUpdateParams = GatewaySkillConfigUpdateParams | GatewayClawHubSkillsUpdateParams;
+
+export interface GatewaySkillsUpdateResult {
+  ok: boolean;
+  skillKey: string;
+  config: Record<string, unknown>;
+  [key: string]: unknown;
+}
+
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
 
@@ -224,6 +480,7 @@ const MIN_PROTOCOL_VERSION = 3;
 const PROTOCOL_VERSION = 4;
 const DEFAULT_TIMEOUT = 15_000;
 const CHAT_TIMEOUT = 120_000;
+const SKILLS_MUTATION_TIMEOUT = 300_000;
 const RECONNECT_CLOSE_CODE = 4008;
 const DEFAULT_CLIENT_ID = "cli";
 const DEFAULT_CLIENT_MODE = "cli";
@@ -367,6 +624,15 @@ function gatewayToolName(record: Record<string, any>): string | undefined {
     (typeof record.toolName === "string" && record.toolName.trim()) ||
     (typeof record.tool_name === "string" && record.tool_name.trim());
   return direct || undefined;
+}
+
+function gatewayToolStreamPayload(record: Record<string, any>): Record<string, any> {
+  const id = gatewayToolCallId(record);
+  const name = gatewayToolName(record);
+  return {
+    ...(id ? { toolCallId: id } : {}),
+    ...(name ? { name } : {}),
+  };
 }
 
 function mergeGatewayToolResult(
@@ -2093,6 +2359,46 @@ export class GatewayClient {
     return res?.models ?? res ?? [];
   }
 
+  // ---------------------------------------------------------------------------
+  // Skills
+  // ---------------------------------------------------------------------------
+
+  async skillsStatus(params: GatewaySkillsStatusParams = {}): Promise<GatewaySkillsStatusReport> {
+    return await this.rpc("skills.status", params);
+  }
+
+  async skillsSearch(params: GatewaySkillsSearchParams = {}): Promise<GatewaySkillsSearchResult> {
+    return await this.rpc("skills.search", params);
+  }
+
+  async skillsDetail(params: GatewaySkillsDetailParams): Promise<GatewaySkillsDetailResult> {
+    return await this.rpc("skills.detail", params);
+  }
+
+  async skillsSecurityVerdicts(
+    params: GatewaySkillsSecurityVerdictsParams = {},
+  ): Promise<GatewaySkillsSecurityVerdictsResult> {
+    return await this.rpc("skills.securityVerdicts", params);
+  }
+
+  async skillsSkillCard(params: GatewaySkillsSkillCardParams): Promise<GatewaySkillsSkillCardResult> {
+    return await this.rpc("skills.skillCard", params);
+  }
+
+  async skillsInstall(params: GatewaySkillsInstallParams): Promise<GatewaySkillsInstallResult> {
+    const timeoutMs = Math.max(params.timeoutMs ?? SKILLS_MUTATION_TIMEOUT, this.defaultTimeout);
+    return await this.rpc("skills.install", params, timeoutMs);
+  }
+
+  async skillsUpdate(params: GatewaySkillsUpdateParams): Promise<GatewaySkillsUpdateResult> {
+    const isClawHubUpdate = "source" in params && params.source === "clawhub";
+    return await this.rpc(
+      "skills.update",
+      params,
+      isClawHubUpdate ? SKILLS_MUTATION_TIMEOUT : undefined,
+    );
+  }
+
   async waitReady(
     timeoutMs = 300_000,
     options: GatewayWaitReadyOptions = {},
@@ -2331,31 +2637,24 @@ export class GatewayClient {
         if (evt.event === "agent" && String(payload.stream || "").toLowerCase() === "tool") {
           const toolPayload = asRecord(payload.data) ?? {};
           const phase = typeof toolPayload.phase === "string" ? toolPayload.phase.toLowerCase() : "";
+          const toolCallId =
+            gatewayToolCallId(toolPayload) ??
+            `${gatewayToolName(toolPayload) ?? "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
           if (phase === "start") {
-            const toolCallId =
-              typeof toolPayload.toolCallId === "string" && toolPayload.toolCallId.trim()
-                ? toolPayload.toolCallId.trim()
-                : `${typeof toolPayload.name === "string" ? toolPayload.name : "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
             seenToolCallIds.add(toolCallId);
             yield {
               type: "tool_call",
               data: {
-                ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
-                name: toolPayload.name,
+                ...gatewayToolStreamPayload(toolPayload),
                 args: toolPayload.args,
               },
             };
           } else if (phase === "result") {
-            const toolCallId =
-              typeof toolPayload.toolCallId === "string" && toolPayload.toolCallId.trim()
-                ? toolPayload.toolCallId.trim()
-                : `${typeof toolPayload.name === "string" ? toolPayload.name : "tool"}:${JSON.stringify(toolPayload.args ?? null)}`;
             seenToolResultIds.add(toolCallId);
             yield {
               type: "tool_result",
               data: {
-                ...(toolPayload.toolCallId ? { toolCallId: toolPayload.toolCallId } : {}),
-                name: toolPayload.name,
+                ...gatewayToolStreamPayload(toolPayload),
                 result: toolPayload.result ?? toolPayload.meta ?? toolPayload.content ?? toolPayload.text ?? toolPayload.partialResult,
                 isError: toolPayload.isError,
               },
@@ -2412,18 +2711,16 @@ export class GatewayClient {
         }
         if (evt.event === "chat.tool_call") {
           const toolCallId =
-            typeof payload.toolCallId === "string" && payload.toolCallId.trim()
-              ? payload.toolCallId.trim()
-              : `${typeof payload.name === "string" ? payload.name : "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
+            gatewayToolCallId(payload) ??
+            `${gatewayToolName(payload) ?? "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
           seenToolCallIds.add(toolCallId);
           yield { type: "tool_call", data: payload };
           continue;
         }
         if (evt.event === "chat.tool_result") {
           const toolCallId =
-            typeof payload.toolCallId === "string" && payload.toolCallId.trim()
-              ? payload.toolCallId.trim()
-              : `${typeof payload.name === "string" ? payload.name : "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
+            gatewayToolCallId(payload) ??
+            `${gatewayToolName(payload) ?? "tool"}:${JSON.stringify(payload.args ?? payload.arguments ?? null)}`;
           seenToolResultIds.add(toolCallId);
           yield { type: "tool_result", data: payload };
           continue;

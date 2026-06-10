@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { Brain, Check, ChevronDown, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Wrench } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
@@ -22,7 +22,9 @@ import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { AudioPlayer } from "@/components/dashboard/chat/AudioPlayer";
 import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
+import { getToolCallClass, getToolCallStatusClass } from "@/components/dashboard/chat/bubbleStyles";
 import { DirectoryVisualization, parseDirectoryVisualization } from "@/components/dashboard/chat/DirectoryVisualization";
+import { formatToolDetail, toolCallArgsLabel, toolCallResultLabel, toolCallSummary } from "@/components/dashboard/chat/helpers";
 import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
 
 // ── Helpers ──
@@ -112,7 +114,7 @@ function ChatFileActions({ file, onOpenFile, onDownloadFile, className }: ChatFi
   if (!file.path || (!onOpenFile && !onDownloadFile)) return null;
 
   const label = getChatFileLabel(file);
-  const buttonClass = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background/60 text-text-muted transition-colors hover:border-[#38D39F]/50 hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F]";
+  const buttonClass = "inline-flex h-6 w-6 shrink-0 items-center justify-center rounded-md border border-border bg-background/60 text-text-muted transition-colors hover:border-[rgb(var(--selection-accent-rgb)_/_0.5)] hover:text-foreground focus:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.5)]";
 
   return (
     <span className={`inline-flex shrink-0 items-center gap-1 ${className ?? "ml-1"}`}>
@@ -375,36 +377,6 @@ function formatTime(ts?: number): string {
   });
 }
 
-function toolCallSummary(tc: { name: string; args: string; result?: string }): string {
-  if (tc.result !== undefined) {
-    return "Result ready";
-  }
-  return tc.args.trim() ? "Arguments ready" : "";
-}
-
-function formatToolDetail(raw: string, maxLen: number): string {
-  const trimmed = raw.trim();
-  if (!trimmed) return "";
-  let display = trimmed;
-  if (trimmed.startsWith("{") || trimmed.startsWith("[")) {
-    try {
-      const parsed = JSON.parse(trimmed);
-      if (Array.isArray(parsed)) {
-        const textBlocks = parsed
-          .filter((entry: unknown) => (entry as Record<string, unknown>)?.type === "text" && typeof (entry as Record<string, unknown>)?.text === "string")
-          .map((entry: unknown) => (entry as Record<string, string>).text.trim())
-          .filter(Boolean);
-        display = textBlocks.length > 0 ? textBlocks.join("\n\n") : JSON.stringify(parsed, null, 2);
-      } else {
-        display = JSON.stringify(parsed, null, 2);
-      }
-    } catch {
-      display = trimmed;
-    }
-  }
-  return display.length > maxLen ? `${display.slice(0, maxLen).trimEnd()}\n... clipped` : display;
-}
-
 function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   return bytes.buffer.slice(
     bytes.byteOffset,
@@ -619,26 +591,6 @@ function getThinkingButtonClass(theme: ThemeVariant): string {
   return "flex items-center gap-1.5 text-xs text-[#38D39F]/70 hover:text-[#38D39F] transition-colors";
 }
 
-function getToolCallClass(theme: ThemeVariant, hasResult: boolean): string {
-  const baseClass = "mb-2 w-full min-w-0 max-w-full text-xs overflow-hidden";
-  if (theme === "v1") {
-    return hasResult
-      ? `${baseClass} rounded-md border border-[#38D39F]/25 bg-[#38D39F]/8`
-      : `${baseClass} rounded-md border border-[#f0c56c]/25 bg-[#f0c56c]/8`;
-  }
-  if (theme === "v2") {
-    return hasResult
-      ? `${baseClass} rounded-md border-l-4 border-[#38D39F] bg-[#38D39F]/8`
-      : `${baseClass} rounded-md border-l-4 border-[#f0c56c] bg-[#f0c56c]/8`;
-  }
-  if (theme === "v3") {
-    return hasResult
-      ? `${baseClass} rounded-md border border-[#38D39F]/30 bg-[#38D39F]/10`
-      : `${baseClass} rounded-md border border-[#f0c56c]/30 bg-[#f0c56c]/10`;
-  }
-  return `${baseClass} rounded-md border border-border bg-background/50`;
-}
-
 const TOOL_PENDING_TIMEOUT_MS = 45_000;
 const TOOL_CALL_STACK_THRESHOLD = 3;
 
@@ -672,6 +624,7 @@ function ToolCallDisclosure({
   agentId?: string | null;
   isStreaming: boolean;
 }) {
+  const detailId = useId();
   const hasResult = tc.result !== undefined;
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
   const rawPending = !hasResult && isStreaming;
@@ -680,8 +633,11 @@ function ToolCallDisclosure({
   const imagePath = agentId ? extractImagePath(tc) : null;
   const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
   const argsDetail = formatToolDetail(tc.args, 280);
-  const resultDetail = tc.result !== undefined ? formatToolDetail(tc.result, 520) : "";
+  const resultDetail = tc.result !== undefined ? formatToolDetail(tc.result, 520) : null;
   const directoryListing = tc.result !== undefined ? parseDirectoryVisualization(tc.result) : null;
+  const argsLabel = toolCallArgsLabel(tc);
+  const resultLabel = toolCallResultLabel(tc);
+  const statusClass = getToolCallStatusClass(hasResult, pending);
 
   useEffect(() => {
     if (!rawPending) return;
@@ -690,37 +646,40 @@ function ToolCallDisclosure({
   }, [rawPending]);
 
   return (
-    <div className={getToolCallClass(themeVariant, hasResult)}>
+    <div className={getToolCallClass(themeVariant, hasResult, pending)}>
       <button
+        type="button"
+        aria-controls={detailId}
+        aria-expanded={isOpen}
         onClick={() => onToggle(index, defaultOpen)}
-        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1.5 text-left transition-colors hover:bg-surface-low"
+        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-left transition-colors hover:bg-surface-low/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-inset"
       >
         {pending ? (
-          <Loader2 className="w-3 h-3 text-[#f0c56c] animate-spin shrink-0" />
+          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--selection-accent)]" />
         ) : hasResult ? (
-          <Check className="w-3 h-3 text-[#38D39F] shrink-0" />
+          <Check className="h-3 w-3 shrink-0 text-[var(--selection-accent)] opacity-75" />
         ) : (
-          <Wrench className="w-3 h-3 text-text-muted shrink-0" />
+          <Wrench className="h-3 w-3 shrink-0 text-text-muted" />
         )}
-        <span className="min-w-0 max-w-[45%] truncate font-medium text-[#f0c56c]">{tc.name}</span>
-        <span className="shrink-0 text-[10px] uppercase tracking-wide text-text-muted">
+        <span className="min-w-0 max-w-[45%] truncate font-medium text-foreground">{tc.name}</span>
+        <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
           {pending ? "Running" : hasResult ? "Done" : "Called"}
         </span>
         {!isOpen && summary && (
           <span className="text-text-muted truncate ml-1 flex-1 min-w-0">{summary}</span>
         )}
         {!isOpen ? (
-          <ChevronRight className="w-3 h-3 text-text-muted ml-auto shrink-0" />
+          <ChevronRight className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
         ) : (
-          <ChevronDown className="w-3 h-3 text-text-muted ml-auto shrink-0" />
+          <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
         )}
       </button>
       {isOpen && (
-        <div className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
-          {argsDetail && (
+        <div id={detailId} className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
+          {argsDetail.text && (
             <div className="min-w-0">
-              <p className="mb-1 font-medium text-text-secondary">Arguments</p>
-              <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail}</pre>
+              <p className="mb-1 font-medium text-text-secondary">{argsLabel}</p>
+              <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail.text}</pre>
             </div>
           )}
           {directoryListing && (
@@ -731,10 +690,10 @@ function ToolCallDisclosure({
               truncated={directoryListing.truncated}
             />
           )}
-          {resultDetail && !directoryListing && (
+          {resultDetail?.text && !directoryListing && (
             <div className="min-w-0">
-              <p className="mb-1 font-medium text-text-secondary">Result</p>
-              <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail}</pre>
+              <p className="mb-1 font-medium text-text-secondary">{resultLabel}</p>
+              <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail.text}</pre>
             </div>
           )}
         </div>
@@ -763,6 +722,7 @@ function ToolCallStackDisclosure({
   agentId?: string | null;
   isStreaming: boolean;
 }) {
+  const detailId = useId();
   const [open, setOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
@@ -775,11 +735,7 @@ function ToolCallStackDisclosure({
   const summary = toolNamesSummary(toolCalls);
   const statusLabel = pending ? "Running" : allDone ? "Done" : "Called";
   const progressPercent = toolCalls.length === 0 ? 0 : Math.round((completedCount / toolCalls.length) * 100);
-  const statusClass = pending
-    ? "border-[#f0c56c]/30 bg-[#f0c56c]/15 text-[#f0c56c]"
-    : allDone
-      ? "border-[#38D39F]/30 bg-[#38D39F]/15 text-[#38D39F]"
-      : "border-white/10 bg-white/[0.04] text-text-muted";
+  const statusClass = getToolCallStatusClass(allDone, pending);
 
   useEffect(() => {
     if (!rawPending) return;
@@ -790,40 +746,38 @@ function ToolCallStackDisclosure({
   return (
     <motion.div
       layout
-      className={`${getToolCallClass(themeVariant, allDone)} relative shadow-[0_10px_30px_rgba(0,0,0,0.18)] ring-1 ring-white/[0.03]`}
+      className={`${getToolCallClass(themeVariant, allDone, pending)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
       transition={{ layout: { duration: 0.2, ease: "easeOut" } }}
     >
-      <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(circle_at_12%_0%,rgba(56,211,159,0.13),transparent_32%),linear-gradient(180deg,rgba(255,255,255,0.035),transparent)]" />
-      <div className="pointer-events-none absolute inset-x-3 top-1 h-px bg-white/10" />
-      <div className="pointer-events-none absolute inset-x-6 top-2 h-px bg-white/[0.06]" />
       <button
         type="button"
+        aria-controls={detailId}
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.04]"
+        className="relative flex w-full min-w-0 items-center gap-2 px-3 py-1.5 text-left transition-colors hover:bg-surface-low/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-inset"
       >
         <motion.span
-          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-background/70"
-          animate={pending ? { scale: [1, 1.04, 1] } : { scale: 1 }}
-          transition={pending ? { repeat: Infinity, duration: 1.2, ease: "easeInOut" } : { duration: 0.16 }}
+          className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-surface-low/35"
+          animate={pending ? { scale: [1, 1.02, 1] } : { scale: 1 }}
+          transition={pending ? { repeat: Infinity, duration: 1.6, ease: "easeInOut" } : { duration: 0.16 }}
         >
           {pending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[#f0c56c]" />
+            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--selection-accent)]" />
           ) : allDone ? (
-            <Check className="h-3.5 w-3.5 text-[#38D39F]" />
+            <Check className="h-3.5 w-3.5 text-[var(--selection-accent)] opacity-75" />
           ) : (
             <Wrench className="h-3.5 w-3.5 text-text-muted" />
           )}
           <span
             aria-hidden="true"
-            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-background bg-[#f0c56c] px-1 text-[9px] font-bold leading-none text-black"
+            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-surface-high px-1 text-[9px] font-bold leading-none text-foreground"
           >
             {toolCalls.length}
           </span>
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
-            <span className="min-w-0 truncate font-medium text-[#f0c56c]">{toolCalls.length} tool calls</span>
+            <span className="min-w-0 truncate font-medium text-foreground">{toolCalls.length} tool calls</span>
             <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
               {statusLabel}
             </span>
@@ -841,9 +795,9 @@ function ToolCallStackDisclosure({
           <ChevronRight className="h-3.5 w-3.5" />
         </motion.span>
       </button>
-      <div className="relative h-px bg-white/[0.06]">
+      <div className="relative h-px bg-border/50">
         <motion.div
-          className={`h-px ${allDone ? "bg-[#38D39F]" : "bg-[#f0c56c]"}`}
+          className="h-px bg-[rgb(var(--selection-accent-rgb)_/_0.62)]"
           initial={false}
           animate={{ width: `${progressPercent}%` }}
           transition={{ duration: 0.28, ease: "easeOut" }}
@@ -853,6 +807,7 @@ function ToolCallStackDisclosure({
         {open && (
           <motion.div
             key="stack-body"
+            id={detailId}
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
@@ -1344,6 +1299,7 @@ export function ChatMessageBubble({
                 typewriter={isStreaming && !isUser}
                 className="relative"
                 style={isStreaming ? { willChange: "contents", transform: "translateZ(0)" } : undefined}
+                onOpenWorkspaceFile={!isUser ? onOpenFileFromChat : undefined}
               />
             )}
             <StreamingStatusAnchor active={showStreamingDot} />
