@@ -2022,7 +2022,6 @@ export default function DevAgentSetupAgentsPage() {
             isDesktopViewport={isDesktopViewport}
             mobileShowChat={mobileShowChat}
             selectedAgent={selectedAgent}
-            isSelectedTransitioning={Boolean(isSelectedTransitioning)}
             isSelectedRunning={Boolean(isSelectedRunning)}
             burstAgentId={burstAgentId}
             onBurstComplete={() => setBurstAgentId(null)}

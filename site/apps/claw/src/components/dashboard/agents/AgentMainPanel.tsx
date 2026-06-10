@@ -19,7 +19,6 @@ interface AgentMainPanelProps {
   selectedAgent: Agent | null;
   hasAgents?: boolean;
   loadingInitialAgents?: boolean;
-  isSelectedTransitioning: boolean;
   isSelectedRunning: boolean;
   burstAgentId: string | null;
   onBurstComplete: () => void;
@@ -62,7 +61,6 @@ export function AgentMainPanel({
   selectedAgent,
   hasAgents = false,
   loadingInitialAgents = false,
-  isSelectedTransitioning,
   isSelectedRunning,
   burstAgentId,
   onBurstComplete,
@@ -164,7 +162,6 @@ export function AgentMainPanel({
   const shouldShowStartupAnimation =
     isProvisioning ||
     isBooting ||
-    (isSelectedTransitioning && (selectedAgentState === "PENDING" || selectedAgentState === "STARTING")) ||
     (selectedAgentState === "RUNNING" && selectedAgent !== null && burstAgentId === selectedAgent.id);
   React.useEffect(() => {
     if (selectedAgent?.state !== "RUNNING" || burstAgentId !== selectedAgent.id) return;

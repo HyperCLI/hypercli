@@ -3422,7 +3422,6 @@ function AgentsPageContent() {
           selectedAgent={selectedAgent}
           hasAgents={agents.length > 0}
           loadingInitialAgents={agentsLoading}
-          isSelectedTransitioning={Boolean(isSelectedTransitioning)}
           isSelectedRunning={Boolean(isSelectedRunning)}
           burstAgentId={burstAgentId}
           onBurstComplete={() => setBurstAgentId(null)}
