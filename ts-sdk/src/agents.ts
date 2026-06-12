@@ -9,6 +9,14 @@ import {
   GatewayClient,
   type ChatAttachment,
   type ChatEvent,
+  type GatewayIntegrationAuthStartParams,
+  type GatewayIntegrationAuthStartResult,
+  type GatewayIntegrationAuthStatusParams,
+  type GatewayIntegrationAuthStatusResult,
+  type GatewayIntegrationDisconnectParams,
+  type GatewayIntegrationDisconnectResult,
+  type GatewayIntegrationStatusParams,
+  type GatewayIntegrationStatusResult,
   type GatewayOptions,
   type GatewayWaitReadyOptions,
   type OpenClawConfigSchemaResponse,
@@ -1089,6 +1097,54 @@ export class OpenClawAgent extends Agent {
         timeoutMs: options.timeoutMs,
         accountId: options.accountId,
       });
+    } finally {
+      client.close();
+    }
+  }
+
+  async integrationsAuthStart(
+    params: GatewayIntegrationAuthStartParams,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<GatewayIntegrationAuthStartResult> {
+    const client = await this.connect(options);
+    try {
+      return await client.integrationsAuthStart(params);
+    } finally {
+      client.close();
+    }
+  }
+
+  async integrationsAuthStatus(
+    params: GatewayIntegrationAuthStatusParams,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<GatewayIntegrationAuthStatusResult> {
+    const client = await this.connect(options);
+    try {
+      return await client.integrationsAuthStatus(params);
+    } finally {
+      client.close();
+    }
+  }
+
+  async integrationsStatus(
+    params: GatewayIntegrationStatusParams = {},
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<GatewayIntegrationStatusResult> {
+    const client = await this.connect(options);
+    try {
+      return await client.integrationsStatus(params);
+    } finally {
+      client.close();
+    }
+  }
+
+  async integrationsDisconnect(
+    params: GatewayIntegrationDisconnectParams,
+    options: Omit<Partial<GatewayOptions>, 'url' | 'token'> = {},
+  ): Promise<GatewayIntegrationDisconnectResult> {
+    const client = await this.connect(options);
+    try {
+      return await client.integrationsDisconnect(params);
     } finally {
       client.close();
     }

@@ -413,6 +413,94 @@ export interface GatewaySkillsUpdateResult {
   [key: string]: unknown;
 }
 
+export interface GatewayIntegrationAuthStartParams {
+  integrationId: string;
+  scopes?: string[];
+  accountId?: string;
+  force?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStartResult {
+  authId?: string;
+  integrationId?: string;
+  verificationUri?: string;
+  url?: string;
+  userCode?: string;
+  expiresAt?: string | number;
+  intervalMs?: number;
+  scopes?: string[];
+  instructions?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStatusParams {
+  authId: string;
+  integrationId?: string;
+  accountId?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationAuthStatusResult {
+  status?: string;
+  integrationId?: string;
+  connectionId?: string;
+  accountId?: string;
+  accountDisplayName?: string;
+  scopes?: string[];
+  error?: string;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationStatusEntry {
+  configured?: boolean;
+  authenticated?: boolean;
+  usable?: boolean;
+  connectionId?: string;
+  accountId?: string;
+  accountDisplayName?: string;
+  scopes?: string[];
+  missingScopes?: string[];
+  errorDetail?: string;
+  probe?: {
+    ok?: boolean;
+    code?: string;
+    message?: string;
+    latencyMs?: number;
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationStatusParams {
+  integrationId?: string;
+  connectionId?: string;
+  probe?: boolean;
+  timeoutMs?: number;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationStatusResult {
+  integrations?: Record<string, GatewayIntegrationStatusEntry>;
+  integration?: GatewayIntegrationStatusEntry;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationDisconnectParams {
+  integrationId: string;
+  connectionId?: string;
+  accountId?: string;
+  revoke?: boolean;
+  [key: string]: unknown;
+}
+
+export interface GatewayIntegrationDisconnectResult {
+  ok: boolean;
+  integrationId?: string;
+  connectionId?: string;
+  [key: string]: unknown;
+}
+
 export type GatewayEventHandler = (event: GatewayEvent) => void;
 export type GatewayConnectionStateHandler = (state: GatewayConnectionState) => void;
 
@@ -2397,6 +2485,30 @@ export class GatewayClient {
       params,
       isClawHubUpdate ? SKILLS_MUTATION_TIMEOUT : undefined,
     );
+  }
+
+  async integrationsAuthStart(
+    params: GatewayIntegrationAuthStartParams,
+  ): Promise<GatewayIntegrationAuthStartResult> {
+    return await this.rpc("integrations.auth.start", params, 30_000);
+  }
+
+  async integrationsAuthStatus(
+    params: GatewayIntegrationAuthStatusParams,
+  ): Promise<GatewayIntegrationAuthStatusResult> {
+    return await this.rpc("integrations.auth.status", params);
+  }
+
+  async integrationsStatus(
+    params: GatewayIntegrationStatusParams = {},
+  ): Promise<GatewayIntegrationStatusResult> {
+    return await this.rpc("integrations.status", params);
+  }
+
+  async integrationsDisconnect(
+    params: GatewayIntegrationDisconnectParams,
+  ): Promise<GatewayIntegrationDisconnectResult> {
+    return await this.rpc("integrations.disconnect", params);
   }
 
   async waitReady(

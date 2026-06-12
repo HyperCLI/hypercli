@@ -541,6 +541,29 @@ describe("GatewayClient", () => {
     }, undefined);
   });
 
+  it("sends service integration auth and status RPCs", async () => {
+    const client = new GatewayClient({
+      url: "wss://openclaw-agent.example",
+      gatewayToken: "gw-token",
+    });
+    const rpc = vi.spyOn(client as any, "rpc");
+    rpc
+      .mockResolvedValueOnce({ authId: "auth-1", verificationUri: "https://github.com/login/device", userCode: "ABCD-1234" })
+      .mockResolvedValueOnce({ status: "authorized", connectionId: "conn-1" })
+      .mockResolvedValueOnce({ integrations: { github: { configured: true, authenticated: true, usable: true } } })
+      .mockResolvedValueOnce({ ok: true, integrationId: "github" });
+
+    await expect(client.integrationsAuthStart({ integrationId: "github", scopes: ["repo"] })).resolves.toMatchObject({ authId: "auth-1" });
+    await expect(client.integrationsAuthStatus({ authId: "auth-1", integrationId: "github" })).resolves.toMatchObject({ connectionId: "conn-1" });
+    await expect(client.integrationsStatus({ integrationId: "github", probe: true })).resolves.toMatchObject({ integrations: { github: { usable: true } } });
+    await expect(client.integrationsDisconnect({ integrationId: "github", revoke: true })).resolves.toMatchObject({ ok: true });
+
+    expect(rpc).toHaveBeenNthCalledWith(1, "integrations.auth.start", { integrationId: "github", scopes: ["repo"] }, 30_000);
+    expect(rpc).toHaveBeenNthCalledWith(2, "integrations.auth.status", { authId: "auth-1", integrationId: "github" });
+    expect(rpc).toHaveBeenNthCalledWith(3, "integrations.status", { integrationId: "github", probe: true });
+    expect(rpc).toHaveBeenNthCalledWith(4, "integrations.disconnect", { integrationId: "github", revoke: true });
+  });
+
   it("waitReady retries until configGet succeeds", async () => {
     const client = new GatewayClient({
       url: "wss://openclaw-agent.example",
