@@ -2,11 +2,6 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
-import {
-  createOpenClawConfigValue,
-  describeOpenClawConfigNode,
-  normalizeOpenClawConfigSchemaNode,
-} from "@hypercli.com/sdk/openclaw/gateway";
 import { motion, AnimatePresence } from "framer-motion";
 import {
   Bot,
@@ -15,7 +10,6 @@ import {
   CreditCard,
   ExternalLink,
   Loader2,
-  Plus,
   MessageSquare,
   RefreshCw,
   TerminalSquare,
@@ -65,7 +59,7 @@ import type { AgentFileEntry, SdkAgent } from "@/types";
 import type { FileEntry } from "@/components/dashboard/files/types";
 import type { Deployments, OpenClawAgent as SdkOpenClawAgent } from "@hypercli.com/sdk/agents";
 import type { HyperAgentCurrentPlan, HyperAgentPlan, HyperAgentSubscriptionSummary, HyperAgentTypeCatalog } from "@hypercli.com/sdk/agent";
-import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState, JsonObject } from "@/app/dashboard/agents/types";
+import type { Agent, AgentBudget, AgentDesktopTokenResponse, AgentState } from "@/app/dashboard/agents/types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -80,12 +74,7 @@ import {
   OPENCLAW_WORKSPACE_DIR,
   OPENCLAW_WORKSPACE_PREFIX,
   asObject,
-  deepCloneJsonObject,
-  getOpenClawUiHint,
-  getPathValue,
   humanizeKey,
-  setPathValue,
-  sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
@@ -93,7 +82,7 @@ import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawConfigPanel } from "@/components/dashboard/agents/AgentPanels";
+import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
 import type { FirstAgentSetupCreateParams } from "@/components/dashboard/agents/FirstAgentSetupWizard";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
@@ -372,14 +361,7 @@ export default function DevAgentSetupAgentsPage() {
   const [settingsName, setSettingsName] = useState("");
   const [, setAgentClusterUnavailable] = useState(false);
   const [savingName, setSavingName] = useState(false);
-  const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
-  const [openclawSaving, setOpenclawSaving] = useState(false);
-  const [openclawError, setOpenclawError] = useState<string | null>(null);
-  const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
-  const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
-  const [openclawMapDraftKeys, setOpenclawMapDraftKeys] = useState<Record<string, string>>({});
   const [chatDragActive, setChatDragActive] = useState(false);
-  const openclawPaneRef = useRef<HTMLDivElement | null>(null);
   const chatDragDepthRef = useRef(0);
 
   const chatEndRef = useRef<HTMLDivElement>(null);
@@ -741,42 +723,6 @@ export default function DevAgentSetupAgentsPage() {
     return parseSkillSnapshotOutput(result.stdout);
   }, [getToken, selectedAgentId]);
 
-  const openclawSchemaBundle = chat.configSchema;
-  const openclawSchemaRoot = useMemo(
-    () => asObject(openclawSchemaBundle?.schema ?? null),
-    [openclawSchemaBundle]
-  );
-  const openclawSchemaProperties = useMemo(
-    () => asObject(openclawSchemaRoot?.properties ?? null),
-    [openclawSchemaRoot]
-  );
-
-  const openclawSections = useMemo(
-    () => sortOpenClawEntries(Object.entries(openclawSchemaProperties ?? {}), openclawSchemaBundle),
-    [openclawSchemaBundle, openclawSchemaProperties]
-  );
-
-  useEffect(() => {
-    const cfg = asObject(chat.config);
-    setOpenclawDraft(deepCloneJsonObject(cfg ?? {}));
-    setOpenclawError(null);
-    setOpenclawSuccess(null);
-  }, [selectedAgentId, chat.config]);
-
-  useEffect(() => {
-    if (!activeOpenclawSection && openclawSections.length > 0) {
-      setActiveOpenclawSection(openclawSections[0][0]);
-    }
-    if (activeOpenclawSection && !openclawSections.find(([k]) => k === activeOpenclawSection)) {
-      setActiveOpenclawSection(openclawSections[0]?.[0] ?? null);
-    }
-  }, [openclawSections, activeOpenclawSection]);
-
-  useEffect(() => {
-    if (mainTab !== "settings") return;
-    openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [activeOpenclawSection, mainTab]);
-
   // ── Agent inspector data wiring ──
 
   // Probe channel status when gateway connects, and refresh after config save
@@ -911,7 +857,8 @@ export default function DevAgentSetupAgentsPage() {
       const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
       const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : Date.now();
       const lastMessageAt = typeof entry.lastMessageAt === "number" ? entry.lastMessageAt : createdAt;
-      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt };
+      const sourceChannelId = typeof entry.sourceChannelId === "string" ? entry.sourceChannelId : undefined;
+      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt, ...(sourceChannelId ? { sourceChannelId } : {}) };
     });
   }, [chat.sessions]);
 
@@ -975,305 +922,6 @@ export default function DevAgentSetupAgentsPage() {
     agentWorkspaceFilesForView,
     selectedAgent,
   ]);
-
-  const effectiveOpenclawSection = useMemo(
-    () => (isDesktopViewport ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
-    [activeOpenclawSection, isDesktopViewport, openclawSections]
-  );
-
-  const visibleOpenclawSections = useMemo(() => {
-    if (!effectiveOpenclawSection) return openclawSections;
-    const selected = openclawSections.find(([sectionKey]) => sectionKey === effectiveOpenclawSection);
-    return selected ? [selected] : openclawSections;
-  }, [effectiveOpenclawSection, openclawSections]);
-
-  const activeOpenclawSectionEntry = useMemo(
-    () => openclawSections.find(([sectionKey]) => sectionKey === effectiveOpenclawSection) ?? null,
-    [effectiveOpenclawSection, openclawSections]
-  );
-
-  const activeOpenclawSectionLabel = useMemo(() => {
-    if (!activeOpenclawSectionEntry) return null;
-    const [sectionKey, sectionSchema] = activeOpenclawSectionEntry;
-    return (
-      getOpenClawUiHint(openclawSchemaBundle, [sectionKey])?.label?.trim()
-      || (typeof asObject(sectionSchema)?.title === "string"
-        ? String(asObject(sectionSchema)?.title)
-        : humanizeKey(sectionKey))
-    );
-  }, [activeOpenclawSectionEntry, openclawSchemaBundle]);
-
-  const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
-    setOpenclawDraft((prev) => {
-      const base = prev ? deepCloneJsonObject(prev) : {};
-      return setPathValue(base, path, value);
-    });
-  }, []);
-
-  const removeOpenclawPath = useCallback((path: string[]) => {
-    setOpenclawDraft((prev) => {
-      if (!prev || path.length === 0) return prev;
-      const base = deepCloneJsonObject(prev);
-      const parentPath = path.slice(0, -1);
-      const leafKey = path[path.length - 1];
-      const parent = parentPath.length === 0 ? base : getPathValue(base, parentPath);
-      if (!parent || typeof parent !== "object" || Array.isArray(parent)) {
-        return base;
-      }
-      delete (parent as JsonObject)[leafKey];
-      return base;
-    });
-  }, []);
-
-  const addOpenclawMapEntry = useCallback((path: string[], schemaRaw: unknown) => {
-    const pathKey = path.join(".");
-    const nextKey = (openclawMapDraftKeys[pathKey] ?? "").trim();
-    if (!nextKey) return;
-    updateOpenclawPath([...path, nextKey], createOpenClawConfigValue(schemaRaw));
-    setOpenclawMapDraftKeys((prev) => ({ ...prev, [pathKey]: "" }));
-  }, [openclawMapDraftKeys, updateOpenclawPath]);
-
-  const saveOpenclawPatch = useCallback(async (patch: JsonObject, successText: string) => {
-    setOpenclawSaving(true);
-    setOpenclawError(null);
-    setOpenclawSuccess(null);
-    try {
-      await chat.saveConfig(patch);
-      setOpenclawSuccess(successText);
-    } catch (err) {
-      setOpenclawError(err instanceof Error ? err.message : "Failed to save OpenClaw config");
-    } finally {
-      setOpenclawSaving(false);
-    }
-  }, [chat]);
-
-  const saveOpenclawSection = useCallback(async (sectionKey: string) => {
-    if (!openclawDraft) return;
-    await saveOpenclawPatch({ [sectionKey]: openclawDraft[sectionKey] }, `Saved section: ${sectionKey}`);
-  }, [openclawDraft, saveOpenclawPatch]);
-
-  const saveAllOpenclaw = useCallback(async () => {
-    if (!openclawDraft) return;
-    await saveOpenclawPatch(openclawDraft, "Saved all OpenClaw settings");
-  }, [openclawDraft, saveOpenclawPatch]);
-
-  const renderOpenclawField = useCallback((schemaRaw: unknown, path: string[], depth = 0): React.ReactNode => {
-    try {
-    const schema = normalizeOpenClawConfigSchemaNode(schemaRaw);
-    const descriptor = describeOpenClawConfigNode(schemaRaw);
-    const hint = getOpenClawUiHint(openclawSchemaBundle, path);
-    const title =
-      hint?.label?.trim() ||
-      (typeof schema.title === "string" ? schema.title : "") ||
-      humanizeKey(path[path.length - 1] || "setting");
-    const description =
-      hint?.help?.trim() ||
-      (typeof schema.description === "string" ? schema.description : "");
-    const placeholder =
-      hint?.placeholder && hint.placeholder.trim() ? hint.placeholder : undefined;
-    const typeRaw = schema.type;
-    const type = Array.isArray(typeRaw)
-      ? (typeRaw.find((entry) => entry !== "null") as string | undefined)
-      : (typeof typeRaw === "string" ? typeRaw : undefined);
-    const enumValues: unknown[] = Array.isArray(schema.enum) ? schema.enum : [];
-    const currentValue = openclawDraft ? getPathValue(openclawDraft, path) : undefined;
-    const key = path.join(".");
-
-    const propertyKeys = descriptor.properties;
-    const additionalSchema = descriptor.additionalPropertySchema;
-    if (type === "object" || Object.keys(propertyKeys).length > 0 || descriptor.additionalProperties) {
-      const entries = Object.keys(propertyKeys).length > 0
-        ? sortOpenClawEntries(Object.entries(propertyKeys), openclawSchemaBundle, path)
-        : [];
-      const dynamicEntries = descriptor.additionalProperties && currentValue && typeof currentValue === "object" && !Array.isArray(currentValue)
-        ? Object.entries(currentValue as JsonObject).filter(([childKey]) => !(childKey in propertyKeys))
-        : [];
-      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) {
-        // Fallback: render JSON editor for object schemas with no resolved properties (e.g. unresolved $ref)
-        if (typeof console !== "undefined") {
-          console.warn(`[OpenClaw] Section "${key}" has type "object" but no resolved properties. Schema may contain unresolved $ref.`, schema);
-        }
-        const onFallbackChange = (raw: string) => {
-          try {
-            updateOpenclawPath(path, JSON.parse(raw));
-            setOpenclawError(null);
-          } catch {
-            setOpenclawError(`Invalid JSON at ${path.join(".")}`);
-          }
-        };
-        return (
-          <div key={key} className="space-y-1">
-            <label className="block text-sm text-text-secondary">{title}</label>
-            {description && <p className="text-xs text-text-muted">{description}</p>}
-            <textarea
-              value={typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2)}
-              onChange={(e) => onFallbackChange(e.target.value)}
-              rows={6}
-              spellCheck={false}
-              placeholder={placeholder}
-              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
-            />
-          </div>
-        );
-      }
-      return (
-        <div key={key} className={depth > 0 ? "rounded-lg border border-border p-3 space-y-3" : "space-y-3"}>
-          {depth > 0 && (
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-foreground">{title}</p>
-                {hint?.advanced && (
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-                    advanced
-                  </span>
-                )}
-              </div>
-              {description && <p className="text-xs text-text-muted mt-0.5">{description}</p>}
-            </div>
-          )}
-          {entries.map(([childKey, childSchema]) => renderOpenclawField(childSchema, [...path, childKey], depth + 1))}
-          {descriptor.additionalProperties && (
-            <div className="space-y-3">
-              {dynamicEntries.map(([childKey]) => (
-                <div key={`${key}-dynamic-${childKey}`} className="rounded-lg border border-border/70 bg-surface-low/20 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-muted">{childKey}</p>
-                    <button
-                      type="button"
-                      onClick={() => removeOpenclawPath([...path, childKey])}
-                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f]"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Remove
-                    </button>
-                  </div>
-                  {renderOpenclawField(additionalSchema ? { ...additionalSchema, title: childKey } : { title: childKey, type: "object" }, [...path, childKey], depth + 1)}
-                </div>
-              ))}
-              <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border px-3 py-3 md:flex-row md:items-center">
-                <input
-                  type="text"
-                  value={openclawMapDraftKeys[key] ?? ""}
-                  onChange={(e) => setOpenclawMapDraftKeys((prev) => ({ ...prev, [key]: e.target.value }))}
-                  placeholder={`Add ${title.toLowerCase()} key`}
-                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong"
-                />
-                <button
-                  type="button"
-                  onClick={() => addOpenclawMapEntry(path, additionalSchema ?? { type: "object" })}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Entry
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    const onJsonValueChange = (raw: string) => {
-      try {
-        updateOpenclawPath(path, JSON.parse(raw));
-        setOpenclawError(null);
-      } catch {
-        setOpenclawError(`Invalid JSON at ${path.join(".")}`);
-      }
-    };
-
-    return (
-      <div key={key} className="space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="block text-sm text-text-secondary">{title}</label>
-          {hint?.sensitive && (
-            <span className="rounded-full border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#d05f5f]">
-              sensitive
-            </span>
-          )}
-          {hint?.advanced && (
-            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-              advanced
-            </span>
-          )}
-        </div>
-        {description && <p className="text-xs text-text-muted">{description}</p>}
-        {enumValues.length > 0 ? (
-          <select
-            value={currentValue == null ? "" : JSON.stringify(currentValue)}
-            onChange={(e) => {
-              if (!e.target.value) {
-                updateOpenclawPath(path, null);
-                return;
-              }
-              const nextValue = enumValues.find((value) => JSON.stringify(value) === e.target.value);
-              updateOpenclawPath(path, nextValue ?? e.target.value);
-            }}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
-          >
-            <option value="">(unset)</option>
-            {enumValues.map((value) => (
-              <option key={`${key}-enum-${JSON.stringify(value)}`} value={JSON.stringify(value)}>
-                {String(value)}
-              </option>
-            ))}
-          </select>
-        ) : type === "boolean" ? (
-          <label className="inline-flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
-              checked={Boolean(currentValue)}
-              onChange={(e) => updateOpenclawPath(path, e.target.checked)}
-              className="rounded border-border bg-surface-low"
-            />
-            Enabled
-          </label>
-        ) : type === "number" || type === "integer" ? (
-          <input
-            type="number"
-            value={typeof currentValue === "number" ? String(currentValue) : ""}
-            onChange={(e) => {
-              const raw = e.target.value.trim();
-              if (!raw) {
-                updateOpenclawPath(path, null);
-                return;
-              }
-              const parsed = type === "integer" ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
-              if (!Number.isNaN(parsed)) updateOpenclawPath(path, parsed);
-            }}
-            placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
-          />
-        ) : type === "array" || type === "object" ? (
-          <textarea
-            value={typeof currentValue === "undefined" ? "" : JSON.stringify(currentValue, null, 2)}
-            onChange={(e) => onJsonValueChange(e.target.value)}
-            rows={6}
-            spellCheck={false}
-            placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong"
-          />
-        ) : (
-          <input
-            type={hint?.sensitive ? "password" : "text"}
-            value={typeof currentValue === "string" ? currentValue : currentValue == null ? "" : String(currentValue)}
-            onChange={(e) => updateOpenclawPath(path, e.target.value)}
-            placeholder={placeholder}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong"
-          />
-        )}
-      </div>
-    );
-    } catch (err) {
-      const key = path.join(".");
-      console.error(`[OpenClaw] Failed to render field "${key}":`, err);
-      return (
-        <div key={key} className="text-xs text-[#d05f5f] p-2 rounded border border-[#d05f5f]/30">
-          Failed to render {key}: {err instanceof Error ? err.message : String(err)}
-        </div>
-      );
-    }
-  }, [addOpenclawMapEntry, openclawDraft, openclawMapDraftKeys, openclawSchemaBundle, removeOpenclawPath, updateOpenclawPath]);
 
   // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -2153,6 +1801,10 @@ export default function DevAgentSetupAgentsPage() {
                 onLoadSkills={loadAgentSkills}
                 onListFiles={listAgentFiles}
                 onReadFile={readAgentFile}
+                onIntegrationAuthStart={chat.integrationsAuthStart}
+                onIntegrationAuthStatus={chat.integrationsAuthStatus}
+                onIntegrationStatus={chat.integrationsStatus}
+                onIntegrationDisconnect={chat.integrationsDisconnect}
               />
             ) : mainTab === "settings" || mainTab === "openclaw" ? (
               <AgentSettingsPanel

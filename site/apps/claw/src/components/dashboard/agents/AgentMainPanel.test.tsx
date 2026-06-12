@@ -303,6 +303,41 @@ describe("AgentMainPanel", () => {
     expect(screen.getByTestId("persistent-shell")).toBeInTheDocument();
   });
 
+  it("renders a desktop header return control for the selected project", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    const onSelect = vi.fn();
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      currentPanel: "files",
+      panelContent: <div>Files panel</div>,
+      sessionReturnTarget: {
+        label: "Main Project",
+        onSelect,
+      },
+    });
+
+    const projectButton = screen.getByRole("button", { name: /open main project/i });
+    expect(projectButton).toHaveTextContent("Main Project");
+    expect(projectButton).not.toHaveTextContent(/back to/i);
+
+    fireEvent.click(projectButton);
+
+    expect(onSelect).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not render a project return control when project chat is active", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      isSelectedRunning: true,
+      currentPanel: "chat",
+      panelContent: <div>Chat panel</div>,
+    });
+
+    expect(screen.queryByRole("button", { name: /open main project/i })).not.toBeInTheDocument();
+  });
+
   it("keeps settings content available for a stopped agent", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
     renderAgentMainPanel({

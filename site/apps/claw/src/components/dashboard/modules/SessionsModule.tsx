@@ -2,6 +2,7 @@
 
 import { motion } from "framer-motion";
 import { Monitor } from "lucide-react";
+import { resolveSessionSourceChannel } from "../session-source-channel";
 import type { AgentSession } from "../agentViewTypes";
 import { MOCK_SESSIONS, SESSION_ICONS } from "../agentViewMockData";
 import { relativeTime } from "../agentViewUtils";
@@ -37,7 +38,8 @@ export function SessionsModule({ sessions: sessionsProp }: SessionsModuleProps) 
       </div>
       <div className="space-y-1">
         {sessions.map((sess, idx) => {
-          const SessIcon = SESSION_ICONS[sess.clientMode] || Monitor;
+          const sourceChannel = resolveSessionSourceChannel(sess.sourceChannelId);
+          const SessionIcon = sourceChannel?.Icon ?? SESSION_ICONS[sess.clientMode] ?? Monitor;
           return (
             <motion.div
               key={sess.key}
@@ -50,12 +52,17 @@ export function SessionsModule({ sessions: sessionsProp }: SessionsModuleProps) 
               <motion.div
                 animate={{ rotate: [0, 5, -5, 0] }}
                 transition={{ repeat: Infinity, duration: 4, ease: "easeInOut", delay: idx * 0.8 }}
+                title={sourceChannel ? `${sourceChannel.label} channel` : undefined}
+                className={sourceChannel ? "flex h-6 w-6 shrink-0 items-center justify-center rounded-full bg-black/25 ring-1 ring-white/10" : undefined}
               >
-                <SessIcon className="w-3.5 h-3.5 text-text-muted shrink-0" />
+                <SessionIcon
+                  className={`w-3.5 h-3.5 shrink-0 ${sourceChannel ? "" : "text-text-muted"}`}
+                  style={sourceChannel?.color ? { color: sourceChannel.color } : undefined}
+                />
               </motion.div>
               <div className="flex-1 min-w-0">
                 <div className="text-xs text-foreground truncate">{sess.clientDisplayName}</div>
-                <div className="text-[10px] text-text-muted">{sess.clientMode}</div>
+                <div className="text-[10px] text-text-muted">{sourceChannel?.label ?? sess.clientMode}</div>
               </div>
               <div className="flex items-center gap-1.5">
                 <span className="text-[10px] text-text-muted">{relativeTime(sess.lastMessageAt)}</span>

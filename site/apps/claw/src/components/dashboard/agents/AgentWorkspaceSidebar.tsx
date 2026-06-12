@@ -25,12 +25,13 @@ import {
 
 import type { Agent, AgentState } from "@/app/dashboard/agents/types";
 import type { AgentMainTab } from "@/components/dashboard/DashboardMobileAgentMenuContext";
+import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/components/dashboard/session-source-channel";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
 import {
   fallbackOpenClawSessionDisplayName,
   normalizeOpenClawSessionDisplayName,
-  sameOpenClawSessionKey,
+  sameOpenClawSelectableSessionKey,
   type OpenClawSessionPreviewMap,
   type OpenClawSessionRecord,
 } from "@/lib/openclaw-session-sdk-surface";
@@ -153,14 +154,14 @@ function sessionTitle(session: OpenClawSessionRecord): string {
     ?? fallbackOpenClawSessionDisplayName(session.key);
 }
 
-function selectedProjectSession(sessionKey: string): OpenClawSessionRecord {
+function selectedProjectSession(sessionKey: string, lastMessageAt = Number.MAX_SAFE_INTEGER): OpenClawSessionRecord {
   const title = fallbackOpenClawSessionDisplayName(sessionKey);
   return {
     key: sessionKey,
     clientMode: "openclaw",
     clientDisplayName: title,
     createdAt: 0,
-    lastMessageAt: Number.MAX_SAFE_INTEGER,
+    lastMessageAt,
     title,
     messageCount: 0,
     raw: { key: sessionKey, title },
@@ -202,6 +203,7 @@ function SessionMenuButton({
 
 function RecentSessionRow({
   title,
+  sourceChannel,
   active,
   onSelect,
   onRename,
@@ -211,6 +213,7 @@ function RecentSessionRow({
   disabledReason,
 }: {
   title: string;
+  sourceChannel?: SessionSourceChannel | null;
   active: boolean;
   onSelect?: () => void;
   onRename: () => void;
@@ -221,6 +224,7 @@ function RecentSessionRow({
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
+  const SourceChannelIcon = sourceChannel?.Icon;
 
   useEffect(() => {
     if (!menuOpen) return;
@@ -250,6 +254,15 @@ function RecentSessionRow({
         title={disabledReason ?? (creating ? `${title} - Creating...` : title)}
       >
         <span className="flex min-w-0 items-center gap-2">
+          {sourceChannel && SourceChannelIcon ? (
+            <span
+              aria-hidden="true"
+              title={`${sourceChannel.label} channel`}
+              className="inline-flex h-4 w-4 shrink-0 items-center justify-center rounded-full bg-black/25 ring-1 ring-white/10"
+            >
+              <SourceChannelIcon className="h-3 w-3" style={sourceChannel.color ? { color: sourceChannel.color } : undefined} />
+            </span>
+          ) : null}
           <span className="min-w-0 flex-1 truncate">{title}</span>
           {creating ? (
             <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-text-muted" aria-label="Creating project">
@@ -544,7 +557,10 @@ export function AgentWorkspaceSidebar({
     if (!hasSelectedAgent) return [];
     const projectSessions = [...(sessions ?? [])];
     const activeKey = selectedSessionKey?.trim() || "";
-    if (activeKey && !projectSessions.some((session) => sameOpenClawSessionKey(session.key, activeKey))) {
+    if (!projectSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, "main"))) {
+      projectSessions.unshift(selectedProjectSession("main", 0));
+    }
+    if (activeKey && !projectSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, activeKey))) {
       projectSessions.unshift(selectedProjectSession(activeKey));
     }
     return projectSessions.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -738,14 +754,16 @@ export function AgentWorkspaceSidebar({
               <div className="space-y-0.5 border-l border-border pl-1.5">
                 {visibleSessions.map((session) => {
                   const title = sessionTitle(session);
+                  const sourceChannel = resolveSessionSourceChannel(session.sourceChannelId);
                   return (
                     <RecentSessionRow
                       key={session.key}
                       title={title}
-                      active={sameOpenClawSessionKey(selectedSessionKey, session.key)}
+                      sourceChannel={sourceChannel}
+                      active={sameOpenClawSelectableSessionKey(selectedSessionKey, session.key)}
                       disabled={!projectsInteractive}
                       disabledReason={projectsDisabledReason}
-                      creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSessionKey(sessionKey, session.key))}
+                      creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
                       onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
                       onRename={() => setRenameTarget(session)}
                       onDelete={() => setDeleteTarget(session)}

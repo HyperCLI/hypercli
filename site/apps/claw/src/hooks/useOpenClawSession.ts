@@ -2,7 +2,24 @@
 
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
-import type { GatewayClient, GatewayCloseInfo, GatewayConnectionState, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
+import type {
+  ChatEvent,
+  GatewayClient,
+  GatewayCloseInfo,
+  GatewayConnectionState,
+  GatewayIntegrationAuthStartParams,
+  GatewayIntegrationAuthStatusParams,
+  GatewayIntegrationDisconnectParams,
+  GatewayIntegrationStatusParams,
+  GatewaySkillsDetailParams,
+  GatewaySkillsInstallParams,
+  GatewaySkillsSearchParams,
+  GatewaySkillsSecurityVerdictsParams,
+  GatewaySkillsSkillCardParams,
+  GatewaySkillsStatusParams,
+  GatewaySkillsUpdateParams,
+  OpenClawConfigSchemaResponse,
+} from "@hypercli.com/sdk/openclaw/gateway";
 import {
   type ChatAttachment,
   type ChatMessage,
@@ -31,14 +48,16 @@ import {
   createOpenClawSession,
   deleteOpenClawSession,
   fallbackOpenClawSessionDisplayName,
+  findOpenClawSelectableSession,
   listOpenClawSessions,
   loadOpenClawSessionPreviews,
   normalizeOpenClawSessionDisplayName,
   normalizeOpenClawSessions,
   openClawEventMatchesSession,
+  openClawGatewaySessionKey,
   openClawSessionTitleMapKeys,
   resolveOpenClawActiveSessionKey,
-  sameOpenClawSessionKey,
+  sameOpenClawSelectableSessionKey,
   sendOpenClawChatFallback,
   streamOpenClawChat,
 } from "@/lib/openclaw-session-sdk-surface";
@@ -53,6 +72,7 @@ const GATEWAY_CONNECTING_STALL_MESSAGE =
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
 const OPENCLAW_ORIGIN_DENIED_MESSAGE =
   "This agent was opened from another dashboard address. Stop and start it from this page, then retry.";
+const OPENCLAW_REPLY_STOPPED_MESSAGE = "Reply stopped";
 let fallbackSessionCounter = 0;
 
 interface SendMessageOptions {
@@ -138,6 +158,18 @@ function mergeCurrentToolCallsIntoHistory(
         }
       : message
   ));
+}
+
+function assistantMessageHasVisibleReply(message: ChatMessage): boolean {
+  return (
+    message.role === "assistant" &&
+    (
+      message.content.trim().length > 0 ||
+      (message.toolCalls?.length ?? 0) > 0 ||
+      (message.mediaUrls?.length ?? 0) > 0 ||
+      (message.files?.length ?? 0) > 0
+    )
+  );
 }
 
 function hasSeededE2EConnection(): boolean {
@@ -237,12 +269,17 @@ function writeStoredSessions(agentId: string | null, sessions: OpenClawSessionRe
       updatedAt: Date.now(),
       sessions: sessions.map((session) => ({
         key: session.key,
+        gatewaySessionKey: session.gatewaySessionKey,
+        sourceSessionKey: session.sourceSessionKey,
         clientMode: session.clientMode,
         clientDisplayName: session.clientDisplayName,
         createdAt: session.createdAt,
         lastMessageAt: session.lastMessageAt,
         title: session.title,
         messageCount: session.messageCount,
+        sourceChannelId: session.sourceChannelId,
+        readOnly: session.readOnly,
+        readOnlyReason: session.readOnlyReason,
       })),
     }));
   } catch {}
@@ -321,11 +358,15 @@ export function useOpenClawSession(
   const [pendingAttachments, setPendingAttachments] = useState<ChatAttachment[]>([]);
   const [pendingAttachmentReads, setPendingAttachmentReads] = useState(0);
   const [pendingFiles, setPendingFiles] = useState<ChatPendingFile[]>([]);
+  const [aborting, setAborting] = useState(false);
   const [retrySignal, setRetrySignal] = useState(0);
   const activeChatSendRef = useRef(false);
+  const activeChatStreamRef = useRef<AsyncGenerator<ChatEvent> | null>(null);
+  const abortRequestedRef = useRef(false);
   const messagesRef = useRef<ChatMessage[]>([]);
   const sessionTitleMapRef = useRef<Record<string, string>>({});
   const creatingSessionKeysRef = useRef<Set<string>>(new Set());
+  const refreshSessionsAfterReconnectRef = useRef(false);
   const seededE2EConnection = hasSeededE2EConnection();
 
   useEffect(() => {
@@ -335,6 +376,10 @@ export function useOpenClawSession(
   useEffect(() => {
     messagesRef.current = messages;
   }, [messages]);
+
+  useEffect(() => {
+    if (!sending) abortRequestedRef.current = false;
+  }, [sending]);
 
   useLayoutEffect(() => {
     const titleMap = readStoredSessionTitles(agentId);
@@ -354,8 +399,16 @@ export function useOpenClawSession(
     setRetrySignal((value) => value + 1);
   }, []);
 
+  const retryAndRefreshSessions = useCallback(() => {
+    refreshSessionsAfterReconnectRef.current = true;
+    setRetrySignal((value) => value + 1);
+  }, []);
+
   const resetSessionStateForDisconnect = useCallback(({ preserveMessages = false }: { preserveMessages?: boolean } = {}) => {
     activeChatSendRef.current = false;
+    activeChatStreamRef.current = null;
+    abortRequestedRef.current = false;
+    setAborting(false);
     setHydrating(false);
     setReady(false);
     if (!preserveMessages) setMessages([]);
@@ -516,9 +569,38 @@ export function useOpenClawSession(
     });
   }, [agentId]);
 
+  const activeSessionRecord = sessionsAgentId === agentId
+    ? findOpenClawSelectableSession(sessions, activeSessionKey)
+    : null;
+  const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord) ?? activeSessionKey;
+  const activeSessionReadOnly = Boolean(activeSessionRecord?.readOnly);
+  const activeSessionReadOnlyReason = activeSessionRecord?.readOnlyReason ?? null;
+
+  const markCurrentReplyInterrupted = useCallback(() => {
+    setMessages((prev) => {
+      const lastAssistantIndex = (() => {
+        for (let index = prev.length - 1; index >= 0; index -= 1) {
+          if (prev[index]?.role === "assistant") return index;
+          if (prev[index]?.role === "user") return -1;
+        }
+        return -1;
+      })();
+      const lastAssistant = lastAssistantIndex >= 0 ? prev[lastAssistantIndex] : null;
+      if (lastAssistant && assistantMessageHasVisibleReply(lastAssistant)) {
+        return prev.map((message, index) => (
+          index === lastAssistantIndex ? { ...message, status: "interrupted" } : message
+        ));
+      }
+      if (prev[prev.length - 1]?.role === "system" && prev[prev.length - 1]?.content === OPENCLAW_REPLY_STOPPED_MESSAGE) {
+        return prev;
+      }
+      return [...prev, { role: "system", content: OPENCLAW_REPLY_STOPPED_MESSAGE, timestamp: Date.now() }];
+    });
+  }, []);
+
   const refreshMessagesFromHistory = useCallback(async () => {
     if (!gateway) return;
-    const historyMessages = dedupeChatMessages(await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey));
+    const historyMessages = dedupeChatMessages(await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey, activeGatewaySessionKey));
     if (historyMessages.length === 0) return;
     setMessages((currentMessages) => {
       const currentUserCount = currentMessages.filter((message) => message.role === "user").length;
@@ -531,7 +613,7 @@ export function useOpenClawSession(
       messagesRef.current = mergedMessages;
       return mergedMessages;
     });
-  }, [gateway, agentId, activeSessionKey]);
+  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey]);
 
   const finishCreatingSession = useCallback((sessionKey: string) => {
     creatingSessionKeysRef.current.delete(sessionKey);
@@ -586,19 +668,34 @@ export function useOpenClawSession(
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
         if (!activeChatSendRef.current) {
-          setMessages((currentMessages) => {
+          setMessages(() => {
             if (hydrated.messages.length > 0) return dedupeChatMessages(hydrated.messages);
-            if (currentMessages.length > 0) return currentMessages;
+            if (!hydrated.useLocalCacheFallback) return [];
             return readCachedOpenClawChatHistory(agentId, activeSessionKey);
           });
         }
         setFiles(hydrated.files);
         setGwAgentId(hydrated.gwAgentId);
+        let nextSessionPreviews = hydrated.sessionPreviews;
+        const shouldRefreshSessionsAfterReconnect = refreshSessionsAfterReconnectRef.current;
         if (hydrated.sessionsFetched) {
           setTitledSessions(hydrated.sessions);
           setSessionsFetchedAgentId(agentId);
+          if (shouldRefreshSessionsAfterReconnect) refreshSessionsAfterReconnectRef.current = false;
+        } else if (shouldRefreshSessionsAfterReconnect) {
+          try {
+            const nextSessions = await listOpenClawSessions(gateway);
+            if (cancelled) return;
+            setTitledSessions(nextSessions);
+            setSessionsFetchedAgentId(agentId);
+            nextSessionPreviews = await loadOpenClawSessionPreviews(gateway, nextSessions);
+            if (cancelled) return;
+          } catch {
+          } finally {
+            if (!cancelled) refreshSessionsAfterReconnectRef.current = false;
+          }
         }
-        setSessionPreviews(hydrated.sessionPreviews);
+        setSessionPreviews(nextSessionPreviews);
         setCronJobs(hydrated.cronJobs);
         setModels(hydrated.models);
         setReady(true);
@@ -704,6 +801,7 @@ export function useOpenClawSession(
 
   const sendMessage = useCallback(async (overrideInput?: string, options: SendMessageOptions = {}) => {
     if (!gateway || !ready) throw new Error("Chat is not ready");
+    if (activeSessionReadOnly) return;
     const nextInput = typeof overrideInput === "string" ? overrideInput : input;
     const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
     const nextFiles = options.files ?? (typeof overrideInput === "string" ? [] : pendingFiles);
@@ -719,6 +817,8 @@ export function useOpenClawSession(
     setInput("");
     setPendingAttachments([]);
     setPendingFiles([]);
+    setAborting(false);
+    abortRequestedRef.current = false;
     setSending(true);
 
     const messageTimestamp = Date.now();
@@ -734,7 +834,7 @@ export function useOpenClawSession(
       [activeSessionKey]: { key: activeSessionKey, text: preview, role: "user", timestamp: messageTimestamp },
     }));
     setTitledSessions((prev) => {
-      const existing = prev.find((session) => sameOpenClawSessionKey(session.key, activeSessionKey));
+      const existing = prev.find((session) => sameOpenClawSelectableSessionKey(session.key, activeSessionKey));
       const touchedSession = {
         ...(existing ?? localOpenClawSessionRecord(activeSessionKey)),
         lastMessageAt: messageTimestamp,
@@ -742,20 +842,23 @@ export function useOpenClawSession(
       };
       return [
         touchedSession,
-        ...prev.filter((session) => !sameOpenClawSessionKey(session.key, activeSessionKey)),
+        ...prev.filter((session) => !sameOpenClawSelectableSessionKey(session.key, activeSessionKey)),
       ];
     });
 
     let handledByChatSend = false;
     let chatSendCompleted = false;
     try {
-      const sessionKey = activeSessionKey;
+      const sessionKey = activeGatewaySessionKey;
       const messageToSend = agentMessage || "What's in this image?";
       const attachmentsToSend = attachments.length > 0 ? attachments : undefined;
       if (typeof gateway.chatSend === "function") {
         handledByChatSend = true;
         activeChatSendRef.current = true;
-        for await (const chatEvent of streamOpenClawChat(gateway, messageToSend, sessionKey, attachmentsToSend)) {
+        const chatStream = streamOpenClawChat(gateway, messageToSend, sessionKey, attachmentsToSend);
+        activeChatStreamRef.current = chatStream;
+        for await (const chatEvent of chatStream) {
+          if (abortRequestedRef.current) continue;
           handleOpenClawChatStreamEvent({
             gateway,
             chatEvent,
@@ -771,11 +874,16 @@ export function useOpenClawSession(
       }
     } catch (e: unknown) {
       const errMsg = formatOpenClawConnectionError(e);
-      setMessages((prev) => [...prev, { role: "system", content: `Error: ${errMsg}`, timestamp: Date.now() }]);
-      appendActivity({ type: "error", action: "Send failed", detail: errMsg });
+      if (!abortRequestedRef.current) {
+        setMessages((prev) => [...prev, { role: "system", content: `Error: ${errMsg}`, timestamp: Date.now() }]);
+        appendActivity({ type: "error", action: "Send failed", detail: errMsg });
+      }
       setSending(false);
     } finally {
+      activeChatStreamRef.current = null;
       activeChatSendRef.current = false;
+      abortRequestedRef.current = false;
+      setAborting(false);
       if (handledByChatSend) {
         setSending(false);
       }
@@ -789,7 +897,25 @@ export function useOpenClawSession(
         } catch {}
       }
     }
-  }, [gateway, ready, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, activeSessionKey, refreshMessagesFromHistory, setTitledSessions, agentId]);
+  }, [gateway, ready, activeSessionReadOnly, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, activeGatewaySessionKey, activeSessionKey, refreshMessagesFromHistory, setTitledSessions, agentId]);
+
+  const abortMessage = useCallback(async () => {
+    if (!gateway || !ready || !sending || abortRequestedRef.current || typeof gateway.chatAbort !== "function") return;
+    abortRequestedRef.current = true;
+    setAborting(true);
+    try {
+      await gateway.chatAbort(activeGatewaySessionKey);
+      void activeChatStreamRef.current?.return(undefined).catch(() => undefined);
+      markCurrentReplyInterrupted();
+      setSending(false);
+      setAborting(false);
+      appendActivity({ type: "system", action: "Assistant reply stopped" });
+    } catch (e: unknown) {
+      abortRequestedRef.current = false;
+      setAborting(false);
+      appendActivity({ type: "error", action: "Stop failed", detail: formatOpenClawConnectionError(e) });
+    }
+  }, [gateway, ready, sending, activeGatewaySessionKey, markCurrentReplyInterrupted, appendActivity]);
 
   useEffect(() => {
     if (!ready) return;
@@ -842,7 +968,10 @@ export function useOpenClawSession(
       setTitledSessions(nextSessions);
       setSessionsFetchedAgentId(agentId);
       setSessionPreviews(await loadOpenClawSessionPreviews(gateway, nextSessions));
-    } catch {}
+      return nextSessions;
+    } catch {
+      return undefined;
+    }
   }, [gateway, setTitledSessions, agentId]);
 
   const createSession = useCallback(async () => {
@@ -885,7 +1014,7 @@ export function useOpenClawSession(
         finishCreatingSession(sessionKey);
         try {
           const nextSessions = await listOpenClawSessions(gateway);
-          const refreshedSessions = nextSessions.some((session) => sameOpenClawSessionKey(session.key, sessionKey))
+          const refreshedSessions = nextSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey))
             ? nextSessions
             : [newOpenClawSessionRecord(sessionKey), ...nextSessions];
           setTitledSessions(refreshedSessions);
@@ -922,7 +1051,8 @@ export function useOpenClawSession(
 
   const removeSession = useCallback(async (sessionKey: string) => {
     if (!gateway) throw new Error("Not connected");
-    await deleteOpenClawSession(gateway, sessionKey);
+    const session = findOpenClawSelectableSession(sessions, sessionKey);
+    await deleteOpenClawSession(gateway, openClawGatewaySessionKey(session) ?? sessionKey);
     clearCachedOpenClawChatHistory(agentId, sessionKey);
     const nextTitleMap = { ...sessionTitleMapRef.current };
     delete nextTitleMap[sessionKey];
@@ -930,7 +1060,7 @@ export function useOpenClawSession(
     writeStoredSessionTitles(agentId, nextTitleMap);
     setDeletedSessionKeys((prev) => new Set(prev).add(sessionKey));
     setSessions((prev) => {
-      const next = prev.filter((session) => session.key !== sessionKey);
+      const next = prev.filter((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey));
       writeStoredSessions(agentId, next);
       return next;
     });
@@ -939,11 +1069,11 @@ export function useOpenClawSession(
       delete next[sessionKey];
       return next;
     });
-    if (sessionKey === activeSessionKey) {
+    if (sameOpenClawSelectableSessionKey(sessionKey, activeSessionKey)) {
       messagesRef.current = [];
       setMessages([]);
     }
-  }, [gateway, agentId, activeSessionKey]);
+  }, [gateway, agentId, activeSessionKey, sessions]);
 
   const refreshCron = useCallback(async () => {
     if (!gateway) throw new Error("Not connected");
@@ -993,6 +1123,75 @@ export function useOpenClawSession(
     return result;
   }, [gateway, appendActivity]);
 
+  const skillsStatus = useCallback(async (params: GatewaySkillsStatusParams = {}) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.skillsStatus(params);
+  }, [gateway]);
+
+  const skillsSearch = useCallback(async (params: GatewaySkillsSearchParams = {}) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.skillsSearch(params);
+  }, [gateway]);
+
+  const skillsDetail = useCallback(async (params: GatewaySkillsDetailParams) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.skillsDetail(params);
+  }, [gateway]);
+
+  const skillsSecurityVerdicts = useCallback(async (params: GatewaySkillsSecurityVerdictsParams = {}) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.skillsSecurityVerdicts(params);
+  }, [gateway]);
+
+  const skillsSkillCard = useCallback(async (params: GatewaySkillsSkillCardParams) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.skillsSkillCard(params);
+  }, [gateway]);
+
+  const skillsInstall = useCallback(async (params: GatewaySkillsInstallParams) => {
+    if (!gateway) throw new Error("Not connected");
+    const result = await gateway.skillsInstall(params);
+    const detail = "source" in params && params.source === "clawhub"
+      ? params.slug
+      : "name" in params
+        ? params.name
+        : params.slug;
+    appendActivity({ type: "skill", action: result.ok ? "Skill installed" : "Skill install failed", detail });
+    return result;
+  }, [gateway, appendActivity]);
+
+  const skillsUpdate = useCallback(async (params: GatewaySkillsUpdateParams) => {
+    if (!gateway) throw new Error("Not connected");
+    const result = await gateway.skillsUpdate(params);
+    const detail = "skillKey" in params ? params.skillKey : params.slug ?? "all";
+    appendActivity({ type: "skill", action: "Skills updated", detail });
+    return result;
+  }, [gateway, appendActivity]);
+
+  const integrationsAuthStart = useCallback(async (params: GatewayIntegrationAuthStartParams) => {
+    if (!gateway) throw new Error("Not connected");
+    const result = await gateway.integrationsAuthStart(params);
+    appendActivity({ type: "connection", action: "Connection auth started", detail: params.integrationId });
+    return result;
+  }, [gateway, appendActivity]);
+
+  const integrationsAuthStatus = useCallback(async (params: GatewayIntegrationAuthStatusParams) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.integrationsAuthStatus(params);
+  }, [gateway]);
+
+  const integrationsStatus = useCallback(async (params: GatewayIntegrationStatusParams = {}) => {
+    if (!gateway) throw new Error("Not connected");
+    return gateway.integrationsStatus(params);
+  }, [gateway]);
+
+  const integrationsDisconnect = useCallback(async (params: GatewayIntegrationDisconnectParams) => {
+    if (!gateway) throw new Error("Not connected");
+    const result = await gateway.integrationsDisconnect(params);
+    appendActivity({ type: "connection", action: result.ok ? "Connection disconnected" : "Connection disconnect failed", detail: params.integrationId });
+    return result;
+  }, [gateway, appendActivity]);
+
   const connected = seededE2EConnection || (status === "connected" && ready && !hydrating);
   const connecting = seededE2EConnection || Boolean(error)
     ? false
@@ -1013,11 +1212,15 @@ export function useOpenClawSession(
     hydrating,
     messages,
     sendMessage,
+    abortMessage,
+    aborting,
     input,
     setInput,
     pendingInput,
     addPendingMessage,
     activeSessionKey,
+    activeSessionReadOnly,
+    activeSessionReadOnlyReason,
     sending,
     files,
     config,
@@ -1050,6 +1253,18 @@ export function useOpenClawSession(
     updateCron,
     removeCron,
     runCron,
+    skillsStatus,
+    skillsSearch,
+    skillsDetail,
+    skillsSecurityVerdicts,
+    skillsSkillCard,
+    skillsInstall,
+    skillsUpdate,
+    integrationsAuthStart,
+    integrationsAuthStatus,
+    integrationsStatus,
+    integrationsDisconnect,
     retry,
+    retryAndRefreshSessions,
   };
 }

@@ -2,19 +2,13 @@
 
 import React, { useCallback, useEffect, useLayoutEffect, useMemo, useReducer, useRef, useState } from "react";
 import { useRouter, useSearchParams } from "next/navigation";
-import {
-  createOpenClawConfigValue,
-  describeOpenClawConfigNode,
-  normalizeOpenClawConfigSchemaNode,
-} from "@hypercli.com/sdk/openclaw/gateway";
 import { motion, AnimatePresence } from "framer-motion";
 import {
+  ArrowLeft,
   Bot,
   Check,
   Loader2,
-  Plus,
   MessageSquare,
-  Trash2,
   Settings,
   SlidersHorizontal,
   Plug,
@@ -65,7 +59,7 @@ import type {
   HyperAgentSubscriptionSummary,
   HyperAgentTypeCatalog,
 } from "@hypercli.com/sdk/agent";
-import type { Agent, AgentBudget, AgentState, JsonObject } from "./types";
+import type { Agent, AgentBudget, AgentState } from "./types";
 import {
   describeAgentTierStartGuidance,
   describeAgentsPageError,
@@ -81,12 +75,7 @@ import {
   OPENCLAW_WORKSPACE_DIR,
   OPENCLAW_WORKSPACE_PREFIX,
   asObject,
-  deepCloneJsonObject,
-  getOpenClawUiHint,
-  getPathValue,
   humanizeKey,
-  setPathValue,
-  sortOpenClawEntries,
 } from "@/lib/openclaw-config";
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { displayNameForDashboard } from "@/lib/dashboard-greeting";
@@ -106,13 +95,18 @@ import {
   initialBillingReflectionState,
 } from "@/lib/billing-reflection-machine";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
-import { sameOpenClawSessionKey } from "@/lib/openclaw-session-sdk-surface";
+import {
+  fallbackOpenClawSessionDisplayName,
+  normalizeOpenClawSessionDisplayName,
+  sameOpenClawSelectableSessionKey,
+} from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import {
   type AgentStatusChipModel,
   type CenterPanel,
 } from "@/components/dashboard/agents/page-helpers";
-import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner, OpenClawSettingsDrawer } from "@/components/dashboard/agents/AgentPanels";
+import { AgentSettingsPanel, AgentList, AgentTierSelectionModal, ErrorBanner } from "@/components/dashboard/agents/AgentPanels";
+import { OpenClawSettingsDrawer } from "@/components/dashboard/agents/OpenClawSettingsDrawer";
 import { AgentChatPanel, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatPanel";
 import { AgentFilesPanel } from "@/components/dashboard/agents/AgentFilesPanel";
 import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
@@ -176,6 +170,20 @@ function pendingFileIsImage(file: ChatPendingFile): boolean {
 
 function pendingFileIsAudio(file: ChatPendingFile): boolean {
   return pendingFileMatches(file, "audio/", /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i);
+}
+
+function workspaceFileReferenceFromEntry(entry: FileEntry): ChatPendingFile | null {
+  if (entry.type !== "file") return null;
+  const normalizedPath = normalizeOpenClawWorkspaceFilePath(entry.path || entry.name);
+  const relativePath = normalizedPath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)
+    ? normalizedPath.slice(OPENCLAW_WORKSPACE_PREFIX.length + 1)
+    : normalizedPath;
+  if (!relativePath) return null;
+  return {
+    name: entry.name || relativePath.split("/").filter(Boolean).pop() || relativePath,
+    path: `${OPENCLAW_WORKSPACE_DIR}/${relativePath}`,
+    type: "application/octet-stream",
+  };
 }
 
 interface UpgradeDisplayProduct {
@@ -869,6 +877,7 @@ function AgentsPageContent() {
 
   // Files panel
   const [filesPreviewPath, setFilesPreviewPath] = useState<string | null>(null);
+  const [chatFileReferenceCandidates, setChatFileReferenceCandidates] = useState<ChatPendingFile[]>([]);
 
   // Right sidebar inspector
   const [inspectorTab, setInspectorTab] = useState<AgentViewTabId>("overview");
@@ -904,17 +913,8 @@ function AgentsPageContent() {
   const [settingsName, setSettingsName] = useState("");
   const [, setAgentClusterUnavailable] = useState(false);
   const [savingName, setSavingName] = useState(false);
-  const [openclawDraft, setOpenclawDraft] = useState<JsonObject | null>(null);
-  const [openclawSaving, setOpenclawSaving] = useState(false);
-  const [openclawError, setOpenclawError] = useState<string | null>(null);
-  const [openclawSuccess, setOpenclawSuccess] = useState<string | null>(null);
   const [openclawSettingsOpen, setOpenclawSettingsOpen] = useState(false);
-  const [activeOpenclawSection, setActiveOpenclawSection] = useState<string | null>(null);
-  const [openclawMapDraftKeys, setOpenclawMapDraftKeys] = useState<Record<string, string>>({});
-  const [openclawJsonDrafts, setOpenclawJsonDrafts] = useState<Record<string, string>>({});
-  const [openclawJsonDraftErrors, setOpenclawJsonDraftErrors] = useState<Record<string, string>>({});
   const [chatDragActive, setChatDragActive] = useState(false);
-  const openclawPaneRef = useRef<HTMLDivElement | null>(null);
   const chatDragDepthRef = useRef(0);
 
   const openConnectionSuggestion = useCallback((suggestion: ChatConnectionSuggestion) => {
@@ -923,6 +923,7 @@ function AgentsPageContent() {
       setDirectoryCategory(category);
       setDirectoryItemId(suggestion.directoryPluginId);
       setDirectoryDetailOrigin("chat");
+      setOpenclawSettingsOpen(false);
       setMainTab("integrations");
       setMobileShowChat(true);
       completeJourneyForEvent("integrations-opened");
@@ -1418,6 +1419,36 @@ function AgentsPageContent() {
     return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
   }, [getToken, selectedAgentId]);
 
+  const refreshChatFileReferences = useCallback(async () => {
+    if (!selectedAgentId || !chat.connected) {
+      setChatFileReferenceCandidates([]);
+      return;
+    }
+    const entries = await listAgentFiles(OPENCLAW_WORKSPACE_PREFIX);
+    setChatFileReferenceCandidates(entries.map(workspaceFileReferenceFromEntry).filter((file): file is ChatPendingFile => Boolean(file)));
+  }, [chat.connected, listAgentFiles, selectedAgentId]);
+
+  useEffect(() => {
+    let cancelled = false;
+    if (!selectedAgentId || !chat.connected) {
+      queueMicrotask(() => {
+        if (!cancelled) setChatFileReferenceCandidates([]);
+      });
+      return;
+    }
+    void listAgentFiles(OPENCLAW_WORKSPACE_PREFIX)
+      .then((entries) => {
+        if (cancelled) return;
+        setChatFileReferenceCandidates(entries.map(workspaceFileReferenceFromEntry).filter((file): file is ChatPendingFile => Boolean(file)));
+      })
+      .catch(() => {
+        if (!cancelled) setChatFileReferenceCandidates([]);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [chat.connected, listAgentFiles, selectedAgentId]);
+
   const renameAgentFileToSafeName = useCallback(async (
     agentClient: Deployments,
     fromPath: string,
@@ -1507,13 +1538,15 @@ function AgentsPageContent() {
     if (!selectedAgentId) return;
     const token = await getToken();
     await createAgentClient(token).fileWrite(selectedAgentId, normalizeAgentFilePath(path), content);
-  }, [getToken, selectedAgentId]);
+    await refreshChatFileReferences().catch(() => undefined);
+  }, [getToken, refreshChatFileReferences, selectedAgentId]);
 
   const uploadAgentFile = useCallback(async (path: string, content: Uint8Array) => {
     if (!selectedAgentId) return;
     const token = await getToken();
     await createAgentClient(token).fileWriteBytes(selectedAgentId, normalizeAgentFilePath(path), content);
-  }, [getToken, selectedAgentId]);
+    await refreshChatFileReferences().catch(() => undefined);
+  }, [getToken, refreshChatFileReferences, selectedAgentId]);
 
   const createAgentDirectory = useCallback(async (path: string) => {
     if (!selectedAgentId) return;
@@ -1536,7 +1569,8 @@ function AgentsPageContent() {
     if (!selectedAgentId) return;
     const token = await getToken();
     await createAgentClient(token).fileDelete(selectedAgentId, normalizeAgentFilePath(path), options);
-  }, [getToken, selectedAgentId]);
+    await refreshChatFileReferences().catch(() => undefined);
+  }, [getToken, refreshChatFileReferences, selectedAgentId]);
 
   const agentStatus = useMemo<AgentStatusChipModel | null>(() => {
     if (!selectedAgent) return null;
@@ -1616,44 +1650,6 @@ function AgentsPageContent() {
       tone: "ready",
     };
   }, [activeConnectionStatus, isSelectedRunning, mainTab, selectedAgent]);
-
-  const openclawSchemaBundle = chat.configSchema;
-  const openclawSchemaRoot = useMemo(
-    () => asObject(openclawSchemaBundle?.schema ?? null),
-    [openclawSchemaBundle]
-  );
-  const openclawSchemaProperties = useMemo(
-    () => asObject(openclawSchemaRoot?.properties ?? null),
-    [openclawSchemaRoot]
-  );
-
-  const openclawSections = useMemo(
-    () => sortOpenClawEntries(Object.entries(openclawSchemaProperties ?? {}), openclawSchemaBundle),
-    [openclawSchemaBundle, openclawSchemaProperties]
-  );
-
-  useEffect(() => {
-    const cfg = asObject(chat.config);
-    setOpenclawDraft(deepCloneJsonObject(cfg ?? {}));
-    setOpenclawJsonDrafts({});
-    setOpenclawJsonDraftErrors({});
-    setOpenclawError(null);
-    setOpenclawSuccess(null);
-  }, [selectedAgentId, chat.config]);
-
-  useEffect(() => {
-    if (!activeOpenclawSection && openclawSections.length > 0) {
-      setActiveOpenclawSection(openclawSections[0][0]);
-    }
-    if (activeOpenclawSection && !openclawSections.find(([k]) => k === activeOpenclawSection)) {
-      setActiveOpenclawSection(openclawSections[0]?.[0] ?? null);
-    }
-  }, [openclawSections, activeOpenclawSection]);
-
-  useEffect(() => {
-    if (!openclawSettingsOpen) return;
-    openclawPaneRef.current?.scrollTo({ top: 0, behavior: "auto" });
-  }, [activeOpenclawSection, openclawSettingsOpen]);
 
   // ── Agent inspector data wiring ──
 
@@ -1789,7 +1785,8 @@ function AgentsPageContent() {
       const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
       const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : 0;
       const lastMessageAt = typeof entry.lastMessageAt === "number" ? entry.lastMessageAt : createdAt;
-      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt };
+      const sourceChannelId = typeof entry.sourceChannelId === "string" ? entry.sourceChannelId : undefined;
+      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt, ...(sourceChannelId ? { sourceChannelId } : {}) };
     });
   }, [chat.sessions]);
 
@@ -1797,7 +1794,7 @@ function AgentsPageContent() {
     const options: Array<{ key: string; label: string }> = [];
     const addProject = (key: string, label: string) => {
       const normalizedKey = key.trim();
-      if (!normalizedKey || options.some((option) => sameOpenClawSessionKey(option.key, normalizedKey))) return;
+      if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
       options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Project" : "Current Project") });
     };
 
@@ -1868,344 +1865,6 @@ function AgentsPageContent() {
     agentWorkspaceFilesForView,
     selectedAgent,
   ]);
-
-  const effectiveOpenclawSection = useMemo(
-    () => (isDesktopViewport ? (activeOpenclawSection ?? openclawSections[0]?.[0] ?? null) : activeOpenclawSection),
-    [activeOpenclawSection, isDesktopViewport, openclawSections]
-  );
-
-  const visibleOpenclawSections = useMemo(() => {
-    if (!effectiveOpenclawSection) return openclawSections;
-    const selected = openclawSections.find(([sectionKey]) => sectionKey === effectiveOpenclawSection);
-    return selected ? [selected] : openclawSections;
-  }, [effectiveOpenclawSection, openclawSections]);
-
-  const activeOpenclawSectionEntry = useMemo(
-    () => openclawSections.find(([sectionKey]) => sectionKey === effectiveOpenclawSection) ?? null,
-    [effectiveOpenclawSection, openclawSections]
-  );
-
-  const activeOpenclawSectionLabel = useMemo(() => {
-    if (!activeOpenclawSectionEntry) return null;
-    const [sectionKey, sectionSchema] = activeOpenclawSectionEntry;
-    return (
-      getOpenClawUiHint(openclawSchemaBundle, [sectionKey])?.label?.trim()
-      || (typeof asObject(sectionSchema)?.title === "string"
-        ? String(asObject(sectionSchema)?.title)
-        : humanizeKey(sectionKey))
-    );
-  }, [activeOpenclawSectionEntry, openclawSchemaBundle]);
-
-  const updateOpenclawPath = useCallback((path: string[], value: unknown) => {
-    setOpenclawDraft((prev) => {
-      const base = prev ? deepCloneJsonObject(prev) : {};
-      return setPathValue(base, path, value);
-    });
-  }, []);
-
-  const setOpenclawJsonDraftError = useCallback((pathKey: string, message: string | null) => {
-    setOpenclawJsonDraftErrors((prev) => {
-      const next = { ...prev };
-      if (message) {
-        next[pathKey] = message;
-      } else {
-        delete next[pathKey];
-      }
-      return next;
-    });
-    if (message) {
-      setOpenclawError(message);
-    }
-  }, []);
-
-  const updateOpenclawJsonDraft = useCallback((path: string[], raw: string) => {
-    const pathKey = path.join(".");
-    setOpenclawJsonDrafts((prev) => ({ ...prev, [pathKey]: raw }));
-    try {
-      updateOpenclawPath(path, JSON.parse(raw));
-      setOpenclawJsonDraftError(pathKey, null);
-      setOpenclawError(null);
-    } catch {
-      setOpenclawJsonDraftError(pathKey, `Invalid JSON at ${path.join(".")}`);
-    }
-  }, [setOpenclawJsonDraftError, updateOpenclawPath]);
-
-  const removeOpenclawPath = useCallback((path: string[]) => {
-    setOpenclawDraft((prev) => {
-      if (!prev || path.length === 0) return prev;
-      const base = deepCloneJsonObject(prev);
-      const parentPath = path.slice(0, -1);
-      const leafKey = path[path.length - 1];
-      const parent = parentPath.length === 0 ? base : getPathValue(base, parentPath);
-      if (!parent || typeof parent !== "object" || Array.isArray(parent)) {
-        return base;
-      }
-      delete (parent as JsonObject)[leafKey];
-      return base;
-    });
-  }, []);
-
-  const addOpenclawMapEntry = useCallback((path: string[], schemaRaw: unknown) => {
-    const pathKey = path.join(".");
-    const nextKey = (openclawMapDraftKeys[pathKey] ?? "").trim();
-    if (!nextKey) return;
-    updateOpenclawPath([...path, nextKey], createOpenClawConfigValue(schemaRaw));
-    setOpenclawMapDraftKeys((prev) => ({ ...prev, [pathKey]: "" }));
-  }, [openclawMapDraftKeys, updateOpenclawPath]);
-
-  const saveOpenclawPatch = useCallback(async (patch: JsonObject, successText: string) => {
-    if (!chat.connected) {
-      setOpenclawError("Gateway disconnected. Reconnect before saving OpenClaw settings.");
-      return;
-    }
-    const jsonDraftError = Object.values(openclawJsonDraftErrors)[0];
-    if (jsonDraftError) {
-      setOpenclawError(jsonDraftError);
-      return;
-    }
-    setOpenclawSaving(true);
-    setOpenclawError(null);
-    setOpenclawSuccess(null);
-    try {
-      await chat.saveConfig(patch);
-      setOpenclawJsonDrafts({});
-      setOpenclawJsonDraftErrors({});
-      setOpenclawSuccess(successText);
-      completeJourneyForEvent("rules-confirmed");
-    } catch (err) {
-      setOpenclawError(err instanceof Error ? err.message : "Failed to save OpenClaw config");
-    } finally {
-      setOpenclawSaving(false);
-    }
-  }, [chat, completeJourneyForEvent, openclawJsonDraftErrors]);
-
-  const saveOpenclawSection = useCallback(async (sectionKey: string) => {
-    if (!openclawDraft) return;
-    await saveOpenclawPatch({ [sectionKey]: openclawDraft[sectionKey] }, `Saved section: ${sectionKey}`);
-  }, [openclawDraft, saveOpenclawPatch]);
-
-  const saveAllOpenclaw = useCallback(async () => {
-    if (!openclawDraft) return;
-    await saveOpenclawPatch(openclawDraft, "Saved all OpenClaw settings");
-  }, [openclawDraft, saveOpenclawPatch]);
-
-  const renderOpenclawField = useCallback((schemaRaw: unknown, path: string[], depth = 0): React.ReactNode => {
-    try {
-    const schema = normalizeOpenClawConfigSchemaNode(schemaRaw);
-    const descriptor = describeOpenClawConfigNode(schemaRaw);
-    const hint = getOpenClawUiHint(openclawSchemaBundle, path);
-    const title =
-      hint?.label?.trim() ||
-      (typeof schema.title === "string" ? schema.title : "") ||
-      humanizeKey(path[path.length - 1] || "setting");
-    const description =
-      hint?.help?.trim() ||
-      (typeof schema.description === "string" ? schema.description : "");
-    const placeholder =
-      hint?.placeholder && hint.placeholder.trim() ? hint.placeholder : undefined;
-    const typeRaw = schema.type;
-    const type = Array.isArray(typeRaw)
-      ? (typeRaw.find((entry) => entry !== "null") as string | undefined)
-      : (typeof typeRaw === "string" ? typeRaw : undefined);
-    const enumValues: unknown[] = Array.isArray(schema.enum) ? schema.enum : [];
-    const currentValue = openclawDraft ? getPathValue(openclawDraft, path) : undefined;
-    const key = path.join(".");
-    const fieldDisabled = !chat.connected || openclawSaving;
-
-    const propertyKeys = descriptor.properties;
-    const additionalSchema = descriptor.additionalPropertySchema;
-    if (type === "object" || Object.keys(propertyKeys).length > 0 || descriptor.additionalProperties) {
-      const entries = Object.keys(propertyKeys).length > 0
-        ? sortOpenClawEntries(Object.entries(propertyKeys), openclawSchemaBundle, path)
-        : [];
-      const dynamicEntries = descriptor.additionalProperties && currentValue && typeof currentValue === "object" && !Array.isArray(currentValue)
-        ? Object.entries(currentValue as JsonObject).filter(([childKey]) => !(childKey in propertyKeys))
-        : [];
-      if (entries.length === 0 && dynamicEntries.length === 0 && !descriptor.additionalProperties) {
-        // Fallback: render JSON editor for object schemas with no resolved properties (e.g. unresolved $ref)
-        if (typeof console !== "undefined") {
-          console.warn(`[OpenClaw] Section "${key}" has type "object" but no resolved properties. Schema may contain unresolved $ref.`, schema);
-        }
-        const fallbackValue = openclawJsonDrafts[key] ??
-          (typeof currentValue === "undefined" || currentValue === null ? "{}" : JSON.stringify(currentValue, null, 2));
-        return (
-          <div key={key} className="space-y-1">
-            <label className="block text-sm text-text-secondary">{title}</label>
-            {description && <p className="text-xs text-text-muted">{description}</p>}
-            <textarea
-              value={fallbackValue}
-              onChange={(e) => updateOpenclawJsonDraft(path, e.target.value)}
-              rows={6}
-              spellCheck={false}
-              placeholder={placeholder}
-              disabled={fieldDisabled}
-              className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
-            />
-          </div>
-        );
-      }
-      return (
-        <div key={key} className={depth > 0 ? "rounded-lg border border-border p-3 space-y-3" : "space-y-3"}>
-          {depth > 0 && (
-            <div>
-              <div className="flex flex-wrap items-center gap-2">
-                <p className="text-sm font-semibold text-foreground">{title}</p>
-                {hint?.advanced && (
-                  <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-                    advanced
-                  </span>
-                )}
-              </div>
-              {description && <p className="text-xs text-text-muted mt-0.5">{description}</p>}
-            </div>
-          )}
-          {entries.map(([childKey, childSchema]) => renderOpenclawField(childSchema, [...path, childKey], depth + 1))}
-          {descriptor.additionalProperties && (
-            <div className="space-y-3">
-              {dynamicEntries.map(([childKey]) => (
-                <div key={`${key}-dynamic-${childKey}`} className="rounded-lg border border-border/70 bg-surface-low/20 p-3 space-y-3">
-                  <div className="flex items-center justify-between gap-3">
-                    <p className="text-xs font-medium uppercase tracking-[0.12em] text-text-muted">{childKey}</p>
-                    <button
-                      type="button"
-                      onClick={() => removeOpenclawPath([...path, childKey])}
-                      disabled={fieldDisabled}
-                      className="inline-flex items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f] disabled:cursor-not-allowed disabled:opacity-60"
-                    >
-                      <Trash2 className="h-3.5 w-3.5" />
-                      Remove
-                    </button>
-                  </div>
-                  {renderOpenclawField(additionalSchema ? { ...additionalSchema, title: childKey } : { title: childKey, type: "object" }, [...path, childKey], depth + 1)}
-                </div>
-              ))}
-              <div className="flex flex-col gap-2 rounded-lg border border-dashed border-border px-3 py-3 md:flex-row md:items-center">
-                <input
-                  type="text"
-                  value={openclawMapDraftKeys[key] ?? ""}
-                  onChange={(e) => setOpenclawMapDraftKeys((prev) => ({ ...prev, [key]: e.target.value }))}
-                  placeholder={`Add ${title.toLowerCase()} key`}
-                  disabled={fieldDisabled}
-                  className="flex-1 rounded-lg border border-border bg-surface-low px-3 py-2 text-sm text-foreground focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
-                />
-                <button
-                  type="button"
-                  onClick={() => addOpenclawMapEntry(path, additionalSchema ?? { type: "object" })}
-                  disabled={fieldDisabled}
-                  className="inline-flex items-center justify-center gap-2 rounded-lg border border-border px-3 py-2 text-sm text-foreground transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
-                >
-                  <Plus className="h-4 w-4" />
-                  Add Entry
-                </button>
-              </div>
-            </div>
-          )}
-        </div>
-      );
-    }
-
-    const jsonValue = openclawJsonDrafts[key] ??
-      (typeof currentValue === "undefined"
-        ? (type === "array" ? "[]" : type === "object" ? "{}" : "")
-        : JSON.stringify(currentValue, null, 2));
-
-    return (
-      <div key={key} className="space-y-1">
-        <div className="flex flex-wrap items-center gap-2">
-          <label className="block text-sm text-text-secondary">{title}</label>
-          {hint?.sensitive && (
-            <span className="rounded-full border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#d05f5f]">
-              sensitive
-            </span>
-          )}
-          {hint?.advanced && (
-            <span className="rounded-full border border-border px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-text-muted">
-              advanced
-            </span>
-          )}
-        </div>
-        {description && <p className="text-xs text-text-muted">{description}</p>}
-        {enumValues.length > 0 ? (
-          <select
-            value={currentValue == null ? "" : JSON.stringify(currentValue)}
-            onChange={(e) => {
-              if (!e.target.value) {
-                updateOpenclawPath(path, null);
-                return;
-              }
-              const nextValue = enumValues.find((value) => JSON.stringify(value) === e.target.value);
-              updateOpenclawPath(path, nextValue ?? e.target.value);
-            }}
-            disabled={fieldDisabled}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
-          >
-            <option value="">(unset)</option>
-            {enumValues.map((value) => (
-              <option key={`${key}-enum-${JSON.stringify(value)}`} value={JSON.stringify(value)}>
-                {String(value)}
-              </option>
-            ))}
-          </select>
-        ) : type === "boolean" ? (
-          <label className="inline-flex items-center gap-2 text-sm text-foreground">
-            <input
-              type="checkbox"
-              checked={Boolean(currentValue)}
-              onChange={(e) => updateOpenclawPath(path, e.target.checked)}
-              disabled={fieldDisabled}
-              className="rounded border-border bg-surface-low disabled:cursor-not-allowed disabled:opacity-60"
-            />
-            Enabled
-          </label>
-        ) : type === "number" || type === "integer" ? (
-          <input
-            type="number"
-            value={typeof currentValue === "number" ? String(currentValue) : ""}
-            onChange={(e) => {
-              const raw = e.target.value.trim();
-              if (!raw) {
-                updateOpenclawPath(path, null);
-                return;
-              }
-              const parsed = type === "integer" ? Number.parseInt(raw, 10) : Number.parseFloat(raw);
-              if (!Number.isNaN(parsed)) updateOpenclawPath(path, parsed);
-            }}
-            placeholder={placeholder}
-            disabled={fieldDisabled}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
-          />
-        ) : type === "array" || type === "object" ? (
-          <textarea
-            value={jsonValue}
-            onChange={(e) => updateOpenclawJsonDraft(path, e.target.value)}
-            rows={6}
-            spellCheck={false}
-            placeholder={placeholder}
-            disabled={fieldDisabled}
-            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
-          />
-        ) : (
-          <input
-            type={hint?.sensitive ? "password" : "text"}
-            value={typeof currentValue === "string" ? currentValue : currentValue == null ? "" : String(currentValue)}
-            onChange={(e) => updateOpenclawPath(path, e.target.value)}
-            placeholder={placeholder}
-            disabled={fieldDisabled}
-            className="w-full px-3 py-2 rounded-lg bg-surface-low border border-border text-foreground text-sm focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
-          />
-        )}
-      </div>
-    );
-    } catch (err) {
-      const key = path.join(".");
-      console.error(`[OpenClaw] Failed to render field "${key}":`, err);
-      return (
-        <div key={key} className="text-xs text-[#d05f5f] p-2 rounded border border-[#d05f5f]/30">
-          Failed to render {key}: {err instanceof Error ? err.message : String(err)}
-        </div>
-      );
-    }
-  }, [addOpenclawMapEntry, chat.connected, openclawDraft, openclawJsonDrafts, openclawMapDraftKeys, openclawSaving, openclawSchemaBundle, removeOpenclawPath, updateOpenclawJsonDraft, updateOpenclawPath]);
 
   // Auto-scroll chat — only when user is near bottom (not scrolled up reading)
   const chatScrollRef = useRef<HTMLDivElement>(null);
@@ -2342,6 +2001,7 @@ function AgentsPageContent() {
         }
         await fetchAgents();
         setSelectedAgentId(created.id);
+        setOpenclawSettingsOpen(false);
         setMainTab("chat");
         setMobileShowChat(true);
         completeJourneyForEvent("agent-created");
@@ -2679,15 +2339,17 @@ function AgentsPageContent() {
         chat.addAttachments(dt.files);
       }
       chat.addPendingFiles(uploaded);
+      await refreshChatFileReferences().catch(() => undefined);
     } catch (e) {
       console.error("Chat file upload failed:", e);
       setError(e instanceof Error ? e.message : "File upload failed");
     }
-  }, [chat, getToken, selectedAgent]);
+  }, [chat, getToken, refreshChatFileReferences, selectedAgent]);
 
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
+    if (chat.activeSessionReadOnly) return;
     const hasChatWork = chat.input.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
     const pendingJourneyCompletion = journeyChatCompletionRef.current;
     const completePendingJourney = () => {
@@ -2773,14 +2435,18 @@ function AgentsPageContent() {
     }
     setAgentMenu({
       selectedAgentId: selectedAgent.id,
-	      activeTab: mainTab,
-	      onSelectTab: (tab) => {
-	        if (tab === "files") {
-	          setMainTab("files");
-	          setMobileShowChat(true);
-	          return;
-	        }
+      activeTab: mainTab,
+      onSelectTab: (tab) => {
+        if (tab === "files") {
+          setFilesPreviewPath(null);
+          setOpenclawSettingsOpen(false);
+          setMainTab("files");
+          setMobileShowChat(true);
+          return;
+        }
         if (tab === "workspace") {
+          setDirectoryDetailOrigin(null);
+          setOpenclawSettingsOpen(false);
           setMainTab("chat");
           setMobileShowChat(true);
           return;
@@ -2794,20 +2460,24 @@ function AgentsPageContent() {
           setDirectoryCategory(undefined);
           setDirectoryItemId(undefined);
           setDirectoryDetailOrigin(null);
+          setOpenclawSettingsOpen(false);
           setMainTab("integrations");
           setMobileShowChat(true);
           return;
         }
         if (tab === "settings") {
+          setOpenclawSettingsOpen(false);
           setMainTab("settings");
           setMobileShowChat(true);
           return;
         }
         if (tab === "scheduled" && !SCHEDULED_SECTION_ENABLED) {
+          setOpenclawSettingsOpen(false);
           setMainTab("chat");
           setMobileShowChat(true);
           return;
         }
+        setOpenclawSettingsOpen(false);
         setMainTab(tab);
         setMobileShowChat(true);
       },
@@ -2829,6 +2499,7 @@ function AgentsPageContent() {
     setMobileWorkspaceSidebarOpen(false);
   };
   const openAgentSettingsTab = () => {
+    setOpenclawSettingsOpen(false);
     setMainTab("settings");
     setMobileShowChat(true);
     closeMobileSidebars();
@@ -2863,6 +2534,7 @@ function AgentsPageContent() {
   const openFilesTab = (path?: string) => {
     const previewPath = typeof path === "string" ? path.trim() : "";
     setFilesPreviewPath(previewPath || null);
+    setOpenclawSettingsOpen(false);
     setMainTab("files");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
@@ -2878,15 +2550,18 @@ function AgentsPageContent() {
     setDirectoryCategory(undefined);
     setDirectoryItemId(undefined);
     setDirectoryDetailOrigin(null);
+    setOpenclawSettingsOpen(false);
     setMainTab("integrations");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
     completeJourneyForEvent("integrations-opened");
   };
   const openJourneyCapability = (capability: JourneyCapabilityCard, day?: JourneyDay | null) => {
-    setDirectoryCategory(getCategoryForPlugin(capability.pluginId) ?? undefined);
+    const category = getCategoryForPlugin(capability.pluginId) ?? undefined;
+    setDirectoryCategory(category);
     setDirectoryItemId(capability.pluginId);
     setDirectoryDetailOrigin("chat");
+    setOpenclawSettingsOpen(false);
     setMainTab("integrations");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
@@ -2900,6 +2575,7 @@ function AgentsPageContent() {
     setDirectoryCategory("skills");
     setDirectoryItemId(undefined);
     setDirectoryDetailOrigin(null);
+    setOpenclawSettingsOpen(false);
     setMainTab("integrations");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
@@ -2913,17 +2589,20 @@ function AgentsPageContent() {
     } else {
       setScheduledInitialCommand(null);
     }
+    setOpenclawSettingsOpen(false);
     setMainTab("scheduled");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
     if (chat.connected) void chat.refreshCron().catch(() => undefined);
   };
   const openLogsTab = () => {
+    setOpenclawSettingsOpen(false);
     setMainTab("logs");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
   };
   const openShellTab = () => {
+    setOpenclawSettingsOpen(false);
     setMainTab("shell");
     setMobileShowChat(true);
     setMobileWorkspaceSidebarOpen(false);
@@ -3020,7 +2699,21 @@ function AgentsPageContent() {
       }));
     }
   };
-  const showMobileChatReturn = !isDesktopViewport && (mainTab !== "chat" || openclawSettingsOpen);
+  const selectedProjectLabel = useMemo(() => {
+    const session = (chat.sessions ?? []).find((item) => sameOpenClawSelectableSessionKey(item.key, selectedSessionKey));
+    if (!session) return fallbackOpenClawSessionDisplayName(selectedSessionKey);
+    return normalizeOpenClawSessionDisplayName(session.title, session.key)
+      ?? normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key)
+      ?? fallbackOpenClawSessionDisplayName(session.key);
+  }, [chat.sessions, selectedSessionKey]);
+  const selectedProjectReturnTarget = selectedAgent && (mainTab !== "chat" || openclawSettingsOpen)
+    ? { label: selectedProjectLabel, onSelect: openChatTab }
+    : null;
+  const showMobileSectionReturn = !isDesktopViewport && Boolean(selectedProjectReturnTarget);
+  const mobileReturnAriaLabel = selectedProjectReturnTarget ? `Open ${selectedProjectReturnTarget.label}` : "Open project";
+  const handleMobileSectionReturn = () => {
+    openChatTab();
+  };
   const useSettingsMobileChrome = !isDesktopViewport && mainTab === "settings" && Boolean(selectedAgent) && !openclawSettingsOpen;
 
   return (
@@ -3035,19 +2728,20 @@ function AgentsPageContent() {
           </div>
           <div className="flex items-center gap-1 rounded-xl border border-border bg-surface-low/80 p-1">
             <AnimatePresence initial={false}>
-              {showMobileChatReturn && (
+              {showMobileSectionReturn && (
                 <motion.button
                   key="mobile-chat-return"
                   type="button"
-                  aria-label="Back to chat"
-                  onClick={openChatTab}
+                  aria-label={mobileReturnAriaLabel}
+                  title={mobileReturnAriaLabel}
+                  onClick={handleMobileSectionReturn}
                   initial={{ opacity: 0, scale: 0.85, width: 0 }}
                   animate={{ opacity: 1, scale: 1, width: 40 }}
                   exit={{ opacity: 0, scale: 0.85, width: 0 }}
                   transition={{ duration: 0.16, ease: [0.22, 1, 0.36, 1] }}
                   className="flex h-10 shrink-0 items-center justify-center overflow-hidden rounded-lg text-text-secondary transition-colors hover:bg-background hover:text-foreground"
                 >
-                  <MessageSquare className="h-5 w-5 shrink-0" />
+                  <ArrowLeft className="h-5 w-5 shrink-0" />
                 </motion.button>
               )}
             </AnimatePresence>
@@ -3429,6 +3123,7 @@ function AgentsPageContent() {
           activeConnectionStatus={activeConnectionStatus}
           chatConnected={chat.connected}
           chatConnecting={chat.connecting}
+          sessionReturnTarget={selectedProjectReturnTarget}
           startingId={startingId}
           recentlyStoppedIds={recentlyStoppedIds}
           selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
@@ -3475,6 +3170,7 @@ function AgentsPageContent() {
               onReadFileBytesFromChat={readAgentFileBytes}
               onOpenFileFromChat={openFilesTab}
               onDownloadFileFromChat={downloadAgentFileFromChat}
+              fileReferenceCandidates={chatFileReferenceCandidates}
               journeyIntro={journeyIntroVisibleInChat ? {
                 enabled: true,
                 agentName: selectedJourneyAgentName,
@@ -3500,6 +3196,7 @@ function AgentsPageContent() {
                 onOpenFiles: openFilesTab,
                 onOpenConfig: openOpenClawSettings,
                 onOpenIntegrations: openIntegrationsTab,
+                onOpenSkills: openSkillsTab,
                 onOpenScheduled: openScheduledTab,
                 onOpenLogs: openLogsTab,
                 onOpenShell: openShellTab,
@@ -3563,22 +3260,21 @@ function AgentsPageContent() {
               initialCategory={directoryCategory}
               initialPluginId={directoryItemId}
               detailBackLabel={directoryDetailOrigin === "chat" ? "Back to chat" : undefined}
-              onDetailBack={directoryDetailOrigin === "chat" ? () => {
-                setDirectoryDetailOrigin(null);
-                setDirectoryItemId(undefined);
-                setMainTab("chat");
-                setMobileShowChat(true);
-              } : undefined}
+              onDetailBack={directoryDetailOrigin === "chat" ? openChatTab : undefined}
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               config={chat.config as Record<string, unknown> | null}
               configSchema={chat.configSchema}
               connected={chat.connected}
               onSaveConfig={async (patch) => { await chat.saveConfig(patch); }}
               onChannelProbe={async () => chat.channelsStatus(true)}
-              onOpenShell={() => setMainTab("shell")}
+              onOpenShell={openShellTab}
               onLoadSkills={loadAgentSkills}
               onListFiles={listAgentFiles}
               onReadFile={readAgentFile}
+              onIntegrationAuthStart={chat.integrationsAuthStart}
+              onIntegrationAuthStatus={chat.integrationsAuthStatus}
+              onIntegrationStatus={chat.integrationsStatus}
+              onIntegrationDisconnect={chat.integrationsDisconnect}
             />
           ) : mainTab === "scheduled" ? (
             <AgentScheduledPanel
@@ -3647,8 +3343,9 @@ function AgentsPageContent() {
                 completeJourneyForEvent("rules-confirmed");
               }}
               isDesktopViewport={isDesktopViewport}
-              showBackToChat={showMobileChatReturn}
-              onBackToChat={openChatTab}
+              showSessionReturn={showMobileSectionReturn}
+              onSessionReturn={handleMobileSectionReturn}
+              mobileReturnLabel={selectedProjectReturnTarget?.label ?? "Project"}
               agentsMenuOpen={mobileAgentsSidebarOpen}
               workspaceMenuOpen={mobileWorkspaceSidebarOpen}
               onOpenAgentsMenu={() => {
@@ -3714,7 +3411,7 @@ function AgentsPageContent() {
               agentWorkspaceFiles: agentWorkspaceFilesForView,
               onPromptClick: (prompt) => chat.setInput(prompt),
               onCronRemove: (jobId) => { void chat.removeCron(jobId); },
-              onMarketplaceClick: () => { setDirectoryCategory(undefined); setDirectoryItemId(undefined); setDirectoryDetailOrigin(null); setMainTab("integrations"); },
+              onMarketplaceClick: openIntegrationsTab,
               onAgentStart: () => { if (selectedAgent) void handleStart(selectedAgent.id); },
               onAgentStop: () => { if (selectedAgent) void handleStop(selectedAgent.id); },
               agentStarting: selectedAgentStarting,
@@ -3737,21 +3434,14 @@ function AgentsPageContent() {
         open={openclawSettingsOpen && Boolean(selectedAgent)}
         onClose={() => setOpenclawSettingsOpen(false)}
         agent={selectedAgent}
-        openclawSections={openclawSections}
-        openclawSchemaBundle={openclawSchemaBundle}
-        effectiveOpenclawSection={effectiveOpenclawSection}
-        setActiveOpenclawSection={setActiveOpenclawSection}
-        activeOpenclawSectionLabel={activeOpenclawSectionLabel}
-        openclawSaving={openclawSaving}
-        openclawDraft={openclawDraft}
-        openclawError={openclawError}
-        openclawSuccess={openclawSuccess}
-        chat={chat}
-        visibleOpenclawSections={visibleOpenclawSections}
-        renderOpenclawField={renderOpenclawField}
-        saveOpenclawSection={saveOpenclawSection}
-        saveAllOpenclaw={saveAllOpenclaw}
-        openclawPaneRef={openclawPaneRef}
+        config={chat.config}
+        configSchema={chat.configSchema}
+        connected={chat.connected}
+        connecting={chat.connecting}
+        onSaveConfig={async (patch) => {
+          await chat.saveConfig(patch);
+          completeJourneyForEvent("rules-confirmed");
+        }}
         isDesktopViewport={isDesktopViewport}
       />
 

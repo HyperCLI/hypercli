@@ -1,8 +1,8 @@
 "use client";
 
-import { useState } from "react";
-import { motion } from "framer-motion";
+import { useState, type KeyboardEvent, type MouseEvent } from "react";
 import { Loader2 } from "lucide-react";
+import { ResourceCard } from "@hypercli/shared-ui";
 import type { PluginMeta } from "./plugin-registry";
 
 interface PluginCardProps {
@@ -16,9 +16,9 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
   const [saving, setSaving] = useState(false);
   const Icon = plugin.icon;
 
-  const handleToggle = async (e: React.MouseEvent | React.KeyboardEvent) => {
-    e.stopPropagation();
-    e.preventDefault();
+  const handleToggle = async (event: MouseEvent | KeyboardEvent) => {
+    event.stopPropagation();
+    event.preventDefault();
     if (saving) return;
     setSaving(true);
     try {
@@ -28,73 +28,48 @@ export function PluginCard({ plugin, enabled, onToggle, onClick }: PluginCardPro
     }
   };
 
-  const handleToggleKeyDown = (e: React.KeyboardEvent) => {
-    if (e.key === "Enter" || e.key === " ") {
-      handleToggle(e);
+  const handleToggleKeyDown = (event: KeyboardEvent) => {
+    if (event.key === "Enter" || event.key === " ") {
+      void handleToggle(event);
     }
   };
 
-  return (
-    <motion.button
-      onClick={onClick}
-      className={`text-left p-4 rounded-xl border transition-all duration-200 w-full ${
-        saving
-          ? "border-[var(--border)] bg-[var(--surface-low)] opacity-70 pointer-events-none"
-          : enabled
-            ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] border-l-2 border-l-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.08)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.5)] hover:border-l-[var(--selection-accent)] hover:shadow-[0_0_12px_rgb(var(--selection-accent-rgb)_/_0.08)]"
-            : "border-[var(--border)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.2)] hover:bg-[var(--surface-low)] hover:shadow-[0_0_8px_rgb(var(--selection-accent-rgb)_/_0.04)]"
+  const trailing = (
+    <div
+      role="switch"
+      tabIndex={0}
+      aria-checked={enabled}
+      aria-label={`${enabled ? "Disable" : "Enable"} ${plugin.displayName}`}
+      onClick={handleToggle}
+      onKeyDown={handleToggleKeyDown}
+      className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] ${
+        enabled ? "bg-[var(--button-primary)]" : "bg-[var(--surface-high)]"
       }`}
-      whileHover={{ scale: 1.01 }}
-      whileTap={{ scale: 0.99 }}
-      transition={{ duration: 0.15 }}
     >
-      <div className="flex items-start gap-3">
-        <div
-          className={`w-10 h-10 rounded-lg flex items-center justify-center flex-shrink-0 ${
-            enabled
-              ? "bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)]"
-              : "bg-[var(--surface-high)] text-[var(--text-secondary)]"
+      {saving ? (
+        <span className="absolute inset-0 flex items-center justify-center">
+          <Loader2 className="h-3 w-3 animate-spin text-white" />
+        </span>
+      ) : (
+        <span
+          className={`pointer-events-none mt-0.5 inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out ${
+            enabled ? "ml-0.5 translate-x-4" : "ml-0.5 translate-x-0"
           }`}
-        >
-          <Icon className="w-5 h-5" />
-        </div>
-        <div className="flex-1 min-w-0">
-          <div className="flex items-center justify-between gap-2">
-            <span className="text-sm font-medium text-foreground">{plugin.displayName}</span>
-            <div
-              role="switch"
-              tabIndex={0}
-              aria-checked={enabled}
-              aria-label={`${enabled ? "Disable" : "Enable"} ${plugin.displayName}`}
-              onClick={handleToggle}
-              onKeyDown={handleToggleKeyDown}
-              className={`relative inline-flex h-5 w-9 flex-shrink-0 cursor-pointer rounded-full transition-colors duration-200 focus:outline-none focus:ring-2 focus:ring-[rgb(var(--selection-accent-rgb)_/_0.5)] ${
-                enabled ? "bg-[var(--button-primary)]" : "bg-[var(--surface-high)]"
-              }`}
-            >
-              {saving ? (
-                <span className="absolute inset-0 flex items-center justify-center">
-                  <Loader2 className="w-3 h-3 animate-spin text-white" />
-                </span>
-              ) : (
-                <span
-                  className={`pointer-events-none inline-block h-4 w-4 transform rounded-full bg-white shadow-sm ring-0 transition duration-200 ease-in-out mt-0.5 ${
-                    enabled ? "translate-x-4 ml-0.5" : "translate-x-0 ml-0.5"
-                  }`}
-                />
-              )}
-            </div>
-          </div>
-          {plugin.description && (
-            <p className="text-xs text-text-tertiary mt-1 line-clamp-2">{plugin.description}</p>
-          )}
-          {enabled && onClick && (
-            <span className="text-xs text-[var(--primary)] font-medium mt-2 inline-block">
-              Configure →
-            </span>
-          )}
-        </div>
-      </div>
-    </motion.button>
+        />
+      )}
+    </div>
+  );
+
+  return (
+    <ResourceCard
+      icon={Icon}
+      title={plugin.displayName}
+      status={saving ? "saving" : enabled ? "active" : "available"}
+      description={plugin.description}
+      ctaLabel={enabled && onClick ? "Configure →" : undefined}
+      trailing={trailing}
+      onClick={onClick}
+      disabled={saving}
+    />
   );
 }

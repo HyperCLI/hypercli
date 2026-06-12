@@ -7,7 +7,7 @@ import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import { TabLoadingState } from "@/components/dashboard/agents/page-helpers";
 import type { CronJob } from "@/components/dashboard/agentViewTypes";
 import { buildCronJobInput, type CronJobInput } from "@/lib/cron-jobs";
-import { fallbackOpenClawSessionDisplayName, sameOpenClawSessionKey } from "@/lib/openclaw-session-sdk-surface";
+import { fallbackOpenClawSessionDisplayName, sameOpenClawSelectableSessionKey } from "@/lib/openclaw-session-sdk-surface";
 
 export interface ScheduledProjectOption {
   key: string;
@@ -341,7 +341,7 @@ function normalizeProjectOptions(projectOptions: ScheduledProjectOption[], sessi
   const options: ScheduledProjectOption[] = [];
   const add = (key: string, label: string) => {
     const normalizedKey = key.trim();
-    if (!normalizedKey || options.some((option) => sameOpenClawSessionKey(option.key, normalizedKey))) return;
+    if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
     options.push({ key: normalizedKey, label: label.trim() || fallbackProjectLabel(normalizedKey) });
   };
 
@@ -351,11 +351,11 @@ function normalizeProjectOptions(projectOptions: ScheduledProjectOption[], sessi
 }
 
 function projectLabel(projectOptions: ScheduledProjectOption[], sessionKey: string): string {
-  return projectOptions.find((option) => sameOpenClawSessionKey(option.key, sessionKey))?.label ?? fallbackProjectLabel(sessionKey);
+  return projectOptions.find((option) => sameOpenClawSelectableSessionKey(option.key, sessionKey))?.label ?? fallbackProjectLabel(sessionKey);
 }
 
 function projectOptionKey(projectOptions: ScheduledProjectOption[], sessionKey: string): string | null {
-  return projectOptions.find((option) => sameOpenClawSessionKey(option.key, sessionKey))?.key ?? null;
+  return projectOptions.find((option) => sameOpenClawSelectableSessionKey(option.key, sessionKey))?.key ?? null;
 }
 
 function emptyDraft(targetSessionKey: string): ScheduleDraft {
@@ -429,7 +429,7 @@ export function AgentScheduledPanel({
   const humanSchedule = React.useMemo(() => humanizeCron(draft.schedule), [draft.schedule]);
   const runPrompt = deriveRunPrompt(draft.command);
   const selectedProjectLabel = projectLabel(normalizedProjectOptions, draft.targetSessionKey);
-  const selectedProjectIndex = normalizedProjectOptions.findIndex((option) => sameOpenClawSessionKey(option.key, draft.targetSessionKey));
+  const selectedProjectIndex = normalizedProjectOptions.findIndex((option) => sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey));
   const naturalLanguageParsed = Boolean(draft.command.trim() && inferredSchedule);
   const editing = view === "edit";
   const scheduleError = draft.schedule.trim()
@@ -727,7 +727,7 @@ export function AgentScheduledPanel({
                       className="absolute left-0 right-0 z-50 mt-2 max-h-56 overflow-auto rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[#111a16] p-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.45)] ring-1 ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
                     >
                       {normalizedProjectOptions.map((option) => {
-                        const selected = sameOpenClawSessionKey(option.key, draft.targetSessionKey);
+                        const selected = sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey);
                         return (
                           <button
                             type="button"

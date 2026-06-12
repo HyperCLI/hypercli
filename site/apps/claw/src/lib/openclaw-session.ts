@@ -3,11 +3,13 @@ import type { ChatEvent, GatewayClient, GatewayEvent, OpenClawConfigSchemaRespon
 import {
   type OpenClawSessionPreviewMap,
   type OpenClawSessionRecord,
+  findOpenClawSelectableSession,
   listOpenClawSessions,
   loadOpenClawChatHistory,
   normalizeOpenClawSessions,
   openClawEventMatchesSession,
   resolveOpenClawActiveSessionKey,
+  resolveOpenClawGatewaySessionKey,
   sameOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import {
@@ -65,6 +67,33 @@ interface ChatStreamEventContext {
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
+function normalizeAbortSignal(value: unknown): string {
+  return typeof value === "string"
+    ? value.trim().toLowerCase().replace(/[.!]+$/, "")
+    : "";
+}
+
+function isAbortSignal(value: unknown): boolean {
+  const normalized = normalizeAbortSignal(value);
+  return normalized === "abort" || normalized === "aborted" || normalized === "canceled" || normalized === "cancelled";
+}
+
+function isAbortedChatPayload(payload: Record<string, unknown>, text?: string): boolean {
+  return (
+    isAbortSignal(payload.state) ||
+    isAbortSignal(payload.stopReason) ||
+    isAbortSignal(payload.stop_reason) ||
+    isAbortSignal(payload.reason) ||
+    isAbortSignal(text)
+  );
+}
+
+function appendReplyStoppedActivity(
+  appendActivity: ChatStreamEventContext["appendActivity"],
+): void {
+  appendActivity({ type: "system", action: "Assistant reply stopped" });
+}
+
 function isGatewayChatStreamEvent(event: string, payload: unknown): boolean {
   if (event === "chat" || event.startsWith("chat.")) return true;
   if (event !== "agent") return false;
@@ -108,6 +137,11 @@ export function handleOpenClawChatStreamEvent({
     void listOpenClawSessions(gateway).then(setSessions).catch(() => {});
   } else if (chatEvent.type === "error") {
     const message = chatEvent.text || "Unknown error";
+    if (isAbortedChatPayload(payload, message)) {
+      setSending(false);
+      appendReplyStoppedActivity(appendActivity);
+      return;
+    }
     setSending(false);
     setMessages((prev) => [...prev, { role: "system", content: `Error: ${message}`, timestamp: Date.now() }]);
     appendActivity({ type: "error", action: "Error", detail: message });
@@ -126,6 +160,7 @@ export function handleOpenClawSessionEvent({
 }: SessionEventContext): void {
   const event = gatewayEvent.event;
   const payload = gatewayEvent.payload ?? {};
+  const payloadRecord = payload as Record<string, unknown>;
 
   if (isGatewayChatStreamEvent(event, payload) && !openClawEventMatchesSession(payload, activeSessionKey)) {
     return;
@@ -152,6 +187,11 @@ export function handleOpenClawSessionEvent({
   }
 
   if (event === "chat") {
+    if (isAbortedChatPayload(payloadRecord)) {
+      setSending(false);
+      appendReplyStoppedActivity(appendActivity);
+      return;
+    }
     const normalized = normalizeHistoryMessage((payload as Record<string, unknown>).message);
     if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
     if ((payload as Record<string, unknown>).state === "final") setSending(false);
@@ -174,8 +214,14 @@ export function handleOpenClawSessionEvent({
     const list = (payload as Record<string, unknown>).sessions;
     if (Array.isArray(list)) setSessions(normalizeOpenClawSessions(list));
   } else if (event === "chat.error") {
+    const message = String(payloadRecord.message ?? "Unknown error");
+    if (isAbortedChatPayload(payloadRecord, message)) {
+      setSending(false);
+      appendReplyStoppedActivity(appendActivity);
+      return;
+    }
     setSending(false);
-    setMessages((prev) => [...prev, { role: "system", content: `Error: ${(payload as Record<string, unknown>).message ?? "Unknown error"}`, timestamp: Date.now() }]);
+    setMessages((prev) => [...prev, { role: "system", content: `Error: ${message}`, timestamp: Date.now() }]);
   }
 
   const isActivityKind = (v: unknown): v is ActivityKind => v === "message" || v === "tool" || v === "connection" || v === "skill" || v === "cron" || v === "error" || v === "system";
@@ -215,6 +261,9 @@ export interface HydratedOpenClawSession {
   messages: ChatMessage[];
   files: WorkspaceFile[];
   gwAgentId: string;
+  gatewaySessionKey: string;
+  activeSessionRecord: OpenClawSessionRecord | null;
+  useLocalCacheFallback: boolean;
   sessions: OpenClawSessionRecord[];
   sessionsFetched: boolean;
   sessionPreviews: OpenClawSessionPreviewMap;
@@ -243,8 +292,9 @@ export async function refreshOpenClawChatMessages(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
   activeSessionKey?: string | null,
+  activeGatewaySessionKey?: string | null,
 ): Promise<ChatMessage[]> {
-  const sessionKey = resolveOpenClawActiveSessionKey((preferredAgentId ?? "").trim(), activeSessionKey);
+  const sessionKey = activeGatewaySessionKey?.trim() || resolveOpenClawActiveSessionKey((preferredAgentId ?? "").trim(), activeSessionKey);
   try {
     return normalizeHistoryMessages(await loadOpenClawChatHistory(gateway, sessionKey, 200));
   } catch {
@@ -317,6 +367,12 @@ function hasRecoverableFiles(files: WorkspaceFile[]): boolean {
   return files.some((file) => typeof file.name === "string" && file.name.trim() && !file.missing);
 }
 
+function defaultSessionIsReadOnlyChannel(sessions: OpenClawSessionRecord[]): boolean {
+  return sessions.some((session) => (
+    session.readOnly === true && sameOpenClawSessionKey(session.gatewaySessionKey ?? session.key, CANONICAL_GATEWAY_AGENT_ID)
+  ));
+}
+
 async function migrateLegacyGatewayFiles(
   gateway: GatewayClient,
   sourceAgentId: string,
@@ -377,11 +433,10 @@ export async function hydrateOpenClawSession(
   activeSessionKey?: string | null,
 ): Promise<HydratedOpenClawSession> {
   const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
-  const sessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
-  const [cfgResult, schemaResult, historyResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
+  const requestedSessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
+  const [cfgResult, schemaResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
     gateway.configGet(),
     gateway.configSchema(),
-    loadOpenClawChatHistory(gateway, sessionKey, 200),
     gateway.agentsList(),
     listOpenClawSessions(gateway),
     gateway.cronList(),
@@ -390,6 +445,16 @@ export async function hydrateOpenClawSession(
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
   const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : [];
+  const activeSessionRecord = findOpenClawSelectableSession(sessions, requestedSessionKey);
+  const sessionKey = resolveOpenClawGatewaySessionKey(sessions, requestedSessionKey);
+  const skipAmbiguousSyntheticMainHistory = requestedSessionKey === CANONICAL_GATEWAY_AGENT_ID &&
+    !activeSessionRecord &&
+    defaultSessionIsReadOnlyChannel(sessions);
+  const historyResult = skipAmbiguousSyntheticMainHistory
+    ? { status: "fulfilled" as const, value: [] }
+    : await loadOpenClawChatHistory(gateway, sessionKey, 200)
+      .then((value) => ({ status: "fulfilled" as const, value }))
+      .catch((reason: unknown) => ({ status: "rejected" as const, reason }));
   const canonicalMessages = historyResult.status === "fulfilled"
     ? normalizeHistoryMessages(historyResult.value)
     : [];
@@ -420,6 +485,9 @@ export async function hydrateOpenClawSession(
     messages,
     files,
     gwAgentId: activeGatewayAgentId,
+    gatewaySessionKey: sessionKey,
+    activeSessionRecord,
+    useLocalCacheFallback: !skipAmbiguousSyntheticMainHistory && activeSessionRecord?.readOnly !== true,
     sessions,
     sessionsFetched: sessionsRes.status === "fulfilled",
     sessionPreviews: {},

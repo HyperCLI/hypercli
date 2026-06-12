@@ -707,7 +707,7 @@ export function AgentView({
 
             {/* 3. Active Sessions */}
             {showActiveSessions && isModuleVisible("sessions") && (
-              <SessionsModule />
+              <SessionsModule sessions={sessions} />
             )}
 
             {/* 5. Example Prompts (4. What Can I Do? is bottom-fixed) */}

@@ -277,21 +277,22 @@ describe("AgentSettingsPanel", () => {
 
   it("renders the mobile settings header and horizontal section tabs", () => {
     const onOpenMobileMenu = vi.fn();
-    const onBackToChat = vi.fn();
+    const onSessionReturn = vi.fn();
     const onOpenAgentsMenu = vi.fn();
     renderAgentSettingsPanel({
       isDesktopViewport: false,
-      onBackToChat,
+      onSessionReturn,
       onOpenAgentsMenu,
       onOpenMobileMenu,
-      showBackToChat: true,
+      showSessionReturn: true,
+      mobileReturnLabel: "Main Project",
     });
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: /settings sections/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /back to chat/i }));
-    expect(onBackToChat).toHaveBeenCalledTimes(1);
+    fireEvent.click(screen.getByRole("button", { name: /open main project/i }));
+    expect(onSessionReturn).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: /open agents sidebar/i }));
     expect(onOpenAgentsMenu).toHaveBeenCalledTimes(1);

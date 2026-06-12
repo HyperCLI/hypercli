@@ -56,6 +56,7 @@ export interface AgentSession {
   clientDisplayName: string;
   createdAt: number;
   lastMessageAt: number;
+  sourceChannelId?: string;
 }
 
 export interface CronJob {

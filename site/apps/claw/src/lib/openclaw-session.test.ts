@@ -740,6 +740,91 @@ describe("openclaw session keys", () => {
     expect(messages).toEqual([]);
   });
 
+  it("keeps Telegram channel events out of the active main project", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      gateway: { sessionsList: vi.fn(async () => []) } as any,
+      gatewayEvent: {
+        event: "chat.content",
+        payload: {
+          sessionKey: "agent:default:main",
+          text: "Telegram hello",
+          origin: { provider: "telegram", from: "telegram:489595440" },
+          deliveryContext: { channel: "telegram" },
+        },
+      } as any,
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "main",
+    });
+
+    expect(messages).toEqual([]);
+  });
+
+  it("renders Telegram channel events when that channel session is selected", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+
+    handleOpenClawSessionEvent({
+      gateway: { sessionsList: vi.fn(async () => []) } as any,
+      gatewayEvent: {
+        event: "chat.content",
+        payload: {
+          sessionKey: "agent:default:main",
+          text: "Telegram hello",
+          origin: { provider: "telegram", from: "telegram:489595440" },
+          deliveryContext: { channel: "telegram" },
+        },
+      } as any,
+      setMessages,
+      setSending: vi.fn(),
+      setSessions: vi.fn(),
+      appendActivity: vi.fn(),
+      activeSessionKey: "telegram:489595440",
+    });
+
+    expect(messages).toEqual([
+      expect.objectContaining({
+        role: "assistant",
+        content: "Telegram hello",
+      }),
+    ]);
+  });
+
+  it("treats aborted stream errors as a stopped reply instead of a visible error", () => {
+    let messages: ChatMessage[] = [];
+    const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {
+      messages = typeof value === "function" ? value(messages) : value;
+    });
+    const setSending = vi.fn();
+    const appendActivity = vi.fn();
+
+    handleOpenClawChatStreamEvent({
+      gateway: { sessionsList: vi.fn(async () => []) } as any,
+      chatEvent: {
+        type: "error",
+        text: "aborted",
+        data: { state: "aborted" },
+      },
+      setMessages,
+      setSending,
+      setSessions: vi.fn(),
+      appendActivity,
+    });
+
+    expect(setSending).toHaveBeenCalledWith(false);
+    expect(messages).toEqual([]);
+    expect(appendActivity).toHaveBeenCalledWith({ type: "system", action: "Assistant reply stopped" });
+  });
+
   it("shows passive agent tool start events with alternate tool field names", () => {
     let messages: ChatMessage[] = [];
     const setMessages = vi.fn((value: ChatMessage[] | ((prev: ChatMessage[]) => ChatMessage[])) => {

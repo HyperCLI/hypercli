@@ -65,6 +65,7 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     modelsList: vi.fn(async () => []),
     filesList: vi.fn(async () => []),
     sendChat: vi.fn(async () => ({ runId: "run-1" })),
+    chatAbort: vi.fn(async () => undefined),
     chatSend: vi.fn(async function* () {
       yield { type: "done" as const };
     }),
@@ -433,6 +434,143 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("keeps main and Telegram projects separate when selecting the Telegram project", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main Project", lastMessageAt: 10 },
+      {
+        key: "agent:default:main",
+        title: "Telegram DM",
+        origin: { provider: "telegram", from: { id: 489595440 } },
+        deliveryContext: { channel: "telegram", chat: { id: 489595440 } },
+        lastMessageAt: 20,
+      },
+    ]);
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
+      sessionKey === "agent:default:main"
+        ? [{ role: "assistant", content: "Telegram history" }]
+        : [{ role: "assistant", content: "Main history" }]
+    ));
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "telegram:489595440"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    expect(gateway.chatHistory).toHaveBeenCalledWith("agent:default:main", 200);
+    expect(result.current.messages.map((message) => message.content)).toEqual(["Telegram history"]);
+    expect(result.current.activeSessionReadOnly).toBe(true);
+    expect(result.current.activeSessionReadOnlyReason).toBe("Telegram conversations are read-only here. Reply from Telegram.");
+    expect(result.current.sessions).toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "main", title: "Main Project" }),
+      expect.objectContaining({
+        key: "telegram:489595440",
+        gatewaySessionKey: "agent:default:main",
+        sourceSessionKey: "telegram:489595440",
+        title: "Telegram DM",
+        sourceChannelId: "telegram",
+        readOnly: true,
+      }),
+    ]));
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ key: "agent:default:main" }),
+    ]));
+
+    act(() => {
+      result.current.setInput("reply from dashboard");
+    });
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+    expect(gateway.chatSend).not.toHaveBeenCalled();
+    expect(result.current.messages.map((message) => message.content)).toEqual(["Telegram history"]);
+    unmount();
+  });
+
+  it("does not keep main messages visible when switching to an empty Telegram project", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "main", title: "Main Project", lastMessageAt: 10 },
+      {
+        key: "agent:default:main",
+        title: "Telegram DM",
+        origin: { provider: "telegram", from: "telegram:489595440" },
+        deliveryContext: { channel: "telegram", to: "telegram:489595440" },
+        lastMessageAt: 20,
+      },
+    ]);
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
+      sessionKey === "main"
+        ? [{ role: "assistant", content: "Main history" }]
+        : []
+    ));
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "main" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["Main history"]));
+
+    rerender({ sessionKey: "telegram:489595440" });
+
+    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith("agent:default:main", 200));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+    expect(result.current.activeSessionReadOnly).toBe(true);
+    expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
+  it("does not hydrate synthetic main from a channel-backed default project", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      {
+        key: "agent:default:main",
+        title: "Telegram DM",
+        origin: { provider: "telegram", from: "telegram:489595440" },
+        deliveryContext: { channel: "telegram", to: "telegram:489595440" },
+        lastMessageAt: 20,
+      },
+    ]);
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => (
+      sessionKey === "main"
+        ? [{ role: "assistant", content: "Telegram history should not appear under main" }]
+        : []
+    ));
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    expect(gateway.chatHistory).not.toHaveBeenCalledWith("main", 200);
+    expect(result.current.activeSessionReadOnly).toBe(false);
+    expect(result.current.messages).toEqual([]);
+    unmount();
+  });
+
   it("updates the active project list before the post-send project fetch returns", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -555,7 +693,7 @@ describe("useOpenClawSession", () => {
       await result.current.sendMessage();
     });
 
-    expect(gateway.chatSend).toHaveBeenCalledWith("hello new session", newSessionKey, undefined);
+    expect(gateway.chatSend).toHaveBeenCalledWith("hello new session", `agent:default:${newSessionKey}`, undefined);
     unmount();
   });
 
@@ -904,6 +1042,120 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("shows aborting state and marks partial replies interrupted after abort acknowledgement", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const abortAck = deferred<void>();
+    const release = deferred<void>();
+    gateway.chatAbort.mockImplementation(async () => abortAck.promise);
+    gateway.chatSend.mockImplementation(async function* () {
+      yield { type: "content" as const, text: "Partial answer" };
+      await release.promise;
+      yield { type: "done" as const, data: {} };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("stop this reply");
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(result.current.sending).toBe(true));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "stop this reply" }),
+      expect.objectContaining({ role: "assistant", content: "Partial answer" }),
+    ]));
+
+    let abortPromise: Promise<void> | undefined;
+    act(() => {
+      abortPromise = result.current.abortMessage();
+    });
+
+    await waitFor(() => expect(result.current.aborting).toBe(true));
+    expect(gateway.chatAbort).toHaveBeenCalledWith("main");
+
+    await act(async () => {
+      abortAck.resolve();
+      await abortPromise;
+    });
+
+    expect(gateway.chatAbort).toHaveBeenCalledTimes(1);
+    await waitFor(() => expect(result.current.sending).toBe(false));
+    expect(result.current.aborting).toBe(false);
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "stop this reply" }),
+      expect.objectContaining({ role: "assistant", content: "Partial answer", status: "interrupted" }),
+    ]);
+
+    await act(async () => {
+      release.resolve();
+      await sendPromise;
+    });
+    unmount();
+  });
+
+  it("adds a reply stopped notice when aborting before assistant content appears", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const release = deferred<void>();
+    gateway.chatSend.mockImplementation(async function* () {
+      await release.promise;
+      yield { type: "done" as const, data: {} };
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("stop before content");
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(result.current.sending).toBe(true));
+
+    await act(async () => {
+      await result.current.abortMessage();
+    });
+
+    await waitFor(() => expect(result.current.sending).toBe(false));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "stop before content" }),
+      expect.objectContaining({ role: "system", content: "Reply stopped" }),
+    ]);
+
+    await act(async () => {
+      release.resolve();
+      await sendPromise;
+    });
+    unmount();
+  });
+
   it("preserves streamed tool calls after post-send history refresh", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -1072,6 +1324,40 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.connected).toBe(true));
     expect(firstGateway.close).toHaveBeenCalledTimes(1);
     expect(secondGateway.connect).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("refreshes the session list after a reconnect refresh request", async () => {
+    const firstGateway = buildGateway();
+    firstGateway.sessionsList.mockResolvedValue([]);
+    const secondGateway = buildGateway();
+    secondGateway.sessionsList
+      .mockRejectedValueOnce(new Error("sessions not ready"))
+      .mockResolvedValueOnce([{ key: "agent:default:main", origin: { provider: "telegram", from: "telegram:489595440" } }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn()
+        .mockReturnValueOnce(firstGateway)
+        .mockReturnValueOnce(secondGateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.retryAndRefreshSessions();
+    });
+
+    await waitFor(() => expect(agent.gateway).toHaveBeenCalledTimes(2));
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.sessions).toEqual([
+      expect.objectContaining({ key: "telegram:489595440", sourceChannelId: "telegram" }),
+    ]));
+    expect(secondGateway.sessionsList).toHaveBeenCalledTimes(2);
     unmount();
   });
 

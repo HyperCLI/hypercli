@@ -433,46 +433,6 @@ export function OpenClawSettingsPanel({
   );
 }
 
-export function OpenClawSettingsDrawer({
-  open,
-  onClose,
-  isDesktopViewport = true,
-  ...panelProps
-}: OpenClawConfigPanelProps & { open: boolean; onClose: () => void }) {
-  return (
-    <AnimatePresence>
-      {open && (
-        <div className="fixed inset-0 z-50 flex justify-end">
-          <motion.button
-            type="button"
-            aria-label="Close OpenClaw settings"
-            initial={{ opacity: 0 }}
-            animate={{ opacity: 1 }}
-            exit={{ opacity: 0 }}
-            transition={{ duration: 0.16 }}
-            onClick={onClose}
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
-          />
-          <motion.aside
-            initial={{ x: "100%" }}
-            animate={{ x: 0 }}
-            exit={{ x: "100%" }}
-            transition={{ type: "spring", stiffness: 360, damping: 34 }}
-            className="relative z-10 h-full w-full max-w-[920px] border-l border-border bg-background shadow-2xl sm:w-[min(920px,calc(100vw-3rem))]"
-          >
-            <OpenClawSettingsPanel
-              {...panelProps}
-              open
-              onClose={onClose}
-              isDesktopViewport={isDesktopViewport}
-            />
-          </motion.aside>
-        </div>
-      )}
-    </AnimatePresence>
-  );
-}
-
 interface AgentSettingsPanelProps {
   agent: Agent | null;
   user?: {
@@ -500,11 +460,12 @@ interface AgentSettingsPanelProps {
   onSaveOpenClawConfig?: (patch: Record<string, unknown>) => Promise<void>;
   isDesktopViewport?: boolean;
   agentsMenuOpen?: boolean;
-  onBackToChat?: () => void;
+  mobileReturnLabel?: string;
+  onSessionReturn?: () => void;
   onOpenAgentsMenu?: () => void;
   onOpenMobileMenu?: () => void;
   onOpenWorkspaceMenu?: () => void;
-  showBackToChat?: boolean;
+  showSessionReturn?: boolean;
   workspaceMenuOpen?: boolean;
 }
 
@@ -1060,11 +1021,12 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onSaveOpenClawConfig,
     isDesktopViewport = true,
     agentsMenuOpen = false,
-    onBackToChat,
+    mobileReturnLabel = "Project",
+    onSessionReturn,
     onOpenAgentsMenu,
     onOpenMobileMenu,
     onOpenWorkspaceMenu,
-    showBackToChat = false,
+    showSessionReturn = false,
     workspaceMenuOpen = false,
   } = props;
   const [activeSettingsSection, setActiveSettingsSection] = React.useState<AgentSettingsSection>("general");
@@ -1316,12 +1278,13 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
         <AgentSettingsMobileChrome
           activeSection={activeSettingsSection}
           agentsMenuOpen={agentsMenuOpen}
-          onBackToChat={onBackToChat}
+          onSessionReturn={onSessionReturn}
           onOpenAgentsMenu={onOpenAgentsMenu}
           onOpenWorkspaceMenu={onOpenWorkspaceMenu ?? onOpenMobileMenu}
+          returnLabel={mobileReturnLabel}
           onSectionChange={(sectionId) => setActiveSettingsSection(sectionId as AgentSettingsSection)}
           sections={AGENT_SETTINGS_SECTIONS}
-          showBackToChat={showBackToChat}
+          showSessionReturn={showSessionReturn}
           workspaceMenuOpen={workspaceMenuOpen}
         />
       )}

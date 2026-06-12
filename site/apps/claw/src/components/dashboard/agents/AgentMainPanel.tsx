@@ -1,7 +1,7 @@
 "use client";
 
 import React from "react";
-import { Gauge, PanelLeft, RefreshCw } from "lucide-react";
+import { ArrowLeft, Gauge, PanelLeft, RefreshCw } from "lucide-react";
 
 import type { Agent } from "@/app/dashboard/agents/types";
 import type { HyperAgentPlan, HyperAgentSubscriptionSummary } from "@hypercli.com/sdk/agent";
@@ -26,6 +26,10 @@ interface AgentMainPanelProps {
   activeConnectionStatus?: ShellStatus | null;
   chatConnected?: boolean;
   chatConnecting?: boolean;
+  sessionReturnTarget?: {
+    label: string;
+    onSelect: () => void;
+  } | null;
   startingId: string | null;
   recentlyStoppedIds: Set<string>;
   selectedAgentLaunchBlocked: boolean;
@@ -68,6 +72,7 @@ export function AgentMainPanel({
   activeConnectionStatus,
   chatConnected,
   chatConnecting,
+  sessionReturnTarget = null,
   startingId,
   recentlyStoppedIds,
   selectedAgentLaunchBlocked,
@@ -347,6 +352,18 @@ export function AgentMainPanel({
                     </div>
                   );
                 })()}
+                {sessionReturnTarget ? (
+                  <button
+                    type="button"
+                    onClick={sessionReturnTarget.onSelect}
+                    aria-label={`Open ${sessionReturnTarget.label}`}
+                    title={`Open ${sessionReturnTarget.label}`}
+                    className="inline-flex h-8 min-w-0 max-w-[10rem] flex-shrink items-center gap-1.5 rounded-full border border-border bg-surface-low/45 px-2.5 text-xs font-medium text-text-secondary transition-colors hover:bg-surface-low hover:text-foreground focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)]"
+                  >
+                    <ArrowLeft className="h-3.5 w-3.5 shrink-0" />
+                    <span className="truncate">{sessionReturnTarget.label}</span>
+                  </button>
+                ) : null}
                 <div className="flex min-w-0">
                   {effectiveAgentStatus ? (
                     <AgentStatusChip status={effectiveAgentStatus} />

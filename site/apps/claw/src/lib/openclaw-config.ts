@@ -38,13 +38,14 @@ export function getPathValue(root: JsonObject, path: string[]): unknown {
 
 export function setPathValue(root: JsonObject, path: string[], value: unknown): JsonObject {
   if (path.length === 0) return root;
-  const next = deepCloneJsonObject(root);
+  const next: JsonObject = { ...root };
   let cursor: JsonObject = next;
   for (let i = 0; i < path.length - 1; i += 1) {
     const key = path[i];
     const child = asObject(cursor[key]);
-    if (!child) cursor[key] = {};
-    cursor = asObject(cursor[key]) as JsonObject;
+    const nextChild: JsonObject = child ? { ...child } : {};
+    cursor[key] = nextChild;
+    cursor = nextChild;
   }
   cursor[path[path.length - 1]] = value;
   return next;

@@ -4,6 +4,7 @@ import type { ComponentProps } from "react";
 import { describe, expect, it, vi } from "vitest";
 
 import { renderWithClient } from "@/test/utils";
+import type { WorkspaceSkill } from "../directory/workspace-skills";
 import { IntegrationsDirectoryPanel } from "./IntegrationsDirectoryPanel";
 
 const configSchema: OpenClawConfigSchemaResponse = {
@@ -12,6 +13,13 @@ const configSchema: OpenClawConfigSchemaResponse = {
     "channels.telegram": {},
   },
 };
+
+function schemaWithHints(...hints: string[]): OpenClawConfigSchemaResponse {
+  return {
+    schema: {},
+    uiHints: Object.fromEntries(hints.map((hint) => [hint, {}])),
+  };
+}
 
 function renderPanel(overrides: Partial<ComponentProps<typeof IntegrationsDirectoryPanel>> = {}) {
   return renderWithClient(
@@ -28,6 +36,29 @@ function renderPanel(overrides: Partial<ComponentProps<typeof IntegrationsDirect
       {...overrides}
     />,
   );
+}
+
+function workspaceSkill(overrides: Partial<WorkspaceSkill> = {}): WorkspaceSkill {
+  return {
+    id: "notion",
+    name: "Notion",
+    description: "Notion workspace pages.",
+    path: "/app/skills/notion/SKILL.md",
+    directoryPath: "/app/skills/notion",
+    content: "---\nname: notion\ndescription: Notion workspace pages.\n---\n# Notion\n\nUse Notion pages.",
+    frontmatter: "name: notion\ndescription: Notion workspace pages.",
+    body: "# Notion\n\nUse Notion pages.",
+    category: "Platform",
+    requiresEnv: [],
+    requiresBins: [],
+    os: [],
+    installHints: [],
+    disabled: false,
+    hasScripts: false,
+    hasReferences: false,
+    hasAssets: false,
+    ...overrides,
+  };
 }
 
 describe("IntegrationsDirectoryPanel", () => {
@@ -59,5 +90,90 @@ describe("IntegrationsDirectoryPanel", () => {
 
     expect(await screen.findByRole("status", { name: /loading skills reading available app skills/i })).toBeInTheDocument();
     expect(screen.getByRole("img", { name: /agent workspace loading/i })).toBeInTheDocument();
+  });
+
+  it("shows truthful tier one states for service connectors", () => {
+    renderPanel({ initialCategory: null, initialPluginId: null });
+
+    expect(screen.getByText("HubSpot")).toBeInTheDocument();
+    expect(screen.getByText("Google Drive")).toBeInTheDocument();
+    expect(screen.getAllByText("Needs OAuth").length).toBeGreaterThanOrEqual(3);
+    expect(screen.getAllByText("Planned").length).toBeGreaterThan(0);
+    expect(screen.queryByText(/connect via chat/i)).not.toBeInTheDocument();
+  });
+
+  it("opens the skill drawer from a skill-backed service card", async () => {
+    renderPanel({
+      initialCategory: null,
+      initialPluginId: null,
+      onLoadSkills: vi.fn(async () => [workspaceSkill()]),
+    });
+
+    expect(await screen.findByText("Available as skill")).toBeInTheDocument();
+
+    fireEvent.click(screen.getByRole("button", { name: /notion/i }));
+
+    expect(await screen.findByText("This skill is bundled and ready for this agent.")).toBeInTheDocument();
+    expect(screen.getByRole("heading", { name: "SKILL.md" })).toBeInTheDocument();
+  });
+
+  it("opens the GitHub connector when gateway capability is advertised", async () => {
+    const onIntegrationAuthStart = vi.fn(async () => ({
+      authId: "auth-1",
+      verificationUri: "https://github.com/login/device",
+      userCode: "ABCD-1234",
+      intervalMs: 30_000,
+    }));
+    const onIntegrationStatus = vi.fn(async () => ({
+      integrations: {
+        github: { configured: false, authenticated: false, usable: false },
+      },
+    }));
+
+    renderPanel({
+      initialCategory: null,
+      initialPluginId: null,
+      configSchema: schemaWithHints("integrations.github"),
+      onIntegrationAuthStart,
+      onIntegrationAuthStatus: vi.fn(async () => ({ status: "pending" })),
+      onIntegrationStatus,
+      onIntegrationDisconnect: vi.fn(async () => ({ ok: true })),
+    });
+
+    const githubCard = screen.getByText("GitHub").closest("button");
+    expect(githubCard).not.toBeNull();
+    fireEvent.click(githubCard!);
+
+    fireEvent.click(await screen.findByRole("button", { name: /connect github/i }));
+
+    expect(onIntegrationAuthStart).toHaveBeenCalledWith({ integrationId: "github", scopes: ["repo", "read:org", "gist"] });
+    expect(await screen.findByText("ABCD-1234")).toBeInTheDocument();
+    expect(screen.getByRole("link", { name: /open github/i })).toHaveAttribute("href", "https://github.com/login/device");
+  });
+
+  it("marks a fulfilled service connector as connected in the grid", async () => {
+    const onIntegrationStatus = vi.fn(async () => ({
+      integrations: {
+        github: {
+          configured: true,
+          authenticated: true,
+          usable: true,
+          accountDisplayName: "octocat",
+        },
+      },
+    }));
+
+    renderPanel({
+      initialCategory: null,
+      initialPluginId: null,
+      configSchema: schemaWithHints("integrations.github"),
+      onIntegrationAuthStart: vi.fn(async () => ({ authId: "auth-1" })),
+      onIntegrationAuthStatus: vi.fn(async () => ({ status: "pending" })),
+      onIntegrationStatus,
+    });
+
+    expect(await screen.findByText("Connected")).toBeInTheDocument();
+    expect(screen.getByText("GitHub").closest("button")).toHaveTextContent("Connected");
+    expect(onIntegrationStatus).toHaveBeenCalledWith({ probe: false });
   });
 });

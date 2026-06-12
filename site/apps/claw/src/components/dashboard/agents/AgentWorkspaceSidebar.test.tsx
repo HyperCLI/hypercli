@@ -162,6 +162,109 @@ describe("AgentWorkspaceSidebar", () => {
     expect(onSelectSession).toHaveBeenCalledWith("session-new");
   });
 
+  it("marks projects started from connected chat channels", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "telegram:489595440",
+          clientMode: "openclaw",
+          clientDisplayName: "Telegram DM",
+          createdAt: 1,
+          lastMessageAt: 30,
+          title: "Telegram DM",
+          messageCount: 1,
+          sourceChannelId: "telegram",
+          raw: {},
+        },
+        {
+          key: "session-openai",
+          clientMode: "openclaw",
+          clientDisplayName: "Model-side project",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Model-side project",
+          messageCount: 1,
+          sourceChannelId: "openai",
+          raw: {},
+        },
+        {
+          key: "session-browser",
+          clientMode: "browser",
+          clientDisplayName: "Browser project",
+          createdAt: 1,
+          lastMessageAt: 10,
+          title: "Browser project",
+          messageCount: 1,
+          raw: {},
+        },
+      ],
+      selectedSessionKey: "telegram:489595440",
+    });
+
+    expect(screen.getByTitle("Telegram channel")).toBeInTheDocument();
+    expect(screen.queryByTitle("OpenAI channel")).not.toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Browser project" })).toBeInTheDocument();
+  });
+
+  it("does not collapse a selected channel project into the main project", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "main",
+          clientMode: "openclaw",
+          clientDisplayName: "Main Project",
+          createdAt: 1,
+          lastMessageAt: 10,
+          title: "Main Project",
+          messageCount: 1,
+          raw: {},
+        },
+        {
+          key: "agent:default:main",
+          clientMode: "openclaw",
+          clientDisplayName: "Telegram DM",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Telegram DM",
+          messageCount: 1,
+          sourceChannelId: "telegram",
+          raw: {},
+        },
+      ],
+      selectedSessionKey: "agent:default:main",
+    });
+
+    const mainProject = screen.getByRole("button", { name: "Main Project" });
+    const telegramProject = screen.getByRole("button", { name: "Telegram DM" });
+
+    expect(mainProject).not.toHaveAttribute("aria-current", "page");
+    expect(telegramProject).toHaveAttribute("aria-current", "page");
+  });
+
+  it("keeps the default project visible when a channel project is selected", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "telegram:489595440",
+          clientMode: "openclaw",
+          clientDisplayName: "Telegram DM",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Telegram DM",
+          messageCount: 1,
+          sourceChannelId: "telegram",
+          readOnly: true,
+          raw: {},
+        },
+      ],
+      selectedSessionKey: "telegram:489595440",
+    });
+
+    expect(screen.getByRole("button", { name: "Main Project" })).not.toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
+  });
+
   it("shows and highlights the current project when it is the only project", () => {
     renderAgentWorkspaceSidebar({
       sessions: [],

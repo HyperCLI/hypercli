@@ -20,6 +20,7 @@ import {
   Search,
   Settings,
   Shell,
+  Sparkles,
   Square,
   Trash2,
   Unplug,
@@ -30,16 +31,21 @@ import {
 
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
 import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import { getConnectCommandSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import { buildOpenClawDefaultModelPatch, normalizeOpenClawModelOptions } from "@/lib/openclaw-models";
 
 type ChatSession = ReturnType<typeof useOpenClawSession>;
+type ChatConnectorId = NonNullable<ChatConnectionSuggestion["connectorId"]>;
 type SlashCommandMode = "ui" | "prompt" | "confirm";
-type SlashCommandCategory = "Chat" | "Agent" | "Workspace" | "Tools" | "Connections" | "Schedule" | "Diagnostics" | "Account";
+type SlashCommandCategory = "Chat" | "Agent" | "Workspace" | "Tools" | "Skills" | "Connections" | "Schedule" | "Diagnostics" | "Account";
 
 export interface AgentSlashCommandActions {
   onOpenFiles?: (path?: string) => void;
   onOpenConfig?: () => void;
   onOpenIntegrations?: () => void;
+  onOpenConnectionSuggestion?: (suggestion: ChatConnectionSuggestion) => void | Promise<void>;
+  onOpenIntegrationChatCard?: (integrationId: ChatConnectorId) => void;
+  onOpenSkills?: () => void;
   onOpenScheduled?: (draft?: string) => void;
   onOpenLogs?: () => void;
   onOpenShell?: () => void;
@@ -134,6 +140,28 @@ function commandParts(input: string): { token: string; args: string } {
   };
 }
 
+function connectSuggestionQuery(input: string | null): string | null {
+  if (!input) return null;
+  const match = input.match(/^\/connect\s+(.*)$/i);
+  return match ? match[1] ?? "" : null;
+}
+
+async function openConnectionSuggestion(ctx: SlashCommandContext, suggestion: ChatConnectionSuggestion): Promise<void> {
+  if (ctx.actions.onOpenConnectionSuggestion) {
+    await ctx.actions.onOpenConnectionSuggestion(suggestion);
+  } else if (suggestion.connectorId && ctx.actions.onOpenIntegrationChatCard) {
+    ctx.actions.onOpenIntegrationChatCard(suggestion.connectorId);
+  } else if (ctx.actions.onOpenIntegrations) {
+    await ctx.actions.onOpenIntegrations();
+  } else {
+    ctx.setStatus("Integrations are unavailable here.");
+    return;
+  }
+  ctx.chat.setInput("");
+  ctx.showFeedback(`${suggestion.displayName} connection opened.`);
+  ctx.close();
+}
+
 function runAction(action: (() => void | Promise<void>) | undefined, disabledMessage: string, feedbackMessage?: string) {
   return async (ctx: SlashCommandContext) => {
     if (!action) {
@@ -158,6 +186,47 @@ function validateSingleFolderName(name: string): string | null {
   if (trimmed === "." || trimmed === "..") return "Use a real folder name.";
   if (/[\\/]/.test(trimmed)) return "Create one folder at a time.";
   return null;
+}
+
+function compactStatusText(value: string | undefined, maxLength = 96): string {
+  const text = (value ?? "").replace(/\s+/g, " ").trim();
+  if (text.length <= maxLength) return text;
+  return `${text.slice(0, maxLength - 1).trimEnd()}...`;
+}
+
+function parseSkillCommandArgs(args: string): { action: "open" | "search" | "install" | "status"; value: string } {
+  const trimmed = args.trim();
+  if (!trimmed) return { action: "open", value: "" };
+
+  const [rawAction = "", ...rest] = trimmed.split(/\s+/);
+  const action = rawAction.toLowerCase();
+  const value = rest.join(" ").trim();
+  if (action === "search" || action === "install" || action === "status") {
+    return { action, value };
+  }
+  return { action: "search", value: trimmed };
+}
+
+function formatSkillSearchStatus(results: Awaited<ReturnType<ChatSession["skillsSearch"]>>["results"]): string {
+  if (results.length === 0) return "No ClawHub skills found.";
+  return results
+    .slice(0, 5)
+    .map((skill) => {
+      const summary = compactStatusText(skill.summary, 72);
+      return summary ? `${skill.slug}: ${summary}` : skill.slug;
+    })
+    .join(" | ");
+}
+
+function formatSkillsStatus(report: Awaited<ReturnType<ChatSession["skillsStatus"]>>): string {
+  const installed = report.skills.length;
+  const active = report.skills.filter((skill) => (
+    !skill.disabled &&
+    skill.eligible &&
+    !skill.blockedByAllowlist &&
+    !skill.blockedByAgentFilter
+  )).length;
+  return `${installed} skill${installed === 1 ? "" : "s"} installed, ${active} active.`;
 }
 
 function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["run"] {
@@ -226,11 +295,19 @@ function buildSlashCommands(): SlashCommand[] {
       id: "abort",
       aliases: ["abort", "cancel"],
       title: "Stop reply",
-      description: "Abort the current assistant reply when gateway abort is exposed.",
+      description: "Stop the current assistant reply.",
       category: "Chat",
       mode: "ui",
       Icon: Square,
-      run: ({ setStatus }) => setStatus("Stopping replies needs the gateway abort helper exposed first."),
+      run: async ({ chat, setStatus, close, showFeedback }) => {
+        if (!chat.sending) {
+          setStatus("No reply is currently running.");
+          return;
+        }
+        await chat.abortMessage();
+        close();
+        showFeedback("Stop requested.");
+      },
     },
     {
       id: "summary",
@@ -531,14 +608,114 @@ function buildSlashCommands(): SlashCommand[] {
       },
     },
     {
+      id: "skills",
+      aliases: ["skills"],
+      title: "Skills",
+      description: "Open the skill browser.",
+      category: "Skills",
+      mode: "ui",
+      Icon: Sparkles,
+      run: runAction(undefined, "Skills browser is unavailable here."),
+    },
+    {
+      id: "skill",
+      aliases: ["skill"],
+      title: "Skill command",
+      description: "Search, status, or install a ClawHub skill.",
+      category: "Skills",
+      mode: "confirm",
+      Icon: Sparkles,
+      isEnabled: ({ actions, args, chat }) => {
+        const parsed = parseSkillCommandArgs(args);
+        if (parsed.action === "open") return actions.onOpenSkills ? true : "Skills browser is unavailable here.";
+        if (!chat.connected) return "Connect the gateway before managing skills.";
+        if (parsed.action === "search" && !parsed.value) return "Pass a search query, for example /skill search code review.";
+        if (parsed.action === "install" && !parsed.value) return "Pass a ClawHub skill slug, for example /skill install code-review.";
+        return true;
+      },
+      confirm: ({ args }) => {
+        const parsed = parseSkillCommandArgs(args);
+        if (parsed.action !== "install" || !parsed.value) return null;
+        return {
+          title: "Install skill",
+          message: `Install ${parsed.value} from ClawHub? This can add files and tools to the workspace.`,
+          confirmLabel: "Install",
+        };
+      },
+      run: async ({ actions, args, chat, setStatus, close, showFeedback }) => {
+        const parsed = parseSkillCommandArgs(args);
+        if (parsed.action === "open") {
+          actions.onOpenSkills?.();
+          chat.setInput("");
+          showFeedback("Skills opened.");
+          close();
+          return;
+        }
+
+        if (parsed.action === "status") {
+          const status = await chat.skillsStatus();
+          setStatus(formatSkillsStatus(status));
+          showFeedback("Skill status loaded.");
+          return;
+        }
+
+        if (parsed.action === "search") {
+          const search = await chat.skillsSearch({ query: parsed.value, limit: 5 });
+          setStatus(formatSkillSearchStatus(search.results));
+          showFeedback(`${search.results.length} skill${search.results.length === 1 ? "" : "s"} found.`);
+          return;
+        }
+
+        const result = await chat.skillsInstall({ source: "clawhub", slug: parsed.value });
+        if (!result.ok) throw new Error(result.message || `Could not install ${parsed.value}.`);
+        await chat.skillsStatus().catch(() => undefined);
+        chat.setInput("");
+        showFeedback(result.message || `Installed ${result.slug ?? parsed.value}.`);
+        close();
+      },
+    },
+    {
       id: "connect",
       aliases: ["connect"],
       title: "Connect integration",
-      description: "Open integrations.",
+      description: "Open integrations or connect supported services in chat.",
       category: "Connections",
       mode: "ui",
       Icon: Unplug,
-      run: runAction(undefined, "Integrations are unavailable here."),
+      run: async (ctx) => {
+        const { args, actions, chat, setStatus, showFeedback, close } = ctx;
+        const requested = args.trim().toLowerCase().replace(/[^a-z0-9]+/g, " ").trim();
+        const suggestion = requested
+          ? getConnectCommandSuggestions(requested, chat.config, chat.configSchema, 1)[0]
+          : undefined;
+        if (suggestion) {
+          await openConnectionSuggestion(ctx, suggestion);
+          return;
+        }
+        if (requested === "github" || requested === "git hub") {
+          if (!actions.onOpenIntegrationChatCard) {
+            setStatus("GitHub setup is unavailable in chat here.");
+            return;
+          }
+          actions.onOpenIntegrationChatCard("github");
+          chat.setInput("");
+          showFeedback("GitHub connection opened.");
+          close();
+          return;
+        }
+        if (requested) {
+          setStatus(`No in-chat connector is available for ${args.trim()}. Open integrations to check setup options.`);
+          return;
+        }
+        if (!actions.onOpenIntegrations) {
+          setStatus("Integrations are unavailable here.");
+          return;
+        }
+        await actions.onOpenIntegrations();
+        chat.setInput("");
+        showFeedback("Integrations opened.");
+        close();
+      },
     },
     {
       id: "connections",
@@ -779,7 +956,7 @@ function bindAction(command: SlashCommand, actions: AgentSlashCommandActions): S
     upload: actions.onTriggerFilePicker,
     config: actions.onOpenConfig,
     tools: actions.onOpenConfig,
-    connect: actions.onOpenIntegrations,
+    skills: actions.onOpenSkills,
     activity: actions.onOpenActivity,
     logs: actions.onOpenLogs,
     shell: actions.onOpenShell,
@@ -832,7 +1009,14 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
     );
     const activeInput = slashInput(input);
     const { token, args } = activeInput ? commandParts(activeInput) : { token: "", args: "" };
+    const connectQuery = connectSuggestionQuery(activeInput);
+    const connectSuggestionMode = connectQuery !== null;
     const isVisible = Boolean(activeInput);
+    const connectSuggestions = useMemo(() => (
+      connectSuggestionMode
+        ? getConnectCommandSuggestions(connectQuery ?? "", chat.config, chat.configSchema)
+        : []
+    ), [chat.config, chat.configSchema, connectQuery, connectSuggestionMode]);
 
     const matchingCommands = useMemo(() => {
       if (!isVisible) return [];
@@ -851,18 +1035,24 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
     React.useEffect(() => {
       setSelectedIndex(0);
       setStatus("");
-    }, [token]);
+    }, [connectQuery, token]);
 
     const selectedCommandId = matchingCommands[selectedIndex]?.id;
+    const selectedConnectIndex = Math.min(selectedIndex, Math.max(0, connectSuggestions.length - 1));
+    const selectedConnectSuggestion = connectSuggestions[selectedConnectIndex];
     React.useEffect(() => {
-      if (!isVisible || !selectedCommandId) return;
-      const selectedOption = optionRefs.current.get(selectedCommandId);
+      if (!isVisible) return;
+      const selectedOption = optionRefs.current.get(
+        connectSuggestionMode && selectedConnectSuggestion
+          ? `connect:${selectedConnectSuggestion.id}`
+          : selectedCommandId ?? "",
+      );
       if (typeof selectedOption?.scrollIntoView !== "function") return;
       selectedOption.scrollIntoView({
         block: "nearest",
         inline: "nearest",
       });
-    }, [isVisible, selectedCommandId]);
+    }, [connectSuggestionMode, isVisible, selectedCommandId, selectedConnectSuggestion]);
 
     const close = React.useCallback(() => {
       setSelectedIndex(0);
@@ -899,6 +1089,23 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
       return true;
     }, [contextFor]);
 
+    const executeConnectSuggestion = React.useCallback(async (suggestion: ChatConnectionSuggestion | undefined) => {
+      if (busyCommandId) return false;
+      if (!suggestion) {
+        setStatus(connectQuery?.trim() ? `No available integrations match "${connectQuery.trim()}".` : "No integrations are available here.");
+        return false;
+      }
+      setBusyCommandId(`connect:${suggestion.id}`);
+      try {
+        await openConnectionSuggestion(contextFor(connectQuery ?? ""), suggestion);
+      } catch (error) {
+        setStatus(error instanceof Error ? error.message : "Connection failed.");
+      } finally {
+        setBusyCommandId(null);
+      }
+      return true;
+    }, [busyCommandId, connectQuery, contextFor]);
+
     const execute = React.useCallback(async (command: SlashCommand, commandArgs: string) => {
       if (busyCommandId) return false;
       const reason = disabledReason(command);
@@ -934,24 +1141,36 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
       executeCurrentInput: async () => {
         const currentInput = slashInput(input);
         if (!currentInput) return false;
+        if (connectSuggestionMode) {
+          return executeConnectSuggestion(selectedConnectSuggestion);
+        }
         const parts = commandParts(currentInput);
         const exact = allCommands.find((command) => command.aliases.includes(parts.token));
         return execute(exact ?? selectedCommand ?? allCommands[0], parts.args);
       },
       moveSelection: (delta: number) => {
+        if (connectSuggestionMode) {
+          if (connectSuggestions.length === 0) return;
+          setSelectedIndex((current) => (current + delta + connectSuggestions.length) % connectSuggestions.length);
+          return;
+        }
         if (matchingCommands.length === 0) return;
         setSelectedIndex((current) => (current + delta + matchingCommands.length) % matchingCommands.length);
       },
       selectFirst: () => setSelectedIndex(0),
-      selectLast: () => setSelectedIndex(Math.max(0, matchingCommands.length - 1)),
+      selectLast: () => setSelectedIndex(Math.max(0, (connectSuggestionMode ? connectSuggestions.length : matchingCommands.length) - 1)),
       completeSelection: () => {
+        if (connectSuggestionMode) {
+          void executeConnectSuggestion(selectedConnectSuggestion);
+          return Boolean(selectedConnectSuggestion);
+        }
         if (!selectedCommand) return false;
         chat.setInput(`/${selectedCommand.aliases[0]} `);
         setStatus("");
         return true;
       },
       close,
-    }), [allCommands, chat, close, execute, input, matchingCommands.length, selectedCommand]);
+    }), [allCommands, chat, close, connectSuggestionMode, connectSuggestions.length, execute, executeConnectSuggestion, input, matchingCommands.length, selectedCommand, selectedConnectSuggestion]);
 
     if (!isVisible && !pendingConfirmation) return null;
 
@@ -961,18 +1180,66 @@ export const AgentSlashCommandMenu = forwardRef<AgentSlashCommandMenuHandle, Age
           <div
             className="absolute bottom-full left-0 right-0 z-40 mb-2 max-h-[min(22rem,calc(100vh-10rem))] overflow-hidden rounded-lg border border-border bg-background/98 shadow-2xl backdrop-blur"
             role="listbox"
-            aria-label="Slash command menu"
+            aria-label={connectSuggestionMode ? "Connect integration suggestions" : "Slash command menu"}
           >
             <div className="flex items-center gap-2 border-b border-border px-3 py-2 text-text-muted">
-              <Search className="h-3.5 w-3.5 shrink-0" />
+              {connectSuggestionMode ? <Unplug className="h-3.5 w-3.5 shrink-0" /> : <Search className="h-3.5 w-3.5 shrink-0" />}
               <span className="min-w-0 flex-1 truncate text-xs">
-                {token ? `/${token}` : "Commands"}
+                {connectSuggestionMode ? (connectQuery?.trim() ? `/connect ${connectQuery}` : "Connect integration") : token ? `/${token}` : "Commands"}
               </span>
               {busyCommandId ? <Loader2 className="h-3.5 w-3.5 animate-spin" /> : null}
             </div>
 
             <div className="max-h-[min(18rem,calc(100vh-14rem))] overflow-y-auto p-1.5">
-              {matchingCommands.map((command, index) => {
+              {connectSuggestionMode ? (
+                connectSuggestions.length > 0 ? connectSuggestions.map((suggestion, index) => {
+                  const Icon = suggestion.Icon;
+                  const selected = index === selectedConnectIndex;
+                  return (
+                    <button
+                      key={suggestion.id}
+                      ref={(node) => {
+                        const key = `connect:${suggestion.id}`;
+                        if (node) {
+                          optionRefs.current.set(key, node);
+                        } else {
+                          optionRefs.current.delete(key);
+                        }
+                      }}
+                      type="button"
+                      role="option"
+                      aria-selected={selected}
+                      disabled={Boolean(busyCommandId)}
+                      title={suggestion.description}
+                      onMouseEnter={() => setSelectedIndex(index)}
+                      onClick={() => {
+                        void executeConnectSuggestion(suggestion);
+                      }}
+                      className={`flex w-full min-w-0 items-start gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
+                        selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-white/[0.04]"
+                      }`}
+                    >
+                      <Icon className="mt-0.5 h-4 w-4 shrink-0 text-[var(--selection-accent)]" style={suggestion.iconColor ? { color: suggestion.iconColor } : undefined} />
+                      <span className="min-w-0 flex-1 space-y-1">
+                        <span className="flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1">
+                          <span className="min-w-0 text-xs font-medium leading-4 text-foreground">{suggestion.displayName}</span>
+                          <span className="shrink-0 rounded border border-border px-1.5 py-0.5 text-[10px] uppercase text-text-muted">
+                            Connect
+                          </span>
+                        </span>
+                        <span className="block text-[11px] leading-4 text-text-muted">
+                          {suggestion.description}
+                        </span>
+                      </span>
+                      <span className="hidden shrink-0 rounded border border-border/70 px-1.5 py-0.5 text-[10px] leading-4 text-text-muted md:inline-flex">{suggestion.category}</span>
+                    </button>
+                  );
+                }) : (
+                  <div className="px-3 py-3 text-xs leading-4 text-text-muted">
+                    {connectQuery?.trim() ? `No available integrations match "${connectQuery.trim()}".` : "No integrations are available here."}
+                  </div>
+                )
+              ) : matchingCommands.map((command, index) => {
                 const Icon = command.Icon;
                 const reason = disabledReason(command);
                 const selected = index === selectedIndex;
