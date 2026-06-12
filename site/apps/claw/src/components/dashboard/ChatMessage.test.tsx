@@ -86,6 +86,30 @@ describe("ChatMessageBubble", () => {
     expectNoLeakSentinels(container.innerHTML);
   });
 
+  it("renders interrupted assistant replies with a stopped badge", () => {
+    render(
+      <ChatMessageBubble
+        message={{
+          role: "assistant",
+          content: "Partial answer before the stop request.",
+          status: "interrupted",
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Partial answer before the stop request.")).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /reply stopped/i })).toHaveTextContent("Stopped");
+  });
+
+  it("renders reply stopped system notices without error styling", () => {
+    render(<ChatMessageBubble message={{ role: "system", content: "Reply stopped" }} />);
+
+    const notice = screen.getByText("Reply stopped");
+    expect(notice).toBeInTheDocument();
+    expect(notice).toHaveClass("text-text-muted");
+    expect(notice).not.toHaveClass("text-[#d05f5f]");
+  });
+
   it("renders a generic hidden-reasoning badge without exposing raw thinking text", () => {
     const { container } = render(
       <ChatMessageBubble
@@ -1085,7 +1109,7 @@ describe("ChatMessageBubble", () => {
       />,
     );
 
-    fireEvent.click(screen.getByText("list_files"));
+    fireEvent.click(screen.getByText("List Files"));
 
     expect(screen.getByLabelText("Directory workspace")).toBeInTheDocument();
     expect(screen.getByText("docs")).toBeInTheDocument();

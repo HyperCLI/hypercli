@@ -64,6 +64,60 @@ export const Expanded: Story = {
   },
 };
 
+export const WebSearchSuccess: Story = {
+  args: {
+    toolCall: {
+      id: "tc-web-search",
+      name: "web_search",
+      args: JSON.stringify({ query: "OpenCode AI coding assistant IDE integration" }),
+      result: "Found 6 results. Top match: opencode.ai docs and IDE extension notes.",
+    },
+    index: 0,
+    isOpen: true,
+    themeVariant: "v2",
+  },
+};
+
+export const WebSearchError: Story = {
+  args: {
+    toolCall: {
+      id: "tc-web-search-error",
+      name: "web_search",
+      args: JSON.stringify({ query: "OpenCode AI coding assistant IDE integration" }),
+      result: `Error: ${JSON.stringify({
+        content: [
+          {
+            type: "text",
+            text: JSON.stringify({
+              status: "error",
+              tool: "web_search",
+              error: "Brave Search API error (404): 404 page not found",
+            }, null, 2),
+          },
+        ],
+        details: { status: "error" },
+      }, null, 2)}`,
+    },
+    index: 0,
+    isOpen: true,
+    themeVariant: "v2",
+  },
+};
+
+export const MemorySearch: Story = {
+  args: {
+    toolCall: {
+      id: "tc-memory-search",
+      name: "memory_search",
+      args: JSON.stringify({ query: "preferred deployment defaults" }),
+      result: "2 memories found: staging-first rollout and Friday deploy freeze.",
+    },
+    index: 0,
+    isOpen: false,
+    themeVariant: "v2",
+  },
+};
+
 export const ThemeDefault: Story = {
   args: {
     ...Completed.args,

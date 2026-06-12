@@ -1,10 +1,12 @@
 "use client";
 
 import { useEffect, useId, useState } from "react";
-import { Check, ChevronRight, Loader2, Wrench } from "lucide-react";
+import { ChevronRight } from "lucide-react";
 import { AnimatePresence, motion } from "framer-motion";
 
-import { getToolCallClass, getToolCallStatusClass } from "./bubbleStyles";
+import { getToolCallClass } from "./bubbleStyles";
+import { buildToolCallStackView } from "./helpers";
+import { ToolCallStatusFrame } from "./ToolCallPresentation";
 import { ToolCallBlock } from "./ToolCallBlock";
 import type { ChatMessageType, ThemeVariant } from "./types";
 
@@ -25,28 +27,14 @@ export function shouldStackToolCalls(toolCalls: ToolCall[] | undefined): boolean
   return (toolCalls?.length ?? 0) > TOOL_CALL_STACK_THRESHOLD;
 }
 
-function toolNamesSummary(toolCalls: ToolCall[]): string {
-  const names = Array.from(new Set(toolCalls.map((tc) => tc.name).filter(Boolean)));
-  if (names.length === 0) return "";
-  const visible = names.slice(0, 3).join(", ");
-  return names.length > 3 ? `${visible} +${names.length - 3}` : visible;
-}
-
 export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = false }: ToolCallStackProps) {
   const detailId = useId();
   const [open, setOpen] = useState(false);
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
 
-  const pendingCount = toolCalls.filter((tc) => tc.result === undefined).length;
-  const completedCount = toolCalls.length - pendingCount;
-  const rawPending = pendingCount > 0 && isStreaming;
-  const pending = rawPending && !pendingTimedOut;
-  const allDone = completedCount === toolCalls.length;
-  const summary = toolNamesSummary(toolCalls);
-  const statusLabel = pending ? "Running" : allDone ? "Done" : "Called";
-  const progressPercent = toolCalls.length === 0 ? 0 : Math.round((completedCount / toolCalls.length) * 100);
-  const statusClass = getToolCallStatusClass(allDone, pending);
+  const rawPending = toolCalls.some((tc) => tc.result === undefined) && isStreaming;
+  const stackView = buildToolCallStackView(toolCalls, { isStreaming, pendingTimedOut });
 
   useEffect(() => {
     if (!rawPending) return;
@@ -61,7 +49,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
   return (
     <motion.div
       layout
-      className={`${getToolCallClass(themeVariant, allDone, pending)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
+      className={`${getToolCallClass(themeVariant, stackView.status)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
       transition={{ layout: { duration: 0.2, ease: "easeOut" } }}
     >
       <button
@@ -73,33 +61,19 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
       >
         <motion.span
           className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-surface-low/35"
-          animate={pending ? { scale: [1, 1.02, 1] } : { scale: 1 }}
-          transition={pending ? { repeat: Infinity, duration: 1.6, ease: "easeInOut" } : { duration: 0.16 }}
+          animate={stackView.isRunning ? { scale: [1, 1.02, 1] } : { scale: 1 }}
+          transition={stackView.isRunning ? { repeat: Infinity, duration: 1.6, ease: "easeInOut" } : { duration: 0.16 }}
         >
-          {pending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--selection-accent)]" />
-          ) : allDone ? (
-            <Check className="h-3.5 w-3.5 text-[var(--selection-accent)] opacity-75" />
-          ) : (
-            <Wrench className="h-3.5 w-3.5 text-text-muted" />
-          )}
-          <span
-            aria-hidden="true"
-            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-surface-high px-1 text-[9px] font-bold leading-none text-foreground"
-          >
-            {toolCalls.length}
-          </span>
+          <span className="text-xs font-semibold leading-none text-foreground">{toolCalls.length}</span>
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate font-medium text-foreground">{toolCalls.length} tool calls</span>
-            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
-              {statusLabel}
-            </span>
+            <ToolCallStatusFrame status={stackView.status} />
           </span>
           <span className="mt-0.5 block truncate text-text-muted">
-            {summary}
-            {!allDone && ` - ${completedCount}/${toolCalls.length} done`}
+            {stackView.summary}
+            {stackView.progressText && ` - ${stackView.progressText}`}
           </span>
         </span>
         <motion.span
@@ -114,7 +88,7 @@ export function ToolCallStack({ toolCalls, themeVariant, agentId, isStreaming = 
         <motion.div
           className="h-px bg-[rgb(var(--selection-accent-rgb)_/_0.62)]"
           initial={false}
-          animate={{ width: `${progressPercent}%` }}
+          animate={{ width: `${stackView.progressPercent}%` }}
           transition={{ duration: 0.28, ease: "easeOut" }}
         />
       </div>

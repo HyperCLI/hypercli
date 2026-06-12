@@ -422,6 +422,20 @@ describe("openclaw chat normalization", () => {
     })).toBeNull();
   });
 
+  it("drops Telegram delivery mirror assistant records from persisted history", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      provider: "openclaw",
+      model: "delivery-mirror",
+      content: [
+        {
+          type: "text",
+          text: "Hey. Telegram bot project is all set up in the workspace. What's next?",
+        },
+      ],
+    })).toBeNull();
+  });
+
   it("drops standalone audio reply carriers from persisted history", () => {
     expect(normalizeHistoryMessage({
       role: "assistant",
@@ -763,6 +777,15 @@ describe("openclaw chat normalization", () => {
     });
     expect(JSON.stringify([internalError, notFound])).not.toContain("validation errors");
     expect(JSON.stringify([internalError, notFound])).not.toContain("ChatCompletionStreamResponse");
+  });
+
+  it("drops contentless aborted assistant history records", () => {
+    expect(normalizeHistoryMessage({
+      role: "assistant",
+      content: [],
+      stopReason: "aborted",
+      errorMessage: "aborted",
+    })).toBeNull();
   });
 
   it("drops raw workspace path dumps from refreshed assistant messages", () => {

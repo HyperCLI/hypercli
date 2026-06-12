@@ -20,7 +20,7 @@ afterEach(() => {
 
 describe("ToolCallBlock", () => {
   it("does not spin forever for non-streaming tool calls without results", () => {
-    const { container } = render(
+    render(
       <ToolCallBlock
         {...baseProps}
         toolCall={{ name: "read_file", args: '{"path":"/tmp/example.txt"}' }}
@@ -29,7 +29,71 @@ describe("ToolCallBlock", () => {
     );
 
     expect(screen.getByText("Called")).toBeInTheDocument();
-    expect(container.querySelector(".animate-spin")).toBeNull();
+  });
+
+  it("renders readable tool names and scalar query details", () => {
+    const query = "OpenCode AI coding assistant IDE integration";
+
+    render(
+      <ToolCallBlock
+        {...baseProps}
+        isOpen
+        toolCall={{
+          name: "web_search",
+          args: JSON.stringify({ query }),
+          result: "Found 3 current references.",
+        }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Web Search/i })).toBeInTheDocument();
+    expect(screen.queryByText("web_search")).not.toBeInTheDocument();
+    expect(screen.getByText("Query")).toBeInTheDocument();
+    expect(screen.getByText(query)).toBeInTheDocument();
+    expect(screen.getByText("Search results")).toBeInTheDocument();
+    expect(screen.getByText("Found 3 current references.")).toBeInTheDocument();
+    expect(screen.queryByText(/"query"/)).not.toBeInTheDocument();
+  });
+
+  it("extracts content-block search errors from wrapped JSON results", () => {
+    const error = "Brave Search API error (404): 404 page not found";
+    const result = `Error: ${JSON.stringify({
+      content: [
+        {
+          type: "text",
+          text: JSON.stringify({ status: "error", tool: "web_search", error }, null, 2),
+        },
+      ],
+      details: { status: "error" },
+    }, null, 2)}`;
+
+    render(
+      <ToolCallBlock
+        {...baseProps}
+        isOpen
+        toolCall={{
+          name: "web_search",
+          args: JSON.stringify({ query: "OpenCode AI coding assistant IDE integration" }),
+          result,
+        }}
+      />,
+    );
+
+    expect(screen.getByText("Failed")).toBeInTheDocument();
+    expect(screen.getByText("Error")).toBeInTheDocument();
+    expect(screen.getByText(`Error: ${error}`)).toBeInTheDocument();
+    expect(screen.queryByText(/"content"/)).not.toBeInTheDocument();
+  });
+
+  it("renders memory search as a readable tool name", () => {
+    render(
+      <ToolCallBlock
+        {...baseProps}
+        toolCall={{ name: "memory_search", args: JSON.stringify({ query: "billing preferences" }), result: "2 memories found" }}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /Memory Search/i })).toBeInTheDocument();
   });
 
   it("exposes disclosure state to assistive technology", () => {
@@ -41,7 +105,7 @@ describe("ToolCallBlock", () => {
       />,
     );
 
-    const button = screen.getByRole("button", { name: /read_file/i });
+    const button = screen.getByRole("button", { name: /Read File/i });
     const controls = button.getAttribute("aria-controls");
 
     expect(button).toHaveAttribute("aria-expanded", "true");
@@ -50,7 +114,7 @@ describe("ToolCallBlock", () => {
   });
 
   it("treats empty tool results as completed", () => {
-    const { container } = render(
+    render(
       <ToolCallBlock
         {...baseProps}
         toolCall={{ name: "exec", args: '{"command":"true"}', result: "" }}
@@ -60,12 +124,11 @@ describe("ToolCallBlock", () => {
 
     expect(screen.getByText("Done")).toBeInTheDocument();
     expect(screen.getByText("$ true")).toBeInTheDocument();
-    expect(container.querySelector(".animate-spin")).toBeNull();
   });
 
-  it("stops the running animation after the pending timeout", () => {
+  it("stops showing running status after the pending timeout", () => {
     vi.useFakeTimers();
-    const { container } = render(
+    render(
       <ToolCallBlock
         {...baseProps}
         toolCall={{ name: "read_file", args: '{"path":"/tmp/example.txt"}' }}
@@ -74,14 +137,12 @@ describe("ToolCallBlock", () => {
     );
 
     expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(45_000);
     });
 
     expect(screen.getByText("Called")).toBeInTheDocument();
-    expect(container.querySelector(".animate-spin")).toBeNull();
   });
 
   it("clips long open tool results", () => {

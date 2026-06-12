@@ -784,11 +784,37 @@ app.use((err, req, res, next) => {
 // 5. RPC: {type:"req", id, method, params} ↔ {type:"res", id, ok, payload}
 
 const gatewayConnections = new Map();
+const mockChatTimers = new WeakMap();
 let gatewayEventSeq = 0;
 
 function gwEvent(ws, event, payload) {
   gatewayEventSeq += 1;
   ws.send(JSON.stringify({ type: 'event', event, payload: payload || {}, seq: gatewayEventSeq }));
+}
+
+function scheduleMockChatTimer(ws, callback, delay) {
+  const timer = setTimeout(() => {
+    mockChatTimers.get(ws)?.delete(timer);
+    callback();
+  }, delay);
+  let timers = mockChatTimers.get(ws);
+  if (!timers) {
+    timers = new Set();
+    mockChatTimers.set(ws, timers);
+  }
+  timers.add(timer);
+  return timer;
+}
+
+function scheduleMockChatEvent(ws, event, payload, delay) {
+  return scheduleMockChatTimer(ws, () => gwEvent(ws, event, payload), delay);
+}
+
+function clearMockChatTimers(ws) {
+  const timers = mockChatTimers.get(ws);
+  if (!timers) return;
+  for (const timer of timers) clearTimeout(timer);
+  timers.clear();
 }
 
 // ---- Mutable sessions state (shared across the gateway connection lifetime) ----
@@ -898,7 +924,7 @@ function streamText(ws, text, startMs = 0, opts = {}) {
     const end = Math.min(cursor + charsPerChunk, text.length);
     const chunk = text.slice(cursor, end);
     const delay = scheduled;
-    setTimeout(() => gwEvent(ws, 'chat.content', { text: chunk }), delay);
+    scheduleMockChatEvent(ws, 'chat.content', { text: chunk }, delay);
     cursor = end;
     scheduled += baseDelay + Math.floor(Math.random() * jitter);
   }
@@ -916,7 +942,7 @@ function streamThinking(ws, text, startMs = 0, opts = {}) {
     const end = Math.min(cursor + charsPerChunk, text.length);
     const chunk = text.slice(cursor, end);
     const delay = scheduled;
-    setTimeout(() => gwEvent(ws, 'chat.thinking', { text: chunk }), delay);
+    scheduleMockChatEvent(ws, 'chat.thinking', { text: chunk }, delay);
     cursor = end;
     scheduled += baseDelay + Math.floor(Math.random() * jitter);
   }
@@ -1653,9 +1679,9 @@ function simulateChatResponse(ws, userContent) {
   }
 
   // Default: realistic-feeling echo (brief thought, then streamed response)
-  setTimeout(() => gwEvent(ws, 'chat.thinking', {
+  scheduleMockChatEvent(ws, 'chat.thinking', {
     text: 'Mock agent is processing your message…',
-  }), 150);
+  }, 150);
 
   const echoChunks = [
     `You said: "${userContent.length > 80 ? userContent.slice(0, 80) + '…' : userContent}".\n\n`,
@@ -1669,8 +1695,8 @@ function simulateChatResponse(ws, userContent) {
     '• `/conversation` — quick Q&A with chart\n\n',
     'Or `/help` for the full list.',
   ];
-  echoChunks.forEach((c, i) => setTimeout(() => gwEvent(ws, 'chat.content', { text: c }), 600 + i * 50));
-  setTimeout(() => gwEvent(ws, 'chat.done', { stop_reason: 'end_turn' }), 600 + echoChunks.length * 120 + 200);
+  echoChunks.forEach((c, i) => scheduleMockChatEvent(ws, 'chat.content', { text: c }, 600 + i * 50));
+  scheduleMockChatEvent(ws, 'chat.done', { stop_reason: 'end_turn' }, 600 + echoChunks.length * 120 + 200);
 }
 
 wss.on('connection', (ws, req) => {
@@ -1738,6 +1764,7 @@ wss.on('connection', (ws, req) => {
         break;
 
       case 'chat.send': {
+        clearMockChatTimers(ws);
         const userContent =
           params?.text ||
           params?.content ||
@@ -1766,6 +1793,8 @@ wss.on('connection', (ws, req) => {
 
       case 'chat.abort':
         gwResponse(ws, id, { ok: true });
+        clearMockChatTimers(ws);
+        gwEvent(ws, 'chat', { state: 'aborted', errorMessage: 'aborted' });
         break;
 
       // ---- Config ----

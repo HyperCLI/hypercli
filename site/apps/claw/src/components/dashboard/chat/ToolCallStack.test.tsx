@@ -30,13 +30,13 @@ describe("ToolCallStack", () => {
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
     expect(stackButton).toHaveAttribute("aria-expanded", "false");
     expect(stackButton).toHaveAttribute("aria-controls");
-    expect(screen.queryByText("four")).toBeNull();
+    expect(screen.queryByText("Four")).toBeNull();
 
     fireEvent.click(stackButton);
 
     expect(stackButton).toHaveAttribute("aria-expanded", "true");
     expect(document.getElementById(stackButton.getAttribute("aria-controls") ?? "")).not.toBeNull();
-    expect(screen.getByText("four")).toBeInTheDocument();
+    expect(screen.getByText("Four")).toBeInTheDocument();
   });
 
   it("counts empty tool results as completed", () => {
@@ -45,7 +45,19 @@ describe("ToolCallStack", () => {
 
     const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
     expect(stackButton).toHaveTextContent("Done");
-    expect(screen.queryByText(/0\/4 done/)).not.toBeInTheDocument();
+    expect(screen.queryByText(/0\/4 returned/)).not.toBeInTheDocument();
+  });
+
+  it("marks the stack failed when any returned tool call failed", () => {
+    const failedToolCalls = toolCalls.map((toolCall, index) => (
+      index === 1 ? { ...toolCall, result: 'Error: {"error":"Search failed"}' } : toolCall
+    ));
+
+    render(<ToolCallStack toolCalls={failedToolCalls} themeVariant="off" />);
+
+    const stackButton = screen.getByRole("button", { name: /4 tool calls/i });
+    expect(stackButton).toHaveTextContent("Failed");
+    expect(stackButton).toHaveTextContent("1 failed");
   });
 
   it("renders duplicate gateway ids without key warnings", () => {
@@ -62,19 +74,17 @@ describe("ToolCallStack", () => {
     }
   });
 
-  it("stops the stack running animation after the pending timeout", () => {
+  it("stops showing running status after the pending timeout", () => {
     vi.useFakeTimers();
     const pendingToolCalls = toolCalls.map((toolCall) => ({ ...toolCall, result: undefined }));
-    const { container } = render(<ToolCallStack toolCalls={pendingToolCalls} themeVariant="off" isStreaming />);
+    render(<ToolCallStack toolCalls={pendingToolCalls} themeVariant="off" isStreaming />);
 
     expect(screen.getByText("Running")).toBeInTheDocument();
-    expect(container.querySelector(".animate-spin")).not.toBeNull();
 
     act(() => {
       vi.advanceTimersByTime(45_000);
     });
 
     expect(screen.getByText("Called")).toBeInTheDocument();
-    expect(container.querySelector(".animate-spin")).toBeNull();
   });
 });

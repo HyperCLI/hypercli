@@ -86,6 +86,7 @@ function compactMessage(message: ChatMessage): ChatMessage | null {
     ...(files?.length ? { files } : {}),
     ...(mediaUrls?.length ? { mediaUrls } : {}),
     ...(toolCalls?.length ? { toolCalls } : {}),
+    ...(message.status ? { status: message.status } : {}),
   };
 }
 

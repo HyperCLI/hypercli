@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useId, useRef, useState } from "react";
-import { Brain, Check, ChevronDown, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Wrench } from "lucide-react";
+import { Brain, ChevronRight, Download, FileImage, FolderOpen, Loader2, Paperclip, Square } from "lucide-react";
 import { AnimatePresence, motion, type HTMLMotionProps } from "framer-motion";
 import type { ChatMessage as ChatMessageType, ChatPendingFile } from "@/lib/openclaw-chat";
 import { getStoredToken } from "@/lib/api";
@@ -23,10 +23,11 @@ import { agentAvatar, type AgentMeta } from "@/lib/avatar";
 import { ResourceImage } from "@/components/ResourceImage";
 import { AudioPlayer } from "@/components/dashboard/chat/AudioPlayer";
 import { ChatImageViewer } from "@/components/dashboard/chat/ChatImageViewer";
-import { getToolCallClass, getToolCallStatusClass } from "@/components/dashboard/chat/bubbleStyles";
+import { getToolCallClass } from "@/components/dashboard/chat/bubbleStyles";
 import { DirectoryVisualization, parseDirectoryVisualization } from "@/components/dashboard/chat/DirectoryVisualization";
-import { formatToolDetail, toolCallArgsLabel, toolCallResultLabel, toolCallSummary } from "@/components/dashboard/chat/helpers";
+import { buildToolCallStackView, buildToolCallView } from "@/components/dashboard/chat/helpers";
 import { CHAT_MARKDOWN_IMAGE_CLASS, MarkdownContent } from "@/components/dashboard/chat/MarkdownContent";
+import { ToolCallDisclosureButton, ToolCallSectionList, ToolCallStatusFrame } from "@/components/dashboard/chat/ToolCallPresentation";
 
 // ── Helpers ──
 
@@ -684,13 +685,6 @@ function shouldStackToolCalls(toolCalls: ChatMessageType["toolCalls"]): boolean 
   return (toolCalls?.length ?? 0) > TOOL_CALL_STACK_THRESHOLD;
 }
 
-function toolNamesSummary(toolCalls: ToolCall[]): string {
-  const names = Array.from(new Set(toolCalls.map((tc) => tc.name).filter(Boolean)));
-  if (names.length === 0) return "";
-  const visible = names.slice(0, 3).join(", ");
-  return names.length > 3 ? `${visible} +${names.length - 3}` : visible;
-}
-
 function ToolCallDisclosure({
   tc,
   index,
@@ -711,19 +705,12 @@ function ToolCallDisclosure({
   isStreaming: boolean;
 }) {
   const detailId = useId();
-  const hasResult = tc.result !== undefined;
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
-  const rawPending = !hasResult && isStreaming;
-  const pending = rawPending && !pendingTimedOut;
-  const summary = toolCallSummary(tc);
+  const rawPending = tc.result === undefined && isStreaming;
+  const view = buildToolCallView(tc, { isStreaming, pendingTimedOut });
   const imagePath = agentId ? extractImagePath(tc) : null;
   const imageFile = imagePath && agentId ? { agentId, path: imagePath } : null;
-  const argsDetail = formatToolDetail(tc.args, 280);
-  const resultDetail = tc.result !== undefined ? formatToolDetail(tc.result, 520) : null;
   const directoryListing = tc.result !== undefined ? parseDirectoryVisualization(tc.result) : null;
-  const argsLabel = toolCallArgsLabel(tc);
-  const resultLabel = toolCallResultLabel(tc);
-  const statusClass = getToolCallStatusClass(hasResult, pending);
 
   useEffect(() => {
     if (!rawPending) return;
@@ -732,42 +719,11 @@ function ToolCallDisclosure({
   }, [rawPending]);
 
   return (
-    <div className={getToolCallClass(themeVariant, hasResult, pending)}>
-      <button
-        type="button"
-        aria-controls={detailId}
-        aria-expanded={isOpen}
-        onClick={() => onToggle(index, defaultOpen)}
-        className="flex w-full min-w-0 items-center gap-1.5 px-2.5 py-1 text-left transition-colors hover:bg-surface-low/45 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-inset"
-      >
-        {pending ? (
-          <Loader2 className="h-3 w-3 shrink-0 animate-spin text-[var(--selection-accent)]" />
-        ) : hasResult ? (
-          <Check className="h-3 w-3 shrink-0 text-[var(--selection-accent)] opacity-75" />
-        ) : (
-          <Wrench className="h-3 w-3 shrink-0 text-text-muted" />
-        )}
-        <span className="min-w-0 max-w-[45%] truncate font-medium text-foreground">{tc.name}</span>
-        <span className={`shrink-0 rounded-full border px-1.5 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
-          {pending ? "Running" : hasResult ? "Done" : "Called"}
-        </span>
-        {!isOpen && summary && (
-          <span className="text-text-muted truncate ml-1 flex-1 min-w-0">{summary}</span>
-        )}
-        {!isOpen ? (
-          <ChevronRight className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
-        ) : (
-          <ChevronDown className="ml-auto h-3 w-3 shrink-0 text-text-muted" />
-        )}
-      </button>
+    <div className={getToolCallClass(themeVariant, view.status)}>
+      <ToolCallDisclosureButton view={view} isOpen={isOpen} detailId={detailId} onClick={() => onToggle(index, defaultOpen)} />
       {isOpen && (
         <div id={detailId} className="space-y-2 border-t border-border px-2.5 py-1.5 text-[11px] text-text-muted">
-          {argsDetail.text && (
-            <div className="min-w-0">
-              <p className="mb-1 font-medium text-text-secondary">{argsLabel}</p>
-              <pre className="max-h-28 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{argsDetail.text}</pre>
-            </div>
-          )}
+          <ToolCallSectionList sections={[view.argsSection]} />
           {directoryListing && (
             <DirectoryVisualization
               title="Directory result"
@@ -776,12 +732,7 @@ function ToolCallDisclosure({
               truncated={directoryListing.truncated}
             />
           )}
-          {resultDetail?.text && !directoryListing && (
-            <div className="min-w-0">
-              <p className="mb-1 font-medium text-text-secondary">{resultLabel}</p>
-              <pre className="max-h-36 max-w-full overflow-y-auto whitespace-pre-wrap break-words font-mono [overflow-wrap:anywhere]">{resultDetail.text}</pre>
-            </div>
-          )}
+          <ToolCallSectionList sections={[directoryListing ? null : view.resultSection]} />
         </div>
       )}
       {imageFile && (
@@ -813,15 +764,8 @@ function ToolCallStackDisclosure({
   const [toolsOpen, setToolsOpen] = useState<Record<number, boolean>>({});
   const [pendingTimedOut, setPendingTimedOut] = useState(false);
 
-  const pendingCount = toolCalls.filter((tc) => tc.result === undefined).length;
-  const completedCount = toolCalls.length - pendingCount;
-  const rawPending = pendingCount > 0 && isStreaming;
-  const pending = rawPending && !pendingTimedOut;
-  const allDone = completedCount === toolCalls.length;
-  const summary = toolNamesSummary(toolCalls);
-  const statusLabel = pending ? "Running" : allDone ? "Done" : "Called";
-  const progressPercent = toolCalls.length === 0 ? 0 : Math.round((completedCount / toolCalls.length) * 100);
-  const statusClass = getToolCallStatusClass(allDone, pending);
+  const rawPending = toolCalls.some((tc) => tc.result === undefined) && isStreaming;
+  const stackView = buildToolCallStackView(toolCalls, { isStreaming, pendingTimedOut });
 
   useEffect(() => {
     if (!rawPending) return;
@@ -832,7 +776,7 @@ function ToolCallStackDisclosure({
   return (
     <motion.div
       layout
-      className={`${getToolCallClass(themeVariant, allDone, pending)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
+      className={`${getToolCallClass(themeVariant, stackView.status)} relative shadow-[0_8px_22px_rgba(0,0,0,0.12)] ring-1 ring-border/55`}
       transition={{ layout: { duration: 0.2, ease: "easeOut" } }}
     >
       <button
@@ -844,33 +788,19 @@ function ToolCallStackDisclosure({
       >
         <motion.span
           className="relative flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border/70 bg-surface-low/35"
-          animate={pending ? { scale: [1, 1.02, 1] } : { scale: 1 }}
-          transition={pending ? { repeat: Infinity, duration: 1.6, ease: "easeInOut" } : { duration: 0.16 }}
+          animate={stackView.isRunning ? { scale: [1, 1.02, 1] } : { scale: 1 }}
+          transition={stackView.isRunning ? { repeat: Infinity, duration: 1.6, ease: "easeInOut" } : { duration: 0.16 }}
         >
-          {pending ? (
-            <Loader2 className="h-3.5 w-3.5 animate-spin text-[var(--selection-accent)]" />
-          ) : allDone ? (
-            <Check className="h-3.5 w-3.5 text-[var(--selection-accent)] opacity-75" />
-          ) : (
-            <Wrench className="h-3.5 w-3.5 text-text-muted" />
-          )}
-          <span
-            aria-hidden="true"
-            className="absolute -right-1 -top-1 flex h-4 min-w-4 items-center justify-center rounded-full border border-border bg-surface-high px-1 text-[9px] font-bold leading-none text-foreground"
-          >
-            {toolCalls.length}
-          </span>
+          <span className="text-xs font-semibold leading-none text-foreground">{toolCalls.length}</span>
         </motion.span>
         <span className="min-w-0 flex-1">
           <span className="flex min-w-0 items-center gap-2">
             <span className="min-w-0 truncate font-medium text-foreground">{toolCalls.length} tool calls</span>
-            <span className={`shrink-0 rounded-full border px-2 py-0.5 text-[10px] uppercase tracking-wide ${statusClass}`}>
-              {statusLabel}
-            </span>
+            <ToolCallStatusFrame status={stackView.status} />
           </span>
           <span className="mt-0.5 block truncate text-text-muted">
-            {summary}
-            {!allDone && ` - ${completedCount}/${toolCalls.length} done`}
+            {stackView.summary}
+            {stackView.progressText && ` - ${stackView.progressText}`}
           </span>
         </span>
         <motion.span
@@ -885,7 +815,7 @@ function ToolCallStackDisclosure({
         <motion.div
           className="h-px bg-[rgb(var(--selection-accent-rgb)_/_0.62)]"
           initial={false}
-          animate={{ width: `${progressPercent}%` }}
+          animate={{ width: `${stackView.progressPercent}%` }}
           transition={{ duration: 0.28, ease: "easeOut" }}
         />
       </div>
@@ -978,9 +908,10 @@ export function ChatMessageBubble({
   const isSystem = message.role === "system";
 
   if (isSystem) {
+    const isStoppedNotice = /^reply stopped$/i.test(message.content.trim());
     return (
       <div className="flex min-w-0 max-w-full justify-center">
-        <div className="max-w-[85%] break-words rounded-lg border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-2 text-sm text-[#d05f5f] [overflow-wrap:anywhere]">
+        <div className={`max-w-[85%] break-words rounded-lg border px-4 py-2 text-sm [overflow-wrap:anywhere] ${isStoppedNotice ? "border-border bg-surface-low/70 text-text-muted" : "border-[#d05f5f]/20 bg-[#d05f5f]/10 text-[#d05f5f]"}`}>
           {message.content}
         </div>
       </div>
@@ -1421,6 +1352,17 @@ export function ChatMessageBubble({
               />
             )}
             <StreamingStatusAnchor active={showStreamingDot} />
+          </div>
+        )}
+
+        {message.status === "interrupted" && !isUser && (
+          <div
+            role="status"
+            aria-label="Reply stopped"
+            className="mt-2 inline-flex w-fit max-w-full items-center gap-1.5 rounded-full border border-border bg-surface-low/70 px-2.5 py-1 text-[11px] font-medium text-text-muted"
+          >
+            <Square className="h-3 w-3 shrink-0" />
+            <span>Stopped</span>
           </div>
         )}
 

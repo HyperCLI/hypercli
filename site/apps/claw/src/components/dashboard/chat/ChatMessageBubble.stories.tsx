@@ -94,6 +94,35 @@ export const AssistantWithToolCalls: Story = {
   },
 };
 
+export const AssistantWithSearchTools: Story = {
+  args: {
+    message: {
+      role: "assistant",
+      content: "I checked the current public references and your saved workspace notes.",
+      toolCalls: [
+        {
+          id: "tc-web-search",
+          name: "web_search",
+          args: JSON.stringify({ query: "OpenCode AI coding assistant IDE integration" }),
+          result: "Found 6 results. Top match: opencode.ai docs and IDE extension notes.",
+        },
+        {
+          id: "tc-memory-search",
+          name: "memory_search",
+          args: JSON.stringify({ query: "preferred IDE assistant workflows" }),
+          result: "2 memories found: terminal-first edits and concise status updates.",
+        },
+      ],
+      timestamp: Date.now() - 12_000,
+    },
+    agentName: "Claude",
+    bubblesVariant: "v2",
+    themeVariant: "v2",
+    nameVariant: "v2",
+    timestampVariant: "v2",
+  },
+};
+
 export const AssistantWithThinking: Story = {
   args: {
     message: {

@@ -1,4 +1,5 @@
 import type { AnimationVariant, BubblesVariant, ThemeVariant, HTMLMotionProps } from "./types";
+import type { ToolCallViewStatus } from "./helpers";
 
 /** Returns framer-motion props for the bubble entrance animation. */
 export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HTMLMotionProps<"div"> {
@@ -26,17 +27,20 @@ export function getEntranceProps(variant: AnimationVariant, isUser: boolean): HT
   return {};
 }
 
-export function getToolCallClass(theme: ThemeVariant, hasResult: boolean, isRunning = false): string {
+export function getToolCallClass(theme: ThemeVariant, status: ToolCallViewStatus): string {
   const baseClass = "mb-1.5 w-full min-w-0 max-w-full overflow-hidden text-xs";
   const activeClass = "border-border bg-surface-low/40";
+  const failedClass = "border-[#d05f5f]/35 bg-[#d05f5f]/8";
   const runningClass = "border-[rgb(var(--selection-accent-rgb)_/_0.32)] bg-surface-low/45";
   const neutralClass = "border-border bg-surface-low/35";
-  const stateClass = hasResult ? activeClass : isRunning ? runningClass : neutralClass;
+  const stateClass = status === "failed" ? failedClass : status === "done" ? activeClass : status === "running" ? runningClass : neutralClass;
 
   if (theme === "v2") {
-    const leftBorder = isRunning
+    const leftBorder = status === "failed"
+      ? "border-l-[#d05f5f]/70"
+      : status === "running"
       ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.72)]"
-      : hasResult
+      : status === "done"
         ? "border-l-[rgb(var(--selection-accent-rgb)_/_0.45)]"
         : "border-l-border";
     return `${baseClass} rounded-lg border border-l-2 ${leftBorder} ${stateClass}`;
@@ -45,16 +49,20 @@ export function getToolCallClass(theme: ThemeVariant, hasResult: boolean, isRunn
   return `${baseClass} rounded-lg border ${stateClass}`;
 }
 
-export function getToolCallStatusClass(hasResult: boolean, isRunning = false): string {
-  if (isRunning) {
-    return "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] text-[var(--selection-accent)]";
+export function getToolCallStatusClass(status: ToolCallViewStatus): string {
+  if (status === "running") {
+    return "border-[rgb(var(--selection-accent-rgb)_/_0.28)] bg-[rgb(var(--selection-accent-rgb)_/_0.06)] text-[var(--selection-accent)]";
   }
 
-  if (hasResult) {
-    return "border-border bg-background/35 text-text-secondary";
+  if (status === "failed") {
+    return "border-[#d05f5f]/35 bg-[#d05f5f]/8 text-[#d05f5f]";
   }
 
-  return "border-border bg-background/35 text-text-muted";
+  if (status === "done") {
+    return "border-border/70 bg-background/25 text-text-secondary";
+  }
+
+  return "border-border/60 bg-background/20 text-text-muted";
 }
 
 /** Compute combined bubble classes from shape + color variants. */

@@ -20,6 +20,7 @@ export interface ChatPendingFile {
 export interface ChatMessage {
   role: "user" | "assistant" | "system";
   content: string;
+  status?: "interrupted";
   thinking?: string;
   toolCalls?: Array<{ id?: string; name: string; args: string; result?: string }>;
   mediaUrls?: string[];
@@ -618,6 +619,14 @@ function rawHistoryRole(message: unknown): string {
   return typeof record?.role === "string" ? record.role.trim().toLowerCase() : "";
 }
 
+function isDeliveryMirrorHistoryMessage(message: unknown): boolean {
+  const record = asRecord(message);
+  if (!record) return false;
+  const provider = typeof record.provider === "string" ? record.provider.trim().toLowerCase() : "";
+  const model = typeof record.model === "string" ? record.model.trim().toLowerCase() : "";
+  return provider === "openclaw" && model === "delivery-mirror";
+}
+
 function isInternalToolHistoryRole(role: string): boolean {
   return role === "tool" || role === "toolresult" || role === "tool_result";
 }
@@ -660,6 +669,15 @@ function readHistoryErrorPayload(message: unknown): { raw: string; type?: string
   };
 }
 
+function isAbortedHistoryMessage(message: unknown): boolean {
+  const record = asRecord(message);
+  if (!record) return false;
+  const values = [record.stopReason, record.stop_reason, record.state, record.reason, record.errorMessage]
+    .filter((value): value is string => typeof value === "string")
+    .map((value) => value.trim().toLowerCase().replace(/[.!]+$/, ""));
+  return values.some((value) => value === "abort" || value === "aborted" || value === "canceled" || value === "cancelled");
+}
+
 function normalizeHistoryErrorContent(message: unknown): string | null {
   const payload = readHistoryErrorPayload(message);
   if (!payload) return null;
@@ -687,6 +705,7 @@ function summarizeToolCalls(
 }
 
 function normalizeHistoryMessage(message: unknown): ChatMessage | null {
+  if (isDeliveryMirrorHistoryMessage(message)) return null;
   if (isInternalToolHistoryRole(rawHistoryRole(message))) return null;
   const normalized = normalizeGatewayChatMessage(message);
   const role = normalized ? normalizeChatRole(normalized.role) : roleFromHistoryMessage(message);
@@ -706,6 +725,9 @@ function normalizeHistoryMessage(message: unknown): ChatMessage | null {
     return null;
   }
   if (isInternalAsyncCommandCompletionText(content)) {
+    return null;
+  }
+  if (role === "assistant" && !content && isAbortedHistoryMessage(message)) {
     return null;
   }
   const historyErrorContent = role === "assistant" && !content ? normalizeHistoryErrorContent(message) : null;
@@ -814,6 +836,7 @@ function mergeAssistantMessage(current: ChatMessage, incoming: ChatMessage): Cha
     content: mergedContent,
     ...(mergedToolCalls && mergedToolCalls.length > 0 ? { toolCalls: mergedToolCalls } : {}),
     ...(mergedMediaUrls.length > 0 ? { mediaUrls: mergedMediaUrls } : {}),
+    status: incoming.status ?? cleanCurrent.status,
     timestamp: incoming.timestamp ?? cleanCurrent.timestamp,
   };
 }
@@ -844,6 +867,7 @@ function sanitizeAssistantMessage(message: ChatMessage): ChatMessage {
     ...(message.mediaUrls && message.mediaUrls.length > 0 ? { mediaUrls: message.mediaUrls } : {}),
     ...(message.attachments && message.attachments.length > 0 ? { attachments: message.attachments } : {}),
     ...(message.files && message.files.length > 0 ? { files: message.files } : {}),
+    ...(message.status ? { status: message.status } : {}),
     ...(message.timestamp !== undefined ? { timestamp: message.timestamp } : {}),
   };
 }
