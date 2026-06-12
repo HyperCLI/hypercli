@@ -181,7 +181,6 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
 
   return createPortal(
     <div
-      data-theme="green"
       className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
       onClick={(event) => event.stopPropagation()}
     >

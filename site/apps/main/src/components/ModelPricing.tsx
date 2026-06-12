@@ -110,7 +110,7 @@ export default function ModelPricing() {
   if (error) {
     return (
       <div className="py-20 text-center">
-        <p className="text-red-500">{error}</p>
+        <p className="text-error">{error}</p>
       </div>
     );
   }
@@ -131,8 +131,8 @@ export default function ModelPricing() {
                 onClick={() => setFilter(key as typeof filter)}
                 className={`px-6 py-2 rounded-full font-semibold transition-all cursor-pointer ${
                   filter === key
-                    ? "bg-primary text-primary-foreground shadow-[0_0_20px_rgba(56,211,159,0.3)]"
-                    : "bg-surface-low text-muted-foreground hover:bg-surface-high hover:text-white border border-border-medium"
+                    ? "bg-primary text-primary-foreground shadow-[0_0_20px_rgb(var(--selection-accent-rgb)_/_0.24)]"
+                    : "bg-surface-low text-text-secondary hover:bg-surface-high hover:text-foreground border border-border-medium"
                 }`}
               >
                 {label}
@@ -153,7 +153,7 @@ export default function ModelPricing() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white text-sm">{model.id}</span>
+                      <span className="font-semibold text-foreground text-sm">{model.id}</span>
                       <div className="flex gap-1">
                         {model.free && (
                           <span className="px-2 py-0.5 text-xs font-semibold rounded bg-primary/20 text-primary">
@@ -166,13 +166,13 @@ export default function ModelPricing() {
                           </span>
                         )}
                         {!model.hosted && (
-                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-surface-high text-muted border border-border-medium">
+                          <span className="px-2 py-0.5 text-xs font-semibold rounded bg-surface-high text-text-muted border border-border-medium">
                             EXT
                           </span>
                         )}
                       </div>
                     </div>
-                    <p className="text-xs text-muted truncate mt-1">{model.name}</p>
+                    <p className="text-xs text-text-muted truncate mt-1">{model.name}</p>
                   </button>
                 ))}
               </div>
@@ -184,8 +184,8 @@ export default function ModelPricing() {
                 <div className="bg-surface-low border border-border-medium rounded-2xl p-8">
                   <div className="flex items-start justify-between mb-6">
                     <div>
-                      <h3 className="text-2xl font-bold text-white">{selectedModel.name}</h3>
-                      <p className="text-sm font-mono text-muted mt-1">{selectedModel.id}</p>
+                      <h3 className="text-2xl font-bold text-foreground">{selectedModel.name}</h3>
+                      <p className="text-sm font-mono text-text-muted mt-1">{selectedModel.id}</p>
                     </div>
                     <div className="flex gap-2">
                       {selectedModel.free && (
@@ -197,7 +197,7 @@ export default function ModelPricing() {
                         className={`px-3 py-1 text-sm font-semibold rounded-full ${
                           selectedModel.hosted
                             ? "bg-primary/10 text-primary border border-primary/20"
-                            : "bg-surface-high text-muted border border-border-medium"
+                            : "bg-surface-high text-text-muted border border-border-medium"
                         }`}
                       >
                         {selectedModel.hosted ? "HyperCLI Hosted" : "External"}
@@ -209,17 +209,17 @@ export default function ModelPricing() {
 
                   <div className="grid grid-cols-1 md:grid-cols-2 gap-6 mb-8">
                     <div className="bg-background rounded-xl p-4 border border-border-medium">
-                      <p className="text-sm text-muted mb-1">Context Length</p>
-                      <p className="text-2xl font-bold text-white">
+                      <p className="text-sm text-text-muted mb-1">Context Length</p>
+                      <p className="text-2xl font-bold text-foreground">
                         {(selectedModel.context_length / 1000).toLocaleString()}K
-                        <span className="text-sm font-normal text-muted ml-1">tokens</span>
+                        <span className="text-sm font-normal text-text-muted ml-1">tokens</span>
                       </p>
                     </div>
 
                     {selectedModel.pricing && (
                       <div className="bg-background rounded-xl p-4 border border-border-medium">
-                        <p className="text-sm text-muted mb-1">Max Output Tokens</p>
-                        <p className="text-2xl font-bold text-white">
+                        <p className="text-sm text-text-muted mb-1">Max Output Tokens</p>
+                        <p className="text-2xl font-bold text-foreground">
                           {(selectedModel.pricing.max_tokens / 1000).toLocaleString()}K
                         </p>
                       </div>
@@ -228,20 +228,20 @@ export default function ModelPricing() {
 
                   {selectedModel.pricing && (
                     <div className="border-t border-border-medium pt-6">
-                      <h4 className="text-lg font-semibold text-white mb-4">Pricing</h4>
+                      <h4 className="text-lg font-semibold text-foreground mb-4">Pricing</h4>
                       <div className="grid grid-cols-2 gap-4">
                         <div className="bg-background rounded-xl p-4 border border-border-medium">
                           <p className="text-sm text-primary mb-1">Input</p>
-                          <p className="text-2xl font-bold text-white">
+                          <p className="text-2xl font-bold text-foreground">
                             ${selectedModel.pricing.input_price_per_1m}
-                            <span className="text-sm font-normal text-muted ml-1">/1M tokens</span>
+                            <span className="text-sm font-normal text-text-muted ml-1">/1M tokens</span>
                           </p>
                         </div>
                         <div className="bg-background rounded-xl p-4 border border-border-medium">
                           <p className="text-sm text-primary mb-1">Output</p>
-                          <p className="text-2xl font-bold text-white">
+                          <p className="text-2xl font-bold text-foreground">
                             ${selectedModel.pricing.output_price_per_1m}
-                            <span className="text-sm font-normal text-muted ml-1">/1M tokens</span>
+                            <span className="text-sm font-normal text-text-muted ml-1">/1M tokens</span>
                           </p>
                         </div>
                       </div>
@@ -249,7 +249,7 @@ export default function ModelPricing() {
                   )}
                 </div>
               ) : (
-                <div className="bg-surface-low border border-border-medium rounded-2xl p-8 text-center text-muted">
+                <div className="bg-surface-low border border-border-medium rounded-2xl p-8 text-center text-text-muted">
                   Select a model to view details
                 </div>
               )}
@@ -258,15 +258,15 @@ export default function ModelPricing() {
 
           {/* CTA */}
           <div className="mt-16 text-center">
-            <h3 className="text-3xl font-bold text-white mb-4">
+            <h3 className="text-3xl font-bold text-foreground mb-4">
               Ready to Access Every Model?
             </h3>
             <p className="text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
-              Drop-in API replacement. Compatible with OpenAI SDK. Hosted on B200 GPUs.
+              Drop-in API replacement. Compatible with OpenAI-style APIs. Hosted on B200 GPUs.
             </p>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-semibold py-3 px-8 rounded-lg text-lg hover:bg-primary-hover transition-colors shadow-[0_0_30px_rgba(56,211,159,0.3)] cursor-pointer"
+              className="btn-primary glow-green-subtle inline-flex cursor-pointer items-center gap-2 rounded-lg px-8 py-3 text-lg font-semibold"
             >
               Get API Access
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">

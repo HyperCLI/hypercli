@@ -1,8 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { ArrowRight } from "lucide-react"
-import Link from "next/link"
+import { CTAButtonGroup } from "@hypercli/shared-ui"
 import type { CTA } from "../types"
 
 type CTASectionProps = {
@@ -27,29 +26,22 @@ export function CTASection({
           viewport={{ once: true }}
           transition={{ duration: 0.5 }}
         >
-          <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight leading-tight max-w-3xl mb-6">
+          <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight leading-tight max-w-3xl mb-6">
             {headline}
           </h2>
 
-          <p className="text-lg text-muted-foreground mb-10 max-w-2xl leading-relaxed">
+          <p className="text-lg text-text-secondary mb-10 max-w-2xl leading-relaxed">
             {body}
           </p>
 
-          <div className="flex flex-wrap gap-4">
-            <Link
-              href={primaryCTA.href}
-              className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              {primaryCTA.label}
-              <ArrowRight className="w-5 h-5" />
-            </Link>
-            <Link
-              href={secondaryCTA.href}
-              className="px-8 py-4 bg-surface-low/40 text-white rounded-lg hover:bg-surface-low/60 transition-colors border border-border-medium/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-            >
-              {secondaryCTA.label}
-            </Link>
-          </div>
+          <CTAButtonGroup
+            align="left"
+            className="flex-wrap"
+            actions={[
+              { label: primaryCTA.label, href: primaryCTA.href, variant: "primary", showArrow: true },
+              { label: secondaryCTA.label, href: secondaryCTA.href, variant: "secondary" },
+            ]}
+          />
         </motion.div>
       </div>
     </section>

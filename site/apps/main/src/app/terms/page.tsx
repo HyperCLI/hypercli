@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { Header, Footer } from "@hypercli/shared-ui";
+import { Footer, Header, LegalPageShell } from "@hypercli/shared-ui";
 
 export const metadata: Metadata = {
   title: "Terms of Service - HyperCLI",
@@ -8,16 +8,13 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="pt-24 pb-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl font-bold text-foreground mb-4">
-            Terms of Service
-          </h1>
-          <p className="text-muted-foreground mb-8">Last Updated: February 5, 2025</p>
-
-          <div className="prose prose-invert max-w-none space-y-8 text-muted-foreground leading-relaxed">
+    <LegalPageShell
+      header={<Header />}
+      footer={<Footer />}
+      title="Terms of Service"
+      lastUpdated="February 5, 2025"
+      contentClassName="text-muted-foreground leading-relaxed"
+    >
             <section>
               <p>
                 These Terms of Service (this &quot;Agreement&quot;) apply to your access
@@ -350,10 +347,6 @@ export default function TermsPage() {
                 .
               </p>
             </section>
-          </div>
-        </div>
-      </main>
-      <Footer />
-    </div>
+    </LegalPageShell>
   );
 }

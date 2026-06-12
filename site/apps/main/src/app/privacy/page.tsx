@@ -1,5 +1,5 @@
 import { Metadata } from "next";
-import { Header, Footer } from "@hypercli/shared-ui";
+import { Footer, Header, LegalPageShell } from "@hypercli/shared-ui";
 
 export const metadata: Metadata = {
   title: "Privacy Policy - HyperCLI",
@@ -8,16 +8,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <Header />
-      <main className="pt-24 pb-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl font-bold text-foreground mb-4">
-            Privacy Policy
-          </h1>
-          <p className="text-muted-foreground mb-8">Last Updated: February 5, 2025</p>
-
-          <div className="prose prose-invert max-w-none space-y-8">
+    <LegalPageShell header={<Header />} footer={<Footer />} title="Privacy Policy" lastUpdated="February 5, 2025">
             <section>
               <h2 className="text-2xl font-semibold text-foreground mb-4">
                 1. Introduction
@@ -384,10 +375,6 @@ export default function PrivacyPage() {
                 </p>
               </div>
             </section>
-          </div>
-        </div>
-      </main>
-      <Footer />
-    </div>
+    </LegalPageShell>
   );
 }

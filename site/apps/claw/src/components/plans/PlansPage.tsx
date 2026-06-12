@@ -575,15 +575,15 @@ export default function PlansPage() {
         <div
           className={`glass-card p-4 mb-6 flex items-start justify-between gap-3 ${
             checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
-              ? "border border-amber-400/25"
-              : "border border-[#38D39F]/20"
+              ? "border border-warning/30"
+              : "border border-[rgb(var(--selection-accent-rgb)_/_0.24)]"
           }`}
         >
           <p
             className={`text-sm ${
               checkoutSync.status === "pending" || checkoutSync.status === "cancelled"
-                ? "text-amber-100"
-                : "text-[#B7F5DF]"
+                ? "text-warning"
+                : "text-[var(--selection-accent)]"
             }`}
           >
             {checkoutSync.message}
@@ -593,7 +593,7 @@ export default function PlansPage() {
               <button
                 type="button"
                 onClick={() => { void refreshCheckoutEntitlements(); }}
-                className="text-sm font-medium text-foreground underline underline-offset-4 transition hover:text-[#B7F5DF]"
+                className="text-sm font-medium text-foreground underline underline-offset-4 transition hover:text-[var(--selection-accent)]"
               >
                 Refresh
               </button>
@@ -610,20 +610,20 @@ export default function PlansPage() {
       )}
 
       {subscriptionNotice && (
-        <div className="glass-card p-4 mb-6 border border-[#38D39F]/20">
-          <p className="text-sm text-[#B7F5DF]">{subscriptionNotice}</p>
+        <div className="glass-card p-4 mb-6 border border-[rgb(var(--selection-accent-rgb)_/_0.24)]">
+          <p className="text-sm text-[var(--selection-accent)]">{subscriptionNotice}</p>
         </div>
       )}
 
       {subscriptionError && (
-        <div className="glass-card p-4 mb-6 border border-red-500/30">
-          <p className="text-sm text-red-200">{subscriptionError}</p>
+        <div className="glass-card p-4 mb-6 border border-destructive/30">
+          <p className="text-sm text-destructive">{subscriptionError}</p>
         </div>
       )}
 
       {catalogError && (
-        <div className="glass-card p-4 mb-6 border border-red-500/30">
-          <p className="text-sm text-red-200">{catalogError}</p>
+        <div className="glass-card p-4 mb-6 border border-destructive/30">
+          <p className="text-sm text-destructive">{catalogError}</p>
         </div>
       )}
 
@@ -766,7 +766,7 @@ export default function PlansPage() {
 
       {displayProducts.length === 0 ? (
         <div className="glass-card p-6">
-          <p className="text-sm text-text-secondary">No plans are available from the SDK catalog right now.</p>
+          <p className="text-sm text-text-secondary">No plans are available from the plan catalog right now.</p>
         </div>
       ) : (
         <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-4">
@@ -784,15 +784,15 @@ export default function PlansPage() {
             return (
               <div key={product.id} className="glass-card p-6 flex flex-col">
                 {waitingForLaunchEntitlement ? (
-                  <div className="text-xs font-semibold text-amber-100 bg-amber-400/10 px-3 py-1 rounded-full self-start mb-4">
+                  <div className="text-xs font-semibold text-warning bg-warning/10 px-3 py-1 rounded-full self-start mb-4">
                     Payment active, waiting for entitlement
                   </div>
                 ) : ownedCount > 0 ? (
-                  <div className="text-xs font-semibold text-[#38D39F] bg-[#38D39F]/10 px-3 py-1 rounded-full self-start mb-4">
+                  <div className="text-xs font-semibold text-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-1 rounded-full self-start mb-4">
                     You own {ownedCount}
                   </div>
                 ) : product.highlighted ? (
-                  <div className="text-xs font-semibold text-foreground bg-white/5 px-3 py-1 rounded-full self-start mb-4">
+                  <div className="text-xs font-semibold text-foreground bg-surface-high px-3 py-1 rounded-full self-start mb-4">
                     Popular
                   </div>
                 ) : null}

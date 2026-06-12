@@ -2,7 +2,7 @@
 
 import { useEffect, useRef, useState } from "react";
 import { motion, useInView } from "framer-motion";
-import { Check, X } from "lucide-react";
+import { CapabilityList, GlassCard, MarketingSection, SectionHeading } from "@hypercli/shared-ui";
 import type { HyperAgentModel } from "@hypercli.com/sdk/agent";
 import { createPublicHyperAgentClient } from "@/lib/agent-client";
 
@@ -92,27 +92,22 @@ export function ModelsSection() {
   const reveal = isInView || hasMounted;
 
   return (
-    <section
+    <MarketingSection
       ref={sectionRef}
       id="models"
-      className="relative py-24 sm:py-32 px-4 sm:px-6 lg:px-8 overflow-hidden bg-background-secondary"
+      background="secondary"
     >
-      <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
-
-      <div className="max-w-7xl mx-auto relative">
         <motion.div
           initial={{ opacity: 0, y: 40 }}
           animate={reveal ? { opacity: 1, y: 0 } : { opacity: 0, y: 40 }}
           transition={{ duration: 0.8, ease: [0.22, 1, 0.36, 1] }}
-          className="text-center mb-16"
+          className="mb-16"
         >
-          <h2 className="text-4xl sm:text-5xl font-bold tracking-tight mb-4">
-            Frontier <span className="gradient-text-primary">Models</span>
-          </h2>
-          <p className="text-lg text-text-secondary max-w-2xl mx-auto">
-            All models included in every plan. Choose the right one for your
-            workload.
-          </p>
+          <SectionHeading
+            title="Frontier"
+            accent="Models"
+            description="All models included in every plan. Choose the right one for your workload."
+          />
         </motion.div>
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-6">
@@ -132,51 +127,25 @@ export function ModelsSection() {
                   delay: 0.2 + index * 0.1,
                   ease: [0.22, 1, 0.36, 1],
                 }}
-                className={`glass-card p-6 flex flex-col ${
-                  display.highlighted
-                    ? "border-[#38D39F]/40 shadow-[0_0_40px_rgba(56,211,159,0.12)]"
-                    : ""
-                }`}
               >
-                <code className="text-xs text-text-tertiary bg-surface-low px-2.5 py-1 rounded font-mono self-start mb-4">
-                  {model.id}
-                </code>
+                <GlassCard highlighted={display.highlighted} className="flex h-full flex-col p-6">
+                  <code className="mb-4 self-start rounded bg-surface-low px-2.5 py-1 font-mono text-xs text-text-tertiary">
+                    {model.id}
+                  </code>
 
-                <h3 className="text-lg font-semibold text-foreground">
-                  {display.title}
-                </h3>
-                <p className="text-sm text-text-tertiary mt-1 mb-4">
-                  {display.tagline}
-                </p>
+                  <h3 className="text-lg font-semibold text-foreground">{display.title}</h3>
+                  <p className="mb-4 mt-1 text-sm text-text-tertiary">{display.tagline}</p>
 
-                <div className="flex items-baseline gap-1 mt-auto mb-1">
-                  <span className="text-3xl font-bold text-foreground">
-                    {fmtCtx(model.context_length)}
-                  </span>
-                  <span className="text-text-muted text-sm">context</span>
-                </div>
+                  <div className="mb-1 mt-auto flex items-baseline gap-1">
+                    <span className="text-3xl font-bold text-foreground">{fmtCtx(model.context_length)}</span>
+                    <span className="text-sm text-text-muted">context</span>
+                  </div>
 
-                <ul className="space-y-3 mb-2">
-                  {capabilities(model).map((cap) => (
-                    <li
-                      key={cap.label}
-                      className="flex items-center gap-2 text-sm"
-                    >
-                      {cap.active ? (
-                        <Check className="w-4 h-4 text-primary flex-shrink-0" />
-                      ) : (
-                        <X className="w-4 h-4 text-text-muted/40 flex-shrink-0" />
-                      )}
-                      <span
-                        className={
-                          cap.active ? "text-text-secondary" : "text-text-muted/50"
-                        }
-                      >
-                        {cap.label}
-                      </span>
-                    </li>
-                  ))}
-                </ul>
+                  <CapabilityList
+                    className="mb-2"
+                    items={capabilities(model).map((cap) => ({ label: cap.label, included: cap.active }))}
+                  />
+                </GlassCard>
               </motion.div>
             );
           })}
@@ -190,7 +159,6 @@ export function ModelsSection() {
         >
           All model usage is included in your active plan.
         </motion.p>
-      </div>
-    </section>
+    </MarketingSection>
   );
 }

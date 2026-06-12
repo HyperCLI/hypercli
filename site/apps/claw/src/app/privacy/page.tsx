@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import { LegalPageShell } from "@hypercli/shared-ui";
 import { ClawHeader } from "@/components/landing/ClawHeader";
 import { ClawFooter } from "@/components/landing/ClawFooter";
 
@@ -9,16 +10,7 @@ export const metadata: Metadata = {
 
 export default function PrivacyPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <ClawHeader />
-      <main className="pt-24 pb-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl font-bold text-foreground mb-4">
-            Privacy Policy
-          </h1>
-          <p className="text-text-muted mb-8">Last Updated: February 4, 2025</p>
-
-          <div className="prose prose-invert max-w-none space-y-8">
+    <LegalPageShell header={<ClawHeader />} footer={<ClawFooter />} title="Privacy Policy" lastUpdated="February 4, 2025">
             <section>
               <h2 className="text-2xl font-semibold text-foreground mb-4">
                 1. Introduction
@@ -398,10 +390,6 @@ export default function PrivacyPage() {
                 </p>
               </div>
             </section>
-          </div>
-        </div>
-      </main>
-      <ClawFooter />
-    </div>
+    </LegalPageShell>
   );
 }

@@ -2,7 +2,7 @@
 
 import { useRef, useState } from "react";
 import { motion, useScroll, useTransform, useSpring } from "framer-motion";
-import { PrivyLoginModal } from "@hypercli/shared-ui";
+import { CodeSnippetCard, CTAButtonGroup, HeroBadge, PrivyLoginModal } from "@hypercli/shared-ui";
 import { useAgentAuth } from "@/hooks/useAgentAuth";
 import { AUTH_BASE_URL } from "@/lib/api";
 
@@ -51,9 +51,8 @@ export function HeroSection() {
         {/* Grain texture */}
         <div className="absolute inset-0 opacity-[0.03] pointer-events-none bg-grid-pattern" />
 
-        {/* Animated glow */}
         <motion.div
-          className="absolute top-1/3 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[800px] h-[500px] bg-[#38D39F]/5 blur-[120px] rounded-full"
+          className="absolute top-1/3 left-1/2 h-[500px] w-[800px] -translate-x-1/2 -translate-y-1/2 rounded-full bg-primary/5 blur-[120px]"
           animate={{
             scale: [1, 1.1, 1],
             opacity: [0.05, 0.08, 0.05],
@@ -69,20 +68,15 @@ export function HeroSection() {
           style={{ y: contentY, opacity: contentOpacity }}
           className="relative max-w-5xl mx-auto text-center w-full overflow-hidden"
         >
-          {/* Badge */}
           <motion.div
             initial={{ opacity: 0, y: 20 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.6, ease: [0.22, 1, 0.36, 1] }}
-            className="inline-flex items-center gap-2 px-4 py-1.5 rounded-full border border-[#38D39F]/20 bg-[#38D39F]/5 mb-8"
+            className="mb-8"
           >
-            <span className="w-2 h-2 rounded-full bg-primary animate-pulse" />
-            <span className="text-sm text-primary font-medium">
-              Flat-rate inference for AI agents
-            </span>
+            <HeroBadge>Flat-rate inference for AI agents</HeroBadge>
           </motion.div>
 
-          {/* Headline */}
           <motion.h1
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -97,7 +91,6 @@ export function HeroSection() {
             <span className="gradient-text-primary">Inference</span>
           </motion.h1>
 
-          {/* Subheadline */}
           <motion.p
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -112,7 +105,6 @@ export function HeroSection() {
             per-token charges. OpenAI-compatible API on NVIDIA B200 GPUs.
           </motion.p>
 
-          {/* CTAs */}
           <motion.div
             initial={{ opacity: 0, y: 30 }}
             animate={{ opacity: 1, y: 0 }}
@@ -121,23 +113,16 @@ export function HeroSection() {
               delay: 0.3,
               ease: [0.22, 1, 0.36, 1],
             }}
-            className="flex flex-col sm:flex-row items-center justify-center gap-4 mb-16"
+            className="mb-16"
           >
-            <button
-              onClick={handleGetStarted}
-              className="btn-primary px-8 py-3 rounded-lg text-base font-semibold glow-green-subtle"
-            >
-              Get Started
-            </button>
-            <a
-              href="#pricing"
-              className="btn-secondary px-8 py-3 rounded-lg text-base font-medium"
-            >
-              View Pricing
-            </a>
+            <CTAButtonGroup
+              actions={[
+                { label: "Get Started", onClick: handleGetStarted, variant: "primary" },
+                { label: "View Pricing", href: "#pricing", variant: "secondary" },
+              ]}
+            />
           </motion.div>
 
-          {/* Code snippet */}
           <motion.div
             initial={{ opacity: 0, y: 40 }}
             animate={{ opacity: 1, y: 0 }}
@@ -146,24 +131,17 @@ export function HeroSection() {
               delay: 0.4,
               ease: [0.22, 1, 0.36, 1],
             }}
-            className="glass-card p-1 max-w-2xl mx-auto w-full"
+            className="mx-auto w-full max-w-2xl"
           >
-            <div className="flex items-center gap-2 px-4 py-2 border-b border-border/50">
-              <div className="flex gap-1.5">
-                <div className="w-3 h-3 rounded-full bg-[#ff5f56]" />
-                <div className="w-3 h-3 rounded-full bg-[#ffbd2e]" />
-                <div className="w-3 h-3 rounded-full bg-[#27c93f]" />
-              </div>
-              <span className="text-xs text-text-muted ml-2">terminal</span>
-            </div>
-            <pre className="p-4 text-left text-xs sm:text-sm text-text-secondary overflow-x-auto border-0 bg-transparent whitespace-pre-wrap break-all sm:whitespace-pre sm:break-normal">
-              <code>{codeSnippet}</code>
-            </pre>
+            <CodeSnippetCard
+              label="terminal"
+              code={codeSnippet}
+              preClassName="text-xs sm:text-sm whitespace-pre-wrap break-all sm:whitespace-pre sm:break-normal"
+            />
           </motion.div>
         </motion.div>
 
-        {/* Vignette */}
-        <div className="absolute inset-0 pointer-events-none bg-[radial-gradient(ellipse_at_center,transparent_0%,rgba(11,13,14,0.4)_70%)]" />
+        <div className="pointer-events-none absolute inset-0 bg-[radial-gradient(ellipse_at_center,transparent_0%,var(--background)_75%)] opacity-40" />
       </section>
 
       <PrivyLoginModal

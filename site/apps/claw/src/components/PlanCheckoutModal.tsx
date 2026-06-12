@@ -249,7 +249,7 @@ export function PlanCheckoutModal({
 
   const modal = (
     <div
-      className="fixed inset-0 bg-black/60 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
+      className="fixed inset-0 bg-background/70 backdrop-blur-sm flex items-center justify-center z-[9999] p-4"
       onClick={handleClose}
     >
       <div
@@ -300,7 +300,7 @@ export function PlanCheckoutModal({
           ) : (
             <>
               {/* Plan summary */}
-              <div className="p-4 rounded-lg bg-surface-low/50 border border-white/5 mb-6">
+              <div className="p-4 rounded-lg bg-surface-low/50 border border-border mb-6">
                 <div className="flex items-baseline justify-between mb-1">
                   <span className="text-foreground font-medium">
                     {plan.name}
@@ -335,7 +335,7 @@ export function PlanCheckoutModal({
                     className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
                       method === "card"
                         ? "border-[rgb(var(--selection-accent-rgb)_/_0.6)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]"
-                        : "border-white/10 hover:border-white/20"
+                        : "border-border hover:border-border-strong"
                     } disabled:opacity-50`}
                   >
                     <CreditCard className="w-5 h-5 text-foreground" />
@@ -351,7 +351,7 @@ export function PlanCheckoutModal({
                     className={`p-4 rounded-lg border-2 transition-all flex flex-col items-center gap-2 ${
                       method === "crypto"
                         ? "border-[rgb(var(--selection-accent-rgb)_/_0.6)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]"
-                        : "border-white/10 hover:border-white/20"
+                        : "border-border hover:border-border-strong"
                     } disabled:opacity-50`}
                   >
                     <Coins className="w-5 h-5 text-foreground" />
@@ -365,7 +365,7 @@ export function PlanCheckoutModal({
 
               {/* Crypto wallet status */}
               {method === "crypto" && (
-                <div className="mb-4 p-3 rounded-lg bg-surface-low/50 border border-white/5 text-sm">
+                <div className="mb-4 p-3 rounded-lg bg-surface-low/50 border border-border text-sm">
                   {walletAddress ? (
                     <div className="flex items-center gap-2 text-text-secondary">
                       <Wallet className="w-4 h-4 text-[var(--selection-accent)]" />
@@ -390,7 +390,7 @@ export function PlanCheckoutModal({
 
               {/* Error */}
               {error && (
-                <div className="mb-4 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f]">
+                <div className="mb-4 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive">
                   {error}
                 </div>
               )}

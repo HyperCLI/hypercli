@@ -1,8 +1,7 @@
 "use client"
 
 import { motion } from "framer-motion"
-import { ArrowRight } from "lucide-react"
-import Link from "next/link"
+import { CTAButtonGroup } from "@hypercli/shared-ui"
 import type { CTA } from "../types"
 
 type HeroSectionProps = {
@@ -28,29 +27,22 @@ export function HeroSection({
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.6 }}
       >
-        <h1 className="text-5xl sm:text-6xl lg:text-7xl text-white font-bold leading-[1.1] tracking-tight max-w-4xl mb-6">
+        <h1 className="text-5xl sm:text-6xl lg:text-7xl text-foreground font-bold leading-[1.1] tracking-tight max-w-4xl mb-6">
           {headline}
         </h1>
 
-        <p className="text-xl text-muted-foreground leading-relaxed mb-10 max-w-2xl">
+        <p className="text-xl text-text-secondary leading-relaxed mb-10 max-w-2xl">
           {subheadline}
         </p>
 
-        <div className="flex flex-wrap gap-4 mb-10">
-          <Link
-            href={primaryCTA.href}
-            className="px-8 py-4 bg-primary text-primary-foreground rounded-lg hover:bg-primary-hover transition-colors flex items-center gap-2 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            {primaryCTA.label}
-            <ArrowRight className="w-5 h-5" />
-          </Link>
-          <Link
-            href={secondaryCTA.href}
-            className="px-8 py-4 bg-surface-low/40 text-white rounded-lg hover:bg-surface-low/60 transition-colors border border-border-medium/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
-          >
-            {secondaryCTA.label}
-          </Link>
-        </div>
+        <CTAButtonGroup
+          align="left"
+          className="mb-10 flex-wrap"
+          actions={[
+            { label: primaryCTA.label, href: primaryCTA.href, variant: "primary", showArrow: true },
+            { label: secondaryCTA.label, href: secondaryCTA.href, variant: "secondary" },
+          ]}
+        />
 
         {trustBadges && trustBadges.length > 0 && (
           <div className="flex flex-wrap gap-3">

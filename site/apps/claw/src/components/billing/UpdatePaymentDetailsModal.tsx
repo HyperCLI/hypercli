@@ -79,7 +79,7 @@ function UpdatePaymentDetailsModalContent({
       aria-labelledby={titleId}
       aria-describedby={descriptionId}
       aria-modal="true"
-      className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4"
+      className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 p-4 backdrop-blur-sm"
       role="dialog"
     >
       <form
@@ -200,7 +200,7 @@ function UpdatePaymentDetailsModalContent({
           <button
             type="submit"
             disabled={isSubmitting}
-            className="inline-flex h-9 items-center justify-center rounded-lg bg-[var(--selection-accent)] px-3 text-sm font-semibold text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+            className="btn-primary inline-flex h-9 items-center justify-center rounded-lg px-3 text-sm font-semibold disabled:cursor-not-allowed disabled:opacity-60"
           >
             {isSubmitting ? "Confirming..." : "Confirm"}
           </button>

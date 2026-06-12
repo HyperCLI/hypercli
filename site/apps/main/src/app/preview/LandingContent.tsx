@@ -209,10 +209,10 @@ export function LandingContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-6">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-6">
               Every AI Platform Forces the Same Bad Tradeoff.
             </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl mb-12">
+            <p className="text-lg text-text-secondary leading-relaxed max-w-3xl mb-12">
               Trust shared infrastructure or spend months building your own. HyperCLI gives you a third option: private AI without the platform rebuild.
             </p>
           </motion.div>
@@ -233,13 +233,13 @@ export function LandingContent() {
               >
                 <p
                   className={`text-sm font-semibold mb-3 ${
-                    option.highlighted ? "text-primary" : "text-muted-foreground"
+                    option.highlighted ? "text-primary" : "text-text-secondary"
                   }`}
                 >
                   {option.label}
                 </p>
-                <h3 className="text-xl text-white font-bold mb-3">{option.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <h3 className="text-xl text-foreground font-bold mb-3">{option.title}</h3>
+                <p className="text-sm text-text-secondary leading-relaxed">
                   {option.description}
                 </p>
               </motion.div>
@@ -268,10 +268,10 @@ export function LandingContent() {
             transition={{ duration: 0.5 }}
             className="p-8 rounded-lg border border-border-medium/30 bg-surface-low"
           >
-            <h3 className="text-2xl text-white font-bold mb-4">
+            <h3 className="text-2xl text-foreground font-bold mb-4">
               Shared AI APIs optimize for convenience.
             </h3>
-            <p className="text-muted-foreground leading-relaxed">
+            <p className="text-text-secondary leading-relaxed">
               They are easy to start with because you inherit someone else&apos;s infrastructure. That is also the problem when security, procurement, or compliance asks where the data went.
             </p>
           </motion.div>
@@ -283,10 +283,10 @@ export function LandingContent() {
             transition={{ duration: 0.5, delay: 0.05 }}
             className="p-8 rounded-lg border border-primary/30 bg-primary/5"
           >
-            <h3 className="text-2xl text-white font-bold mb-4">
+            <h3 className="text-2xl text-foreground font-bold mb-4">
               HyperCLI optimizes for control.
             </h3>
-            <p className="text-muted-foreground leading-relaxed">
+            <p className="text-text-secondary leading-relaxed">
               Self-hosted or cloud, the point is the same: dedicated infrastructure, stronger auditability, and a path to production that does not force you into shared SaaS or a year-long internal build.
             </p>
           </motion.div>
@@ -305,10 +305,10 @@ export function LandingContent() {
             <p className="text-sm uppercase tracking-wider text-primary font-semibold mb-4">
               Choose your deployment model
             </p>
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-6">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-6">
               Same thesis. Two operating models.
             </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl">
+            <p className="text-lg text-text-secondary leading-relaxed max-w-3xl">
               Choose between full infrastructure ownership and dedicated managed isolation.
             </p>
           </motion.div>
@@ -327,20 +327,20 @@ export function LandingContent() {
                 <p className="text-sm uppercase tracking-wider text-primary font-semibold mb-2">
                   {option.label}
                 </p>
-                <h3 className="text-2xl text-white font-bold mb-3">{option.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed mb-6">
+                <h3 className="text-2xl text-foreground font-bold mb-3">{option.title}</h3>
+                <p className="text-sm text-text-secondary leading-relaxed mb-6">
                   {option.description}
                 </p>
                 <ul className="space-y-3 mb-8">
                   {option.bullets.map((bullet) => (
-                    <li key={bullet} className="text-sm text-muted-foreground leading-relaxed">
+                    <li key={bullet} className="text-sm text-text-secondary leading-relaxed">
                       {bullet}
                     </li>
                   ))}
                 </ul>
                 <Link
                   href={option.cta.href}
-                  className="inline-flex items-center gap-2 text-white font-medium hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md"
+                  className="inline-flex items-center gap-2 text-foreground font-medium hover:text-primary transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background rounded-md"
                 >
                   {option.cta.label}
                   <ArrowRight className="w-4 h-4" />
@@ -363,7 +363,7 @@ export function LandingContent() {
             <p className="text-sm uppercase tracking-wider text-primary font-semibold mb-4">
               Proof
             </p>
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-6">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-6">
               Enough proof to qualify the conversation.
             </h2>
           </motion.div>
@@ -379,8 +379,8 @@ export function LandingContent() {
                 transition={{ duration: 0.5, delay: index * 0.05 }}
               >
                 <pillar.icon className="w-6 h-6 text-primary mb-4" />
-                <h3 className="text-xl text-white font-bold mb-3">{pillar.title}</h3>
-                <p className="text-sm text-muted-foreground leading-relaxed">
+                <h3 className="text-xl text-foreground font-bold mb-3">{pillar.title}</h3>
+                <p className="text-sm text-text-secondary leading-relaxed">
                   {pillar.description}
                 </p>
               </motion.div>
@@ -415,7 +415,7 @@ export function LandingContent() {
             <p className="text-sm uppercase tracking-wider text-primary font-semibold mb-4">
               Industry paths
             </p>
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               Go deeper where the stakes are specific.
             </h2>
           </motion.div>
@@ -434,11 +434,11 @@ export function LandingContent() {
                   className="block h-full rounded-lg border border-border-medium/30 bg-surface-low p-8 transition-colors group hover:border-primary/30 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background"
                 >
                   <card.icon className="w-6 h-6 text-primary mb-4" />
-                  <h3 className="text-xl text-white font-bold mb-3 flex items-center gap-2">
+                  <h3 className="text-xl text-foreground font-bold mb-3 flex items-center gap-2">
                     {card.title}
-                    <ArrowRight className="w-4 h-4 text-muted-foreground transition-colors group-hover:text-primary" />
+                    <ArrowRight className="w-4 h-4 text-text-muted transition-colors group-hover:text-primary" />
                   </h3>
-                  <p className="text-sm text-muted-foreground leading-relaxed">
+                  <p className="text-sm text-text-secondary leading-relaxed">
                     {card.description}
                   </p>
                 </Link>
@@ -460,7 +460,7 @@ export function LandingContent() {
             <p className="text-sm uppercase tracking-wider text-primary font-semibold mb-4">
               FAQ
             </p>
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-6">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-6">
               Questions worth answering early.
             </h2>
           </motion.div>
@@ -475,11 +475,11 @@ export function LandingContent() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.05 }}
               >
-                <summary className="list-none cursor-pointer text-white font-semibold flex items-center justify-between gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
+                <summary className="list-none cursor-pointer text-foreground font-semibold flex items-center justify-between gap-4 rounded-md focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary focus-visible:ring-offset-2 focus-visible:ring-offset-background">
                   <span>{item.question}</span>
-                  <ArrowRight className="w-4 h-4 text-muted-foreground transition-transform group-open:rotate-90" />
+                  <ArrowRight className="w-4 h-4 text-text-muted transition-transform group-open:rotate-90" />
                 </summary>
-                <p className="mt-4 max-w-3xl text-sm text-muted-foreground leading-relaxed">
+                <p className="mt-4 max-w-3xl text-sm text-text-secondary leading-relaxed">
                   {item.answer}
                 </p>
               </motion.details>

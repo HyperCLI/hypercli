@@ -1,6 +1,6 @@
 "use client";
 
-import { Header, Footer } from "@hypercli/shared-ui";
+import { Footer, Header, MarketingPageHero } from "@hypercli/shared-ui";
 import Link from "next/link";
 import { motion } from "framer-motion";
 
@@ -40,22 +40,11 @@ export default function PlaygroundIndex() {
     <div className="bg-background min-h-screen">
       <Header />
       <main>
-        {/* Hero Section */}
-        <section className="relative pt-32 pb-24 px-4 sm:px-6 lg:px-8 bg-background">
-          <motion.div 
-            className="max-w-5xl mx-auto"
-            initial={{ opacity: 0, y: 20 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.6 }}
-          >
-            <h1 className="text-6xl sm:text-7xl lg:text-8xl text-white mb-8 leading-[1.1] tracking-tight">
-              Playground
-            </h1>
-            <p className="text-2xl text-muted-foreground leading-relaxed max-w-2xl">
-              Ready-to-run templates and workflows. Pick one, customize it, and run on GPU.
-            </p>
-          </motion.div>
-        </section>
+        <MarketingPageHero
+          title="Playground"
+          description="Ready-to-run templates and workflows. Pick one, customize it, and run on GPU."
+          className="pb-16"
+        />
 
         {/* Playground tiles */}
         <section className="pt-20 pb-32 px-4 sm:px-6 lg:px-8 bg-background border-t border-border-medium/30">
@@ -77,13 +66,13 @@ export default function PlaygroundIndex() {
                       <div className="h-11 w-11 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
                         {pg.icon}
                       </div>
-                      <h2 className="text-2xl font-semibold text-white group-hover:text-primary transition-colors">
+                      <h2 className="text-2xl font-semibold text-foreground group-hover:text-primary transition-colors">
                         {pg.title}
                       </h2>
                     </div>
                     <p className="text-muted-foreground mb-6 leading-relaxed">{pg.description}</p>
                     <div className="flex items-center justify-between">
-                      <span className="text-sm text-muted">{pg.count} templates</span>
+                      <span className="text-sm text-text-muted">{pg.count} templates</span>
                       <span className="text-primary text-sm font-medium group-hover:translate-x-1 transition-transform">
                         Browse →
                       </span>

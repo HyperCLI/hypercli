@@ -1,67 +1,45 @@
-"use client";
-
+import { LandingFooterShell, type LandingFooterLinkGroup } from "@hypercli/shared-ui";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 
-const footerLinks = {
-  Product: [
-    { label: "Features", href: "#features" },
-    { label: "Pricing", href: "#pricing" },
-    { label: "Documentation", href: "https://docs.hypercli.com/hyperclaw" },
-    { label: "API Reference", href: "https://docs.hypercli.com/hyperclaw" },
-  ],
-  Company: [
-    { label: "HyperCLI", href: "https://hypercli.com" },
-    { label: "Contact", href: "mailto:support@hypercli.com" },
-  ],
-  Legal: [
-    { label: "Privacy Policy", href: "/privacy" },
-    { label: "Terms of Service", href: "/terms" },
-  ],
-};
+const footerLinkGroups: LandingFooterLinkGroup[] = [
+  {
+    title: "Product",
+    links: [
+      { label: "Features", href: "#features" },
+      { label: "Pricing", href: "#pricing" },
+      { label: "Documentation", href: "https://docs.hypercli.com/hyperclaw" },
+      { label: "API Reference", href: "https://docs.hypercli.com/hyperclaw" },
+    ],
+  },
+  {
+    title: "Company",
+    links: [
+      { label: "HyperCLI", href: "https://hypercli.com" },
+      { label: "Contact", href: "mailto:support@hypercli.com" },
+    ],
+  },
+  {
+    title: "Legal",
+    links: [
+      { label: "Privacy Policy", href: "/privacy" },
+      { label: "Terms of Service", href: "/terms" },
+    ],
+  },
+];
 
 export function ClawFooter() {
   return (
-    <footer className="border-t border-border bg-background">
-      <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 py-12">
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-8">
-          {/* Brand */}
-          <div className="col-span-2 md:col-span-1">
-            <HyperCLILogoLink className="h-[31px] w-[102px]" />
-            <p className="text-sm text-text-muted mt-2 leading-relaxed">
-              Unlimited agent inference.
-              <br />
-              Flat-rate. OpenAI-compatible.
-            </p>
-          </div>
-
-          {/* Link columns */}
-          {Object.entries(footerLinks).map(([category, links]) => (
-            <div key={category}>
-              <h4 className="text-sm font-semibold text-foreground mb-3">
-                {category}
-              </h4>
-              <ul className="space-y-2">
-                {links.map((link) => (
-                  <li key={link.label}>
-                    <a
-                      href={link.href}
-                      className="text-sm text-text-muted hover:text-foreground transition-colors"
-                    >
-                      {link.label}
-                    </a>
-                  </li>
-                ))}
-              </ul>
-            </div>
-          ))}
-        </div>
-
-        <div className="border-t border-border mt-8 pt-8 text-center">
-          <p className="text-xs text-text-muted">
-            &copy; {new Date().getFullYear()} HyperCLI. All rights reserved.
-          </p>
-        </div>
-      </div>
-    </footer>
+    <LandingFooterShell
+      brand={<HyperCLILogoLink className="h-[31px] w-[102px]" />}
+      description={
+        <>
+          Unlimited agent inference.
+          <br />
+          Flat-rate. OpenAI-compatible.
+        </>
+      }
+      linkGroups={footerLinkGroups}
+      copyright={<>&copy; {new Date().getFullYear()} HyperCLI. All rights reserved.</>}
+    />
   );
 }

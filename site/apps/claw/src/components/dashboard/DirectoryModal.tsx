@@ -512,7 +512,7 @@ export function DirectoryModal({
                   <div className="flex h-full min-h-[320px] items-center justify-center rounded-xl border border-border bg-surface-low/20">
                     <div className="flex items-center gap-3 text-sm text-text-secondary">
                       <Loader2 className="h-4 w-4 animate-spin text-[var(--primary)]" />
-                      Loading SDK integrations...
+                      Loading integrations...
                     </div>
                   </div>
                 ) : selectedItemId && selectedPluginAvailable ? (
@@ -530,7 +530,7 @@ export function DirectoryModal({
                   <div className="flex h-full min-h-[260px] items-center justify-center rounded-xl border border-border bg-surface-low/20 p-6 text-center">
                     <div>
                       <p className="text-sm font-medium text-foreground">Integration unavailable</p>
-                      <p className="mt-1 text-xs text-text-muted">This agent&apos;s SDK does not expose that integration.</p>
+                      <p className="mt-1 text-xs text-text-muted">This agent does not expose that integration.</p>
                       <button
                         type="button"
                         onClick={handleBackToGrid}
@@ -547,7 +547,7 @@ export function DirectoryModal({
                         <div>
                           <h4 className="text-sm font-semibold text-foreground">Active for {agentName || "this agent"}</h4>
                           <p className="mt-0.5 text-xs text-text-muted">
-                            Connected integrations from the current SDK schema.
+                            Connected integrations available for this agent.
                           </p>
                         </div>
                         <span className="text-xs text-text-muted">{activePlugins.length} active</span>
@@ -633,7 +633,7 @@ export function DirectoryModal({
                       </div>
                     ) : (
                       <div className="rounded-lg border border-border bg-surface-low/20 px-4 py-8 text-center text-sm text-text-muted">
-                        No SDK integrations match this filter.
+                        No integrations match this filter.
                       </div>
                     )}
                   </div>

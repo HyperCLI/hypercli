@@ -15,7 +15,7 @@ const steps = [
   {
     step: "Step 2",
     title: "Connect Your Application",
-    description: "Change API base URL. Same SDKs. Zero code changes.",
+    description: "Change API base URL. Same API shape. Minimal integration changes.",
   },
   {
     step: "Step 3",
@@ -116,10 +116,10 @@ export function CloudContent() {
             <p className="text-sm uppercase tracking-wider text-primary font-semibold mb-4">
               Not like OpenAI
             </p>
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-6">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-6">
               Your Dedicated GPUs. Not Shared.
             </h2>
-            <p className="text-lg text-muted-foreground leading-relaxed max-w-3xl">
+            <p className="text-lg text-text-secondary leading-relaxed max-w-3xl">
               Most &ldquo;cloud AI&rdquo; platforms run your requests on shared
               infrastructure alongside thousands of other customers. Your data
               touches their servers, their logs, their storage. HyperCLI Cloud
@@ -139,7 +139,7 @@ export function CloudContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               How It Works
             </h2>
           </motion.div>
@@ -157,10 +157,10 @@ export function CloudContent() {
                 <p className="text-primary text-sm font-bold mb-2">
                   {step.step}
                 </p>
-                <h3 className="text-lg text-white font-semibold mb-2">
+                <h3 className="text-lg text-foreground font-semibold mb-2">
                   {step.title}
                 </h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-text-secondary">
                   {step.description}
                 </p>
               </motion.div>
@@ -185,7 +185,7 @@ export function CloudContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               Predictable Pricing. No Surprises.
             </h2>
           </motion.div>
@@ -200,17 +200,17 @@ export function CloudContent() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.05 }}
               >
-                <h3 className="text-xl text-white font-bold mb-2">
+                <h3 className="text-xl text-foreground font-bold mb-2">
                   {tier.name}
                 </h3>
-                <p className="text-3xl text-white font-bold mb-4">
+                <p className="text-3xl text-foreground font-bold mb-4">
                   {tier.price}
                 </p>
-                <p className="text-sm text-muted-foreground mb-2">
+                <p className="text-sm text-text-secondary mb-2">
                   <Check className="w-4 h-4 text-primary inline mr-1" />
                   {tier.includes}
                 </p>
-                <p className="text-xs text-muted-foreground">
+                <p className="text-xs text-text-muted">
                   Best for: {tier.bestFor}
                 </p>
               </motion.div>

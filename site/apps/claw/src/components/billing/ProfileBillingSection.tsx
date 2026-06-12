@@ -43,7 +43,7 @@ const BILLING_SECONDARY_BUTTON_CLASS =
   "inline-flex h-8 shrink-0 items-center justify-center gap-2 rounded-lg border border-border bg-background px-3 text-xs font-semibold text-foreground transition-colors hover:bg-surface-low disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 const BILLING_DANGER_BUTTON_CLASS =
-  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 text-xs font-semibold text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/20 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#d05f5f]/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
+  "inline-flex h-8 shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/10 px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/20 disabled:cursor-not-allowed disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-destructive/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background";
 
 function formatAgentsAmount(receipt: ReceiptRecord): string {
   const method = String(receipt.meta?.payment_method || "").toLowerCase();
@@ -192,7 +192,7 @@ function BillingStatusPill({ status }: { status: string }) {
         active
           ? "bg-[var(--selection-accent-soft)] text-[var(--selection-accent)]"
           : pending
-            ? "bg-[#4d3a12] text-[#f0c36a]"
+            ? "bg-warning/10 text-warning"
             : "bg-surface-low text-text-secondary"
       }`}
     >
@@ -535,17 +535,17 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
   return (
     <div className="space-y-5">
       {error ? (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {error}
         </div>
       ) : null}
       {subscriptionNotice ? (
-        <div className="rounded-lg border border-[#38D39F]/20 bg-[#38D39F]/5 px-4 py-3 text-sm text-[#B7F5DF]">
+        <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.24)] bg-[rgb(var(--selection-accent-rgb)_/_0.05)] px-4 py-3 text-sm text-[var(--selection-accent)]">
           {subscriptionNotice}
         </div>
       ) : null}
       {subscriptionError ? (
-        <div className="rounded-lg border border-red-500/30 bg-red-500/5 px-4 py-3 text-sm text-red-300">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/5 px-4 py-3 text-sm text-destructive">
           {subscriptionError}
         </div>
       ) : null}
@@ -592,7 +592,7 @@ export function ProfileBillingSection({ getToken }: ProfileBillingSectionProps) 
             )}
           </div>
         </div>
-        {paymentMethodError ? <p className="mt-2 text-xs font-medium text-red-300">{paymentMethodError}</p> : null}
+        {paymentMethodError ? <p className="mt-2 text-xs font-medium text-destructive">{paymentMethodError}</p> : null}
       </section>
 
       <section className="space-y-3">

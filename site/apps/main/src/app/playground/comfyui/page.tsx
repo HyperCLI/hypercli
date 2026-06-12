@@ -1,6 +1,6 @@
 "use client";
 
-import { Header, Footer } from "@hypercli/shared-ui";
+import { Footer, Header, PlaygroundSectionHeader, PlaygroundTemplateCard } from "@hypercli/shared-ui";
 import Link from "next/link";
 import { motion } from "framer-motion";
 import templatesIndex from "@/content/comfyui/index.json";
@@ -13,59 +13,6 @@ type Template = {
   output_type: string;
   tags: string[];
 };
-
-function TemplateCard({ template }: { template: Template }) {
-  const isVideo = template.output_type === "video";
-
-  return (
-    <Link
-      href={`/playground/comfyui/${template.template_id}`}
-      className="group block bg-surface-low/40 border border-border-medium/50 rounded-lg overflow-hidden hover:bg-surface-low/60 transition-colors"
-    >
-      <div className="aspect-square bg-background relative overflow-hidden">
-        {/* Animated webp auto-plays and loops natively in img tags */}
-        <img
-          src={`/comfyui/${template.template_id}/thumbnail.webp`}
-          alt={template.title}
-          className="object-cover w-full h-full group-hover:scale-105 transition-transform duration-300"
-        />
-        {/* Play indicator for video templates */}
-        {isVideo && (
-          <div className="absolute bottom-2 left-2 bg-primary/20 backdrop-blur-sm p-1.5 rounded-full border border-primary/30">
-            <svg className="h-3 w-3 text-primary" viewBox="0 0 24 24" fill="currentColor">
-              <polygon points="5 3 19 12 5 21 5 3" />
-            </svg>
-          </div>
-        )}
-        <div className="absolute top-2 right-2 bg-surface-low/80 backdrop-blur-sm px-2 py-0.5 rounded text-xs font-medium text-muted-foreground border border-border-medium/50">
-          {template.output_type}
-        </div>
-      </div>
-      <div className="p-3">
-        <h3 className="font-semibold text-white group-hover:text-primary transition-colors text-sm leading-tight">
-          {template.title}
-        </h3>
-        {template.description && (
-          <p className="text-xs text-muted-foreground mt-1 line-clamp-2">
-            {template.description}
-          </p>
-        )}
-      </div>
-    </Link>
-  );
-}
-
-function SectionHeader({ icon, title, count }: { icon: React.ReactNode; title: string; count: number }) {
-  return (
-    <div className="flex items-center gap-3 mb-6">
-      <div className="h-10 w-10 rounded-lg bg-primary/10 text-primary flex items-center justify-center">
-        {icon}
-      </div>
-      <h2 className="text-2xl font-bold text-white">{title}</h2>
-      <span className="text-sm font-medium text-muted-foreground bg-surface-low/40 px-2 py-1 rounded-full border border-border-medium/50">{count}</span>
-    </div>
-  );
-}
 
 export default function ComfyUIPlayground() {
   const templates = templatesIndex.templates as Template[];
@@ -92,10 +39,10 @@ export default function ComfyUIPlayground() {
               <Link href="/playground" className="text-muted-foreground hover:text-primary hover:underline transition-colors">
                 Playground
               </Link>
-              <span className="text-muted mx-2">/</span>
-              <span className="text-white font-medium">ComfyUI Templates</span>
+              <span className="text-text-muted mx-2">/</span>
+              <span className="text-foreground font-medium">ComfyUI Templates</span>
             </nav>
-            <h1 className="text-6xl sm:text-7xl lg:text-8xl text-white mb-8 leading-[1.1] tracking-tight">
+            <h1 className="text-6xl sm:text-7xl lg:text-8xl text-foreground mb-8 leading-[1.1] tracking-tight">
               ComfyUI Templates
             </h1>
             <p className="text-2xl text-muted-foreground leading-relaxed max-w-2xl">
@@ -111,7 +58,7 @@ export default function ComfyUIPlayground() {
             {/* Video Templates */}
             {videoTemplates.length > 0 && (
               <div className="mb-16">
-                <SectionHeader
+                <PlaygroundSectionHeader
                   icon={
                     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <polygon points="5 3 19 12 5 21 5 3" />
@@ -122,7 +69,20 @@ export default function ComfyUIPlayground() {
                 />
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {videoTemplates.map((template) => (
-                    <TemplateCard key={template.template_id} template={template} />
+                    <PlaygroundTemplateCard
+                      key={template.template_id}
+                      href={`/playground/comfyui/${template.template_id}`}
+                      title={template.title}
+                      description={template.description}
+                      thumbnailSrc={`/comfyui/${template.template_id}/thumbnail.webp`}
+                      outputType={template.output_type}
+                      aspect="square"
+                      mediaBadge={
+                        <svg className="h-3 w-3 text-primary" viewBox="0 0 24 24" fill="currentColor">
+                          <polygon points="5 3 19 12 5 21 5 3" />
+                        </svg>
+                      }
+                    />
                   ))}
                 </div>
               </div>
@@ -131,7 +91,7 @@ export default function ComfyUIPlayground() {
             {/* Image Templates */}
             {imageTemplates.length > 0 && (
               <div className="mb-16">
-                <SectionHeader
+                <PlaygroundSectionHeader
                   icon={
                     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <rect x="3" y="3" width="18" height="18" rx="2" ry="2" />
@@ -144,7 +104,15 @@ export default function ComfyUIPlayground() {
                 />
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {imageTemplates.map((template) => (
-                    <TemplateCard key={template.template_id} template={template} />
+                    <PlaygroundTemplateCard
+                      key={template.template_id}
+                      href={`/playground/comfyui/${template.template_id}`}
+                      title={template.title}
+                      description={template.description}
+                      thumbnailSrc={`/comfyui/${template.template_id}/thumbnail.webp`}
+                      outputType={template.output_type}
+                      aspect="square"
+                    />
                   ))}
                 </div>
               </div>
@@ -153,7 +121,7 @@ export default function ComfyUIPlayground() {
             {/* 3D Templates */}
             {threeDTemplates.length > 0 && (
               <div className="mb-16">
-                <SectionHeader
+                <PlaygroundSectionHeader
                   icon={
                     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <path d="M21 16V8a2 2 0 0 0-1-1.73l-7-4a2 2 0 0 0-2 0l-7 4A2 2 0 0 0 3 8v8a2 2 0 0 0 1 1.73l7 4a2 2 0 0 0 2 0l7-4A2 2 0 0 0 21 16z" />
@@ -164,7 +132,15 @@ export default function ComfyUIPlayground() {
                 />
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {threeDTemplates.map((template) => (
-                    <TemplateCard key={template.template_id} template={template} />
+                    <PlaygroundTemplateCard
+                      key={template.template_id}
+                      href={`/playground/comfyui/${template.template_id}`}
+                      title={template.title}
+                      description={template.description}
+                      thumbnailSrc={`/comfyui/${template.template_id}/thumbnail.webp`}
+                      outputType={template.output_type}
+                      aspect="square"
+                    />
                   ))}
                 </div>
               </div>
@@ -173,7 +149,7 @@ export default function ComfyUIPlayground() {
             {/* Other Templates */}
             {otherTemplates.length > 0 && (
               <div className="mb-16">
-                <SectionHeader
+                <PlaygroundSectionHeader
                   icon={
                     <svg className="h-5 w-5" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth={2}>
                       <circle cx="12" cy="12" r="10" />
@@ -185,7 +161,15 @@ export default function ComfyUIPlayground() {
                 />
                 <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4">
                   {otherTemplates.map((template) => (
-                    <TemplateCard key={template.template_id} template={template} />
+                    <PlaygroundTemplateCard
+                      key={template.template_id}
+                      href={`/playground/comfyui/${template.template_id}`}
+                      title={template.title}
+                      description={template.description}
+                      thumbnailSrc={`/comfyui/${template.template_id}/thumbnail.webp`}
+                      outputType={template.output_type}
+                      aspect="square"
+                    />
                   ))}
                 </div>
               </div>

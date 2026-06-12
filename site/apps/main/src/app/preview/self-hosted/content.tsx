@@ -94,7 +94,7 @@ export function SelfHostedContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               Three Commands to Production
             </h2>
           </motion.div>
@@ -106,15 +106,15 @@ export function SelfHostedContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5, delay: 0.1 }}
           >
-            <p className="text-muted-foreground"># Install the CLI</p>
-            <p className="text-white mb-4">pip install hypercli</p>
-            <p className="text-muted-foreground">
+            <p className="text-text-muted"># Install the CLI</p>
+            <p className="text-foreground mb-4">pip install hypercli</p>
+            <p className="text-text-muted">
               # Configure your infrastructure target
             </p>
-            <p className="text-white mb-4">
+            <p className="text-foreground mb-4">
               hyper config set --provider aws --region us-east-1
             </p>
-            <p className="text-muted-foreground">
+            <p className="text-text-muted">
               # Deploy your private AI platform
             </p>
             <p className="text-primary">pulumi up</p>
@@ -131,7 +131,7 @@ export function SelfHostedContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               Everything You Need. Nothing You Don&apos;t.
             </h2>
           </motion.div>
@@ -147,10 +147,10 @@ export function SelfHostedContent() {
                 transition={{ duration: 0.5, delay: index * 0.05 }}
               >
                 <feature.icon className="w-6 h-6 text-primary mb-4" />
-                <h3 className="text-lg text-white font-semibold mb-2">
+                <h3 className="text-lg text-foreground font-semibold mb-2">
                   {feature.title}
                 </h3>
-                <p className="text-sm text-muted-foreground">
+                <p className="text-sm text-text-secondary">
                   {feature.description}
                 </p>
               </motion.div>
@@ -168,7 +168,7 @@ export function SelfHostedContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               Simple, Predictable Pricing
             </h2>
           </motion.div>
@@ -183,20 +183,20 @@ export function SelfHostedContent() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.05 }}
               >
-                <p className="text-sm text-muted-foreground mb-2">
+                <p className="text-sm text-text-secondary mb-2">
                   {tier.users}
                 </p>
-                <h3 className="text-xl text-white font-bold mb-2">
+                <h3 className="text-xl text-foreground font-bold mb-2">
                   {tier.name}
                 </h3>
-                <p className="text-3xl text-white font-bold mb-6">
+                <p className="text-3xl text-foreground font-bold mb-6">
                   {tier.price}
                 </p>
                 <ul className="space-y-3">
                   {tier.features.map((feature) => (
                     <li
                       key={feature}
-                      className="flex items-center gap-2 text-sm text-muted-foreground"
+                      className="flex items-center gap-2 text-sm text-text-secondary"
                     >
                       <Check className="w-4 h-4 text-primary flex-shrink-0" />
                       {feature}
@@ -218,7 +218,7 @@ export function SelfHostedContent() {
             viewport={{ once: true }}
             transition={{ duration: 0.5 }}
           >
-            <h2 className="text-4xl sm:text-5xl text-white font-bold tracking-tight mb-12">
+            <h2 className="text-4xl sm:text-5xl text-foreground font-bold tracking-tight mb-12">
               Deploy Anywhere
             </h2>
           </motion.div>
@@ -233,10 +233,10 @@ export function SelfHostedContent() {
                 viewport={{ once: true }}
                 transition={{ duration: 0.5, delay: index * 0.05 }}
               >
-                <h3 className="text-white font-semibold mb-2">
+                <h3 className="text-foreground font-semibold mb-2">
                   {option.name}
                 </h3>
-                <p className="text-sm text-muted-foreground">{option.time}</p>
+                <p className="text-sm text-text-secondary">{option.time}</p>
               </motion.div>
             ))}
           </div>

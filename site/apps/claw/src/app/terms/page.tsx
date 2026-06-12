@@ -1,4 +1,5 @@
 import { Metadata } from "next";
+import { LegalPageShell } from "@hypercli/shared-ui";
 import { ClawHeader } from "@/components/landing/ClawHeader";
 import { ClawFooter } from "@/components/landing/ClawFooter";
 
@@ -9,16 +10,13 @@ export const metadata: Metadata = {
 
 export default function TermsPage() {
   return (
-    <div className="min-h-screen bg-background">
-      <ClawHeader />
-      <main className="pt-24 pb-16">
-        <div className="max-w-4xl mx-auto px-4 sm:px-6 lg:px-8">
-          <h1 className="text-4xl font-bold text-foreground mb-4">
-            Terms &amp; Conditions
-          </h1>
-          <p className="text-text-muted mb-8">Last Updated: February 4, 2025</p>
-
-          <div className="prose prose-invert max-w-none space-y-8 text-text-secondary leading-relaxed">
+    <LegalPageShell
+      header={<ClawHeader />}
+      footer={<ClawFooter />}
+      title="Terms & Conditions"
+      lastUpdated="February 4, 2025"
+      contentClassName="text-text-secondary leading-relaxed"
+    >
             <section>
               <p>
                 These Terms &amp; Conditions (this &quot;Agreement&quot;) apply to your access
@@ -482,10 +480,6 @@ export default function TermsPage() {
                 .
               </p>
             </section>
-          </div>
-        </div>
-      </main>
-      <ClawFooter />
-    </div>
+    </LegalPageShell>
   );
 }

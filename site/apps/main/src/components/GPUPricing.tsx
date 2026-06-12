@@ -132,9 +132,9 @@ export default function GPUPricing() {
 
   if (loading) {
     return (
-      <div className="py-20 text-center">
-        <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
-        <p className="mt-4 text-muted-foreground">Loading instances...</p>
+        <div className="py-20 text-center">
+          <div className="inline-block h-12 w-12 animate-spin rounded-full border-4 border-solid border-primary border-r-transparent"></div>
+          <p className="mt-4 text-muted-foreground">Loading instances...</p>
       </div>
     );
   }
@@ -142,7 +142,7 @@ export default function GPUPricing() {
   if (error) {
     return (
       <div className="py-20 text-center">
-        <p className="text-red-500">{error}</p>
+        <p className="text-error">{error}</p>
       </div>
     );
   }
@@ -157,8 +157,8 @@ export default function GPUPricing() {
               onClick={() => setFilter("all")}
               className={`px-6 py-2 rounded-full font-semibold transition-all cursor-pointer ${
                 filter === "all"
-                  ? "bg-primary text-primary-foreground shadow-[0_0_20px_rgba(56,211,159,0.3)]"
-                  : "bg-surface-low text-muted-foreground hover:bg-surface-high hover:text-white border border-border-medium"
+                  ? "bg-primary text-primary-foreground shadow-[0_0_20px_rgb(var(--selection-accent-rgb)_/_0.24)]"
+                  : "bg-surface-low text-text-secondary hover:bg-surface-high hover:text-foreground border border-border-medium"
               }`}
             >
               All GPUs
@@ -169,8 +169,8 @@ export default function GPUPricing() {
                 onClick={() => setFilter(type)}
                 className={`px-6 py-2 rounded-full font-semibold transition-all cursor-pointer ${
                   filter === type
-                    ? "bg-primary text-primary-foreground shadow-[0_0_20px_rgba(56,211,159,0.3)]"
-                    : "bg-surface-low text-muted-foreground hover:bg-surface-high hover:text-white border border-border-medium"
+                    ? "bg-primary text-primary-foreground shadow-[0_0_20px_rgb(var(--selection-accent-rgb)_/_0.24)]"
+                    : "bg-surface-low text-text-secondary hover:bg-surface-high hover:text-foreground border border-border-medium"
                 }`}
               >
                 {getGPUDisplayName(type)}
@@ -191,7 +191,7 @@ export default function GPUPricing() {
                     }`}
                   >
                     <div className="flex items-center justify-between">
-                      <span className="font-semibold text-white">
+                      <span className="font-semibold text-foreground">
                         {instance.gpu_count}x {getGPUDisplayName(instance.gpu_type)}
                       </span>
                       {instance.minInterruptible && (
@@ -200,7 +200,7 @@ export default function GPUPricing() {
                         </span>
                       )}
                     </div>
-                    <p className="text-xs text-muted mt-1">
+                    <p className="text-xs text-text-muted mt-1">
                       {instance.gpu_description} ·{" "}
                       {instance.cpu_cores} vCPUs · {instance.memory_gb}GB RAM
                     </p>
@@ -215,11 +215,11 @@ export default function GPUPricing() {
                 <div className="bg-surface-low border border-border-medium rounded-2xl p-8">
                   <div className="flex items-start justify-between mb-6">
                     <div>
-                      <h3 className="text-2xl font-bold text-white">
+                      <h3 className="text-2xl font-bold text-foreground">
                         {selectedInstance.gpu_count}x {getGPUDisplayName(selectedInstance.gpu_type)}
                       </h3>
-                      <p className="text-sm text-muted mt-1">{selectedInstance.gpu_description}</p>
-                      <p className="text-sm font-mono text-muted mt-1">{selectedInstance.id}</p>
+                      <p className="text-sm text-text-muted mt-1">{selectedInstance.gpu_description}</p>
+                      <p className="text-sm font-mono text-text-muted mt-1">{selectedInstance.id}</p>
                     </div>
                     {getGPUArch(selectedInstance.gpu_type) !== "Unknown" && (
                       <span className="px-3 py-1 text-sm font-semibold rounded-full bg-primary/10 text-primary border border-primary/20">
@@ -231,22 +231,22 @@ export default function GPUPricing() {
                   {/* Specs Grid */}
                   <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
                     <div className="bg-background rounded-xl p-4 border border-border-medium">
-                      <p className="text-sm text-muted mb-1">GPU Memory</p>
-                      <p className="text-lg font-bold text-white">
+                      <p className="text-sm text-text-muted mb-1">GPU Memory</p>
+                      <p className="text-lg font-bold text-foreground">
                         {getGPUVram(selectedInstance.gpu_type)}
                       </p>
                     </div>
                     <div className="bg-background rounded-xl p-4 border border-border-medium">
-                      <p className="text-sm text-muted mb-1">vCPUs</p>
-                      <p className="text-lg font-bold text-white">{selectedInstance.cpu_cores}</p>
+                      <p className="text-sm text-text-muted mb-1">vCPUs</p>
+                      <p className="text-lg font-bold text-foreground">{selectedInstance.cpu_cores}</p>
                     </div>
                     <div className="bg-background rounded-xl p-4 border border-border-medium">
-                      <p className="text-sm text-muted mb-1">RAM</p>
-                      <p className="text-lg font-bold text-white">{selectedInstance.memory_gb} GB</p>
+                      <p className="text-sm text-text-muted mb-1">RAM</p>
+                      <p className="text-lg font-bold text-foreground">{selectedInstance.memory_gb} GB</p>
                     </div>
                     <div className="bg-background rounded-xl p-4 border border-border-medium">
-                      <p className="text-sm text-muted mb-1">Storage</p>
-                      <p className="text-lg font-bold text-white">
+                      <p className="text-sm text-text-muted mb-1">Storage</p>
+                      <p className="text-lg font-bold text-foreground">
                         {selectedInstance.storage_gb >= 1000
                           ? `${(selectedInstance.storage_gb / 1000).toFixed(1)} TB`
                           : `${selectedInstance.storage_gb} GB`}
@@ -256,22 +256,22 @@ export default function GPUPricing() {
 
                   {/* Pricing by Region */}
                   <div className="border-t border-border-medium pt-6">
-                    <h4 className="text-lg font-semibold text-white mb-4">Pricing by Region</h4>
+                    <h4 className="text-lg font-semibold text-foreground mb-4">Pricing by Region</h4>
                     <div className="space-y-3">
                       {Object.entries(selectedInstance.pricing).map(([region, prices]) => (
                         <div key={region} className="flex items-center justify-between p-4 bg-background rounded-xl border border-border-medium">
                           <div className="flex items-center gap-3">
                             <span className="text-2xl">{getRegionFlag(region)}</span>
                             <div>
-                              <p className="font-semibold text-white">{getRegionName(region)}</p>
-                              <p className="text-xs text-muted uppercase">{region}</p>
+                              <p className="font-semibold text-foreground">{getRegionName(region)}</p>
+                              <p className="text-xs text-text-muted uppercase">{region}</p>
                             </div>
                           </div>
                           <div className="flex gap-4">
                             {prices["on-demand"] && (
                               <div className="text-right">
-                                <p className="text-xs text-muted">On-Demand</p>
-                                <p className="font-bold text-white">${prices["on-demand"].toFixed(2)}/hr</p>
+                                <p className="text-xs text-text-muted">On-Demand</p>
+                                <p className="font-bold text-foreground">${prices["on-demand"].toFixed(2)}/hr</p>
                               </div>
                             )}
                             {prices.interruptable && (
@@ -288,7 +288,7 @@ export default function GPUPricing() {
 
                   {/* Regions */}
                   <div className="mt-6 pt-6 border-t border-border-medium">
-                    <h4 className="text-sm font-semibold text-muted uppercase mb-3">Available Regions</h4>
+                    <h4 className="text-sm font-semibold text-text-muted uppercase mb-3">Available Regions</h4>
                     <div className="flex flex-wrap gap-2">
                       {selectedInstance.regions.map((region) => (
                         <span
@@ -303,7 +303,7 @@ export default function GPUPricing() {
                   </div>
                 </div>
               ) : (
-                <div className="bg-surface-low border border-border-medium rounded-2xl p-8 text-center text-muted">
+                <div className="bg-surface-low border border-border-medium rounded-2xl p-8 text-center text-text-muted">
                   Select an instance to view details
                 </div>
               )}
@@ -312,7 +312,7 @@ export default function GPUPricing() {
 
           {/* CTA */}
           <div className="mt-16 text-center">
-            <h3 className="text-3xl font-bold text-white mb-4">
+            <h3 className="text-3xl font-bold text-foreground mb-4">
               Ready to Deploy?
             </h3>
             <p className="text-lg text-muted-foreground mb-6 max-w-2xl mx-auto">
@@ -320,7 +320,7 @@ export default function GPUPricing() {
             </p>
             <button
               onClick={() => setIsModalOpen(true)}
-              className="inline-flex items-center gap-2 bg-primary text-primary-foreground font-semibold py-3 px-8 rounded-lg text-lg hover:bg-primary-hover transition-colors shadow-[0_0_30px_rgba(56,211,159,0.3)] cursor-pointer"
+              className="btn-primary glow-green-subtle inline-flex cursor-pointer items-center gap-2 rounded-lg px-8 py-3 text-lg font-semibold"
             >
               Get Started
               <svg xmlns="http://www.w3.org/2000/svg" className="h-5 w-5" viewBox="0 0 20 20" fill="currentColor">
