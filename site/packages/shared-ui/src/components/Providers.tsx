@@ -7,6 +7,7 @@ import "@turnkey/react-wallet-kit/styles.css";
 import { AuthProvider } from "../providers/AuthProvider";
 import { WalletProvider } from "../contexts/WalletContext";
 import { RainbowKitProvider } from "../providers/RainbowKitProvider";
+import { ThemeProvider } from "./ThemeProvider";
 
 declare global {
   interface Window {
@@ -68,34 +69,36 @@ export function Providers({ children }: { children: React.ReactNode }) {
   }, []);
 
   const appProviders = (
-    <RainbowKitProvider>
-      <TurnkeyProvider
-        config={turnkeyConfig}
-        callbacks={{
-          onError: (error) => {
-            console.error("Turnkey error:", {
-              message: error.message,
-              code: error.code,
-              cause: error.cause,
-            });
-          },
-          onAuthenticationSuccess: ({ session, action, method }) => {
-            console.log("✅ Authentication successful!", {
-              action,
-              method,
-              userId: session?.userId,
-              organizationId: session?.organizationId,
-            });
-          },
-        }}
-      >
-        <AuthProvider>
-          <WalletProvider>
-            {children}
-          </WalletProvider>
-        </AuthProvider>
-      </TurnkeyProvider>
-    </RainbowKitProvider>
+    <ThemeProvider>
+      <RainbowKitProvider>
+        <TurnkeyProvider
+          config={turnkeyConfig}
+          callbacks={{
+            onError: (error) => {
+              console.error("Turnkey error:", {
+                message: error.message,
+                code: error.code,
+                cause: error.cause,
+              });
+            },
+            onAuthenticationSuccess: ({ session, action, method }) => {
+              console.log("✅ Authentication successful!", {
+                action,
+                method,
+                userId: session?.userId,
+                organizationId: session?.organizationId,
+              });
+            },
+          }}
+        >
+          <AuthProvider>
+            <WalletProvider>
+              {children}
+            </WalletProvider>
+          </AuthProvider>
+        </TurnkeyProvider>
+      </RainbowKitProvider>
+    </ThemeProvider>
   );
 
   if (!isValidPrivyAppId) {

@@ -1,4 +1,4 @@
-@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *, [data-theme="green"], [data-theme="green"] *));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="default"], [data-theme="default"] *, [data-theme="dark"], [data-theme="dark"] *, [data-theme="green"], [data-theme="green"] *));
 
 /* HyperCLI Design System - Dark Theme (Default) */
 :root,

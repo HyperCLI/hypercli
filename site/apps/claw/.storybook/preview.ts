@@ -5,8 +5,8 @@ const preview: Preview = {
   decorators: [
     (Story) => {
       if (typeof document !== 'undefined') {
-        document.documentElement.setAttribute('data-theme', 'green');
-        document.body?.setAttribute('data-theme', 'green');
+        document.documentElement.setAttribute('data-theme', 'default');
+        document.body?.setAttribute('data-theme', 'default');
       }
 
       return Story();

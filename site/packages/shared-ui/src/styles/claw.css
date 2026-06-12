@@ -1,8 +1,9 @@
-@custom-variant dark (&:where(.dark, .dark *, [data-theme="dark"], [data-theme="dark"] *, [data-theme="green"], [data-theme="green"] *));
+@custom-variant dark (&:where(.dark, .dark *, [data-theme="default"], [data-theme="default"] *, [data-theme="dark"], [data-theme="dark"] *, [data-theme="green"], [data-theme="green"] *));
 
-/* HyperClaw fixed-green theme. */
+/* HyperCLI product theme. Keep green as a compatibility alias for the current default. */
 :root,
 .dark,
+[data-theme="default"],
 [data-theme="dark"],
 [data-theme="green"] {
   --font-size: 16px;
@@ -48,6 +49,17 @@
   --selection-accent-soft: rgba(99, 228, 82, 0.1);
   --selection-accent-border: rgba(99, 228, 82, 0.3);
   --selection-background: rgba(99, 228, 82, 0.3);
+  --glass-card-background: rgba(20, 20, 22, 0.7);
+  --glass-card-background-fallback: rgba(20, 20, 22, 0.94);
+  --glass-card-border: rgba(255, 255, 255, 0.06);
+  --glass-card-hover-border: rgba(255, 255, 255, 0.1);
+  --glass-card-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  --glassmorphism-background: rgba(11, 13, 14, 0.8);
+  --glassmorphism-background-fallback: rgba(11, 13, 14, 0.96);
+  --gradient-text: linear-gradient(to right, #d4d6d7, #9ba0a2, #6e7375);
+  --gradient-text-primary: linear-gradient(to right, #fafafa, #a1a1a6);
+  --radial-background: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.02) 0%, #0a0a0b 60%);
+  --focus-outline: rgba(255, 255, 255, 0.3);
   --destructive: #d05f5f;
   --destructive-foreground: #fff;
   --success: #3ad8a0;
@@ -76,6 +88,91 @@
   --sidebar-accent-foreground: #fafafa;
   --sidebar-border: rgba(255, 255, 255, 0.18);
   --sidebar-ring: rgba(255, 255, 255, 0.2);
+}
+
+[data-theme="light"] {
+  --font-size: 16px;
+  --background: #f7f8f4;
+  --background-secondary: #eef3ee;
+  --surface: #ffffff;
+  --surface-low: #ffffff;
+  --surface-high: #edf3ee;
+  --surface-mid: #f2f6f2;
+  --surface-medium: #f2f6f2;
+  --foreground: #0d1511;
+  --text-secondary: #35463f;
+  --text-tertiary: #5d6d66;
+  --text-muted: #7d8a84;
+  --text-bright: #050806;
+  --tertiary-foreground: #5d6d66;
+  --color-text: #0d1511;
+  --card: #ffffff;
+  --card-foreground: #0d1511;
+  --popover: #ffffff;
+  --popover-foreground: #0d1511;
+  --primary: #1f8f65;
+  --primary-foreground: #ffffff;
+  --primary-hover: #177a55;
+  --primary-pressed: #116543;
+  --secondary: #edf3ee;
+  --secondary-foreground: #35463f;
+  --muted: #edf3ee;
+  --muted-foreground: #5d6d66;
+  --accent: #1f8f65;
+  --accent-foreground: #ffffff;
+  --accent-hover: #177a55;
+  --accent-pressed: #116543;
+  --accent-subtle: #d9f4e8;
+  --button-primary: #1f8f65;
+  --button-primary-foreground: #ffffff;
+  --button-primary-hover: #177a55;
+  --button-primary-pressed: #116543;
+  --button-primary-rgb: 31 143 101;
+  --selection-accent: #1f8f65;
+  --selection-accent-foreground: #ffffff;
+  --selection-accent-rgb: 31 143 101;
+  --selection-accent-soft: rgba(31, 143, 101, 0.1);
+  --selection-accent-border: rgba(31, 143, 101, 0.28);
+  --selection-background: rgba(31, 143, 101, 0.22);
+  --glass-card-background: rgba(255, 255, 255, 0.78);
+  --glass-card-background-fallback: rgba(255, 255, 255, 0.96);
+  --glass-card-border: rgba(13, 21, 17, 0.08);
+  --glass-card-hover-border: rgba(31, 143, 101, 0.24);
+  --glass-card-shadow: 0 4px 24px rgba(13, 21, 17, 0.1);
+  --glassmorphism-background: rgba(247, 248, 244, 0.84);
+  --glassmorphism-background-fallback: rgba(247, 248, 244, 0.98);
+  --gradient-text: linear-gradient(to right, #0d1511, #35463f, #7d8a84);
+  --gradient-text-primary: linear-gradient(to right, #0d1511, #1f8f65);
+  --radial-background: radial-gradient(ellipse at center, rgba(31, 143, 101, 0.08) 0%, #f7f8f4 62%);
+  --focus-outline: rgba(31, 143, 101, 0.5);
+  --destructive: #c94f4f;
+  --destructive-foreground: #fff;
+  --success: #1f8f65;
+  --warning: #a86f1f;
+  --error: #c94f4f;
+  --border: rgba(13, 21, 17, 0.14);
+  --border-medium: rgba(13, 21, 17, 0.2);
+  --border-strong: rgba(13, 21, 17, 0.32);
+  --input: transparent;
+  --input-background: #ffffff;
+  --switch-background: #edf3ee;
+  --font-weight-medium: 500;
+  --font-weight-normal: 400;
+  --ring: rgba(31, 143, 101, 0.35);
+  --chart-1: #1f8f65;
+  --chart-2: #2db789;
+  --chart-3: #116543;
+  --chart-4: #7bbf9b;
+  --chart-5: #d9f4e8;
+  --radius: 0.5rem;
+  --sidebar: #f7f8f4;
+  --sidebar-foreground: #0d1511;
+  --sidebar-primary: #1f8f65;
+  --sidebar-primary-foreground: #ffffff;
+  --sidebar-accent: #edf3ee;
+  --sidebar-accent-foreground: #0d1511;
+  --sidebar-border: rgba(13, 21, 17, 0.14);
+  --sidebar-ring: rgba(31, 143, 101, 0.35);
 }
 
 @theme inline {
@@ -267,21 +364,21 @@ h6 {
 }
 
 .gradient-text {
-  background: linear-gradient(to right, #d4d6d7, #9ba0a2, #6e7375);
+  background: var(--gradient-text);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .gradient-text-primary {
-  background: linear-gradient(to right, #fafafa, #a1a1a6);
+  background: var(--gradient-text-primary);
   -webkit-background-clip: text;
   -webkit-text-fill-color: transparent;
   background-clip: text;
 }
 
 .glassmorphism {
-  background: rgba(11, 13, 14, 0.8);
+  background: var(--glassmorphism-background);
   backdrop-filter: blur(16px);
   -webkit-backdrop-filter: blur(16px);
   border-bottom: 1px solid var(--border);
@@ -289,7 +386,7 @@ h6 {
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glassmorphism {
-    background: rgba(11, 13, 14, 0.96);
+    background: var(--glassmorphism-background-fallback);
   }
 }
 
@@ -316,27 +413,27 @@ h6 {
 }
 
 .bg-radial-green {
-  background-image: radial-gradient(ellipse at center, rgba(255, 255, 255, 0.02) 0%, #0a0a0b 60%);
+  background-image: var(--radial-background);
 }
 
 .glass-card {
-  background: rgba(20, 20, 22, 0.7);
+  background: var(--glass-card-background);
   backdrop-filter: blur(20px);
   -webkit-backdrop-filter: blur(20px);
-  border: 1px solid rgba(255, 255, 255, 0.06);
+  border: 1px solid var(--glass-card-border);
   border-radius: var(--radius);
   transition: all 0.3s ease;
 }
 
 @supports not ((backdrop-filter: blur(1px)) or (-webkit-backdrop-filter: blur(1px))) {
   .glass-card {
-    background: rgba(20, 20, 22, 0.94);
+    background: var(--glass-card-background-fallback);
   }
 }
 
 .glass-card:hover {
-  border-color: rgba(255, 255, 255, 0.1);
-  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.3);
+  border-color: var(--glass-card-hover-border);
+  box-shadow: var(--glass-card-shadow);
 }
 
 @keyframes shimmer {
@@ -448,7 +545,7 @@ h6 {
 }
 
 *:focus-visible {
-  outline: 2px solid rgba(255, 255, 255, 0.3);
+  outline: 2px solid var(--focus-outline);
   outline-offset: 2px;
 }
 

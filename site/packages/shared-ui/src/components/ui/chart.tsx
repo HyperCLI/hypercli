@@ -8,7 +8,7 @@ import { cn } from "./utils";
 // Format: { THEME_NAME: CSS_SELECTOR }
 const THEMES = {
   light: "",
-  dark: ':is(.dark, [data-theme="dark"], [data-theme="green"])',
+  dark: ':is(.dark, [data-theme="default"], [data-theme="dark"], [data-theme="green"])',
 } as const;
 
 export type ChartConfig = {

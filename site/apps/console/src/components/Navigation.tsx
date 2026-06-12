@@ -2,14 +2,7 @@
 
 import Link from "next/link";
 import { usePathname } from "next/navigation";
-import { 
-  cn, 
-  Button,
-  initializeTheme,
-  toggleTheme as toggleThemeUtil,
-  subscribeToThemeChanges,
-  type Theme
-} from "@hypercli/shared-ui";
+import { Button, cn } from "@hypercli/shared-ui";
 import {
   LayoutDashboard,
   Rocket,
@@ -17,10 +10,7 @@ import {
   Settings,
   CreditCard,
   HelpCircle,
-  Moon,
-  Sun,
 } from "lucide-react";
-import { useState, useEffect } from "react";
 
 const navItems = [
   { href: "/", label: "Dashboard", icon: LayoutDashboard },
@@ -32,25 +22,6 @@ const navItems = [
 
 export function Navigation() {
   const pathname = usePathname();
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
-
-  // Load and apply theme
-  useEffect(() => {
-    const currentTheme = initializeTheme();
-    setTheme(currentTheme);
-
-    // Subscribe to theme changes from other tabs/apps
-    const unsubscribe = subscribeToThemeChanges((newTheme) => {
-      setTheme(newTheme);
-    });
-
-    return unsubscribe;
-  }, []);
-
-  const toggleTheme = () => {
-    const newTheme = toggleThemeUtil();
-    setTheme(newTheme);
-  };
 
   return (
     <nav className="fixed top-0 left-0 right-0 z-50 bg-background/95 backdrop-blur-lg border-b border-border">
@@ -90,14 +61,6 @@ export function Navigation() {
 
           {/* Right side */}
           <div className="flex items-center space-x-4">
-            <Button
-              variant="ghost"
-              size="icon"
-              onClick={toggleTheme}
-              className="text-muted-foreground hover:text-foreground cursor-pointer"
-            >
-              {theme === "light" ? <Moon className="h-5 w-5" /> : <Sun className="h-5 w-5" />}
-            </Button>
             <Button variant="ghost" size="icon" className="text-muted-foreground cursor-pointer">
               <HelpCircle className="h-5 w-5" />
             </Button>

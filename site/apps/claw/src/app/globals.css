@@ -2,7 +2,7 @@
 @import "@xterm/xterm/css/xterm.css" layer(vendor);
 @import "katex/dist/katex.min.css" layer(vendor);
 @import "tailwindcss";
-@import "@hypercli/shared-ui/styles/claw";
+@import "@hypercli/shared-ui/styles/theme";
 @import "@hypercli/shared-ui/styles/billing-print";
 
 @source "../../../../packages/shared-ui/src/**/*.{ts,tsx}";

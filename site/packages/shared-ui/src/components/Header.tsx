@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useTurnkey } from "@turnkey/react-wallet-kit";
 import ContactModal from "./ContactModal";
@@ -8,14 +8,6 @@ import { PrivyLoginModal } from "./PrivyLogin";
 import { useAuth } from "../providers/AuthProvider";
 import { clearLocalAuthTokens, cookieUtils, markAuthLogout } from "../utils/cookies";
 import { NAV_URLS } from "../utils/navigation";
-import {
-  initializeTheme,
-  toggleTheme as toggleThemeUtil,
-  subscribeToThemeChanges,
-  type Theme,
-} from "../utils/theme";
-import { useRef } from "react";
-import { Moon, Sun } from "lucide-react";
 import {
   NavigationMenu,
   NavigationMenuList,
@@ -30,7 +22,6 @@ export default function Header() {
   const [scrolled, setScrolled] = useState(false);
   const [isContactModalOpen, setIsContactModalOpen] = useState(false);
   const [isLoginModalOpen, setIsLoginModalOpen] = useState(false);
-  const [theme, setTheme] = useState<"light" | "dark">("dark");
   const [platformMenuOpen, setPlatformMenuOpen] = useState(false);
   const [platformMenuFullyOpen, setPlatformMenuFullyOpen] = useState(false);
   const [solutionsMenuOpen, setSolutionsMenuOpen] = useState(false);
@@ -64,24 +55,6 @@ export default function Header() {
     window.location.href = "/";
   };
 
-  // Load and apply theme
-  useEffect(() => {
-    const currentTheme = initializeTheme();
-    setTheme(currentTheme);
-
-    // Subscribe to theme changes from other tabs/apps
-    const unsubscribe = subscribeToThemeChanges((newTheme) => {
-      setTheme(newTheme);
-    });
-
-    return unsubscribe;
-  }, []);
-
-  const toggleTheme = () => {
-    const newTheme = toggleThemeUtil();
-    setTheme(newTheme);
-  };
-
   useEffect(() => {
     const handleScroll = () => {
       setScrolled(window.scrollY > 10);
@@ -90,7 +63,6 @@ export default function Header() {
     return () => window.removeEventListener("scroll", handleScroll);
   }, []);
 
-  const productRef = useRef<HTMLDivElement | null>(null);
   const platformMenuFullyOpenRef = useRef(false);
   const solutionsMenuFullyOpenRef = useRef(false);
 
@@ -288,17 +260,6 @@ export default function Header() {
 
             {/* Desktop CTAs - Only show on medium screens and up */}
             <div className="hidden md:!flex items-center space-x-3">
-              <button
-                onClick={toggleTheme}
-                className="p-2 text-text-secondary hover:text-foreground transition-colors cursor-pointer"
-                aria-label="Toggle theme"
-              >
-                {theme === "light" ? (
-                  <Moon className="h-5 w-5" />
-                ) : (
-                  <Sun className="h-5 w-5" />
-                )}
-              </button>
               {isAuthenticated ? (
                 <button
                   onClick={handleLogoutClick}

@@ -386,6 +386,83 @@ export {
   getRegionFlag,
 } from "./utils/gpu";
 export { NAV_URLS } from "./utils/navigation";
+export { ThemeProvider } from "./components/ThemeProvider";
+export { ThemeScript } from "./components/ThemeScript";
+export { GlassCard, SurfaceCard, MetricCard } from "./components/patterns/surface-card";
+export { StatusNotice, EmptyState, LoadingState } from "./components/patterns/feedback";
+export { ConfirmDialog } from "./components/patterns/confirm-dialog";
+export { SlideOver } from "./components/patterns/slide-over";
+export {
+  ShimmerSkeleton,
+  StatCardSkeleton,
+  AgentCardSkeleton,
+  ChartSkeleton,
+  TableSkeleton,
+  AgentSidebarSkeleton,
+} from "./components/patterns/skeletons";
+export { ResourceCard } from "./components/patterns/resource-card";
+export { PlaygroundTemplateCard, PlaygroundSectionHeader } from "./components/patterns/playground";
+export {
+  TemplateDetailBadge,
+  TemplateDetailBreadcrumbs,
+  TemplateDetailHero,
+  TemplateDetailContent,
+  TemplateDetailSection,
+  TemplateDetailPanel,
+  TemplateCodeBlock,
+  TemplateTable,
+  TemplateCtaCard,
+} from "./components/patterns/template-detail";
+export { LegalPageShell } from "./components/patterns/legal-page-shell";
+export { LandingFooterShell } from "./components/patterns/landing-footer-shell";
+export {
+  MarketingPageHero,
+  NarrativeSplitSection,
+  FeatureGridSection,
+  FinalCtaSection,
+  LongFormText,
+} from "./components/patterns/long-form-marketing";
+export {
+  MarketingSection,
+  SectionHeading,
+  CTAButtonGroup,
+  HeroBadge,
+  FeatureCard,
+  SpecCard,
+  CodeSnippetCard,
+  RiskComparisonSection,
+  ComparisonTable,
+} from "./components/patterns/marketing";
+export { PricingCard, CapabilityList } from "./components/patterns/pricing-card";
+export type { SurfaceCardProps, MetricCardProps } from "./components/patterns/surface-card";
+export type { NoticeTone } from "./components/patterns/feedback";
+export type { ConfirmDialogProps } from "./components/patterns/confirm-dialog";
+export type { SlideOverProps } from "./components/patterns/slide-over";
+export type { ResourceCardProps, ResourceCardStatus } from "./components/patterns/resource-card";
+export type { PlaygroundTemplateCardProps } from "./components/patterns/playground";
+export type {
+  TemplateDetailBreadcrumb,
+  TemplateDetailAction,
+} from "./components/patterns/template-detail";
+export type {
+  LandingFooterShellProps,
+  LandingFooterLink,
+  LandingFooterLinkGroup,
+} from "./components/patterns/landing-footer-shell";
+export type {
+  MarketingPageHeroProps,
+  NarrativeSplitSectionProps,
+  FeatureGridSectionProps,
+  FinalCtaSectionProps,
+} from "./components/patterns/long-form-marketing";
+export type {
+  MarketingSectionProps,
+  CTAAction,
+  RiskComparisonSectionProps,
+  ComparisonTableProps,
+  ComparisonTableRow,
+} from "./components/patterns/marketing";
+export type { PricingCardFeature } from "./components/patterns/pricing-card";
 export {
   getTheme,
   setTheme,
