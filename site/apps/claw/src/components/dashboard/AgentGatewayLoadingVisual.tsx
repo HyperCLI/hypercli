@@ -46,8 +46,8 @@ function AgentGatewayLoadingStatus({
       role={isError ? "alert" : "status"}
       aria-live="polite"
       aria-label={`${title} ${detail}`}
-      className={`flex w-[min(300px,calc(100vw-3rem))] items-center gap-3 rounded-[13px] border bg-[#101010]/95 px-3 py-2.5 text-left shadow-[0_18px_48px_rgba(0,0,0,0.42)] ${
-        isError ? "border-[#d05f5f]/35" : "border-[#282828]"
+      className={`flex w-[min(300px,calc(100vw-3rem))] items-center gap-3 rounded-[13px] border bg-popover/95 px-3 py-2.5 text-left shadow-[0_18px_48px_color-mix(in_srgb,var(--foreground)_14%,transparent)] ${
+        isError ? "border-destructive/35" : "border-border"
       }`}
     >
       <div className="min-w-0 flex-1">
@@ -59,8 +59,8 @@ function AgentGatewayLoadingStatus({
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.16, ease: "easeOut" }}
           >
-            <p className="truncate text-sm font-medium leading-5 text-[#f4f4f4]">{title}</p>
-            <p className={`truncate text-[13px] leading-5 ${isError ? "text-[#d98c8c]" : "text-[#5e5e5e]"}`}>{detail}</p>
+            <p className="truncate text-sm font-medium leading-5 text-foreground">{title}</p>
+            <p className={`truncate text-[13px] leading-5 ${isError ? "text-destructive" : "text-text-muted"}`}>{detail}</p>
           </motion.div>
         </AnimatePresence>
       </div>
@@ -68,13 +68,13 @@ function AgentGatewayLoadingStatus({
         <button
           type="button"
           onClick={onAction}
-          className="flex h-9 flex-shrink-0 items-center gap-1.5 rounded-[10px] border border-[#d05f5f]/35 bg-[#d05f5f]/10 px-2.5 text-[11px] font-medium text-[#f4b2b2] transition-colors hover:bg-[#d05f5f]/16"
+          className="flex h-9 flex-shrink-0 items-center gap-1.5 rounded-[10px] border border-destructive/35 bg-destructive/10 px-2.5 text-[11px] font-medium text-destructive transition-colors hover:bg-destructive/15"
         >
           <RefreshCw className="h-3.5 w-3.5" />
           {actionLabel ?? "Retry"}
         </button>
       ) : (
-        <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] border bg-[#151515] ${isError ? "border-[#d05f5f]/35 text-[#f4b2b2]" : "border-[#323232] text-[#f5f5f5]"}`}>
+        <div className={`flex h-9 w-9 flex-shrink-0 items-center justify-center rounded-[10px] border bg-surface-low ${isError ? "border-destructive/35 text-destructive" : "border-border text-foreground"}`}>
           {isError ? <AlertCircle className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />}
         </div>
       )}

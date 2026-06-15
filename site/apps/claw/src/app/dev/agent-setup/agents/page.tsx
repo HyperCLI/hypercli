@@ -79,6 +79,7 @@ import {
 import { getOpenClawDefaultModel } from "@/lib/openclaw-models";
 import { getEffectivePlanName, mergeLaunchSlotInventories } from "@/lib/plan-checkout-state";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
+import { displayOpenClawSessionName } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import type { CenterPanel } from "@/components/dashboard/agents/page-helpers";
@@ -850,15 +851,16 @@ export default function DevAgentSetupAgentsPage() {
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.map((s) => {
-      const entry = s as unknown as Record<string, unknown>;
-      const key = typeof entry.key === "string" ? entry.key : String(entry.id ?? "");
-      const clientMode = typeof entry.clientMode === "string" ? entry.clientMode : (typeof entry.client === "string" ? entry.client : "unknown");
-      const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
-      const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : Date.now();
-      const lastMessageAt = typeof entry.lastMessageAt === "number" ? entry.lastMessageAt : createdAt;
-      const sourceChannelId = typeof entry.sourceChannelId === "string" ? entry.sourceChannelId : undefined;
-      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt, ...(sourceChannelId ? { sourceChannelId } : {}) };
+    return chat.sessions.map((session) => {
+      const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
+      return {
+        key: session.key,
+        clientMode: session.clientMode,
+        clientDisplayName: displayOpenClawSessionName(session),
+        createdAt: session.createdAt,
+        lastMessageAt: session.lastMessageAt,
+        ...(sourceChannelId ? { sourceChannelId } : {}),
+      };
     });
   }, [chat.sessions]);
 

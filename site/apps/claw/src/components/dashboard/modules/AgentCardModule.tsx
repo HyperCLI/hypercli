@@ -55,9 +55,9 @@ function normalizeState(state: string | null | undefined): string {
 }
 
 function stateDotClass(state: string): string {
-  if (state === "RUNNING") return "bg-[#38D39F]";
-  if (state === "FAILED") return "bg-[#d05f5f]";
-  if (state === "PENDING" || state === "STARTING" || state === "STOPPING") return "bg-[#f0c56c]";
+  if (state === "RUNNING") return "bg-primary";
+  if (state === "FAILED") return "bg-destructive";
+  if (state === "PENDING" || state === "STARTING" || state === "STOPPING") return "bg-warning";
   return "bg-text-muted";
 }
 
@@ -100,7 +100,7 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
       initial={false}
       animate={{ width: expanded ? 360 : 256 }}
       transition={{ duration: 0.15, ease: "easeInOut" }}
-      className="rounded-lg bg-[#1a1a1c] border border-border shadow-xl p-3 space-y-2"
+      className="space-y-2 rounded-lg border border-border bg-surface-high p-3 shadow-xl"
     >
       <div className="flex items-center gap-2.5">
         <div
@@ -121,7 +121,7 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
         </div>
         <div className="flex-1 min-w-0">
           <div className="text-xs font-semibold text-foreground truncate">{name}</div>
-          <div className="text-[10px] text-text-muted truncate">{subtitle || (agent ? "SDK agent" : "No agent data loaded")}</div>
+          <div className="text-[10px] text-text-muted truncate">{subtitle || (agent ? "Agent data loaded" : "No agent data loaded")}</div>
         </div>
         <div className="flex items-center gap-1 flex-shrink-0">
           <span className={`w-1.5 h-1.5 rounded-full ${stateDotClass(state)}`} />
@@ -130,7 +130,7 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
       </div>
 
       {agent?.lastError ? (
-        <p className="text-[10px] text-[#d05f5f] line-clamp-2">{agent.lastError}</p>
+        <p className="line-clamp-2 text-[10px] text-destructive">{agent.lastError}</p>
       ) : agent?.config?.systemPrompt ? (
         <p className="text-[10px] text-text-muted line-clamp-2">{agent.config.systemPrompt}</p>
       ) : null}
@@ -138,7 +138,7 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
       {enabledTools.length > 0 && (
         <div className="flex flex-wrap gap-1">
           {enabledTools.slice(0, 4).map((t) => (
-            <span key={t} className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F]">{t}</span>
+            <span key={t} className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary">{t}</span>
           ))}
           {enabledTools.length > 4 && (
             <span className="text-[9px] px-1.5 py-0.5 rounded-full bg-surface-low text-text-muted">+{enabledTools.length - 4}</span>
@@ -211,7 +211,7 @@ export function AgentCardTooltip({ agentName, agent }: AgentCardTooltipProps) {
                   {allTools.map((t) => (
                     <span
                       key={t.name}
-                      className={`text-[9px] px-1.5 py-0.5 rounded-full ${t.enabled ? "bg-[#38D39F]/10 text-[#38D39F]" : "bg-surface-low text-text-muted line-through"}`}
+                      className={`rounded-full px-1.5 py-0.5 text-[9px] ${t.enabled ? "bg-primary/10 text-primary" : "bg-surface-low text-text-muted line-through"}`}
                     >
                       {t.name}
                     </span>
@@ -348,7 +348,7 @@ export function AgentCardModule({
           onClick={onStart}
           disabled={starting || startBlocked}
           title={startBlocked ? startBlockedReason : "Start agent"}
-          className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+          className="flex items-center gap-1.5 rounded-md bg-primary/15 px-2.5 py-1 text-xs font-medium text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-50"
         >
           {starting ? <Loader2 className="w-3 h-3 animate-spin" /> : <Play className="w-3 h-3" />}
           <span>Start</span>
@@ -370,7 +370,7 @@ export function AgentCardModule({
     }
     if (isTransitioning) {
       return (
-        <span className="flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-medium border border-[#f0c56c]/30 text-[#f0c56c]">
+        <span className="flex items-center gap-1.5 rounded-md border border-warning/30 px-2.5 py-1 text-xs font-medium text-warning">
           <Loader2 className="w-3 h-3 animate-spin" />
           <span>{status.state.charAt(0) + status.state.slice(1).toLowerCase()}…</span>
         </span>
@@ -421,7 +421,7 @@ export function AgentCardModule({
               {enabledTools.map((t) => (
                 <span
                   key={t}
-                  className="text-[9px] px-1.5 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F]"
+                  className="rounded-full bg-primary/10 px-1.5 py-0.5 text-[9px] text-primary"
                 >
                   {t}
                 </span>
@@ -444,7 +444,7 @@ export function AgentCardModule({
         {isMock && <span className="absolute top-1.5 right-1.5 text-[8px] font-bold tracking-wider text-text-muted/40 bg-surface-low px-1.5 py-0.5 rounded uppercase z-10">
           mock
         </span>}
-        <div className="rounded-lg bg-gradient-to-br from-[#38D39F]/5 to-transparent p-3 space-y-2">
+        <div className="space-y-2 rounded-lg bg-gradient-to-br from-primary/5 to-transparent p-3">
           <div className="text-xs font-medium text-foreground">
             {agentName}
           </div>
@@ -461,7 +461,7 @@ export function AgentCardModule({
                 transition={{ delay: idx * 0.1, type: "spring" }}
                 className="py-1.5 rounded-md bg-background/50"
               >
-                <div className="text-sm font-bold text-[#38D39F]">
+                <div className="text-sm font-bold text-primary">
                   {stat.value}
                 </div>
                 <div className="text-[9px] text-text-muted">
@@ -484,7 +484,7 @@ export function AgentCardModule({
         </span>
       )}
       <div className="rounded-md px-3 py-2 flex items-center gap-3 text-[10px] text-text-muted">
-        <Bot className="w-4 h-4 text-[#38D39F] shrink-0" />
+        <Bot className="w-4 h-4 shrink-0 text-primary" />
         <span className="text-foreground font-medium">{agentName}</span>
         {config.model && (<>
           <span>·</span>

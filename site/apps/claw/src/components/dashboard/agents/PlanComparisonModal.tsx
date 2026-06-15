@@ -107,10 +107,10 @@ function valueCell(value: string | boolean) {
     return value ? (
       <Check className="h-4 w-4 text-[var(--selection-accent)]" aria-label="Included" />
     ) : (
-      <X className="h-4 w-4 text-[#4c4c4f]" aria-label="Not included" />
+      <X className="h-4 w-4 text-text-muted/55" aria-label="Not included" />
     );
   }
-  return <span className="text-[14px] leading-snug text-[#ececec]">{value}</span>;
+  return <span className="text-[14px] leading-snug text-foreground">{value}</span>;
 }
 
 export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanComparisonModalProps) {
@@ -181,36 +181,36 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
 
   return createPortal(
     <div
-      className="fixed inset-0 z-[10000] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
+      className="fixed inset-0 z-[10000] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5"
       onClick={(event) => event.stopPropagation()}
     >
       <div
         role="dialog"
         aria-modal="true"
         aria-label="Plan comparison"
-        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-[#171717] text-[#f3f3f3] shadow-[0_24px_70px_rgba(0,0,0,0.55),0_0_80px_rgb(var(--selection-accent-rgb)_/_0.08)]"
+        className="relative flex max-h-[calc(100vh-32px)] w-full max-w-[1420px] flex-col overflow-hidden rounded-[16px] border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-background-secondary text-foreground shadow-[0_24px_70px_rgb(0_0_0_/_0.35),0_0_80px_rgb(var(--selection-accent-rgb)_/_0.08)]"
       >
         <button
           type="button"
           aria-label="Close plan comparison"
           onClick={onClose}
-          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-[8px] text-[#b9b9bc] transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.12)] hover:text-[var(--selection-accent)]"
+          className="absolute right-4 top-4 flex h-8 w-8 items-center justify-center rounded-[8px] text-text-muted transition-colors hover:bg-[rgb(var(--selection-accent-rgb)_/_0.12)] hover:text-[var(--selection-accent)]"
         >
           <X className="h-4 w-4" />
         </button>
 
         <div className="min-h-0 flex-1 overflow-auto p-5 pt-12 sm:p-6 sm:pt-12">
           {comparisonPlans.length === 0 ? (
-            <div className="rounded-[12px] border border-[#333336] bg-[#141414] px-5 py-4 text-[14px] text-[#a8a8ac]">
+            <div className="rounded-[12px] border border-border bg-surface-low px-5 py-4 text-[14px] text-text-secondary">
               Plan comparison is unavailable right now.
             </div>
           ) : (
-            <div className="min-w-[760px] overflow-hidden rounded-[14px] border border-[rgb(var(--selection-accent-rgb)_/_0.16)] bg-[#141414] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)]">
-              <div className="grid border-b border-[rgb(var(--selection-accent-rgb)_/_0.18)] bg-[#191919]" style={{ gridTemplateColumns: columnTemplate }}>
+            <div className="min-w-[760px] overflow-hidden rounded-[14px] border border-[rgb(var(--selection-accent-rgb)_/_0.16)] bg-surface-low shadow-[inset_0_1px_0_rgb(255_255_255_/_0.03)]">
+              <div className="grid border-b border-[rgb(var(--selection-accent-rgb)_/_0.18)] bg-surface-high" style={{ gridTemplateColumns: columnTemplate }}>
                 <div className="px-6 py-7" />
                 {comparisonPlans.map((plan) => (
                   <div key={plan.id} className="flex items-center gap-3 px-6 py-7">
-                    <span className="text-[18px] font-semibold leading-none text-[#eeeeee]">
+                    <span className="text-[18px] font-semibold leading-none text-foreground">
                       {plan.name}
                     </span>
                     {plan.plan.highlighted && (
@@ -224,14 +224,14 @@ export function PlanComparisonModal({ open, onClose, catalogPlans }: PlanCompari
 
               {rows.map((row, rowIndex) => {
                 const Icon = row.icon;
-                const rowBackground = rowIndex % 2 === 0 ? "bg-[#1a1a19]" : "bg-[#141416]";
+                const rowBackground = rowIndex % 2 === 0 ? "bg-surface-high/45" : "bg-surface-low";
                 return (
                   <div
                     key={row.label}
                     className={`grid min-h-[52px] ${rowBackground}`}
                     style={{ gridTemplateColumns: columnTemplate }}
                   >
-                    <div className="flex items-center gap-3 px-6 py-4 text-[14px] text-[#e4e4e7]">
+                    <div className="flex items-center gap-3 px-6 py-4 text-[14px] text-foreground">
                       <Icon className="h-4 w-4 text-[var(--selection-accent)]" />
                       <span>{row.label}</span>
                     </div>

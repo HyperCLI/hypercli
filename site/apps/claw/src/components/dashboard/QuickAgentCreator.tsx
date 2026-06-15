@@ -110,7 +110,7 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Agent name..."
-                className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-2.5 py-2 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-[rgb(var(--selection-accent-rgb)_/_0.4)]"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-low px-2.5 py-2 text-xs text-foreground placeholder:text-text-muted focus:border-selection-accent/40 focus:outline-none"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleCreate();
                   if (e.key === "Escape") onClose();
@@ -177,7 +177,7 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
                       onClick={() => setSelectedSize(size.id)}
                       className={`flex-1 flex flex-col items-center gap-1 py-2 rounded-lg border text-[10px] font-medium transition-all capitalize ${
                         active
-                          ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] border-[rgb(var(--selection-accent-rgb)_/_0.3)] text-[var(--selection-accent)]"
+                          ? "border-selection-accent/30 bg-selection-accent/10 text-selection-accent"
                           : "border-border text-text-muted hover:text-foreground hover:border-border-strong"
                       }`}
                     >
@@ -198,7 +198,7 @@ export function QuickAgentCreator({ open, onClose, onCreated }: QuickAgentCreato
               whileTap={name.trim() ? { scale: 0.97 } : undefined}
               disabled={!name.trim()}
               onClick={handleCreate}
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] border border-[rgb(var(--selection-accent-rgb)_/_0.2)] hover:border-[rgb(var(--selection-accent-rgb)_/_0.4)]"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-selection-accent/20 bg-selection-accent/15 px-3 py-2 text-xs font-medium text-selection-accent transition-colors hover:border-selection-accent/40 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Zap className="w-3.5 h-3.5" />
               <span>Create & Start</span>

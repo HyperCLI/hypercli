@@ -89,7 +89,7 @@ export function ApprovalCard({
               type="button"
               onClick={() => handle("deny")}
               disabled={Boolean(busy)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-white/10 bg-white/[0.03] px-3 py-1 text-xs font-medium text-text-secondary transition-colors hover:border-[#d05f5f]/40 hover:bg-[#d05f5f]/10 hover:text-[#d05f5f] disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md border border-border bg-surface-low px-3 py-1 text-xs font-medium text-text-secondary transition-colors hover:border-destructive/40 hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "deny" ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -102,7 +102,7 @@ export function ApprovalCard({
               type="button"
               onClick={() => handle("approve")}
               disabled={Boolean(busy)}
-              className="inline-flex items-center gap-1.5 rounded-md border border-[#38D39F]/40 bg-[#38D39F]/15 px-3 py-1 text-xs font-semibold text-[#38D39F] transition-colors hover:bg-[#38D39F]/25 disabled:cursor-not-allowed disabled:opacity-60"
+              className="inline-flex items-center gap-1.5 rounded-md border border-primary/40 bg-primary/15 px-3 py-1 text-xs font-semibold text-primary transition-colors hover:bg-primary/25 disabled:cursor-not-allowed disabled:opacity-60"
             >
               {busy === "approve" ? (
                 <Loader2 className="h-3 w-3 animate-spin" />
@@ -128,7 +128,7 @@ export function ApprovalCard({
             </dl>
           )}
           {preview && (
-            <pre className="flex items-start gap-2 overflow-x-auto rounded border border-white/8 bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-text-secondary">
+            <pre className="flex items-start gap-2 overflow-x-auto rounded border border-border bg-background/60 px-2 py-1.5 font-mono text-[11px] leading-5 text-text-secondary">
               <Terminal className="mt-0.5 h-3 w-3 shrink-0 text-text-muted" />
               <code className="whitespace-pre-wrap">{preview}</code>
             </pre>

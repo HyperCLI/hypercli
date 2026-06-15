@@ -124,13 +124,13 @@ function FilterPill({
       onClick={onClick}
       className={`inline-flex h-8 items-center gap-2 rounded-full border px-3 text-xs font-medium transition-colors ${
         active
-          ? "border-[#38D39F]/50 bg-[#38D39F]/12 text-foreground"
+          ? "border-primary/50 bg-primary/10 text-foreground"
           : "border-border bg-surface-low/25 text-text-secondary hover:bg-surface-low/60 hover:text-foreground"
       }`}
     >
       <Icon className="h-3.5 w-3.5" />
       <span>{label}</span>
-      <span className={active ? "text-[#38D39F]" : "text-text-muted"}>{count}</span>
+      <span className={active ? "text-primary" : "text-text-muted"}>{count}</span>
     </button>
   );
 }
@@ -157,7 +157,7 @@ function IntegrationDirectoryCard({
       whileHover={{ y: -1 }}
       whileTap={{ scale: 0.99 }}
       onClick={onClick}
-      className={`group flex w-full items-center gap-3 rounded-lg border border-border bg-surface-low/25 text-left transition-colors hover:border-[#38D39F]/35 hover:bg-surface-low/50 ${
+      className={`group flex w-full items-center gap-3 rounded-lg border border-border bg-surface-low/25 text-left transition-colors hover:border-primary/35 hover:bg-surface-low/50 ${
         compact ? "px-3 py-2.5" : "px-3 py-3"
       }`}
     >
@@ -171,7 +171,7 @@ function IntegrationDirectoryCard({
             <span
               className={`inline-flex shrink-0 items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-medium ${
                 active
-                  ? "bg-[#38D39F]/12 text-[#38D39F]"
+                  ? "bg-success/10 text-success"
                   : "bg-surface-low text-text-muted"
               }`}
             >
@@ -208,7 +208,7 @@ function SkillDirectoryCard({ skill }: { skill: WorkspaceSkill }) {
       <div className="min-w-0 flex-1">
         <div className="flex items-start gap-2">
           <p className="truncate text-sm font-semibold text-foreground">{skill.name}</p>
-          <span className="inline-flex shrink-0 rounded-full bg-[#38D39F]/12 px-2 py-0.5 text-[10px] font-medium text-[#38D39F]">
+          <span className="inline-flex shrink-0 rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success">
             Available
           </span>
         </div>
@@ -417,7 +417,7 @@ export function DirectoryModal({
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
-            className="fixed inset-0 z-50 bg-black/60"
+            className="fixed inset-0 z-50 bg-background/75 backdrop-blur-sm"
             onClick={handleCloseModal}
           />
 
@@ -427,7 +427,7 @@ export function DirectoryModal({
             animate={{ opacity: 1, scale: 1, y: 0 }}
             exit={{ opacity: 0, scale: 0.96, y: 20 }}
             transition={{ type: "spring", damping: 25, stiffness: 300 }}
-            className="fixed inset-4 z-50 flex overflow-hidden rounded-2xl border border-border bg-[#111113] shadow-2xl sm:inset-8 lg:inset-12"
+            className="fixed inset-4 z-50 flex overflow-hidden rounded-2xl border border-border bg-background shadow-2xl sm:inset-8 lg:inset-12"
           >
             {/* Main Content */}
             <div className="flex-1 flex flex-col min-w-0">
@@ -446,7 +446,7 @@ export function DirectoryModal({
                     <h3 className="text-lg font-semibold text-foreground">{showingSkills ? "Skills" : "Integrations"}</h3>
                     <p className="text-xs text-text-muted">
                       {selectedItemId
-                        ? "Configure this integration"
+                        ? "Connect this integration"
                         : showingSkills
                           ? "Available from the workspace skills directory"
                           : `Available for ${agentName || "this agent"}`}
@@ -482,7 +482,7 @@ export function DirectoryModal({
                           value={searchQuery}
                           onChange={(event) => setSearchQuery(event.target.value)}
                           placeholder="Search skills..."
-                          className="h-9 w-full rounded-lg border border-border bg-surface-low/40 pl-9 pr-3 text-sm text-foreground placeholder:text-text-muted outline-none transition-colors focus:border-[#38D39F]/60"
+                          className="h-9 w-full rounded-lg border border-border bg-surface-low/40 pl-9 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/60"
                         />
                       </div>
                     </section>
@@ -602,7 +602,7 @@ export function DirectoryModal({
                           value={searchQuery}
                           onChange={(event) => setSearchQuery(event.target.value)}
                           placeholder="Search integrations..."
-                          className="h-9 w-full rounded-lg border border-border bg-surface-low/40 pl-9 pr-3 text-sm text-foreground placeholder:text-text-muted outline-none transition-colors focus:border-[#38D39F]/60"
+                          className="h-9 w-full rounded-lg border border-border bg-surface-low/40 pl-9 pr-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-primary/60"
                         />
                       </div>
                     </div>

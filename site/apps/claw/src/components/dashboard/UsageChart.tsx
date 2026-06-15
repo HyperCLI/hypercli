@@ -78,10 +78,10 @@ export default function UsageChart({ history, loading }: UsageChartProps) {
                   <p className="text-text-muted">
                     {day.requests} requests
                   </p>
-                  <p className="text-[#38D39F]">
+                  <p className="text-primary">
                     ↑ {formatTokens(day.prompt_tokens)} prompt
                   </p>
-                  <p className="text-[#6C63FF]">
+                  <p className="text-chart-2">
                     ↓ {formatTokens(day.completion_tokens)} completion
                   </p>
                 </div>
@@ -92,11 +92,11 @@ export default function UsageChart({ history, loading }: UsageChartProps) {
                 {day.total_tokens > 0 ? (
                   <>
                     <div
-                      className="w-full rounded-t bg-[#6C63FF]/80 transition-all duration-300"
+                      className="w-full rounded-t bg-chart-2/80 transition-all duration-300"
                       style={{ height: `${Math.max(completionPct, 0.5)}%` }}
                     />
                     <div
-                      className="w-full bg-[#38D39F]/80 transition-all duration-300"
+                      className="w-full bg-primary/80 transition-all duration-300"
                       style={{
                         height: `${Math.max(promptPct, 0.5)}%`,
                         borderRadius:
@@ -123,11 +123,11 @@ export default function UsageChart({ history, loading }: UsageChartProps) {
       {/* Legend */}
       <div className="flex items-center gap-4 mt-3 text-xs text-text-muted">
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-[#38D39F]/80" />
+          <div className="h-2.5 w-2.5 rounded-sm bg-primary/80" />
           Prompt
         </div>
         <div className="flex items-center gap-1.5">
-          <div className="w-2.5 h-2.5 rounded-sm bg-[#6C63FF]/80" />
+          <div className="h-2.5 w-2.5 rounded-sm bg-chart-2/80" />
           Completion
         </div>
       </div>

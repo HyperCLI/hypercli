@@ -26,38 +26,38 @@ import { HighlightMatch } from "./FilesSearchBar";
 // ── File icon resolver ──
 
 const EXTENSION_ICONS: Record<string, { icon: LucideIcon; color: string }> = {
-  ts: { icon: FileCode, color: "#3178c6" },
-  tsx: { icon: FileCode, color: "#3178c6" },
-  js: { icon: FileCode, color: "#f0db4f" },
-  jsx: { icon: FileCode, color: "#f0db4f" },
-  py: { icon: FileCode, color: "#3776ab" },
-  rs: { icon: FileCode, color: "#dea584" },
-  go: { icon: FileCode, color: "#00add8" },
-  json: { icon: FileJson, color: "#6b9eff" },
-  yaml: { icon: Settings, color: "#cb171e" },
-  yml: { icon: Settings, color: "#cb171e" },
-  toml: { icon: Settings, color: "#9c4221" },
-  md: { icon: FileText, color: "#ffffff" },
-  txt: { icon: FileText, color: "#9ca3af" },
-  log: { icon: FileText, color: "#9ca3af" },
+  ts: { icon: FileCode, color: "var(--primary)" },
+  tsx: { icon: FileCode, color: "var(--primary)" },
+  js: { icon: FileCode, color: "var(--warning)" },
+  jsx: { icon: FileCode, color: "var(--warning)" },
+  py: { icon: FileCode, color: "var(--chart-2)" },
+  rs: { icon: FileCode, color: "var(--chart-4)" },
+  go: { icon: FileCode, color: "var(--chart-2)" },
+  json: { icon: FileJson, color: "var(--primary)" },
+  yaml: { icon: Settings, color: "var(--destructive)" },
+  yml: { icon: Settings, color: "var(--destructive)" },
+  toml: { icon: Settings, color: "var(--chart-4)" },
+  md: { icon: FileText, color: "var(--foreground)" },
+  txt: { icon: FileText, color: "var(--text-muted)" },
+  log: { icon: FileText, color: "var(--text-muted)" },
   png: { icon: FileImage, color: "var(--selection-accent)" },
   jpg: { icon: FileImage, color: "var(--selection-accent)" },
   jpeg: { icon: FileImage, color: "var(--selection-accent)" },
   gif: { icon: FileImage, color: "var(--selection-accent)" },
-  svg: { icon: FileImage, color: "#ffb13b" },
+  svg: { icon: FileImage, color: "var(--warning)" },
   webp: { icon: FileImage, color: "var(--selection-accent)" },
-  html: { icon: Code2, color: "#e34c26" },
-  css: { icon: Code2, color: "#264de4" },
-  sh: { icon: FileCode, color: "#4eaa25" },
-  env: { icon: Settings, color: "#ecd53f" },
+  html: { icon: Code2, color: "var(--warning)" },
+  css: { icon: Code2, color: "var(--primary)" },
+  sh: { icon: FileCode, color: "var(--success)" },
+  env: { icon: Settings, color: "var(--warning)" },
 };
 
 function getFileIcon(entry: FileEntry): { icon: LucideIcon; color: string } {
   if (entry.type === "directory") {
-    return { icon: Folder, color: "#6b9eff" };
+    return { icon: Folder, color: "var(--primary)" };
   }
   const ext = entry.name.split(".").pop()?.toLowerCase() ?? "";
-  return EXTENSION_ICONS[ext] ?? { icon: FileIcon, color: "#9ca3af" };
+  return EXTENSION_ICONS[ext] ?? { icon: FileIcon, color: "var(--text-muted)" };
 }
 
 export function formatFileSize(bytes?: number): string {
@@ -200,7 +200,7 @@ export function FileRow({
             initial={{ opacity: 0, scale: 0.95, y: -4 }}
             animate={{ opacity: 1, scale: 1, y: 0 }}
             transition={{ duration: 0.1 }}
-            className="absolute right-0 top-full mt-0.5 z-50 w-36 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden"
+            className="absolute right-0 top-full mt-0.5 z-50 w-36 overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
           >
             <div className="py-1">
               {!isDir && (
@@ -244,7 +244,7 @@ function MenuButton({
       onClick={onClick}
       className={`flex items-center gap-2 w-full px-3 py-1.5 text-left text-[11px] transition-colors ${
         danger
-          ? "text-[#d05f5f] hover:bg-[#d05f5f]/10"
+          ? "text-destructive hover:bg-destructive/10"
           : "text-foreground hover:bg-surface-low"
       }`}
     >

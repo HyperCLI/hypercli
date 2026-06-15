@@ -16,7 +16,7 @@ const features = [
     icon: Code,
     title: "OpenAI-Compatible API",
     description:
-      "Drop-in replacement for any OpenAI SDK client. Zero code changes needed — just swap your base URL and API key.",
+      "Drop-in replacement for OpenAI-compatible clients. Zero code changes needed — just swap your base URL and API key.",
   },
   {
     icon: Cpu,

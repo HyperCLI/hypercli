@@ -24,7 +24,7 @@ interface MarkdownContentProps {
 
 const MARKDOWN_WRAP_CLASS = "min-w-0 max-w-full break-words [overflow-wrap:anywhere]";
 const MARKDOWN_BLOCK_CLASS = `${MARKDOWN_WRAP_CLASS} mb-2 last:mb-0`;
-const MARKDOWN_INLINE_CODE_CLASS = "max-w-full break-words rounded bg-background/50 px-1 py-0.5 font-mono text-xs text-[#f0c56c] [overflow-wrap:anywhere]";
+const MARKDOWN_INLINE_CODE_CLASS = "max-w-full break-words rounded bg-background/50 px-1 py-0.5 font-mono text-xs text-warning [overflow-wrap:anywhere]";
 const MARKDOWN_PRE_CLASS = `${MARKDOWN_WRAP_CLASS} my-2 overflow-hidden whitespace-pre-wrap rounded-md border border-border bg-background/50 px-3 py-2 font-mono text-xs`;
 const MARKDOWN_CODE_BLOCK_CLASS = `${MARKDOWN_WRAP_CLASS} my-2 overflow-hidden rounded-lg border border-border bg-background/70`;
 const MARKDOWN_DIAGRAM_WRAP_CLASS = `${MARKDOWN_WRAP_CLASS} my-3 overflow-hidden rounded-lg border border-border bg-background/50 p-3`;
@@ -403,15 +403,15 @@ function MarkdownMermaidDiagram({ chart }: { chart: string }) {
         mermaid.initialize({
           startOnLoad: false,
           securityLevel: "strict",
-          theme: "dark",
+          theme: "base",
           themeVariables: {
             background: "transparent",
-            mainBkg: "#141416",
-            primaryColor: "#141416",
-            primaryTextColor: "#fafafa",
-            primaryBorderColor: "rgba(255, 255, 255, 0.24)",
-            lineColor: "#a1a1a6",
-            textColor: "#fafafa",
+            mainBkg: "var(--surface-low)",
+            primaryColor: "var(--surface-low)",
+            primaryTextColor: "var(--foreground)",
+            primaryBorderColor: "var(--border-medium)",
+            lineColor: "var(--text-secondary)",
+            textColor: "var(--foreground)",
           },
         });
         const result = await mermaid.render(diagramId, trimmedChart);
@@ -431,7 +431,7 @@ function MarkdownMermaidDiagram({ chart }: { chart: string }) {
   if (error) {
     return (
       <div className={MARKDOWN_DIAGRAM_WRAP_CLASS}>
-        <p className="mb-2 text-xs text-[#d05f5f]">{error}</p>
+        <p className="mb-2 text-xs text-destructive">{error}</p>
         <pre className={MARKDOWN_PRE_CLASS}>
           <code className="whitespace-pre-wrap break-words [overflow-wrap:anywhere]">{chart}</code>
         </pre>
@@ -536,7 +536,7 @@ function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: 
         lineNumberStyle={{
           minWidth: "2.25em",
           paddingRight: "1em",
-          color: "#7c7b82",
+          color: "var(--text-muted)",
           opacity: 0.75,
         }}
         lineProps={(lineNumber) => (
@@ -546,7 +546,7 @@ function MarkdownCodeBlock({ code, language, meta }: { code: string; language?: 
                 display: "block",
                 margin: "0 -0.75rem",
                 padding: "0 0.75rem",
-                background: "rgb(var(--selection-accent-rgb) / 0.12)",
+                background: "var(--selection-accent-soft)",
                 borderLeft: "2px solid var(--selection-accent)",
               },
             }

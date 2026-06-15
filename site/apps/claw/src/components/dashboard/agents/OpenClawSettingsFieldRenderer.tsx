@@ -62,7 +62,7 @@ function FieldBadges({ sensitive, advanced }: { sensitive?: boolean; advanced?: 
   return (
     <>
       {sensitive && (
-        <span className="rounded-full border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-[#d05f5f]">
+        <span className="rounded-full border border-destructive/30 bg-destructive/10 px-2 py-0.5 text-[10px] uppercase tracking-[0.12em] text-destructive">
           sensitive
         </span>
       )}
@@ -107,9 +107,9 @@ function JsonTextareaField({
         spellCheck={false}
         placeholder={placeholder}
         disabled={disabled}
-        className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
+        className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text-secondary focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
       />
-      {error && <p className="text-xs text-[#d05f5f]">{error}</p>}
+      {error && <p className="text-xs text-destructive">{error}</p>}
     </div>
   );
 }
@@ -173,7 +173,7 @@ function DynamicMapEntries({
                     type="button"
                     onClick={() => controls.onRemovePath(entryPath)}
                     disabled={controls.disabled}
-                    className="inline-flex shrink-0 items-center gap-1 text-xs text-text-muted transition-colors hover:text-[#d05f5f] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="inline-flex shrink-0 items-center gap-1 text-xs text-text-muted transition-colors hover:text-destructive disabled:cursor-not-allowed disabled:opacity-60"
                   >
                     <Trash2 className="h-3.5 w-3.5" />
                     Remove
@@ -408,9 +408,9 @@ function ScalarField({
             spellCheck={false}
             placeholder={placeholder}
             disabled={controls.disabled}
-            className="w-full px-3 py-2 rounded-lg bg-[#0c1016] border border-border text-[#d8dde7] text-xs font-mono focus:outline-none focus:border-border-strong disabled:cursor-not-allowed disabled:opacity-60"
+            className="w-full rounded-lg border border-border bg-background px-3 py-2 font-mono text-xs text-text-secondary focus:border-border-strong focus:outline-none disabled:cursor-not-allowed disabled:opacity-60"
           />
-          {controls.jsonDraftErrors[pathKey] && <p className="text-xs text-[#d05f5f]">{controls.jsonDraftErrors[pathKey]}</p>}
+          {controls.jsonDraftErrors[pathKey] && <p className="text-xs text-destructive">{controls.jsonDraftErrors[pathKey]}</p>}
         </>
       ) : (
         <input

@@ -30,8 +30,9 @@ export type OpenClawSessionPreviewMap = Record<string, OpenClawSessionPreview>;
 
 export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
 export const OPENCLAW_NEW_SESSION_TITLE = "New Project";
-const GENERATED_OPENCLAW_SESSION_KEY = /^session-(?:[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
+const GENERATED_OPENCLAW_SESSION_KEY = /^session-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
 const INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS = [
+  /^Hyper Agent Web\b/i,
   /^HEARTBEAT(?:\.md|_OK)?$/i,
   /\bHEARTBEAT_OK\b/i,
   /\bRead\s+HEARTBEAT\.md\s+if\s+it\s+exists\b/i,
@@ -287,6 +288,16 @@ function shouldUseDerivedChannelSessionKey(rawKey: string | null, derivedKey: st
   return unscopedOpenClawSessionKey(rawKey) === OPENCLAW_DEFAULT_SESSION_KEY;
 }
 
+function shouldUseCanonicalMainSessionKey(
+  rawKey: string | null,
+  derivedChannelSessionKey: string | null,
+  sourceChannelId: string | null,
+): boolean {
+  if (!rawKey || derivedChannelSessionKey) return false;
+  if (unscopedOpenClawSessionKey(rawKey) !== OPENCLAW_DEFAULT_SESSION_KEY) return false;
+  return !isReadOnlyOpenClawSessionSource(sourceChannelId);
+}
+
 export function unscopedOpenClawSessionKey(value: string | null | undefined): string {
   const key = (value ?? "").trim();
   const prefixed = /^agent:[^:]+:(.+)$/.exec(key);
@@ -322,6 +333,14 @@ export function normalizeOpenClawSessionDisplayName(value: unknown, sessionKey?:
 export function fallbackOpenClawSessionDisplayName(sessionKey: string): string {
   if (unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return "Main Project";
   return isGeneratedOpenClawSessionName(sessionKey) ? OPENCLAW_NEW_SESSION_TITLE : sessionKey;
+}
+
+export function displayOpenClawSessionName(
+  session: Pick<OpenClawSessionRecord, "key" | "title" | "clientDisplayName">,
+): string {
+  return normalizeOpenClawSessionDisplayName(session.title, session.key)
+    ?? normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key)
+    ?? fallbackOpenClawSessionDisplayName(session.key);
 }
 
 function finiteTimestamp(value: unknown): number | null {
@@ -424,7 +443,11 @@ export function normalizeOpenClawSession(session: unknown): OpenClawSessionRecor
   const explicitGatewaySessionKey = firstNonEmptyString(session.gatewaySessionKey, session.gateway_session_key);
   const sourceChannelId = sessionSourceChannelId(session);
   const derivedChannelSessionKey = channelSessionKeyFromMetadata(session, sourceChannelId);
-  const key = shouldUseDerivedChannelSessionKey(rawKey, derivedChannelSessionKey) ? derivedChannelSessionKey : rawKey;
+  const key = shouldUseDerivedChannelSessionKey(rawKey, derivedChannelSessionKey)
+    ? derivedChannelSessionKey
+    : shouldUseCanonicalMainSessionKey(rawKey, derivedChannelSessionKey, sourceChannelId)
+      ? OPENCLAW_DEFAULT_SESSION_KEY
+      : rawKey;
   if (!key) return null;
   const gatewaySessionKey = explicitGatewaySessionKey ?? rawKey;
   const readOnly = isReadOnlyOpenClawSessionSource(sourceChannelId);

@@ -48,11 +48,11 @@ export function IntelligencePanel({ config, onSaveConfig }: IntelligencePanelPro
       <motion.div
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
-        className="rounded-xl border border-[#38D39F]/20 bg-[#38D39F]/5 p-5"
+        className="rounded-xl border border-primary/20 bg-primary/10 p-5"
       >
         <div className="flex items-start gap-4">
-          <div className="w-12 h-12 rounded-xl bg-[#38D39F]/10 flex items-center justify-center shrink-0">
-            <Sparkles className="w-6 h-6 text-[#38D39F]" />
+          <div className="flex h-12 w-12 shrink-0 items-center justify-center rounded-xl bg-primary/10">
+            <Sparkles className="h-6 w-6 text-primary" />
           </div>
           <div className="flex-1">
             <h3 className="text-lg font-semibold text-foreground">HyperCLI Intelligence</h3>
@@ -63,19 +63,19 @@ export function IntelligencePanel({ config, onSaveConfig }: IntelligencePanelPro
         </div>
 
         <div className="mt-4 grid grid-cols-2 gap-3">
-          <div className="rounded-lg bg-[#0a0a0b]/50 p-3">
+          <div className="rounded-lg bg-background/50 p-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Plan</p>
             <p className="text-sm font-semibold text-foreground">{MOCK_PLAN.name}</p>
           </div>
-          <div className="rounded-lg bg-[#0a0a0b]/50 p-3">
+          <div className="rounded-lg bg-background/50 p-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Tokens / Day</p>
             <p className="text-sm font-semibold text-foreground">{MOCK_PLAN.tokensPerDay}</p>
           </div>
-          <div className="rounded-lg bg-[#0a0a0b]/50 p-3">
+          <div className="rounded-lg bg-background/50 p-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Rate Limits</p>
             <p className="text-sm font-semibold text-foreground">{MOCK_PLAN.tpmLimit} TPM \u00b7 {MOCK_PLAN.rpmLimit} RPM</p>
           </div>
-          <div className="rounded-lg bg-[#0a0a0b]/50 p-3">
+          <div className="rounded-lg bg-background/50 p-3">
             <p className="text-[10px] uppercase tracking-[0.18em] text-text-muted mb-1">Billing Reset</p>
             <p className="text-sm font-semibold text-foreground">{new Date(MOCK_PLAN.billingReset).toLocaleDateString()}</p>
           </div>

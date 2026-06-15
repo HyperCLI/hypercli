@@ -60,7 +60,7 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, title, descri
       icon: AlertCircle,
       title: "Failed to load files",
       description: errorMessage ?? "Something went wrong while loading workspace files",
-      iconColor: "text-[#d05f5f]",
+      iconColor: "text-destructive",
     },
     offline: {
       icon: WifiOff,

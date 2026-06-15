@@ -151,8 +151,8 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
         onDrop={handleDrop}
         onClick={handleClickUpload}
         animate={{
-          borderColor: dragOver ? "rgb(var(--selection-accent-rgb) / 0.5)" : "rgba(255,255,255,0.08)",
-          backgroundColor: dragOver ? "rgb(var(--selection-accent-rgb) / 0.05)" : "rgba(0,0,0,0)",
+          borderColor: dragOver ? "color-mix(in srgb, var(--selection-accent) 50%, transparent)" : "var(--border)",
+          backgroundColor: dragOver ? "color-mix(in srgb, var(--selection-accent) 8%, transparent)" : "transparent",
         }}
         transition={{ duration: 0.15 }}
         className={`border border-dashed rounded-lg flex items-center justify-center gap-2 cursor-pointer transition-colors hover:border-text-muted/30 hover:bg-surface-low/30 ${
@@ -198,7 +198,7 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
                   </motion.div>
                 )}
                 {item.status === "done" && <CheckCircle2 className="w-3 h-3 text-[var(--selection-accent)]" />}
-                {item.status === "error" && <AlertCircle className="w-3 h-3 text-[#d05f5f]" />}
+                {item.status === "error" && <AlertCircle className="w-3 h-3 text-destructive" />}
                 {item.status === "pending" && <FileIcon className="w-3 h-3 text-text-muted" />}
 
                 {/* Name + progress */}
@@ -215,7 +215,7 @@ export function FilesUploadZone({ currentPath, onUpload, compact = false }: File
                     </div>
                   )}
                   {item.error && (
-                    <p className="text-[9px] text-[#d05f5f] truncate">{item.error}</p>
+                    <p className="truncate text-[9px] text-destructive">{item.error}</p>
                   )}
                 </div>
 

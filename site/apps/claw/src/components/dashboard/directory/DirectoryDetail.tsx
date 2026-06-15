@@ -74,11 +74,11 @@ export function DirectoryDetail({
         <motion.div
           initial={{ opacity: 0, y: 10 }}
           animate={{ opacity: 1, y: 0 }}
-          className="rounded-xl border border-[#38D39F]/30 bg-[#38D39F]/5 p-4 flex items-center gap-3"
+          className="flex items-center gap-3 rounded-xl border border-success/30 bg-success/10 p-4"
         >
-          <CheckCircle2 className="w-5 h-5 text-[#38D39F] shrink-0" />
+          <CheckCircle2 className="w-5 h-5 shrink-0 text-success" />
           <div>
-            <p className="text-sm font-medium text-[#38D39F]">Connected</p>
+            <p className="text-sm font-medium text-success">Connected</p>
             <p className="text-xs text-text-muted mt-0.5">This integration is active on your agent.</p>
           </div>
         </motion.div>
@@ -171,7 +171,7 @@ export function DirectoryDetail({
               href={plugin.setupUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1.5 text-sm text-[#38D39F] hover:underline"
+              className="inline-flex items-center gap-1.5 text-sm text-primary hover:underline"
             >
               Get API key <ExternalLink className="w-3.5 h-3.5" />
             </a>
@@ -229,14 +229,14 @@ export function DirectoryDetail({
       {/* Info Footer */}
       <div className="border-t border-border pt-4 space-y-1">
         <div className="flex items-center justify-between">
-          <span className="text-[11px] text-text-muted">Config path</span>
+          <span className="text-[11px] text-text-muted">Settings path</span>
           <span className="text-[11px] text-text-muted font-mono">{plugin.configPath}</span>
         </div>
         {plugin.setupUrl && (
           <div className="flex items-center justify-between">
             <span className="text-[11px] text-text-muted">Documentation</span>
             <a href={plugin.setupUrl} target="_blank" rel="noopener noreferrer"
-              className="text-[11px] text-[#38D39F] hover:underline inline-flex items-center gap-1">
+              className="inline-flex items-center gap-1 text-[11px] text-primary hover:underline">
               Visit <ExternalLink className="w-3 h-3" />
             </a>
           </div>

@@ -97,7 +97,7 @@ function SectionNav({
             onClick={() => onSelect(sectionKey)}
             className={`block w-full rounded-md px-2.5 py-2 text-left text-xs transition-colors ${
               selected
-                ? "border-l-2 border-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.15)] font-medium text-foreground"
+                ? "border-l-2 border-selection-accent bg-selection-accent/15 font-medium text-foreground"
                 : "text-text-muted hover:bg-surface-low/50 hover:text-foreground"
             }`}
             title={sectionDescription}
@@ -228,12 +228,12 @@ function OpenClawSectionEditor({
         {(error || success || settingsBootStatus || jsonDraftError) && (
           <div className="space-y-2">
             {(error || jsonDraftError) && (
-              <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {error ?? jsonDraftError}
               </div>
             )}
             {success && !error && !jsonDraftError && (
-              <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">
+              <div className="rounded-lg border border-selection-accent/30 bg-selection-accent/10 px-3 py-2 text-sm text-selection-accent">
                 {success}
               </div>
             )}
@@ -498,7 +498,7 @@ function OpenClawSettingsDrawerContent({
             exit={{ opacity: 0 }}
             transition={{ duration: 0.16 }}
             onClick={onClose}
-            className="absolute inset-0 bg-black/55 backdrop-blur-sm"
+            className="absolute inset-0 bg-background/75 backdrop-blur-sm"
           />
           <motion.aside
             initial={{ x: "100%" }}
@@ -510,7 +510,7 @@ function OpenClawSettingsDrawerContent({
             {showMobileSections ? (
               <div className="flex h-full min-h-0 flex-col bg-background">
                 <div className="flex h-12 shrink-0 items-center gap-3 border-b border-border px-4">
-                  <SlidersHorizontal className="h-4 w-4 text-[var(--selection-accent)]" />
+                  <SlidersHorizontal className="h-4 w-4 text-selection-accent" />
                   <div className="min-w-0">
                     <p className="truncate text-sm font-semibold text-foreground">OpenClaw settings</p>
                     <p className="text-[10px] text-text-muted">Choose a section to edit</p>

@@ -100,7 +100,7 @@ export function ActionCard({
             </dl>
           )}
           {preview && (
-            <pre className="max-h-36 overflow-auto rounded border border-white/8 bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-5 text-text-secondary">
+            <pre className="max-h-36 overflow-auto rounded border border-border bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-5 text-text-secondary">
               {preview}
             </pre>
           )}
@@ -139,13 +139,13 @@ export function ToolTimelineCard({
             >
               <div className="relative flex justify-center">
                 <span className={`mt-0.5 flex h-4 w-4 items-center justify-center rounded-full border ${
-                  failed ? "border-[#d05f5f]/40 bg-[#d05f5f]/15 text-[#d05f5f]" :
-                  pending ? "border-[#f0c56c]/40 bg-[#f0c56c]/15 text-[#f0c56c]" :
-                  "border-[#38D39F]/40 bg-[#38D39F]/15 text-[#38D39F]"
+                  failed ? "border-destructive/40 bg-destructive/15 text-destructive" :
+                  pending ? "border-warning/40 bg-warning/15 text-warning" :
+                  "border-primary/40 bg-primary/15 text-primary"
                 }`}>
                   {pending ? <Loader2 className="h-2.5 w-2.5 animate-spin" /> : failed ? <X className="h-2.5 w-2.5" /> : <Check className="h-2.5 w-2.5" />}
                 </span>
-                {index < steps.length - 1 && <span className="absolute top-5 h-[calc(100%-1rem)] w-px bg-white/10" />}
+                {index < steps.length - 1 && <span className="absolute top-5 h-[calc(100%-1rem)] w-px bg-border" />}
               </div>
               <div className="min-w-0">
                 <p className="truncate text-xs font-medium text-foreground">{step.name}</p>
@@ -182,11 +182,11 @@ export function FileResultCard({
       defaultOpen={Boolean(preview)}
       actions={
         <>
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1 text-xs text-text-secondary hover:text-foreground">
+          <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary hover:bg-surface-low hover:text-foreground">
             <Code2 className="h-3 w-3" />
             Open
           </button>
-          <button className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-2.5 py-1 text-xs text-text-secondary hover:text-foreground">
+          <button type="button" className="inline-flex items-center gap-1.5 rounded-md border border-border px-2.5 py-1 text-xs text-text-secondary hover:bg-surface-low hover:text-foreground">
             <Copy className="h-3 w-3" />
             Copy path
           </button>
@@ -194,7 +194,7 @@ export function FileResultCard({
       }
     >
       {preview && (
-        <pre className="max-h-32 overflow-auto rounded border border-white/8 bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-5 text-text-secondary">
+        <pre className="max-h-32 overflow-auto rounded border border-border bg-background/70 px-2.5 py-2 font-mono text-[11px] leading-5 text-text-secondary">
           {preview}
         </pre>
       )}
@@ -224,7 +224,7 @@ export function MessageToolbar({
   ];
 
   return (
-    <div className="inline-flex items-center rounded-lg border border-white/10 bg-background/80 p-1 shadow-lg">
+    <div className="inline-flex items-center rounded-lg border border-border bg-background/80 p-1 shadow-lg">
       {actions.map((action) => {
         const Icon = action.icon;
         return (
@@ -233,7 +233,7 @@ export function MessageToolbar({
             type="button"
             onClick={action.onClick}
             className={`flex h-7 w-7 items-center justify-center rounded-md transition-colors ${
-              action.danger ? "text-text-muted hover:bg-[#d05f5f]/10 hover:text-[#d05f5f]" : "text-text-muted hover:bg-white/[0.06] hover:text-foreground"
+              action.danger ? "text-text-muted hover:bg-destructive/10 hover:text-destructive" : "text-text-muted hover:bg-surface-low hover:text-foreground"
             }`}
             title={action.label}
           >
@@ -256,8 +256,8 @@ export function StopGenerationButton({
     <motion.button
       type="button"
       onClick={onStop}
-      className="inline-flex items-center gap-2 rounded-full border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-1.5 text-xs font-medium text-[#d05f5f] hover:bg-[#d05f5f]/20"
-      animate={{ boxShadow: ["0 0 0 rgba(208,95,95,0)", "0 0 18px rgba(208,95,95,0.2)", "0 0 0 rgba(208,95,95,0)"] }}
+      className="inline-flex items-center gap-2 rounded-full border border-destructive/30 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive hover:bg-destructive/20"
+      animate={{ boxShadow: ["0 0 0 transparent", "0 0 18px color-mix(in srgb, var(--destructive) 20%, transparent)", "0 0 0 transparent"] }}
       transition={{ repeat: Infinity, duration: 1.6, ease: "easeInOut" }}
     >
       <Square className="h-3 w-3" />
@@ -287,7 +287,7 @@ export function RetryToolCard({
         <button
           type="button"
           onClick={onRetry}
-          className="inline-flex items-center gap-1.5 rounded-md border border-[#d05f5f]/35 bg-[#d05f5f]/10 px-3 py-1 text-xs font-medium text-[#d05f5f] hover:bg-[#d05f5f]/20"
+          className="inline-flex items-center gap-1.5 rounded-md border border-destructive/35 bg-destructive/10 px-3 py-1 text-xs font-medium text-destructive hover:bg-destructive/20"
         >
           <RefreshCw className="h-3 w-3" />
           Retry tool
@@ -317,7 +317,7 @@ export function ConnectionRecoveryCard({
         <button
           type="button"
           onClick={onReconnect}
-          className="inline-flex items-center gap-1.5 rounded-md border border-white/10 px-3 py-1 text-xs font-medium text-text-secondary hover:text-foreground"
+          className="inline-flex items-center gap-1.5 rounded-md border border-border px-3 py-1 text-xs font-medium text-text-secondary hover:bg-surface-low hover:text-foreground"
         >
           {reconnecting ? <Loader2 className="h-3 w-3 animate-spin" /> : <RefreshCw className="h-3 w-3" />}
           Reconnect
@@ -334,8 +334,8 @@ export function CommandPaletteCard({
 }) {
   const [selected, setSelected] = useState(0);
   return (
-    <div className="rounded-lg border border-white/10 bg-background/80 shadow-xl">
-      <div className="flex items-center gap-2 border-b border-white/10 px-3 py-2">
+    <div className="rounded-lg border border-border bg-background/80 shadow-xl">
+      <div className="flex items-center gap-2 border-b border-border px-3 py-2">
         <Search className="h-3.5 w-3.5 text-text-muted" />
         <span className="text-xs text-text-secondary">/ command palette</span>
       </div>
@@ -348,10 +348,10 @@ export function CommandPaletteCard({
               type="button"
               onClick={() => setSelected(index)}
               className={`flex w-full items-center gap-2 rounded-md px-2 py-1.5 text-left transition-colors ${
-                selected === index ? "bg-[#38D39F]/10 text-foreground" : "text-text-secondary hover:bg-white/[0.04]"
+                selected === index ? "bg-primary/10 text-foreground" : "text-text-secondary hover:bg-surface-low"
               }`}
             >
-              <Icon className="h-3.5 w-3.5 shrink-0 text-[#38D39F]" />
+              <Icon className="h-3.5 w-3.5 shrink-0 text-primary" />
               <span className="min-w-0 flex-1">
                 <span className="block text-xs font-medium">{command.command}</span>
                 <span className="block truncate text-[11px] text-text-muted">{command.description}</span>
@@ -378,7 +378,7 @@ export function PromptChips({
           key={prompt}
           type="button"
           onClick={() => onSelect?.(prompt)}
-          className="rounded-full border border-white/10 bg-white/[0.03] px-3 py-1.5 text-xs text-text-secondary hover:border-[#38D39F]/35 hover:bg-[#38D39F]/10 hover:text-[#38D39F]"
+          className="rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary hover:border-primary/35 hover:bg-primary/10 hover:text-primary"
           initial={{ opacity: 0, y: 4 }}
           animate={{ opacity: 1, y: 0 }}
           transition={{ delay: index * 0.035 }}
@@ -404,9 +404,9 @@ export function UploadProgressCard({
               <span className="truncate text-xs text-foreground">{file.name}</span>
               <span className="text-[10px] text-text-muted">{file.status === "done" ? "Done" : file.status === "failed" ? "Failed" : `${file.progress}%`}</span>
             </div>
-            <div className="h-1.5 overflow-hidden rounded-full bg-white/[0.06]">
+            <div className="h-1.5 overflow-hidden rounded-full bg-surface-high">
               <motion.div
-                className={file.status === "failed" ? "h-full bg-[#d05f5f]" : "h-full bg-[#38D39F]"}
+                className={file.status === "failed" ? "h-full bg-destructive" : "h-full bg-primary"}
                 initial={false}
                 animate={{ width: `${file.progress}%` }}
                 transition={{ duration: 0.25, ease: "easeOut" }}
@@ -431,12 +431,12 @@ export function AudioMessageBubble({
   const [playing, setPlaying] = useState(false);
   const bars = useMemo(() => Array.from({ length: 28 }, (_, index) => 8 + ((index * 7) % 18)), []);
   return (
-    <div className="max-w-md rounded-2xl border border-white/10 bg-surface-low px-3 py-2.5">
+    <div className="max-w-md rounded-2xl border border-border bg-surface-low px-3 py-2.5">
       <div className="flex items-center gap-3">
         <button
           type="button"
           onClick={() => setPlaying((value) => !value)}
-          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-[#38D39F]/15 text-[#38D39F] hover:bg-[#38D39F]/25"
+          className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-primary/15 text-primary hover:bg-primary/25"
           title={playing ? "Pause" : "Play"}
         >
           {playing ? <Pause className="h-4 w-4" /> : <Play className="h-4 w-4" />}
@@ -450,7 +450,7 @@ export function AudioMessageBubble({
             {bars.map((height, index) => (
               <motion.span
                 key={index}
-                className="w-1 rounded-full bg-[#38D39F]/55"
+                className="w-1 rounded-full bg-primary/60"
                 animate={playing ? { height: [height, Math.max(4, height - 5), height] } : { height }}
                 transition={playing ? { repeat: Infinity, duration: 0.9, delay: index * 0.015 } : { duration: 0.15 }}
               />
@@ -473,14 +473,14 @@ export function ChatSearchJump({
   total: number;
 }) {
   return (
-    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-white/10 bg-background/85 px-2 py-1.5 shadow-lg">
+    <div className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-background/85 px-2 py-1.5 shadow-lg">
       <Search className="h-3.5 w-3.5 shrink-0 text-text-muted" />
       <span className="truncate text-xs text-text-secondary">{query}</span>
-      <span className="rounded-full bg-white/[0.06] px-2 py-0.5 font-mono text-[10px] text-text-muted">{current}/{total}</span>
-      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/[0.06] hover:text-foreground" title="Previous result">
+      <span className="rounded-full bg-surface-low px-2 py-0.5 font-mono text-[10px] text-text-muted">{current}/{total}</span>
+      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-surface-low hover:text-foreground" title="Previous result">
         <ArrowDown className="h-3 w-3 rotate-180" />
       </button>
-      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-white/[0.06] hover:text-foreground" title="Next result">
+      <button type="button" className="flex h-6 w-6 items-center justify-center rounded-full text-text-muted hover:bg-surface-low hover:text-foreground" title="Next result">
         <ArrowDown className="h-3 w-3" />
       </button>
     </div>
@@ -498,14 +498,14 @@ export function LongOutputViewer({
   const [open, setOpen] = useState(false);
   const lines = output.split("\n");
   return (
-    <div className="overflow-hidden rounded-md border border-white/10 bg-background/70">
+    <div className="overflow-hidden rounded-md border border-border bg-background/70">
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
-        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-white/[0.04]"
+        className="flex w-full items-center gap-2 px-3 py-2 text-left hover:bg-surface-low"
       >
         <ChevronDown className={`h-3.5 w-3.5 text-text-muted transition-transform ${open ? "" : "-rotate-90"}`} />
-        <Terminal className="h-3.5 w-3.5 text-[#f0c56c]" />
+        <Terminal className="h-3.5 w-3.5 text-warning" />
         <span className="min-w-0 flex-1 truncate text-xs font-medium text-foreground">{title}</span>
         <span className="text-[10px] text-text-muted">{lines.length} lines</span>
       </button>
@@ -515,7 +515,7 @@ export function LongOutputViewer({
             initial={{ height: 0, opacity: 0 }}
             animate={{ height: "auto", opacity: 1 }}
             exit={{ height: 0, opacity: 0 }}
-            className="overflow-hidden border-t border-white/10"
+            className="overflow-hidden border-t border-border"
           >
             <div className="flex items-center justify-end gap-2 px-3 py-1.5">
               <button type="button" onClick={() => setWrap((value) => !value)} className="text-[11px] text-text-muted hover:text-foreground">
@@ -526,7 +526,7 @@ export function LongOutputViewer({
                 Download
               </button>
             </div>
-            <pre className={`max-h-64 overflow-auto bg-black/20 px-3 py-2 font-mono text-[11px] leading-5 text-text-secondary ${wrap ? "whitespace-pre-wrap" : "whitespace-pre"}`}>
+            <pre className={`max-h-64 overflow-auto bg-surface-low px-3 py-2 font-mono text-[11px] leading-5 text-text-secondary ${wrap ? "whitespace-pre-wrap" : "whitespace-pre"}`}>
               {lines.map((line, index) => `${String(index + 1).padStart(3, " ")}  ${line}`).join("\n")}
             </pre>
           </motion.div>
@@ -568,7 +568,7 @@ export function SessionSummaryCard({
           <p className="mb-1 text-[10px] uppercase tracking-wide text-text-muted">Changed Files</p>
           <div className="flex flex-wrap gap-1.5">
             {changedFiles.map((file) => (
-              <span key={file} className="rounded-full border border-white/10 bg-white/[0.03] px-2 py-0.5 font-mono text-[10px] text-text-secondary">
+              <span key={file} className="rounded-full border border-border bg-surface-low px-2 py-0.5 font-mono text-[10px] text-text-secondary">
                 {file}
               </span>
             ))}
@@ -577,7 +577,7 @@ export function SessionSummaryCard({
             <div className="mt-3">
               <p className="mb-1 text-[10px] uppercase tracking-wide text-text-muted">Blockers</p>
               <ul className="space-y-1">
-                {blockers.map((item) => <li key={item} className="text-xs text-[#f0c56c]">{item}</li>)}
+                {blockers.map((item) => <li key={item} className="text-xs text-warning">{item}</li>)}
               </ul>
             </div>
           )}

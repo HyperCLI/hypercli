@@ -31,7 +31,7 @@ export class OpenClawErrorBoundary extends React.Component<
   render() {
     if (this.state.error) {
       return (
-        <div className="p-6 text-sm text-[#d05f5f]">
+        <div className="p-6 text-sm text-destructive">
           <p className="font-semibold">OpenClaw config render error</p>
           <pre className="mt-2 text-xs whitespace-pre-wrap">{this.state.error.message}</pre>
           <button onClick={() => this.setState({ error: null })} className="mt-2 text-xs underline">Retry</button>
@@ -55,24 +55,24 @@ export interface AgentStatusChipModel {
 
 const AGENT_STATUS_CHIP_STYLES: Record<AgentStatusTone, { shell: string; dot: string; text: string }> = {
   ready: {
-    shell: "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)]",
-    dot: "bg-[var(--selection-accent)]",
-    text: "text-[var(--selection-accent)]",
+    shell: "border-selection-accent/25 bg-selection-accent/10",
+    dot: "bg-selection-accent",
+    text: "text-selection-accent",
   },
   starting: {
-    shell: "border-[#f0c56c]/25 bg-[#f0c56c]/8",
-    dot: "bg-[#f0c56c]",
-    text: "text-[#f0c56c]",
+    shell: "border-warning/25 bg-warning/10",
+    dot: "bg-warning",
+    text: "text-warning",
   },
   stopping: {
-    shell: "border-[#f0c56c]/25 bg-[#f0c56c]/8",
-    dot: "bg-[#f0c56c]",
-    text: "text-[#f0c56c]",
+    shell: "border-warning/25 bg-warning/10",
+    dot: "bg-warning",
+    text: "text-warning",
   },
   connecting: {
-    shell: "border-[#f0c56c]/25 bg-[#f0c56c]/8",
-    dot: "bg-[#f0c56c]",
-    text: "text-[#f0c56c]",
+    shell: "border-warning/25 bg-warning/10",
+    dot: "bg-warning",
+    text: "text-warning",
   },
   disconnected: {
     shell: "border-border bg-surface-low/50",
@@ -85,9 +85,9 @@ const AGENT_STATUS_CHIP_STYLES: Record<AgentStatusTone, { shell: string; dot: st
     text: "text-text-secondary",
   },
   failed: {
-    shell: "border-[#d05f5f]/25 bg-[#d05f5f]/8",
-    dot: "bg-[#d05f5f]",
-    text: "text-[#d05f5f]",
+    shell: "border-destructive/25 bg-destructive/10",
+    dot: "bg-destructive",
+    text: "text-destructive",
   },
 };
 
@@ -121,9 +121,9 @@ export function ConnectionStatusIndicator({
     <span
       className={`inline-flex items-center gap-1.5 text-xs font-medium min-w-[5.25rem] ${
         connected
-          ? "text-[var(--selection-accent)]"
+          ? "text-selection-accent"
           : connecting
-            ? "text-[#f0c56c]"
+            ? "text-warning"
             : "text-text-muted"
       }`}
       title={connected ? "Connected" : status === "reconnecting" ? "Reconnecting" : connecting ? "Connecting" : "Disconnected"}
@@ -133,7 +133,7 @@ export function ConnectionStatusIndicator({
       ) : (
         <span
           className={`inline-block h-2 w-2 rounded-full ${
-            connected ? "bg-[var(--selection-accent)]" : "bg-text-muted"
+            connected ? "bg-selection-accent" : "bg-text-muted"
           }`}
         />
       )}
@@ -278,7 +278,7 @@ export function GearDropdown({
         <Settings className="w-3.5 h-3.5" />
       </button>
       {open && (
-        <div className="absolute right-0 top-full mt-1 z-50 w-48 rounded-2xl border border-border bg-[#111113] p-1.5 shadow-2xl">
+        <div className="absolute right-0 top-full z-50 mt-1 w-48 rounded-2xl border border-border bg-popover p-1.5 shadow-2xl">
           {items.map((item) =>
             item.divider ? (
               <div key={item.key} className="my-1 border-t border-border" />

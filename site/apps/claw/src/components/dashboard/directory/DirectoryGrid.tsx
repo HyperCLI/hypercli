@@ -36,7 +36,7 @@ export function DirectoryGrid({ plugins, config, onSelectPlugin }: DirectoryGrid
           value={search}
           onChange={(e) => setSearch(e.target.value)}
           placeholder="Search integrations..."
-          className="w-full pl-9 pr-4 py-2 rounded-lg bg-surface-low border border-border text-sm text-foreground placeholder:text-text-muted focus:outline-none focus:border-[#38D39F]/50"
+          className="w-full rounded-lg border border-border bg-surface-low py-2 pl-9 pr-4 text-sm text-foreground placeholder:text-text-muted focus:border-primary/50 focus:outline-none"
         />
       </div>
 
@@ -56,17 +56,17 @@ export function DirectoryGrid({ plugins, config, onSelectPlugin }: DirectoryGrid
                 whileHover={{ scale: 1.02 }}
                 whileTap={{ scale: 0.98 }}
                 onClick={() => onSelectPlugin(plugin.id)}
-                className="text-left rounded-xl border border-border bg-surface-low/30 p-4 hover:bg-surface-low/60 hover:border-[#38D39F]/30 transition-colors relative"
+                className="relative rounded-xl border border-border bg-surface-low/30 p-4 text-left transition-colors hover:border-primary/30 hover:bg-surface-low/60"
               >
                 {pluginConnected && (
                   <div className="absolute top-3 right-3 flex items-center gap-1">
-                    <div className="w-1.5 h-1.5 rounded-full bg-[#38D39F]" />
-                    <span className="text-[10px] text-[#38D39F] font-medium">Connected</span>
+                    <div className="h-1.5 w-1.5 rounded-full bg-success" />
+                    <span className="text-[10px] font-medium text-success">Connected</span>
                   </div>
                 )}
                 {recommended && (
                   <div className="absolute top-3 right-3">
-                    <span className="text-[10px] font-medium text-[#f0c56c] bg-[#f0c56c]/10 px-1.5 py-0.5 rounded">
+                    <span className="rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
                       Recommended
                     </span>
                   </div>

@@ -29,11 +29,12 @@ import { resolveSessionSourceChannel, type SessionSourceChannel } from "@/compon
 import { Tooltip, TooltipContent, TooltipTrigger } from "@hypercli/shared-ui";
 import { formatTokens } from "@/lib/format";
 import {
+  displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
-  normalizeOpenClawSessionDisplayName,
   sameOpenClawSelectableSessionKey,
   type OpenClawSessionPreviewMap,
   type OpenClawSessionRecord,
+  unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 
 const WORKSPACE_COLLAPSED_KEY = "agents.workspaceCollapsed.v2";
@@ -149,9 +150,7 @@ function WorkspaceButton({
 }
 
 function sessionTitle(session: OpenClawSessionRecord): string {
-  return normalizeOpenClawSessionDisplayName(session.title, session.key)
-    ?? normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key)
-    ?? fallbackOpenClawSessionDisplayName(session.key);
+  return displayOpenClawSessionName(session);
 }
 
 function selectedProjectSession(sessionKey: string, lastMessageAt = Number.MAX_SAFE_INTEGER): OpenClawSessionRecord {
@@ -168,17 +167,46 @@ function selectedProjectSession(sessionKey: string, lastMessageAt = Number.MAX_S
   };
 }
 
+function isMainEquivalentSessionKey(sessionKey: string | null | undefined): boolean {
+  return unscopedOpenClawSessionKey(sessionKey) === "main";
+}
+
+function isCanonicalMainSession(session: OpenClawSessionRecord): boolean {
+  return session.key === "main" || (
+    isMainEquivalentSessionKey(session.key) &&
+    session.readOnly !== true &&
+    !session.sourceChannelId
+  );
+}
+
+function hasProjectSession(sessions: OpenClawSessionRecord[], sessionKey: string): boolean {
+  if (sessions.some((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey))) return true;
+  return isMainEquivalentSessionKey(sessionKey) && sessions.some(isCanonicalMainSession);
+}
+
+function isProjectSessionActive(
+  session: OpenClawSessionRecord,
+  selectedSessionKey: string | null | undefined,
+  sessions: OpenClawSessionRecord[],
+): boolean {
+  if (sameOpenClawSelectableSessionKey(selectedSessionKey, session.key)) return true;
+  if (!isMainEquivalentSessionKey(selectedSessionKey) || session.key !== "main") return false;
+  return !sessions.some((item) => item.key === selectedSessionKey && item.key !== "main");
+}
+
 function SessionMenuButton({
   icon: Icon,
   label,
   danger = false,
   disabled = false,
+  disabledReason,
   onClick,
 }: {
   icon: React.ComponentType<{ className?: string }>;
   label: string;
   danger?: boolean;
   disabled?: boolean;
+  disabledReason?: string;
   onClick: () => void;
 }) {
   return (
@@ -187,6 +215,7 @@ function SessionMenuButton({
       onClick={disabled ? undefined : onClick}
       disabled={disabled}
       aria-disabled={disabled}
+      title={disabledReason}
       className={`flex w-full items-center gap-3 px-3 py-2 text-left text-[13px] transition-colors ${
         disabled
           ? "cursor-not-allowed text-text-muted/45"
@@ -211,6 +240,8 @@ function RecentSessionRow({
   creating = false,
   disabled = false,
   disabledReason,
+  deleteDisabled = false,
+  deleteDisabledReason,
 }: {
   title: string;
   sourceChannel?: SessionSourceChannel | null;
@@ -221,6 +252,8 @@ function RecentSessionRow({
   creating?: boolean;
   disabled?: boolean;
   disabledReason?: string;
+  deleteDisabled?: boolean;
+  deleteDisabledReason?: string;
 }) {
   const [menuOpen, setMenuOpen] = useState(false);
   const menuRef = useRef<HTMLDivElement | null>(null);
@@ -303,7 +336,14 @@ function RecentSessionRow({
           >
             <SessionMenuButton icon={PenLine} label="Rename" onClick={() => { setMenuOpen(false); onRename(); }} />
             <SessionMenuButton icon={ArrowRight} label="Move to channels" disabled onClick={() => undefined} />
-            <SessionMenuButton icon={Trash2} label="Delete" danger onClick={() => { setMenuOpen(false); onDelete(); }} />
+            <SessionMenuButton
+              icon={Trash2}
+              label="Delete"
+              danger
+              disabled={deleteDisabled}
+              disabledReason={deleteDisabledReason}
+              onClick={() => { setMenuOpen(false); onDelete(); }}
+            />
           </motion.div>
         )}
       </div>
@@ -557,10 +597,10 @@ export function AgentWorkspaceSidebar({
     if (!hasSelectedAgent) return [];
     const projectSessions = [...(sessions ?? [])];
     const activeKey = selectedSessionKey?.trim() || "";
-    if (!projectSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, "main"))) {
+    if (!projectSessions.some(isCanonicalMainSession)) {
       projectSessions.unshift(selectedProjectSession("main", 0));
     }
-    if (activeKey && !projectSessions.some((session) => sameOpenClawSelectableSessionKey(session.key, activeKey))) {
+    if (activeKey && !hasProjectSession(projectSessions, activeKey)) {
       projectSessions.unshift(selectedProjectSession(activeKey));
     }
     return projectSessions.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
@@ -760,9 +800,11 @@ export function AgentWorkspaceSidebar({
                       key={session.key}
                       title={title}
                       sourceChannel={sourceChannel}
-                      active={sameOpenClawSelectableSessionKey(selectedSessionKey, session.key)}
+                      active={isProjectSessionActive(session, selectedSessionKey, sortedSessions)}
                       disabled={!projectsInteractive}
                       disabledReason={projectsDisabledReason}
+                      deleteDisabled={session.readOnly === true}
+                      deleteDisabledReason={session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
                       creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}
                       onSelect={onSelectSession ? () => onSelectSession(session.key) : undefined}
                       onRename={() => setRenameTarget(session)}

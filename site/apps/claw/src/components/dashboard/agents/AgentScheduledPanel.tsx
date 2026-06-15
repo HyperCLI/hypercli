@@ -655,8 +655,8 @@ export function AgentScheduledPanel({
                 />
                 {draft.command ? (
                   <div className="mt-2 flex flex-wrap items-center gap-2 text-xs">
-                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium ${naturalLanguageParsed ? "border-[rgb(var(--selection-accent-rgb)_/_0.25)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] text-[var(--selection-accent)]" : "border-[#f0c56c]/25 bg-[#f0c56c]/8 text-[#f0c56c]"}`}>
-                      <span className={`h-1.5 w-1.5 rounded-full ${naturalLanguageParsed ? "bg-[var(--selection-accent)]" : "bg-[#f0c56c]"}`} />
+                    <span className={`inline-flex items-center gap-1.5 rounded-full border px-2.5 py-1 font-medium ${naturalLanguageParsed ? "border-selection-accent/25 bg-selection-accent/10 text-selection-accent" : "border-warning/25 bg-warning/10 text-warning"}`}>
+                      <span className={`h-1.5 w-1.5 rounded-full ${naturalLanguageParsed ? "bg-selection-accent" : "bg-warning"}`} />
                       {naturalLanguageParsed ? "Parsed" : "Unparsed"}
                     </span>
                     {naturalLanguageParsed ? <span className="font-mono text-text-muted">{inferredSchedule}</span> : <span className="text-text-muted">Use a preset or edit the cron expression below.</span>}
@@ -724,7 +724,7 @@ export function AgentScheduledPanel({
                       id="scheduled-project-options"
                       role="listbox"
                       aria-label="Project"
-                      className="absolute left-0 right-0 z-50 mt-2 max-h-56 overflow-auto rounded-xl border border-[rgb(var(--selection-accent-rgb)_/_0.45)] bg-[#111a16] p-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.45)] ring-1 ring-[rgb(var(--selection-accent-rgb)_/_0.18)]"
+                      className="absolute left-0 right-0 z-50 mt-2 max-h-56 overflow-auto rounded-xl border border-selection-accent/45 bg-popover p-1.5 shadow-[0_18px_55px_color-mix(in_srgb,var(--foreground)_14%,transparent)] ring-1 ring-selection-accent/20"
                     >
                       {normalizedProjectOptions.map((option) => {
                         const selected = sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey);
@@ -735,9 +735,9 @@ export function AgentScheduledPanel({
                             role="option"
                             aria-selected={selected}
                             onClick={() => selectProject(option.key)}
-                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${selected ? "bg-[var(--selection-accent)] font-semibold text-[var(--selection-accent-foreground)]" : "text-foreground hover:bg-[rgb(var(--selection-accent-rgb)_/_0.14)] hover:text-[var(--selection-accent)]"}`}
+                            className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${selected ? "bg-selection-accent font-semibold text-selection-accent-foreground" : "text-foreground hover:bg-selection-accent/15 hover:text-selection-accent"}`}
                           >
-                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selected ? "bg-[var(--selection-accent-foreground)]" : "bg-[rgb(var(--selection-accent-rgb)_/_0.45)]"}`} />
+                            <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selected ? "bg-selection-accent-foreground" : "bg-selection-accent/45"}`} />
                             <span className="min-w-0 flex-1 truncate">{option.label}</span>
                           </button>
                         );
@@ -755,7 +755,7 @@ export function AgentScheduledPanel({
                       type="button"
                       key={preset.cron}
                       onClick={() => setDraft((current) => ({ ...current, schedule: preset.cron, scheduleTouched: true }))}
-                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${draft.schedule === preset.cron ? "border-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "border-border bg-surface text-text-secondary hover:border-border-strong hover:bg-surface-low hover:text-foreground"}`}
+                      className={`inline-flex items-center gap-2 rounded-full border px-3 py-1.5 text-xs font-medium transition-colors ${draft.schedule === preset.cron ? "border-selection-accent bg-selection-accent/10 text-selection-accent" : "border-border bg-surface text-text-secondary hover:border-border-strong hover:bg-surface-low hover:text-foreground"}`}
                     >
                       <span>{preset.label}</span>
                       <span className="font-mono text-[10px] opacity-60">{preset.cron}</span>
@@ -764,8 +764,8 @@ export function AgentScheduledPanel({
                 </div>
               </div>
 
-              {formError ? <p className="text-sm text-[#ff5454]" role="alert">{formError}</p> : null}
-              {scheduleError ? <p className="text-xs text-[#f0c56c]">{scheduleError}</p> : null}
+              {formError ? <p className="text-sm text-destructive" role="alert">{formError}</p> : null}
+              {scheduleError ? <p className="text-xs text-warning">{scheduleError}</p> : null}
 
               <div className="flex flex-col-reverse gap-3 border-t border-border pt-4 sm:flex-row sm:items-center sm:justify-between">
                 <p className="text-xs leading-5 text-text-muted">{editing ? "Saving replaces this schedule, so recent run timing may reset." : "Delivery, one-shot jobs, model overrides, and enable/disable controls are not available in this first pass."}</p>
@@ -784,7 +784,7 @@ export function AgentScheduledPanel({
             <div className="flex flex-col gap-3">
               <div className="rounded-xl border border-border bg-background p-4">
                 <div className="flex items-center gap-2 text-xs font-semibold uppercase tracking-wide text-text-muted">
-                  <span className="h-2 w-2 rounded-full bg-[var(--selection-accent)]" />
+                  <span className="h-2 w-2 rounded-full bg-selection-accent" />
                   Schedule
                 </div>
                 <div className="mt-3 font-mono text-sm text-foreground">{draft.schedule || "No cron set"}</div>
@@ -839,8 +839,8 @@ export function AgentScheduledPanel({
         </div>
       </div>
 
-      {notice ? <div role="status" aria-live="polite" className="mx-4 mt-3 rounded-full border border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] px-3 py-1.5 text-xs font-medium text-[var(--selection-accent)] sm:mx-6">{notice}</div> : null}
-      {formError ? <div role="alert" className="mx-4 mt-3 rounded-lg border border-[#d05f5f]/25 bg-[#d05f5f]/8 px-3 py-2 text-sm text-[#ff5454] sm:mx-6">{formError}</div> : null}
+      {notice ? <div role="status" aria-live="polite" className="mx-4 mt-3 rounded-full border border-selection-accent/25 bg-selection-accent/10 px-3 py-1.5 text-xs font-medium text-selection-accent sm:mx-6">{notice}</div> : null}
+      {formError ? <div role="alert" className="mx-4 mt-3 rounded-lg border border-destructive/25 bg-destructive/10 px-3 py-2 text-sm text-destructive sm:mx-6">{formError}</div> : null}
 
       <div className="min-h-0 flex-1 overflow-auto px-4 py-5 sm:px-6">
         {jobs.length === 0 ? (
@@ -872,7 +872,7 @@ export function AgentScheduledPanel({
                     <div className="min-w-0 flex-1">
                       <div className="flex flex-wrap items-center gap-2">
                         <h2 className="truncate text-sm font-semibold text-foreground">{title}</h2>
-                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${job.enabled === false ? "border-[#f0c56c]/25 bg-[#f0c56c]/8 text-[#f0c56c]" : "border-[rgb(var(--selection-accent-rgb)_/_0.22)] bg-[rgb(var(--selection-accent-rgb)_/_0.08)] text-[var(--selection-accent)]"}`}>
+                        <span className={`inline-flex items-center gap-1 rounded-full border px-2 py-0.5 text-[11px] font-semibold ${job.enabled === false ? "border-warning/25 bg-warning/10 text-warning" : "border-selection-accent/25 bg-selection-accent/10 text-selection-accent"}`}>
                           {job.enabled === false ? "Paused" : "Active"}
                         </span>
                       </div>
@@ -912,7 +912,7 @@ export function AgentScheduledPanel({
                         onClick={() => setDeleteJob(job)}
                         disabled={!job.id}
                         aria-label={`Delete ${title}`}
-                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:border-[#d05f5f]/35 hover:bg-[#d05f5f]/10 hover:text-[#ff5454] disabled:cursor-not-allowed disabled:opacity-50"
+                        className="flex h-8 w-8 items-center justify-center rounded-lg border border-border text-text-muted transition-colors hover:border-destructive/35 hover:bg-destructive/10 hover:text-destructive disabled:cursor-not-allowed disabled:opacity-50"
                       >
                         <Trash2 className="h-3.5 w-3.5" />
                       </button>

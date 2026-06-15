@@ -14,7 +14,7 @@ export function AgentTeamSettingsContent() {
         <section className="mt-7 border-b border-foreground">
           <div className="flex min-h-[100px] items-center justify-between gap-4 border-b border-foreground py-7">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[#2a2b2e]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
                 <Users className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">
@@ -29,7 +29,7 @@ export function AgentTeamSettingsContent() {
 
           <div className="flex min-h-[100px] items-center justify-between gap-4 py-7">
             <div className="flex min-w-0 items-start gap-3">
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[#2a2b2e]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
                 <MessageSquare className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">

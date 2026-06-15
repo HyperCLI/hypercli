@@ -203,7 +203,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="fixed inset-0 z-40 bg-black/40"
+            className="fixed inset-0 z-40 bg-background/70 backdrop-blur-sm"
             onClick={onClose}
           />
 
@@ -221,7 +221,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
               <span className="text-sm font-semibold text-foreground flex-1">Files</span>
 
               {!connected && (
-                <div className="flex items-center gap-1 text-[9px] text-[#f0c56c]">
+                <div className="flex items-center gap-1 text-[9px] text-warning">
                   <WifiOff className="w-3 h-3" />
                   <span>Offline</span>
                 </div>
@@ -231,7 +231,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
               <button
                 onClick={() => setShowHidden((v) => !v)}
                 className={`w-6 h-6 rounded flex items-center justify-center transition-colors ${
-                  showHidden ? "text-[var(--selection-accent)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)]" : "text-text-muted hover:text-foreground hover:bg-surface-low"
+                  showHidden ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:text-foreground hover:bg-surface-low"
                 }`}
                 title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
               >
@@ -254,7 +254,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
                       animate={{ opacity: 1, scale: 1, y: 0 }}
                       exit={{ opacity: 0, scale: 0.95, y: -4 }}
                       transition={{ duration: 0.1 }}
-                      className="absolute right-0 top-full mt-1 z-50 w-28 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden"
+                      className="absolute right-0 top-full mt-1 z-50 w-28 overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
                     >
                       <div className="py-1">
                         {SORT_OPTIONS.map((opt) => (
@@ -262,7 +262,7 @@ export function FilesDrawer({ open, onClose, connected, callbacks, files: extern
                             key={opt.key}
                             onClick={() => toggleSort(opt.key)}
                             className={`flex items-center justify-between w-full px-3 py-1.5 text-[11px] transition-colors hover:bg-surface-low ${
-                              sortKey === opt.key ? "text-[var(--selection-accent)]" : "text-foreground"
+                              sortKey === opt.key ? "text-selection-accent" : "text-foreground"
                             }`}
                           >
                             <span>{opt.label}</span>

@@ -1359,9 +1359,9 @@ export default function DevChatPage() {
             ]} />
           </div>
 
-          {/* SDK Features */}
+          {/* Gateway Features */}
           <div className="space-y-4 pt-1 border-t border-border">
-            <p className="text-[11px] font-semibold text-[#4285f4] uppercase tracking-wider">SDK / Gateway</p>
+            <p className="text-[11px] font-semibold uppercase tracking-wider text-chart-2">Gateway APIs</p>
             <VariantGroup label="Channels" value={channelsVariant} onChange={setChannelsVariant} options={[
               { value: "off", label: "Off" },
               { value: "v1", label: "Alt 1 — row list" },

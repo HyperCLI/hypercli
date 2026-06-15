@@ -36,35 +36,35 @@ export interface ChatCardProps {
 }
 
 const TONE_BORDER: Record<ChatCardTone, string> = {
-  neutral: "border-l-[#7c7b82]",
-  primary: "border-l-[#38D39F]",
-  warning: "border-l-[#f0c56c]",
-  danger: "border-l-[#d05f5f]",
-  info: "border-l-[#6b9eff]",
+  neutral: "border-l-text-muted",
+  primary: "border-l-primary",
+  warning: "border-l-warning",
+  danger: "border-l-destructive",
+  info: "border-l-chart-2",
 };
 
 const TONE_BG: Record<ChatCardTone, string> = {
   neutral: "bg-background/60",
-  primary: "bg-[#38D39F]/[0.06]",
-  warning: "bg-[#f0c56c]/[0.06]",
-  danger: "bg-[#d05f5f]/[0.06]",
-  info: "bg-[#6b9eff]/[0.06]",
+  primary: "bg-primary/10",
+  warning: "bg-warning/10",
+  danger: "bg-destructive/10",
+  info: "bg-chart-2/10",
 };
 
 const TONE_ICON: Record<ChatCardTone, string> = {
   neutral: "text-text-muted",
-  primary: "text-[#38D39F]",
-  warning: "text-[#f0c56c]",
-  danger: "text-[#d05f5f]",
-  info: "text-[#6b9eff]",
+  primary: "text-primary",
+  warning: "text-warning",
+  danger: "text-destructive",
+  info: "text-chart-2",
 };
 
 const STATUS_CLASS: Record<ChatCardTone, string> = {
-  neutral: "border-white/12 bg-white/[0.05] text-foreground",
-  primary: "border-[#38D39F]/30 bg-[#38D39F]/15 text-[#38D39F]",
-  warning: "border-[#f0c56c]/30 bg-[#f0c56c]/15 text-[#f0c56c]",
-  danger: "border-[#d05f5f]/30 bg-[#d05f5f]/15 text-[#d05f5f]",
-  info: "border-[#6b9eff]/30 bg-[#6b9eff]/15 text-[#6b9eff]",
+  neutral: "border-border bg-surface-low text-foreground",
+  primary: "border-primary/30 bg-primary/15 text-primary",
+  warning: "border-warning/30 bg-warning/15 text-warning",
+  danger: "border-destructive/30 bg-destructive/15 text-destructive",
+  info: "border-chart-2/30 bg-chart-2/15 text-chart-2",
 };
 
 export function ChatCard({
@@ -117,13 +117,13 @@ export function ChatCard({
 
   return (
     <div
-      className={`mb-2 overflow-hidden rounded-md border border-l-2 border-white/8 ${TONE_BORDER[tone]} ${TONE_BG[tone]}`}
+      className={`mb-2 overflow-hidden rounded-md border border-l-2 border-border ${TONE_BORDER[tone]} ${TONE_BG[tone]}`}
     >
       {collapsible ? (
         <button
           type="button"
           onClick={toggle}
-          className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-white/[0.03]"
+          className="flex w-full items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-low/70"
         >
           {headerInner}
         </button>
@@ -132,13 +132,13 @@ export function ChatCard({
       )}
 
       {open && children && (
-        <div className="border-t border-white/8 px-3 py-2 text-xs leading-5 text-text-secondary">
+        <div className="border-t border-border px-3 py-2 text-xs leading-5 text-text-secondary">
           {children}
         </div>
       )}
 
       {actions && (
-        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-white/8 px-3 py-2">
+        <div className="flex flex-wrap items-center justify-end gap-2 border-t border-border px-3 py-2">
           {actions}
         </div>
       )}

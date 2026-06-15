@@ -31,8 +31,8 @@ export function AgentLogsPanel({ status, logs, logBoxRef }: AgentLogsPanelProps)
   }
 
   return (
-    <div ref={logBoxRef} className="h-full overflow-auto bg-[#0c1016] p-4 font-mono text-xs leading-5 text-[#d8dde7]">
-      {logs.length === 0 && <div className="text-[#8b95a6]">Gateway connected. Waiting for logs.</div>}
+    <div ref={logBoxRef} className="h-full overflow-auto bg-background p-4 font-mono text-xs leading-5 text-text-secondary">
+      {logs.length === 0 && <div className="text-text-muted">Gateway connected. Waiting for logs.</div>}
       {logs.map((line, idx) => (
         <div key={`${idx}-${line.slice(0, 32)}`} className="whitespace-pre-wrap break-words">{line}</div>
       ))}

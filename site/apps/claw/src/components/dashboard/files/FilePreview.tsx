@@ -204,7 +204,7 @@ export function FilePreview({
         <div className="flex-1 min-w-0">
           <p className="text-xs font-medium text-foreground truncate">
             {entry.name}
-            {isDirty && <span className="text-[#f0c56c] ml-1">*</span>}
+            {isDirty && <span className="ml-1 text-warning">*</span>}
           </p>
           {entry.size !== undefined && (
             <p className="text-[9px] text-text-muted">{formatFileSize(entry.size)}</p>
@@ -234,7 +234,7 @@ export function FilePreview({
           {readOnly && (
             <span
               title="This file is read-only. Download, edit locally, then re-upload."
-              className="inline-flex items-center gap-1 text-[9px] uppercase tracking-wider text-[#f0c56c] bg-[#f0c56c]/10 px-1.5 py-0.5 rounded"
+              className="inline-flex items-center gap-1 rounded bg-warning/10 px-1.5 py-0.5 text-[9px] uppercase tracking-wider text-warning"
             >
               <Lock className="w-2.5 h-2.5" />
               {readOnlyLabel}
@@ -287,7 +287,7 @@ export function FilePreview({
 
       {/* Read-only banner */}
       {readOnly && (
-        <div className="flex items-start gap-2 px-3 py-2 border-b border-border bg-[#f0c56c]/5 text-[11px] text-[#f0c56c]">
+        <div className="flex items-start gap-2 border-b border-border bg-warning/10 px-3 py-2 text-[11px] text-warning">
           <Lock className="w-3.5 h-3.5 mt-0.5 shrink-0" />
           <p>
             {readOnlyDescription ?? (
@@ -309,8 +309,8 @@ export function FilePreview({
 
         {error && (
           <div className="flex flex-col items-center justify-center h-full gap-2 px-6">
-            <AlertCircle className="w-6 h-6 text-[#d05f5f]" />
-            <p className="text-xs text-[#d05f5f] text-center">{error}</p>
+            <AlertCircle className="w-6 h-6 text-destructive" />
+            <p className="text-center text-xs text-destructive">{error}</p>
           </div>
         )}
 
@@ -338,8 +338,8 @@ export function FilePreview({
               <div className="flex min-h-full flex-col">
                 {archivePreview?.error ? (
                   <div className="flex flex-col items-center justify-center h-full gap-2 px-6">
-                    <AlertCircle className="w-6 h-6 text-[#d05f5f]" />
-                    <p className="text-xs text-[#d05f5f] text-center">{archivePreview.error}</p>
+                    <AlertCircle className="w-6 h-6 text-destructive" />
+                    <p className="text-center text-xs text-destructive">{archivePreview.error}</p>
                   </div>
                 ) : archivePreview?.data ? (
                   <>
@@ -360,7 +360,7 @@ export function FilePreview({
                               <div className="min-w-0 flex-1">
                                 <p className="truncate font-mono text-foreground" title={archiveEntry.name}>{archiveEntry.name}</p>
                                 {archiveEntry.unsafePath && (
-                                  <p className="mt-0.5 text-[10px] text-[#f0c56c]">Potentially unsafe path</p>
+                                  <p className="mt-0.5 text-[10px] text-warning">Potentially unsafe path</p>
                                 )}
                               </div>
                               {!archiveEntry.directory && (
@@ -413,9 +413,9 @@ export function FilePreview({
         <motion.div
           initial={{ height: 0, opacity: 0 }}
           animate={{ height: "auto", opacity: 1 }}
-          className="flex items-center justify-between px-3 py-2 border-t border-border bg-[#f0c56c]/5"
+          className="flex items-center justify-between border-t border-border bg-warning/10 px-3 py-2"
         >
-          <span className="text-[10px] text-[#f0c56c]">Unsaved changes</span>
+          <span className="text-[10px] text-warning">Unsaved changes</span>
           <button
             onClick={handleSave}
             disabled={saving}

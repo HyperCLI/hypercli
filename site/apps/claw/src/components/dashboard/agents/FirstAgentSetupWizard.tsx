@@ -647,7 +647,7 @@ function WizardButton({
         "inline-flex h-9 items-center justify-center rounded-[10px] px-3.5 text-[14px] font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-60 sm:h-10 sm:px-4 sm:text-[15px]",
         variant === "primary"
           ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
-          : "border border-[#4a4a4d] bg-[#242424] text-foreground hover:bg-[#2b2b2b]",
+          : "border border-border bg-surface-low text-foreground hover:bg-surface-high",
       )}
     >
       {children}
@@ -668,7 +668,7 @@ function LaunchCapacityFallback({
 
   if (!capacityError) {
     return (
-      <div className="mb-4 rounded-[12px] border border-[#d05f5f]/40 bg-[#d05f5f]/10 px-4 py-3 text-sm text-[#ffb3b3]">
+      <div className="mb-4 rounded-[12px] border border-destructive/40 bg-destructive/10 px-4 py-3 text-sm text-destructive">
         {error}
       </div>
     );
@@ -693,26 +693,26 @@ function LaunchCapacityFallback({
   };
 
   return (
-    <div role="alert" className="mb-4 rounded-[14px] border border-[#f0c56c]/30 bg-[#f0c56c]/10 p-4 text-sm shadow-[0_16px_40px_rgba(0,0,0,0.18)]">
+    <div role="alert" className="mb-4 rounded-[14px] border border-warning/30 bg-warning/10 p-4 text-sm shadow-[0_16px_40px_color-mix(in_srgb,var(--foreground)_10%,transparent)]">
       <div className="flex items-start gap-3">
-        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[#f0c56c]/30 bg-[#f0c56c]/10 text-[#f0c56c]">
+        <span className="mt-0.5 flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-warning/30 bg-warning/10 text-warning">
           <Sparkles className="h-4 w-4" />
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-semibold text-[#f7f7f7]">{capacityError.title}</p>
-          <p className="mt-1 text-[13px] leading-5 text-[#d7caa4]">
+          <p className="font-semibold text-foreground">{capacityError.title}</p>
+          <p className="mt-1 text-[13px] leading-5 text-text-secondary">
             Your {tierLabel} launch slot could not be reserved. Add another slot now, or stop an existing {tierLabel} agent to free capacity.
           </p>
 
           {(capacityError.requestedInventory || capacityError.accountInventory.length > 0) && (
             <div className="mt-3 flex flex-wrap gap-2">
               {capacityError.requestedInventory && (
-                <span className="rounded-full border border-[#f0c56c]/25 bg-[#111111]/60 px-2.5 py-1 text-[11px] font-medium text-[#f0c56c]">
+                <span className="rounded-full border border-warning/25 bg-background/60 px-2.5 py-1 text-[11px] font-medium text-warning">
                   Requested {tierLabel}: {capacityError.requestedInventory.free} free / {capacityError.requestedInventory.total} total
                 </span>
               )}
               {capacityError.accountInventory.map((entry) => (
-                <span key={entry.tier} className="rounded-full border border-[#3c3c3f] bg-[#111111]/60 px-2.5 py-1 text-[11px] font-medium text-[#d8d8d8]">
+                <span key={entry.tier} className="rounded-full border border-border bg-background/60 px-2.5 py-1 text-[11px] font-medium text-text-secondary">
                   {entry.tier}: {entry.free} free / {entry.total} total
                 </span>
               ))}
@@ -729,10 +729,10 @@ function LaunchCapacityFallback({
               {openingPlans ? "Opening plans..." : `Add ${tierLabel} capacity`}
               <ArrowRight className="h-3.5 w-3.5" />
             </button>
-            <span className="text-[12px] leading-4 text-[#a8a09a]">Need it immediately? Stop a running {tierLabel} agent and retry.</span>
+            <span className="text-[12px] leading-4 text-text-muted">Need it immediately? Stop a running {tierLabel} agent and retry.</span>
           </div>
 
-          {openError && <p className="mt-2 text-[12px] text-[#ffb3b3]">{openError}</p>}
+          {openError && <p className="mt-2 text-[12px] text-destructive">{openError}</p>}
         </div>
       </div>
     </div>
@@ -877,19 +877,19 @@ export function FirstAgentSetupWizard({
         initial={{ opacity: 0, y: 10 }}
         animate={{ opacity: 1, y: 0 }}
         transition={{ duration: 0.2 }}
-        className="flex h-full max-h-[680px] min-h-0 w-full max-w-[980px] flex-col overflow-hidden rounded-[20px] border border-[#353535] bg-[#171717] text-foreground shadow-[0_20px_56px_rgba(0,0,0,0.46)]"
+        className="flex h-full max-h-[680px] min-h-0 w-full max-w-[980px] flex-col overflow-hidden rounded-[20px] border border-border bg-background text-foreground shadow-[0_20px_56px_color-mix(in_srgb,var(--foreground)_16%,transparent)]"
       >
-        <header className="relative flex-shrink-0 border-b border-[#333333] px-5 py-4 sm:px-6 lg:px-7">
+        <header className="relative flex-shrink-0 border-b border-border px-5 py-4 sm:px-6 lg:px-7">
           <div className={cx("min-w-0", currentStep === "plan" && "sm:pr-[190px]")}>
-            <h2 className="text-[20px] font-medium leading-tight text-[#f3f3f3] sm:text-[24px]">{currentCopy.title}</h2>
-            <p className="mt-2 text-[13px] leading-snug text-[#858585] sm:text-[15px] lg:text-[16px]">{currentCopy.subtitle}</p>
+            <h2 className="text-[20px] font-medium leading-tight text-foreground sm:text-[24px]">{currentCopy.title}</h2>
+            <p className="mt-2 text-[13px] leading-snug text-text-muted sm:text-[15px] lg:text-[16px]">{currentCopy.subtitle}</p>
           </div>
           {currentStep === "plan" && (
             <div className="mt-4 flex items-center justify-end gap-2 sm:absolute sm:right-6 sm:top-4 sm:mt-0 lg:right-7">
               <button
                 type="button"
                 onClick={() => setPlanComparisonOpen(true)}
-                className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-[#4a4a4d] bg-[#232323] px-3.5 text-[14px] font-medium text-[#f5f5f5] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b]"
+                className="inline-flex h-9 shrink-0 items-center justify-center whitespace-nowrap rounded-[10px] border border-border bg-surface-low px-3.5 text-[14px] font-medium text-foreground transition-colors hover:border-border-strong hover:bg-surface-high"
               >
                 Compare plans
               </button>
@@ -898,7 +898,7 @@ export function FirstAgentSetupWizard({
                   type="button"
                   aria-label="Close choose plan"
                   onClick={onClose}
-                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-[#4a4a4d] bg-[#232323] text-[#d0d0d2] transition-colors hover:border-[#66666a] hover:bg-[#2b2b2b] hover:text-[#f5f5f5]"
+                  className="inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-[10px] border border-border bg-surface-low text-text-secondary transition-colors hover:border-border-strong hover:bg-surface-high hover:text-foreground"
                 >
                   <X className="h-4 w-4" />
                 </button>
@@ -924,17 +924,17 @@ export function FirstAgentSetupWizard({
                 </div>
 
                 <label className="block min-w-0">
-                  <span className="mb-2 block text-[14px] font-semibold leading-none text-[#f5f5f5] sm:text-[16px]">Agent name</span>
+                  <span className="mb-2 block text-[14px] font-semibold leading-none text-foreground sm:text-[16px]">Agent name</span>
                   <input
                     value={agentName}
                     onChange={(event) => setAgentName(event.target.value)}
-                    className="h-10 w-full rounded-[12px] border border-[#4a4a4d] bg-[#202020] px-3 text-[15px] text-[#f4f4f4] outline-none transition-colors placeholder:text-[#707070] focus:border-[#6a6a6d] sm:h-11 sm:text-[16px] lg:h-12"
+                    className="h-10 w-full rounded-[12px] border border-border bg-surface-low px-3 text-[15px] text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong sm:h-11 sm:text-[16px] lg:h-12"
                   />
                 </label>
               </div>
 
               <div className="mt-7 lg:mt-8">
-                <p className="mb-3 text-[14px] font-semibold leading-tight text-[#f5f5f5] sm:text-[16px]">What does it help with?</p>
+                <p className="mb-3 text-[14px] font-semibold leading-tight text-foreground sm:text-[16px]">What does it help with?</p>
                 <div className="flex flex-wrap gap-2">
                   {helpCategories.map((category) => {
                     const selected = selectedCategory === category;
@@ -945,10 +945,10 @@ export function FirstAgentSetupWizard({
                         aria-pressed={selected}
                         onClick={() => setSelectedCategory(category)}
                         className={cx(
-                          "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--selection-accent-rgb)_/_0.35)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#171717] sm:text-[14px]",
-                          selected
-                            ? "border-[rgb(var(--selection-accent-rgb)_/_0.72)] bg-[#1f1f21] text-[var(--selection-accent)] shadow-[0_0_0_1px_rgb(var(--selection-accent-rgb)_/_0.38)]"
-                            : "border-[#3f3f44] bg-[#1f1f21] text-[#d9d9dd] shadow-[inset_0_1px_0_rgba(255,255,255,0.03)] hover:border-[#5f5f66] hover:bg-[#28282b] hover:text-[#f5f5f5]",
+                           "inline-flex h-9 min-w-0 items-center gap-1.5 rounded-full border px-3.5 text-[13px] font-semibold leading-none transition-all focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-selection-accent/35 focus-visible:ring-offset-2 focus-visible:ring-offset-background sm:text-[14px]",
+                           selected
+                             ? "border-selection-accent/70 bg-surface-high text-selection-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_38%,transparent)]"
+                             : "border-border bg-surface-high text-text-secondary shadow-[inset_0_1px_0_color-mix(in_srgb,var(--foreground)_3%,transparent)] hover:border-border-strong hover:bg-surface-low hover:text-foreground",
                         )}
                       >
                         {selected ? <Check className="h-3.5 w-3.5 shrink-0" /> : null}
@@ -960,7 +960,7 @@ export function FirstAgentSetupWizard({
               </div>
 
               <div className="mt-6">
-                <p className="mb-3 text-[14px] font-semibold leading-tight text-[#f5f5f5] sm:text-[16px]">Avatar</p>
+                <p className="mb-3 text-[14px] font-semibold leading-tight text-foreground sm:text-[16px]">Avatar</p>
                 <div className="flex flex-wrap gap-2">
                   {avatarOptions.map((option) => {
                     const Icon = option.icon;
@@ -976,8 +976,8 @@ export function FirstAgentSetupWizard({
                         className={cx(
                           "flex h-8 w-8 items-center justify-center rounded-[8px] border transition-colors",
                           selected
-                            ? "border-[var(--selection-accent)] shadow-[0_0_0_1px_rgb(var(--selection-accent-rgb)_/_0.28)]"
-                            : "border-[#424245] hover:border-[#66666a] hover:bg-[#292929]",
+                            ? "border-selection-accent shadow-[0_0_0_1px_color-mix(in_srgb,var(--selection-accent)_28%,transparent)]"
+                            : "border-border hover:border-border-strong hover:bg-surface-low",
                         )}
                         style={{
                           backgroundColor: avatarStyle.bgColor,
@@ -992,7 +992,7 @@ export function FirstAgentSetupWizard({
               </div>
             </div>
 
-            <footer className="flex h-[72px] flex-shrink-0 items-center justify-end border-t border-[#333333] bg-[#202020] px-5 sm:px-7">
+            <footer className="flex h-[72px] flex-shrink-0 items-center justify-end border-t border-border bg-surface-low px-5 sm:px-7">
               <WizardButton onClick={() => goToStep(1)}>Continue</WizardButton>
             </footer>
           </>
@@ -1007,22 +1007,22 @@ export function FirstAgentSetupWizard({
                   event.preventDefault();
                   handleFileSelection(event.dataTransfer.files);
                 }}
-                className="flex min-h-[190px] flex-col items-center justify-center rounded-[12px] border border-dashed border-[#343434] bg-[#070707] px-5 text-center sm:min-h-[220px]"
+                className="flex min-h-[190px] flex-col items-center justify-center rounded-[12px] border border-dashed border-border bg-background px-5 text-center sm:min-h-[220px]"
               >
-                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-[#2f2f31] bg-[#111111] text-[#8b8b8f] sm:h-12 sm:w-12">
+                <div className="flex h-11 w-11 items-center justify-center rounded-full border border-border bg-surface-low text-text-muted sm:h-12 sm:w-12">
                   <FileText className="h-5 w-5 sm:h-6 sm:w-6" />
                 </div>
-                <p className="mt-5 text-[16px] font-semibold leading-tight text-[#f5f5f5] sm:text-[18px]">
+                <p className="mt-5 text-[16px] font-semibold leading-tight text-foreground sm:text-[18px]">
                   Drop your files here, or{" "}
                   <button
                     type="button"
                     onClick={() => fileInputRef.current?.click()}
-                    className="underline underline-offset-4 transition-colors hover:text-[var(--selection-accent)]"
+                    className="underline underline-offset-4 transition-colors hover:text-selection-accent"
                   >
                     click to browse
                   </button>
                 </p>
-                <p className="mt-2 text-[13px] leading-tight text-[#858585] sm:text-[14px]">PDF, DOCX, EPUB, TXT, or CSV - up to 25 MB each</p>
+                <p className="mt-2 text-[13px] leading-tight text-text-muted sm:text-[14px]">PDF, DOCX, EPUB, TXT, or CSV - up to 25 MB each</p>
                 <input
                   ref={fileInputRef}
                   type="file"
@@ -1037,7 +1037,7 @@ export function FirstAgentSetupWizard({
                     {files.map((file) => (
                       <span
                         key={`${file.name}-${file.size}`}
-                        className="max-w-[260px] truncate rounded-full border border-[#3c3c3f] bg-[#191919] px-4 py-2 text-sm text-[#d8d8d8]"
+                        className="max-w-[260px] truncate rounded-full border border-border bg-surface-low px-4 py-2 text-sm text-text-secondary"
                       >
                         {file.name} - {formatFileSize(file.size)}
                       </span>
@@ -1047,7 +1047,7 @@ export function FirstAgentSetupWizard({
               </div>
             </div>
 
-            <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-[#333333] bg-[#202020] px-5 sm:px-7">
+            <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-border bg-surface-low px-5 sm:px-7">
               <WizardButton variant="secondary" onClick={() => goToStep(0)}>
                 <ChevronLeft className="mr-2 h-4 w-4" />
                 Back
@@ -1081,37 +1081,37 @@ export function FirstAgentSetupWizard({
                       role="button"
                       tabIndex={0}
                       className={cx(
-                        "relative flex min-h-[302px] flex-col rounded-[8px] border border-[#353538] bg-[#181818] p-4 text-left transition-colors hover:border-[#505055]",
-                        selectedPlanId === plan.id && "border-[#56565a]",
+                        "relative flex min-h-[302px] flex-col rounded-[8px] border border-border bg-surface-low p-4 text-left transition-colors hover:border-border-strong",
+                        selectedPlanId === plan.id && "border-selection-accent/60",
                         plan.disabled && "opacity-60",
                       )}
 	                    >
 	                      {plan.accent && (
-	                        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-[var(--selection-accent)] px-2.5 py-1 text-[12px] font-medium leading-none text-[var(--selection-accent-foreground)] shadow-[0_8px_22px_rgb(var(--selection-accent-rgb)_/_0.22)]">
+	                        <span className="absolute left-1/2 top-0 -translate-x-1/2 -translate-y-1/2 rounded-full bg-selection-accent px-2.5 py-1 text-[12px] font-medium leading-none text-selection-accent-foreground shadow-[0_8px_22px_color-mix(in_srgb,var(--selection-accent)_22%,transparent)]">
 	                          Most Popular
 	                        </span>
 	                      )}
 
                       <div className="flex items-center gap-2.5">
-                        <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-[#303035] bg-[#242427] text-[#f5f5f5]">
+                        <span className="flex h-8 w-8 items-center justify-center rounded-[9px] border border-border bg-surface-high text-foreground">
                           <Icon className="h-4 w-4" />
                         </span>
-                        <h3 className="truncate text-[18px] font-semibold leading-none text-[#f5f5f5]">{plan.name}</h3>
+                        <h3 className="truncate text-[18px] font-semibold leading-none text-foreground">{plan.name}</h3>
                       </div>
 
-                      <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-[#7d7d82]">{plan.description}</p>
+                      <p className="mt-5 min-h-[34px] text-[13px] leading-[1.35] text-text-muted">{plan.description}</p>
 
                       <div className="mt-3 flex min-h-[42px] items-center gap-2.5">
                         {plan.oldPrice && (
-                          <span className="text-[24px] font-bold leading-none text-[#777777] line-through decoration-[2px]">{plan.oldPrice}</span>
+                          <span className="text-[24px] font-bold leading-none text-text-muted line-through decoration-[2px]">{plan.oldPrice}</span>
                         )}
                         {plan.price ? (
                           <>
-                            <span className="text-[28px] font-bold leading-none text-[#f7f7f7]">{plan.price}</span>
-                            <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-[#f6f6f6]">{plan.priceNote}</span>
+                            <span className="text-[28px] font-bold leading-none text-foreground">{plan.price}</span>
+                            <span className="max-w-[78px] text-[10px] font-semibold leading-[1.1] text-foreground">{plan.priceNote}</span>
                           </>
                         ) : (
-                          <span className="text-[18px] font-semibold leading-none text-[#f7f7f7]">{plan.statusText ?? "Already active"}</span>
+                          <span className="text-[18px] font-semibold leading-none text-foreground">{plan.statusText ?? "Already active"}</span>
                         )}
                       </div>
                       {plan.price && plan.statusText && (
@@ -1126,10 +1126,10 @@ export function FirstAgentSetupWizard({
                         }}
 	                        disabled={creating || plan.disabled}
 	                        className={cx(
-	                          "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[rgb(var(--button-primary-rgb)_/_0.45)] focus-visible:ring-offset-2 focus-visible:ring-offset-[#181818] disabled:cursor-wait disabled:opacity-70",
+	                          "mt-3 h-8 rounded-[8px] text-[13px] font-medium leading-tight transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-primary/45 focus-visible:ring-offset-2 focus-visible:ring-offset-background disabled:cursor-wait disabled:opacity-70",
 	                          plan.accent
 	                            ? "bg-[var(--button-primary)] text-[var(--button-primary-foreground)] hover:bg-[var(--button-primary-hover)]"
-	                            : "border border-[rgb(var(--button-primary-rgb)_/_0.38)] bg-[rgb(var(--button-primary-rgb)_/_0.09)] text-[var(--button-primary)] hover:border-[rgb(var(--button-primary-rgb)_/_0.55)] hover:bg-[rgb(var(--button-primary-rgb)_/_0.14)]",
+	                            : "border border-primary/40 bg-primary/10 text-primary hover:border-primary/55 hover:bg-primary/15",
 	                        )}
 	                      >
                         {creating && selectedPlanId === plan.id ? "Creating..." : plan.cta}
@@ -1144,8 +1144,8 @@ export function FirstAgentSetupWizard({
 
                       <div className="mt-5 space-y-2.5">
                         {featureRows.map((feature, featureIndex) => (
-                          <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-[#f2f2f2]">
-                            <Check className="mt-px h-4 w-4 flex-shrink-0 text-[#77777b]" />
+                          <div key={`${plan.id}-${featureIndex}-${feature}`} className="flex items-start gap-2.5 text-[13px] leading-tight text-foreground">
+                            <Check className="mt-px h-4 w-4 flex-shrink-0 text-text-muted" />
                             <span>{feature}</span>
                           </div>
                         ))}
@@ -1155,7 +1155,7 @@ export function FirstAgentSetupWizard({
                 })}
             </div>
           </div>
-          <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-[#333333] bg-[#202020] px-5 sm:px-7">
+          <footer className="flex h-[72px] flex-shrink-0 items-center justify-between border-t border-border bg-surface-low px-5 sm:px-7">
             <WizardButton variant="secondary" onClick={() => goToStep(1)}>
               <ChevronLeft className="mr-2 h-4 w-4" />
               Back

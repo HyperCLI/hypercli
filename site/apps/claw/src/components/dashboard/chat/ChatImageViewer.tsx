@@ -43,7 +43,7 @@ export function ChatImageViewer({
   const [open, setOpen] = useState(false);
   const [downloadPending, setDownloadPending] = useState(false);
   const titleId = useId();
-  const actionButtonClass = "flex h-9 w-9 items-center justify-center rounded-md border border-white/15 bg-white/10 text-white transition-colors hover:bg-white/15 focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F] disabled:cursor-wait disabled:opacity-60";
+  const actionButtonClass = "flex h-9 w-9 items-center justify-center rounded-md border border-border bg-surface-low text-foreground transition-colors hover:bg-surface-high focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 disabled:cursor-wait disabled:opacity-60";
   const imageDownloadLabel = downloadLabel ?? `Download ${alt}`;
   const imageOpenFileLabel = openFileLabel ?? `Open ${alt} in files`;
 
@@ -78,7 +78,7 @@ export function ChatImageViewer({
       <button
         type="button"
         onClick={() => setOpen(true)}
-        className={`group relative block max-w-full rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-[#38D39F] focus-visible:ring-offset-2 focus-visible:ring-offset-background ${containerClassName ?? ""}`}
+        className={`group relative block max-w-full rounded-md text-left focus:outline-none focus-visible:ring-2 focus-visible:ring-primary/60 focus-visible:ring-offset-2 focus-visible:ring-offset-background ${containerClassName ?? ""}`}
         aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={`View ${alt}`}
@@ -94,7 +94,7 @@ export function ChatImageViewer({
           className={`${className ?? ""} cursor-zoom-in`}
           loading={loading}
         />
-        <span className="pointer-events-none absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-white/15 bg-black/55 text-white opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
+        <span className="pointer-events-none absolute right-2 top-2 flex h-7 w-7 items-center justify-center rounded-md border border-border bg-background/75 text-foreground opacity-0 shadow-lg transition-opacity group-hover:opacity-100 group-focus-visible:opacity-100">
           <ZoomIn className="h-3.5 w-3.5" />
         </span>
       </button>
@@ -104,10 +104,10 @@ export function ChatImageViewer({
           role="dialog"
           aria-modal="true"
           aria-labelledby={titleId}
-          className="fixed inset-0 z-[200] bg-black/90 text-white"
+          className="fixed inset-0 z-[200] bg-background/95 text-foreground"
         >
           <div className="flex h-full min-h-0 w-full flex-col">
-            <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-white/10 px-4">
+            <div className="flex h-14 flex-shrink-0 items-center gap-3 border-b border-border px-4">
               <p id={titleId} className="min-w-0 flex-1 truncate text-sm font-medium">
                 {title || alt}
               </p>

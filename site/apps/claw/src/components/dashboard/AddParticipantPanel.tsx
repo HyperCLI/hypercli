@@ -75,12 +75,12 @@ export function AddParticipantPanel({
         exit={{ opacity: 0, y: -8, scale: 0.95 }}
         transition={{ duration: 0.15 }}
         onMouseDown={(e) => e.stopPropagation()}
-        className="absolute top-full right-0 mt-1 z-50 w-64 rounded-xl border border-border bg-[#111113] shadow-2xl overflow-hidden"
+        className="absolute right-0 top-full z-50 mt-1 w-64 overflow-hidden rounded-xl border border-border bg-popover shadow-2xl"
       >
         {/* Header */}
         <div className="flex items-center justify-between px-3 py-2.5 border-b border-border">
           <div className="flex items-center gap-1.5">
-            <UserPlus className="w-3.5 h-3.5 text-[#38D39F]" />
+            <UserPlus className="w-3.5 h-3.5 text-primary" />
             <span className="text-xs font-semibold text-foreground">Add to project</span>
           </div>
           <button
@@ -101,7 +101,7 @@ export function AddParticipantPanel({
               value={search}
               onChange={(e) => setSearch(e.target.value)}
               placeholder="Search participants..."
-              className="w-full bg-surface-low border border-border rounded-md pl-7 pr-2.5 py-1.5 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong"
+              className="w-full rounded-md border border-border bg-surface-low py-1.5 pl-7 pr-2.5 text-xs text-foreground placeholder:text-text-muted focus:border-border-strong focus:outline-none"
             />
           </div>
         </div>
@@ -110,7 +110,7 @@ export function AddParticipantPanel({
         <div className="max-h-64 overflow-y-auto py-1">
           {agents.length === 0 && users.length === 0 && (
             <div className="flex flex-col items-center justify-center py-8 text-text-muted">
-              <Check className="w-5 h-5 mb-1.5 text-[#38D39F]" />
+              <Check className="mb-1.5 h-5 w-5 text-success" />
               <p className="text-[11px]">Everyone is already in this project</p>
             </div>
           )}
@@ -154,9 +154,9 @@ export function AddParticipantPanel({
                         transition={{ duration: 0.3 }}
                       >
                         {justAdded ? (
-                          <Check className="w-3.5 h-3.5 text-[#38D39F]" />
+                          <Check className="w-3.5 h-3.5 text-success" />
                         ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] font-medium hover:bg-[#38D39F]/20 transition-colors">
+                          <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success transition-colors hover:bg-success/20">
                             Add
                           </span>
                         )}
@@ -202,9 +202,9 @@ export function AddParticipantPanel({
                         transition={{ duration: 0.3 }}
                       >
                         {justAdded ? (
-                          <Check className="w-3.5 h-3.5 text-[#38D39F]" />
+                          <Check className="w-3.5 h-3.5 text-success" />
                         ) : (
-                          <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#38D39F]/10 text-[#38D39F] font-medium hover:bg-[#38D39F]/20 transition-colors">
+                          <span className="rounded-full bg-success/10 px-2 py-0.5 text-[10px] font-medium text-success transition-colors hover:bg-success/20">
                             Add
                           </span>
                         )}

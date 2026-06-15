@@ -173,24 +173,24 @@ function tooltipPositionClass(index: number, total: number) {
 function statusClassName(status: string) {
   switch (status) {
     case "RUNNING":
-      return "bg-[#0f511d] text-[#32d43a]";
+      return "bg-success/15 text-success";
     case "FAILED":
-      return "bg-[#4c1717] text-[#ff8b8b]";
+      return "bg-destructive/15 text-destructive";
     case "STOPPED":
-      return "bg-white/8 text-text-secondary";
+      return "bg-surface-low text-text-secondary";
     default:
-      return "bg-[#4f3911] text-[#f0c56c]";
+      return "bg-warning/15 text-warning";
   }
 }
 
 function integrationIcon(name: string): { icon: LucideIcon | ((props: React.SVGProps<SVGSVGElement>) => React.ReactNode); bg: string; color: string } {
   const key = name.trim().toLowerCase();
-  if (key.includes("slack")) return { icon: BRAND_ICONS.slack, bg: "#ffffff", color: "#4A154B" };
-  if (key.includes("telegram")) return { icon: BRAND_ICONS.telegram, bg: "#229ED9", color: "#ffffff" };
-  if (key.includes("teams") || key.includes("msteams")) return { icon: BRAND_ICONS.teams, bg: "#5059C9", color: "#ffffff" };
-  if (key.includes("cli") || key.includes("terminal")) return { icon: TerminalSquare, bg: "#050505", color: "#ffffff" };
-  if (key.includes("code")) return { icon: Code2, bg: "#101113", color: "#ffffff" };
-  return { icon: Blocks, bg: "#1b1b1d", color: "#ffffff" };
+  if (key.includes("slack")) return { icon: BRAND_ICONS.slack, bg: "var(--surface-high)", color: "var(--foreground)" };
+  if (key.includes("telegram")) return { icon: BRAND_ICONS.telegram, bg: "var(--surface-high)", color: "var(--foreground)" };
+  if (key.includes("teams") || key.includes("msteams")) return { icon: BRAND_ICONS.teams, bg: "var(--surface-high)", color: "var(--foreground)" };
+  if (key.includes("cli") || key.includes("terminal")) return { icon: TerminalSquare, bg: "var(--surface-high)", color: "var(--foreground)" };
+  if (key.includes("code")) return { icon: Code2, bg: "var(--surface-high)", color: "var(--foreground)" };
+  return { icon: Blocks, bg: "var(--surface-high)", color: "var(--foreground)" };
 }
 
 export function DashboardTimeRangeControl({
@@ -201,7 +201,7 @@ export function DashboardTimeRangeControl({
   onChange: (value: DashboardTimeRange) => void;
 }) {
   return (
-    <div className="inline-flex overflow-hidden rounded-lg border border-white/14 bg-[#0d0d0e]" aria-label="Dashboard time range">
+    <div className="inline-flex overflow-hidden rounded-lg border border-border bg-background" aria-label="Dashboard time range">
       {dashboardRangeOptions.map((option) => (
         <button
           key={option.value}
@@ -209,9 +209,9 @@ export function DashboardTimeRangeControl({
           onClick={() => onChange(option.value)}
           className={`h-8 px-3 text-xs font-medium transition-colors ${
             value === option.value
-              ? "bg-[#242426] text-foreground"
+              ? "bg-surface-high text-foreground"
               : "text-text-secondary hover:bg-surface-low hover:text-foreground"
-          } ${option.value !== "24h" ? "border-l border-white/10" : ""}`}
+          } ${option.value !== "24h" ? "border-l border-border" : ""}`}
         >
           {option.label}
         </button>
@@ -232,10 +232,10 @@ export function DashboardMetricCard({
   icon: LucideIcon;
 }) {
   return (
-    <section className="relative min-h-[116px] rounded-lg border border-white/12 bg-[#19191a] p-4">
+    <section className="relative min-h-[116px] rounded-lg border border-border bg-surface-low p-4">
       <div className="flex items-start justify-between gap-4">
         <h2 className="text-base font-semibold text-foreground">{title}</h2>
-        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-[#2b2b2e] text-text-muted">
+        <div className="flex h-10 w-10 items-center justify-center rounded-lg bg-surface-high text-text-muted">
           <Icon className="h-4 w-4" />
         </div>
       </div>
@@ -248,7 +248,7 @@ export function DashboardMetricCard({
 function EmptyPanelState() {
   return (
     <div className="flex min-h-[236px] flex-col items-center justify-center text-center">
-      <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-[#2b2b2e] text-text-secondary">
+      <div className="mb-3 flex h-8 w-8 items-center justify-center rounded-lg bg-surface-high text-text-secondary">
         <BarChart3 className="h-4 w-4" />
       </div>
       <p className="text-sm text-text-muted">No data has been collected</p>
@@ -282,8 +282,8 @@ export function TokenUsagePanel({
     : undefined;
 
   return (
-    <section className="rounded-lg border border-white/12 bg-[#19191a]">
-      <div className="flex h-[70px] items-center justify-between border-b border-white/10 px-6">
+    <section className="rounded-lg border border-border bg-surface-low">
+      <div className="flex h-[70px] items-center justify-between border-b border-border px-6">
         <h2 className="text-base font-semibold text-foreground">Token usage</h2>
         <span className="text-sm text-text-muted">{periodLabel}</span>
       </div>
@@ -294,9 +294,9 @@ export function TokenUsagePanel({
         <div className="px-6 pb-6 pt-5">
           <div className="relative h-[190px]">
             <div aria-hidden className="absolute inset-x-0 top-0 h-[160px]">
-              <div className="absolute inset-x-0 top-0 border-t border-white/50" />
-              <div className="absolute inset-x-0 top-1/3 border-t border-white/35" />
-              <div className="absolute inset-x-0 top-2/3 border-t border-white/20" />
+              <div className="absolute inset-x-0 top-0 border-t border-border/80" />
+              <div className="absolute inset-x-0 top-1/3 border-t border-border/60" />
+              <div className="absolute inset-x-0 top-2/3 border-t border-border/40" />
             </div>
             <div className={`relative grid h-[160px] items-end ${barGapClass}`} style={chartColumns}>
               {chartHistory.map((day, index) => {
@@ -316,39 +316,39 @@ export function TokenUsagePanel({
                       onBlur={() => setActiveIndex((current) => (current === index ? null : current))}
                       onMouseEnter={() => setActiveIndex(index)}
                       onMouseLeave={() => setActiveIndex((current) => (current === index ? null : current))}
-                      className={`flex h-[160px] w-full flex-col justify-end overflow-hidden outline-none transition-[filter] focus-visible:ring-2 focus-visible:ring-[#2f80ed]/70 ${barShapeClass} ${activeIndex === index ? "brightness-110" : ""}`}
+                      className={`flex h-[160px] w-full flex-col justify-end overflow-hidden outline-none transition-[filter] focus-visible:ring-2 focus-visible:ring-primary/70 ${barShapeClass} ${activeIndex === index ? "brightness-110" : ""}`}
                     >
                       {day.promptTokens > 0 && (
-                        <span className="w-full bg-[#2f80ed]" style={{ height: `${promptPct}%` }} />
+                        <span className="w-full bg-primary" style={{ height: `${promptPct}%` }} />
                       )}
                       {day.completionTokens > 0 && (
-                        <span className="w-full bg-[#8bc3f7]" style={{ height: `${completionPct}%` }} />
+                        <span className="w-full bg-chart-2" style={{ height: `${completionPct}%` }} />
                       )}
                     </button>
                     {activeIndex === index && (
                       <div
                         id={tooltipId}
                         role="tooltip"
-                        className={`pointer-events-none absolute bottom-full z-30 mb-2 w-[150px] rounded-lg border border-white/12 bg-[#050506] px-3 py-2 text-left text-xs text-foreground shadow-2xl ${tooltipPositionClass(index, chartHistory.length)}`}
+                        className={`pointer-events-none absolute bottom-full z-30 mb-2 w-[150px] rounded-lg border border-border bg-popover px-3 py-2 text-left text-xs text-foreground shadow-2xl ${tooltipPositionClass(index, chartHistory.length)}`}
                       >
                         <p className="font-medium text-foreground">{formatTooltipDate(day.date)}</p>
                         <div className="mt-2 space-y-1">
                           <div className="flex items-center justify-between gap-3">
                             <span className="flex items-center gap-1.5 text-text-muted">
-                              <span className="h-2 w-2 rounded-full bg-[#2f80ed]" />
+                              <span className="h-2 w-2 rounded-full bg-primary" />
                               Prompt
                             </span>
                             <span className="tabular-nums text-foreground">{formatDashboardTokens(day.promptTokens)}</span>
                           </div>
                           <div className="flex items-center justify-between gap-3">
                             <span className="flex items-center gap-1.5 text-text-muted">
-                              <span className="h-2 w-2 rounded-full bg-[#8bc3f7]" />
+                              <span className="h-2 w-2 rounded-full bg-chart-2" />
                               Completion
                             </span>
                             <span className="tabular-nums text-foreground">{formatDashboardTokens(day.completionTokens)}</span>
                           </div>
                         </div>
-                        <div className="mt-2 border-t border-white/12 pt-2">
+                        <div className="mt-2 border-t border-border pt-2">
                           <div className="flex items-center justify-between gap-3">
                             <span className="text-foreground">Tokens</span>
                             <span className="tabular-nums text-foreground">{formatDashboardTokens(day.totalTokens)}</span>
@@ -387,11 +387,11 @@ export function TokenUsagePanel({
           </div>
           <div className="mt-4 flex items-center gap-5 text-xs text-text-secondary">
             <span className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#2f80ed]" />
+              <span className="h-2 w-2 rounded-full bg-primary" />
               Prompt
             </span>
             <span className="flex items-center gap-2">
-              <span className="h-2 w-2 rounded-full bg-[#8bc3f7]" />
+              <span className="h-2 w-2 rounded-full bg-chart-2" />
               Completion
             </span>
           </div>
@@ -412,8 +412,8 @@ export function IntegrationUsagePanel({
   const maxTokens = Math.max(...visibleIntegrations.map((integration) => integration.totalTokens), 1);
 
   return (
-    <section className="rounded-lg border border-white/12 bg-[#19191a]">
-      <div className="flex h-[70px] items-center justify-between border-b border-white/10 px-6">
+    <section className="rounded-lg border border-border bg-surface-low">
+      <div className="flex h-[70px] items-center justify-between border-b border-border px-6">
         <h2 className="text-base font-semibold text-foreground">Usage by Integration</h2>
         <span className="text-sm text-text-muted">{periodLabel}</span>
       </div>
@@ -422,9 +422,9 @@ export function IntegrationUsagePanel({
         <EmptyPanelState />
       ) : (
         <div className="relative min-h-[286px] px-6 py-6">
-          <div aria-hidden className="absolute bottom-6 left-[38%] top-6 border-l border-white/8" />
-          <div aria-hidden className="absolute bottom-6 left-[60%] top-6 border-l border-white/8" />
-          <div aria-hidden className="absolute bottom-6 left-[82%] top-6 border-l border-white/8" />
+          <div aria-hidden className="absolute bottom-6 left-[38%] top-6 border-l border-border" />
+          <div aria-hidden className="absolute bottom-6 left-[60%] top-6 border-l border-border" />
+          <div aria-hidden className="absolute bottom-6 left-[82%] top-6 border-l border-border" />
           <div className="relative space-y-3">
             {visibleIntegrations.map((integration) => {
               const pct = Math.max((integration.totalTokens / maxTokens) * 72, 24);
@@ -434,7 +434,7 @@ export function IntegrationUsagePanel({
               return (
                 <div key={integration.id} className="flex items-center gap-2">
                   <div
-                    className="flex h-[50px] min-w-[116px] items-center gap-3 rounded-lg bg-[#2ad019] px-3 text-[#071207]"
+                    className="flex h-[50px] min-w-[116px] items-center gap-3 rounded-lg bg-selection-accent px-3 text-selection-accent-foreground"
                     style={{ width: `${pct}%` }}
                   >
                     <span className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg" style={{ backgroundColor: iconSpec.bg }}>
@@ -461,15 +461,15 @@ export function AgentUsageTable({
   const hasRows = rows.length > 0;
 
   return (
-    <section className="rounded-lg border border-white/12 bg-[#19191a] p-4">
+    <section className="rounded-lg border border-border bg-surface-low p-4">
       <h2 className="mb-5 text-base font-semibold text-foreground">Agent usage table</h2>
       {!hasRows ? (
         <EmptyPanelState />
       ) : (
-        <div className="overflow-x-auto rounded-lg border border-white/10">
+        <div className="overflow-x-auto rounded-lg border border-border">
           <table className="w-full min-w-[760px] border-collapse text-left text-sm">
             <thead>
-              <tr className="border-b border-white/10 text-foreground">
+              <tr className="border-b border-border text-foreground">
                 <th className="px-3 py-3 font-semibold">Agent</th>
                 <th className="px-3 py-3 font-semibold">Status</th>
                 <th className="px-3 py-3 font-semibold">Integrations</th>

@@ -58,10 +58,48 @@ describe("openclaw-session-sdk-surface", () => {
     expect(openClawEventMatchesSession(telegramSession, "telegram:489595440")).toBe(true);
   });
 
+  it("canonicalizes non-channel scoped main sessions while preserving gateway routing", () => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "agent:default:main",
+      displayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      lastMessageAt: 20,
+    }]);
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        key: "main",
+        gatewaySessionKey: "agent:default:main",
+        clientDisplayName: "Main Project",
+        sourceChannelId: "webchat",
+      }),
+    ]);
+  });
+
   it("does not treat default main and selectable channel/default rows as the same project", () => {
     expect(sameOpenClawSelectableSessionKey("main", "agent:default:main")).toBe(false);
     expect(sameOpenClawSelectableSessionKey("session-alpha", "agent:default:session-alpha")).toBe(true);
     expect(sameOpenClawSelectableSessionKey("main", "telegram:489595440")).toBe(false);
+  });
+
+  it("falls back from generated browser client labels for UUIDv7 sessions", () => {
+    const sessions = normalizeOpenClawSessions([{
+      key: "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab",
+      displayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+      kind: "direct",
+      chatType: "direct",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      lastChannel: "webchat",
+    }]);
+
+    expect(sessions).toEqual([
+      expect.objectContaining({
+        key: "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab",
+        clientDisplayName: "New Project",
+      }),
+    ]);
   });
 
   it("keeps explicit non-default channel session keys", () => {

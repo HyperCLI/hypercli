@@ -24,7 +24,7 @@ const specs = [
     icon: Plug,
     label: "Compatibility",
     value: "OpenAI",
-    unit: "SDK compatible",
+    unit: "API compatible",
     description: "Works with any client that speaks the OpenAI Chat Completions API",
   },
 ];

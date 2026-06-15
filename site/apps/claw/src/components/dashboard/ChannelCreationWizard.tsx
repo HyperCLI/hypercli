@@ -99,7 +99,7 @@ export function ChannelCreationWizard({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/75 backdrop-blur-sm"
           onClick={handleClose}
         >
           <motion.div
@@ -108,12 +108,12 @@ export function ChannelCreationWizard({
             exit={{ scale: 0.95, opacity: 0 }}
             transition={{ type: "spring", stiffness: 400, damping: 30 }}
             onClick={(e) => e.stopPropagation()}
-            className="w-full max-w-md mx-4 rounded-xl border border-border bg-[#111113] shadow-2xl overflow-hidden"
+            className="mx-4 w-full max-w-md overflow-hidden rounded-xl border border-border bg-background shadow-2xl"
           >
             <div className="flex items-center justify-between px-4 py-3 border-b border-border">
               <div className="flex items-center gap-2">
-                <div className="w-7 h-7 rounded-md bg-[#6b9eff]/15 flex items-center justify-center">
-                  <Hash className="w-4 h-4 text-[#6b9eff]" />
+                <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary/15">
+                  <Hash className="h-4 w-4 text-primary" />
                 </div>
                 <h2 className="text-sm font-semibold text-foreground">New Channel</h2>
               </div>
@@ -136,7 +136,7 @@ export function ChannelCreationWizard({
                   onChange={(e) => setName(e.target.value)}
                   placeholder="e.g. project-alpha"
                   disabled={submitting}
-                  className="w-full bg-surface-low border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                  className="w-full rounded-md border border-border bg-surface-low px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-border-strong focus:outline-none disabled:opacity-50"
                 />
               </div>
 
@@ -148,7 +148,7 @@ export function ChannelCreationWizard({
                   placeholder="What is this channel for? (optional)"
                   disabled={submitting}
                   rows={2}
-                  className="w-full bg-surface-low border border-border rounded-md px-3 py-2 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 resize-none"
+                  className="w-full resize-none rounded-md border border-border bg-surface-low px-3 py-2 text-sm text-foreground placeholder:text-text-muted focus:border-border-strong focus:outline-none disabled:opacity-50"
                 />
               </div>
 
@@ -161,7 +161,7 @@ export function ChannelCreationWizard({
                     onChange={(e) => setSearch(e.target.value)}
                     placeholder="Search agents and users..."
                     disabled={submitting}
-                    className="w-full bg-surface-low border border-border rounded-md pl-8 pr-3 py-1.5 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50"
+                    className="w-full rounded-md border border-border bg-surface-low py-1.5 pl-8 pr-3 text-xs text-foreground placeholder:text-text-muted focus:border-border-strong focus:outline-none disabled:opacity-50"
                   />
                 </div>
               )}
@@ -181,13 +181,13 @@ export function ChannelCreationWizard({
                           key={a.id}
                           onClick={() => setSelectedAgentId(selected ? null : a.id)}
                           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-left text-xs ${
-                            selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                            selected ? "bg-selection-accent/10 text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"
                           }`}
                         >
                           <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center ${
-                            selected ? "bg-[var(--selection-accent)] border-[var(--selection-accent)]" : "border-text-muted"
+                            selected ? "border-selection-accent bg-selection-accent" : "border-text-muted"
                           }`}>
-                            {selected && <span className="w-1.5 h-1.5 rounded-full bg-white" />}
+                            {selected && <span className="h-1.5 w-1.5 rounded-full bg-selection-accent-foreground" />}
                           </div>
                           <span>{a.name}</span>
                         </button>
@@ -212,13 +212,13 @@ export function ChannelCreationWizard({
                           key={u.id}
                           onClick={() => toggleUser(u.id)}
                           className={`w-full flex items-center gap-2 px-2 py-1.5 rounded transition-colors text-left text-xs ${
-                            selected ? "bg-[#6b9eff]/10 text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+                            selected ? "bg-primary/10 text-foreground" : "text-text-muted hover:bg-surface-low hover:text-foreground"
                           }`}
                         >
                           <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center ${
-                            selected ? "bg-[#6b9eff] border-[#6b9eff]" : "border-text-muted"
+                            selected ? "border-primary bg-primary" : "border-text-muted"
                           }`}>
-                            {selected && <span className="text-[8px] text-white">✓</span>}
+                            {selected && <span className="text-[8px] text-primary-foreground">✓</span>}
                           </div>
                           <span>{u.name}</span>
                         </button>
@@ -229,7 +229,7 @@ export function ChannelCreationWizard({
               )}
 
               {error && (
-                <div className="rounded-md border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-xs text-[#d05f5f]">
+                <div className="rounded-md border border-destructive/30 bg-destructive/10 px-3 py-2 text-xs text-destructive">
                   {error}
                 </div>
               )}

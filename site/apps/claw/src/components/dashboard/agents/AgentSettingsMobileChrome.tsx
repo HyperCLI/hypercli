@@ -70,7 +70,7 @@ export function AgentSettingsMobileChrome({
             disabled={!onOpenAgentsMenu}
             className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               agentsMenuOpen
-                ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                ? "border-selection-accent/30 bg-selection-accent/10 text-selection-accent"
                 : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
             }`}
           >
@@ -84,7 +84,7 @@ export function AgentSettingsMobileChrome({
             disabled={!onOpenWorkspaceMenu}
             className={`flex h-10 w-10 items-center justify-center rounded-lg border transition-colors disabled:cursor-not-allowed disabled:opacity-60 ${
               workspaceMenuOpen
-                ? "border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]"
+                ? "border-selection-accent/30 bg-selection-accent/10 text-selection-accent"
                 : "border-transparent text-text-secondary hover:bg-background hover:text-foreground"
             }`}
           >
@@ -96,7 +96,7 @@ export function AgentSettingsMobileChrome({
       <div className="shrink-0 border-b border-foreground px-5 py-5">
         <nav
           aria-label="Settings sections"
-          className="flex h-7 w-full overflow-hidden rounded-[5px] bg-[#5a5a5a] p-[1px]"
+          className="flex h-7 w-full overflow-hidden rounded-[5px] bg-surface-high p-[1px]"
         >
           {sections.map((section) => {
             const active = activeSection === section.id;
@@ -108,8 +108,8 @@ export function AgentSettingsMobileChrome({
                 onClick={() => onSectionChange(section.id)}
                 className={`flex h-full min-w-0 flex-1 items-center justify-center rounded-[4px] px-1 text-[11px] font-medium leading-none transition-colors ${
                   active
-                    ? "bg-[#666] text-foreground shadow-[inset_0_0_0_1px_rgba(255,255,255,0.28)]"
-                    : "text-text-muted hover:bg-white/5 hover:text-foreground"
+                    ? "bg-background text-foreground shadow-[inset_0_0_0_1px_var(--border-medium)]"
+                    : "text-text-muted hover:bg-background/50 hover:text-foreground"
                 }`}
               >
                 <span className="truncate">{section.label}</span>

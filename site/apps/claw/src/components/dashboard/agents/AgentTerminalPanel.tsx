@@ -24,7 +24,7 @@ export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: Agen
 
   return (
     <div
-      className={`${visible ? "relative z-10 h-full" : "pointer-events-none absolute inset-0 h-full opacity-0"} bg-[#0c1016] p-4`}
+      className={`${visible ? "relative z-10 h-full" : "pointer-events-none absolute inset-0 h-full opacity-0"} bg-background p-4`}
       aria-hidden={!visible}
     >
       <div ref={shellBoxRef} className={`h-full w-full ${status === "connected" ? "" : "invisible"}`} />

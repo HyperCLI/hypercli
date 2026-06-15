@@ -663,8 +663,8 @@ export function AgentCreationWizard({
       )}
 
       {budget && totalAvailableSlots === 0 && (
-        <div className="border border-[#d05f5f]/20 rounded-xl p-3 bg-[#d05f5f]/10">
-          <p className="text-sm text-[#d05f5f] mb-2">No agent slots are available right now.</p>
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 p-3">
+          <p className="mb-2 text-sm text-destructive">No agent slots are available right now.</p>
           <button
             type="button"
             onClick={() => window.location.assign("/plans")}
@@ -676,9 +676,9 @@ export function AgentCreationWizard({
       )}
 
       {!launchEntitlementsLoaded && (
-        <div className="border border-amber-400/20 rounded-xl p-3 bg-amber-400/10">
-          <p className="text-sm text-amber-100">
-            Waiting for SDK billing entitlements before agents can be created.
+        <div className="rounded-xl border border-warning/20 bg-warning/10 p-3">
+          <p className="text-sm text-warning">
+            Waiting for billing data before agents can be created.
           </p>
         </div>
       )}
@@ -727,8 +727,8 @@ export function AgentCreationWizard({
 
       {/* Error display */}
       {error && (
-        <div className="rounded-xl border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-3">
-          <p className="text-sm text-[#d05f5f]">{error}</p>
+        <div className="rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3">
+          <p className="text-sm text-destructive">{error}</p>
         </div>
       )}
     </div>
@@ -743,7 +743,7 @@ export function AgentCreationWizard({
         initial={{ opacity: 0 }}
         animate={{ opacity: 1 }}
         exit={{ opacity: 0 }}
-        className="absolute inset-0 bg-black/60 backdrop-blur-sm"
+        className="absolute inset-0 bg-background/80 backdrop-blur-sm"
         onClick={onClose}
       />
 
@@ -779,7 +779,7 @@ export function AgentCreationWizard({
         <div className="text-center mb-6">
           <h2 className="text-lg font-semibold text-foreground">
             {step === 0 && "Identity & Personality"}
-            {step === 1 && "Configuration"}
+            {step === 1 && "Resources"}
             {step === 2 && "Review & Launch"}
           </h2>
           <p className="text-sm text-text-muted mt-1">
@@ -808,8 +808,8 @@ export function AgentCreationWizard({
 
         {/* Error display (shown on steps 0 and 1 too if file upload error) */}
         {error && step !== 2 && (
-          <div className="rounded-xl border border-[#d05f5f]/20 bg-[#d05f5f]/10 px-4 py-3 mt-4">
-            <p className="text-sm text-[#d05f5f]">{error}</p>
+          <div className="mt-4 rounded-xl border border-destructive/20 bg-destructive/10 px-4 py-3">
+            <p className="text-sm text-destructive">{error}</p>
           </div>
         )}
 

@@ -321,15 +321,15 @@ function entryCounts(entries: DirectoryVisualizationEntry[]): { files: number; d
   }, { files: 0, directories: 0 });
 }
 
-function iconForEntry(entry: DirectoryVisualizationEntry): { icon: LucideIcon; color: string } {
-  if (entry.type === "directory") return { icon: Folder, color: "#6b9eff" };
+function iconForEntry(entry: DirectoryVisualizationEntry): { icon: LucideIcon; className: string } {
+  if (entry.type === "directory") return { icon: Folder, className: "text-chart-2" };
   const extension = entry.name.split(".").pop()?.toLowerCase() ?? "";
-  if (CODE_EXTENSIONS.has(extension)) return { icon: FileCode2, color: "#7aa2ff" };
-  if (IMAGE_EXTENSIONS.has(extension)) return { icon: FileImage, color: "#38D39F" };
-  if (TEXT_EXTENSIONS.has(extension)) return { icon: FileText, color: "#d7d7dc" };
-  if (SETTINGS_EXTENSIONS.has(extension)) return { icon: Settings, color: "#f0c56c" };
-  if (extension === "json") return { icon: FileJson, color: "#6b9eff" };
-  return { icon: File, color: "#9ca3af" };
+  if (CODE_EXTENSIONS.has(extension)) return { icon: FileCode2, className: "text-chart-2" };
+  if (IMAGE_EXTENSIONS.has(extension)) return { icon: FileImage, className: "text-primary" };
+  if (TEXT_EXTENSIONS.has(extension)) return { icon: FileText, className: "text-text-secondary" };
+  if (SETTINGS_EXTENSIONS.has(extension)) return { icon: Settings, className: "text-warning" };
+  if (extension === "json") return { icon: FileJson, className: "text-chart-2" };
+  return { icon: File, className: "text-text-muted" };
 }
 
 export function DirectoryVisualization({
@@ -354,10 +354,10 @@ export function DirectoryVisualization({
   return (
     <section
       aria-label={rootPath ? `Directory ${rootPath}` : "Directory listing"}
-      className="mb-2 w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background/55 text-xs shadow-[0_8px_24px_rgba(0,0,0,0.18)]"
+      className="mb-2 w-full min-w-0 overflow-hidden rounded-lg border border-border bg-background/55 text-xs shadow-lg"
     >
       <div className="flex min-w-0 items-center gap-2 border-b border-border bg-surface-low/40 px-3 py-2">
-        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-white/10 bg-background/70 text-[#6b9eff]">
+        <span className="flex h-7 w-7 shrink-0 items-center justify-center rounded-md border border-border bg-background/70 text-chart-2">
           <FolderTree className="h-3.5 w-3.5" />
         </span>
         <div className="min-w-0 flex-1">
@@ -374,7 +374,7 @@ export function DirectoryVisualization({
       <div role="tree" className="max-h-72 overflow-y-auto px-2 py-2">
         {rows.map((entry) => {
           const EntryIcon = iconForEntry(entry).icon;
-          const iconColor = iconForEntry(entry).color;
+          const iconClassName = iconForEntry(entry).className;
           return (
             <div
               key={`${entry.path}-${entry.depth}`}
@@ -384,12 +384,12 @@ export function DirectoryVisualization({
               className="flex min-w-0 items-center gap-2 rounded-md py-1 pr-2 text-text-secondary"
               style={{ paddingLeft: 6 + entry.depth * 14 }}
             >
-              <EntryIcon className="h-3.5 w-3.5 shrink-0" style={{ color: iconColor }} />
+              <EntryIcon className={`h-3.5 w-3.5 shrink-0 ${iconClassName}`} />
               <span className="min-w-0 flex-1 truncate font-mono text-[11px] leading-5 text-foreground">
                 {entry.name}
               </span>
               {entry.missing && (
-                <span className="shrink-0 rounded border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-1.5 py-0.5 text-[9px] uppercase text-[#d05f5f]">
+                <span className="shrink-0 rounded border border-destructive/30 bg-destructive/10 px-1.5 py-0.5 text-[9px] uppercase text-destructive">
                   Missing
                 </span>
               )}

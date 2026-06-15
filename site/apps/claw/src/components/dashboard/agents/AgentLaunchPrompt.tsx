@@ -56,8 +56,8 @@ export function AgentLaunchPrompt({
           <span>Start Agent</span>
         </button>
         {blockedMessage && (
-          <div className="mt-4 rounded-xl border border-[#f0c56c]/20 bg-[#f0c56c]/10 px-4 py-3 text-left">
-            <p className="text-sm font-medium text-[#f0c56c]">{blockedTitle || "Launch blocked"}</p>
+          <div className="mt-4 rounded-xl border border-warning/25 bg-warning/10 px-4 py-3 text-left">
+            <p className="text-sm font-medium text-warning">{blockedTitle || "Launch blocked"}</p>
             <p className="mt-1 text-sm text-text-secondary">{blockedMessage}</p>
             {suggestedTierActions && suggestedTierActions.length > 0 && (
               <div className="mt-3 flex flex-wrap gap-2">

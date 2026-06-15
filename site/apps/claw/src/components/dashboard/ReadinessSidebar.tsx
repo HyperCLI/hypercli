@@ -111,9 +111,9 @@ export function ReadinessSidebar({
     cat === "web" && !readiness.web.active;
 
   const statusColor = (cat: DirectoryCategory) => {
-    if (readiness[cat].active) return "#38D39F";
-    if (isRecommended(cat)) return "#f0c56c";
-    return "#6b7280";
+    if (readiness[cat].active) return "var(--success)";
+    if (isRecommended(cat)) return "var(--warning)";
+    return "var(--text-muted)";
   };
 
   const ctaLabel = (cat: DirectoryCategory) => {
@@ -130,7 +130,7 @@ export function ReadinessSidebar({
   };
 
   return (
-    <div className="h-full flex flex-col overflow-y-auto bg-[#0a0a0b]">
+    <div className="flex h-full flex-col overflow-y-auto bg-background">
       {/* Agent Header */}
       <div className="flex items-center gap-3 px-4 py-4 border-b border-border">
         <div
@@ -144,9 +144,9 @@ export function ReadinessSidebar({
             {agent.name || agent.pod_name || "Agent"}
           </div>
           <div className={`text-xs font-medium ${
-            agent.state === "RUNNING" ? "text-[#38D39F]" :
+            agent.state === "RUNNING" ? "text-success" :
             agent.state === "STOPPED" ? "text-text-muted" :
-            "text-[#f0c56c]"
+            "text-warning"
           }`}>
             {agent.state}
           </div>
@@ -187,14 +187,14 @@ export function ReadinessSidebar({
               <div className="mt-1 ml-[26px]">
                 <span className="text-xs text-text-muted">{state.detail}</span>
                 {recommended && (
-                  <span className="ml-2 text-[10px] font-medium text-[#f0c56c] bg-[#f0c56c]/10 px-1.5 py-0.5 rounded">
+                  <span className="ml-2 rounded bg-warning/10 px-1.5 py-0.5 text-[10px] font-medium text-warning">
                     Recommended
                   </span>
                 )}
               </div>
               {cta && (
                 <div className="mt-1.5 ml-[26px]">
-                  <span className="text-xs text-[#38D39F] opacity-0 group-hover:opacity-100 transition-opacity">
+                  <span className="text-xs text-primary opacity-0 transition-opacity group-hover:opacity-100">
                     {cta}
                   </span>
                 </div>

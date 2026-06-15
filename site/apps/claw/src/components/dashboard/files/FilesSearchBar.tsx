@@ -51,7 +51,7 @@ export function FilesSearchBar({ value, onChange, resultCount, totalCount }: Fil
         value={localValue}
         onChange={(e) => handleChange(e.target.value)}
         placeholder="Search files..."
-        className="w-full bg-surface-low border border-border rounded-lg pl-8 pr-8 py-2 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-[rgb(var(--selection-accent-rgb)_/_0.4)] transition-colors"
+        className="w-full rounded-lg border border-border bg-surface-low py-2 pl-8 pr-8 text-xs text-foreground transition-colors placeholder:text-text-muted focus:border-selection-accent/40 focus:outline-none"
         onKeyDown={(e) => {
           if (e.key === "Escape" && hasQuery) {
             e.preventDefault();
@@ -104,7 +104,7 @@ export function HighlightMatch({ text, query }: { text: string; query: string })
     <>
       {parts.map((part, i) =>
         regex.test(part) ? (
-          <span key={i} className="bg-[rgb(var(--selection-accent-rgb)_/_0.2)] text-[var(--selection-accent)] rounded-sm px-0.5">
+          <span key={i} className="rounded-sm bg-selection-accent/20 px-0.5 text-selection-accent">
             {part}
           </span>
         ) : (

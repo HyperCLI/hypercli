@@ -365,7 +365,7 @@ export function AgentFilesPanel({
         <div className="flex-1" />
 
         {(filesLoading || !connected || effectiveError) && (
-          <div className="flex items-center gap-1 text-[10px] text-[#f0c56c]">
+          <div className="flex items-center gap-1 text-[10px] text-warning">
             {filesBootStatus?.status === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
             <span>
               {filesBootStatus?.title ?? (agentState === "RUNNING" ? "Unavailable" : agentState)}
@@ -383,7 +383,7 @@ export function AgentFilesPanel({
             }}
             disabled={!connected}
             className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-              showCreateFolder ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+              showCreateFolder ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
             }`}
             title="New folder"
             aria-label="New folder"
@@ -400,7 +400,7 @@ export function AgentFilesPanel({
           }}
           disabled={!connected}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors disabled:cursor-not-allowed disabled:opacity-40 ${
-            showUpload ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+            showUpload ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
           }`}
           title="Upload files"
         >
@@ -411,7 +411,7 @@ export function AgentFilesPanel({
           type="button"
           onClick={() => setShowHidden((value) => !value)}
           className={`flex h-7 w-7 items-center justify-center rounded-lg transition-colors ${
-            showHidden ? "bg-[rgb(var(--selection-accent-rgb)_/_0.1)] text-[var(--selection-accent)]" : "text-text-muted hover:bg-surface-low hover:text-foreground"
+            showHidden ? "bg-selection-accent/10 text-selection-accent" : "text-text-muted hover:bg-surface-low hover:text-foreground"
           }`}
           title={showHidden ? "Hide dotfiles" : "Show dotfiles"}
         >
@@ -434,7 +434,7 @@ export function AgentFilesPanel({
                 animate={{ opacity: 1, scale: 1, y: 0 }}
                 exit={{ opacity: 0, scale: 0.96, y: -4 }}
                 transition={{ duration: 0.12 }}
-                className="absolute right-0 top-full z-50 mt-1 w-28 overflow-hidden rounded-lg border border-border bg-[#1a1a1c] py-1 shadow-xl"
+                className="absolute right-0 top-full z-50 mt-1 w-28 overflow-hidden rounded-lg border border-border bg-popover py-1 shadow-xl"
               >
                 {SORT_OPTIONS.map((option) => (
                   <button
@@ -442,7 +442,7 @@ export function AgentFilesPanel({
                     type="button"
                     onClick={() => toggleSort(option.key)}
                     className={`flex w-full items-center justify-between px-3 py-1.5 text-[11px] hover:bg-surface-low ${
-                      sortKey === option.key ? "text-[var(--selection-accent)]" : "text-foreground"
+                      sortKey === option.key ? "text-selection-accent" : "text-foreground"
                     }`}
                   >
                     <span>{option.label}</span>
@@ -488,12 +488,12 @@ export function AgentFilesPanel({
                   autoComplete="off"
                   disabled={creatingFolder}
                 />
-                {newFolderError && <p className="mt-1 text-[10px] text-[#d05f5f]">{newFolderError}</p>}
+                {newFolderError && <p className="mt-1 text-[10px] text-destructive">{newFolderError}</p>}
               </div>
               <button
                 type="submit"
                 disabled={creatingFolder}
-                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-[var(--selection-accent)] px-3 text-[11px] font-medium text-black transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
+                className="inline-flex h-8 items-center gap-1.5 rounded-lg bg-selection-accent px-3 text-[11px] font-medium text-selection-accent-foreground transition-opacity disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {creatingFolder && <Loader2 className="h-3 w-3 animate-spin" />}
                 Create
@@ -630,7 +630,7 @@ export function AgentFilesPanel({
             animate={{ y: 0, opacity: 1 }}
             exit={{ y: "100%", opacity: 0.98 }}
             transition={{ duration: 0.2, ease: [0.22, 1, 0.36, 1] }}
-            className="absolute inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background shadow-[0_-18px_50px_rgba(0,0,0,0.45)]"
+            className="absolute inset-0 z-50 flex min-h-0 flex-col overflow-hidden bg-background shadow-[0_-18px_50px_color-mix(in_srgb,var(--foreground)_18%,transparent)]"
           >
             <div className="flex flex-shrink-0 justify-center py-2">
               <div className="h-1 w-10 rounded-full bg-border" />

@@ -46,17 +46,17 @@ export interface LegacyAgentSidebarProps {
 }
 
 function stateClass(state: AgentState): string {
-  if (state === "RUNNING") return "bg-[#38D39F]/15 text-[#38D39F]";
-  if (state === "FAILED") return "bg-[#d05f5f]/15 text-[#d05f5f]";
+  if (state === "RUNNING") return "bg-success/15 text-success";
+  if (state === "FAILED") return "bg-destructive/15 text-destructive";
   if (state === "STOPPED") return "bg-surface-low text-text-muted";
-  return "bg-[#f0c56c]/15 text-[#f0c56c]";
+  return "bg-warning/15 text-warning";
 }
 
 function AgentStateBadge({ state, pulsing }: { state: AgentState; pulsing: boolean }) {
   const color =
-    state === "RUNNING" ? "bg-[#38D39F]" :
-    state === "FAILED" ? "bg-[#d05f5f]" :
-    state === "STOPPED" ? "bg-text-muted" : "bg-[#f0c56c]";
+    state === "RUNNING" ? "bg-success" :
+    state === "FAILED" ? "bg-destructive" :
+    state === "STOPPED" ? "bg-text-muted" : "bg-warning";
   return (
     <motion.span
       className={`absolute -bottom-0.5 -right-0.5 w-3 h-3 rounded-full border-2 border-background ${color}`}
@@ -75,7 +75,7 @@ function BudgetBar({ label, used, total }: { label: string; used: number; total:
         <span className="text-text-muted">{used}/{total}</span>
       </div>
       <div className="h-1 bg-surface-low rounded-full overflow-hidden">
-        <div className="h-full bg-[#38D39F]" style={{ width: `${pct}%` }} />
+        <div className="h-full bg-selection-accent" style={{ width: `${pct}%` }} />
       </div>
     </div>
   );
@@ -219,7 +219,7 @@ export function LegacyAgentSidebar({
                       {formatCpu(agent.cpu_millicores)} · {formatMemory(agent.memory_mib)}
                     </p>
                     {agent.last_error && agent.state === "FAILED" && (
-                      <p className="text-xs text-[#d05f5f] mt-0.5 truncate">{agent.last_error}</p>
+                      <p className="mt-0.5 truncate text-xs text-destructive">{agent.last_error}</p>
                     )}
                   </div>
                 </button>

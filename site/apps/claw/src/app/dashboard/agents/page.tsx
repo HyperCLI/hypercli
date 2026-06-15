@@ -96,8 +96,8 @@ import {
 } from "@/lib/billing-reflection-machine";
 import { resolveOpenClawSessionKey } from "@/lib/openclaw-session-key";
 import {
+  displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
-  normalizeOpenClawSessionDisplayName,
   sameOpenClawSelectableSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
 import { normalizeOpenClawWorkspaceFilePath } from "@/lib/agent-file-path";
@@ -1778,15 +1778,16 @@ function AgentsPageContent() {
   // Derive AgentSession[] from chat.sessions
   const agentSessionsForView = useMemo(() => {
     if (!chat.sessions || chat.sessions.length === 0) return null;
-    return chat.sessions.map((s) => {
-      const entry = s as unknown as Record<string, unknown>;
-      const key = typeof entry.key === "string" ? entry.key : String(entry.id ?? "");
-      const clientMode = typeof entry.clientMode === "string" ? entry.clientMode : (typeof entry.client === "string" ? entry.client : "unknown");
-      const clientDisplayName = typeof entry.clientDisplayName === "string" ? entry.clientDisplayName : (typeof entry.displayName === "string" ? entry.displayName : key);
-      const createdAt = typeof entry.createdAt === "number" ? entry.createdAt : 0;
-      const lastMessageAt = typeof entry.lastMessageAt === "number" ? entry.lastMessageAt : createdAt;
-      const sourceChannelId = typeof entry.sourceChannelId === "string" ? entry.sourceChannelId : undefined;
-      return { key, clientMode, clientDisplayName, createdAt, lastMessageAt, ...(sourceChannelId ? { sourceChannelId } : {}) };
+    return chat.sessions.map((session) => {
+      const sourceChannelId = typeof session.sourceChannelId === "string" ? session.sourceChannelId : undefined;
+      return {
+        key: session.key,
+        clientMode: session.clientMode,
+        clientDisplayName: displayOpenClawSessionName(session),
+        createdAt: session.createdAt,
+        lastMessageAt: session.lastMessageAt,
+        ...(sourceChannelId ? { sourceChannelId } : {}),
+      };
     });
   }, [chat.sessions]);
 
@@ -1799,7 +1800,7 @@ function AgentsPageContent() {
     };
 
     for (const session of chat.sessions ?? []) {
-      addProject(session.key, session.title || session.clientDisplayName || session.key);
+      addProject(session.key, displayOpenClawSessionName(session));
     }
     addProject(selectedSessionKey, selectedSessionKey === "main" ? "Main Project" : "Current Project");
     return options;
@@ -2521,8 +2522,8 @@ function AgentsPageContent() {
   };
   const deleteSession = async (sessionKey: string) => {
     await chat.deleteSession(sessionKey);
-    if (!selectedAgentId || sessionKey !== selectedSessionKey) return;
-    const fallbackSessionKey = chat.sessions.find((session) => session.key !== sessionKey)?.key ?? resolveOpenClawSessionKey(selectedAgentId);
+    if (!selectedAgentId || !sameOpenClawSelectableSessionKey(sessionKey, selectedSessionKey)) return;
+    const fallbackSessionKey = chat.sessions.find((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey))?.key ?? resolveOpenClawSessionKey(selectedAgentId);
     setSelectedSessionKeysByAgent((prev) => ({ ...prev, [selectedAgentId]: fallbackSessionKey }));
   };
   const createSession = async () => {
@@ -2702,9 +2703,7 @@ function AgentsPageContent() {
   const selectedProjectLabel = useMemo(() => {
     const session = (chat.sessions ?? []).find((item) => sameOpenClawSelectableSessionKey(item.key, selectedSessionKey));
     if (!session) return fallbackOpenClawSessionDisplayName(selectedSessionKey);
-    return normalizeOpenClawSessionDisplayName(session.title, session.key)
-      ?? normalizeOpenClawSessionDisplayName(session.clientDisplayName, session.key)
-      ?? fallbackOpenClawSessionDisplayName(session.key);
+    return displayOpenClawSessionName(session);
   }, [chat.sessions, selectedSessionKey]);
   const selectedProjectReturnTarget = selectedAgent && (mainTab !== "chat" || openclawSettingsOpen)
     ? { label: selectedProjectLabel, onSelect: openChatTab }

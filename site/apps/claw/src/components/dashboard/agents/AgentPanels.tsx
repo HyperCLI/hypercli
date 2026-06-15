@@ -173,7 +173,7 @@ export function OpenClawConfigPanel({
       {(effectiveError || effectiveSuccess) && (
         <div className="flex-shrink-0 space-y-2 border-b border-border px-4 py-3">
           {effectiveError && (
-            <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">{effectiveError}</div>
+            <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">{effectiveError}</div>
           )}
           {effectiveSuccess && !effectiveError && (
             <div className="rounded-lg border border-[rgb(var(--selection-accent-rgb)_/_0.3)] bg-[rgb(var(--selection-accent-rgb)_/_0.1)] px-3 py-2 text-sm text-[var(--selection-accent)]">{effectiveSuccess}</div>
@@ -295,7 +295,7 @@ export function OpenClawSettingsPanel({
   const statusMessages = (
     <>
       {openclawError && (
-        <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+        <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
           {openclawError}
         </div>
       )}
@@ -483,9 +483,9 @@ const SETTINGS_FIELD_CLASS =
 const SETTINGS_SMALL_BUTTON_CLASS =
   "inline-flex h-8 items-center justify-center rounded-lg border border-border bg-surface-low px-3 text-xs font-medium text-foreground transition-colors hover:bg-surface-high disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_DANGER_BUTTON_CLASS =
-  "inline-flex h-8 items-center justify-center rounded-lg border border-[#d05f5f]/30 bg-background px-3 text-xs font-medium text-[#d05f5f] transition-colors hover:bg-[#d05f5f]/10 disabled:cursor-not-allowed disabled:opacity-60";
+  "inline-flex h-8 items-center justify-center rounded-lg border border-destructive/30 bg-background px-3 text-xs font-medium text-destructive transition-colors hover:bg-destructive/10 disabled:cursor-not-allowed disabled:opacity-60";
 const SETTINGS_FILLED_DANGER_BUTTON_CLASS =
-  "inline-flex h-8 min-w-[96px] shrink-0 items-center justify-center rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/15 px-3 text-xs font-semibold text-[#ff7a7a] transition-colors hover:bg-[#d05f5f]/25 disabled:cursor-not-allowed disabled:opacity-50";
+  "inline-flex h-8 min-w-[96px] shrink-0 items-center justify-center rounded-lg border border-destructive/30 bg-destructive/15 px-3 text-xs font-semibold text-destructive transition-colors hover:bg-destructive/25 disabled:cursor-not-allowed disabled:opacity-50";
 
 function profileNameFromUser(user: AgentSettingsPanelProps["user"]): string {
   return user?.fullName || user?.name || "";
@@ -574,7 +574,7 @@ function AgentGeneralSettingsContent({
         {(profileError || profileSuccess) && (
           <div className="mt-4">
             {profileError ? (
-              <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {profileError}
               </div>
             ) : (
@@ -617,7 +617,7 @@ function AgentGeneralSettingsContent({
                 }}
                 disabled={!avatarUpdatesEnabled}
                 title={!avatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
+                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
                 aria-label="Upload profile avatar"
               >
                 {profileAvatar ? (
@@ -780,7 +780,7 @@ function AgentSectionSettingsContent({
         {(agentSettingsError || agentSettingsSuccess) && (
           <div className="mt-4">
             {agentSettingsError ? (
-              <div className="rounded-lg border border-[#d05f5f]/30 bg-[#d05f5f]/10 px-3 py-2 text-sm text-[#d05f5f]">
+              <div className="rounded-lg border border-destructive/30 bg-destructive/10 px-3 py-2 text-sm text-destructive">
                 {agentSettingsError}
               </div>
             ) : (
@@ -814,7 +814,7 @@ function AgentSectionSettingsContent({
                 }}
                 disabled={!agentAvatarUpdatesEnabled}
                 title={!agentAvatarUpdatesEnabled ? "Avatar uploads are coming soon." : undefined}
-                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-[#2a2b2e] text-[13px] font-semibold text-text-muted"
+                className="relative flex h-[64px] w-[64px] shrink-0 items-center justify-center overflow-hidden rounded-full bg-surface-high text-[13px] font-semibold text-text-muted"
                 aria-label="Upload agent avatar"
               >
                 {agentAvatarPreview ? (
@@ -945,7 +945,7 @@ function AgentSettingsLinkButton({
       href={href}
       className={`inline-flex h-8 shrink-0 items-center justify-center rounded-lg border px-3 text-xs font-medium transition-colors ${
         tone === "danger"
-          ? "border-[#d05f5f]/30 bg-background text-[#d05f5f] hover:bg-[#d05f5f]/10"
+          ? "border-destructive/30 bg-background text-destructive hover:bg-destructive/10"
           : "border-border bg-surface-low text-foreground hover:bg-surface-high"
       }`}
     >
@@ -965,7 +965,7 @@ function AgentUsageSettingsContent() {
               href="/dashboard"
               className="flex min-h-[92px] items-center gap-3 rounded-[12px] border border-foreground px-3 transition-colors hover:bg-surface-low"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[#2a2b2e]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
                 <BarChart3 className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">
@@ -977,7 +977,7 @@ function AgentUsageSettingsContent() {
               href="/keys"
               className="flex min-h-[92px] items-center gap-3 rounded-[12px] border border-foreground px-3 transition-colors hover:bg-surface-low"
             >
-              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-[#2a2b2e]">
+              <div className="flex h-10 w-10 shrink-0 items-center justify-center rounded-[10px] bg-surface-high">
                 <KeyRound className="h-4 w-4 text-foreground" />
               </div>
               <div className="min-w-0">
@@ -1382,9 +1382,9 @@ export function ErrorBanner({
           className="overflow-hidden"
         >
           {capacityError ? (
-            <div className="mx-4 mt-3 rounded-[14px] border border-[#f0c56c]/25 bg-[#f0c56c]/10 p-4 text-sm text-[#f0c56c] sm:mx-6 lg:mx-8">
+            <div className="mx-4 mt-3 rounded-[14px] border border-warning/25 bg-warning/10 p-4 text-sm text-warning sm:mx-6 lg:mx-8">
               <div className="flex items-start gap-3">
-                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-[#f0c56c]/25 bg-[#f0c56c]/10">
+                <span className="mt-0.5 flex h-7 w-7 shrink-0 items-center justify-center rounded-lg border border-warning/25 bg-warning/10">
                   <Sparkles className="h-3.5 w-3.5" />
                 </span>
                 <div className="min-w-0 flex-1">
@@ -1393,7 +1393,7 @@ export function ErrorBanner({
                   {(capacityError.requestedInventory || capacityError.accountInventory.length > 0) && (
                     <div className="mt-3 flex flex-wrap gap-2">
                       {capacityError.requestedInventory && (
-                        <span className="rounded-full border border-[#f0c56c]/25 bg-background/40 px-2.5 py-1 text-[11px] font-medium text-[#f0c56c]">
+                        <span className="rounded-full border border-warning/25 bg-background/40 px-2.5 py-1 text-[11px] font-medium text-warning">
                           Requested {capacityError.requestedInventory.free} free / {capacityError.requestedInventory.total} total
                         </span>
                       )}
@@ -1415,13 +1415,13 @@ export function ErrorBanner({
                     </button>
                   )}
                 </div>
-                <button type="button" onClick={onDismiss} className="rounded-md p-1 text-[#f0c56c]/80 transition-colors hover:bg-[#f0c56c]/10 hover:text-foreground" aria-label="Dismiss capacity alert">
+                <button type="button" onClick={onDismiss} className="rounded-md p-1 text-warning/80 transition-colors hover:bg-warning/10 hover:text-foreground" aria-label="Dismiss capacity alert">
                   <X className="h-3.5 w-3.5" />
                 </button>
               </div>
             </div>
           ) : (
-            <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-[#d05f5f]/10 border border-[#d05f5f]/20 text-sm text-[#d05f5f] flex items-center justify-between">
+            <div className="mx-4 sm:mx-6 lg:mx-8 mt-3 p-3 rounded-lg bg-destructive/10 border border-destructive/20 text-sm text-destructive flex items-center justify-between">
               <span>{error}</span>
               <button onClick={onDismiss} className="ml-2 hover:text-foreground">
                 <X className="w-3.5 h-3.5" />
@@ -1461,7 +1461,7 @@ export function AgentTierSelectionModal({
           initial={{ opacity: 0 }}
           animate={{ opacity: 1 }}
           exit={{ opacity: 0 }}
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 backdrop-blur-sm"
+          className="fixed inset-0 z-50 flex items-center justify-center bg-background/70 backdrop-blur-sm"
           onClick={() => setTierSelection(null)}
         >
           <motion.div
@@ -1644,7 +1644,7 @@ export function AgentList({
 
   return (
     <motion.div
-      className={`relative h-full flex-shrink-0 overflow-visible bg-[#232323] ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
+      className={`relative h-full flex-shrink-0 overflow-visible bg-surface-low ${mobileShowChat && !isDesktopViewport ? "hidden" : "flex"} flex-col`}
       animate={{ width: sidebarCollapsed && isDesktopViewport ? 48 : 280 }}
       transition={{ type: "spring", stiffness: 360, damping: 32 }}
     >
@@ -1657,7 +1657,7 @@ export function AgentList({
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
             transition={{ duration: 0.15 }}
-            className="flex h-full w-12 flex-col overflow-visible bg-[#232323]"
+            className="flex h-full w-12 flex-col overflow-visible bg-surface-low"
           >
             <div className="flex h-14 shrink-0 items-center justify-center border-b border-border">
               <button
@@ -1695,7 +1695,7 @@ export function AgentList({
                           setMobileShowChat(true);
                         }}
                         aria-label={`Select ${a.name || a.id}`}
-                        className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)] ring-offset-2 ring-offset-[#232323]" : ""}`}
+                        className={`relative flex h-8 w-8 items-center justify-center rounded-full transition-transform hover:scale-110 ${selected ? "ring-2 ring-[var(--selection-accent)] ring-offset-2 ring-offset-surface-low" : ""}`}
                         style={{ backgroundColor: av.bgColor }}
                       >
                         {av.imageUrl ? (
@@ -1789,7 +1789,7 @@ export function AgentList({
       <AnimatePresence>
         {showAgentLauncher && (
           <motion.div
-            className="fixed inset-0 z-[80] flex items-center justify-center bg-black/70 p-3 backdrop-blur-sm sm:p-5"
+            className="fixed inset-0 z-[80] flex items-center justify-center bg-background/70 p-3 backdrop-blur-sm sm:p-5"
             initial={{ opacity: 0 }}
             animate={{ opacity: 1 }}
             exit={{ opacity: 0 }}
@@ -1806,7 +1806,7 @@ export function AgentList({
                 type="button"
                 aria-label="Close launch agent"
                 onClick={() => setShowAgentLauncher(false)}
-                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-white/10 bg-black/35 text-text-muted backdrop-blur transition-colors hover:bg-black/55 hover:text-foreground"
+                className="absolute right-3 top-3 z-10 flex h-8 w-8 items-center justify-center rounded-full border border-border bg-background/70 text-text-muted backdrop-blur transition-colors hover:bg-surface-low hover:text-foreground"
               >
                 <X className="h-4 w-4" />
               </button>

@@ -66,7 +66,7 @@ function SingleSelect({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute left-0 right-0 bottom-full mb-1 z-50 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden max-h-48 overflow-y-auto"
+            className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-48 overflow-y-auto overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
           >
             {available.length === 0 ? (
               <p className="px-3 py-2 text-[10px] text-text-muted">No {label.toLowerCase()} available</p>
@@ -87,9 +87,9 @@ function SingleSelect({
                     className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
                   >
                     <div className={`w-3.5 h-3.5 rounded-full border flex items-center justify-center transition-colors ${
-                      isSelected ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
+                      isSelected ? "border-selection-accent bg-selection-accent" : "border-text-muted"
                     }`}>
-                      {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                      {isSelected && <Check className="w-2.5 h-2.5 text-selection-accent-foreground" />}
                     </div>
                     {isAgent && av && AvIcon ? (
                       <div
@@ -167,7 +167,7 @@ function MultiSelect({
             animate={{ opacity: 1, y: 0 }}
             exit={{ opacity: 0, y: -4 }}
             transition={{ duration: 0.12 }}
-            className="absolute left-0 right-0 bottom-full mb-1 z-50 rounded-lg border border-border bg-[#1a1a1c] shadow-xl overflow-hidden max-h-48 overflow-y-auto"
+            className="absolute bottom-full left-0 right-0 z-50 mb-1 max-h-48 overflow-y-auto overflow-hidden rounded-lg border border-border bg-popover shadow-xl"
           >
             {available.length === 0 ? (
               <p className="px-3 py-2 text-[10px] text-text-muted">No {label.toLowerCase()} available</p>
@@ -182,9 +182,9 @@ function MultiSelect({
                     className="flex items-center gap-2 w-full px-3 py-1.5 text-left hover:bg-surface-low transition-colors"
                   >
                     <div className={`w-3.5 h-3.5 rounded border flex items-center justify-center transition-colors ${
-                      isSelected ? "bg-[#38D39F] border-[#38D39F]" : "border-text-muted"
+                      isSelected ? "border-selection-accent bg-selection-accent" : "border-text-muted"
                     }`}>
-                      {isSelected && <Check className="w-2.5 h-2.5 text-white" />}
+                      {isSelected && <Check className="w-2.5 h-2.5 text-selection-accent-foreground" />}
                     </div>
                     <div className="w-5 h-5 rounded bg-surface-low flex items-center justify-center flex-shrink-0">
                       <User className="w-3 h-3 text-text-muted" />
@@ -267,7 +267,7 @@ export function QuickChannelCreator({
                 value={name}
                 onChange={(e) => setName(e.target.value)}
                 placeholder="Channel name..."
-                className="flex-1 min-w-0 bg-surface-low border border-border rounded-lg px-2.5 py-2 text-xs text-foreground placeholder-text-muted focus:outline-none focus:border-[#38D39F]/40"
+                className="min-w-0 flex-1 rounded-lg border border-border bg-surface-low px-2.5 py-2 text-xs text-foreground placeholder:text-text-muted focus:border-primary/40 focus:outline-none"
                 onKeyDown={(e) => {
                   if (e.key === "Enter") handleCreate();
                   if (e.key === "Escape") onClose();
@@ -310,7 +310,7 @@ export function QuickChannelCreator({
               whileTap={canCreate ? { scale: 0.97 } : undefined}
               disabled={!canCreate}
               onClick={handleCreate}
-              className="flex items-center justify-center gap-2 w-full px-3 py-2 rounded-lg text-xs font-medium transition-colors disabled:opacity-40 disabled:cursor-not-allowed bg-[#6b9eff]/15 text-[#6b9eff] border border-[#6b9eff]/20 hover:border-[#6b9eff]/40"
+              className="flex w-full items-center justify-center gap-2 rounded-lg border border-primary/20 bg-primary/15 px-3 py-2 text-xs font-medium text-primary transition-colors hover:border-primary/40 disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Hash className="w-3.5 h-3.5" />
               <span>Create Channel</span>

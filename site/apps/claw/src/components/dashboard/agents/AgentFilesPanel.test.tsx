@@ -1,8 +1,34 @@
-import type { ComponentProps } from "react";
+import type { ComponentProps, ComponentType, ReactNode } from "react";
 import { fireEvent, render, screen, waitFor } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentFilesPanel } from "./AgentFilesPanel";
+
+vi.mock("@hypercli/shared-ui", () => ({
+  EmptyState: ({
+    icon: Icon,
+    title,
+    description,
+    actionLabel,
+    onAction,
+    footnote,
+  }: {
+    icon: ComponentType<{ className?: string; "aria-hidden"?: boolean }>;
+    title: string;
+    description: string;
+    actionLabel?: string;
+    onAction?: () => void;
+    footnote?: ReactNode;
+  }) => (
+    <section>
+      <Icon aria-hidden="true" />
+      <h2>{title}</h2>
+      <p>{description}</p>
+      {actionLabel && <button onClick={onAction}>{actionLabel}</button>}
+      {footnote}
+    </section>
+  ),
+}));
 
 function renderFilesPanel(overrides: Partial<ComponentProps<typeof AgentFilesPanel>> = {}) {
   const props: ComponentProps<typeof AgentFilesPanel> = {

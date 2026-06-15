@@ -759,7 +759,7 @@ export function AgentChatPanel({
                   <div
                     role="status"
                     aria-label="Stopping reply"
-                    className="inline-flex items-center gap-2 rounded-full border border-[#d05f5f]/25 bg-[#d05f5f]/10 px-3 py-1.5 text-xs font-medium text-[#d05f5f]"
+                    className="inline-flex items-center gap-2 rounded-full border border-destructive/25 bg-destructive/10 px-3 py-1.5 text-xs font-medium text-destructive"
                   >
                     <Loader2 className="h-3.5 w-3.5 animate-spin" />
                     <span>Stopping reply...</span>
@@ -830,8 +830,8 @@ export function AgentChatPanel({
                       sizes="64px"
                       className="rounded-md border border-border object-cover"
                     />
-                    <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-[#d05f5f] rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
-                      <X className="w-3 h-3 text-white" />
+                    <button onClick={() => chat.removeAttachment(i)} className="absolute -top-1.5 -right-1.5 w-5 h-5 bg-destructive rounded-full flex items-center justify-center opacity-0 group-hover:opacity-100 transition-opacity">
+                      <X className="w-3 h-3 text-destructive-foreground" />
                     </button>
                   </div>
                 ))}
@@ -853,7 +853,7 @@ export function AgentChatPanel({
                   <div key={`${file.name}-${i}`} className="inline-flex max-w-full items-center gap-2 rounded-full border border-border bg-surface-low px-3 py-1.5 text-xs text-text-secondary">
                     <Paperclip className="h-3.5 w-3.5 shrink-0" />
                     <span className="truncate">{file.name}</span>
-                    <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-[#d05f5f]" title="Remove attachment">
+                    <button type="button" onClick={() => chat.removePendingFile(i)} className="text-text-muted transition-colors hover:text-destructive" title="Remove attachment">
                       <X className="h-3.5 w-3.5" />
                     </button>
                   </div>
@@ -863,9 +863,9 @@ export function AgentChatPanel({
             <div className="flex gap-2 items-center">
               {recording ? (
                 <>
-                  <div className="flex-1 flex items-center gap-3 bg-surface-low border border-[#d05f5f]/30 rounded-lg px-3 py-2">
-                    <span className="w-2.5 h-2.5 rounded-full bg-[#d05f5f] transition-transform duration-75" style={{ transform: `scale(${1 + audioLevel * 1.5})` }} />
-                    <span className="text-sm text-[#d05f5f] font-mono">{formatDuration(recordingDuration)}</span>
+                  <div className="flex-1 flex items-center gap-3 bg-surface-low border border-destructive/30 rounded-lg px-3 py-2">
+                    <span className="w-2.5 h-2.5 rounded-full bg-destructive transition-transform duration-75" style={{ transform: `scale(${1 + audioLevel * 1.5})` }} />
+                    <span className="text-sm text-destructive font-mono">{formatDuration(recordingDuration)}</span>
                     <div className="flex items-center gap-0.5 flex-1">
                       {Array.from({ length: 20 }).map((_, i) => (
                         <div
@@ -873,13 +873,13 @@ export function AgentChatPanel({
                           className="w-1 rounded-full transition-all duration-75"
                           style={{
                             height: `${Math.max(4, Math.min(20, audioLevel * 24 * AUDIO_BAR_WEIGHTS[i % AUDIO_BAR_WEIGHTS.length]))}px`,
-                            backgroundColor: audioLevel > 0.1 ? `rgba(208, 95, 95, ${0.3 + audioLevel * 0.7})` : "rgba(208, 95, 95, 0.2)",
+                            backgroundColor: audioLevel > 0.1 ? `color-mix(in srgb, var(--destructive) ${Math.round((0.3 + audioLevel * 0.7) * 100)}%, transparent)` : "color-mix(in srgb, var(--destructive) 20%, transparent)",
                           }}
                         />
                       ))}
                     </div>
                   </div>
-                  <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-[#d05f5f] text-[#d05f5f] hover:bg-[#d05f5f]/10 flex items-center justify-center transition-colors">
+                  <button onClick={stopRecording} className="px-3 py-2 rounded-lg border border-destructive text-destructive hover:bg-destructive/10 flex items-center justify-center transition-colors">
                     <Square className="w-4 h-4" />
                   </button>
                 </>
@@ -891,7 +891,7 @@ export function AgentChatPanel({
                     </button>
                     <span className="min-w-0 truncate text-xs font-mono text-text-secondary">{formatDuration(audioPreviewDuration || recordingDuration)}</span>
                   </div>
-                  <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-[#d05f5f] hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
+                  <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-destructive hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
                     <X className="w-4 h-4" />
                   </button>
                   <button onClick={sendAudio} disabled={!chat.connected || chat.activeSessionReadOnly || chat.sending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
@@ -1056,7 +1056,7 @@ export function AgentChatPanel({
                     rows={1}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
-                    className={`w-full resize-none bg-[#232323] border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${chat.sending ? "pr-40" : "pr-24 sm:pr-28"}`}
+                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${chat.sending ? "pr-40" : "pr-24 sm:pr-28"}`}
                   />
                   {slashMenuOpen ? (
                     <AgentSlashCommandMenu
@@ -1101,7 +1101,7 @@ export function AgentChatPanel({
                               onMouseEnter={() => setFileMentionSelectedIndex(index)}
                               onClick={() => completeFileReference(suggestion)}
                               className={`flex w-full min-w-0 items-center gap-3 rounded-md px-3 py-2.5 text-left transition-colors ${
-                                selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-white/[0.04]"
+                                selected ? "bg-[rgb(var(--selection-accent-rgb)_/_0.12)] text-foreground" : "text-text-secondary hover:bg-surface-low"
                               }`}
                             >
                               <FileText className="h-4 w-4 shrink-0 text-[var(--selection-accent)]" />
@@ -1144,7 +1144,7 @@ export function AgentChatPanel({
                       <button
                         onClick={() => { void chat.abortMessage(); }}
                         disabled={!chat.connected || chat.aborting}
-                        className="w-8 h-8 rounded-full border border-[#d05f5f]/50 bg-[#d05f5f]/10 text-[#d05f5f] hover:bg-[#d05f5f]/20 disabled:opacity-40 flex items-center justify-center transition-colors"
+                        className="w-8 h-8 rounded-full border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-40 flex items-center justify-center transition-colors"
                         title={chat.aborting ? "Stopping reply" : "Stop reply"}
                         aria-label={chat.aborting ? "Stopping reply" : "Stop reply"}
                         type="button"

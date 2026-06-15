@@ -571,6 +571,200 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("reconciles generated direct gateway sessions as main when main is selected", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const mainGatewaySessionKey = "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab";
+    gateway.sessionsList
+      .mockResolvedValueOnce([])
+      .mockResolvedValue([
+        {
+          key: mainGatewaySessionKey,
+          displayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+          kind: "direct",
+          chatType: "direct",
+          origin: { provider: "webchat", surface: "webchat", chatType: "direct" },
+          deliveryContext: { channel: "webchat" },
+          lastChannel: "webchat",
+          updatedAt: 1781271596266,
+        },
+      ]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("hello main");
+    });
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]));
+    expect(result.current.sessions[0]).toEqual(expect.objectContaining({
+      key: "main",
+      gatewaySessionKey: mainGatewaySessionKey,
+      clientDisplayName: "Main Project",
+    }));
+
+    act(() => {
+      result.current.setInput("hello main again");
+    });
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    expect(gateway.chatSend).toHaveBeenLastCalledWith("hello main again", mainGatewaySessionKey, undefined);
+    unmount();
+  });
+
+  it("cleans stale persisted generated direct sessions when main is selected", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const mainGatewaySessionKey = "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab";
+    window.localStorage.setItem("openclaw.sessionTitles.v1:deploy-123", JSON.stringify({
+      [mainGatewaySessionKey]: "Hyper Agent Web (Chrome on Windows, localhost)",
+      "session-019789ab-cdef-7abc-8def-0123456789ab": "Hyper Agent Web (Chrome on Windows, localhost)",
+    }));
+    window.localStorage.setItem("openclaw.sessions.v1:deploy-123", JSON.stringify({
+      version: 1,
+      sessions: [{
+        key: mainGatewaySessionKey,
+        clientMode: "openclaw",
+        clientDisplayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+        createdAt: 1,
+        lastMessageAt: 2,
+        title: "",
+        messageCount: 1,
+      }],
+    }));
+    gateway.sessionsList.mockResolvedValue([{
+      key: mainGatewaySessionKey,
+      displayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+      kind: "direct",
+      chatType: "direct",
+      origin: { provider: "webchat", surface: "webchat", chatType: "direct" },
+      deliveryContext: { channel: "webchat" },
+      lastChannel: "webchat",
+      updatedAt: 1781271596266,
+    }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]));
+    expect(result.current.sessions[0]).toEqual(expect.objectContaining({
+      key: "main",
+      gatewaySessionKey: mainGatewaySessionKey,
+      clientDisplayName: "Main Project",
+    }));
+    expect(result.current.sessions).not.toEqual(expect.arrayContaining([
+      expect.objectContaining({ clientDisplayName: "Hyper Agent Web (Chrome on Windows, localhost)" }),
+    ]));
+    expect(JSON.parse(window.localStorage.getItem("openclaw.sessions.v1:deploy-123") ?? "{}").sessions).toEqual([
+      expect.objectContaining({
+        key: "main",
+        gatewaySessionKey: mainGatewaySessionKey,
+        clientDisplayName: "Main Project",
+      }),
+    ]);
+    unmount();
+  });
+
+  it("reconciles generated direct gateway sessions as main for scoped main selections", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    const mainGatewaySessionKey = "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab";
+    gateway.sessionsList.mockResolvedValue([{
+      key: mainGatewaySessionKey,
+      displayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+      kind: "direct",
+      chatType: "direct",
+      origin: { provider: "webchat", surface: "webchat", chatType: "direct" },
+      deliveryContext: { channel: "webchat" },
+      lastChannel: "webchat",
+      updatedAt: 1781271596266,
+    }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "agent:default:main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]));
+    expect(result.current.sessions[0]).toEqual(expect.objectContaining({
+      key: "main",
+      gatewaySessionKey: mainGatewaySessionKey,
+      clientDisplayName: "Main Project",
+    }));
+
+    act(() => {
+      result.current.setInput("hello scoped main");
+    });
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    expect(gateway.chatSend).toHaveBeenCalledWith("hello scoped main", mainGatewaySessionKey, undefined);
+    unmount();
+  });
+
+  it("normalizes non-channel scoped main sessions to one visible main project", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([{
+      key: "agent:default:main",
+      displayName: "Hyper Agent Web (Chrome on Windows, localhost)",
+      origin: { provider: "webchat", surface: "webchat" },
+      deliveryContext: { channel: "webchat" },
+      lastMessageAt: 20,
+    }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "main"));
+
+    await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
+    await waitFor(() => expect(result.current.sessions.map((session) => session.key)).toEqual(["main"]));
+    expect(result.current.sessions[0]).toEqual(expect.objectContaining({
+      key: "main",
+      gatewaySessionKey: "agent:default:main",
+      clientDisplayName: "Main Project",
+    }));
+
+    act(() => {
+      result.current.setInput("hello main");
+    });
+    await act(async () => {
+      await result.current.sendMessage();
+    });
+
+    expect(gateway.chatSend).toHaveBeenCalledWith("hello main", "agent:default:main", undefined);
+    unmount();
+  });
+
   it("updates the active project list before the post-send project fetch returns", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
@@ -788,6 +982,70 @@ describe("useOpenClawSession", () => {
     expect(result.current.sessions).toEqual([]);
     expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}"))
       .toEqual({});
+    unmount();
+  });
+
+  it("deletes and hides scoped sessions selected by their unscoped key", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "agent:default:session-alpha", title: "Alpha" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-alpha"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.sessions).toEqual([
+      expect.objectContaining({ key: "agent:default:session-alpha", title: "Alpha" }),
+    ]));
+
+    await act(async () => {
+      await result.current.deleteSession("session-alpha");
+    });
+
+    expect(gateway.sessionsReset).toHaveBeenCalledWith("agent:default:session-alpha", "reset");
+    expect(result.current.sessions).toEqual([]);
+    unmount();
+  });
+
+  it("stores renamed scoped session titles under scoped and unscoped aliases", async () => {
+    const gateway = buildGateway();
+    gateway.sessionsList.mockResolvedValue([{ key: "agent:default:session-alpha", title: "Alpha" }]);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any, true, "session-alpha"));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.sessions).toEqual([
+      expect.objectContaining({ key: "agent:default:session-alpha", title: "Alpha" }),
+    ]));
+
+    await act(async () => {
+      await result.current.renameSession("agent:default:session-alpha", "Renamed");
+    });
+
+    expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}"))
+      .toEqual({
+        "agent:default:session-alpha": "Renamed",
+        "session-alpha": "Renamed",
+      });
+
+    gateway.sessionsList.mockResolvedValue([{ key: "session-alpha", title: "Alpha" }]);
+    await act(async () => {
+      await result.current.refreshSessions();
+    });
+
+    expect(result.current.sessions).toEqual([
+      expect.objectContaining({ key: "session-alpha", title: "Renamed" }),
+    ]);
     unmount();
   });
 

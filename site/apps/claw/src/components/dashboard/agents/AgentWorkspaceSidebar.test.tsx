@@ -242,6 +242,29 @@ describe("AgentWorkspaceSidebar", () => {
     expect(telegramProject).toHaveAttribute("aria-current", "page");
   });
 
+  it("does not synthesize a duplicate main project for scoped main selections", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "main",
+          gatewaySessionKey: "agent:default:main",
+          clientMode: "openclaw",
+          clientDisplayName: "Main Project",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Main Project",
+          messageCount: 1,
+          raw: {},
+        },
+      ],
+      selectedSessionKey: "agent:default:main",
+    });
+
+    const mainProjects = screen.getAllByRole("button", { name: "Main Project" });
+    expect(mainProjects).toHaveLength(1);
+    expect(mainProjects[0]).toHaveAttribute("aria-current", "page");
+  });
+
   it("keeps the default project visible when a channel project is selected", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
@@ -263,6 +286,34 @@ describe("AgentWorkspaceSidebar", () => {
 
     expect(screen.getByRole("button", { name: "Main Project" })).not.toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
+  });
+
+  it("disables destructive actions for read-only channel projects", () => {
+    renderAgentWorkspaceSidebar({
+      sessions: [
+        {
+          key: "telegram:489595440",
+          clientMode: "openclaw",
+          clientDisplayName: "Telegram DM",
+          createdAt: 1,
+          lastMessageAt: 20,
+          title: "Telegram DM",
+          messageCount: 1,
+          sourceChannelId: "telegram",
+          readOnly: true,
+          readOnlyReason: "Telegram conversations are read-only here. Reply from Telegram.",
+          raw: {},
+        },
+      ],
+      selectedSessionKey: "telegram:489595440",
+    });
+
+    fireEvent.click(screen.getByRole("button", { name: "Session options for Telegram DM" }));
+
+    expect(screen.getByRole("button", { name: "Rename" })).toBeEnabled();
+    const deleteButton = screen.getByRole("button", { name: "Delete" });
+    expect(deleteButton).toBeDisabled();
+    expect(deleteButton).toHaveAttribute("title", "Telegram conversations are read-only here. Reply from Telegram.");
   });
 
   it("shows and highlights the current project when it is the only project", () => {
