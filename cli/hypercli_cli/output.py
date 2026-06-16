@@ -1,4 +1,6 @@
 """Output formatting"""
+from dataclasses import asdict, is_dataclass
+from datetime import date, datetime
 import json as json_lib
 from typing import Any
 from rich.console import Console
@@ -8,13 +10,29 @@ from rich import print_json
 console = Console()
 
 
+def _json_safe(data: Any) -> Any:
+    if data is None or isinstance(data, (str, int, float, bool)):
+        return data
+    if isinstance(data, (datetime, date)):
+        return data.isoformat()
+    if isinstance(data, dict):
+        return {str(key): _json_safe(value) for key, value in data.items()}
+    if isinstance(data, (list, tuple, set)):
+        return [_json_safe(value) for value in data]
+    if is_dataclass(data) and not isinstance(data, type):
+        return _json_safe(asdict(data))
+    model_dump = getattr(data, "model_dump", None)
+    if callable(model_dump):
+        return _json_safe(model_dump())
+    if hasattr(data, "__dict__"):
+        return _json_safe(vars(data))
+    return str(data)
+
+
 def output(data: Any, fmt: str = "table", columns: list[str] = None):
     """Output data in requested format"""
     if fmt == "json":
-        if hasattr(data, "__dict__"):
-            print_json(data=data.__dict__)
-        else:
-            print_json(data=data)
+        print_json(data=_json_safe(data))
     elif fmt == "table":
         if isinstance(data, list):
             table_list(data, columns)
