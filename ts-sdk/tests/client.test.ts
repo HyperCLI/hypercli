@@ -126,6 +126,6 @@ describe('HyperCLI Client', () => {
       models: { 'qwen3-tts': true },
       clusters: { large: false },
     });
-    expect(calls).toEqual(['https://api.example.com/status']);
+    expect(calls).toEqual(['https://api.example.com/agents/status']);
   });
 });

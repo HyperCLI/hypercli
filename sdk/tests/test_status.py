@@ -16,7 +16,7 @@ def test_client_status_calls_public_status_endpoint(monkeypatch):
             }
 
     client = HyperCLI(api_key="hyper_api_test", api_url="https://api.example.com")
-    client._http = FakeHTTP()
+    client._agents_http = FakeHTTP()
 
     assert client.status() == {
         "ok": False,

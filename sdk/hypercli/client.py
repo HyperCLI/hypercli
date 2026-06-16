@@ -87,6 +87,8 @@ class HyperCLI:
             agents_ws_url
             or (_derive_agents_ws_url(self._api_url, agent_dev) if api_url else get_agents_ws_url(agent_dev))
         )
+        self._agents_api_base_url = resolved_agents_api_base
+        self._agents_http = HTTPClient(self._agents_api_base_url, self._api_key)
         self.deployments = Deployments(
             self._http,
             api_key=resolved_agent_api_key,
@@ -119,4 +121,4 @@ class HyperCLI:
 
     def status(self) -> dict:
         """Get compact public platform status."""
-        return self._http.get("/status")
+        return self._agents_http.get("/status")

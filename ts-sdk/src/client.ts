@@ -88,6 +88,7 @@ export class HyperCLI {
   private _apiKey: string;
   private _apiUrl: string;
   private _http: HTTPClient;
+  private _agentsHttp: HTTPClient;
 
   public readonly billing: Billing;
   public readonly jobs: Jobs;
@@ -122,6 +123,7 @@ export class HyperCLI {
     const resolvedAgentsWsUrl =
       options.agentsWsUrl ||
       (options.apiUrl ? deriveAgentsWsUrl(this._apiUrl, Boolean(options.agentDev)) : getAgentsWsUrl(Boolean(options.agentDev)));
+    this._agentsHttp = new HTTPClient(resolvedAgentsApiBase, this._apiKey, options.timeout);
     // API namespaces
     this.billing = new Billing(this._http);
     this.jobs = new Jobs(this._http);
@@ -156,7 +158,7 @@ export class HyperCLI {
   }
 
   async status(): Promise<SystemStatus> {
-    const payload = await this._http.get('/status');
+    const payload = await this._agentsHttp.get('/status');
     return systemStatusFromDict(payload);
   }
 }
