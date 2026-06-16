@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from 'vitest';
 import { afterEach, describe, expect, it, vi } from 'vitest';
 import { buildAgentConfig, Deployments, OpenClawAgent } from '../src/agents.js';
-import type { HTTPClient } from '../src/http.js';
+import { HTTPClient } from '../src/http.js';
 
 describe('Agents SDK', () => {
   afterEach(() => {
