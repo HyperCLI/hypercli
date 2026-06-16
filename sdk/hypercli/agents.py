@@ -33,6 +33,9 @@ DEV_AGENTS_WS_URL = "wss://api.agents.dev.hypercli.com/ws"
 DEFAULT_OPENCLAW_IMAGE = "ghcr.io/hypercli/hypercli-openclaw:prod"
 LAUNCH_CONFIG_KEYS = frozenset({"image", "env", "routes", "ports", "command", "entrypoint", "sync_root", "sync_enabled", "sync_uid", "sync_gid", "registry_url", "registry_auth"})
 DEFAULT_OPENCLAW_SYNC_ROOT = "/home/node"
+AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024
+AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024
+AGENT_FILE_OPERATION_TIMEOUT_SECONDS = 300
 
 
 def _is_directory_listing_payload(value: object) -> bool:
@@ -1538,7 +1541,7 @@ class Deployments:
     def files_list(self, pod: Agent | str, path: str = "", source: str = "auto") -> list[dict]:
         """List files on an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
-        with httpx.Client(timeout=300) as client:
+        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.get(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}"
                 if path
@@ -1554,7 +1557,7 @@ class Deployments:
     def file_read_bytes(self, pod: Agent | str, path: str, source: str = "auto") -> bytes:
         """Read a file from an agent via the backend file API."""
         agent_id = self._agent_id_for_target(pod)
-        with httpx.Client(timeout=300) as client:
+        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.get(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(),
@@ -1578,8 +1581,10 @@ class Deployments:
 
     def file_write_bytes(self, pod: Agent | str, path: str, content: bytes, destination: str = "auto") -> dict:
         """Write raw bytes to an agent via the backend file API."""
+        if len(content) > AGENT_FILE_MAX_BYTES:
+            raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
         agent_id = self._agent_id_for_target(pod)
-        with httpx.Client(timeout=300) as client:
+        with httpx.Client(timeout=AGENT_FILE_OPERATION_TIMEOUT_SECONDS) as client:
             resp = client.post(
                 f"{self._api_base}{AGENTS_API_PREFIX}/{agent_id}/files/{self._encode_file_path(path)}",
                 headers=self._file_headers(content_type="application/octet-stream"),

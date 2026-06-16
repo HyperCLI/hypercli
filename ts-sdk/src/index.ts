@@ -157,6 +157,9 @@ export {
 } from './agent.js';
 
 export {
+  AGENT_FILE_MAX_BYTES,
+  AGENT_FILE_OPERATION_TIMEOUT_MS,
+  AGENT_FILE_TRANSFER_CHUNK_BYTES,
   Deployments,
   Agent,
   OpenClawAgent,

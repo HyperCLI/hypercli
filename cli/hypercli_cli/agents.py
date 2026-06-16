@@ -12,7 +12,7 @@ import typer
 from rich.console import Console
 from rich.table import Table
 
-from hypercli.agents import Agent, Deployments, OpenClawAgent, DEFAULT_OPENCLAW_IMAGE
+from hypercli.agents import AGENT_FILE_MAX_BYTES, Agent, Deployments, OpenClawAgent, DEFAULT_OPENCLAW_IMAGE
 from hypercli.config import get_agent_api_key as get_config_agent_api_key
 
 app = typer.Typer(help="Manage OpenClaw agent pods")
@@ -677,6 +677,9 @@ def cp(
 
     try:
         if dst_agent_id:
+            local_size = Path(src_path).stat().st_size
+            if local_size > AGENT_FILE_MAX_BYTES:
+                raise ValueError(f"Agent file writes are limited to {AGENT_FILE_MAX_BYTES // 1024 // 1024} MiB")
             pod = _get_pod_with_token(dst_agent_id)
             agents.cp_to(pod, src_path, dst_path)
             console.print(f"[green]✓[/green] Copied [bold]{src_path}[/bold] to [bold]{dst_agent_id[:12]}:{dst_path}[/bold]")

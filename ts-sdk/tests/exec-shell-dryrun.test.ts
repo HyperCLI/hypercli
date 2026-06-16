@@ -1,6 +1,9 @@
 import { beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
+  AGENT_FILE_MAX_BYTES,
+  AGENT_FILE_OPERATION_TIMEOUT_MS,
+  AGENT_FILE_TRANSFER_CHUNK_BYTES,
   Agent,
   DEFAULT_OPENCLAW_IMAGE,
   Deployments,
@@ -980,6 +983,10 @@ describe('HyperClaw agents SDK', () => {
   });
 
   it('file operations use the path-based deployment file API', async () => {
+    expect(AGENT_FILE_MAX_BYTES).toBe(50 * 1024 * 1024);
+    expect(AGENT_FILE_TRANSFER_CHUNK_BYTES).toBe(64 * 1024);
+    expect(AGENT_FILE_OPERATION_TIMEOUT_MS).toBe(300_000);
+
     const fetchMock = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input);
       if (url.endsWith('/deployments/agent-1/files/workspace?source=auto')) {
@@ -1037,5 +1044,8 @@ describe('HyperClaw agents SDK', () => {
     expect(writeResult).toEqual({ status: 'ok', target: 'pod' });
     expect(deleteResult).toEqual({ status: 'ok', target: 'pod' });
     await expect(agents.fileRead('agent-1', '.openclaw')).rejects.toThrow('Path is a directory: .openclaw');
+    await expect(
+      agents.fileWriteBytes('agent-1', 'workspace/too-large.bin', new Uint8Array(AGENT_FILE_MAX_BYTES + 1)),
+    ).rejects.toThrow('50 MiB');
   });
 });

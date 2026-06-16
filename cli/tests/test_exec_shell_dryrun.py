@@ -2,6 +2,7 @@ from types import SimpleNamespace
 
 from typer.testing import CliRunner
 
+from hypercli.agents import AGENT_FILE_MAX_BYTES
 from hypercli_cli.cli import app
 
 
@@ -189,6 +190,18 @@ def test_agents_cp_reports_directory_path_error(monkeypatch, tmp_path):
     assert result.exit_code == 1
     assert "Path is a directory: .openclaw." in result.stdout
     assert "Copy expects a file path, not a directory." in result.stdout
+
+
+def test_agents_cp_rejects_oversized_local_file(monkeypatch, tmp_path):
+    source = tmp_path / "big.bin"
+    with source.open("wb") as f:
+        f.truncate(AGENT_FILE_MAX_BYTES + 1)
+    monkeypatch.setattr("hypercli_cli.agents._get_deployments_client", lambda: SimpleNamespace())
+
+    result = runner.invoke(app, ["agents", "cp", str(source), "agent-xyz:workspace/big.bin"])
+
+    assert result.exit_code == 1
+    assert "Agent file writes are limited to 50 MiB" in result.stdout
 
 
 def test_agents_web_search_command(monkeypatch):

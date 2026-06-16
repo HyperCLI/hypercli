@@ -10,6 +10,9 @@ from unittest.mock import MagicMock, Mock, patch
 import pytest
 
 from hypercli.agents import (
+    AGENT_FILE_MAX_BYTES,
+    AGENT_FILE_OPERATION_TIMEOUT_SECONDS,
+    AGENT_FILE_TRANSFER_CHUNK_BYTES,
     Agent,
     DEFAULT_OPENCLAW_IMAGE,
     Deployments,
@@ -724,6 +727,9 @@ def test_agents_get_returns_generic_agent_without_gateway_metadata(agents_client
 
 
 def test_agents_file_ops_use_backend_file_api(agents_client):
+    assert AGENT_FILE_MAX_BYTES == 50 * 1024 * 1024
+    assert AGENT_FILE_TRANSFER_CHUNK_BYTES == 64 * 1024
+
     class FakeResponse:
         def __init__(self, status_code=200, json_data=None, text="", content=b"", headers=None):
             self.status_code = status_code
@@ -737,6 +743,7 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
 
     class FakeClient:
         def __init__(self, timeout=None):
+            assert timeout in (AGENT_FILE_OPERATION_TIMEOUT_SECONDS, 10)
             self.timeout = timeout
 
         def __enter__(self):
@@ -792,6 +799,11 @@ def test_agents_file_ops_use_backend_file_api(agents_client):
         assert agents_client.file_delete(agent, "workspace/a.txt") == {"status": "ok"}
         with pytest.raises(ValueError, match=r"Path is a directory: \.openclaw"):
             agents_client.file_read(agent, ".openclaw")
+
+
+def test_agent_file_write_rejects_content_above_sdk_limit(agents_client):
+    with pytest.raises(ValueError, match="50 MiB"):
+        agents_client.file_write_bytes("agent-123", "too-large.bin", b"x" * (AGENT_FILE_MAX_BYTES + 1))
 
 
 def test_agents_list(agents_client):

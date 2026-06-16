@@ -22,6 +22,9 @@ const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
 const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
+export const AGENT_FILE_MAX_BYTES = 50 * 1024 * 1024;
+export const AGENT_FILE_TRANSFER_CHUNK_BYTES = 64 * 1024;
+export const AGENT_FILE_OPERATION_TIMEOUT_MS = 300_000;
 
 export interface AgentExecResult {
   exitCode: number;
@@ -1686,10 +1689,14 @@ export class Deployments {
   ): Promise<Record<string, any>> {
     const encodedPath = encodeFilePath(path);
     const params = new URLSearchParams({ destination });
+    const bytes = toUint8Array(content);
+    if (bytes.byteLength > AGENT_FILE_MAX_BYTES) {
+      throw new Error(`Agent file writes are limited to ${AGENT_FILE_MAX_BYTES / 1024 / 1024} MiB`);
+    }
     const response = await this.fetchRaw(`${DEPLOYMENTS_API_PREFIX}/${this.agentIdFor(target)}/files/${encodedPath}?${params.toString()}`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/octet-stream' },
-      body: toUint8Array(content),
+      body: bytes,
     });
     return (await response.json()) as Record<string, any>;
   }
