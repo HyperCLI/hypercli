@@ -29,9 +29,6 @@ sys.modules.setdefault("requests", _requests)
 
 
 SCRIPT_PATH = Path(__file__).resolve().parents[2] / ".github" / "scripts" / "bootstrap_console_test_key.py"
-if not SCRIPT_PATH.exists():
-    pytest.skip(f"{SCRIPT_PATH} is not available in this test environment", allow_module_level=True)
-
 SPEC = importlib.util.spec_from_file_location("bootstrap_console_test_key", SCRIPT_PATH)
 assert SPEC and SPEC.loader
 MODULE = importlib.util.module_from_spec(SPEC)
