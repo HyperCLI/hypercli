@@ -39,4 +39,4 @@ def test_keys_create_rejects_all_and_tag_together():
     result = runner.invoke(app, ["keys", "create", "--all", "--tag", "team=dev"])
 
     assert result.exit_code != 0
-    assert "Use either --all or --tag, not both" in result.stdout
+    assert "Use either --all or --tag, not both" in result.output
