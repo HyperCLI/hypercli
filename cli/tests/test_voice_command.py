@@ -69,7 +69,7 @@ def test_agent_transcribe_command_is_removed():
     result = runner.invoke(app, ["agent", "transcribe", "voice.ogg"])
 
     assert result.exit_code != 0
-    assert "No such command 'transcribe'" in result.stdout
+    assert "No such command 'transcribe'" in result.output
 
 
 def test_agent_voice_transcribe_command_is_registered():
