@@ -193,6 +193,32 @@ def me_cmd(
     console.print(table)
 
 
+@app.command("status")
+def status_cmd(
+    fmt: str = typer.Option("table", "--output", "-o", help="Output format: table|json"),
+):
+    """Show compact platform status."""
+    client = HyperCLI()
+    with spinner("Checking platform status..."):
+        payload = client.status()
+    if fmt == "json":
+        output(payload, fmt)
+        return
+
+    table = Table(show_header=True, header_style="bold cyan")
+    table.add_column("Type")
+    table.add_column("Name")
+    table.add_column("Healthy")
+
+    for name, healthy in (payload.get("models") or {}).items():
+        table.add_row("model", str(name), "true" if healthy else "false")
+    for name, healthy in (payload.get("clusters") or {}).items():
+        table.add_row("cluster", str(name), "true" if healthy else "false")
+
+    console.print(f"ok: {'true' if payload.get('ok') else 'false'}")
+    console.print(table)
+
+
 @app.command("configure")
 def configure_cmd():
     """Configure HyperCLI with your API key and API URL"""

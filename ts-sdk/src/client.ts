@@ -41,6 +41,22 @@ export interface HyperCLIOptions {
   timeout?: number;
 }
 
+export interface SystemStatus {
+  ok: boolean;
+  checkedAt: string;
+  models: Record<string, boolean>;
+  clusters: Record<string, boolean>;
+}
+
+function systemStatusFromDict(data: any): SystemStatus {
+  return {
+    ok: Boolean(data?.ok),
+    checkedAt: data?.checked_at || data?.checkedAt || '',
+    models: data?.models || {},
+    clusters: data?.clusters || {},
+  };
+}
+
 /**
  * HyperCLI API Client
  * 
@@ -137,5 +153,10 @@ export class HyperCLI {
 
   get apiKey(): string {
     return this._apiKey;
+  }
+
+  async status(): Promise<SystemStatus> {
+    const payload = await this._http.get('/status');
+    return systemStatusFromDict(payload);
   }
 }

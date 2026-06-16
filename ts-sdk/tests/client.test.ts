@@ -1,4 +1,4 @@
-import { beforeEach, afterEach, describe, it, expect } from 'vitest';
+import { beforeEach, afterEach, describe, it, expect, vi } from 'vitest';
 import { BrowserHyperCLI } from '../src/browser.js';
 import { HyperCLI } from '../src/client.js';
 
@@ -10,6 +10,7 @@ describe('HyperCLI Client', () => {
   const originalAgentsWsUrl = process.env.AGENTS_WS_URL;
   const originalApiBase = process.env.HYPER_API_BASE;
   const originalApiUrl = process.env.HYPERCLI_API_URL;
+  const originalFetch = globalThis.fetch;
 
   beforeEach(() => {
     process.env.HYPER_API_KEY = 'hyper_api_test_key';
@@ -42,6 +43,9 @@ describe('HyperCLI Client', () => {
 
     if (originalApiUrl === undefined) delete process.env.HYPERCLI_API_URL;
     else process.env.HYPERCLI_API_URL = originalApiUrl;
+
+    globalThis.fetch = originalFetch;
+    vi.restoreAllMocks();
   });
 
   it('should construct client with env var/config file', () => {
@@ -94,5 +98,34 @@ describe('HyperCLI Client', () => {
     expect(client.agent.apiKey).toBe('hyper_api_test_key');
     expect(client.agent.controlBaseUrl).toBe('https://api.hypercli.com/agents');
     expect(client.agent.baseUrl).toBe('https://api.agents.hypercli.com/v1');
+  });
+
+  it('should fetch compact platform status from /status', async () => {
+    const calls: string[] = [];
+    globalThis.fetch = vi.fn(async (url: any) => {
+      calls.push(String(url));
+      return new Response(JSON.stringify({
+        ok: false,
+        checked_at: '2026-06-16T10:00:00Z',
+        models: { 'qwen3-tts': true },
+        clusters: { large: false },
+      }), {
+        status: 200,
+        headers: { 'Content-Type': 'application/json' },
+      });
+    }) as any;
+
+    const client = new HyperCLI({
+      apiKey: 'hyper_api_test_key',
+      apiUrl: 'https://api.example.com',
+    });
+
+    await expect(client.status()).resolves.toEqual({
+      ok: false,
+      checkedAt: '2026-06-16T10:00:00Z',
+      models: { 'qwen3-tts': true },
+      clusters: { large: false },
+    });
+    expect(calls).toEqual(['https://api.example.com/status']);
   });
 });

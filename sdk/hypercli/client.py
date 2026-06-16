@@ -116,3 +116,7 @@ class HyperCLI:
     @property
     def api_key(self) -> str:
         return self._api_key
+
+    def status(self) -> dict:
+        """Get compact public platform status."""
+        return self._http.get("/status")
