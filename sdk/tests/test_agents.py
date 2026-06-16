@@ -971,6 +971,8 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
             routes={"web": {"port": 80, "auth": False, "prefix": ""}},
             sync_root="/workspace",
             sync_enabled=True,
+            sync_uid=2000,
+            sync_gid=2001,
         )
 
         assert isinstance(agent, Agent)
@@ -980,6 +982,8 @@ def test_agents_start_preserves_generic_launch_fields(agents_client):
         assert posted_json["routes"] == {"web": {"port": 80, "auth": False, "prefix": ""}}
         assert posted_json["sync_root"] == "/workspace"
         assert posted_json["sync_enabled"] is True
+        assert posted_json["sync_uid"] == 2000
+        assert posted_json["sync_gid"] == 2001
 
 
 def test_build_agent_launch_rejects_nested_launch_fields():

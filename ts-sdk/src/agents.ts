@@ -20,7 +20,7 @@ const DEPLOYMENTS_API_PREFIX = '/deployments';
 const AGENTS_WS_URL = 'wss://api.agents.hypercli.com/ws';
 const DEV_AGENTS_WS_URL = 'wss://api.agents.dev.hypercli.com/ws';
 export const DEFAULT_OPENCLAW_IMAGE = 'ghcr.io/hypercli/hypercli-openclaw:prod';
-const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'registry_url', 'registry_auth']);
+const LAUNCH_CONFIG_KEYS = new Set(['image', 'env', 'routes', 'ports', 'command', 'entrypoint', 'sync_root', 'sync_enabled', 'sync_uid', 'sync_gid', 'registry_url', 'registry_auth']);
 const DEFAULT_OPENCLAW_SYNC_ROOT = '/home/node';
 
 export interface AgentExecResult {
@@ -105,6 +105,8 @@ export interface BuildAgentConfigOptions {
   image?: string | null;
   syncRoot?: string | null;
   syncEnabled?: boolean | null;
+  syncUid?: number | null;
+  syncGid?: number | null;
   registryUrl?: string | null;
   registryAuth?: RegistryAuth | null;
   gatewayToken?: string | null;
@@ -573,6 +575,8 @@ export function buildAgentConfig(
   if (options.image !== undefined && options.image !== null) prepared.image = options.image;
   if (options.syncRoot !== undefined && options.syncRoot !== null) prepared.sync_root = options.syncRoot;
   if (options.syncEnabled !== undefined && options.syncEnabled !== null) prepared.sync_enabled = options.syncEnabled;
+  if (options.syncUid !== undefined && options.syncUid !== null) prepared.sync_uid = options.syncUid;
+  if (options.syncGid !== undefined && options.syncGid !== null) prepared.sync_gid = options.syncGid;
   if (options.registryUrl !== undefined && options.registryUrl !== null) prepared.registry_url = options.registryUrl;
   if (options.registryAuth !== undefined && options.registryAuth !== null) prepared.registry_auth = options.registryAuth;
 
