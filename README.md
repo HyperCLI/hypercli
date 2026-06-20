@@ -53,7 +53,7 @@ HyperClaw now supports three distinct entitlement paths:
 It also supports unapplied grant codes:
 
 - an unactivated code is a `grant`
-- redeeming it creates or extends the matching entitlement window
+- redeeming it creates a new entitlement window by default; extension is explicit
 
 ## Repo Layout
 

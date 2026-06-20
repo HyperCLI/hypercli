@@ -884,11 +884,14 @@ class HyperAgent:
         response.raise_for_status()
         return response.json()
 
-    def redeem_grant_code(self, code: str) -> Dict[str, Any]:
+    def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> Dict[str, Any]:
+        payload: dict[str, Any] = {"code": str(code)}
+        if extend_existing is not None:
+            payload["extend_existing"] = bool(extend_existing)
         response = self._http._session.post(
             f"{self._control_base_url}/billing/grants/redeem",
             headers={"Authorization": f"Bearer {self._api_key}"},
-            json={"code": str(code)},
+            json=payload,
         )
         response.raise_for_status()
         return response.json()

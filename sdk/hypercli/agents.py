@@ -1472,14 +1472,20 @@ class Deployments:
         *,
         duration: int,
         tags: list[str] | None = None,
+        extend_existing: bool | None = None,
     ) -> dict:
         payload: dict[str, Any] = {"duration": int(duration)}
         if tags is not None:
             payload["tags"] = list(tags)
+        if extend_existing is not None:
+            payload["extend_existing"] = bool(extend_existing)
         return self._post(f"/billing/balance/{quote(str(plan_id), safe='')}", json=payload)
 
-    def redeem_grant_code(self, code: str) -> dict:
-        return self._post("/billing/grants/redeem", json={"code": str(code)})
+    def redeem_grant_code(self, code: str, *, extend_existing: bool | None = None) -> dict:
+        payload: dict[str, Any] = {"code": str(code)}
+        if extend_existing is not None:
+            payload["extend_existing"] = bool(extend_existing)
+        return self._post("/billing/grants/redeem", json=payload)
 
     def logs_token(self, agent_id: str) -> dict:
         """Mint a short-lived JWT token for backend log streaming."""

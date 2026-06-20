@@ -502,11 +502,15 @@ def subscription_summary(
 def activate_code(
     code: str = typer.Argument(..., help="Activation or promo code to redeem"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
+    extend_existing: bool = typer.Option(False, "--extend-existing", help="Extend the matching entitlement instead of creating a new one"),
     json_output: bool = typer.Option(False, "--json", help="Print raw JSON response"),
 ):
     """Redeem a HyperClaw activation code for the current account."""
     client = _get_agent_query_client(dev)
-    result = client.agent.redeem_grant_code(code)
+    result = client.agent.redeem_grant_code(
+        code,
+        extend_existing=True if extend_existing else None,
+    )
 
     if json_output:
         console.print_json(json.dumps(result, indent=2, default=str))

@@ -364,6 +364,11 @@ export interface HyperAgentGrant {
 export interface HyperAgentBalanceEntitlementPurchaseRequest {
   duration: number;
   tags?: string[];
+  extendExisting?: boolean;
+}
+
+export interface HyperAgentGrantRedeemRequest {
+  extendExisting?: boolean;
 }
 
 export interface HyperAgentGrantRedemptionResponse {
@@ -1177,13 +1182,20 @@ export class HyperAgent {
       await this.controlPost(`/billing/balance/${encodeURIComponent(planId)}`, {
         duration: request.duration,
         ...(request.tags ? { tags: request.tags } : {}),
+        ...(request.extendExisting !== undefined ? { extend_existing: Boolean(request.extendExisting) } : {}),
       }),
     );
   }
 
-  async redeemGrantCode(code: string): Promise<HyperAgentGrantRedemptionResponse> {
+  async redeemGrantCode(
+    code: string,
+    request: HyperAgentGrantRedeemRequest = {},
+  ): Promise<HyperAgentGrantRedemptionResponse> {
     return hyperAgentGrantRedemptionResponseFromDict(
-      await this.controlPost('/billing/grants/redeem', { code }),
+      await this.controlPost('/billing/grants/redeem', {
+        code,
+        ...(request.extendExisting !== undefined ? { extend_existing: Boolean(request.extendExisting) } : {}),
+      }),
     );
   }
 

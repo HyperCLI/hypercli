@@ -321,6 +321,32 @@ describe("PlansPage", () => {
     expect(screen.getByRole("button", { name: /add another/i })).toBeVisible();
   });
 
+  it("redeems activation codes without requesting extension by default", async () => {
+    mocks.hyperAgent.plans.mockResolvedValue([]);
+    mocks.hyperAgent.redeemGrantCode.mockResolvedValue({
+      grant: {
+        id: "grant-1",
+        code: "promo-123",
+        planId: "basic",
+      },
+      entitlement: {
+        id: "ent-1",
+        planId: "basic",
+        planName: "Basic",
+        expiresAt: new Date("2026-05-27T00:00:00.000Z"),
+      },
+    });
+
+    renderWithClient(<PlansPage />);
+
+    fireEvent.click(await screen.findByRole("button", { name: /activate a code/i }));
+    fireEvent.change(screen.getByLabelText(/activation code/i), { target: { value: " promo-123 " } });
+    fireEvent.click(screen.getByRole("button", { name: /^activate code$/i }));
+
+    await waitFor(() => expect(mocks.hyperAgent.redeemGrantCode).toHaveBeenCalledWith("promo-123"));
+    expect(mocks.hyperAgent.redeemGrantCode).not.toHaveBeenCalledWith("promo-123", expect.anything());
+  });
+
   it("uses the SDK cancelSubscription method for recurring subscription cancellation", async () => {
     const confirmSpy = vi.spyOn(window, "confirm").mockReturnValue(true);
     mocks.hyperAgent.plans.mockResolvedValue([]);

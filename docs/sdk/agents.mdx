@@ -61,9 +61,9 @@ The key split is:
 - `update_subscription()`
   unified recurring billing mutation surface for upgrade, downgrade, and cancel-at-period-end
 - `purchase_entitlement_from_balance()`
-  charges Orchestra balance, creates a grant, then creates or extends the matching entitlement
+  charges Orchestra balance, creates a grant, then creates a new entitlement unless `extend_existing=True` is explicit
 - `redeem_grant_code()`
-  applies an existing unapplied grant code to create or extend the matching entitlement
+  applies an existing unapplied grant code to create a new entitlement unless the code or request explicitly extends
 
 Update a recurring billing subscription:
 
@@ -88,14 +88,15 @@ Those are account/inference helpers, not agent runtime helpers.
 
 The Python SDK exposes the same prepaid entitlement surface as the backend:
 
-- `client.agent.purchase_entitlement_from_balance(plan_id, duration=..., tags=...)`
-- `client.agent.redeem_grant_code(code)`
+- `client.agent.purchase_entitlement_from_balance(plan_id, duration=..., tags=..., extend_existing=False)`
+- `client.agent.redeem_grant_code(code, extend_existing=False)`
 
 Notes:
 
 - `duration` is always seconds
 - an unactivated code is a `grant`, not an `entitlement`
-- if the same `plan_id + tags` entitlement already exists, the backend extends it instead of minting a parallel active window
+- grants create new entitlement windows by default, so repeated redemptions can add parallel slots
+- pass `extend_existing=True` only when the intent is to renew the latest matching `plan_id + tags` entitlement
 
 ## URL Model
 

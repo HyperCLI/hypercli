@@ -125,14 +125,15 @@ Endpoint: `POST /agents/billing/balance/{plan_id}`
 - Requires JWT auth
 - Charges the linked Orchestra balance
 - Creates a `grant`
-- Applies that grant to create or extend the matching entitlement
+- Applies that grant to create a new entitlement unless `extend_existing` is explicit
 
 Request body:
 
 ```json
 {
   "duration": 2592000,
-  "tags": ["customer=acme"]
+  "tags": ["customer=acme"],
+  "extend_existing": false
 }
 ```
 
@@ -164,7 +165,8 @@ Response shape:
 Notes:
 
 - `duration` is in seconds
-- if a matching entitlement already exists for the same `plan_id + tags`, the backend extends it instead of minting a parallel active window
+- grant application creates a new entitlement by default, so repeated purchases can add parallel slots
+- pass `extend_existing: true` only when the intent is to renew the latest matching `plan_id + tags` entitlement
 - ownership is not encoded with hidden tags; entitlement binding remains a DB relationship
 
 ## Grant-Code Redemption
@@ -173,13 +175,14 @@ Endpoint: `POST /agents/billing/grants/redeem`
 
 - Requires JWT auth
 - Treats the code as an unapplied `grant`
-- Applies that grant to create or extend the matching entitlement
+- Applies that grant to create a new entitlement unless the code or request explicitly extends
 
 Request body:
 
 ```json
 {
-  "code": "7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59"
+  "code": "7f7d2f3a-1c4f-4d4d-8bdb-66a0df3d6f59",
+  "extend_existing": false
 }
 ```
 

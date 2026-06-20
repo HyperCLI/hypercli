@@ -513,6 +513,39 @@ describe('HyperAgent API', () => {
       expect(result.payment?.provider).toBe('BALANCE');
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/basic');
       expect(calls[0]?.init?.method).toBe('POST');
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+        duration: 3600,
+        tags: ['customer=acme'],
+      });
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('can request balance entitlement extension', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          grant: { id: 'grant-1', type: 'BALANCE', plan_id: 'basic', duration: 3600 },
+          entitlement: { id: 'ent-1', plan_id: 'basic', provider: 'BALANCE', tags: [] },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await agent.purchaseEntitlementFromBalance('basic', { duration: 3600, extendExisting: true });
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/balance/basic');
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+        duration: 3600,
+        extend_existing: true,
+      });
     } finally {
       globalThis.fetch = fetchMock;
     }
@@ -567,6 +600,36 @@ describe('HyperAgent API', () => {
       expect(result.entitlement.provider).toBe('ACTIVATION_CODE');
       expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/grants/redeem');
       expect(calls[0]?.init?.method).toBe('POST');
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({ code: 'promo-123' });
+    } finally {
+      globalThis.fetch = fetchMock;
+    }
+  });
+
+  it('can request grant-code extension on redeem', async () => {
+    const http = { apiKey: 'hyper_api_test_key', baseUrl: 'https://api.hypercli.com' } as any;
+    const agent = new HyperAgent(http, 'sk-hyper-test', false, 'https://api.hypercli.com/agents');
+    const fetchMock = globalThis.fetch;
+    const calls: Array<{ url: string; init?: RequestInit }> = [];
+
+    globalThis.fetch = (async (input: RequestInfo | URL, init?: RequestInit) => {
+      calls.push({ url: String(input), init });
+      return new Response(
+        JSON.stringify({
+          grant: { id: 'grant-1', type: 'ACTIVATION_CODE', code: 'promo-123' },
+          entitlement: { id: 'ent-1', plan_id: 'basic', provider: 'ACTIVATION_CODE' },
+        }),
+        { status: 200, headers: { 'Content-Type': 'application/json' } },
+      );
+    }) as typeof fetch;
+
+    try {
+      await agent.redeemGrantCode('promo-123', { extendExisting: true });
+      expect(calls[0]?.url).toBe('https://api.hypercli.com/agents/billing/grants/redeem');
+      expect(JSON.parse(String(calls[0]?.init?.body))).toEqual({
+        code: 'promo-123',
+        extend_existing: true,
+      });
     } finally {
       globalThis.fetch = fetchMock;
     }

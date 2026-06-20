@@ -112,8 +112,9 @@ def test_extract_plan_purchase_url_from_discovery_ignores_nonmatching_resources(
 
 def test_agent_activate_code_redeems_via_sdk(monkeypatch):
     class _FakeAgent:
-        def redeem_grant_code(self, code: str):
+        def redeem_grant_code(self, code: str, **kwargs):
             assert code == "promo-123"
+            assert kwargs == {"extend_existing": None}
             return {
                 "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": "promo-123", "plan_id": "basic"},
                 "entitlement": {
@@ -137,3 +138,32 @@ def test_agent_activate_code_redeems_via_sdk(monkeypatch):
     assert "HyperClaw Code Activated" in result.output
     assert "promo-123" in result.output
     assert "Basic" in result.output
+
+
+def test_agent_activate_code_can_request_extension(monkeypatch):
+    calls = []
+
+    class _FakeAgent:
+        def redeem_grant_code(self, code: str, **kwargs):
+            calls.append((code, kwargs))
+            return {
+                "grant": {"id": "grant-1", "type": "ACTIVATION_CODE", "code": code, "plan_id": "basic"},
+                "entitlement": {
+                    "id": "ent-1",
+                    "plan_id": "basic",
+                    "plan_name": "Basic",
+                    "starts_at": "2026-04-27T00:00:00Z",
+                    "expires_at": "2026-05-27T00:00:00Z",
+                    "tags": [],
+                },
+            }
+
+    class _FakeClient:
+        agent = _FakeAgent()
+
+    monkeypatch.setattr(agent_mod, "_get_agent_query_client", lambda dev: _FakeClient())
+
+    result = runner.invoke(app, ["agent", "activate-code", "promo-123", "--extend-existing"])
+
+    assert result.exit_code == 0
+    assert calls == [("promo-123", {"extend_existing": True})]

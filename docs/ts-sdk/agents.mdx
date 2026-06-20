@@ -92,16 +92,16 @@ await client.agent.updateSubscription("sub_123", { bundle: {} });
 
 Two account-level helpers now mint entitlements without going through Stripe:
 
-- `purchaseEntitlementFromBalance(planId, { duration, tags? })`
+- `purchaseEntitlementFromBalance(planId, { duration, tags?, extendExisting? })`
   - charges Orchestra balance
   - creates a `grant`
-  - creates or extends the matching entitlement
-- `redeemGrantCode(code)`
-  - applies an existing unapplied grant by code
+  - creates a new entitlement unless `extendExisting: true` is explicit
+- `redeemGrantCode(code, { extendExisting? })`
+  - applies an existing unapplied grant by code, creating a new entitlement unless the code or request explicitly extends
 
 `duration` is always in seconds.
 
-If a matching entitlement already exists for the same `planId + tags`, the backend extends that entitlement instead of creating another overlapping active one.
+Grant redemption stacks by default: repeated codes can create parallel active entitlement windows and add slots. Use `extendExisting: true` only when the intent is to renew the latest matching `planId + tags` entitlement.
 
 ## `client.deployments`
 

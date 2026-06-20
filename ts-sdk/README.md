@@ -108,6 +108,7 @@ ws.close();
 ```typescript
 const models = await client.agent.models();
 const activation = await client.agent.redeemGrantCode('PROMO123');
+const renewal = await client.agent.redeemGrantCode('PROMO123', { extendExisting: true });
 
 // Execute command in a hypercli-openclaw agent container
 const agentExec = await client.agents.exec(agentId, 'ls -la');
@@ -163,7 +164,7 @@ await gateway.sendChat('Already normalized', 'main', undefined, [
 ]);
 ```
 
-`client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement.
+`client.agent.redeemGrantCode()` redeems a promo/activation code and returns the applied grant plus the resulting entitlement. Codes create new entitlements by default; pass `extendExisting: true` only for renewal/extension behavior.
 
 Browser-style `dataUrl` attachments are normalized automatically before `chat.send`.
 
