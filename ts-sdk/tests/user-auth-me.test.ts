@@ -1,5 +1,5 @@
 import { describe, it, expect } from 'vitest';
-import { UserAPI } from '../src/user.js';
+import { isRuntimeAgent, runtimeAgentId, UserAPI } from '../src/user.js';
 
 describe('User auth me API', () => {
   it('returns capability-aware auth context', async () => {
@@ -14,6 +14,8 @@ describe('User auth me API', () => {
           email: 'user@example.com',
           auth_type: 'orchestra_key',
           capabilities: ['models:*', 'voice:*'],
+          tags: ['runtime=agent', 'runtime_agent=agent-123'],
+          runtime: { kind: 'agent', agent_id: 'agent-123' },
           has_active_subscription: true,
           key_id: 'key-123',
           key_name: 'runtime-key',
@@ -25,6 +27,9 @@ describe('User auth me API', () => {
 
     expect(authMe.userId).toBe('user-123');
     expect(authMe.capabilities).toEqual(['models:*', 'voice:*']);
+    expect(authMe.tags).toEqual(['runtime=agent', 'runtime_agent=agent-123']);
+    expect(isRuntimeAgent(authMe)).toBe(true);
+    expect(runtimeAgentId(authMe)).toBe('agent-123');
     expect(authMe.hasActiveSubscription).toBe(true);
     expect(authMe.keyId).toBe('key-123');
   });

@@ -87,8 +87,11 @@ export {
 // User API
 export {
   UserAPI,
+  isRuntimeAgent,
+  runtimeAgentId,
   type User,
   type AuthMe,
+  type RuntimeIdentity,
 } from './user.js';
 
 // Keys API

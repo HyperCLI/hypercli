@@ -23,9 +23,16 @@ export interface AuthMe {
   email: string | null;
   authType: string;
   capabilities: string[];
+  tags: string[];
+  runtime: RuntimeIdentity | null;
   hasActiveSubscription: boolean;
   keyId: string | null;
   keyName: string | null;
+}
+
+export interface RuntimeIdentity {
+  kind: string;
+  agentId: string | null;
 }
 
 export interface UpdateUserOptions {
@@ -48,6 +55,12 @@ function userFromDict(data: any): User {
 }
 
 function authMeFromDict(data: any): AuthMe {
+  const runtime = data?.runtime && typeof data.runtime === 'object'
+    ? {
+        kind: data.runtime.kind || '',
+        agentId: data.runtime.agent_id || data.runtime.agentId || null,
+      }
+    : null;
   return {
     userId: data.user_id || '',
     orchestraUserId: data.orchestra_user_id || null,
@@ -56,10 +69,20 @@ function authMeFromDict(data: any): AuthMe {
     email: data.email || null,
     authType: data.auth_type || '',
     capabilities: Array.isArray(data.capabilities) ? data.capabilities : [],
+    tags: Array.isArray(data.tags) ? data.tags : [],
+    runtime,
     hasActiveSubscription: Boolean(data.has_active_subscription),
     keyId: data.key_id || null,
     keyName: data.key_name || null,
   };
+}
+
+export function runtimeAgentId(auth: AuthMe): string | null {
+  return auth.runtime?.kind === 'agent' ? auth.runtime.agentId : null;
+}
+
+export function isRuntimeAgent(auth: AuthMe): boolean {
+  return runtimeAgentId(auth) !== null;
 }
 
 export class UserAPI {

@@ -118,6 +118,8 @@ def test_user_auth_me_returns_capabilities():
                 "email": "user@example.com",
                 "auth_type": "orchestra_key",
                 "capabilities": ["models:*", "voice:*"],
+                "tags": ["runtime=agent", "runtime_agent=agent-123"],
+                "runtime": {"kind": "agent", "agent_id": "agent-123"},
                 "has_active_subscription": True,
                 "key_id": "key-123",
                 "key_name": "runtime-key",
@@ -127,5 +129,8 @@ def test_user_auth_me_returns_capabilities():
 
     assert auth_me.user_id == "user-123"
     assert auth_me.capabilities == ["models:*", "voice:*"]
+    assert auth_me.tags == ["runtime=agent", "runtime_agent=agent-123"]
+    assert auth_me.is_runtime_agent is True
+    assert auth_me.runtime_agent_id == "agent-123"
     assert auth_me.has_active_subscription is True
     assert auth_me.key_id == "key-123"

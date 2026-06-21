@@ -26,6 +26,21 @@ class User:
 
 
 @dataclass
+class RuntimeIdentity:
+    kind: str
+    agent_id: str | None = None
+
+    @classmethod
+    def from_dict(cls, data: dict | None) -> "RuntimeIdentity | None":
+        if not isinstance(data, dict):
+            return None
+        kind = str(data.get("kind") or "").strip()
+        if not kind:
+            return None
+        return cls(kind=kind, agent_id=data.get("agent_id"))
+
+
+@dataclass
 class AuthMe:
     user_id: str
     orchestra_user_id: str | None
@@ -34,6 +49,8 @@ class AuthMe:
     email: str | None
     auth_type: str
     capabilities: list[str]
+    tags: list[str]
+    runtime: RuntimeIdentity | None
     has_active_subscription: bool
     key_id: str | None
     key_name: str | None
@@ -48,10 +65,22 @@ class AuthMe:
             email=data.get("email"),
             auth_type=data.get("auth_type", ""),
             capabilities=list(data.get("capabilities") or []),
+            tags=list(data.get("tags") or []),
+            runtime=RuntimeIdentity.from_dict(data.get("runtime")),
             has_active_subscription=bool(data.get("has_active_subscription")),
             key_id=data.get("key_id"),
             key_name=data.get("key_name"),
         )
+
+    @property
+    def is_runtime_agent(self) -> bool:
+        return self.runtime is not None and self.runtime.kind == "agent"
+
+    @property
+    def runtime_agent_id(self) -> str | None:
+        if not self.is_runtime_agent or self.runtime is None:
+            return None
+        return self.runtime.agent_id
 
 
 class UserAPI:

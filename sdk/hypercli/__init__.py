@@ -39,6 +39,7 @@ from .voice import VoiceAPI
 from .models import Model, ModelsAPI
 from .x402 import X402Client, X402JobLaunch, X402FlowCreate, X402RenderCreate, FlowCatalogItem
 from .files import File, AsyncFiles
+from .user import AuthMe, RuntimeIdentity, User, UserAPI
 from .job import BaseJob, ComfyUIJob, GradioJob, apply_params, apply_graph_modes, find_node, find_nodes, load_template, graph_to_api, expand_subgraphs, DEFAULT_OBJECT_INFO
 from .logs import LogStream, stream_logs, fetch_logs
 from .agents import Deployments, Agent, OpenClawAgent, ExecResult, build_openclaw_routes
@@ -129,6 +130,10 @@ __all__ = [
     # Files API
     "File",
     "AsyncFiles",
+    "User",
+    "UserAPI",
+    "AuthMe",
+    "RuntimeIdentity",
     "AsyncHTTPClient",
     # Job lookup utils
     "find_job",
