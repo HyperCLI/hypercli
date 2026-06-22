@@ -9,7 +9,7 @@ import type { CronJob } from "@/components/dashboard/agentViewTypes";
 import { buildCronJobInput, type CronJobInput } from "@/lib/cron-jobs";
 import { fallbackOpenClawSessionDisplayName, sameOpenClawSelectableSessionKey } from "@/lib/openclaw-session-sdk-surface";
 
-export interface ScheduledProjectOption {
+export interface ScheduledSessionOption {
   key: string;
   label: string;
 }
@@ -17,7 +17,7 @@ export interface ScheduledProjectOption {
 interface AgentScheduledPanelProps {
   agentName: string;
   sessionKey: string;
-  projectOptions?: ScheduledProjectOption[];
+  sessionOptions?: ScheduledSessionOption[];
   jobs: CronJob[];
   connected: boolean;
   connecting: boolean;
@@ -52,7 +52,7 @@ const INITIAL_SCHEDULE_DRAFT = {
   scheduleTouched: false,
 };
 
-const EMPTY_PROJECT_OPTIONS: ScheduledProjectOption[] = [];
+const EMPTY_SESSION_OPTIONS: ScheduledSessionOption[] = [];
 
 const CRON_PRESETS = [
   { label: "Every hour", cron: "0 * * * *" },
@@ -333,29 +333,29 @@ function jobCommand(job: CronJob): string {
   return job.command || job.prompt || "";
 }
 
-function fallbackProjectLabel(sessionKey: string): string {
-  return sessionKey ? fallbackOpenClawSessionDisplayName(sessionKey) : "Current Project";
+function fallbackSessionLabel(sessionKey: string): string {
+  return sessionKey ? fallbackOpenClawSessionDisplayName(sessionKey) : "Current Session";
 }
 
-function normalizeProjectOptions(projectOptions: ScheduledProjectOption[], sessionKey: string): ScheduledProjectOption[] {
-  const options: ScheduledProjectOption[] = [];
+function normalizeSessionOptions(sessionOptions: ScheduledSessionOption[], sessionKey: string): ScheduledSessionOption[] {
+  const options: ScheduledSessionOption[] = [];
   const add = (key: string, label: string) => {
     const normalizedKey = key.trim();
     if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
-    options.push({ key: normalizedKey, label: label.trim() || fallbackProjectLabel(normalizedKey) });
+    options.push({ key: normalizedKey, label: label.trim() || fallbackSessionLabel(normalizedKey) });
   };
 
-  for (const option of projectOptions) add(option.key, option.label);
-  add(sessionKey, fallbackProjectLabel(sessionKey));
+  for (const option of sessionOptions) add(option.key, option.label);
+  add(sessionKey, fallbackSessionLabel(sessionKey));
   return options;
 }
 
-function projectLabel(projectOptions: ScheduledProjectOption[], sessionKey: string): string {
-  return projectOptions.find((option) => sameOpenClawSelectableSessionKey(option.key, sessionKey))?.label ?? fallbackProjectLabel(sessionKey);
+function sessionLabel(sessionOptions: ScheduledSessionOption[], sessionKey: string): string {
+  return sessionOptions.find((option) => sameOpenClawSelectableSessionKey(option.key, sessionKey))?.label ?? fallbackSessionLabel(sessionKey);
 }
 
-function projectOptionKey(projectOptions: ScheduledProjectOption[], sessionKey: string): string | null {
-  return projectOptions.find((option) => sameOpenClawSelectableSessionKey(option.key, sessionKey))?.key ?? null;
+function sessionOptionKey(sessionOptions: ScheduledSessionOption[], sessionKey: string): string | null {
+  return sessionOptions.find((option) => sameOpenClawSelectableSessionKey(option.key, sessionKey))?.key ?? null;
 }
 
 function emptyDraft(targetSessionKey: string): ScheduleDraft {
@@ -392,7 +392,7 @@ function draftFromJob(job: CronJob, targetSessionKey: string): ScheduleDraft {
 export function AgentScheduledPanel({
   agentName,
   sessionKey,
-  projectOptions = EMPTY_PROJECT_OPTIONS,
+  sessionOptions = EMPTY_SESSION_OPTIONS,
   jobs,
   connected,
   connecting,
@@ -407,8 +407,8 @@ export function AgentScheduledPanel({
   onStartAgent,
   initialCommand = null,
 }: AgentScheduledPanelProps) {
-  const normalizedProjectOptions = React.useMemo(() => normalizeProjectOptions(projectOptions, sessionKey), [projectOptions, sessionKey]);
-  const defaultTargetSessionKey = normalizedProjectOptions.find((option) => option.key === sessionKey)?.key ?? normalizedProjectOptions[0]?.key ?? sessionKey;
+  const normalizedSessionOptions = React.useMemo(() => normalizeSessionOptions(sessionOptions, sessionKey), [sessionOptions, sessionKey]);
+  const defaultTargetSessionKey = normalizedSessionOptions.find((option) => option.key === sessionKey)?.key ?? normalizedSessionOptions[0]?.key ?? sessionKey;
   const initialDraft = initialCommand?.trim() ? newDraftFromCommand(initialCommand.trim(), defaultTargetSessionKey) : emptyDraft(defaultTargetSessionKey);
   const [view, setView] = React.useState<ScheduledPanelView>(() => initialDraft.command ? "create" : "list");
   const [draft, setDraft] = React.useState<ScheduleDraft>(() => initialDraft);
@@ -420,16 +420,16 @@ export function AgentScheduledPanel({
   const [runningJobId, setRunningJobId] = React.useState<string | null>(null);
   const [deleteJob, setDeleteJob] = React.useState<CronJob | null>(null);
   const [deleting, setDeleting] = React.useState(false);
-  const [projectPickerOpen, setProjectPickerOpen] = React.useState(false);
+  const [sessionPickerOpen, setSessionPickerOpen] = React.useState(false);
   const noticeTimeoutRef = React.useRef<number | null>(null);
-  const projectPickerRef = React.useRef<HTMLDivElement | null>(null);
+  const sessionPickerRef = React.useRef<HTMLDivElement | null>(null);
   const parsedCron = React.useMemo(() => parseCronExpression(draft.schedule), [draft.schedule]);
   const inferredSchedule = React.useMemo(() => cronFromNaturalLanguage(draft.command), [draft.command]);
   const previewRuns = React.useMemo(() => nextRuns(draft.schedule, 5), [draft.schedule]);
   const humanSchedule = React.useMemo(() => humanizeCron(draft.schedule), [draft.schedule]);
   const runPrompt = deriveRunPrompt(draft.command);
-  const selectedProjectLabel = projectLabel(normalizedProjectOptions, draft.targetSessionKey);
-  const selectedProjectIndex = normalizedProjectOptions.findIndex((option) => sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey));
+  const selectedSessionLabel = sessionLabel(normalizedSessionOptions, draft.targetSessionKey);
+  const selectedSessionIndex = normalizedSessionOptions.findIndex((option) => sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey));
   const naturalLanguageParsed = Boolean(draft.command.trim() && inferredSchedule);
   const editing = view === "edit";
   const scheduleError = draft.schedule.trim()
@@ -451,12 +451,12 @@ export function AgentScheduledPanel({
   }, []);
 
   React.useEffect(() => {
-    if (!projectPickerOpen) return;
+    if (!sessionPickerOpen) return;
     const handlePointerDown = (event: MouseEvent) => {
-      if (projectPickerRef.current && !projectPickerRef.current.contains(event.target as Node)) setProjectPickerOpen(false);
+      if (sessionPickerRef.current && !sessionPickerRef.current.contains(event.target as Node)) setSessionPickerOpen(false);
     };
     const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setProjectPickerOpen(false);
+      if (event.key === "Escape") setSessionPickerOpen(false);
     };
     document.addEventListener("mousedown", handlePointerDown);
     document.addEventListener("keydown", handleKeyDown);
@@ -464,11 +464,11 @@ export function AgentScheduledPanel({
       document.removeEventListener("mousedown", handlePointerDown);
       document.removeEventListener("keydown", handleKeyDown);
     };
-  }, [projectPickerOpen]);
+  }, [sessionPickerOpen]);
 
   const openCreate = React.useCallback((nextDraft?: ScheduleDraft) => {
     setEditingJob(null);
-    setProjectPickerOpen(false);
+    setSessionPickerOpen(false);
     setDraft(nextDraft ?? emptyDraft(defaultTargetSessionKey));
     setFormError("");
     setView("create");
@@ -476,37 +476,37 @@ export function AgentScheduledPanel({
 
   const closeForm = React.useCallback(() => {
     setEditingJob(null);
-    setProjectPickerOpen(false);
+    setSessionPickerOpen(false);
     setFormError("");
     setView("list");
   }, []);
 
   const openEdit = React.useCallback((job: CronJob) => {
     if (!job.id || !onUpdate) return;
-    const targetSessionKey = projectOptionKey(normalizedProjectOptions, job.targetSessionKey || defaultTargetSessionKey) ?? defaultTargetSessionKey;
+    const targetSessionKey = sessionOptionKey(normalizedSessionOptions, job.targetSessionKey || defaultTargetSessionKey) ?? defaultTargetSessionKey;
     setEditingJob(job);
-    setProjectPickerOpen(false);
+    setSessionPickerOpen(false);
     setDraft(draftFromJob(job, targetSessionKey));
     setFormError("");
     setView("edit");
-  }, [defaultTargetSessionKey, normalizedProjectOptions, onUpdate]);
+  }, [defaultTargetSessionKey, normalizedSessionOptions, onUpdate]);
 
-  const selectProject = React.useCallback((sessionKey: string) => {
+  const selectSession = React.useCallback((sessionKey: string) => {
     setDraft((current) => ({ ...current, targetSessionKey: sessionKey }));
-    setProjectPickerOpen(false);
+    setSessionPickerOpen(false);
   }, []);
 
-  const handleProjectPickerKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
+  const handleSessionPickerKeyDown = React.useCallback((event: React.KeyboardEvent<HTMLButtonElement>) => {
     if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return;
     event.preventDefault();
-    if (normalizedProjectOptions.length === 0) return;
+    if (normalizedSessionOptions.length === 0) return;
     const direction = event.key === "ArrowDown" ? 1 : -1;
-    const currentIndex = selectedProjectIndex >= 0 ? selectedProjectIndex : 0;
-    const nextIndex = (currentIndex + direction + normalizedProjectOptions.length) % normalizedProjectOptions.length;
-    const nextOption = normalizedProjectOptions[nextIndex];
+    const currentIndex = selectedSessionIndex >= 0 ? selectedSessionIndex : 0;
+    const nextIndex = (currentIndex + direction + normalizedSessionOptions.length) % normalizedSessionOptions.length;
+    const nextOption = normalizedSessionOptions[nextIndex];
     if (nextOption) setDraft((current) => ({ ...current, targetSessionKey: nextOption.key }));
-    setProjectPickerOpen(true);
-  }, [normalizedProjectOptions, selectedProjectIndex]);
+    setSessionPickerOpen(true);
+  }, [normalizedSessionOptions, selectedSessionIndex]);
 
   const handleCommandChange = (value: string) => {
     const parsedSchedule = cronFromNaturalLanguage(value);
@@ -704,29 +704,29 @@ export function AgentScheduledPanel({
               </div>
 
               <div>
-                <label htmlFor="scheduled-project" className="text-xs font-semibold uppercase tracking-wide text-foreground">Project</label>
-                <div ref={projectPickerRef} className="relative mt-2">
+                <label htmlFor="scheduled-session" className="text-xs font-semibold uppercase tracking-wide text-foreground">Session</label>
+                <div ref={sessionPickerRef} className="relative mt-2">
                   <button
                     type="button"
-                    id="scheduled-project"
+                    id="scheduled-session"
                     aria-haspopup="listbox"
-                    aria-expanded={projectPickerOpen}
-                    aria-controls="scheduled-project-options"
-                    onClick={() => setProjectPickerOpen((open) => !open)}
-                    onKeyDown={handleProjectPickerKeyDown}
+                    aria-expanded={sessionPickerOpen}
+                    aria-controls="scheduled-session-options"
+                    onClick={() => setSessionPickerOpen((open) => !open)}
+                    onKeyDown={handleSessionPickerKeyDown}
                     className="flex h-10 w-full items-center rounded-lg border border-border bg-surface px-3 pr-10 text-left text-sm text-foreground outline-none transition-colors focus:border-border-strong"
                   >
-                    <span className="min-w-0 flex-1 truncate">{selectedProjectLabel}</span>
+                    <span className="min-w-0 flex-1 truncate">{selectedSessionLabel}</span>
                   </button>
                   <ChevronDown className="pointer-events-none absolute right-3 top-1/2 h-4 w-4 -translate-y-1/2 text-text-muted" />
-                  {projectPickerOpen ? (
+                  {sessionPickerOpen ? (
                     <div
-                      id="scheduled-project-options"
+                      id="scheduled-session-options"
                       role="listbox"
-                      aria-label="Project"
+                      aria-label="Session"
                       className="absolute left-0 right-0 z-50 mt-2 max-h-56 overflow-auto rounded-xl border border-selection-accent/45 bg-popover p-1.5 shadow-[0_18px_55px_color-mix(in_srgb,var(--foreground)_14%,transparent)] ring-1 ring-selection-accent/20"
                     >
-                      {normalizedProjectOptions.map((option) => {
+                      {normalizedSessionOptions.map((option) => {
                         const selected = sameOpenClawSelectableSessionKey(option.key, draft.targetSessionKey);
                         return (
                           <button
@@ -734,7 +734,7 @@ export function AgentScheduledPanel({
                             key={option.key}
                             role="option"
                             aria-selected={selected}
-                            onClick={() => selectProject(option.key)}
+                            onClick={() => selectSession(option.key)}
                             className={`flex w-full items-center gap-2 rounded-lg px-3 py-2 text-left text-sm transition-colors ${selected ? "bg-selection-accent font-semibold text-selection-accent-foreground" : "text-foreground hover:bg-selection-accent/15 hover:text-selection-accent"}`}
                           >
                             <span className={`h-1.5 w-1.5 shrink-0 rounded-full ${selected ? "bg-selection-accent-foreground" : "bg-selection-accent/45"}`} />
@@ -804,8 +804,8 @@ export function AgentScheduledPanel({
               </div>
 
               <div className="rounded-xl border border-border bg-background p-4">
-                <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">Project</div>
-                <p className="mt-3 text-sm font-medium text-foreground">{selectedProjectLabel}</p>
+                <div className="text-xs font-semibold uppercase tracking-wide text-text-muted">Session</div>
+                <p className="mt-3 text-sm font-medium text-foreground">{selectedSessionLabel}</p>
                 <p className="mt-1 break-all font-mono text-xs text-text-muted">{draft.targetSessionKey}</p>
               </div>
 
@@ -862,7 +862,7 @@ export function AgentScheduledPanel({
               const command = jobCommand(job);
               const lastRun = formatLastRun(job.lastRun);
               const nextRun = formatNextRun(job.nextRun);
-              const jobProjectLabel = job.targetSessionKey ? projectLabel(normalizedProjectOptions, job.targetSessionKey) : "";
+              const jobSessionLabel = job.targetSessionKey ? sessionLabel(normalizedSessionOptions, job.targetSessionKey) : "";
               return (
                 <article key={job.id || `${job.schedule}-${title}`} className="rounded-xl border border-border bg-surface p-3 transition-colors hover:bg-surface-low/60">
                   <div className="flex flex-col gap-3 sm:flex-row sm:items-start">
@@ -881,7 +881,7 @@ export function AgentScheduledPanel({
                       <div className="mt-3 flex flex-wrap gap-x-4 gap-y-1 text-xs text-text-muted">
                         {lastRun ? <span>Last: {lastRun}</span> : null}
                         {nextRun ? <span>Next: {nextRun}</span> : null}
-                        {jobProjectLabel ? <span>Project: {jobProjectLabel}</span> : null}
+                        {jobSessionLabel ? <span>Session: {jobSessionLabel}</span> : null}
                         {!lastRun && !nextRun ? <span>No run timing reported yet.</span> : null}
                         {job.id ? <span className="font-mono">{job.id}</span> : null}
                       </div>

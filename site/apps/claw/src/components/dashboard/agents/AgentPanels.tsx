@@ -1021,7 +1021,7 @@ export function AgentSettingsPanel(props: AgentSettingsPanelProps) {
     onSaveOpenClawConfig,
     isDesktopViewport = true,
     agentsMenuOpen = false,
-    mobileReturnLabel = "Project",
+    mobileReturnLabel = "Session",
     onSessionReturn,
     onOpenAgentsMenu,
     onOpenMobileMenu,

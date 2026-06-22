@@ -29,7 +29,7 @@ export interface OpenClawSessionPreview {
 export type OpenClawSessionPreviewMap = Record<string, OpenClawSessionPreview>;
 
 export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
-export const OPENCLAW_NEW_SESSION_TITLE = "New Project";
+export const OPENCLAW_NEW_SESSION_TITLE = "New Session";
 const GENERATED_OPENCLAW_SESSION_KEY = /^session-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
 const INTERNAL_OPENCLAW_SESSION_LABEL_PATTERNS = [
   /^Hyper Agent Web\b/i,
@@ -331,7 +331,7 @@ export function normalizeOpenClawSessionDisplayName(value: unknown, sessionKey?:
 }
 
 export function fallbackOpenClawSessionDisplayName(sessionKey: string): string {
-  if (unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return "Main Project";
+  if (unscopedOpenClawSessionKey(sessionKey) === OPENCLAW_DEFAULT_SESSION_KEY) return "Main Session";
   return isGeneratedOpenClawSessionName(sessionKey) ? OPENCLAW_NEW_SESSION_TITLE : sessionKey;
 }
 

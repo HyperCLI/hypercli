@@ -59,25 +59,25 @@ describe("AgentScheduledPanel", () => {
     });
   });
 
-  it("targets the selected project in the cron job payload", async () => {
+  it("targets the selected session in the cron job payload", async () => {
     const onCreate = vi.fn(async () => undefined);
     renderPanel({
       onCreate,
-      projectOptions: [
-        { key: "main", label: "Main Project" },
+      sessionOptions: [
+        { key: "main", label: "Main Session" },
         { key: "project-design", label: "Design Audit" },
       ],
     });
 
     fireEvent.click(screen.getByRole("button", { name: /^schedule$/i }));
-    expect(screen.getByLabelText(/^project$/i)).toHaveTextContent("Main Project");
+    expect(screen.getByLabelText(/^session$/i)).toHaveTextContent("Main Session");
 
-    fireEvent.click(screen.getByLabelText(/^project$/i));
-    const listbox = screen.getByRole("listbox", { name: /^project$/i });
-    expect(within(listbox).getByRole("option", { name: /main project/i })).toHaveAttribute("aria-selected", "true");
+    fireEvent.click(screen.getByLabelText(/^session$/i));
+    const listbox = screen.getByRole("listbox", { name: /^session$/i });
+    expect(within(listbox).getByRole("option", { name: /main session/i })).toHaveAttribute("aria-selected", "true");
     fireEvent.click(within(listbox).getByRole("option", { name: /design audit/i }));
-    expect(screen.queryByRole("listbox", { name: /^project$/i })).not.toBeInTheDocument();
-    expect(screen.getByLabelText(/^project$/i)).toHaveTextContent("Design Audit");
+    expect(screen.queryByRole("listbox", { name: /^session$/i })).not.toBeInTheDocument();
+    expect(screen.getByLabelText(/^session$/i)).toHaveTextContent("Design Audit");
 
     fireEvent.change(screen.getByLabelText(/what should this job do/i), {
       target: { value: "Every Monday at 8am, generate a weekly design audit" },
@@ -93,10 +93,10 @@ describe("AgentScheduledPanel", () => {
     });
   });
 
-  it("keeps scoped project options and does not add stale job targets to the picker", () => {
+  it("keeps scoped session options and does not add stale job targets to the picker", () => {
     renderPanel({
-      projectOptions: [
-        { key: "main", label: "Main Project" },
+      sessionOptions: [
+        { key: "main", label: "Main Session" },
         { key: "session:main", label: "Duplicate Main" },
         { key: "agent:agent-1:main", label: "Scoped Main" },
       ],
@@ -112,11 +112,11 @@ describe("AgentScheduledPanel", () => {
     });
 
     fireEvent.click(screen.getByRole("button", { name: /^schedule$/i }));
-    fireEvent.click(screen.getByLabelText(/^project$/i));
+    fireEvent.click(screen.getByLabelText(/^session$/i));
 
-    const options = within(screen.getByRole("listbox", { name: /^project$/i })).getAllByRole("option");
+    const options = within(screen.getByRole("listbox", { name: /^session$/i })).getAllByRole("option");
     expect(options).toHaveLength(3);
-    expect(options[0]).toHaveTextContent("Main Project");
+    expect(options[0]).toHaveTextContent("Main Session");
     expect(options[1]).toHaveTextContent("Duplicate Main");
     expect(options[2]).toHaveTextContent("Scoped Main");
     expect(screen.queryByRole("option", { name: /project-stale/i })).not.toBeInTheDocument();
@@ -137,8 +137,8 @@ describe("AgentScheduledPanel", () => {
   it("opens the create form with an initial slash-command draft", () => {
     renderPanel({
       sessionKey: "project-weekly",
-      projectOptions: [
-        { key: "main", label: "Main Project" },
+      sessionOptions: [
+        { key: "main", label: "Main Session" },
         { key: "project-weekly", label: "Weekly Planning" },
       ],
       initialCommand: "Every Monday at 8am, generate a weekly OKR digest for the leadership team",
@@ -147,7 +147,7 @@ describe("AgentScheduledPanel", () => {
     expect(screen.getByRole("heading", { name: /new scheduled job/i })).toBeInTheDocument();
     expect(screen.getByLabelText(/what should this job do/i)).toHaveValue("Every Monday at 8am, generate a weekly OKR digest for the leadership team");
     expect(screen.getByLabelText(/cron/i)).toHaveValue("0 8 * * 1");
-    expect(screen.getByLabelText(/^project$/i)).toHaveTextContent("Weekly Planning");
+    expect(screen.getByLabelText(/^session$/i)).toHaveTextContent("Weekly Planning");
   });
 
   it("hydrates and saves edits for an existing scheduled job", async () => {
@@ -163,8 +163,8 @@ describe("AgentScheduledPanel", () => {
         enabled: true,
         targetSessionKey: "session:project-design",
       }],
-      projectOptions: [
-        { key: "main", label: "Main Project" },
+      sessionOptions: [
+        { key: "main", label: "Main Session" },
         { key: "project-design", label: "Design Audit" },
       ],
       onUpdate,
@@ -176,7 +176,7 @@ describe("AgentScheduledPanel", () => {
     expect(screen.getByLabelText(/what should this job do/i)).toHaveValue("Summarize engineering updates.");
     expect(screen.getByLabelText(/^name$/i)).toHaveValue("Daily standup summary");
     expect(screen.getByLabelText(/cron/i)).toHaveValue("0 9 * * 1-5");
-    expect(screen.getByLabelText(/^project$/i)).toHaveTextContent("Design Audit");
+    expect(screen.getByLabelText(/^session$/i)).toHaveTextContent("Design Audit");
 
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
 
@@ -208,8 +208,8 @@ describe("AgentScheduledPanel", () => {
         lastRun: Date.now() - 3_600_000,
         nextRun: Date.now() + 86_400_000,
       }],
-      projectOptions: [
-        { key: "main", label: "Main Project" },
+      sessionOptions: [
+        { key: "main", label: "Main Session" },
         { key: "project-design", label: "Design Audit" },
       ],
       onRun,
@@ -219,7 +219,7 @@ describe("AgentScheduledPanel", () => {
 
     expect(screen.getByText("Daily standup summary")).toBeInTheDocument();
     expect(screen.getByText("Active")).toBeInTheDocument();
-    expect(screen.getByText("Project: Design Audit")).toBeInTheDocument();
+    expect(screen.getByText("Session: Design Audit")).toBeInTheDocument();
 
     fireEvent.click(screen.getByRole("button", { name: /run now/i }));
     await waitFor(() => expect(onRun).toHaveBeenCalledWith("job-1"));

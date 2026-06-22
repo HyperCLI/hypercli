@@ -872,7 +872,7 @@ describe("AgentChatPanel", () => {
 
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(setInput).toHaveBeenCalledWith("");
-    expect(sendMessage).toHaveBeenCalledWith("Summarize this project so far with decisions, open tasks, and next actions.");
+    expect(sendMessage).toHaveBeenCalledWith("Summarize this session so far with decisions, open tasks, and next actions.");
   });
 
   it("runs a UI slash command through the provided page callback", async () => {
@@ -1290,7 +1290,7 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("status", { name: /installed code review/i })).toBeInTheDocument();
   });
 
-  it("starts a new project through the slash command callback", async () => {
+  it("starts a new session through the slash command callback", async () => {
     const setInput = vi.fn();
     const onNewConversation = vi.fn(async () => undefined);
     const handleSendChat = vi.fn();
@@ -1315,7 +1315,7 @@ describe("AgentChatPanel", () => {
     expect(handleSendChat).not.toHaveBeenCalled();
     expect(onNewConversation).toHaveBeenCalledTimes(1);
     expect(setInput).toHaveBeenCalledWith("");
-    expect(screen.getByRole("status", { name: /new project opened/i })).toBeInTheDocument();
+    expect(screen.getByRole("status", { name: /new session opened/i })).toBeInTheDocument();
   });
 
   it("passes a path through the open file slash command", async () => {

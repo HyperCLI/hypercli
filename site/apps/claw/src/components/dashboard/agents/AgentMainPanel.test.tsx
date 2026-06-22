@@ -316,7 +316,7 @@ describe("AgentMainPanel", () => {
     expect(screen.getByTestId("persistent-shell")).toBeInTheDocument();
   });
 
-  it("renders a desktop header return control for the selected project", () => {
+  it("renders a desktop header return control for the selected session", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
     const onSelect = vi.fn();
     renderAgentMainPanel({
@@ -325,21 +325,21 @@ describe("AgentMainPanel", () => {
       currentPanel: "files",
       panelContent: <div>Files panel</div>,
       sessionReturnTarget: {
-        label: "Main Project",
+        label: "Main Session",
         onSelect,
       },
     });
 
-    const projectButton = screen.getByRole("button", { name: /open main project/i });
-    expect(projectButton).toHaveTextContent("Main Project");
-    expect(projectButton).not.toHaveTextContent(/back to/i);
+    const sessionButton = screen.getByRole("button", { name: /open main session/i });
+    expect(sessionButton).toHaveTextContent("Main Session");
+    expect(sessionButton).not.toHaveTextContent(/back to/i);
 
-    fireEvent.click(projectButton);
+    fireEvent.click(sessionButton);
 
     expect(onSelect).toHaveBeenCalledTimes(1);
   });
 
-  it("does not render a project return control when project chat is active", () => {
+  it("does not render a session return control when session chat is active", () => {
     const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "RUNNING" }));
     renderAgentMainPanel({
       selectedAgent,
@@ -348,7 +348,7 @@ describe("AgentMainPanel", () => {
       panelContent: <div>Chat panel</div>,
     });
 
-    expect(screen.queryByRole("button", { name: /open main project/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /open main session/i })).not.toBeInTheDocument();
   });
 
   it("keeps settings content available for a stopped agent", () => {

@@ -1793,18 +1793,18 @@ function AgentsPageContent() {
     });
   }, [chat.sessions]);
 
-  const scheduledProjectOptions = useMemo(() => {
+  const scheduledSessionOptions = useMemo(() => {
     const options: Array<{ key: string; label: string }> = [];
-    const addProject = (key: string, label: string) => {
+    const addSession = (key: string, label: string) => {
       const normalizedKey = key.trim();
       if (!normalizedKey || options.some((option) => sameOpenClawSelectableSessionKey(option.key, normalizedKey))) return;
-      options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Project" : "Current Project") });
+      options.push({ key: normalizedKey, label: label.trim() || (normalizedKey === "main" ? "Main Session" : "Current Session") });
     };
 
     for (const session of chat.sessions ?? []) {
-      addProject(session.key, displayOpenClawSessionName(session));
+      addSession(session.key, displayOpenClawSessionName(session));
     }
-    addProject(selectedSessionKey, selectedSessionKey === "main" ? "Main Project" : "Current Project");
+    addSession(selectedSessionKey, selectedSessionKey === "main" ? "Main Session" : "Current Session");
     return options;
   }, [chat.sessions, selectedSessionKey]);
 
@@ -2702,16 +2702,16 @@ function AgentsPageContent() {
       }));
     }
   };
-  const selectedProjectLabel = useMemo(() => {
+  const selectedSessionLabel = useMemo(() => {
     const session = (chat.sessions ?? []).find((item) => sameOpenClawSelectableSessionKey(item.key, selectedSessionKey));
     if (!session) return fallbackOpenClawSessionDisplayName(selectedSessionKey);
     return displayOpenClawSessionName(session);
   }, [chat.sessions, selectedSessionKey]);
-  const selectedProjectReturnTarget = selectedAgent && (mainTab !== "chat" || openclawSettingsOpen)
-    ? { label: selectedProjectLabel, onSelect: openChatTab }
+  const selectedSessionReturnTarget = selectedAgent && (mainTab !== "chat" || openclawSettingsOpen)
+    ? { label: selectedSessionLabel, onSelect: openChatTab }
     : null;
-  const showMobileSectionReturn = !isDesktopViewport && Boolean(selectedProjectReturnTarget);
-  const mobileReturnAriaLabel = selectedProjectReturnTarget ? `Open ${selectedProjectReturnTarget.label}` : "Open project";
+  const showMobileSectionReturn = !isDesktopViewport && Boolean(selectedSessionReturnTarget);
+  const mobileReturnAriaLabel = selectedSessionReturnTarget ? `Open ${selectedSessionReturnTarget.label}` : "Open session";
   const handleMobileSectionReturn = () => {
     openChatTab();
   };
@@ -3124,7 +3124,7 @@ function AgentsPageContent() {
           activeConnectionStatus={activeConnectionStatus}
           chatConnected={chat.connected}
           chatConnecting={chat.connecting}
-          sessionReturnTarget={selectedProjectReturnTarget}
+          sessionReturnTarget={selectedSessionReturnTarget}
           startingId={startingId}
           recentlyStoppedIds={recentlyStoppedIds}
           selectedAgentLaunchBlocked={selectedAgentLaunchBlocked}
@@ -3282,7 +3282,7 @@ function AgentsPageContent() {
               key={`${selectedAgent?.id ?? "agent"}:${scheduledInitialCommand?.id ?? 0}`}
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               sessionKey={selectedSessionKey}
-              projectOptions={scheduledProjectOptions}
+              sessionOptions={scheduledSessionOptions}
               jobs={agentCronJobsForView ?? []}
               connected={chat.connected}
               connecting={chat.connecting}
@@ -3346,7 +3346,7 @@ function AgentsPageContent() {
               isDesktopViewport={isDesktopViewport}
               showSessionReturn={showMobileSectionReturn}
               onSessionReturn={handleMobileSectionReturn}
-              mobileReturnLabel={selectedProjectReturnTarget?.label ?? "Project"}
+              mobileReturnLabel={selectedSessionReturnTarget?.label ?? "Session"}
               agentsMenuOpen={mobileAgentsSidebarOpen}
               workspaceMenuOpen={mobileWorkspaceSidebarOpen}
               onOpenAgentsMenu={() => {

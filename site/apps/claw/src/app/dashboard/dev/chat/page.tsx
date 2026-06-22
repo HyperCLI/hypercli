@@ -1705,7 +1705,7 @@ export default function DevChatPage() {
             const isGroup = selectedThread.participants.length > 2 || selectedThread.kind === "group";
 
             if (agents.length === 0) {
-              // New Project with no agents yet
+              // New session with no agents yet
               return (
                 <div className="relative">
                   <div className="w-8 h-8 rounded-full bg-surface-low flex items-center justify-center">
@@ -1766,7 +1766,7 @@ export default function DevChatPage() {
           <div className="min-w-0 flex-1">
             <p className="text-sm font-medium text-foreground truncate">
               {selectedThread
-                ? (selectedThread.title ?? activeAgentName ?? "New Project")
+                ? (selectedThread.title ?? activeAgentName ?? "New Session")
                 : "Select or create an agent"}
             </p>
             <p className="text-xs text-text-muted">
@@ -1842,11 +1842,11 @@ export default function DevChatPage() {
           <div className="mx-auto flex min-h-full w-3/4 max-w-[75%] min-w-0 flex-col space-y-4">
             {devTab === "ux-kit" && <InChatUxKitDemo />}
 
-            {/* Empty state: new project with only "You" */}
+            {/* Empty state: new session with only "You" */}
             {devTab !== "ux-kit" && selectedThread && selectedThread.participants.length <= 1 && selectedThread.messageCount === 0 && (
               <div className="flex min-h-full flex-col items-center justify-center text-text-muted">
                 <Users className="w-10 h-10 mb-3 text-text-muted/40" />
-                <p className="text-sm font-medium text-foreground mb-1">New Project</p>
+                <p className="text-sm font-medium text-foreground mb-1">New Session</p>
                 <p className="text-xs text-text-muted text-center max-w-[220px]">
                   Add agents or team members to start collaborating.
                 </p>

@@ -29,7 +29,7 @@ export function AgentSettingsMobileChrome({
   onSessionReturn,
   onOpenAgentsMenu,
   onOpenWorkspaceMenu,
-  returnLabel = "Project",
+  returnLabel = "Session",
   onSectionChange,
   sections,
   showSessionReturn = false,

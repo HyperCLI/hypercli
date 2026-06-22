@@ -308,9 +308,9 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("shows cached projects while the fresh project list is loading", async () => {
+  it("shows cached sessions while the fresh session list is loading", async () => {
     const firstGateway = buildGateway();
-    firstGateway.sessionsList.mockResolvedValue([{ key: "session-cached", title: "Cached project", lastMessageAt: 10 }]);
+    firstGateway.sessionsList.mockResolvedValue([{ key: "session-cached", title: "Cached session", lastMessageAt: 10 }]);
     const firstAgent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -322,7 +322,7 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(firstRender.result.current.sessionsFetched).toBe(true));
     await waitFor(() => expect(firstRender.result.current.sessions).toEqual([
-      expect.objectContaining({ key: "session-cached", title: "Cached project" }),
+      expect.objectContaining({ key: "session-cached", title: "Cached session" }),
     ]));
     firstRender.unmount();
 
@@ -339,23 +339,23 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(secondAgent as any));
 
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ key: "session-cached", title: "Cached project" }),
+      expect.objectContaining({ key: "session-cached", title: "Cached session" }),
     ]));
     expect(result.current.sessionsFetched).toBe(false);
 
     await act(async () => {
-      freshSessions.resolve([{ key: "session-fresh", title: "Fresh project", lastMessageAt: 20 }]);
+      freshSessions.resolve([{ key: "session-fresh", title: "Fresh session", lastMessageAt: 20 }]);
       await freshSessions.promise;
     });
 
     await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
     await waitFor(() => expect(result.current.sessions).toEqual([
-      expect.objectContaining({ key: "session-fresh", title: "Fresh project" }),
+      expect.objectContaining({ key: "session-fresh", title: "Fresh session" }),
     ]));
     unmount();
   });
 
-  it("filters heartbeat and preview-like values from stored and gateway project names", async () => {
+  it("filters heartbeat and preview-like values from stored and gateway session names", async () => {
     window.localStorage.setItem("openclaw.sessionTitles.v1:deploy-123", JSON.stringify({
       main: "HEARTBEAT",
       "session-alpha": "Read HEARTBEAT.md if it exists",
@@ -376,16 +376,16 @@ describe("useOpenClawSession", () => {
 
     await waitFor(() => expect(result.current.sessionsFetched).toBe(true));
     expect(result.current.sessions).toEqual([
-      expect.objectContaining({ key: "main", title: "", clientDisplayName: "Main Project" }),
+      expect.objectContaining({ key: "main", title: "", clientDisplayName: "Main Session" }),
       expect.objectContaining({ key: "session-alpha", title: "", clientDisplayName: "session-alpha" }),
     ]);
     expect(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123")).toBe("{}");
     unmount();
   });
 
-  it("keeps projects unavailable when the project list fetch fails", async () => {
+  it("keeps sessions unavailable when the session list fetch fails", async () => {
     const gateway = buildGateway();
-    gateway.sessionsList.mockRejectedValue(new Error("Project list unavailable"));
+    gateway.sessionsList.mockRejectedValue(new Error("Session list unavailable"));
     const agent = {
       id: "deploy-123",
       connect: vi.fn(),
@@ -399,7 +399,7 @@ describe("useOpenClawSession", () => {
     await waitFor(() => expect(result.current.hydrating).toBe(false));
     expect(result.current.sessionsFetched).toBe(false);
     expect(result.current.sessions).toEqual([]);
-    await expect(result.current.createSession()).rejects.toThrow("Projects are still loading.");
+    await expect(result.current.createSession()).rejects.toThrow("Sessions are still loading.");
     unmount();
   });
 
@@ -434,7 +434,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("ignores stale post-send history refreshes after switching projects", async () => {
+  it("ignores stale post-send history refreshes after switching sessions", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([
@@ -495,11 +495,11 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps main and Telegram projects separate when selecting the Telegram project", async () => {
+  it("keeps main and Telegram sessions separate when selecting the Telegram session", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([
-      { key: "main", title: "Main Project", lastMessageAt: 10 },
+      { key: "main", title: "Main Session", lastMessageAt: 10 },
       {
         key: "agent:default:main",
         title: "Telegram DM",
@@ -530,7 +530,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.activeSessionReadOnly).toBe(true);
     expect(result.current.activeSessionReadOnlyReason).toBe("Telegram conversations are read-only here. Reply from Telegram.");
     expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: "main", title: "Main Project" }),
+      expect.objectContaining({ key: "main", title: "Main Session" }),
       expect.objectContaining({
         key: "telegram:489595440",
         gatewaySessionKey: "agent:default:main",
@@ -555,11 +555,11 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("does not keep main messages visible when switching to an empty Telegram project", async () => {
+  it("does not keep main messages visible when switching to an empty Telegram session", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([
-      { key: "main", title: "Main Project", lastMessageAt: 10 },
+      { key: "main", title: "Main Session", lastMessageAt: 10 },
       {
         key: "agent:default:main",
         title: "Telegram DM",
@@ -597,7 +597,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("does not hydrate synthetic main from a channel-backed default project", async () => {
+  it("does not hydrate synthetic main from a channel-backed default session", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([
@@ -673,7 +673,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.sessions[0]).toEqual(expect.objectContaining({
       key: "main",
       gatewaySessionKey: mainGatewaySessionKey,
-      clientDisplayName: "Main Project",
+      clientDisplayName: "Main Session",
     }));
 
     act(() => {
@@ -731,7 +731,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.sessions[0]).toEqual(expect.objectContaining({
       key: "main",
       gatewaySessionKey: mainGatewaySessionKey,
-      clientDisplayName: "Main Project",
+      clientDisplayName: "Main Session",
     }));
     expect(result.current.sessions).not.toEqual(expect.arrayContaining([
       expect.objectContaining({ clientDisplayName: "Hyper Agent Web (Chrome on Windows, localhost)" }),
@@ -740,7 +740,7 @@ describe("useOpenClawSession", () => {
       expect.objectContaining({
         key: "main",
         gatewaySessionKey: mainGatewaySessionKey,
-        clientDisplayName: "Main Project",
+        clientDisplayName: "Main Session",
       }),
     ]);
     unmount();
@@ -774,7 +774,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.sessions[0]).toEqual(expect.objectContaining({
       key: "main",
       gatewaySessionKey: mainGatewaySessionKey,
-      clientDisplayName: "Main Project",
+      clientDisplayName: "Main Session",
     }));
 
     act(() => {
@@ -788,7 +788,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("normalizes non-channel scoped main sessions to one visible main project", async () => {
+  it("normalizes non-channel scoped main sessions to one visible main session", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([{
@@ -812,7 +812,7 @@ describe("useOpenClawSession", () => {
     expect(result.current.sessions[0]).toEqual(expect.objectContaining({
       key: "main",
       gatewaySessionKey: "agent:default:main",
-      clientDisplayName: "Main Project",
+      clientDisplayName: "Main Session",
     }));
 
     act(() => {
@@ -826,7 +826,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("updates the active project list before the post-send project fetch returns", async () => {
+  it("updates the active session list before the post-send session fetch returns", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsList.mockResolvedValue([{ key: "session-alpha", title: "Alpha", lastMessageAt: 1, messageCount: 0 }]);
@@ -901,10 +901,10 @@ describe("useOpenClawSession", () => {
     expect(result.current.creatingSessionKeys).toContain(newSessionKey);
     expect(result.current.messages).toEqual([]);
     expect(JSON.parse(window.localStorage.getItem("openclaw.sessionTitles.v1:deploy-123") ?? "{}"))
-      .toEqual({ [newSessionKey]: "New Project" });
+      .toEqual({ [newSessionKey]: "New Session" });
     await waitFor(() => {
       expect(result.current.sessions).toEqual(expect.arrayContaining([
-        expect.objectContaining({ key: newSessionKey, title: "New Project" }),
+        expect.objectContaining({ key: newSessionKey, title: "New Session" }),
       ]));
     });
 
@@ -920,7 +920,7 @@ describe("useOpenClawSession", () => {
     });
     await waitFor(() => expect(result.current.creatingSessionKeys).not.toContain(newSessionKey));
     expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: newSessionKey, title: "New Project" }),
+      expect.objectContaining({ key: newSessionKey, title: "New Session" }),
     ]));
 
     gateway.sessionsList.mockResolvedValue([{
@@ -934,8 +934,8 @@ describe("useOpenClawSession", () => {
       expect(result.current.sessions).toEqual(expect.arrayContaining([
         expect.objectContaining({
           key: `agent:default:${newSessionKey}`,
-          title: "New Project",
-          clientDisplayName: "New Project",
+          title: "New Session",
+          clientDisplayName: "New Session",
         }),
       ]));
     });
@@ -952,7 +952,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps a failed new project local and surfaces the gateway reset error", async () => {
+  it("keeps a failed new session local and surfaces the gateway reset error", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);
     gateway.sessionsReset.mockRejectedValueOnce(new Error("Session reset failed"));
@@ -975,7 +975,7 @@ describe("useOpenClawSession", () => {
 
     expect(newSessionKey).toMatch(/^session-/);
     expect(result.current.sessions).toEqual(expect.arrayContaining([
-      expect.objectContaining({ key: newSessionKey, title: "New Project" }),
+      expect.objectContaining({ key: newSessionKey, title: "New Session" }),
     ]));
     await waitFor(() => expect(result.current.error).toBe("Session reset failed"));
     expect(result.current.creatingSessionKeys).not.toContain(newSessionKey);
@@ -1899,7 +1899,7 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
-  it("keeps visible project history when the SDK reports a disconnect before reconnecting", async () => {
+  it("keeps visible session history when the gateway reports a disconnect before reconnecting", async () => {
     const gateway = buildGateway();
     gateway.chatHistory.mockResolvedValue([
       { role: "assistant", content: [{ type: "text", text: "Persisted response" }] },

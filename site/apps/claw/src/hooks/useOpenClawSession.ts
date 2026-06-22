@@ -221,7 +221,7 @@ function isGeneratedDirectBrowserSession(session: OpenClawSessionRecord): boolea
   return true;
 }
 
-function hasLocalProjectIdentity(
+function hasLocalSessionIdentity(
   session: OpenClawSessionRecord,
   titleMap: Record<string, string>,
   creatingSessionKeys: Set<string>,
@@ -252,7 +252,7 @@ function shouldReconcileGeneratedSessionsAsMain(
   return !isActiveSessionChannelBackedDefault(sessions, activeSessionKey);
 }
 
-function reconcileSessionsForActiveProject({
+function reconcileSessionsForActiveSession({
   sessions,
   activeSessionKey,
   titleMap,
@@ -266,7 +266,7 @@ function reconcileSessionsForActiveProject({
   if (!shouldReconcileGeneratedSessionsAsMain(sessions, activeSessionKey)) return sessions;
 
   const generatedMainCandidates = sessions
-    .filter((session) => isGeneratedDirectBrowserSession(session) && !hasLocalProjectIdentity(session, titleMap, creatingSessionKeys));
+    .filter((session) => isGeneratedDirectBrowserSession(session) && !hasLocalSessionIdentity(session, titleMap, creatingSessionKeys));
   const candidate = [...generatedMainCandidates].sort((a, b) => b.lastMessageAt - a.lastMessageAt)[0];
   if (!candidate) return sessions;
 
@@ -407,7 +407,7 @@ export function useOpenClawSession(
   useLayoutEffect(() => {
     const titleMap = readStoredSessionTitles(agentId);
     writeStoredSessionTitles(agentId, titleMap);
-    const cachedSessions = applyOpenClawSessionTitleMap(reconcileSessionsForActiveProject({
+    const cachedSessions = applyOpenClawSessionTitleMap(reconcileSessionsForActiveSession({
       sessions: readStoredSessions(agentId),
       activeSessionKey: activeSessionKeyRef.current,
       titleMap,
@@ -579,7 +579,7 @@ export function useOpenClawSession(
     setSessionsAgentId(agentId);
     setSessions((prev) => {
       const next = typeof value === "function" ? value(prev) : value;
-      const reconciledSessions = reconcileSessionsForActiveProject({
+      const reconciledSessions = reconcileSessionsForActiveSession({
         sessions: next,
         activeSessionKey,
         titleMap: sessionTitleMapRef.current,
@@ -1000,7 +1000,7 @@ export function useOpenClawSession(
   const createSession = useCallback(async () => {
     if (!gateway) throw new Error("Not connected");
     if (sending) throw new Error("Wait for the current reply to finish.");
-    if (sessionsFetchedAgentId !== agentId) throw new Error("Projects are still loading.");
+    if (sessionsFetchedAgentId !== agentId) throw new Error("Sessions are still loading.");
 
     const sessionKey = createOpenClawSessionKey(sessions);
     clearCachedOpenClawChatHistory(agentId, sessionKey);
@@ -1047,7 +1047,7 @@ export function useOpenClawSession(
         finishCreatingSession(sessionKey);
         const errMsg = formatOpenClawConnectionError(e);
         setError(errMsg);
-        appendActivity({ type: "error", action: "Project creation failed", detail: errMsg });
+        appendActivity({ type: "error", action: "Session creation failed", detail: errMsg });
       }
     })();
     return sessionKey;
@@ -1056,7 +1056,7 @@ export function useOpenClawSession(
   const renameSession = useCallback(async (sessionKey: string, title: string) => {
     if (!agentId) throw new Error("Session rename is unavailable.");
     const trimmedTitle = normalizeOpenClawSessionDisplayName(title, sessionKey);
-    if (!trimmedTitle) throw new Error("Choose a different project name.");
+    if (!trimmedTitle) throw new Error("Choose a different session name.");
     const nextTitleMap = { ...sessionTitleMapRef.current, [sessionKey]: trimmedTitle };
     for (const key of openClawSessionTitleMapKeys(sessionKey)) {
       nextTitleMap[key] = trimmedTitle;

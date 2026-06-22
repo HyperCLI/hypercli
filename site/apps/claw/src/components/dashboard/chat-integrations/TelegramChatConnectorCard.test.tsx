@@ -146,7 +146,7 @@ describe("TelegramChatConnectorCard", () => {
     expect(onSaveConfig).not.toHaveBeenCalled();
   });
 
-  it("saves Telegram config, waits for a Telegram message, and refreshes projects on finish", async () => {
+  it("saves Telegram config, waits for a Telegram message, and refreshes sessions on finish", async () => {
     const onSaveConfig = vi.fn(async () => undefined);
     const onChannelProbe = vi.fn(async () => ({
       channels: {
@@ -190,8 +190,8 @@ describe("TelegramChatConnectorCard", () => {
     expect(screen.getByText("Open your bot")).toBeInTheDocument();
     expect(screen.getByText("Send a message")).toBeInTheDocument();
     expect(screen.getByText("Finish here")).toBeInTheDocument();
-    expect(screen.getByText(/The Telegram project appears after the first message arrives/i)).toBeInTheDocument();
-    expect(screen.getByText(/Click Finish after sending it to refresh projects/i)).toBeInTheDocument();
+    expect(screen.getByText(/The Telegram session appears after the first message arrives/i)).toBeInTheDocument();
+    expect(screen.getByText(/Click Finish after sending it to refresh sessions/i)).toBeInTheDocument();
     expect(screen.queryByText(/restart|reload|reconnect/i)).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: /finish/i })).toBeEnabled();
     expect(screen.queryByText(/Testing/i)).not.toBeInTheDocument();
@@ -280,7 +280,7 @@ describe("TelegramChatConnectorCard", () => {
     expect(onAgentConfigUpdate.mock.calls[0][0]).not.toContain("@@hypercli.ui-action");
     expect(onAgentConfigUpdate.mock.calls[0][0]).not.toContain(validToken);
     expect(onChannelProbe).not.toHaveBeenCalled();
-    expect(await screen.findByText(/The Telegram project appears after the first message arrives/i)).toBeInTheDocument();
+    expect(await screen.findByText(/The Telegram session appears after the first message arrives/i)).toBeInTheDocument();
     await waitFor(() => expect(screen.queryByText(/Telegram is connected for this workspace/i)).not.toBeInTheDocument());
     expect(screen.queryByText(/Inbound test/i)).not.toBeInTheDocument();
   });

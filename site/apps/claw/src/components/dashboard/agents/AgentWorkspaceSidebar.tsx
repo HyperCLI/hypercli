@@ -153,7 +153,7 @@ function sessionTitle(session: OpenClawSessionRecord): string {
   return displayOpenClawSessionName(session);
 }
 
-function selectedProjectSession(sessionKey: string, lastMessageAt = Number.MAX_SAFE_INTEGER): OpenClawSessionRecord {
+function selectedSessionRecord(sessionKey: string, lastMessageAt = Number.MAX_SAFE_INTEGER): OpenClawSessionRecord {
   const title = fallbackOpenClawSessionDisplayName(sessionKey);
   return {
     key: sessionKey,
@@ -179,12 +179,12 @@ function isCanonicalMainSession(session: OpenClawSessionRecord): boolean {
   );
 }
 
-function hasProjectSession(sessions: OpenClawSessionRecord[], sessionKey: string): boolean {
+function hasSession(sessions: OpenClawSessionRecord[], sessionKey: string): boolean {
   if (sessions.some((session) => sameOpenClawSelectableSessionKey(session.key, sessionKey))) return true;
   return isMainEquivalentSessionKey(sessionKey) && sessions.some(isCanonicalMainSession);
 }
 
-function isProjectSessionActive(
+function isSessionActive(
   session: OpenClawSessionRecord,
   selectedSessionKey: string | null | undefined,
   sessions: OpenClawSessionRecord[],
@@ -298,7 +298,7 @@ function RecentSessionRow({
           ) : null}
           <span className="min-w-0 flex-1 truncate">{title}</span>
           {creating ? (
-            <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-text-muted" aria-label="Creating project">
+            <span className="inline-flex shrink-0 items-center gap-1 text-[11px] text-text-muted" aria-label="Creating session">
               <Loader2 className="h-3 w-3 animate-spin" aria-hidden="true" />
               <span>Creating...</span>
             </span>
@@ -384,7 +384,7 @@ function RenameSessionDialog({
       await onSave(session.key, trimmed);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not rename project.");
+      setError(err instanceof Error ? err.message : "Could not rename session.");
       setSaving(false);
     }
   };
@@ -401,14 +401,14 @@ function RenameSessionDialog({
         <div className="border-b border-border p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold leading-6 text-foreground">Rename project</h2>
-              <p className="mt-2 text-sm text-text-muted">Update this project&apos;s name</p>
+              <h2 className="text-lg font-semibold leading-6 text-foreground">Rename session</h2>
+              <p className="mt-2 text-sm text-text-muted">Update this session&apos;s name</p>
             </div>
             <button
               type="button"
               onClick={saving ? undefined : onClose}
               disabled={saving}
-              aria-label="Close rename project"
+              aria-label="Close rename session"
               className="flex h-7 w-7 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50"
             >
               <X className="h-4 w-4" />
@@ -478,7 +478,7 @@ function DeleteSessionDialog({
       await onDelete(session.key);
       onClose();
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Could not delete project.");
+      setError(err instanceof Error ? err.message : "Could not delete session.");
       setDeleting(false);
     }
   };
@@ -495,14 +495,14 @@ function DeleteSessionDialog({
         <div className="border-b border-border p-4">
           <div className="flex items-start justify-between gap-3">
             <div>
-              <h2 className="text-lg font-semibold leading-6 text-foreground">Delete project?</h2>
-              <p className="mt-2 text-sm text-text-muted">This project will be removed from your history.</p>
+              <h2 className="text-lg font-semibold leading-6 text-foreground">Delete session?</h2>
+              <p className="mt-2 text-sm text-text-muted">This session will be removed from your history.</p>
             </div>
             <button
               type="button"
               onClick={deleting ? undefined : onClose}
               disabled={deleting}
-              aria-label="Close delete project"
+              aria-label="Close delete session"
               className="flex h-7 w-7 items-center justify-center rounded-full text-text-muted transition-colors hover:bg-surface-low hover:text-foreground disabled:opacity-50"
             >
               <X className="h-4 w-4" />
@@ -526,7 +526,7 @@ function DeleteSessionDialog({
             className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#d05f5f]/35 bg-[#d05f5f]/10 px-4 text-sm font-medium text-[#ff5454] transition-colors hover:bg-[#d05f5f]/15 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
-            Delete project
+            Delete session
           </button>
         </div>
       </motion.div>
@@ -570,7 +570,7 @@ export function AgentWorkspaceSidebar({
   const [advancedOpen, setAdvancedOpen] = useState(false);
   const [recentOpen, setRecentOpen] = useState(true);
   const [showAllRecent, setShowAllRecent] = useState(false);
-  const [creatingProject, setCreatingProject] = useState(false);
+  const [creatingSession, setCreatingSession] = useState(false);
   const [renameTarget, setRenameTarget] = useState<OpenClawSessionRecord | null>(null);
   const [deleteTarget, setDeleteTarget] = useState<OpenClawSessionRecord | null>(null);
   const advancedMenuRef = useRef<HTMLDivElement | null>(null);
@@ -591,19 +591,19 @@ export function AgentWorkspaceSidebar({
     : `${tokensUsed == null ? "0" : formatTokens(tokensUsed)} / --`;
   const hasSelectedAgent = Boolean(selectedAgent);
   const selectedAgentName = selectedAgent?.name?.trim() || selectedAgent?.id || "";
-  const projectsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
-  const projectsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : "Projects are loading.";
+  const sessionsInteractive = hasSelectedAgent && sessionsFetched && !disabled;
+  const sessionsDisabledReason = disabled ? disabledReason : sessionsFetched ? undefined : "Sessions are loading.";
   const sortedSessions = useMemo(() => {
     if (!hasSelectedAgent) return [];
-    const projectSessions = [...(sessions ?? [])];
+    const sessionRecords = [...(sessions ?? [])];
     const activeKey = selectedSessionKey?.trim() || "";
-    if (!projectSessions.some(isCanonicalMainSession)) {
-      projectSessions.unshift(selectedProjectSession("main", 0));
+    if (!sessionRecords.some(isCanonicalMainSession)) {
+      sessionRecords.unshift(selectedSessionRecord("main", 0));
     }
-    if (activeKey && !hasProjectSession(projectSessions, activeKey)) {
-      projectSessions.unshift(selectedProjectSession(activeKey));
+    if (activeKey && !hasSession(sessionRecords, activeKey)) {
+      sessionRecords.unshift(selectedSessionRecord(activeKey));
     }
-    return projectSessions.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
+    return sessionRecords.sort((a, b) => b.lastMessageAt - a.lastMessageAt);
   }, [hasSelectedAgent, sessions, selectedSessionKey]);
   const visibleSessions = showAllRecent ? sortedSessions : sortedSessions.slice(0, 8);
   const hiddenSessionCount = Math.max(0, sortedSessions.length - visibleSessions.length);
@@ -620,37 +620,37 @@ export function AgentWorkspaceSidebar({
     : noSelectedAgent
       ? { disabled: true, disabledReason: emptyStateReason }
       : {};
-  const newProjectDisabledReason = disabled
+  const newSessionDisabledReason = disabled
     ? disabledReason
     : noSelectedAgent
       ? emptyStateReason
       : agentNotRunning
         ? stoppedReason
         : !sessionsFetched
-          ? "Projects are loading."
-          : creatingProject
-            ? "Creating project..."
+          ? "Sessions are loading."
+          : creatingSession
+            ? "Creating session..."
             : onCreateSession
               ? undefined
-              : "New projects are unavailable.";
-  const createNewProject = async () => {
-    if (newProjectDisabledReason || !onCreateSession) return;
-    setCreatingProject(true);
+              : "New sessions are unavailable.";
+  const createNewSession = async () => {
+    if (newSessionDisabledReason || !onCreateSession) return;
+    setCreatingSession(true);
     try {
       await onCreateSession();
     } finally {
-      setCreatingProject(false);
+      setCreatingSession(false);
     }
   };
   const workspaceItems: WorkspaceItem[] = [
     {
-      id: "new-project",
-      label: creatingProject ? "Creating Project" : "New Project",
-      icon: creatingProject ? Loader2 : Plus,
-      busy: creatingProject,
-      disabled: Boolean(newProjectDisabledReason),
-      disabledReason: newProjectDisabledReason,
-      onClick: () => { void createNewProject(); },
+      id: "new-session",
+      label: creatingSession ? "Creating Session" : "New Session",
+      icon: creatingSession ? Loader2 : Plus,
+      busy: creatingSession,
+      disabled: Boolean(newSessionDisabledReason),
+      disabledReason: newSessionDisabledReason,
+      onClick: () => { void createNewSession(); },
     },
     {
       id: "files",
@@ -787,7 +787,7 @@ export function AgentWorkspaceSidebar({
               onClick={() => setRecentOpen((open) => !open)}
               className="mb-2 flex w-full items-center justify-between gap-2 px-3 text-left"
             >
-              <span className="text-xs text-text-muted">Projects</span>
+              <span className="text-xs text-text-muted">Sessions</span>
               <ChevronUp className={`h-4 w-4 text-foreground transition-transform ${recentOpen ? "" : "rotate-180"}`} />
             </button>
             {recentOpen && (
@@ -800,9 +800,9 @@ export function AgentWorkspaceSidebar({
                       key={session.key}
                       title={title}
                       sourceChannel={sourceChannel}
-                      active={isProjectSessionActive(session, selectedSessionKey, sortedSessions)}
-                      disabled={!projectsInteractive}
-                      disabledReason={projectsDisabledReason}
+                      active={isSessionActive(session, selectedSessionKey, sortedSessions)}
+                      disabled={!sessionsInteractive}
+                      disabledReason={sessionsDisabledReason}
                       deleteDisabled={session.readOnly === true}
                       deleteDisabledReason={session.readOnlyReason ?? "Connected conversations cannot be deleted here."}
                       creating={creatingSessionKeys.some((sessionKey) => sameOpenClawSelectableSessionKey(sessionKey, session.key))}

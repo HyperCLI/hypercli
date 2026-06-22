@@ -68,16 +68,16 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByText("Test Agent")).toBeInTheDocument();
   });
 
-  it("creates a project from the primary workspace action and highlights the selected project", async () => {
+  it("creates a session from the primary workspace action and highlights the selected session", async () => {
     const onCreateSession = vi.fn(async () => {
       selectedSessionKey = "session-new";
       sessions = [{
         key: "session-new",
         clientMode: "openclaw",
-        clientDisplayName: "New Project",
+        clientDisplayName: "New Session",
         createdAt: 2,
         lastMessageAt: 30,
-        title: "New Project",
+        title: "New Session",
         messageCount: 0,
         raw: {},
       }, ...sessions];
@@ -86,10 +86,10 @@ describe("AgentWorkspaceSidebar", () => {
     let sessions = [{
       key: "main",
       clientMode: "openclaw",
-      clientDisplayName: "Main Project",
+      clientDisplayName: "Main Session",
       createdAt: 1,
       lastMessageAt: 20,
-      title: "Main Project",
+      title: "Main Session",
       messageCount: 0,
       raw: {},
     }];
@@ -115,16 +115,16 @@ describe("AgentWorkspaceSidebar", () => {
     );
     const view = renderWithClient(renderSidebar());
 
-    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new session/i }));
     await waitFor(() => expect(onCreateSession).toHaveBeenCalledTimes(1));
     view.rerender(renderSidebar());
 
-    const activeProject = screen.getAllByRole("button", { name: "New Project" })
+    const activeProject = screen.getAllByRole("button", { name: "New Session" })
       .find((button) => button.getAttribute("aria-current") === "page");
     expect(activeProject).toBeInTheDocument();
   });
 
-  it("renders projects and opens the selected project without using preview text as the name", () => {
+  it("renders sessions and opens the selected session without using preview text as the name", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [
@@ -156,13 +156,13 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    expect(screen.getByText("Projects")).toBeInTheDocument();
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
     expect(screen.queryByText("What is an agent")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     expect(onSelectSession).toHaveBeenCalledWith("session-new");
   });
 
-  it("marks projects started from connected chat channels", () => {
+  it("marks sessions started from connected chat channels", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -179,10 +179,10 @@ describe("AgentWorkspaceSidebar", () => {
         {
           key: "session-openai",
           clientMode: "openclaw",
-          clientDisplayName: "Model-side project",
+          clientDisplayName: "Model-side session",
           createdAt: 1,
           lastMessageAt: 20,
-          title: "Model-side project",
+          title: "Model-side session",
           messageCount: 1,
           sourceChannelId: "openai",
           raw: {},
@@ -190,10 +190,10 @@ describe("AgentWorkspaceSidebar", () => {
         {
           key: "session-browser",
           clientMode: "browser",
-          clientDisplayName: "Browser project",
+          clientDisplayName: "Browser session",
           createdAt: 1,
           lastMessageAt: 10,
-          title: "Browser project",
+          title: "Browser session",
           messageCount: 1,
           raw: {},
         },
@@ -204,19 +204,19 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByTitle("Telegram channel")).toBeInTheDocument();
     expect(screen.queryByTitle("OpenAI channel")).not.toBeInTheDocument();
     expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getByRole("button", { name: "Browser project" })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Browser session" })).toBeInTheDocument();
   });
 
-  it("does not collapse a selected channel project into the main project", () => {
+  it("does not collapse a selected channel session into the main session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
           key: "main",
           clientMode: "openclaw",
-          clientDisplayName: "Main Project",
+          clientDisplayName: "Main Session",
           createdAt: 1,
           lastMessageAt: 10,
-          title: "Main Project",
+          title: "Main Session",
           messageCount: 1,
           raw: {},
         },
@@ -235,24 +235,24 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "agent:default:main",
     });
 
-    const mainProject = screen.getByRole("button", { name: "Main Project" });
+    const mainProject = screen.getByRole("button", { name: "Main Session" });
     const telegramProject = screen.getByRole("button", { name: "Telegram DM" });
 
     expect(mainProject).not.toHaveAttribute("aria-current", "page");
     expect(telegramProject).toHaveAttribute("aria-current", "page");
   });
 
-  it("does not synthesize a duplicate main project for scoped main selections", () => {
+  it("does not synthesize a duplicate main session for scoped main selections", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
           key: "main",
           gatewaySessionKey: "agent:default:main",
           clientMode: "openclaw",
-          clientDisplayName: "Main Project",
+          clientDisplayName: "Main Session",
           createdAt: 1,
           lastMessageAt: 20,
-          title: "Main Project",
+          title: "Main Session",
           messageCount: 1,
           raw: {},
         },
@@ -260,12 +260,12 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "agent:default:main",
     });
 
-    const mainProjects = screen.getAllByRole("button", { name: "Main Project" });
+    const mainProjects = screen.getAllByRole("button", { name: "Main Session" });
     expect(mainProjects).toHaveLength(1);
     expect(mainProjects[0]).toHaveAttribute("aria-current", "page");
   });
 
-  it("keeps the default project visible when a channel project is selected", () => {
+  it("keeps the default session visible when a channel session is selected", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -284,11 +284,11 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "telegram:489595440",
     });
 
-    expect(screen.getByRole("button", { name: "Main Project" })).not.toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Main Session" })).not.toHaveAttribute("aria-current", "page");
     expect(screen.getByRole("button", { name: "Telegram DM" })).toHaveAttribute("aria-current", "page");
   });
 
-  it("disables destructive actions for read-only channel projects", () => {
+  it("disables destructive actions for read-only channel sessions", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -316,18 +316,18 @@ describe("AgentWorkspaceSidebar", () => {
     expect(deleteButton).toHaveAttribute("title", "Telegram conversations are read-only here. Reply from Telegram.");
   });
 
-  it("shows and highlights the current project when it is the only project", () => {
+  it("shows and highlights the current session when it is the only session", () => {
     renderAgentWorkspaceSidebar({
       sessions: [],
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByText("Projects")).toBeInTheDocument();
-    expect(screen.getByRole("button", { name: "Main Project" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: "Main Session" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByText(/^main$/)).not.toBeInTheDocument();
   });
 
-  it("shows disabled projects before the project list is fetched", () => {
+  it("shows disabled sessions before the session list is fetched", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [],
@@ -336,24 +336,24 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    expect(screen.getByText("Projects")).toBeInTheDocument();
-    const project = screen.getByRole("button", { name: "Main Project" });
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    const project = screen.getByRole("button", { name: "Main Session" });
     expect(project).toBeDisabled();
-    expect(project).toHaveAttribute("title", "Projects are loading.");
+    expect(project).toHaveAttribute("title", "Sessions are loading.");
     fireEvent.click(project);
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
-  it("shows cached project rows disabled before fresh projects are fetched", () => {
+  it("shows cached session rows disabled before fresh sessions are fetched", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "session-cached",
         clientMode: "openclaw",
-        clientDisplayName: "Cached project",
+        clientDisplayName: "Cached session",
         createdAt: 1,
         lastMessageAt: 20,
-        title: "Cached project",
+        title: "Cached session",
         messageCount: 2,
         raw: {},
       }],
@@ -362,14 +362,14 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    const project = screen.getByRole("button", { name: "Cached project" });
+    const project = screen.getByRole("button", { name: "Cached session" });
     expect(project).toBeDisabled();
-    expect(project).toHaveAttribute("title", "Projects are loading.");
+    expect(project).toHaveAttribute("title", "Sessions are loading.");
     fireEvent.click(project);
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
-  it("keeps projects disabled while the workspace is disabled", () => {
+  it("keeps sessions disabled while the workspace is disabled", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       disabled: true,
@@ -389,26 +389,26 @@ describe("AgentWorkspaceSidebar", () => {
       onSelectSession,
     });
 
-    expect(screen.getByText("Projects")).toBeInTheDocument();
-    const project = screen.getByRole("button", { name: "Main Project" });
+    expect(screen.getByText("Sessions")).toBeInTheDocument();
+    const project = screen.getByRole("button", { name: "Main Session" });
     expect(project).toBeDisabled();
     expect(project).toHaveAttribute("title", "Fetching messages, files, and config.");
     fireEvent.click(project);
     expect(onSelectSession).not.toHaveBeenCalled();
   });
 
-  it("does not show projects when no agent is selected", () => {
+  it("does not show sessions when no agent is selected", () => {
     renderAgentWorkspaceSidebar({
       selectedAgent: null,
       sessions: [],
       selectedSessionKey: "main",
     });
 
-    expect(screen.queryByText("Projects")).not.toBeInTheDocument();
-    expect(screen.queryByRole("button", { name: "Main Project" })).not.toBeInTheDocument();
+    expect(screen.queryByText("Sessions")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: "Main Session" })).not.toBeInTheDocument();
   });
 
-  it("shows the default project with a product label when the gateway lists main", () => {
+  it("shows the default session with a product label when the gateway lists main", () => {
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "main",
@@ -423,11 +423,11 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByRole("button", { name: "Main Project" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getByRole("button", { name: "Main Session" })).toHaveAttribute("aria-current", "page");
     expect(screen.queryByText(/^main$/)).not.toBeInTheDocument();
   });
 
-  it("highlights the active project without exposing generated gateway session keys", () => {
+  it("highlights the active session without exposing generated gateway session keys", () => {
     const generatedKey = "agent:default:session-d2679a25-8a10-4c47-9d3b-97ebe94135e7";
     renderAgentWorkspaceSidebar({
       activeTab: "files",
@@ -444,13 +444,13 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7",
     });
 
-    const activeProject = screen.getAllByRole("button", { name: "New Project" })
+    const activeProject = screen.getAllByRole("button", { name: "New Session" })
       .find((button) => button.getAttribute("aria-current") === "page");
-    expect(activeProject).toHaveAttribute("title", "New Project");
+    expect(activeProject).toHaveAttribute("title", "New Session");
     expect(screen.queryByText(/agent:default:session-d2679a25/i)).not.toBeInTheDocument();
   });
 
-  it("falls back from heartbeat and internal control text project names", () => {
+  it("falls back from heartbeat and internal control text session names", () => {
     renderAgentWorkspaceSidebar({
       sessions: [
         {
@@ -477,12 +477,12 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "main",
     });
 
-    expect(screen.getByRole("button", { name: "Main Project" })).toHaveAttribute("aria-current", "page");
-    expect(screen.getAllByRole("button", { name: "New Project" }).length).toBeGreaterThan(0);
+    expect(screen.getByRole("button", { name: "Main Session" })).toHaveAttribute("aria-current", "page");
+    expect(screen.getAllByRole("button", { name: "New Session" }).length).toBeGreaterThan(0);
     expect(screen.queryByText(/HEARTBEAT/i)).not.toBeInTheDocument();
   });
 
-  it("does not expose chat preview text for generated project names", () => {
+  it("does not expose chat preview text for generated session names", () => {
     const generatedKey = "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7";
     renderAgentWorkspaceSidebar({
       sessions: [{
@@ -501,21 +501,21 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: generatedKey,
     });
 
-    const activeProject = screen.getAllByRole("button", { name: "New Project" })
+    const activeProject = screen.getAllByRole("button", { name: "New Session" })
       .find((button) => button.getAttribute("aria-current") === "page");
     expect(activeProject).toBeInTheDocument();
     expect(screen.queryByText("Leaked chat preview")).not.toBeInTheDocument();
   });
 
-  it("shows a pending state while a new project is being created", () => {
+  it("shows a pending state while a new session is being created", () => {
     renderAgentWorkspaceSidebar({
       sessions: [{
         key: "session-new",
         clientMode: "openclaw",
-        clientDisplayName: "New Project",
+        clientDisplayName: "New Session",
         createdAt: 1,
         lastMessageAt: 20,
-        title: "New Project",
+        title: "New Session",
         messageCount: 0,
         raw: {},
       }],
@@ -523,7 +523,7 @@ describe("AgentWorkspaceSidebar", () => {
       selectedSessionKey: "session-new",
     });
 
-    const project = screen.getByTitle("New Project - Creating...");
+    const project = screen.getByTitle("New Session - Creating...");
     expect(project).toHaveAttribute("aria-busy", "true");
     expect(screen.getByText("Creating...")).toBeInTheDocument();
   });
@@ -549,7 +549,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.getByRole("button", { name: /move to channels/i })).toBeDisabled();
 
     fireEvent.click(screen.getByRole("button", { name: /rename/i }));
-    expect(screen.getByText("Rename project")).toBeInTheDocument();
+    expect(screen.getByText("Rename session")).toBeInTheDocument();
     const input = screen.getByDisplayValue("What is an agent");
     fireEvent.change(input, { target: { value: "Renamed chat" } });
     fireEvent.click(screen.getByRole("button", { name: /save changes/i }));
@@ -576,8 +576,8 @@ describe("AgentWorkspaceSidebar", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Session options for What is an agent" }));
     fireEvent.click(screen.getByRole("button", { name: /^delete$/i }));
-    expect(screen.getByText("Delete project?")).toBeInTheDocument();
-    fireEvent.click(screen.getByRole("button", { name: "Delete project" }));
+    expect(screen.getByText("Delete session?")).toBeInTheDocument();
+    fireEvent.click(screen.getByRole("button", { name: "Delete session" }));
 
     await waitFor(() => expect(onDeleteSession).toHaveBeenCalledWith("session-1"));
   });
@@ -585,7 +585,7 @@ describe("AgentWorkspaceSidebar", () => {
   it("does not render the desktop workspace sidebar below the desktop breakpoint", () => {
     renderAgentWorkspaceSidebar({ isDesktopViewport: false });
 
-    expect(screen.queryByRole("button", { name: /new project/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /new session/i })).not.toBeInTheDocument();
     expect(screen.queryByText("Workspace")).not.toBeInTheDocument();
     expect(screen.queryByRole("button", { name: /advanced/i })).not.toBeInTheDocument();
   });
@@ -605,7 +605,7 @@ describe("AgentWorkspaceSidebar", () => {
   it("disables the advanced dropdown while the workspace is in the empty state", () => {
     const props = renderAgentWorkspaceSidebar({ selectedAgent: null });
 
-    expect(screen.getByRole("button", { name: /new project/i })).toBeDisabled();
+    expect(screen.getByRole("button", { name: /new session/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /files/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /integrations/i })).toBeDisabled();
     expect(screen.getByRole("button", { name: /skills/i })).toBeDisabled();
@@ -614,7 +614,7 @@ describe("AgentWorkspaceSidebar", () => {
     const advanced = screen.getByRole("button", { name: /advanced/i });
     expect(advanced).toBeDisabled();
 
-    fireEvent.click(screen.getByRole("button", { name: /new project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /new session/i }));
     fireEvent.click(screen.getByRole("button", { name: /files/i }));
     fireEvent.click(screen.getByRole("button", { name: /integrations/i }));
     fireEvent.click(screen.getByRole("button", { name: /skills/i }));
@@ -639,7 +639,7 @@ describe("AgentWorkspaceSidebar", () => {
       sessionsFetched: true,
     });
 
-    const newProject = screen.getByRole("button", { name: /new project/i });
+    const newProject = screen.getByRole("button", { name: /new session/i });
     expect(newProject).toBeDisabled();
     expect(newProject).toHaveAttribute("title", "Agent must be running");
     fireEvent.click(newProject);

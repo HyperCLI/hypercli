@@ -71,13 +71,13 @@ describe("openclaw-session-sdk-surface", () => {
       expect.objectContaining({
         key: "main",
         gatewaySessionKey: "agent:default:main",
-        clientDisplayName: "Main Project",
+        clientDisplayName: "Main Session",
         sourceChannelId: "webchat",
       }),
     ]);
   });
 
-  it("does not treat default main and selectable channel/default rows as the same project", () => {
+  it("does not treat default main and selectable channel/default rows as the same session", () => {
     expect(sameOpenClawSelectableSessionKey("main", "agent:default:main")).toBe(false);
     expect(sameOpenClawSelectableSessionKey("session-alpha", "agent:default:session-alpha")).toBe(true);
     expect(sameOpenClawSelectableSessionKey("main", "telegram:489595440")).toBe(false);
@@ -97,7 +97,7 @@ describe("openclaw-session-sdk-surface", () => {
     expect(sessions).toEqual([
       expect.objectContaining({
         key: "agent:default:session-019789ab-cdef-7abc-8def-0123456789ab",
-        clientDisplayName: "New Project",
+        clientDisplayName: "New Session",
       }),
     ]);
   });

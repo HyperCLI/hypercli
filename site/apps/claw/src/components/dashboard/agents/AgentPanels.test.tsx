@@ -285,13 +285,13 @@ describe("AgentSettingsPanel", () => {
       onOpenAgentsMenu,
       onOpenMobileMenu,
       showSessionReturn: true,
-      mobileReturnLabel: "Main Project",
+      mobileReturnLabel: "Main Session",
     });
 
     expect(screen.getByRole("heading", { name: "Settings" })).toBeInTheDocument();
     expect(screen.getByRole("navigation", { name: /settings sections/i })).toBeInTheDocument();
 
-    fireEvent.click(screen.getByRole("button", { name: /open main project/i }));
+    fireEvent.click(screen.getByRole("button", { name: /open main session/i }));
     expect(onSessionReturn).toHaveBeenCalledTimes(1);
 
     fireEvent.click(screen.getByRole("button", { name: /open agents sidebar/i }));

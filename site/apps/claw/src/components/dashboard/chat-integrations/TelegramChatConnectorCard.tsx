@@ -487,7 +487,7 @@ export function TelegramChatConnectorCard({
               ? "Telegram configured"
               : "Connect Telegram";
   const heroSubtitle = effectiveMode === "finish"
-    ? "Send one Telegram message so the workspace can create the Telegram project."
+    ? "Send one Telegram message so the workspace can create the Telegram session."
     : !connected
       ? "Reconnect the agent before saving Telegram settings."
       : !hasCapability
@@ -580,12 +580,12 @@ export function TelegramChatConnectorCard({
             <div className="min-w-0 py-1">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Then</p>
               <p className="mt-1 text-lg font-black text-foreground">Send a message</p>
-              <p className="mt-1 text-[11px] leading-4 text-text-muted">Any short message is fine. The Telegram project appears after the first message arrives.</p>
+              <p className="mt-1 text-[11px] leading-4 text-text-muted">Any short message is fine. The Telegram session appears after the first message arrives.</p>
             </div>
             <div className="min-w-0 py-1">
               <p className="text-[10px] font-black uppercase tracking-[0.18em] text-text-muted">Finally</p>
               <p className="mt-1 text-lg font-black text-foreground">Finish here</p>
-              <p className="mt-1 text-[11px] leading-4 text-text-muted">Click Finish after sending it to refresh projects.</p>
+              <p className="mt-1 text-[11px] leading-4 text-text-muted">Click Finish after sending it to refresh sessions.</p>
             </div>
           </div>
         ) : !connected ? (
