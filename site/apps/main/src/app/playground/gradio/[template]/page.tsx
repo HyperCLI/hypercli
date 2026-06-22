@@ -204,7 +204,7 @@ print(f"Access at: https://{job.job_id}.job.hypercli.com")`;
 
           <TemplateDetailSection id="usage" title="Usage">
             <div className="mb-8">
-              <h3 className="mb-4 text-xl font-semibold text-foreground">Python SDK</h3>
+              <h3 className="mb-4 text-xl font-semibold text-foreground">Python Client</h3>
               <TemplateCodeBlock code={pythonUsage} label="python" action={<CopyButton text={pythonUsage} />} />
               <p className="mt-3 text-sm text-text-secondary">
                 Install with: <code className="rounded bg-surface-low px-2 py-0.5 font-mono text-primary">pip install hypercli-sdk</code>
