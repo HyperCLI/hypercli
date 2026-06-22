@@ -192,7 +192,7 @@ export function AgentFilesPanel({
     loadingDetail: "Loading folders and files.",
     connectingDetail: "Opening the files workspace.",
     waitingDetail: filesDisconnected
-      ? "Reconnect the gateway to browse workspace files."
+      ? "Reconnect the workspace to browse live files."
       : "Start the agent to browse workspace files.",
     errorTitle: "Files error",
   });

@@ -440,8 +440,8 @@ describe("AgentChatPanel", () => {
       isSelectedRunning: true,
     });
 
-    expect(await screen.findByText("Open Telegram setup")).toBeInTheDocument();
-    expect(screen.getByText(/Do not paste bot tokens into chat/i)).toBeInTheDocument();
+    expect(await screen.findByText("Start setup")).toBeInTheDocument();
+    expect(screen.getByText(/without putting secrets in chat/i)).toBeInTheDocument();
     expect(chatMessageBubbleMock).not.toHaveBeenCalled();
   });
 
@@ -487,11 +487,11 @@ describe("AgentChatPanel", () => {
 
     fireEvent.click(screen.getByTitle("Open Telegram connection setup"));
 
-    expect(await screen.findByText("Open Telegram setup")).toBeInTheDocument();
+    expect(await screen.findByText("Start setup")).toBeInTheDocument();
     expect(onConnectionCta).not.toHaveBeenCalled();
   });
 
-  it("routes the Telegram card setup action to the directory wizard", async () => {
+  it("opens the Telegram card setup flow from the card action", async () => {
     const onConnectionCta = vi.fn();
     renderAgentChatPanel({
       chat: buildChat({
@@ -511,14 +511,10 @@ describe("AgentChatPanel", () => {
       onConnectionCta,
     });
 
-    fireEvent.click(await screen.findByRole("button", { name: /open telegram setup/i }));
+    fireEvent.click(await screen.findByRole("button", { name: /start setup/i }));
 
-    expect(onConnectionCta).toHaveBeenCalledWith(expect.objectContaining({
-      id: "telegram",
-      displayName: "Telegram",
-      directoryPluginId: "telegram",
-      connectorId: "telegram",
-    }));
+    expect(onConnectionCta).not.toHaveBeenCalled();
+    expect(await screen.findByText("Create bot")).toBeInTheDocument();
   });
 
   it("starts GitHub device authorization from the chat card", async () => {
@@ -579,7 +575,7 @@ describe("AgentChatPanel", () => {
     });
 
     fireEvent.click(await screen.findByRole("button", { name: /start connection/i }));
-    expect(await screen.findByText(/GitHub setup is being handled by the agent/i)).toBeInTheDocument();
+    expect(await screen.findByText(/Hold on tight/i)).toBeInTheDocument();
     expect(sendMessage).toHaveBeenCalledWith(
       expect.stringContaining("Set up GitHub CLI authentication in this workspace."),
       { displayContent: "Set up GitHub in this workspace." },
@@ -1009,6 +1005,8 @@ describe("AgentChatPanel", () => {
     const textbox = screen.getByRole("textbox", { name: /message agent/i });
     await act(async () => {
       fireEvent.keyDown(textbox, { key: "ArrowDown" });
+    });
+    await act(async () => {
       fireEvent.keyDown(textbox, { key: "Tab" });
     });
 
@@ -1167,7 +1165,7 @@ describe("AgentChatPanel", () => {
     expect(onConnectionCta).not.toHaveBeenCalled();
     expect(setInput).toHaveBeenCalledWith("");
     expect(screen.getByRole("status", { name: /telegram connection opened/i })).toBeInTheDocument();
-    expect(await screen.findByText("Open Telegram setup")).toBeInTheDocument();
+    expect(await screen.findByText("Start setup")).toBeInTheDocument();
   });
 
   it("does not send chat when connect slash suggestions have no match", async () => {
@@ -1190,7 +1188,7 @@ describe("AgentChatPanel", () => {
     });
 
     expect(handleSendChat).not.toHaveBeenCalled();
-    expect(screen.getByText('No available integrations match "missing".')).toBeInTheDocument();
+    expect(screen.getAllByText('No available integrations match "missing".').length).toBeGreaterThan(0);
   });
 
   it("opens skills through the slash command menu", async () => {

@@ -1,6 +1,19 @@
 import "@testing-library/jest-dom/vitest";
 import { cleanup } from "@testing-library/react";
+import type { ReactNode } from "react";
 import { afterEach, beforeEach, vi } from "vitest";
+
+vi.mock("@turnkey/react-wallet-kit", () => ({
+  TurnkeyProvider: ({ children }: { children: ReactNode }) => children,
+  useTurnkey: () => ({
+    handleLogin: vi.fn(),
+    logout: vi.fn(),
+    session: null,
+    user: null,
+  }),
+}));
+
+vi.mock("@turnkey/react-wallet-kit/styles.css", () => ({}));
 
 type ConsoleMatcher = string | RegExp;
 

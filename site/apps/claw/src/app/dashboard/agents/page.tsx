@@ -130,9 +130,6 @@ import { downloadFileBytes } from "@/lib/download-file";
 import { uploadAgentStarterFiles } from "@/lib/agent-starter-files";
 import { normalizeCronJob } from "@/lib/cron-jobs";
 import {
-  buildSafeFileRenameCommand,
-  openClawWorkspacePathToPodPath,
-  podPathToOpenClawWorkspaceFilePath,
   readAgentFileWithRecovery,
   type AgentFileReadRecoveryResult,
 } from "@/lib/agent-file-recovery";
@@ -159,6 +156,7 @@ const AGENTS_DESKTOP_MEDIA_QUERY = "(min-width: 640px)";
 const AGENT_LAUNCHER_OPEN_VALUES = new Set(["agent-launcher", "launcher", "launch-agent"]);
 const TOKEN_USAGE_RECONCILE_DELAYS_MS = [2000, 5000] as const;
 const TOKEN_USAGE_RUNNING_REFRESH_INTERVAL_MS = 60_000;
+const AGENT_DIRECTORY_MARKER_NAME = ".hypercli-folder";
 
 function pendingFileMatches(file: ChatPendingFile, mimePrefix: string, extensionPattern: RegExp): boolean {
   return file.type.toLowerCase().startsWith(mimePrefix) || extensionPattern.test(file.name) || extensionPattern.test(file.path);
@@ -678,29 +676,6 @@ function normalizeAgentFilePath(path: string): string {
   return normalizeOpenClawWorkspaceFilePath(path);
 }
 
-function buildCreateWorkspaceDirectoryCommand(targetPodPath: string): string {
-  return [
-    "node - <<'NODE'",
-    "const fs = require('fs');",
-    "const path = require('path');",
-    `const workspace = ${JSON.stringify(OPENCLAW_WORKSPACE_DIR)};`,
-    `const target = ${JSON.stringify(targetPodPath)};`,
-    "const workspaceResolved = path.resolve(workspace);",
-    "const targetResolved = path.resolve(target);",
-    "if (targetResolved === workspaceResolved || !targetResolved.startsWith(`${workspaceResolved}${path.sep}`)) {",
-    "  console.error('Folder must be inside the workspace.');",
-    "  process.exit(1);",
-    "}",
-    "if (fs.existsSync(targetResolved)) {",
-    "  console.error('A file or folder already exists at that path.');",
-    "  process.exit(1);",
-    "}",
-    "fs.mkdirSync(targetResolved, { recursive: false });",
-    "process.stdout.write(`${targetResolved}\\n`);",
-    "NODE",
-  ].join("\n");
-}
-
 function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
   const path = normalizeAgentFilePath(entry.path);
   return {
@@ -710,6 +685,20 @@ function toDashboardFileEntry(entry: AgentFileEntry): FileEntry {
     size: entry.size,
     lastModified: entry.last_modified,
   };
+}
+
+function isAgentDirectoryMarkerEntry(entry: AgentFileEntry): boolean {
+  const name = entry.name || entry.path.split("/").filter(Boolean).pop() || "";
+  return name === AGENT_DIRECTORY_MARKER_NAME;
+}
+
+function agentFileSourceForState(agentState: AgentState | string | null | undefined, requested: AgentFileSource): AgentFileSource {
+  if (requested !== "auto") return requested;
+  return agentState === "RUNNING" ? "auto" : "s3";
+}
+
+function agentFileDestinationForState(agentState: AgentState | string | null | undefined): AgentFileSource {
+  return agentState === "RUNNING" ? "auto" : "s3";
 }
 
 async function readAgentFileWithSourceFallback<T>(
@@ -1386,12 +1375,10 @@ function AgentsPageContent() {
     selectedSessionKey,
   );
   const activeConnectionStatus = useMemo(() => {
-    if (!isSelectedRunning) return null;
     if (mainTab === "files") {
-      if (chat.connected) return "connected" as const;
-      if (chat.connecting) return "connecting" as const;
-      return "disconnected" as const;
+      return selectedAgentId ? "connected" as const : null;
     }
+    if (!isSelectedRunning) return null;
     if (mainTab === "logs") return wsStatus;
     if (mainTab === "shell") return shellStatus;
     if (mainTab === "chat" || mainTab === "workspace" || mainTab === "integrations" || mainTab === "scheduled" || mainTab === "settings") {
@@ -1400,24 +1387,29 @@ function AgentsPageContent() {
       return "disconnected" as const;
     }
     return null;
-  }, [chat.connected, chat.connecting, isSelectedRunning, mainTab, shellStatus, wsStatus]);
+  }, [chat.connected, chat.connecting, isSelectedRunning, mainTab, selectedAgentId, shellStatus, wsStatus]);
 
   const listAgentFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
     if (!selectedAgentId) return [];
     const token = await getToken();
     const agentClient = createAgentClient(token);
     const normalizedPath = normalizeAgentFilePath(path ?? "");
-    const entries = await agentClient.filesList(selectedAgentId, normalizedPath, source);
-    if (source === "auto" && entries.length === 0) {
+    const preferredSource = agentFileSourceForState(selectedAgentState, source);
+    const entries = await agentClient.filesList(selectedAgentId, normalizedPath, preferredSource);
+    if (preferredSource === "auto" && entries.length === 0) {
       for (const fallbackSource of ["s3", "pod"] as const) {
         try {
           const fallbackEntries = await agentClient.filesList(selectedAgentId, normalizedPath, fallbackSource);
-          if (fallbackEntries.length > 0) return (fallbackEntries as AgentFileEntry[]).map(toDashboardFileEntry);
+          if (fallbackEntries.length > 0) return (fallbackEntries as AgentFileEntry[])
+            .filter((entry) => !isAgentDirectoryMarkerEntry(entry))
+            .map(toDashboardFileEntry);
         } catch {}
       }
     }
-    return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
-  }, [getToken, selectedAgentId]);
+    return (entries as AgentFileEntry[])
+      .filter((entry) => !isAgentDirectoryMarkerEntry(entry))
+      .map(toDashboardFileEntry);
+  }, [getToken, selectedAgentId, selectedAgentState]);
 
   const refreshChatFileReferences = useCallback(async () => {
     if (!selectedAgentId || !chat.connected) {
@@ -1457,23 +1449,21 @@ function AgentsPageContent() {
     const agentId = selectedAgentId;
     if (!agentId) throw new Error("No agent selected");
 
-    const sourcePodPath = openClawWorkspacePathToPodPath(fromPath);
-    const candidatePodPath = openClawWorkspacePathToPodPath(safeCandidatePath);
-    if (!sourcePodPath || !candidatePodPath) {
+    const normalizedFromPath = normalizeAgentFilePath(fromPath);
+    const normalizedSafePath = normalizeAgentFilePath(safeCandidatePath);
+    if (
+      !normalizedFromPath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`) ||
+      !normalizedSafePath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)
+    ) {
       throw new Error("Only workspace files can be renamed safely.");
     }
 
-    const result = await agentClient.exec(
-      agentId,
-      buildSafeFileRenameCommand(sourcePodPath, candidatePodPath),
-      { timeout: 10_000 },
-    );
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || result.stdout || `Rename failed with exit code ${result.exitCode}`);
-    }
-
-    const outputPath = result.stdout.trim().split(/\r?\n/).filter(Boolean).pop();
-    return outputPath ? podPathToOpenClawWorkspaceFilePath(outputPath) ?? safeCandidatePath : safeCandidatePath;
+    const content = await agentClient.fileReadBytes(agentId, normalizedFromPath, "s3");
+    await agentClient.fileWriteBytes(agentId, normalizedSafePath, content, "s3");
+    try {
+      await agentClient.fileDelete(agentId, normalizedFromPath);
+    } catch {}
+    return normalizedSafePath;
   }, [selectedAgentId]);
 
   const readAgentFileResult = useCallback(async (
@@ -1486,14 +1476,15 @@ function AgentsPageContent() {
 
     const token = await getToken();
     const agentClient = createAgentClient(token);
+    const readSource = agentFileSourceForState(selectedAgentState, source);
     return readAgentFileWithRecovery({
       path: normalizedPath,
-      read: (targetPath) => readAgentFileWithSourceFallback(source, (readSource) => (
-        agentClient.fileRead(agentId, targetPath, readSource)
+      read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
+        agentClient.fileRead(agentId, targetPath, fallbackSource)
       )),
       rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
     });
-  }, [getToken, renameAgentFileToSafeName, selectedAgentId]);
+  }, [getToken, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
 
   const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
     const result = await readAgentFileResult(path, source);
@@ -1510,14 +1501,15 @@ function AgentsPageContent() {
 
     const token = await getToken();
     const agentClient = createAgentClient(token);
+    const readSource = agentFileSourceForState(selectedAgentState, source);
     return readAgentFileWithRecovery({
       path: normalizedPath,
-      read: (targetPath) => readAgentFileWithSourceFallback(source, (readSource) => (
-        agentClient.fileReadBytes(agentId, targetPath, readSource)
+      read: (targetPath) => readAgentFileWithSourceFallback(readSource, (fallbackSource) => (
+        agentClient.fileReadBytes(agentId, targetPath, fallbackSource)
       )),
       rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
     });
-  }, [getToken, renameAgentFileToSafeName, selectedAgentId]);
+  }, [getToken, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
 
   const readAgentFileBytes = useCallback(async (path: string, source: AgentFileSource = "auto") => {
     const result = await readAgentFileBytesResult(path, source);
@@ -1537,32 +1529,41 @@ function AgentsPageContent() {
   const saveAgentFile = useCallback(async (path: string, content: string) => {
     if (!selectedAgentId) return;
     const token = await getToken();
-    await createAgentClient(token).fileWrite(selectedAgentId, normalizeAgentFilePath(path), content);
+    await createAgentClient(token).fileWrite(
+      selectedAgentId,
+      normalizeAgentFilePath(path),
+      content,
+      agentFileDestinationForState(selectedAgentState),
+    );
     await refreshChatFileReferences().catch(() => undefined);
-  }, [getToken, refreshChatFileReferences, selectedAgentId]);
+  }, [getToken, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
 
   const uploadAgentFile = useCallback(async (path: string, content: Uint8Array) => {
     if (!selectedAgentId) return;
     const token = await getToken();
-    await createAgentClient(token).fileWriteBytes(selectedAgentId, normalizeAgentFilePath(path), content);
+    await createAgentClient(token).fileWriteBytes(
+      selectedAgentId,
+      normalizeAgentFilePath(path),
+      content,
+      agentFileDestinationForState(selectedAgentState),
+    );
     await refreshChatFileReferences().catch(() => undefined);
-  }, [getToken, refreshChatFileReferences, selectedAgentId]);
+  }, [getToken, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
 
   const createAgentDirectory = useCallback(async (path: string) => {
     if (!selectedAgentId) return;
     const normalizedPath = normalizeAgentFilePath(path);
-    const targetPodPath = openClawWorkspacePathToPodPath(normalizedPath);
-    if (!targetPodPath) throw new Error("Folders can only be created inside the workspace.");
+    if (normalizedPath === OPENCLAW_WORKSPACE_PREFIX || !normalizedPath.startsWith(`${OPENCLAW_WORKSPACE_PREFIX}/`)) {
+      throw new Error("Folders can only be created inside the workspace.");
+    }
 
     const token = await getToken();
-    const result = await createAgentClient(token).exec(
+    await createAgentClient(token).fileWriteBytes(
       selectedAgentId,
-      buildCreateWorkspaceDirectoryCommand(targetPodPath),
-      { timeout: 10_000 },
+      `${normalizedPath}/${AGENT_DIRECTORY_MARKER_NAME}`,
+      new Uint8Array(),
+      "s3",
     );
-    if (result.exitCode !== 0) {
-      throw new Error(result.stderr || result.stdout || `Folder creation failed with exit code ${result.exitCode}`);
-    }
   }, [getToken, selectedAgentId]);
 
   const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
@@ -2054,7 +2055,7 @@ function AgentsPageContent() {
     ? "Wait a few seconds before starting this agent again."
     : selectedAgentStartGuidance?.message;
   const selectedAgentStarting = Boolean(selectedAgent && startingId === selectedAgent.id);
-  const workspaceSidebarDisabled = agentsLoading || Boolean(selectedAgent && (chat.connecting || chat.hydrating));
+  const workspaceSidebarDisabled = agentsLoading;
   const workspaceSidebarDisabledReason = getWorkspaceSidebarDisabledReason({
     agentsLoading,
     connecting: chat.connecting,
@@ -3230,9 +3231,9 @@ function AgentsPageContent() {
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
               agentState={selectedAgent?.state ?? null}
               rootPath={OPENCLAW_WORKSPACE_PREFIX}
-              connected={chat.connected}
-              connecting={chat.connecting}
-              hydrating={chat.hydrating}
+              connected={Boolean(selectedAgentId)}
+              connecting={Boolean(isSelectedRunning && chat.connecting)}
+              hydrating={Boolean(isSelectedRunning && chat.hydrating)}
               initialPreviewPath={filesPreviewPath}
               isDesktopViewport={isDesktopViewport}
               error={null}
@@ -3417,11 +3418,7 @@ function AgentsPageContent() {
               agentStopping: Boolean(selectedAgent && stoppingId === selectedAgent.id),
               agentStartBlocked: selectedAgentLaunchBlocked,
               agentStartBlockedReason: selectedAgentStartBlockedTitle,
-              onOpenFiles: (path) => {
-                if (!selectedAgent) return;
-                const base = `/dashboard/agents/${selectedAgent.id}/files`;
-                router.push(path ? `${base}?file=${encodeURIComponent(path)}` : base);
-              },
+              onOpenFiles: openFilesTab,
               conversationThreads: syntheticThreads,
               selectedConversationThreadId: selectedAgent?.id ?? null,
             }}

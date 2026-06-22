@@ -446,7 +446,11 @@ export async function hydrateOpenClawSession(
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
   const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : [];
   const activeSessionRecord = findOpenClawSelectableSession(sessions, requestedSessionKey);
-  const sessionKey = resolveOpenClawGatewaySessionKey(sessions, requestedSessionKey);
+  const resolvedSessionKey = resolveOpenClawGatewaySessionKey(sessions, requestedSessionKey);
+  const legacyPreferredMainSessionKey = normalizedPreferredAgentId ? `agent:${normalizedPreferredAgentId}:main` : "";
+  const sessionKey = requestedSessionKey === CANONICAL_GATEWAY_AGENT_ID && resolvedSessionKey === legacyPreferredMainSessionKey
+    ? CANONICAL_GATEWAY_AGENT_ID
+    : resolvedSessionKey;
   const skipAmbiguousSyntheticMainHistory = requestedSessionKey === CANONICAL_GATEWAY_AGENT_ID &&
     !activeSessionRecord &&
     defaultSessionIsReadOnlyChannel(sessions);

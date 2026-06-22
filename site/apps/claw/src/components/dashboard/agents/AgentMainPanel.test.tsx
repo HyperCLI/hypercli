@@ -254,7 +254,6 @@ describe("AgentMainPanel", () => {
 
   it.each([
     { currentPanel: "chat" as const, skillsPanelActive: false, regionName: /chat empty state/i },
-    { currentPanel: "files" as const, skillsPanelActive: false, regionName: /files empty state/i },
     { currentPanel: "integrations" as const, skillsPanelActive: false, regionName: /integrations empty state/i },
     { currentPanel: "integrations" as const, skillsPanelActive: true, regionName: /skills empty state/i },
   ])("shows the section empty state with a start CTA for a stopped agent", ({ currentPanel, skillsPanelActive, regionName }) => {
@@ -273,6 +272,20 @@ describe("AgentMainPanel", () => {
     expect(screen.queryByText("Live panel")).not.toBeInTheDocument();
     fireEvent.click(within(emptyState).getByRole("button", { name: /^start agent$/i }));
     expect(onStart).toHaveBeenCalledTimes(1);
+  });
+
+  it("renders files panel content for a stopped agent", () => {
+    const selectedAgent = toAgentViewModel(buildSdkAgent({ state: "STOPPED" }));
+    renderAgentMainPanel({
+      selectedAgent,
+      currentPanel: "files",
+      stoppedTabLabel: "Files",
+      panelContent: <div>Files panel</div>,
+    });
+
+    expect(screen.getByText("Files panel")).toBeInTheDocument();
+    expect(screen.queryByRole("region", { name: /files empty state/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
   });
 
   it("shows scheduled panel content without a start CTA", () => {
@@ -377,7 +390,7 @@ describe("AgentMainPanel", () => {
 
     expect(screen.queryByTitle("Open workspace files")).not.toBeInTheDocument();
     expect(screen.queryByTitle("Settings")).not.toBeInTheDocument();
-    expect(screen.getByRole("button", { name: /^start agent$/i })).toBeInTheDocument();
-    expect(screen.queryByText("Files panel")).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /^start agent$/i })).not.toBeInTheDocument();
+    expect(screen.getByText("Files panel")).toBeInTheDocument();
   });
 });

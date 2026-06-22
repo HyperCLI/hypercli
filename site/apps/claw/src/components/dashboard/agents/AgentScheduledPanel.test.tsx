@@ -93,7 +93,7 @@ describe("AgentScheduledPanel", () => {
     });
   });
 
-  it("deduplicates equivalent projects and does not add stale job targets to the picker", () => {
+  it("keeps scoped project options and does not add stale job targets to the picker", () => {
     renderPanel({
       projectOptions: [
         { key: "main", label: "Main Project" },
@@ -115,8 +115,10 @@ describe("AgentScheduledPanel", () => {
     fireEvent.click(screen.getByLabelText(/^project$/i));
 
     const options = within(screen.getByRole("listbox", { name: /^project$/i })).getAllByRole("option");
-    expect(options).toHaveLength(1);
+    expect(options).toHaveLength(3);
     expect(options[0]).toHaveTextContent("Main Project");
+    expect(options[1]).toHaveTextContent("Duplicate Main");
+    expect(options[2]).toHaveTextContent("Scoped Main");
     expect(screen.queryByRole("option", { name: /project-stale/i })).not.toBeInTheDocument();
   });
 

@@ -83,6 +83,21 @@ vi.mock("@/components/billing/stripe-billing-portal", () => ({
 }));
 
 vi.mock("@hypercli/shared-ui", () => ({
+  ConfirmDialog: ({ open, title, message, confirmLabel, onCancel, onConfirm }: {
+    open: boolean;
+    title: string;
+    message: string;
+    confirmLabel: string;
+    onCancel: () => void;
+    onConfirm: () => void;
+  }) => open ? (
+    <div role="dialog" aria-label={title}>
+      <p>{message}</p>
+      <button type="button" onClick={onCancel}>Cancel</button>
+      <button type="button" onClick={onConfirm}>{confirmLabel}</button>
+    </div>
+  ) : null,
+  ShimmerSkeleton: ({ className }: { className?: string }) => <div className={className} data-testid="skeleton" />,
   InvoiceSummaryCard: ({ label, value, description }: { label: string; value: string; description: string }) => (
     <section>
       <h3>{label}</h3>

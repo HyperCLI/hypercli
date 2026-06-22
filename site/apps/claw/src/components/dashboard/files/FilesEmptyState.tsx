@@ -31,7 +31,7 @@ export function FilesEmptyState({ kind, searchQuery, errorMessage, title, descri
       <div className="flex h-full min-h-0 items-center justify-center py-4">
         <AgentGatewayLoadingVisual
           title={title ?? "Loading workspace"}
-          detail={description ?? "Fetching files from the agent gateway."}
+          detail={description ?? "Fetching workspace files."}
           animationClassName="h-[clamp(6.5rem,22vh,9rem)] w-[clamp(6.5rem,22vh,9rem)]"
         />
       </div>

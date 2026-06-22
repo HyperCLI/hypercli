@@ -434,6 +434,67 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("ignores stale post-send history refreshes after switching projects", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ]);
+    const alphaRefresh = deferred<Array<{ role: string; content: string }>>();
+    let alphaHistoryCalls = 0;
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => {
+      if (sessionKey === "session-alpha") {
+        alphaHistoryCalls += 1;
+        return alphaHistoryCalls === 1 ? [] : alphaRefresh.promise;
+      }
+      if (sessionKey === "session-beta") return [{ role: "assistant", content: "Beta history" }];
+      return [];
+    });
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("hello alpha");
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(gateway.chatHistory).toHaveBeenCalledWith("session-alpha", 200));
+    await waitFor(() => expect(alphaHistoryCalls).toBe(2));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["Beta history"]));
+
+    await act(async () => {
+      alphaRefresh.resolve([
+        { role: "user", content: "hello alpha" },
+        { role: "assistant", content: "Alpha refreshed" },
+      ]);
+      await sendPromise;
+    });
+
+    expect(result.current.activeSessionKey).toBe("session-beta");
+    expect(result.current.messages.map((message) => message.content)).toEqual(["Beta history"]);
+    unmount();
+  });
+
   it("keeps main and Telegram projects separate when selecting the Telegram project", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);

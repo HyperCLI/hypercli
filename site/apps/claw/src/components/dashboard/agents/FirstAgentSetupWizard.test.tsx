@@ -146,15 +146,15 @@ describe("FirstAgentSetupWizard", () => {
     expect(screen.getByText("Team Launch")).toBeInTheDocument();
     expect(screen.getByText("Shared agent capacity from catalog")).toBeInTheDocument();
     expect(screen.getByText("Medium slots available after purchase")).toBeInTheDocument();
-	    expect(screen.getByText("Team channels")).toBeInTheDocument();
-	    expect(screen.getByText("1x Medium launch slot")).toBeInTheDocument();
-	    expect(screen.getAllByText("250K tokens/day")).toHaveLength(1);
-	    expect(getPlanCardAction("View plan")).toHaveClass("bg-[var(--button-primary)]");
-	    expect(screen.getByText("Most Popular")).toHaveClass("bg-[var(--selection-accent)]");
-	    expect(screen.getByText("Most Popular")).toHaveClass("text-[var(--selection-accent-foreground)]");
-	    expect(screen.queryByText("Simple")).not.toBeInTheDocument();
-	    expect(screen.queryByText("Advanced workflows and analytics")).not.toBeInTheDocument();
-	  });
+    expect(screen.getByText("Team channels")).toBeInTheDocument();
+    expect(screen.getByText("1x Medium launch slot")).toBeInTheDocument();
+    expect(screen.getAllByText("250K tokens/day")).toHaveLength(1);
+    expect(getPlanCardAction("View plan")).toHaveClass("bg-[var(--button-primary)]");
+    expect(screen.getByText("Most Popular")).toHaveClass("bg-selection-accent");
+    expect(screen.getByText("Most Popular")).toHaveClass("text-selection-accent-foreground");
+    expect(screen.queryByText("Simple")).not.toBeInTheDocument();
+    expect(screen.queryByText("Advanced workflows and analytics")).not.toBeInTheDocument();
+  });
 
   it("opens plan comparison from the choose plan step", () => {
     renderWithClient(
