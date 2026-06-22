@@ -172,7 +172,7 @@ function OpenClawSectionEditor({
     connecting,
     loading: connected && !schemaBundle,
     loadingTitle: "Loading settings",
-    loadingDetail: "Reading OpenClaw configuration.",
+    loadingDetail: "Reading OpenClaw settings.",
     connectingDetail: "Opening the settings workspace.",
     waitingDetail: "Connect the agent gateway to edit OpenClaw settings.",
   });

@@ -32,7 +32,7 @@ export function useBilling() {
   } = useQuery({
     queryKey: billingKeys.payments,
     queryFn: async () => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return getAgentPayments(hyperAgent);
     },
     enabled: ready && !!hyperAgent,
@@ -46,7 +46,7 @@ export function useBilling() {
   } = useQuery({
     queryKey: billingKeys.profile,
     queryFn: async () => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return getAgentBillingProfile(hyperAgent);
     },
     enabled: ready && !!hyperAgent,
@@ -55,7 +55,7 @@ export function useBilling() {
   // ── Update profile mutation ──
   const updateProfileMutation = useMutation({
     mutationFn: async (fields: AgentBillingProfileFields) => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return updateAgentBillingProfile(hyperAgent, fields);
     },
     onSuccess: () => {
@@ -66,7 +66,7 @@ export function useBilling() {
   // ── Get single payment ──
   const getPayment = useCallback(
     async (paymentId: string): Promise<AgentPayment> => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return getAgentPayment(hyperAgent, paymentId);
     },
     [hyperAgent],

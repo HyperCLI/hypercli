@@ -23,7 +23,7 @@ export function usePlans() {
   } = useQuery({
     queryKey: plansKeys.catalog,
     queryFn: async (): Promise<HyperAgentPlan[]> => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return hyperAgent.plans();
     },
     enabled: ready && !!hyperAgent,
@@ -37,7 +37,7 @@ export function usePlans() {
   } = useQuery({
     queryKey: plansKeys.current,
     queryFn: async (): Promise<HyperAgentCurrentPlan> => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return hyperAgent.currentPlan();
     },
     enabled: ready && !!hyperAgent,
@@ -50,7 +50,7 @@ export function usePlans() {
   } = useQuery({
     queryKey: plansKeys.types,
     queryFn: async (): Promise<AgentTypeCatalogResponse> => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Billing data is not ready");
       return hyperAgent.agentTypes() as unknown as AgentTypeCatalogResponse;
     },
     enabled: ready && !!hyperAgent && !!token,

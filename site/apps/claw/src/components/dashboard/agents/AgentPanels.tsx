@@ -90,7 +90,7 @@ export function OpenClawConfigPanel({
     connected: chat.connected,
     connecting: chat.connecting,
     loadingTitle: "Loading settings",
-    loadingDetail: "Reading OpenClaw configuration.",
+    loadingDetail: "Reading OpenClaw settings.",
     connectingDetail: "Opening the settings workspace.",
     waitingDetail: "Reconnect the gateway before editing openclaw.json.",
   });
@@ -253,7 +253,7 @@ export function OpenClawSettingsPanel({
     connecting: chat.connecting,
     loading: chat.connected && !openclawSchemaBundle,
     loadingTitle: "Loading settings",
-    loadingDetail: "Reading OpenClaw configuration.",
+    loadingDetail: "Reading OpenClaw settings.",
     connectingDetail: "Opening the settings workspace.",
     waitingDetail: "Connect the agent gateway to edit OpenClaw settings.",
   });
@@ -913,7 +913,7 @@ function AgentSectionSettingsContent({
             <div className="min-w-0">
               <p className="text-[14px] font-semibold leading-5 text-foreground">Delete agent</p>
               <p className="mt-1 max-w-[420px] text-[13px] font-medium leading-5 text-text-muted">
-                Permanently delete this agent and all related configuration. This action cannot be undone.
+                Permanently delete this agent and all related settings. This action cannot be undone.
               </p>
             </div>
             <button

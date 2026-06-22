@@ -146,7 +146,7 @@ export function PluginConfigPanel({
                 </li>
                 <li className="flex items-start gap-2">
                   <span className="text-[var(--primary)] font-medium flex-shrink-0">3.</span>
-                  Add your API key under the provider&apos;s configuration section
+                  Add your API key under the provider&apos;s settings section
                 </li>
               </>
             )}

@@ -40,7 +40,7 @@ const MOCK_CONTENTS: Record<string, string> = {
   "src/app.ts": 'export function main() {\n  console.log("Hello from agent");\n}',
   "src/utils/helpers.ts": 'export function formatDate(d: Date) {\n  return d.toISOString();\n}\n\nexport function sleep(ms: number) {\n  return new Promise((resolve) => setTimeout(resolve, ms));\n}',
   "package.json": '{\n  "name": "agent-workspace",\n  "version": "1.0.0",\n  "main": "src/index.ts",\n  "dependencies": {\n    "typescript": "^5.3.0"\n  }\n}',
-  "README.md": "# Agent Workspace\n\nThis is the agent's workspace directory.\n\n## Structure\n\n- `src/` — Source code\n- `config/` — Configuration files\n- `data/` — Output data\n- `logs/` — Agent logs",
+  "README.md": "# Agent Workspace\n\nThis is the agent's workspace directory.\n\n## Structure\n\n- `src/` — Source code\n- `config/` — Settings files\n- `data/` — Output data\n- `logs/` — Agent logs",
   ".env": "API_KEY=sk-test-123\nDEBUG=true\nLOG_LEVEL=info",
   "config/settings.yaml": "model: claude-opus-4-6\nmax_tokens: 4096\ntemperature: 0.7\ntools:\n  - file_read\n  - file_write\n  - web_search\n  - code_exec",
   "data/output.json": '{\n  "results": [\n    { "id": 1, "status": "ok", "duration_ms": 142 },\n    { "id": 2, "status": "ok", "duration_ms": 89 },\n    { "id": 3, "status": "error", "error": "timeout" }\n  ],\n  "total": 3,\n  "success_rate": 0.67\n}',

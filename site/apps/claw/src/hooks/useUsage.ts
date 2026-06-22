@@ -25,7 +25,7 @@ export function useUsage(days: number = 7) {
   } = useQuery({
     queryKey: usageKeys.current,
     queryFn: async () => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Usage data is not ready");
       return normalizeUsage(await hyperAgent.usageSummary());
     },
     enabled: ready && !!hyperAgent,
@@ -37,7 +37,7 @@ export function useUsage(days: number = 7) {
   } = useQuery({
     queryKey: usageKeys.history(days),
     queryFn: async () => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Usage data is not ready");
       return normalizeHistory(await hyperAgent.usageHistory(days));
     },
     enabled: ready && !!hyperAgent,
@@ -49,7 +49,7 @@ export function useUsage(days: number = 7) {
   } = useQuery({
     queryKey: usageKeys.keys(days),
     queryFn: async () => {
-      if (!hyperAgent) throw new Error("SDK not ready");
+      if (!hyperAgent) throw new Error("Usage data is not ready");
       return normalizeKeyUsage(await hyperAgent.keyUsage(days));
     },
     enabled: ready && !!hyperAgent,

@@ -180,7 +180,7 @@ export const PLUGIN_REGISTRY: PluginMeta[] = [
   { id: "voice-call", displayName: "Voice Call", icon: PhoneCall, category: "tools", description: "Inbound & outbound phone calls", configPath: "plugins.entries.voice-call" },
   { id: "talk-voice", displayName: "Talk Voice", icon: Mic2, category: "tools", description: "Voice wake & talk mode", configPath: "plugins.entries.talk-voice" },
   { id: "phone-control", displayName: "Phone Control", icon: Smartphone, category: "tools", description: "Mobile device control", configPath: "plugins.entries.phone-control" },
-  { id: "memory-core", displayName: "Memory (Core)", icon: Database, category: "tools", description: "Built-in memory backend", configPath: "plugins.entries.memory-core", setupHint: "Built-in memory — just enable, no configuration needed" },
+  { id: "memory-core", displayName: "Memory (Core)", icon: Database, category: "tools", description: "Built-in memory backend", configPath: "plugins.entries.memory-core", setupHint: "Built-in memory — just enable, no settings needed" },
   { id: "memory-lancedb", displayName: "Memory (LanceDB)", icon: Database, category: "tools", description: "Vector memory with LanceDB", configPath: "plugins.entries.memory-lancedb" },
   { id: "openshell", displayName: "OpenShell", icon: Terminal, category: "tools", description: "Remote shell sandbox", configPath: "plugins.entries.openshell" },
   { id: "device-pair", displayName: "Device Pair", icon: Smartphone, category: "tools", description: "Device pairing service", configPath: "plugins.entries.device-pair" },

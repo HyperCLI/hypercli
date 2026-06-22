@@ -596,7 +596,7 @@ export function TelegramChatConnectorCard({
         ) : !hasCapability ? (
           <div className="flex items-start gap-3 rounded-2xl border border-warning/25 bg-warning/10 px-3 py-2 text-warning">
             <AlertTriangle className="mt-0.5 h-4 w-4 shrink-0" />
-            <p>Telegram is not available in this workspace configuration.</p>
+            <p>Telegram is not available in this workspace settings.</p>
           </div>
         ) : effectiveMode === "setup" ? (
           <div className="space-y-3">

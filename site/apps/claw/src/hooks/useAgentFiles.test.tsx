@@ -128,12 +128,12 @@ describe("useAgentFiles", () => {
     });
 
     await act(async () => {
-      await expect(missing.result.current.uploadFile("/workspace/new.md", new Uint8Array())).rejects.toThrow("SDK not ready");
+      await expect(missing.result.current.uploadFile("/workspace/new.md", new Uint8Array())).rejects.toThrow("Files are not ready");
     });
     await act(async () => {
-      await expect(missing.result.current.deleteFile("/workspace/new.md")).rejects.toThrow("SDK not ready");
+      await expect(missing.result.current.deleteFile("/workspace/new.md")).rejects.toThrow("Files are not ready");
     });
-    await expect(missing.result.current.readFile("/workspace/new.md")).rejects.toThrow("SDK not ready");
-    await expect(missing.result.current.downloadFile("/workspace/new.md")).rejects.toThrow("SDK not ready");
+    await expect(missing.result.current.readFile("/workspace/new.md")).rejects.toThrow("Files are not ready");
+    await expect(missing.result.current.downloadFile("/workspace/new.md")).rejects.toThrow("Files are not ready");
   });
 });

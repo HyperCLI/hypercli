@@ -21,7 +21,7 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
   } = useQuery({
     queryKey: agentFilesKeys.list(agentId ?? "", prefix),
     queryFn: async (): Promise<AgentFileEntry[]> => {
-      if (!deployments || !agentId) throw new Error("SDK not ready");
+      if (!deployments || !agentId) throw new Error("Files are not ready");
       return deployments.filesList(agentId, prefix);
     },
     enabled: ready && !!deployments && !!agentId,
@@ -34,7 +34,7 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
 
   const uploadMutation = useMutation({
     mutationFn: async ({ path, content }: { path: string; content: Uint8Array }) => {
-      if (!deployments || !agentId) throw new Error("SDK not ready");
+      if (!deployments || !agentId) throw new Error("Files are not ready");
       return deployments.fileWriteBytes(agentId, path, content);
     },
     onSuccess: () => {
@@ -44,7 +44,7 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
 
   const deleteMutation = useMutation({
     mutationFn: async ({ path, recursive }: { path: string; recursive?: boolean }) => {
-      if (!deployments || !agentId) throw new Error("SDK not ready");
+      if (!deployments || !agentId) throw new Error("Files are not ready");
       return deployments.fileDelete(agentId, path, recursive ? { recursive } : undefined);
     },
     onSuccess: () => {
@@ -65,7 +65,7 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
 
   const downloadFile = useCallback(
     async (path: string): Promise<Uint8Array> => {
-      if (!deployments || !agentId) throw new Error("SDK not ready");
+      if (!deployments || !agentId) throw new Error("Files are not ready");
       return deployments.fileReadBytes(agentId, path);
     },
     [deployments, agentId],
@@ -73,7 +73,7 @@ export function useAgentFiles(agentId: string | null, prefix?: string) {
 
   const readFile = useCallback(
     async (path: string): Promise<string> => {
-      if (!deployments || !agentId) throw new Error("SDK not ready");
+      if (!deployments || !agentId) throw new Error("Files are not ready");
       return deployments.fileRead(agentId, path);
     },
     [deployments, agentId],
