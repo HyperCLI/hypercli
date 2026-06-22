@@ -437,6 +437,68 @@ describe("ChatMessageBubble", () => {
     });
   });
 
+  it("retries generated media reads before showing a failed preview", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:retried-audio"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn()
+      .mockRejectedValueOnce(new Error("not ready"))
+      .mockResolvedValueOnce(new Uint8Array([1, 2, 3]));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "MEDIA:/home/node/.openclaw/workspace/fresh-clip.m4a",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(screen.getByRole("button", { name: /play fresh-clip\.m4a/i })).toBeInTheDocument();
+    expect(readFileBytes).toHaveBeenCalledTimes(1);
+
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledTimes(2);
+    });
+    expect(screen.queryByText(/audio unavailable/i)).not.toBeInTheDocument();
+  });
+
+  it("renders assistant MEDIA video paths with a native video preview", async () => {
+    Object.defineProperty(URL, "createObjectURL", {
+      configurable: true,
+      value: vi.fn(() => "blob:generated-video"),
+    });
+    Object.defineProperty(URL, "revokeObjectURL", {
+      configurable: true,
+      value: vi.fn(),
+    });
+    const readFileBytes = vi.fn().mockResolvedValue(new Uint8Array([0, 0, 0, 24]));
+
+    render(
+      <ChatMessageBubble
+        agentId="agent-123"
+        message={{
+          role: "assistant",
+          content: "Generated clip:\nMEDIA:/home/node/.openclaw/workspace/rv-parks-15k-month.mp4",
+        }}
+        onReadFileBytesFromChat={readFileBytes}
+      />,
+    );
+
+    expect(await screen.findByLabelText(/video preview rv-parks-15k-month\.mp4/i)).toHaveAttribute("src", "blob:generated-video");
+    expect(screen.queryByText(/MEDIA:\/home\/node\/\.openclaw\/workspace\/rv-parks-15k-month\.mp4/i)).not.toBeInTheDocument();
+    await waitFor(() => {
+      expect(readFileBytes).toHaveBeenCalledWith(".openclaw/workspace/rv-parks-15k-month.mp4");
+    });
+  });
+
   it("suppresses assistant audio reply carrier text when an inline audio player is shown", async () => {
     Object.defineProperty(URL, "createObjectURL", {
       configurable: true,

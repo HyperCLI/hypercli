@@ -5,6 +5,8 @@ const IMAGE_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)$/i;
 const IMAGE_URL_EXTENSIONS = /\.(png|jpe?g|gif|webp|svg|bmp|ico)(?:[?#].*)?$/i;
 const AUDIO_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)$/i;
 const AUDIO_URL_EXTENSIONS = /\.(aac|flac|m4a|mp3|oga|ogg|opus|wav|weba|webm)(?:[?#].*)?$/i;
+const VIDEO_EXTENSIONS = /\.(m4v|mov|mp4|mpeg|mpg|ogv)$/i;
+const VIDEO_URL_EXTENSIONS = /\.(m4v|mov|mp4|mpeg|mpg|ogv)(?:[?#].*)?$/i;
 const NON_IMAGE_URL_EXTENSIONS = /\.(pdf|csv|txt|md|json|ya?ml|zip|gz|tar|xlsx?|docx?|pptx?)(?:[?#].*)?$/i;
 const LOCAL_MEDIA_REFERENCE = /^media:/i;
 const CONTENT_MEDIA_REFERENCE_LINE = /^\s*MEDIA(?::(?!\/\/)\s*(.*))?\s*$/i;
@@ -23,6 +25,7 @@ export interface ContentMediaReference {
 export type DirectChatMediaReference =
   | { kind: "image"; url: string; fileName: string; raw: string }
   | { kind: "audio"; url: string; fileName: string; raw: string }
+  | { kind: "video"; url: string; fileName: string; raw: string }
   | { kind: "link"; url: string; fileName: string; raw: string }
   | { kind: "local"; raw: string; label: string }
   | { kind: "unsupported"; raw: string; label: string };
@@ -93,6 +96,10 @@ export function isAudioFileReference(file: { name?: string; path?: string; type?
   return file.type?.startsWith("audio/") || AUDIO_EXTENSIONS.test(file.name ?? "") || AUDIO_EXTENSIONS.test(file.path ?? "");
 }
 
+export function isVideoFileReference(file: { name?: string; path?: string; type?: string }): boolean {
+  return file.type?.startsWith("video/") || VIDEO_EXTENSIONS.test(file.name ?? "") || VIDEO_EXTENSIONS.test(file.path ?? "");
+}
+
 export function inferChatMediaFileType(path: string): string {
   const extension = path.split(/[?#]/)[0]?.split(".").pop()?.toLowerCase() ?? "";
   switch (extension) {
@@ -106,6 +113,12 @@ export function inferChatMediaFileType(path: string): string {
     case "wav": return "audio/wav";
     case "weba":
     case "webm": return "audio/webm";
+    case "m4v": return "video/x-m4v";
+    case "mov": return "video/quicktime";
+    case "mp4": return "video/mp4";
+    case "mpeg":
+    case "mpg": return "video/mpeg";
+    case "ogv": return "video/ogg";
     case "bmp": return "image/bmp";
     case "gif": return "image/gif";
     case "ico": return "image/x-icon";
@@ -155,12 +168,18 @@ export function classifyChatMediaReference(raw: string, matchingFile?: ChatPendi
   if (/^(?:data:audio\/|blob:)/i.test(value) || AUDIO_URL_EXTENSIONS.test(value)) {
     return { kind: "audio", url: value, fileName: mediaFileNameFromUrl(value, "audio"), raw };
   }
+  if (/^data:video\//i.test(value) || VIDEO_URL_EXTENSIONS.test(value)) {
+    return { kind: "video", url: value, fileName: mediaFileNameFromUrl(value, "video"), raw };
+  }
   if (/^data:image\//i.test(value) || IMAGE_URL_EXTENSIONS.test(value)) {
     return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
   }
   if (/^(?:https?:\/\/|\/)/i.test(value)) {
     if (NON_IMAGE_URL_EXTENSIONS.test(value)) {
       return { kind: "link", url: value, fileName: mediaFileNameFromUrl(value), raw };
+    }
+    if (VIDEO_URL_EXTENSIONS.test(value)) {
+      return { kind: "video", url: value, fileName: mediaFileNameFromUrl(value, "video"), raw };
     }
     return { kind: "image", url: value, fileName: mediaFileNameFromUrl(value), raw };
   }
@@ -183,7 +202,7 @@ function addUniqueDirectReference(
   ref: DirectChatMediaReference,
   seen: Set<string>,
 ): void {
-  const key = ref.kind === "image" || ref.kind === "audio" || ref.kind === "link" ? ref.url : ref.raw;
+  const key = ref.kind === "image" || ref.kind === "audio" || ref.kind === "video" || ref.kind === "link" ? ref.url : ref.raw;
   if (seen.has(key)) return;
   seen.add(key);
   refs.push(ref);

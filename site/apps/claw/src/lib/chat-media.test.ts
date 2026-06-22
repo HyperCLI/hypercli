@@ -67,6 +67,21 @@ describe("chat media references", () => {
     ]);
   });
 
+  it("extracts direct video MEDIA urls and strips raw url text", () => {
+    const result = extractContentMediaReferences("Video clip\nMEDIA:https://cdn.example.test/output/clip.mp4");
+
+    expect(result.content).toBe("Video clip");
+    expect(result.mediaFiles).toHaveLength(0);
+    expect(result.directMedia).toEqual([
+      {
+        kind: "video",
+        url: "https://cdn.example.test/output/clip.mp4",
+        fileName: "clip.mp4",
+        raw: "https://cdn.example.test/output/clip.mp4",
+      },
+    ]);
+  });
+
   it("consumes markdown MEDIA local handles without leaking media URLs", () => {
     const result = extractContentMediaReferences(
       "![MEDIA](media://inbound/generated---741bc582-9e41-492d-9a13-d8ecd3a2e0b8.png)",

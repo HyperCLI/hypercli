@@ -14,6 +14,7 @@ import {
   getChatFileLabel,
   isAudioFileReference,
   isImageFileReference,
+  isVideoFileReference,
   type ContentMediaReference,
   type DirectChatMediaReference,
   type ExtractedContentMediaReferences,
@@ -181,6 +182,55 @@ function ChatAudioFilePreview({
   );
 }
 
+function ChatVideoFilePreview({
+  file,
+  agentId,
+  readFileBytes,
+  onOpenFile,
+  onDownloadFile,
+}: {
+  file: ChatPendingFile;
+  agentId: string;
+  readFileBytes?: (path: string) => Promise<Uint8Array>;
+  onOpenFile?: (path: string) => void;
+  onDownloadFile?: (file: ChatPendingFile) => void | Promise<void>;
+}) {
+  const videoState = useAgentFileObjectState({ agentId, path: file.path }, readFileBytes);
+
+  return (
+    <div className="flex w-full max-w-[28rem] flex-col gap-1">
+      {videoState.url ? (
+        <video
+          src={videoState.url}
+          controls
+          preload="metadata"
+          className="max-h-[320px] w-full rounded-md border border-border bg-black"
+          aria-label={`Video preview ${file.name}`}
+        />
+      ) : videoState.failed ? (
+        <ChatMediaUnavailable label={file.name} />
+      ) : (
+        <div
+          role="status"
+          aria-label="Loading video"
+          className="flex aspect-video w-full items-center justify-center rounded-md border border-border bg-background/50 text-xs text-text-muted"
+        >
+          Loading video
+        </div>
+      )}
+      <div className="flex max-w-full items-center gap-2">
+        <span className="truncate text-[11px] text-text-muted" title={file.path}>{file.name}</span>
+        <ChatFileActions
+          file={file}
+          onOpenFile={onOpenFile}
+          onDownloadFile={onDownloadFile}
+          className=""
+        />
+      </div>
+    </div>
+  );
+}
+
 interface GeneratedMediaFilePreviewProps {
   file: ChatPendingFile;
   displayPath: string;
@@ -199,6 +249,7 @@ function GeneratedMediaFilePreview({
   onDownloadFile,
 }: GeneratedMediaFilePreviewProps) {
   const isAudio = isAudioFileReference(file);
+  const isVideo = isVideoFileReference(file);
   const audioState = useAgentFileObjectState(
     isAudio && imagePreviewAgentId ? { agentId: imagePreviewAgentId, path: file.path } : null,
     readFileBytes,
@@ -227,6 +278,18 @@ function GeneratedMediaFilePreview({
           />
         </div>
       </div>
+    );
+  }
+
+  if (isVideo && imagePreviewAgentId) {
+    return (
+      <ChatVideoFilePreview
+        file={file}
+        agentId={imagePreviewAgentId}
+        readFileBytes={readFileBytes}
+        onOpenFile={onOpenFile}
+        onDownloadFile={onDownloadFile}
+      />
     );
   }
 
@@ -300,7 +363,7 @@ interface DirectMediaRenderReference {
 }
 
 function directMediaReferenceValue(reference: DirectChatMediaReference): string {
-  return reference.kind === "image" || reference.kind === "audio" || reference.kind === "link"
+  return reference.kind === "image" || reference.kind === "audio" || reference.kind === "video" || reference.kind === "link"
     ? reference.url
     : reference.raw;
 }
@@ -384,6 +447,14 @@ function toArrayBuffer(bytes: Uint8Array): ArrayBuffer {
   ) as ArrayBuffer;
 }
 
+const AGENT_FILE_READ_RETRY_DELAYS_MS = [0, 250, 750, 1500, 2500];
+
+function wait(ms: number): Promise<void> {
+  return new Promise((resolve) => {
+    window.setTimeout(resolve, ms);
+  });
+}
+
 function useAgentFileObjectState(
   file: AgentFileReference | null | undefined,
   readFileBytes?: (path: string) => Promise<Uint8Array>,
@@ -404,17 +475,32 @@ function useAgentFileObjectState(
     if (!fileAgentId || !filePath) return;
     let cancelled = false;
 
-    let bytesPromise: Promise<Uint8Array>;
-    if (readFileBytes) {
-      bytesPromise = readFileBytes(filePath);
-    } else {
+    const readBytes = () => {
+      if (readFileBytes) {
+        return readFileBytes(filePath);
+      }
       const token = getStoredToken();
       if (!token) {
-        bytesPromise = Promise.reject(new Error("Missing auth token"));
-      } else {
-        bytesPromise = createAgentClient(token).fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath));
+        return Promise.reject(new Error("Missing auth token"));
       }
-    }
+      return createAgentClient(token).fileReadBytes(fileAgentId, normalizeOpenClawWorkspaceFilePath(filePath));
+    };
+
+    const bytesPromise = (async () => {
+      let lastError: unknown;
+      for (let attempt = 0; attempt < AGENT_FILE_READ_RETRY_DELAYS_MS.length; attempt += 1) {
+        if (cancelled) throw new Error("Cancelled");
+        const delay = AGENT_FILE_READ_RETRY_DELAYS_MS[attempt];
+        if (delay > 0) await wait(delay);
+        if (cancelled) throw new Error("Cancelled");
+        try {
+          return await readBytes();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+      throw lastError instanceof Error ? lastError : new Error("File unavailable");
+    })();
 
     bytesPromise
       .then((bytes) => {
@@ -929,12 +1015,15 @@ export function ChatMessageBubble({
   const hasInlineImageAttachments = (message.attachments?.length ?? 0) > 0;
   const imageFiles = messageFiles.filter(isImageFileReference);
   const audioFiles = messageFiles.filter(isAudioFileReference);
+  const videoFiles = messageFiles.filter(isVideoFileReference);
   const imagePreviewAgentId = agentId ?? "";
   const shouldRenderImageFilePreviews = Boolean(imagePreviewAgentId && imageFiles.length > 0 && !hasInlineImageAttachments);
   const shouldRenderAudioFilePreviews = Boolean(imagePreviewAgentId && audioFiles.length > 0);
+  const shouldRenderVideoFilePreviews = Boolean(imagePreviewAgentId && videoFiles.length > 0);
   const fileChips = messageFiles.filter((file) => (
     (!isImageFileReference(file) || (!hasInlineImageAttachments && !shouldRenderImageFilePreviews)) &&
-    (!isAudioFileReference(file) || !shouldRenderAudioFilePreviews)
+    (!isAudioFileReference(file) || !shouldRenderAudioFilePreviews) &&
+    (!isVideoFileReference(file) || !shouldRenderVideoFilePreviews)
   ));
   const mediaUrlReferences = (message.mediaUrls ?? []).map((url) => {
     const matchingFile = findFileForMediaReference(messageFiles, url);
@@ -1142,6 +1231,20 @@ export function ChatMessageBubble({
                 ))}
               </div>
             )}
+            {shouldRenderVideoFilePreviews && (
+              <div className="mb-2 flex w-full max-w-full flex-wrap gap-2">
+                {videoFiles.map((file, i) => (
+                  <ChatVideoFilePreview
+                    key={`${file.path}-${i}`}
+                    file={file}
+                    agentId={imagePreviewAgentId}
+                    readFileBytes={onReadFileBytesFromChat}
+                    onOpenFile={onOpenFileFromChat}
+                    onDownloadFile={onDownloadFileFromChat}
+                  />
+                ))}
+              </div>
+            )}
             {fileChips.length > 0 && (
               <div className="mb-2 flex max-w-full flex-wrap gap-2">
                 {fileChips.map((file, i) => (
@@ -1209,9 +1312,11 @@ export function ChatMessageBubble({
                 if (matchingFile && (
                   isImageFileReference(matchingFile) ||
                   isAudioFileReference(matchingFile) ||
+                  isVideoFileReference(matchingFile) ||
                   hasInlineImageAttachments ||
                   shouldRenderImageFilePreviews ||
-                  shouldRenderAudioFilePreviews
+                  shouldRenderAudioFilePreviews ||
+                  shouldRenderVideoFilePreviews
                 )) {
                   return null;
                 }
@@ -1260,6 +1365,19 @@ export function ChatMessageBubble({
                     loading="lazy"
                     downloadHref={reference.url}
                     downloadFileName={reference.fileName}
+                  />
+                );
+              }
+
+              if (reference.kind === "video") {
+                return (
+                  <video
+                    key={`${sourceKey}-${i}`}
+                    src={reference.url}
+                    controls
+                    preload="metadata"
+                    className="max-h-[320px] w-full max-w-[28rem] rounded-md border border-border bg-black"
+                    aria-label={`Video preview ${reference.fileName}`}
                   />
                 );
               }
