@@ -220,7 +220,7 @@ function SessionMenuButton({
         disabled
           ? "cursor-not-allowed text-text-muted/45"
           : danger
-            ? "text-[#ff5454] hover:bg-[#d05f5f]/10"
+            ? "text-destructive hover:bg-destructive/10"
             : "text-foreground hover:bg-surface-low"
       }`}
     >
@@ -396,7 +396,7 @@ function RenameSessionDialog({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-[#191919] shadow-2xl"
+        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
       >
         <div className="border-b border-border p-4">
           <div className="flex items-start justify-between gap-3">
@@ -424,9 +424,9 @@ function RenameSessionDialog({
               if (event.key === "Escape" && !saving) onClose();
             }}
             disabled={saving}
-            className="mt-4 h-9 w-full rounded-lg border border-border bg-[#232323] px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong disabled:opacity-60"
+            className="mt-4 h-9 w-full rounded-lg border border-border bg-surface-low px-3 text-sm text-foreground outline-none transition-colors placeholder:text-text-muted focus:border-border-strong disabled:opacity-60"
           />
-          {error && <p className="mt-2 text-xs text-[#ff5454]">{error}</p>}
+          {error && <p className="mt-2 text-xs text-destructive">{error}</p>}
         </div>
         <div className="flex justify-end gap-4 p-4">
           <button
@@ -441,7 +441,7 @@ function RenameSessionDialog({
             type="button"
             onClick={() => { void save(); }}
             disabled={!canSave}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[#4ef142] px-4 text-sm font-medium text-black transition-colors hover:bg-[#5dff51] disabled:cursor-not-allowed disabled:opacity-50"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg bg-[var(--button-primary)] px-4 text-sm font-medium text-[var(--button-primary-foreground)] transition-colors hover:bg-[var(--button-primary-hover)] disabled:cursor-not-allowed disabled:opacity-50"
           >
             {saving ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Save changes
@@ -490,7 +490,7 @@ function DeleteSessionDialog({
         animate={{ opacity: 1, scale: 1, y: 0 }}
         transition={{ type: "spring", stiffness: 420, damping: 34 }}
         onClick={(event) => event.stopPropagation()}
-        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-[#191919] shadow-2xl"
+        className="w-full max-w-md overflow-hidden rounded-xl border border-border bg-surface shadow-2xl"
       >
         <div className="border-b border-border p-4">
           <div className="flex items-start justify-between gap-3">
@@ -508,7 +508,7 @@ function DeleteSessionDialog({
               <X className="h-4 w-4" />
             </button>
           </div>
-          {error && <p className="mt-3 text-xs text-[#ff5454]">{error}</p>}
+          {error && <p className="mt-3 text-xs text-destructive">{error}</p>}
         </div>
         <div className="flex justify-end gap-4 p-4">
           <button
@@ -523,7 +523,7 @@ function DeleteSessionDialog({
             type="button"
             onClick={() => { void confirmDelete(); }}
             disabled={deleting}
-            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-[#d05f5f]/35 bg-[#d05f5f]/10 px-4 text-sm font-medium text-[#ff5454] transition-colors hover:bg-[#d05f5f]/15 disabled:cursor-not-allowed disabled:opacity-60"
+            className="inline-flex h-9 items-center justify-center gap-2 rounded-lg border border-destructive/35 bg-destructive/10 px-4 text-sm font-medium text-destructive transition-colors hover:bg-destructive/15 disabled:cursor-not-allowed disabled:opacity-60"
           >
             {deleting ? <Loader2 className="h-4 w-4 animate-spin" /> : null}
             Delete session
@@ -716,7 +716,7 @@ export function AgentWorkspaceSidebar({
       transition={{ duration: 0.22, ease: [0.22, 1, 0.36, 1] }}
       className={`flex ${
         fillParent ? "w-full" : isCollapsed ? "w-12" : "w-52"
-      } relative h-full shrink-0 flex-col border-r border-border bg-[#232323] transition-[width] duration-200 ease-out`}
+      } relative h-full shrink-0 flex-col border-r border-border bg-surface-low transition-[width] duration-200 ease-out`}
     >
       <div
         className={`flex h-14 shrink-0 items-center border-b border-border ${
@@ -904,7 +904,7 @@ export function AgentWorkspaceSidebar({
             animate={{ opacity: 1, scale: 1, x: 0, y: 0 }}
             transition={{ duration: 0.12 }}
             role="menu"
-            className={`absolute z-50 overflow-hidden rounded-xl border border-white/[0.08] bg-[#262626] p-1.5 shadow-[0_18px_55px_rgba(0,0,0,0.55)] ring-1 ring-black/30 ${
+            className={`absolute z-50 overflow-hidden rounded-xl border border-border bg-popover p-1.5 shadow-[0_18px_55px_color-mix(in_srgb,var(--foreground)_14%,transparent)] ring-1 ring-border ${
               isCollapsed
                 ? "bottom-4 left-full ml-2 w-52"
                 : renderMobile
@@ -930,8 +930,8 @@ export function AgentWorkspaceSidebar({
                     item.disabled
                       ? "cursor-not-allowed text-text-muted/45"
                       : item.active
-                        ? "bg-white/[0.07] text-foreground"
-                        : "text-foreground hover:bg-white/[0.05]"
+                        ? "bg-surface-low text-foreground"
+                        : "text-foreground hover:bg-surface-low"
                   }`}
                 >
                   {item.label}
