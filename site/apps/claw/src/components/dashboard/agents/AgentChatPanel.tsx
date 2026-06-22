@@ -9,7 +9,7 @@ import { extractGitHubAgentSetupStatus, GITHUB_AGENT_SETUP_PROMPT, GITHUB_AGENT_
 import { shouldHideTelegramAgentConfigMessage } from "@/lib/telegram-config-workspace";
 import { ChatMessageBubble, ChatThinkingIndicator } from "@/components/dashboard/ChatMessage";
 import type { Agent } from "@/app/dashboard/agents/types";
-import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { AgentLoadingState } from "@/components/dashboard/agents/page-helpers";
 import { AgentEmptyHistory } from "@/components/dashboard/agents/AgentEmptyHistory";
 import { JourneyIntroPanel, type JourneyIntroPanelProps } from "@/components/dashboard/journey/JourneyIntroPanel";
@@ -31,7 +31,7 @@ import {
 
 export type { ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 
-type ChatSession = ReturnType<typeof useOpenClawSession>;
+type ChatSession = AgentGatewaySession;
 const CHAT_READY_SETTLE_MS = 180;
 const AUDIO_BAR_WEIGHTS = [
   0.62,

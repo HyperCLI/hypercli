@@ -90,7 +90,7 @@ import { AgentLogsPanel } from "@/components/dashboard/agents/AgentLogsPanel";
 import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalPanel";
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
-import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
+import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { toAgentViewModel } from "@/components/dashboard/agents/agentViewModel";
 import { HyperCLILogoLink } from "@/components/HyperCLILogoLink";
 import { createAudioMediaRecorder } from "@/lib/audio-recorder";
@@ -576,6 +576,7 @@ export default function DevAgentSetupAgentsPage() {
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     isSelectedRunning,
   );
+  const gatewayChat = asAgentGatewaySession(chat);
   const draftTeamPrompt = useCallback(() => {
     if (!teamSetupSummary) return;
     setMainTab("chat");
@@ -1474,7 +1475,7 @@ export default function DevAgentSetupAgentsPage() {
   // ── Render ──
 
   return (
-    <AgentGatewaySessionProvider session={chat}>
+    <AgentGatewaySessionProvider session={gatewayChat}>
       <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && (
@@ -1695,7 +1696,7 @@ export default function DevAgentSetupAgentsPage() {
             }
             panelContent={mainTab === "chat" ? (
               <AgentChatPanel
-                chat={chat}
+                chat={gatewayChat}
                 selectedAgent={selectedAgent!}
                 isSelectedRunning={Boolean(isSelectedRunning)}
                 chatDragActive={chatDragActive}

@@ -30,11 +30,11 @@ import {
 } from "lucide-react";
 
 import { ConfirmDialog } from "@/components/dashboard/ConfirmDialog";
-import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { getConnectCommandSuggestions, type ChatConnectionSuggestion } from "@/components/dashboard/agents/AgentChatConnectionSuggestions";
 import { buildOpenClawDefaultModelPatch, normalizeOpenClawModelOptions } from "@/lib/openclaw-models";
 
-type ChatSession = ReturnType<typeof useOpenClawSession>;
+type ChatSession = AgentGatewaySession;
 type ChatConnectorId = NonNullable<ChatConnectionSuggestion["connectorId"]>;
 type SlashCommandMode = "ui" | "prompt" | "confirm";
 type SlashCommandCategory = "Chat" | "Agent" | "Workspace" | "Tools" | "Skills" | "Connections" | "Schedule" | "Diagnostics" | "Account";

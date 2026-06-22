@@ -115,7 +115,7 @@ import { AgentTerminalPanel } from "@/components/dashboard/agents/AgentTerminalP
 import { AgentInspector } from "@/components/dashboard/agents/AgentInspector";
 import { AgentMainPanel } from "@/components/dashboard/agents/AgentMainPanel";
 import { AgentWorkspaceSidebar } from "@/components/dashboard/agents/AgentWorkspaceSidebar";
-import { AgentGatewaySessionProvider } from "@/components/dashboard/agents/AgentGatewayProvider";
+import { AgentGatewaySessionProvider, asAgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import { JourneyFloatingPanel } from "@/components/dashboard/journey/JourneyFloatingPanel";
 import type { JourneyCapabilityCard } from "@/components/dashboard/journey/journey-capabilities";
 import { buildJourneyBriefPrompt, buildJourneyCapabilityPrompt, buildJourneyPrompt } from "@/components/dashboard/journey/journey-prompt-builder";
@@ -1374,6 +1374,7 @@ function AgentsPageContent() {
     isSelectedRunning,
     selectedSessionKey,
   );
+  const gatewayChat = asAgentGatewaySession(chat);
   const activeConnectionStatus = useMemo(() => {
     if (mainTab === "files") {
       return selectedAgentId ? "connected" as const : null;
@@ -2717,7 +2718,7 @@ function AgentsPageContent() {
   const useSettingsMobileChrome = !isDesktopViewport && mainTab === "settings" && Boolean(selectedAgent) && !openclawSettingsOpen;
 
   return (
-    <AgentGatewaySessionProvider session={chat}>
+    <AgentGatewaySessionProvider session={gatewayChat}>
       <div className="h-full min-h-0 w-full flex flex-col overflow-hidden">
       {/* Mobile header + menu (hidden on desktop) */}
       {!isDesktopViewport && !useSettingsMobileChrome && (
@@ -3142,7 +3143,7 @@ function AgentsPageContent() {
           }
           panelContent={mainTab === "chat" ? (
             <AgentChatPanel
-              chat={chat}
+              chat={gatewayChat}
               selectedAgent={selectedAgent!}
               isSelectedRunning={Boolean(isSelectedRunning)}
               chatDragActive={chatDragActive}

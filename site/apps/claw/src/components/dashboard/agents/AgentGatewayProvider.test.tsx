@@ -44,7 +44,7 @@ describe("AgentGatewayProvider", () => {
       </AgentGatewayProvider>,
     );
 
-    expect(mocks.useOpenClawSession).toHaveBeenCalledWith(agent, true);
+    expect(mocks.useOpenClawSession).toHaveBeenCalledWith(agent, true, undefined);
     expect(screen.getByTestId("connected")).toHaveTextContent("true");
     expect(screen.getByTestId("messages")).toHaveTextContent("1");
   });

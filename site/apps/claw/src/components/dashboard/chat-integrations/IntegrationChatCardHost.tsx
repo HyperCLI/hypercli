@@ -1,12 +1,12 @@
 "use client";
 
-import type { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import type { AgentGatewaySession } from "@/components/dashboard/agents/AgentGatewayProvider";
 import type { GitHubAgentSetupStatus } from "@/lib/github-cli-workspace";
 import { GitHubChatConnectorCard } from "./GitHubChatConnectorCard";
 import { TelegramChatConnectorCard } from "./TelegramChatConnectorCard";
 import type { ClawIntegrationConnectAction } from "./claw-ui-actions";
 
-type ChatSession = ReturnType<typeof useOpenClawSession>;
+type ChatSession = AgentGatewaySession;
 
 interface IntegrationChatCardHostProps {
   action: ClawIntegrationConnectAction;
