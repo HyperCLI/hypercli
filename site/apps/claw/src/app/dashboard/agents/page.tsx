@@ -1373,10 +1373,11 @@ function AgentsPageContent() {
   const selectedSessionKey = selectedAgentId
     ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
     : resolveOpenClawSessionKey(null);
+  const gatewayEnabled = isSelectedRunning;
 
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
-    isSelectedRunning,
+    gatewayEnabled,
     selectedSessionKey,
   );
   const gatewayChat = asAgentGatewaySession(chat);
@@ -3024,7 +3025,6 @@ function AgentsPageContent() {
                 onClose={() => setMobileWorkspaceSidebarOpen(false)}
                 sessions={chat.sessions}
                 sessionsFetched={chat.sessionsFetched}
-                sessionPreviews={chat.sessionPreviews}
                 creatingSessionKeys={chat.creatingSessionKeys}
                 selectedSessionKey={selectedSessionKey}
                 onSelectSession={selectSession}
@@ -3095,7 +3095,6 @@ function AgentsPageContent() {
           isDesktopViewport={isDesktopViewport}
           sessions={chat.sessions}
           sessionsFetched={chat.sessionsFetched}
-          sessionPreviews={chat.sessionPreviews}
           creatingSessionKeys={chat.creatingSessionKeys}
           selectedSessionKey={selectedSessionKey}
           onSelectSession={selectSession}

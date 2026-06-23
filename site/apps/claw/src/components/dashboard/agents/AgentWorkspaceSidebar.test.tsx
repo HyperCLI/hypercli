@@ -124,7 +124,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(activeProject).toBeInTheDocument();
   });
 
-  it("renders sessions and opens the selected session without using preview text as the name", () => {
+  it("renders sessions and opens the selected session by display name", () => {
     const onSelectSession = vi.fn();
     renderAgentWorkspaceSidebar({
       sessions: [
@@ -149,15 +149,11 @@ describe("AgentWorkspaceSidebar", () => {
           raw: {},
         },
       ],
-      sessionPreviews: {
-        "session-new": { key: "session-new", text: "What is an agent", role: "user", timestamp: 20 },
-      },
       selectedSessionKey: "session-new",
       onSelectSession,
     });
 
     expect(screen.getByText("Sessions")).toBeInTheDocument();
-    expect(screen.queryByText("What is an agent")).not.toBeInTheDocument();
     fireEvent.click(screen.getByRole("button", { name: "New chat" }));
     expect(onSelectSession).toHaveBeenCalledWith("session-new");
   });
@@ -482,7 +478,7 @@ describe("AgentWorkspaceSidebar", () => {
     expect(screen.queryByText(/HEARTBEAT/i)).not.toBeInTheDocument();
   });
 
-  it("does not expose chat preview text for generated session names", () => {
+  it("does not expose generated session keys as display names", () => {
     const generatedKey = "session-d2679a25-8a10-4c47-9d3b-97ebe94135e7";
     renderAgentWorkspaceSidebar({
       sessions: [{
@@ -495,16 +491,12 @@ describe("AgentWorkspaceSidebar", () => {
         messageCount: 0,
         raw: {},
       }],
-      sessionPreviews: {
-        [generatedKey]: { key: generatedKey, text: "Leaked chat preview", role: "user", timestamp: 20 },
-      },
       selectedSessionKey: generatedKey,
     });
 
     const activeProject = screen.getAllByRole("button", { name: "New Session" })
       .find((button) => button.getAttribute("aria-current") === "page");
     expect(activeProject).toBeInTheDocument();
-    expect(screen.queryByText("Leaked chat preview")).not.toBeInTheDocument();
   });
 
   it("shows a pending state while a new session is being created", () => {

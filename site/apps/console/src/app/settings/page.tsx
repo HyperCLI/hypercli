@@ -1,6 +1,7 @@
 "use client";
 
 import React, { useEffect, useState, useCallback, useRef } from "react";
+import { GatewayClient } from "@hypercli.com/sdk/browser";
 import {
   Header,
   Footer,
@@ -12,8 +13,6 @@ import {
   TabsTrigger,
   TabsContent,
   Badge,
-  Separator,
-  Switch,
   Card,
   CardContent,
   CardDescription,
@@ -23,7 +22,6 @@ import {
   getAuthBackendUrl,
   getAuthCookieToken,
 } from "@hypercli/shared-ui";
-import { useRouter } from "next/navigation";
 import { Navigation } from "../../components/Navigation";
 import {
   Settings,
@@ -36,9 +34,7 @@ import {
   Save,
   RefreshCw,
   Terminal,
-  Clock,
   Trash2,
-  Plus,
   AlertTriangle,
 } from "lucide-react";
 
@@ -65,123 +61,10 @@ interface GatewayState {
 }
 
 // ---------------------------------------------------------------------------
-// Lightweight WS RPC (inline, no external dep needed for console)
-// ---------------------------------------------------------------------------
-
-function makeId(): string {
-  return crypto.randomUUID?.() ??
-    "xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx".replace(/[xy]/g, (c) => {
-      const r = (Math.random() * 16) | 0;
-      return (c === "x" ? r : (r & 0x3) | 0x8).toString(16);
-    });
-}
-
-class GatewayWS {
-  private ws: WebSocket | null = null;
-  private pending = new Map<string, { resolve: (v: any) => void; reject: (e: any) => void }>();
-  connected = false;
-
-  async connect(url: string, jwt: string): Promise<{ version: string; protocol: number }> {
-    return new Promise((resolve, reject) => {
-      const wsUrl = `${url}${url.includes("?") ? "&" : "?"}token=${encodeURIComponent(jwt)}`;
-      const ws = new WebSocket(wsUrl);
-      this.ws = ws;
-      let phase: "challenge" | "hello" = "challenge";
-
-      const timeout = setTimeout(() => {
-        reject(new Error("Connection timeout"));
-        ws.close();
-      }, 10000);
-
-      ws.onmessage = (event) => {
-        const msg = JSON.parse(event.data);
-
-        if (phase === "challenge" && msg.event === "connect.challenge") {
-          phase = "hello";
-          const connectReq = {
-            type: "req",
-            id: makeId(),
-            method: "connect",
-            params: {
-              minProtocol: 3,
-              maxProtocol: 4,
-              client: { id: "hypercli-console", version: "1.0.3", platform: "browser", mode: "webchat" },
-              auth: { token: "traefik-forwarded-auth-not-used" },
-              role: "operator",
-              scopes: ["operator.admin"],
-              caps: ["tool-events"],
-            },
-          };
-          ws.send(JSON.stringify(connectReq));
-          return;
-        }
-
-        if (phase === "hello" && msg.type === "res") {
-          clearTimeout(timeout);
-          if (msg.ok) {
-            this.connected = true;
-            ws.onmessage = this.handleMsg.bind(this);
-            ws.onclose = () => { this.connected = false; };
-            resolve({ version: msg.payload?.version ?? "?", protocol: msg.payload?.protocol ?? 3 });
-          } else {
-            reject(new Error(msg.error?.message ?? "Connect failed"));
-            ws.close();
-          }
-          return;
-        }
-      };
-
-      ws.onerror = () => {
-        clearTimeout(timeout);
-        reject(new Error("WebSocket error"));
-      };
-
-      ws.onclose = () => {
-        this.connected = false;
-        clearTimeout(timeout);
-      };
-    });
-  }
-
-  private handleMsg(event: MessageEvent) {
-    const msg = JSON.parse(event.data);
-    if (msg.type === "res") {
-      const p = this.pending.get(msg.id);
-      if (p) {
-        this.pending.delete(msg.id);
-        msg.ok ? p.resolve(msg.payload) : p.reject(new Error(msg.error?.message ?? "RPC error"));
-      }
-    }
-  }
-
-  async rpc(method: string, params: Record<string, any> = {}, timeout = 15000): Promise<any> {
-    if (!this.connected || !this.ws) throw new Error("Not connected");
-    const id = makeId();
-    const req = { type: "req", id, method, params };
-    return new Promise((resolve, reject) => {
-      const timer = setTimeout(() => { this.pending.delete(id); reject(new Error(`Timeout: ${method}`)); }, timeout);
-      this.pending.set(id, {
-        resolve: (v) => { clearTimeout(timer); resolve(v); },
-        reject: (e) => { clearTimeout(timer); reject(e); },
-      });
-      this.ws!.send(JSON.stringify(req));
-    });
-  }
-
-  close() {
-    this.connected = false;
-    this.ws?.close();
-    this.ws = null;
-  }
-}
-
-// ---------------------------------------------------------------------------
 // Settings Page
 // ---------------------------------------------------------------------------
 
 export default function SettingsPage() {
-  const router = useRouter();
-
   const [pods, setPods] = useState<AgentPod[]>([]);
   const [selectedPod, setSelectedPod] = useState<string | null>(null);
   const [loading, setLoading] = useState(true);
@@ -194,7 +77,8 @@ export default function SettingsPage() {
     config: null,
     sessions: [],
   });
-  const gwRef = useRef<GatewayWS | null>(null);
+  const gwRef = useRef<GatewayClient | null>(null);
+  const connectAttemptRef = useRef(0);
 
   // Load pods
   useEffect(() => {
@@ -208,9 +92,7 @@ export default function SettingsPage() {
         if (!res.ok) throw new Error("Failed to load pods");
         const data = await res.json();
         setPods(data);
-        if (data.length > 0 && !selectedPod) {
-          setSelectedPod(data[0].pod_id);
-        }
+        if (data.length > 0) setSelectedPod((current) => current ?? data[0].pod_id);
       } catch (e: any) {
         console.error("Failed to load pods:", e);
       } finally {
@@ -221,8 +103,11 @@ export default function SettingsPage() {
 
   // Connect gateway when pod changes
   const connectGateway = useCallback(async (podId: string) => {
+    const attemptId = connectAttemptRef.current + 1;
+    connectAttemptRef.current = attemptId;
     // Disconnect previous
     gwRef.current?.close();
+    gwRef.current = null;
     setGwState((s) => ({ ...s, connected: false, connecting: true, error: null, config: null, sessions: [] }));
 
     try {
@@ -239,26 +124,37 @@ export default function SettingsPage() {
       const pod = pods.find((p) => p.pod_id === podId);
       const wsUrl = pod?.openclaw_url ?? `wss://${podId}.hypercli.com`;
 
-      const gw = new GatewayWS();
+      const gw = new GatewayClient({
+        url: wsUrl,
+        gatewayToken: jwt,
+        clientId: "hypercli-console",
+        clientVersion: "1.0.3",
+        platform: "browser",
+        clientMode: "webchat",
+        caps: ["tool-events"],
+      });
       gwRef.current = gw;
 
-      const info = await gw.connect(wsUrl, jwt);
-      
+      await gw.connect();
+      if (connectAttemptRef.current !== attemptId) {
+        gw.close();
+        return;
+      }
+
       // Fetch config + sessions
-      const [config, sessionsRes] = await Promise.all([
-        gw.rpc("config.get"),
-        gw.rpc("sessions.list"),
-      ]);
+      const [config, sessions] = await Promise.all([gw.configGet(), gw.sessionsList()]);
+      if (connectAttemptRef.current !== attemptId) return;
 
       setGwState({
         connected: true,
         connecting: false,
         error: null,
-        version: info.version,
+        version: gw.version,
         config,
-        sessions: sessionsRes?.sessions ?? sessionsRes ?? [],
+        sessions,
       });
     } catch (e: any) {
+      if (connectAttemptRef.current !== attemptId) return;
       setGwState((s) => ({
         ...s,
         connected: false,
@@ -270,18 +166,23 @@ export default function SettingsPage() {
 
   useEffect(() => {
     if (selectedPod) connectGateway(selectedPod);
-    return () => { gwRef.current?.close(); };
-  }, [selectedPod]);
+    return () => {
+      connectAttemptRef.current += 1;
+      gwRef.current?.close();
+      gwRef.current = null;
+    };
+  }, [connectGateway, selectedPod]);
 
   // Save config
   const saveConfig = async (patch: Record<string, any>) => {
-    if (!gwRef.current?.connected) return;
+    const gw = gwRef.current;
+    if (!gw?.isConnected) return;
     setSaving(true);
     try {
-      await gwRef.current.rpc("config.patch", { patch });
+      await gw.configPatch(patch);
       // Refresh config
-      const config = await gwRef.current.rpc("config.get");
-      setGwState((s) => ({ ...s, config }));
+      const config = await gw.configGet();
+      if (gwRef.current === gw) setGwState((s) => ({ ...s, config }));
     } catch (e: any) {
       alert(`Failed to save: ${e.message}`);
     } finally {
@@ -304,8 +205,8 @@ export default function SettingsPage() {
 
   // Sync edit fields when config loads
   useEffect(() => {
-    if (config.models) {
-      setEditModel(config.models.default ?? "");
+    if (gwState.config?.models) {
+      setEditModel(gwState.config.models.default ?? "");
     }
   }, [gwState.config]);
 
@@ -543,9 +444,9 @@ export default function SettingsPage() {
                               onClick={async () => {
                                 if (confirm("Reset this session? This clears all chat history.")) {
                                   try {
-                                    await gwRef.current?.rpc("sessions.reset", { sessionKey: session.key ?? session.sessionKey });
-                                    const sessionsRes = await gwRef.current?.rpc("sessions.list");
-                                    setGwState((s) => ({ ...s, sessions: sessionsRes?.sessions ?? sessionsRes ?? [] }));
+                                    await gwRef.current?.sessionsReset(session.key ?? session.sessionKey, "reset");
+                                    const sessions = await gwRef.current?.sessionsList();
+                                    setGwState((s) => ({ ...s, sessions: sessions ?? [] }));
                                   } catch (e: any) {
                                     alert(`Reset failed: ${e.message}`);
                                   }
@@ -564,8 +465,8 @@ export default function SettingsPage() {
                     variant="outline"
                     className="mt-3"
                     onClick={async () => {
-                      const sessionsRes = await gwRef.current?.rpc("sessions.list");
-                      setGwState((s) => ({ ...s, sessions: sessionsRes?.sessions ?? sessionsRes ?? [] }));
+                      const sessions = await gwRef.current?.sessionsList();
+                      setGwState((s) => ({ ...s, sessions: sessions ?? [] }));
                     }}
                   >
                     <RefreshCw className="h-3.5 w-3.5 mr-1.5" /> Refresh
@@ -590,7 +491,7 @@ export default function SettingsPage() {
 // Agent Files Sub-Component
 // ---------------------------------------------------------------------------
 
-function AgentFiles({ gw }: { gw: GatewayWS | null }) {
+function AgentFiles({ gw }: { gw: GatewayClient | null }) {
   const [files, setFiles] = useState<string[]>([]);
   const [selectedFile, setSelectedFile] = useState<string | null>(null);
   const [fileContent, setFileContent] = useState("");
@@ -598,22 +499,20 @@ function AgentFiles({ gw }: { gw: GatewayWS | null }) {
   const [saving, setSaving] = useState(false);
 
   useEffect(() => {
-    if (!gw?.connected) return;
+    if (!gw?.isConnected) return;
     (async () => {
       try {
-        const res = await gw.rpc("agents.files.get", { agentId: "main" });
-        setFiles(res?.files ?? []);
+        setFiles(await gw.filesList("main"));
       } catch {}
     })();
   }, [gw]);
 
   const loadFile = async (path: string) => {
-    if (!gw?.connected) return;
+    if (!gw?.isConnected) return;
     setLoading(true);
     setSelectedFile(path);
     try {
-      const res = await gw.rpc("agents.files.get", { agentId: "main", path });
-      setFileContent(res?.content ?? "");
+      setFileContent(await gw.fileGet("main", path));
     } catch (e: any) {
       setFileContent(`Error loading file: ${e.message}`);
     } finally {
@@ -622,10 +521,10 @@ function AgentFiles({ gw }: { gw: GatewayWS | null }) {
   };
 
   const saveFile = async () => {
-    if (!gw?.connected || !selectedFile) return;
+    if (!gw?.isConnected || !selectedFile) return;
     setSaving(true);
     try {
-      await gw.rpc("agents.files.set", { agentId: "main", path: selectedFile, content: fileContent });
+      await gw.fileSet("main", selectedFile, fileContent);
     } catch (e: any) {
       alert(`Save failed: ${e.message}`);
     } finally {

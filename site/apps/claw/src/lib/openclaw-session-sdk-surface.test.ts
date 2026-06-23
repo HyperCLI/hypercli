@@ -1,7 +1,6 @@
-import { describe, expect, it, vi } from "vitest";
+import { describe, expect, it } from "vitest";
 
 import {
-  loadOpenClawSessionPreviews,
   normalizeOpenClawSessions,
   openClawEventMatchesSession,
   sameOpenClawSelectableSessionKey,
@@ -138,40 +137,5 @@ describe("openclaw-session-sdk-surface", () => {
 
     expect(openClawEventMatchesSession(payload, "main")).toBe(false);
     expect(openClawEventMatchesSession(payload, "telegram:489595440")).toBe(true);
-  });
-
-  it("deduplicates session preview requests for the same gateway session version", async () => {
-    const gateway = {
-      sessionsPreview: vi.fn(async () => [
-        { role: "assistant", text: "Latest reply", timestamp: 20 },
-      ]),
-    };
-    const sessions = normalizeOpenClawSessions([
-      { key: "session-alpha", lastMessageAt: 20, messageCount: 2 },
-    ]);
-
-    const [first, second] = await Promise.all([
-      loadOpenClawSessionPreviews(gateway, sessions),
-      loadOpenClawSessionPreviews(gateway, sessions),
-    ]);
-
-    expect(gateway.sessionsPreview).toHaveBeenCalledTimes(1);
-    expect(first).toEqual(second);
-    expect(first).toEqual({
-      "session-alpha": {
-        key: "session-alpha",
-        role: "assistant",
-        text: "Latest reply",
-        timestamp: 20,
-      },
-    });
-
-    await loadOpenClawSessionPreviews(gateway, sessions);
-    expect(gateway.sessionsPreview).toHaveBeenCalledTimes(1);
-
-    await loadOpenClawSessionPreviews(gateway, [
-      { ...sessions[0], lastMessageAt: 30, messageCount: 3 },
-    ]);
-    expect(gateway.sessionsPreview).toHaveBeenCalledTimes(2);
   });
 });

@@ -1,7 +1,6 @@
 import type { Dispatch, SetStateAction } from "react";
 import type { ChatEvent, GatewayClient, GatewayEvent, OpenClawConfigSchemaResponse } from "@hypercli.com/sdk/openclaw/gateway";
 import {
-  type OpenClawSessionPreviewMap,
   type OpenClawSessionRecord,
   findOpenClawSelectableSession,
   listOpenClawSessions,
@@ -48,11 +47,11 @@ export function appendActivityEntry(
 }
 
 interface SessionEventContext {
-  gateway: GatewayClient;
   gatewayEvent: GatewayEvent;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setSending: Dispatch<SetStateAction<boolean>>;
-  setSessions: Dispatch<SetStateAction<OpenClawSessionRecord[]>>;
+  setSessions: (sessions: OpenClawSessionRecord[]) => void;
+  refreshSessions: () => void | Promise<unknown>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
   activeSessionKey: string;
   suppressChatStreamEvents?: boolean;
@@ -144,11 +143,11 @@ export function handleOpenClawChatStreamEvent({
 }
 
 export function handleOpenClawSessionEvent({
-  gateway,
   gatewayEvent,
   setMessages,
   setSending,
   setSessions,
+  refreshSessions,
   appendActivity,
   activeSessionKey,
   suppressChatStreamEvents = false,
@@ -204,7 +203,7 @@ export function handleOpenClawSessionEvent({
     if (toolResult) setMessages((prev) => upsertAssistantMessage(prev, { role: "assistant", content: "", toolCalls: [toolResult], timestamp: Date.now() }));
   } else if (event === "chat.done") {
     setSending(false);
-    void listOpenClawSessions(gateway).then(setSessions).catch(() => {});
+    void refreshSessions();
   } else if (event === "sessions.updated") {
     const list = (payload as Record<string, unknown>).sessions;
     if (Array.isArray(list)) setSessions(normalizeOpenClawSessions(list));
@@ -261,7 +260,6 @@ export interface HydratedOpenClawSession {
   useLocalCacheFallback: boolean;
   sessions: OpenClawSessionRecord[];
   sessionsFetched: boolean;
-  sessionPreviews: OpenClawSessionPreviewMap;
   cronJobs: Array<Record<string, unknown>>;
   models: Array<Record<string, unknown>>;
 }
@@ -274,6 +272,11 @@ export interface HydratedOpenClawConnection {
   gwAgentId: string;
   cronJobs: Array<Record<string, unknown>>;
   models: Array<Record<string, unknown>>;
+}
+
+interface HydratedOpenClawSessionList {
+  sessions: OpenClawSessionRecord[];
+  fetched: boolean;
 }
 
 const CANONICAL_GATEWAY_AGENT_ID = "main";
@@ -478,16 +481,19 @@ export async function hydrateOpenClawSession(
   preferredAgentId?: string | null,
   activeSessionKey?: string | null,
   connectionHydration?: HydratedOpenClawConnection,
+  sessionHydration?: HydratedOpenClawSessionList,
 ): Promise<HydratedOpenClawSession> {
   const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
   const requestedSessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
   const connection = connectionHydration ?? await hydrateOpenClawConnection(gateway, normalizedPreferredAgentId);
-  const sessionsRes = await listOpenClawSessions(gateway)
-    .then((value) => ({ status: "fulfilled" as const, value }))
-    .catch((reason: unknown) => ({ status: "rejected" as const, reason }));
+  const sessionsRes = sessionHydration
+    ? { status: sessionHydration.fetched ? "fulfilled" as const : "rejected" as const, value: sessionHydration.sessions }
+    : await listOpenClawSessions(gateway)
+      .then((value) => ({ status: "fulfilled" as const, value }))
+      .catch((reason: unknown) => ({ status: "rejected" as const, reason, value: [] as OpenClawSessionRecord[] }));
 
   const agents = connection.agents;
-  const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : [];
+  const sessions = sessionsRes.value;
   const activeSessionRecord = findOpenClawSelectableSession(sessions, requestedSessionKey);
   const resolvedSessionKey = resolveOpenClawGatewaySessionKey(sessions, requestedSessionKey);
   const legacyPreferredMainSessionKey = normalizedPreferredAgentId ? `agent:${normalizedPreferredAgentId}:main` : "";
@@ -521,7 +527,6 @@ export async function hydrateOpenClawSession(
     useLocalCacheFallback: !skipAmbiguousSyntheticMainHistory && activeSessionRecord?.readOnly !== true,
     sessions,
     sessionsFetched: sessionsRes.status === "fulfilled",
-    sessionPreviews: {},
     cronJobs: connection.cronJobs,
     models: connection.models,
   };

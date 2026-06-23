@@ -32,7 +32,6 @@ import {
   displayOpenClawSessionName,
   fallbackOpenClawSessionDisplayName,
   sameOpenClawSelectableSessionKey,
-  type OpenClawSessionPreviewMap,
   type OpenClawSessionRecord,
   unscopedOpenClawSessionKey,
 } from "@/lib/openclaw-session-sdk-surface";
@@ -66,7 +65,6 @@ interface AgentWorkspaceSidebarProps {
   onClose?: () => void;
   sessions?: OpenClawSessionRecord[] | null;
   sessionsFetched?: boolean;
-  sessionPreviews?: OpenClawSessionPreviewMap;
   creatingSessionKeys?: string[];
   selectedSessionKey?: string | null;
   onSelectSession?: (sessionKey: string) => void;

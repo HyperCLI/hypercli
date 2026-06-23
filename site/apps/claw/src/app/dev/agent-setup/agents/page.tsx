@@ -577,9 +577,10 @@ export default function DevAgentSetupAgentsPage() {
     clearShellOutput();
   }, [clearShellOutput, mainTab, shellStatus]);
 
+  const gatewayEnabled = isSelectedRunning;
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
-    isSelectedRunning,
+    gatewayEnabled,
   );
   const gatewayChat = asAgentGatewaySession(chat);
   const draftTeamPrompt = useCallback(() => {

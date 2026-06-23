@@ -722,7 +722,6 @@ describe("openclaw session keys", () => {
     });
 
     handleOpenClawSessionEvent({
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       gatewayEvent: {
         event: "chat.content",
         payload: { text: WORKSPACE_PATH_DUMP },
@@ -730,7 +729,9 @@ describe("openclaw session keys", () => {
       setMessages,
       setSending: vi.fn(),
       setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
       appendActivity: vi.fn(),
+      activeSessionKey: "main",
     });
 
     expect(messages).toEqual([]);
@@ -743,7 +744,6 @@ describe("openclaw session keys", () => {
     });
 
     handleOpenClawSessionEvent({
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       gatewayEvent: {
         event: "chat.content",
         payload: {
@@ -756,6 +756,7 @@ describe("openclaw session keys", () => {
       setMessages,
       setSending: vi.fn(),
       setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
       appendActivity: vi.fn(),
       activeSessionKey: "main",
     });
@@ -770,7 +771,6 @@ describe("openclaw session keys", () => {
     });
 
     handleOpenClawSessionEvent({
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       gatewayEvent: {
         event: "chat.content",
         payload: {
@@ -783,6 +783,7 @@ describe("openclaw session keys", () => {
       setMessages,
       setSending: vi.fn(),
       setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
       appendActivity: vi.fn(),
       activeSessionKey: "telegram:489595440",
     });
@@ -826,7 +827,6 @@ describe("openclaw session keys", () => {
     });
 
     handleOpenClawSessionEvent({
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       gatewayEvent: {
         event: "agent",
         payload: {
@@ -843,6 +843,7 @@ describe("openclaw session keys", () => {
       setMessages,
       setSending: vi.fn(),
       setSessions: vi.fn(),
+      refreshSessions: vi.fn(),
       appendActivity: vi.fn(),
       activeSessionKey: "main",
     });

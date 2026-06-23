@@ -229,6 +229,14 @@ function formatSkillsStatus(report: Awaited<ReturnType<ChatSession["skillsStatus
   return `${installed} skill${installed === 1 ? "" : "s"} installed, ${active} active.`;
 }
 
+function formatSessionCount(count: number): string {
+  return `${count} session${count === 1 ? "" : "s"}`;
+}
+
+function refreshedSessionCount(refreshedSessions: Awaited<ReturnType<ChatSession["refreshSessions"]>>, fallbackSessions: ChatSession["sessions"]): number {
+  return Array.isArray(refreshedSessions) ? refreshedSessions.length : fallbackSessions.length;
+}
+
 function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["run"] {
   return async ({ args, chat, close, showFeedback }) => {
     const message = typeof prompt === "function" ? prompt(args) : promptWithContext(prompt, args);
@@ -860,8 +868,8 @@ function buildSlashCommands(): SlashCommand[] {
       requiresRunningAgent: true,
       isEnabled: ({ chat }) => chat.connected ? true : "Connect the gateway before refreshing sessions.",
       run: async ({ chat, setStatus }) => {
-        await chat.refreshSessions();
-        setStatus(`${chat.sessions.length} session${chat.sessions.length === 1 ? "" : "s"} loaded.`);
+        const sessions = await chat.refreshSessions().catch(() => undefined);
+        setStatus(`${formatSessionCount(refreshedSessionCount(sessions, chat.sessions))} loaded.`);
       },
     },
     {
@@ -894,8 +902,11 @@ function buildSlashCommands(): SlashCommand[] {
       Icon: RefreshCw,
       run: async ({ chat, setStatus }) => {
         chat.retry();
-        await Promise.allSettled([chat.refreshSessions(), chat.refreshCron()]);
-        setStatus("Refresh requested.");
+        const [sessions] = await Promise.all([
+          chat.refreshSessions().catch(() => undefined),
+          chat.refreshCron().catch(() => undefined),
+        ] as const);
+        setStatus(`Refresh complete. ${formatSessionCount(refreshedSessionCount(sessions, chat.sessions))} loaded.`);
       },
     },
     {

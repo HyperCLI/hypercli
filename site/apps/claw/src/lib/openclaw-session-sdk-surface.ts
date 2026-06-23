@@ -19,19 +19,6 @@ export interface OpenClawSessionRecord {
   raw: Record<string, unknown>;
 }
 
-export interface OpenClawSessionPreview {
-  key: string;
-  text: string;
-  role: string;
-  timestamp?: number;
-}
-
-export type OpenClawSessionPreviewMap = Record<string, OpenClawSessionPreview>;
-
-type SessionPreviewGateway = Pick<GatewayClient, "sessionsPreview">;
-
-const sessionPreviewRequests = new WeakMap<object, Map<string, Promise<OpenClawSessionPreview | null>>>();
-
 export const OPENCLAW_DEFAULT_SESSION_KEY = "main";
 export const OPENCLAW_NEW_SESSION_TITLE = "New Session";
 const GENERATED_OPENCLAW_SESSION_KEY = /^session-(?:[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}|local-[a-z0-9-]+)$/i;
@@ -516,84 +503,8 @@ export function applyOpenClawSessionTitleMap(
   });
 }
 
-export function normalizeOpenClawSessionPreview(sessionKey: string, items: unknown): OpenClawSessionPreview | null {
-  if (!Array.isArray(items)) return null;
-  for (let index = items.length - 1; index >= 0; index -= 1) {
-    const item = items[index];
-    if (!isRecord(item)) continue;
-    const text = contentText(item.text ?? item.content ?? item.message ?? item.summary);
-    if (!text) continue;
-    return {
-      key: sessionKey,
-      text,
-      role: firstNonEmptyString(item.role, item.author, item.type) ?? "message",
-      timestamp: finiteTimestamp(item.timestamp ?? item.createdAt ?? item.created_at) ?? undefined,
-    };
-  }
-  return null;
-}
-
 export async function listOpenClawSessions(gateway: Pick<GatewayClient, "sessionsList">): Promise<OpenClawSessionRecord[]> {
   return normalizeOpenClawSessions(await gateway.sessionsList());
-}
-
-export async function loadOpenClawSessionPreviews(
-  gateway: SessionPreviewGateway,
-  sessions: OpenClawSessionRecord[],
-  options: { limit?: number; maxSessions?: number } = {},
-): Promise<OpenClawSessionPreviewMap> {
-  const limit = options.limit ?? 8;
-  const maxSessions = options.maxSessions ?? 8;
-  const targets = [...sessions]
-    .sort((a, b) => b.lastMessageAt - a.lastMessageAt)
-    .slice(0, maxSessions);
-  const gatewayCache = sessionPreviewRequests.get(gateway as object)
-    ?? new Map<string, Promise<OpenClawSessionPreview | null>>();
-  sessionPreviewRequests.set(gateway as object, gatewayCache);
-  const targetCacheKeys = new Set(
-    targets.map((session) => sessionPreviewRequestKey(session, limit)),
-  );
-  for (const cacheKey of gatewayCache.keys()) {
-    if (!targetCacheKeys.has(cacheKey)) gatewayCache.delete(cacheKey);
-  }
-  const previews = await Promise.all(targets.map(async (session) => {
-    const cacheKey = sessionPreviewRequestKey(session, limit);
-    const existing = gatewayCache.get(cacheKey);
-    if (existing) return existing;
-    let request: Promise<OpenClawSessionPreview | null>;
-    request = loadOpenClawSessionPreview(gateway, session, limit).catch(() => {
-      if (gatewayCache.get(cacheKey) === request) gatewayCache.delete(cacheKey);
-      return null;
-    });
-    gatewayCache.set(cacheKey, request);
-    return request;
-  }));
-  return Object.fromEntries(
-    previews
-      .filter((preview): preview is OpenClawSessionPreview => preview !== null)
-      .map((preview) => [preview.key, preview]),
-  );
-}
-
-function sessionPreviewRequestKey(session: OpenClawSessionRecord, limit: number): string {
-  return [
-    session.gatewaySessionKey ?? session.key,
-    session.key,
-    String(session.lastMessageAt),
-    String(session.messageCount),
-    String(limit),
-  ].join("\u0000");
-}
-
-async function loadOpenClawSessionPreview(
-  gateway: SessionPreviewGateway,
-  session: OpenClawSessionRecord,
-  limit: number,
-): Promise<OpenClawSessionPreview | null> {
-  return normalizeOpenClawSessionPreview(
-    session.key,
-    await gateway.sessionsPreview(session.gatewaySessionKey ?? session.key, limit),
-  );
 }
 
 export async function loadOpenClawChatHistory(

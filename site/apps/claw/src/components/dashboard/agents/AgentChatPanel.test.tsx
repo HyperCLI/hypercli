@@ -903,6 +903,65 @@ describe("AgentChatPanel", () => {
     expect(screen.getByRole("status", { name: /files opened/i })).toBeInTheDocument();
   });
 
+  it("reports the refreshed session count for the sessions slash command", async () => {
+    const refreshSessions = vi.fn(async () => [
+      { key: "session-alpha" },
+      { key: "session-beta" },
+    ] as Awaited<ReturnType<ChatSession["refreshSessions"]>>);
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/sessions",
+        sessions: [{ key: "session-stale" }] as ChatSession["sessions"],
+        refreshSessions,
+      }),
+      isSelectedRunning: true,
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(refreshSessions).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("2 sessions loaded.")).toBeInTheDocument();
+  });
+
+  it("reports refreshed session data for the refresh slash command", async () => {
+    const refreshSessions = vi.fn(async () => [
+      { key: "session-alpha" },
+      { key: "session-beta" },
+      { key: "session-gamma" },
+    ] as Awaited<ReturnType<ChatSession["refreshSessions"]>>);
+    const refreshCron = vi.fn(async () => undefined);
+    const retry = vi.fn();
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        input: "/refresh",
+        sessions: [{ key: "session-stale" }] as ChatSession["sessions"],
+        refreshSessions,
+        refreshCron,
+        retry,
+      }),
+      isSelectedRunning: true,
+    });
+
+    await act(async () => {
+      fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
+    });
+
+    expect(retry).toHaveBeenCalledTimes(1);
+    expect(refreshSessions).toHaveBeenCalledTimes(1);
+    expect(refreshCron).toHaveBeenCalledTimes(1);
+    expect(screen.getByText("Refresh complete. 3 sessions loaded.")).toBeInTheDocument();
+  });
+
   it("shows workspace file suggestions from @ autocomplete", () => {
     renderAgentChatPanel({
       chat: buildChat({
