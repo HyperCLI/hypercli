@@ -402,7 +402,7 @@ export function AgentFilesPanel({
           <div className="flex items-center gap-1 text-[10px] text-warning">
             {filesBootStatus?.status === "loading" ? <Loader2 className="h-3 w-3 animate-spin" /> : <WifiOff className="h-3 w-3" />}
             <span>
-              {filesBootStatus?.title ?? (agentState === "RUNNING" ? "Unavailable" : agentState)}
+              {filesBootStatus?.title ?? (effectiveError ? "Files error" : "Unavailable")}
             </span>
           </div>
         )}

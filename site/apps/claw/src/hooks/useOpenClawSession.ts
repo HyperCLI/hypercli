@@ -11,6 +11,7 @@ import type {
   GatewayIntegrationAuthStatusParams,
   GatewayIntegrationDisconnectParams,
   GatewayIntegrationStatusParams,
+  GatewayIntegrationStatusResult,
   GatewaySkillsDetailParams,
   GatewaySkillsInstallParams,
   GatewaySkillsSearchParams,
@@ -444,7 +445,7 @@ export function useOpenClawSession(
   const sessionListRefreshRef = useRef<SessionListRefreshEntry | null>(null);
   const sessionSnapshotRef = useRef<SessionSnapshotEntry>({ agentId: null, fetchedAgentId: null, sessions: [] });
   const channelsStatusCacheRef = useRef<GatewayStatusCacheEntry<Record<string, unknown>> | null>(null);
-  const integrationsStatusCacheRef = useRef<Map<string, GatewayStatusCacheEntry<unknown>>>(new Map());
+  const integrationsStatusCacheRef = useRef<Map<string, GatewayStatusCacheEntry<GatewayIntegrationStatusResult>>>(new Map());
   const seededE2EConnection = hasSeededE2EConnection();
 
   useEffect(() => {
@@ -1363,7 +1364,7 @@ export function useOpenClawSession(
     return gateway.integrationsAuthStatus(params);
   }, [gateway]);
 
-  const integrationsStatus = useCallback(async (params: GatewayIntegrationStatusParams = {}) => {
+  const integrationsStatus = useCallback(async (params: GatewayIntegrationStatusParams = {}): Promise<GatewayIntegrationStatusResult> => {
     if (!gateway) throw new Error("Not connected");
     if (params.probe === true) return gateway.integrationsStatus(params);
     const cacheKey = integrationStatusCacheKey(params);
