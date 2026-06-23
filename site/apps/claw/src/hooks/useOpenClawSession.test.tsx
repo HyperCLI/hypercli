@@ -72,6 +72,10 @@ function buildGateway(initialState: TestGatewayConnectionState = "connected") {
     configPatch: vi.fn(async () => undefined),
     configSet: vi.fn(async () => undefined),
     channelsStatus: vi.fn(async () => ({ channels: {} })),
+    integrationsAuthStart: vi.fn(async () => ({ authId: "auth-1" })),
+    integrationsAuthStatus: vi.fn(async () => ({ status: "pending" })),
+    integrationsStatus: vi.fn(async () => ({ integrations: {} })),
+    integrationsDisconnect: vi.fn(async () => ({ ok: true })),
   };
   return gateway;
 }
@@ -148,6 +152,10 @@ describe("useOpenClawSession", () => {
 
   it("routes OpenClaw settings operations through the SDK gateway client", async () => {
     const gateway = buildGateway();
+    gateway.configGet.mockResolvedValue({
+      channels: { telegram: { enabled: true } },
+      llm: { model: "old-model", temperature: 0.2 },
+    });
     const agent = {
       id: "agent-1",
       connect: vi.fn(),
@@ -158,17 +166,33 @@ describe("useOpenClawSession", () => {
     const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
 
     await waitFor(() => expect(result.current.connected).toBe(true));
-    await waitFor(() => expect(result.current.config).toEqual({ llm: { model: "old-model" } }));
+    await waitFor(() => expect(result.current.config).toEqual({
+      channels: { telegram: { enabled: true } },
+      llm: { model: "old-model", temperature: 0.2 },
+    }));
+    const configGetCallsAfterHydrate = gateway.configGet.mock.calls.length;
 
     await act(async () => {
-      await result.current.saveConfig({ llm: { model: "new-model" } });
+      await result.current.saveConfig({
+        channels: { telegram: null },
+        llm: { model: "new-model" },
+      });
     });
-    expect(gateway.configPatch).toHaveBeenCalledWith({ llm: { model: "new-model" } });
+    expect(gateway.configPatch).toHaveBeenCalledWith({
+      channels: { telegram: null },
+      llm: { model: "new-model" },
+    });
+    expect(gateway.configGet).toHaveBeenCalledTimes(configGetCallsAfterHydrate);
+    expect(result.current.config).toEqual({
+      channels: {},
+      llm: { model: "new-model", temperature: 0.2 },
+    });
 
     await act(async () => {
       await result.current.saveFullConfig({ llm: { model: "full-model" } });
     });
     expect(gateway.configSet).toHaveBeenCalledWith({ llm: { model: "full-model" } });
+    expect(result.current.config).toEqual({ llm: { model: "full-model" } });
 
     await act(async () => {
       await result.current.channelsStatus(true, 2500);
@@ -177,6 +201,63 @@ describe("useOpenClawSession", () => {
 
     expect(agent.gateway).toHaveBeenCalledTimes(1);
     expect(gateway.connect).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("caches non-probe gateway status calls and invalidates them after changes", async () => {
+    const gateway = buildGateway();
+    gateway.channelsStatus.mockImplementation(async (probe?: boolean) => ({
+      channels: { telegram: { probe: Boolean(probe), call: gateway.channelsStatus.mock.calls.length } },
+    }));
+    gateway.integrationsStatus.mockImplementation(async (params?: { probe?: boolean; integrationId?: string }) => ({
+      integrations: { [params?.integrationId ?? "all"]: { probe: Boolean(params?.probe), call: gateway.integrationsStatus.mock.calls.length } },
+    }));
+    const agent = {
+      id: "agent-1",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, unmount } = renderHookWithClient(() => useOpenClawSession(agent as any));
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+
+    await act(async () => {
+      await result.current.channelsStatus(false);
+      await result.current.channelsStatus(false);
+      await result.current.integrationsStatus({ integrationId: "github" });
+      await result.current.integrationsStatus({ probe: false, integrationId: "github" });
+    });
+
+    expect(gateway.channelsStatus).toHaveBeenCalledTimes(1);
+    expect(gateway.integrationsStatus).toHaveBeenCalledTimes(1);
+
+    await act(async () => {
+      await result.current.channelsStatus(true);
+      await result.current.channelsStatus(true);
+      await result.current.integrationsStatus({ probe: true, integrationId: "github" });
+      await result.current.integrationsStatus({ probe: true, integrationId: "github" });
+    });
+
+    expect(gateway.channelsStatus).toHaveBeenCalledTimes(3);
+    expect(gateway.integrationsStatus).toHaveBeenCalledTimes(3);
+
+    await act(async () => {
+      await result.current.saveConfig({ llm: { model: "new-model" } });
+      await result.current.channelsStatus(false);
+      await result.current.integrationsStatus({ integrationId: "github" });
+    });
+
+    expect(gateway.channelsStatus).toHaveBeenCalledTimes(4);
+    expect(gateway.integrationsStatus).toHaveBeenCalledTimes(4);
+
+    await act(async () => {
+      await result.current.integrationsDisconnect({ integrationId: "github" });
+      await result.current.integrationsStatus({ integrationId: "github" });
+    });
+
+    expect(gateway.integrationsStatus).toHaveBeenCalledTimes(5);
     unmount();
   });
 
@@ -431,6 +512,47 @@ describe("useOpenClawSession", () => {
     await waitFor(() => {
       expect(readCachedOpenClawChatHistory("deploy-123", "session-alpha").map((message) => message.content)).toContain("hello session");
     });
+    unmount();
+  });
+
+  it("reuses connection-level gateway hydration when switching active sessions", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.filesList.mockResolvedValue([{ name: "README.md", path: "README.md", size: 100 }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha", lastMessageAt: 10 },
+      { key: "session-beta", title: "Beta", lastMessageAt: 20 },
+    ]);
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => [
+      { role: "assistant", content: `${sessionKey} history` },
+    ]);
+    const agent = {
+      id: "main",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["session-alpha history"]));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.messages.map((message) => message.content)).toEqual(["session-beta history"]));
+    expect(gateway.configGet).toHaveBeenCalledTimes(1);
+    expect(gateway.configSchema).toHaveBeenCalledTimes(1);
+    expect(gateway.agentsList).toHaveBeenCalledTimes(1);
+    expect(gateway.filesList).toHaveBeenCalledTimes(1);
+    expect(gateway.cronList).toHaveBeenCalledTimes(1);
+    expect(gateway.modelsList).toHaveBeenCalledTimes(1);
+    expect(gateway.sessionsList).toHaveBeenCalledTimes(2);
+    expect(gateway.chatHistory).toHaveBeenCalledWith("session-alpha", 200);
+    expect(gateway.chatHistory).toHaveBeenCalledWith("session-beta", 200);
     unmount();
   });
 

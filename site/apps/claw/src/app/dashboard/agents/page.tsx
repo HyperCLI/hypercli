@@ -1023,6 +1023,11 @@ function AgentsPageContent() {
     }
   }, [deployments, getToken, requestedAgentId]);
 
+  const getAgentClient = useCallback(async () => {
+    if (deployments) return deployments;
+    return createAgentClient(await getToken());
+  }, [deployments, getToken]);
+
   const refreshAgentsForChildren = useCallback(async () => {
     await fetchAgents();
   }, [fetchAgents]);
@@ -1392,8 +1397,7 @@ function AgentsPageContent() {
 
   const listAgentFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
     if (!selectedAgentId) return [];
-    const token = await getToken();
-    const agentClient = createAgentClient(token);
+    const agentClient = await getAgentClient();
     const normalizedPath = normalizeAgentFilePath(path ?? "");
     const preferredSource = agentFileSourceForState(selectedAgentState, source);
     const entries = await agentClient.filesList(selectedAgentId, normalizedPath, preferredSource);
@@ -1410,7 +1414,7 @@ function AgentsPageContent() {
     return (entries as AgentFileEntry[])
       .filter((entry) => !isAgentDirectoryMarkerEntry(entry))
       .map(toDashboardFileEntry);
-  }, [getToken, selectedAgentId, selectedAgentState]);
+  }, [getAgentClient, selectedAgentId, selectedAgentState]);
 
   const refreshChatFileReferences = useCallback(async () => {
     if (!selectedAgentId || !chat.connected) {
@@ -1475,8 +1479,7 @@ function AgentsPageContent() {
     const normalizedPath = normalizeAgentFilePath(path);
     if (!agentId) return { content: "", path: normalizedPath, renamed: false };
 
-    const token = await getToken();
-    const agentClient = createAgentClient(token);
+    const agentClient = await getAgentClient();
     const readSource = agentFileSourceForState(selectedAgentState, source);
     return readAgentFileWithRecovery({
       path: normalizedPath,
@@ -1485,7 +1488,7 @@ function AgentsPageContent() {
       )),
       rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
     });
-  }, [getToken, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
+  }, [getAgentClient, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
 
   const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
     const result = await readAgentFileResult(path, source);
@@ -1500,8 +1503,7 @@ function AgentsPageContent() {
     const normalizedPath = normalizeAgentFilePath(path);
     if (!agentId) return { content: new Uint8Array(), path: normalizedPath, renamed: false };
 
-    const token = await getToken();
-    const agentClient = createAgentClient(token);
+    const agentClient = await getAgentClient();
     const readSource = agentFileSourceForState(selectedAgentState, source);
     return readAgentFileWithRecovery({
       path: normalizedPath,
@@ -1510,7 +1512,7 @@ function AgentsPageContent() {
       )),
       rename: (fromPath, safeCandidatePath) => renameAgentFileToSafeName(agentClient, fromPath, safeCandidatePath),
     });
-  }, [getToken, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
+  }, [getAgentClient, renameAgentFileToSafeName, selectedAgentId, selectedAgentState]);
 
   const readAgentFileBytes = useCallback(async (path: string, source: AgentFileSource = "auto") => {
     const result = await readAgentFileBytesResult(path, source);
@@ -1519,37 +1521,37 @@ function AgentsPageContent() {
 
   const loadAgentSkills = useCallback(async () => {
     if (!selectedAgentId) return [];
-    const token = await getToken();
-    const result = await createAgentClient(token).exec(selectedAgentId, buildSkillsSnapshotCommand(), { timeout: 15_000 });
+    const agentClient = await getAgentClient();
+    const result = await agentClient.exec(selectedAgentId, buildSkillsSnapshotCommand(), { timeout: 15_000 });
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || "Failed to read /app/skills from the agent.");
     }
     return parseSkillSnapshotOutput(result.stdout);
-  }, [getToken, selectedAgentId]);
+  }, [getAgentClient, selectedAgentId]);
 
   const saveAgentFile = useCallback(async (path: string, content: string) => {
     if (!selectedAgentId) return;
-    const token = await getToken();
-    await createAgentClient(token).fileWrite(
+    const agentClient = await getAgentClient();
+    await agentClient.fileWrite(
       selectedAgentId,
       normalizeAgentFilePath(path),
       content,
       agentFileDestinationForState(selectedAgentState),
     );
     await refreshChatFileReferences().catch(() => undefined);
-  }, [getToken, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
+  }, [getAgentClient, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
 
   const uploadAgentFile = useCallback(async (path: string, content: Uint8Array) => {
     if (!selectedAgentId) return;
-    const token = await getToken();
-    await createAgentClient(token).fileWriteBytes(
+    const agentClient = await getAgentClient();
+    await agentClient.fileWriteBytes(
       selectedAgentId,
       normalizeAgentFilePath(path),
       content,
       agentFileDestinationForState(selectedAgentState),
     );
     await refreshChatFileReferences().catch(() => undefined);
-  }, [getToken, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
+  }, [getAgentClient, refreshChatFileReferences, selectedAgentId, selectedAgentState]);
 
   const createAgentDirectory = useCallback(async (path: string) => {
     if (!selectedAgentId) return;
@@ -1558,21 +1560,21 @@ function AgentsPageContent() {
       throw new Error("Folders can only be created inside the workspace.");
     }
 
-    const token = await getToken();
-    await createAgentClient(token).fileWriteBytes(
+    const agentClient = await getAgentClient();
+    await agentClient.fileWriteBytes(
       selectedAgentId,
       `${normalizedPath}/${AGENT_DIRECTORY_MARKER_NAME}`,
       new Uint8Array(),
       "s3",
     );
-  }, [getToken, selectedAgentId]);
+  }, [getAgentClient, selectedAgentId]);
 
   const deleteAgentFile = useCallback(async (path: string, options?: { recursive?: boolean }) => {
     if (!selectedAgentId) return;
-    const token = await getToken();
-    await createAgentClient(token).fileDelete(selectedAgentId, normalizeAgentFilePath(path), options);
+    const agentClient = await getAgentClient();
+    await agentClient.fileDelete(selectedAgentId, normalizeAgentFilePath(path), options);
     await refreshChatFileReferences().catch(() => undefined);
-  }, [getToken, refreshChatFileReferences, selectedAgentId]);
+  }, [getAgentClient, refreshChatFileReferences, selectedAgentId]);
 
   const agentStatus = useMemo<AgentStatusChipModel | null>(() => {
     if (!selectedAgent) return null;

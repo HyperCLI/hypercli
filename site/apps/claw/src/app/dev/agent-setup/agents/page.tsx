@@ -434,6 +434,11 @@ export default function DevAgentSetupAgentsPage() {
     }
   }, [deployments, getToken]);
 
+  const getAgentClient = useCallback(async () => {
+    if (deployments) return deployments;
+    return createAgentClient(await getToken());
+  }, [deployments, getToken]);
+
   useEffect(() => { fetchAgents(); }, [fetchAgents]);
 
   const agents = useMemo(() => sdkAgents.map(toAgentViewModel), [sdkAgents]);
@@ -700,30 +705,30 @@ export default function DevAgentSetupAgentsPage() {
 
   const listAgentFiles = useCallback(async (path?: string, source: AgentFileSource = "auto") => {
     if (!selectedAgentId) return [];
-    const token = await getToken();
-    const entries = await createAgentClient(token).filesList(
+    const agentClient = await getAgentClient();
+    const entries = await agentClient.filesList(
       selectedAgentId,
       normalizeAgentFilePath(path ?? ""),
       source,
     );
     return (entries as AgentFileEntry[]).map(toDashboardFileEntry);
-  }, [getToken, selectedAgentId]);
+  }, [getAgentClient, selectedAgentId]);
 
   const readAgentFile = useCallback(async (path: string, source: AgentFileSource = "auto") => {
     if (!selectedAgentId) return "";
-    const token = await getToken();
-    return createAgentClient(token).fileRead(selectedAgentId, normalizeAgentFilePath(path), source);
-  }, [getToken, selectedAgentId]);
+    const agentClient = await getAgentClient();
+    return agentClient.fileRead(selectedAgentId, normalizeAgentFilePath(path), source);
+  }, [getAgentClient, selectedAgentId]);
 
   const loadAgentSkills = useCallback(async () => {
     if (!selectedAgentId) return [];
-    const token = await getToken();
-    const result = await createAgentClient(token).exec(selectedAgentId, buildSkillsSnapshotCommand(), { timeout: 15_000 });
+    const agentClient = await getAgentClient();
+    const result = await agentClient.exec(selectedAgentId, buildSkillsSnapshotCommand(), { timeout: 15_000 });
     if (result.exitCode !== 0) {
       throw new Error(result.stderr || "Failed to read /app/skills from the agent.");
     }
     return parseSkillSnapshotOutput(result.stdout);
-  }, [getToken, selectedAgentId]);
+  }, [getAgentClient, selectedAgentId]);
 
   // ── Agent inspector data wiring ──
 

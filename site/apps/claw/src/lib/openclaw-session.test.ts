@@ -382,14 +382,12 @@ describe("openclaw session keys", () => {
     });
 
     handleOpenClawChatStreamEvent({
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       chatEvent: {
         type: "done",
         data: { message: RESPONSES_STYLE_TOOL_RICH_MESSAGE },
       } as any,
       setMessages,
       setSending: vi.fn(),
-      setSessions: vi.fn(),
       appendActivity: vi.fn(),
       activeSessionKey: "main",
     });
@@ -417,10 +415,8 @@ describe("openclaw session keys", () => {
       messages = typeof value === "function" ? value(messages) : value;
     });
     const context = {
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       setMessages,
       setSending: vi.fn(),
-      setSessions: vi.fn(),
       appendActivity: vi.fn(),
     };
 
@@ -808,7 +804,6 @@ describe("openclaw session keys", () => {
     const appendActivity = vi.fn();
 
     handleOpenClawChatStreamEvent({
-      gateway: { sessionsList: vi.fn(async () => []) } as any,
       chatEvent: {
         type: "error",
         text: "aborted",
@@ -816,7 +811,6 @@ describe("openclaw session keys", () => {
       },
       setMessages,
       setSending,
-      setSessions: vi.fn(),
       appendActivity,
     });
 

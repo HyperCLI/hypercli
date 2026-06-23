@@ -29,9 +29,11 @@ import {
 import {
   type ActivityEntry,
   type ActivityKind,
+  type HydratedOpenClawConnection,
   appendActivityEntry,
   handleOpenClawChatStreamEvent,
   handleOpenClawSessionEvent,
+  hydrateOpenClawConnection,
   hydrateOpenClawSession,
   refreshOpenClawChatMessages,
 } from "@/lib/openclaw-session";
@@ -77,6 +79,7 @@ const E2E_OPENCLAW_CONNECTED_KEY = "claw_e2e_openclaw_connected";
 const OPENCLAW_SESSION_TITLE_STORAGE_PREFIX = "openclaw.sessionTitles.v1";
 const OPENCLAW_SESSION_LIST_STORAGE_PREFIX = "openclaw.sessions.v1";
 const GATEWAY_CONNECTING_STALL_MS = 30_000;
+const GATEWAY_STATUS_CACHE_TTL_MS = 5_000;
 const GATEWAY_CONNECTING_STALL_MESSAGE =
   "Timed out opening the agent session. The gateway is still reconnecting in the background.";
 const GENERIC_OPENCLAW_CONNECTION_ERROR = "Could not connect to the agent session.";
@@ -87,6 +90,18 @@ let fallbackSessionCounter = 0;
 interface SendMessageOptions {
   displayContent?: string;
   files?: ChatPendingFile[];
+}
+
+interface ConnectionHydrationEntry {
+  gateway: GatewayClient;
+  agentId: string | null;
+  promise: Promise<HydratedOpenClawConnection>;
+  value?: HydratedOpenClawConnection;
+}
+
+interface GatewayStatusCacheEntry<T> {
+  expiresAt: number;
+  promise: Promise<T>;
 }
 
 function hasSeededE2EConnection(): boolean {
@@ -292,6 +307,37 @@ function isRecord(value: unknown): value is Record<string, unknown> {
   return Boolean(value) && typeof value === "object" && !Array.isArray(value);
 }
 
+function stableStatusCacheKey(value: unknown): string {
+  if (Array.isArray(value)) return `[${value.map(stableStatusCacheKey).join(",")}]`;
+  if (!isRecord(value)) return JSON.stringify(value ?? null);
+  return `{${Object.keys(value).sort().map((key) => `${JSON.stringify(key)}:${stableStatusCacheKey(value[key])}`).join(",")}}`;
+}
+
+function integrationStatusCacheKey(params: GatewayIntegrationStatusParams): string {
+  const normalized: Record<string, unknown> = { ...params };
+  if (normalized.probe === false) delete normalized.probe;
+  return stableStatusCacheKey(normalized);
+}
+
+function mergeOpenClawConfigPatch(
+  current: Record<string, unknown> | null,
+  patch: Record<string, unknown>,
+): Record<string, unknown> {
+  const next = isRecord(current) ? { ...current } : {};
+  for (const [key, value] of Object.entries(patch)) {
+    if (value === null) {
+      delete next[key];
+      continue;
+    }
+    if (isRecord(value) && isRecord(next[key])) {
+      next[key] = mergeOpenClawConfigPatch(next[key], value);
+      continue;
+    }
+    next[key] = value;
+  }
+  return next;
+}
+
 function stringifyErrorForSearch(value: unknown): string {
   if (value instanceof Error) return value.message;
   if (typeof value === "string") return value;
@@ -373,6 +419,9 @@ export function useOpenClawSession(
   const sessionTitleMapRef = useRef<Record<string, string>>({});
   const creatingSessionKeysRef = useRef<Set<string>>(new Set());
   const refreshSessionsAfterReconnectRef = useRef(false);
+  const connectionHydrationRef = useRef<ConnectionHydrationEntry | null>(null);
+  const channelsStatusCacheRef = useRef<GatewayStatusCacheEntry<Record<string, unknown>> | null>(null);
+  const integrationsStatusCacheRef = useRef<Map<string, GatewayStatusCacheEntry<unknown>>>(new Map());
   const seededE2EConnection = hasSeededE2EConnection();
 
   useEffect(() => {
@@ -433,7 +482,41 @@ export function useOpenClawSession(
     setRetrySignal((value) => value + 1);
   }, []);
 
+  const clearGatewayStatusCaches = useCallback(() => {
+    channelsStatusCacheRef.current = null;
+    integrationsStatusCacheRef.current.clear();
+  }, []);
+
+  const hydrateConnectionForGateway = useCallback((nextGateway: GatewayClient) => {
+    const current = connectionHydrationRef.current;
+    if (current && current.gateway === nextGateway && current.agentId === agentId) return current.promise;
+
+    const promise = hydrateOpenClawConnection(nextGateway, agentId);
+    const nextEntry: ConnectionHydrationEntry = { gateway: nextGateway, agentId, promise };
+    connectionHydrationRef.current = nextEntry;
+    void promise.then((value) => {
+      if (connectionHydrationRef.current === nextEntry) nextEntry.value = value;
+    }).catch(() => {
+      if (connectionHydrationRef.current === nextEntry) connectionHydrationRef.current = null;
+    });
+    return promise;
+  }, [agentId]);
+
+  const updateConnectionHydration = useCallback((update: (connection: HydratedOpenClawConnection) => void) => {
+    const current = connectionHydrationRef.current;
+    if (!current) return;
+    if (current.value) {
+      update(current.value);
+      return;
+    }
+    void current.promise.then((value) => {
+      if (connectionHydrationRef.current === current) update(value);
+    }).catch(() => undefined);
+  }, []);
+
   const resetSessionStateForDisconnect = useCallback(({ preserveMessages = false }: { preserveMessages?: boolean } = {}) => {
+    connectionHydrationRef.current = null;
+    clearGatewayStatusCaches();
     activeChatSendRef.current = false;
     activeChatStreamRef.current = null;
     abortRequestedRef.current = false;
@@ -459,7 +542,7 @@ export function useOpenClawSession(
     setCronJobs([]);
     setModels([]);
     setActivityFeed([]);
-  }, [dispatchChatHistory]);
+  }, [clearGatewayStatusCaches, dispatchChatHistory]);
 
   useEffect(() => {
     if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
@@ -473,6 +556,8 @@ export function useOpenClawSession(
     let active = true;
     let localGateway: GatewayClient | null = null;
     let unsubscribeConnectionState: (() => void) | null = null;
+    connectionHydrationRef.current = null;
+    clearGatewayStatusCaches();
 
     if (enabled && seededE2EConnection) {
       setGateway(null);
@@ -530,11 +615,15 @@ export function useOpenClawSession(
           if (!active) return;
           setStatus(nextState);
           if (nextState === "disconnected") {
+            connectionHydrationRef.current = null;
+            clearGatewayStatusCaches();
             setGateway(null);
             resetSessionStateForDisconnect({ preserveMessages: true });
             return;
           }
           if (nextState === "connecting") {
+            connectionHydrationRef.current = null;
+            clearGatewayStatusCaches();
             setGateway(null);
             setHydrating(false);
             setReady(false);
@@ -569,7 +658,7 @@ export function useOpenClawSession(
       unsubscribeConnectionState?.();
       localGateway?.close();
     };
-  }, [enabled, agentId, retrySignal, seededE2EConnection, resetSessionStateForDisconnect]);
+  }, [enabled, agentId, retrySignal, seededE2EConnection, clearGatewayStatusCaches, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -684,7 +773,9 @@ export function useOpenClawSession(
     setHydrating(true);
     void (async () => {
       try {
-        const hydrated = await hydrateOpenClawSession(gateway, agentId, activeSessionKey);
+        const connectionHydration = await hydrateConnectionForGateway(gateway);
+        if (cancelled) return;
+        const hydrated = await hydrateOpenClawSession(gateway, agentId, activeSessionKey, connectionHydration);
         if (cancelled) return;
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
@@ -698,7 +789,6 @@ export function useOpenClawSession(
         }
         setFiles(hydrated.files);
         setGwAgentId(hydrated.gwAgentId);
-        let nextSessionPreviews = hydrated.sessionPreviews;
         const shouldRefreshSessionsAfterReconnect = refreshSessionsAfterReconnectRef.current;
         if (hydrated.sessionsFetched) {
           setTitledSessions(hydrated.sessions);
@@ -710,14 +800,12 @@ export function useOpenClawSession(
             if (cancelled) return;
             setTitledSessions(nextSessions);
             setSessionsFetchedAgentId(agentId);
-            nextSessionPreviews = await loadOpenClawSessionPreviews(gateway, nextSessions);
-            if (cancelled) return;
           } catch {
           } finally {
             if (!cancelled) refreshSessionsAfterReconnectRef.current = false;
           }
         }
-        setSessionPreviews(nextSessionPreviews);
+        setSessionPreviews(hydrated.sessionPreviews);
         setCronJobs(hydrated.cronJobs);
         setModels(hydrated.models);
         setReady(true);
@@ -732,7 +820,7 @@ export function useOpenClawSession(
     return () => {
       cancelled = true;
     };
-  }, [gateway, status, agentId, activeSessionKey, dispatchChatHistory, setTitledSessions]);
+  }, [gateway, status, agentId, activeSessionKey, dispatchChatHistory, hydrateConnectionForGateway, setTitledSessions]);
 
   useEffect(() => {
     if (status !== "disconnected") return;
@@ -742,6 +830,7 @@ export function useOpenClawSession(
 
   useEffect(() => {
     if (!gateway || sessions.length === 0) return;
+    if (activeChatSendRef.current) return;
 
     let cancelled = false;
     void loadOpenClawSessionPreviews(gateway, sessions).then((previews) => {
@@ -883,11 +972,9 @@ export function useOpenClawSession(
         for await (const chatEvent of chatStream) {
           if (abortRequestedRef.current) continue;
           handleOpenClawChatStreamEvent({
-            gateway,
             chatEvent,
             setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
             setSending,
-            setSessions: setTitledSessions,
             appendActivity,
           });
         }
@@ -916,7 +1003,6 @@ export function useOpenClawSession(
           const nextSessions = await listOpenClawSessions(gateway);
           setTitledSessions(nextSessions);
           setSessionsFetchedAgentId(agentId);
-          setSessionPreviews(await loadOpenClawSessionPreviews(gateway, nextSessions));
         } catch {}
       }
     }
@@ -959,29 +1045,45 @@ export function useOpenClawSession(
   const saveFile = useCallback(async (name: string, content: string) => {
     if (!gateway) throw new Error("Not connected");
     await gateway.fileSet(gwAgentId, name, content);
+    connectionHydrationRef.current = null;
     appendActivity({ type: "tool", action: "file_write", detail: `${name} · ${content.length.toLocaleString()} chars` });
   }, [gateway, gwAgentId, appendActivity]);
 
   const saveConfig = useCallback(async (patch: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");
     await gateway.configPatch(patch);
-    try {
-      setConfig(await gateway.configGet());
-    } catch {}
+    clearGatewayStatusCaches();
+    setConfig((current) => mergeOpenClawConfigPatch(current, patch));
+    updateConnectionHydration((connection) => {
+      connection.config = mergeOpenClawConfigPatch(connection.config, patch);
+    });
     const keys = Object.keys(patch);
     appendActivity({ type: "system", action: "Config updated", detail: keys.length > 0 ? keys.slice(0, 3).join(", ") + (keys.length > 3 ? `, +${keys.length - 3}` : "") : "" });
-  }, [gateway, appendActivity]);
+  }, [gateway, appendActivity, clearGatewayStatusCaches, updateConnectionHydration]);
 
   const saveFullConfig = useCallback(async (nextConfig: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");
     await gateway.configSet(nextConfig);
+    clearGatewayStatusCaches();
     setConfig(nextConfig);
+    updateConnectionHydration((connection) => {
+      connection.config = nextConfig;
+    });
     appendActivity({ type: "system", action: "openclaw.json updated", detail: "Saved full OpenClaw config" });
-  }, [gateway, appendActivity]);
+  }, [gateway, appendActivity, clearGatewayStatusCaches, updateConnectionHydration]);
 
   const channelsStatus = useCallback(async (probe = false, timeoutMs?: number) => {
     if (!gateway) throw new Error("Not connected");
-    return gateway.channelsStatus(probe, timeoutMs);
+    if (probe || timeoutMs !== undefined) return gateway.channelsStatus(probe, timeoutMs);
+    const now = Date.now();
+    const cached = channelsStatusCacheRef.current;
+    if (cached && cached.expiresAt > now) return cached.promise;
+    const promise = gateway.channelsStatus(false) as Promise<Record<string, unknown>>;
+    channelsStatusCacheRef.current = { expiresAt: now + GATEWAY_STATUS_CACHE_TTL_MS, promise };
+    void promise.catch(() => {
+      if (channelsStatusCacheRef.current?.promise === promise) channelsStatusCacheRef.current = null;
+    });
+    return promise;
   }, [gateway]);
 
   const refreshSessions = useCallback(async () => {
@@ -990,7 +1092,6 @@ export function useOpenClawSession(
       const nextSessions = await listOpenClawSessions(gateway);
       setTitledSessions(nextSessions);
       setSessionsFetchedAgentId(agentId);
-      setSessionPreviews(await loadOpenClawSessionPreviews(gateway, nextSessions));
       return nextSessions;
     } catch {
       return undefined;
@@ -1041,7 +1142,6 @@ export function useOpenClawSession(
             : [newOpenClawSessionRecord(sessionKey), ...nextSessions];
           setTitledSessions(refreshedSessions);
           setSessionsFetchedAgentId(agentId);
-          setSessionPreviews(await loadOpenClawSessionPreviews(gateway, refreshedSessions));
         } catch {}
       } catch (e: unknown) {
         finishCreatingSession(sessionKey);
@@ -1103,8 +1203,12 @@ export function useOpenClawSession(
 
   const refreshCron = useCallback(async () => {
     if (!gateway) throw new Error("Not connected");
-    setCronJobs(await gateway.cronList() as Array<Record<string, unknown>>);
-  }, [gateway]);
+    const nextCronJobs = await gateway.cronList() as Array<Record<string, unknown>>;
+    setCronJobs(nextCronJobs);
+    updateConnectionHydration((connection) => {
+      connection.cronJobs = nextCronJobs;
+    });
+  }, [gateway, updateConnectionHydration]);
 
   const addCron = useCallback(async (job: Record<string, unknown>) => {
     if (!gateway) throw new Error("Not connected");
@@ -1197,9 +1301,10 @@ export function useOpenClawSession(
   const integrationsAuthStart = useCallback(async (params: GatewayIntegrationAuthStartParams) => {
     if (!gateway) throw new Error("Not connected");
     const result = await gateway.integrationsAuthStart(params);
+    clearGatewayStatusCaches();
     appendActivity({ type: "connection", action: "Connection auth started", detail: params.integrationId });
     return result;
-  }, [gateway, appendActivity]);
+  }, [gateway, appendActivity, clearGatewayStatusCaches]);
 
   const integrationsAuthStatus = useCallback(async (params: GatewayIntegrationAuthStatusParams) => {
     if (!gateway) throw new Error("Not connected");
@@ -1208,15 +1313,28 @@ export function useOpenClawSession(
 
   const integrationsStatus = useCallback(async (params: GatewayIntegrationStatusParams = {}) => {
     if (!gateway) throw new Error("Not connected");
-    return gateway.integrationsStatus(params);
+    if (params.probe === true) return gateway.integrationsStatus(params);
+    const cacheKey = integrationStatusCacheKey(params);
+    const now = Date.now();
+    const cached = integrationsStatusCacheRef.current.get(cacheKey);
+    if (cached && cached.expiresAt > now) return cached.promise;
+    const promise = gateway.integrationsStatus(params);
+    integrationsStatusCacheRef.current.set(cacheKey, { expiresAt: now + GATEWAY_STATUS_CACHE_TTL_MS, promise });
+    void promise.catch(() => {
+      if (integrationsStatusCacheRef.current.get(cacheKey)?.promise === promise) {
+        integrationsStatusCacheRef.current.delete(cacheKey);
+      }
+    });
+    return promise;
   }, [gateway]);
 
   const integrationsDisconnect = useCallback(async (params: GatewayIntegrationDisconnectParams) => {
     if (!gateway) throw new Error("Not connected");
     const result = await gateway.integrationsDisconnect(params);
+    clearGatewayStatusCaches();
     appendActivity({ type: "connection", action: result.ok ? "Connection disconnected" : "Connection disconnect failed", detail: params.integrationId });
     return result;
-  }, [gateway, appendActivity]);
+  }, [gateway, appendActivity, clearGatewayStatusCaches]);
 
   const connected = seededE2EConnection || (status === "connected" && ready && !hydrating);
   const connecting = seededE2EConnection || Boolean(error)

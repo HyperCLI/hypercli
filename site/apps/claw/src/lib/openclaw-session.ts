@@ -59,11 +59,9 @@ interface SessionEventContext {
 }
 
 interface ChatStreamEventContext {
-  gateway: GatewayClient;
   chatEvent: ChatEvent;
   setMessages: Dispatch<SetStateAction<ChatMessage[]>>;
   setSending: Dispatch<SetStateAction<boolean>>;
-  setSessions: Dispatch<SetStateAction<OpenClawSessionRecord[]>>;
   appendActivity: (entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => void;
 }
 
@@ -102,11 +100,9 @@ function isGatewayChatStreamEvent(event: string, payload: unknown): boolean {
 }
 
 export function handleOpenClawChatStreamEvent({
-  gateway,
   chatEvent,
   setMessages,
   setSending,
-  setSessions,
   appendActivity,
 }: ChatStreamEventContext): void {
   const payload = chatEvent.data ?? {};
@@ -134,7 +130,6 @@ export function handleOpenClawChatStreamEvent({
     if (normalized?.role === "assistant") setMessages((prev) => upsertAssistantMessage(prev, normalized));
     setSending(false);
     appendActivity({ type: "message", action: "Assistant response complete" });
-    void listOpenClawSessions(gateway).then(setSessions).catch(() => {});
   } else if (chatEvent.type === "error") {
     const message = chatEvent.text || "Unknown error";
     if (isAbortedChatPayload(payload, message)) {
@@ -267,6 +262,16 @@ export interface HydratedOpenClawSession {
   sessions: OpenClawSessionRecord[];
   sessionsFetched: boolean;
   sessionPreviews: OpenClawSessionPreviewMap;
+  cronJobs: Array<Record<string, unknown>>;
+  models: Array<Record<string, unknown>>;
+}
+
+export interface HydratedOpenClawConnection {
+  config: Record<string, unknown> | null;
+  configSchema: OpenClawConfigSchemaResponse | null;
+  agents: Array<Record<string, unknown>>;
+  files: WorkspaceFile[];
+  gwAgentId: string;
   cronJobs: Array<Record<string, unknown>>;
   models: Array<Record<string, unknown>>;
 }
@@ -427,23 +432,61 @@ async function recoverLegacyGatewayFiles(
   return null;
 }
 
-export async function hydrateOpenClawSession(
+export async function hydrateOpenClawConnection(
   gateway: GatewayClient,
   preferredAgentId?: string | null,
-  activeSessionKey?: string | null,
-): Promise<HydratedOpenClawSession> {
+): Promise<HydratedOpenClawConnection> {
   const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
-  const requestedSessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
-  const [cfgResult, schemaResult, agentsResult, sessionsRes, cronRes, modelsRes] = await Promise.allSettled([
+  const [cfgResult, schemaResult, agentsResult, cronRes, modelsRes] = await Promise.allSettled([
     gateway.configGet(),
     gateway.configSchema(),
     gateway.agentsList(),
-    listOpenClawSessions(gateway),
     gateway.cronList(),
     gateway.modelsList(),
   ]);
 
   const agents = agentsResult.status === "fulfilled" ? agentsResult.value : [];
+  const resolvedGatewayAgentId = resolveGatewayAgentId(agents);
+  let activeGatewayAgentId = resolvedGatewayAgentId;
+  let files: WorkspaceFile[] = [];
+  if (agentsResult.status === "fulfilled") {
+    try {
+      files = await gateway.filesList(resolvedGatewayAgentId);
+    } catch {}
+    if (files.length === 0) {
+      const recovered = await recoverLegacyGatewayFiles(gateway, normalizedPreferredAgentId, agents, resolvedGatewayAgentId);
+      if (recovered) {
+        files = recovered.files;
+        activeGatewayAgentId = recovered.agentId;
+      }
+    }
+  }
+
+  return {
+    config: cfgResult.status === "fulfilled" ? cfgResult.value : {},
+    configSchema: schemaResult.status === "fulfilled" ? schemaResult.value : null,
+    agents,
+    files,
+    gwAgentId: activeGatewayAgentId,
+    cronJobs: cronRes.status === "fulfilled" ? cronRes.value as Array<Record<string, unknown>> : [],
+    models: modelsRes.status === "fulfilled" ? modelsRes.value as Array<Record<string, unknown>> : [],
+  };
+}
+
+export async function hydrateOpenClawSession(
+  gateway: GatewayClient,
+  preferredAgentId?: string | null,
+  activeSessionKey?: string | null,
+  connectionHydration?: HydratedOpenClawConnection,
+): Promise<HydratedOpenClawSession> {
+  const normalizedPreferredAgentId = (preferredAgentId ?? "").trim();
+  const requestedSessionKey = resolveOpenClawActiveSessionKey(normalizedPreferredAgentId, activeSessionKey);
+  const connection = connectionHydration ?? await hydrateOpenClawConnection(gateway, normalizedPreferredAgentId);
+  const sessionsRes = await listOpenClawSessions(gateway)
+    .then((value) => ({ status: "fulfilled" as const, value }))
+    .catch((reason: unknown) => ({ status: "rejected" as const, reason }));
+
+  const agents = connection.agents;
   const sessions = sessionsRes.status === "fulfilled" ? sessionsRes.value : [];
   const activeSessionRecord = findOpenClawSelectableSession(sessions, requestedSessionKey);
   const resolvedSessionKey = resolveOpenClawGatewaySessionKey(sessions, requestedSessionKey);
@@ -467,35 +510,19 @@ export async function hydrateOpenClawSession(
     : sameOpenClawSessionKey(sessionKey, CANONICAL_GATEWAY_AGENT_ID)
       ? await loadLegacyHistory(gateway, normalizedPreferredAgentId, sessions)
       : [];
-  const resolvedGatewayAgentId = resolveGatewayAgentId(agents);
-  let activeGatewayAgentId = resolvedGatewayAgentId;
-  let files: WorkspaceFile[] = [];
-  if (agentsResult.status === "fulfilled") {
-    try {
-      files = await gateway.filesList(resolvedGatewayAgentId);
-    } catch {}
-    if (files.length === 0) {
-      const recovered = await recoverLegacyGatewayFiles(gateway, normalizedPreferredAgentId, agents, resolvedGatewayAgentId);
-      if (recovered) {
-        files = recovered.files;
-        activeGatewayAgentId = recovered.agentId;
-      }
-    }
-  }
-
   return {
-    config: cfgResult.status === "fulfilled" ? cfgResult.value : {},
-    configSchema: schemaResult.status === "fulfilled" ? schemaResult.value : null,
+    config: connection.config,
+    configSchema: connection.configSchema,
     messages,
-    files,
-    gwAgentId: activeGatewayAgentId,
+    files: connection.files,
+    gwAgentId: connection.gwAgentId,
     gatewaySessionKey: sessionKey,
     activeSessionRecord,
     useLocalCacheFallback: !skipAmbiguousSyntheticMainHistory && activeSessionRecord?.readOnly !== true,
     sessions,
     sessionsFetched: sessionsRes.status === "fulfilled",
     sessionPreviews: {},
-    cronJobs: cronRes.status === "fulfilled" ? cronRes.value as Array<Record<string, unknown>> : [],
-    models: modelsRes.status === "fulfilled" ? modelsRes.value as Array<Record<string, unknown>> : [],
+    cronJobs: connection.cronJobs,
+    models: connection.models,
   };
 }
