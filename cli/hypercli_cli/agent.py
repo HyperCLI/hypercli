@@ -834,7 +834,7 @@ def fetch_models(api_key: str, api_base: str = PROD_INFERENCE_API_BASE) -> list[
 
 def _preferred_agent_models(models: list[dict]) -> list[dict]:
     """Return the recommended agent models in priority order."""
-    preferred = ["kimi-k2.6-anthropic", "kimi-k2.5-anthropic"]
+    preferred = ["glm-5-anthropic", "kimi-k2.6-anthropic", "kimi-k2.5-anthropic"]
     picked = [model for model_id in preferred for model in models if model["id"] == model_id]
     if picked:
         return picked
@@ -1014,13 +1014,26 @@ def _config_openclaw(
     }
 
 
-def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_INFERENCE_API_BASE) -> dict:
+def _config_opencode(
+    api_key: str,
+    models: list[dict],
+    api_base: str = PROD_INFERENCE_API_BASE,
+    placeholder_env: str | None = None,
+) -> dict:
     """OpenCode opencode.json provider snippet."""
     api_base = api_base.rstrip("/")
+    config_api_key = f"{{env:{placeholder_env}}}" if placeholder_env else api_key
     models = _preferred_agent_models(models)
     model_entries = {}
     for m in models:
-        model_entries[m["id"]] = {"name": m["id"]}
+        entry = {"name": m["id"]}
+        context = m.get("contextWindow") or m.get("context_window") or m.get("context")
+        if context:
+            entry["limit"] = {
+                "context": context,
+                "output": m.get("outputLimit") or m.get("output_limit") or 65536,
+            }
+        model_entries[m["id"]] = entry
     return {
         "$schema": "https://opencode.ai/config.json",
         "provider": {
@@ -1029,7 +1042,7 @@ def _config_opencode(api_key: str, models: list[dict], api_base: str = PROD_INFE
                 "name": "HyperCLI",
                 "options": {
                     "baseURL": f"{api_base}/v1",
-                    "apiKey": api_key,
+                    "apiKey": config_api_key,
                 },
                 "models": model_entries,
             }
@@ -1083,7 +1096,7 @@ def config_cmd(
     ),
     key: str = typer.Option(None, "--key", "-k", help="API key (sk-...). Falls back to ~/.hypercli/agent-key.json"),
     base_url: str = typer.Option(None, "--base-url", help="HyperClaw API base URL. Falls back to HYPER_API_BASE, then --dev/prod defaults"),
-    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write ${ENV_VAR} placeholders into generated config instead of literal API keys"),
+    placeholder_env: str = typer.Option(None, "--placeholder-env", help="Write tool-specific environment placeholders into generated config instead of literal API keys"),
     apply: bool = typer.Option(False, "--apply", help="Write config to the appropriate file (openclaw/opencode only)"),
     dev: bool = typer.Option(False, "--dev", help="Use dev API"),
 ):
@@ -1118,7 +1131,7 @@ def config_cmd(
             snippet = _config_openclaw(api_key, models, api_base, placeholder_env=placeholder_env)
             _show_snippet("OpenClaw", "~/.openclaw/openclaw.json", snippet, apply, OPENCLAW_CONFIG_PATH)
         elif fmt == "opencode":
-            snippet = _config_opencode(api_key, models, api_base)
+            snippet = _config_opencode(api_key, models, api_base, placeholder_env=placeholder_env)
             target = Path.cwd() / "opencode.json"
             _show_snippet("OpenCode", "opencode.json", snippet, apply, target)
         elif fmt == "env":

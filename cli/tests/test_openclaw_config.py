@@ -1,6 +1,6 @@
 from pathlib import Path
 
-from hypercli_cli.agent import _config_openclaw, _merge_openclaw_config, _show_snippet
+from hypercli_cli.agent import _config_opencode, _config_openclaw, _merge_openclaw_config, _show_snippet
 
 
 def test_config_openclaw_limits_runtime_models_to_supported_set():
@@ -62,6 +62,28 @@ def test_config_openclaw_supports_placeholder_api_key_env():
     providers = config["models"]["providers"]
     assert providers["hyperclaw"]["apiKey"] == "${HYPER_API_KEY}"
     assert config["agents"]["defaults"]["memorySearch"]["remote"]["apiKey"] == "${HYPER_API_KEY}"
+
+
+def test_config_opencode_supports_env_placeholder_and_glm_limits():
+    config = _config_opencode(
+        "sk-real",
+        [
+            {"id": "kimi-k2.6-anthropic", "name": "Kimi K2.6", "contextWindow": 262144},
+            {"id": "glm-5-anthropic", "name": "GLM-5", "contextWindow": 262144},
+            {"id": "kimi-k2.5-anthropic", "name": "Kimi K2.5"},
+        ],
+        "https://api.hypercli.com",
+        placeholder_env="HYPER_AGENTS_API_KEY",
+    )
+
+    assert config["model"] == "hypercli/glm-5-anthropic"
+    provider = config["provider"]["hypercli"]
+    assert provider["options"]["baseURL"] == "https://api.hypercli.com/v1"
+    assert provider["options"]["apiKey"] == "{env:HYPER_AGENTS_API_KEY}"
+    assert provider["models"]["glm-5-anthropic"]["limit"] == {
+        "context": 262144,
+        "output": 65536,
+    }
 
 
 def test_merge_openclaw_config_replaces_stale_provider_sections():

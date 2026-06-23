@@ -73,6 +73,7 @@ Generate config snippets for:
 ```bash
 hyper agent config
 hyper agent config openclaw --apply
+hyper agent config opencode --placeholder-env HYPER_AGENTS_API_KEY
 hyper agent config env
 ```
 
@@ -83,6 +84,35 @@ hyper config openclaw --apply
 ```
 
 Without `--apply`, the command prints the generated JSON blob to stdout.
+
+OpenCode configs use `{env:NAME}` for environment variable interpolation:
+
+```json
+{
+  "$schema": "https://opencode.ai/config.json",
+  "model": "hypercli/glm-5-anthropic",
+  "provider": {
+    "hypercli": {
+      "npm": "@ai-sdk/anthropic",
+      "name": "HyperCLI",
+      "options": {
+        "baseURL": "https://api.hypercli.com/v1",
+        "apiKey": "{env:HYPER_AGENTS_API_KEY}"
+      },
+      "models": {
+        "glm-5-anthropic": {
+          "name": "glm-5-anthropic",
+          "limit": { "context": 262144, "output": 65536 }
+        },
+        "kimi-k2.6-anthropic": {
+          "name": "kimi-k2.6-anthropic",
+          "limit": { "context": 262144, "output": 65536 }
+        }
+      }
+    }
+  }
+}
+```
 
 The full generated `~/.openclaw/openclaw.json` example lives in:
 

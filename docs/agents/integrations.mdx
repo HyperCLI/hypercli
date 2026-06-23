@@ -44,17 +44,29 @@ Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
 ```json
 {
   "$schema": "https://opencode.ai/config.json",
+  "model": "hypercli/glm-5-anthropic",
   "provider": {
     "hypercli": {
       "npm": "@ai-sdk/anthropic",
       "name": "HyperCLI",
       "options": {
         "baseURL": "https://api.hypercli.com/v1",
-        "apiKey": "sk-YOUR-API-KEY"
+        "apiKey": "{env:HYPER_AGENTS_API_KEY}"
       },
       "models": {
+        "glm-5-anthropic": {
+          "name": "glm-5-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          }
+        },
         "kimi-k2.6-anthropic": {
-          "name": "kimi-k2.6-anthropic"
+          "name": "kimi-k2.6-anthropic",
+          "limit": {
+            "context": 262144,
+            "output": 65536
+          }
         }
       }
     }
@@ -62,7 +74,9 @@ Add HyperClaw as a provider in your `opencode.json` (or `.opencode.json`):
 }
 ```
 
-Then select the model with `hypercli/kimi-k2.6-anthropic` in OpenCode.
+Then select the model with `hypercli/glm-5-anthropic` in OpenCode.
+OpenCode uses `{env:NAME}` for environment variable interpolation in provider
+options.
 
 ## OpenClaw
 
