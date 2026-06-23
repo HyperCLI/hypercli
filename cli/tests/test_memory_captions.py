@@ -1,6 +1,7 @@
 import json
 from pathlib import Path
 
+import pytest
 import yaml
 from typer.testing import CliRunner
 
@@ -264,3 +265,38 @@ def test_enrich_caption_metadata_builds_hyper_v1_request(monkeypatch, tmp_path):
     assert captured["stream"] is False
     assert captured["max_tokens"] == memory.MEMORY_ENRICH_MAX_TOKENS
     assert "Synthetic Video" in captured["messages"][1]["content"]
+
+
+def test_enrich_caption_metadata_rejects_empty_enrichment(monkeypatch, tmp_path):
+    import hypercli_cli.memory as memory
+
+    caption = _write(tmp_path / "abc123.en.srt", SYNTHETIC_SRT)
+
+    class FakeMessage:
+        content = json.dumps({"keywords": []})
+
+    class FakeChoice:
+        message = FakeMessage()
+
+    class FakeCompletions:
+        def create(self, **kwargs):
+            return type("Response", (), {"choices": [FakeChoice()]})()
+
+    class FakeClient:
+        chat = type("Chat", (), {"completions": FakeCompletions()})()
+
+    monkeypatch.setattr(memory.llm, "_resolve_api_key", lambda key: "sk-test")
+    monkeypatch.setattr(memory.llm, "_resolve_api_base", lambda base_url: "https://api.hyper.test")
+    monkeypatch.setattr(memory.llm, "_resolve_default_model", lambda api_key, api_base: "kimi-test")
+    monkeypatch.setattr(memory.llm, "_get_openai_client", lambda api_key, api_base: FakeClient())
+
+    with pytest.raises(RuntimeError, match="no summary"):
+        memory.enrich_caption_metadata(
+            caption_file=caption,
+            title="Synthetic Video",
+            source_url="https://www.youtube.com/watch?v=abc123",
+            channel="Synthetic Channel",
+            model=None,
+            base_url=None,
+            key=None,
+        )

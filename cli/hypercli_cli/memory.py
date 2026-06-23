@@ -69,6 +69,26 @@ def _extract_json_object(text: str) -> dict[str, Any]:
     return parsed if isinstance(parsed, dict) else {}
 
 
+def _normalize_enrichment_payload(parsed: dict[str, Any]) -> dict[str, Any]:
+    short_summary = str(parsed.get("short_summary") or "").strip()
+    long_description = str(parsed.get("long_description") or "").strip()
+    raw_keywords = parsed.get("keywords")
+    keywords = []
+    if isinstance(raw_keywords, list):
+        keywords = [str(keyword).strip() for keyword in raw_keywords if str(keyword).strip()]
+
+    if not short_summary and not long_description:
+        raise RuntimeError("LLM enrichment returned no summary fields")
+    if not keywords:
+        raise RuntimeError("LLM enrichment returned no keywords")
+
+    return {
+        "short_summary": short_summary,
+        "long_description": long_description,
+        "keywords": keywords,
+    }
+
+
 def enrich_text_metadata(
     *,
     title: str,
@@ -115,10 +135,7 @@ def enrich_text_metadata(
     )
     content = response.choices[0].message.content or "{}"
     parsed = _extract_json_object(content)
-    keywords = parsed.get("keywords")
-    if not isinstance(keywords, list):
-        parsed["keywords"] = []
-    return parsed
+    return _normalize_enrichment_payload(parsed)
 
 
 def enrich_caption_metadata(
