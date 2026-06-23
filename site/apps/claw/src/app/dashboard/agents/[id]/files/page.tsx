@@ -173,12 +173,10 @@ export default function AgentFilesPage() {
 
   return (
     <AgentFilesPanel
+      agentId={agentId}
       agentName={agent.name || agent.podName || "Agent"}
-      agentState={agent.state ?? null}
       rootPath={OPENCLAW_WORKSPACE_PREFIX}
       connected={Boolean(agentId)}
-      connecting={false}
-      hydrating={false}
       initialPreviewPath={initialFilePath}
       isDesktopViewport
       error={null}

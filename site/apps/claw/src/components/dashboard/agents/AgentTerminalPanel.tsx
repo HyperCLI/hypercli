@@ -13,13 +13,21 @@ interface AgentTerminalPanelProps {
 
 export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: AgentTerminalPanelProps) {
   const connecting = status === "connecting" || status === "reconnecting";
+  const loadingTitle = status === "reconnecting" ? "Reconnecting shell" : connecting ? "Connecting shell" : "Waiting for shell";
+  const loadingDetail = status === "reconnecting"
+    ? "Restoring the terminal session."
+    : connecting
+      ? "Opening a terminal session."
+      : "The terminal will attach when the runtime is ready.";
   const bootStatus = status === "connected" ? null : getAgentGatewayPanelBootStatus({
     connected: false,
     connecting,
     loadingTitle: "Loading shell",
-    loadingDetail: "Preparing the shell stream.",
-    connectingDetail: status === "reconnecting" ? "Reopening the shell stream." : "Opening the shell stream.",
-    waitingDetail: "Shell attaches after the runtime is reachable.",
+    loadingDetail: "Preparing the terminal session.",
+    connectingTitle: loadingTitle,
+    connectingDetail: loadingDetail,
+    waitingTitle: loadingTitle,
+    waitingDetail: loadingDetail,
   });
 
   return (
@@ -31,8 +39,8 @@ export function AgentTerminalPanel({ status, shellBoxRef, visible = true }: Agen
       {status !== "connected" && (
         <div className="absolute inset-0 p-4">
           <TabLoadingState
-            label={status === "reconnecting" ? "Reconnecting gateway" : connecting ? "Connecting gateway" : "Waiting for gateway"}
-            detail={status === "reconnecting" ? "Reopening the shell stream." : connecting ? "Opening the shell stream." : "Shell attaches after the runtime is reachable."}
+            label={loadingTitle}
+            detail={loadingDetail}
             bootStatus={bootStatus ?? undefined}
           />
         </div>

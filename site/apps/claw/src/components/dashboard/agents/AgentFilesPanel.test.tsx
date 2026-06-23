@@ -1,5 +1,5 @@
 import type { ComponentProps, ComponentType, ReactNode } from "react";
-import { fireEvent, render, screen, waitFor } from "@testing-library/react";
+import { fireEvent, render, screen, waitFor, within } from "@testing-library/react";
 import { describe, expect, it, vi } from "vitest";
 
 import { AgentFilesPanel } from "./AgentFilesPanel";
@@ -31,15 +31,12 @@ vi.mock("@hypercli/shared-ui", () => ({
 }));
 
 function renderFilesPanel(overrides: Partial<ComponentProps<typeof AgentFilesPanel>> = {}) {
-  const props: ComponentProps<typeof AgentFilesPanel> = {
-    agentName: "Agent",
-    agentState: "RUNNING",
-    rootPath: ".openclaw/workspace",
-    connected: true,
-    connecting: false,
-    hydrating: false,
-    initialPreviewPath: null,
-    onListFiles: vi.fn(async () => []),
+    const props: ComponentProps<typeof AgentFilesPanel> = {
+      agentName: "Agent",
+      rootPath: ".openclaw/workspace",
+      connected: true,
+      initialPreviewPath: null,
+      onListFiles: vi.fn(async () => []),
     onOpenFile: vi.fn(async () => "content"),
     onSaveFile: vi.fn(async () => undefined),
     onDeleteFile: vi.fn(async () => undefined),
@@ -124,6 +121,62 @@ describe("AgentFilesPanel", () => {
     await waitFor(() => {
       expect(screen.getByText("agent-landing-page-demo-architecture.md")).toBeInTheDocument();
     });
+  });
+
+  it("renders an empty workspace after the file list resolves", async () => {
+    renderFilesPanel({
+      onListFiles: vi.fn(async () => []),
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText("No files yet")).toBeInTheDocument();
+    });
+    expect(screen.queryByText("Loading workspace")).not.toBeInTheDocument();
+  });
+
+  it("uses compact file-specific copy while loading the file list", () => {
+    renderFilesPanel({
+      onListFiles: vi.fn(() => new Promise(() => undefined)),
+    });
+
+    const loader = screen.getByRole("status", { name: /loading files fetching folders and files/i });
+    expect(loader).toBeInTheDocument();
+    expect(within(loader).getByText("Loading files")).toBeInTheDocument();
+    expect(within(loader).getByText("Fetching folders and files.")).toBeInTheDocument();
+    expect(screen.queryByText("Loading workspace")).not.toBeInTheDocument();
+  });
+
+  it("shows cached files immediately when the panel remounts", async () => {
+    const cachedEntry = {
+      name: "README.md",
+      path: ".openclaw/workspace/README.md",
+      type: "file" as const,
+      size: 12,
+    };
+    const firstListFiles = vi.fn(async () => [cachedEntry]);
+    const baseProps: ComponentProps<typeof AgentFilesPanel> = {
+      agentId: "agent-cache-test",
+      agentName: "Agent",
+      rootPath: ".openclaw/workspace",
+      connected: true,
+      initialPreviewPath: null,
+      onListFiles: firstListFiles,
+      onOpenFile: vi.fn(async () => "content"),
+      onSaveFile: vi.fn(async () => undefined),
+      onDeleteFile: vi.fn(async () => undefined),
+      onUploadFile: vi.fn(async () => undefined),
+    };
+
+    const { unmount } = render(<AgentFilesPanel {...baseProps} />);
+    await waitFor(() => expect(screen.getByText("README.md")).toBeInTheDocument());
+    unmount();
+
+    const secondListFiles = vi.fn(() => new Promise<(typeof cachedEntry)[]>(() => undefined));
+    render(<AgentFilesPanel {...baseProps} onListFiles={secondListFiles} />);
+
+    expect(screen.getByText("README.md")).toBeInTheDocument();
+    expect(screen.queryByText("Loading workspace")).not.toBeInTheDocument();
+    await waitFor(() => expect(secondListFiles).toHaveBeenCalled());
   });
 
   it("creates a folder in the current directory", async () => {

@@ -289,6 +289,7 @@ export function AgentMainPanel({
           blockedTitle={selectedAgentStartGuidanceTitle}
           blockedMessage={blockedMessage}
           suggestedTierActions={suggestedTierActions}
+          footnote={currentPanel === "shell" ? "Start the agent to open a terminal session." : undefined}
         />
       );
     }

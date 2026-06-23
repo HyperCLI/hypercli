@@ -32,9 +32,34 @@ const SORT_OPTIONS: Array<{ key: FileSortKey; label: string }> = [
   { key: "size", label: "Size" },
   { key: "date", label: "Date" },
 ];
+const FILES_LISTING_CACHE_LIMIT = 80;
+const filesListingCache = new Map<string, FileEntry[]>();
 
 function normalizePanelPath(path: string): string {
   return normalizeOpenClawWorkspaceFilePath(path);
+}
+
+function filesListingCacheKey(agentId: string | null | undefined, rootPath: string, path: string): string | null {
+  const normalizedAgentId = agentId?.trim();
+  if (!normalizedAgentId) return null;
+  return [normalizedAgentId, normalizePanelPath(rootPath), normalizePanelPath(path)].join("\n");
+}
+
+function getCachedFiles(cacheKey: string | null): FileEntry[] | null {
+  if (!cacheKey) return null;
+  const cached = filesListingCache.get(cacheKey);
+  return cached ? [...cached] : null;
+}
+
+function setCachedFiles(cacheKey: string | null, files: FileEntry[]): void {
+  if (!cacheKey) return;
+  filesListingCache.delete(cacheKey);
+  filesListingCache.set(cacheKey, [...files]);
+  while (filesListingCache.size > FILES_LISTING_CACHE_LIMIT) {
+    const oldestKey = filesListingCache.keys().next().value;
+    if (!oldestKey) break;
+    filesListingCache.delete(oldestKey);
+  }
 }
 
 function pathRelativeToRoot(path: string, rootPath: string): string {
@@ -80,12 +105,10 @@ function fileNameFromPath(path: string): string {
 }
 
 interface AgentFilesPanelProps {
+  agentId?: string | null;
   agentName?: string | null;
-  agentState?: string | null;
   rootPath?: string;
   connected: boolean;
-  connecting: boolean;
-  hydrating: boolean;
   initialPreviewPath?: string | null;
   isDesktopViewport?: boolean;
   error?: string | null;
@@ -100,12 +123,10 @@ interface AgentFilesPanelProps {
 }
 
 export function AgentFilesPanel({
+  agentId,
   agentName,
-  agentState,
   rootPath = "",
   connected,
-  connecting,
-  hydrating,
   initialPreviewPath,
   isDesktopViewport = false,
   error,
@@ -130,7 +151,9 @@ export function AgentFilesPanel({
   const [sortKey, setSortKey] = useState<FileSortKey>("name");
   const [sortDir, setSortDir] = useState<FileSortDir>("asc");
   const [sortMenuOpen, setSortMenuOpen] = useState(false);
-  const [files, setFiles] = useState<FileEntry[]>([]);
+  const [files, setFiles] = useState<FileEntry[]>(() => (
+    getCachedFiles(filesListingCacheKey(agentId, normalizedRootPath, normalizedRootPath)) ?? []
+  ));
   const [listLoading, setListLoading] = useState(false);
   const [listError, setListError] = useState<string | null>(null);
   const listRequestIdRef = useRef(0);
@@ -139,9 +162,17 @@ export function AgentFilesPanel({
   const [previewContent, setPreviewContent] = useState<string | Uint8Array | null>(null);
   const [previewLoading, setPreviewLoading] = useState(false);
   const [previewError, setPreviewError] = useState<string | null>(null);
+  const currentListingCacheKey = useMemo(
+    () => filesListingCacheKey(agentId, normalizedRootPath, currentPath),
+    [agentId, currentPath, normalizedRootPath],
+  );
 
   const loadFiles = useCallback(async () => {
     if (!connected) return;
+    const cachedFiles = getCachedFiles(currentListingCacheKey);
+    if (cachedFiles) setFiles(cachedFiles);
+    else setFiles([]);
+
     const requestId = ++listRequestIdRef.current;
     setListLoading(true);
     setListError(null);
@@ -149,21 +180,23 @@ export function AgentFilesPanel({
       const nextFiles = await onListFiles(currentPath || undefined);
       if (requestId === listRequestIdRef.current) {
         setFiles(nextFiles);
+        setCachedFiles(currentListingCacheKey, nextFiles);
       }
     } catch (err) {
       if (requestId === listRequestIdRef.current) {
         setListError(err instanceof Error ? err.message : "Failed to load files");
-        setFiles([]);
+        if (!cachedFiles) setFiles([]);
       }
     } finally {
       if (requestId === listRequestIdRef.current) {
         setListLoading(false);
       }
     }
-  }, [connected, currentPath, onListFiles]);
+  }, [connected, currentListingCacheKey, currentPath, onListFiles]);
 
   useEffect(() => {
     if (!connected) {
+      listRequestIdRef.current += 1;
       setFiles([]);
       setListLoading(false);
       setListError(null);
@@ -180,16 +213,17 @@ export function AgentFilesPanel({
     return files.filter((file) => file.name.toLowerCase().includes(query)).length;
   }, [files, searchQuery]);
 
-  const filesLoading = listLoading || (agentState === "RUNNING" && (connecting || hydrating));
-  const filesDisconnected = agentState === "RUNNING" && !connecting && !hydrating && !listLoading && !connected;
+  const filesLoading = listLoading;
+  const blockingLoading = filesLoading && files.length === 0;
+  const filesDisconnected = !listLoading && !connected;
   const effectiveError = listError ?? error ?? null;
   const filesBootStatus = getAgentGatewayPanelBootStatus({
     connected,
-    connecting,
+    connecting: false,
     loading: filesLoading,
     error: effectiveError,
-    loadingTitle: "Loading workspace",
-    loadingDetail: "Loading folders and files.",
+    loadingTitle: files.length > 0 ? "Refreshing files" : "Loading files",
+    loadingDetail: files.length > 0 ? "Updating folders and files." : "Fetching folders and files.",
     connectingDetail: "Opening the files workspace.",
     waitingDetail: filesDisconnected
       ? "Reconnect the workspace to browse live files."
@@ -197,9 +231,9 @@ export function AgentFilesPanel({
     errorTitle: "Files error",
   });
   const emptyKind: "offline" | "loading" | "error" | "no-files" | "no-results" | null =
-    filesLoading
+    blockingLoading
       ? "loading"
-      : effectiveError
+      : effectiveError && files.length === 0
         ? "error"
         : !connected
           ? "offline"
@@ -560,7 +594,7 @@ export function AgentFilesPanel({
                 onRetry={emptyKind === "error" ? loadFiles : undefined}
                 title={
                   emptyKind === "loading"
-                    ? filesBootStatus?.title ?? "Loading workspace"
+                    ? filesBootStatus?.title ?? "Loading files"
                     : emptyKind === "error"
                       ? filesBootStatus?.title
                     : emptyKind === "offline" && filesDisconnected
@@ -569,7 +603,7 @@ export function AgentFilesPanel({
                 }
                 description={
                   emptyKind === "loading"
-                    ? filesBootStatus?.detail ?? "Loading folders and files."
+                    ? filesBootStatus?.detail ?? "Fetching folders and files."
                     : emptyKind === "error"
                       ? filesBootStatus?.detail
                     : emptyKind === "offline" && filesDisconnected

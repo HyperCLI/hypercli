@@ -11,6 +11,7 @@ interface AgentLaunchPromptProps {
   blockedTitle?: string | null;
   blockedMessage?: string | null;
   suggestedTierActions?: Array<{ label: string; onSelect: () => void }> | null;
+  footnote?: string | null;
 }
 
 export function AgentLaunchPrompt({
@@ -20,6 +21,7 @@ export function AgentLaunchPrompt({
   blockedTitle,
   blockedMessage,
   suggestedTierActions,
+  footnote = "Files remain available while stopped.",
 }: AgentLaunchPromptProps) {
   const blocked = Boolean(blockedMessage);
 
@@ -75,7 +77,7 @@ export function AgentLaunchPrompt({
             )}
           </div>
         )}
-        <p className="mt-2 text-sm text-text-muted">Files remain available while stopped.</p>
+        {footnote ? <p className="mt-2 text-sm text-text-muted">{footnote}</p> : null}
       </div>
     </div>
   );

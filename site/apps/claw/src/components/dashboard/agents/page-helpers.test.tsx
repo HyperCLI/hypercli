@@ -53,6 +53,20 @@ describe("AgentLaunchPrompt", () => {
     expect(screen.queryByRole("button", { name: /start agent to use logs/i })).not.toBeInTheDocument();
     expect(onLaunch).not.toHaveBeenCalled();
   });
+
+  it("supports contextual stopped-state footnotes", () => {
+    renderWithClient(
+      <AgentLaunchPrompt
+        label="Shell"
+        launching={false}
+        onLaunch={vi.fn()}
+        footnote="Start the agent to open a terminal session."
+      />,
+    );
+
+    expect(screen.getByText("Start the agent to open a terminal session.")).toBeInTheDocument();
+    expect(screen.queryByText("Files remain available while stopped.")).not.toBeInTheDocument();
+  });
 });
 
 describe("AgentLoadingState", () => {

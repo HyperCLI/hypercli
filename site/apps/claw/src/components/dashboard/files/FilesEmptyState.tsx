@@ -1,6 +1,7 @@
 "use client";
 
 import {
+  Loader2,
   FolderOpen,
   Search,
   WifiOff,
@@ -8,7 +9,6 @@ import {
   Upload,
 } from "lucide-react";
 import { EmptyState } from "@hypercli/shared-ui";
-import { AgentGatewayLoadingVisual } from "@/components/dashboard/AgentGatewayLoadingVisual";
 
 // ── Types ──
 
@@ -28,12 +28,21 @@ interface FilesEmptyStateProps {
 export function FilesEmptyState({ kind, searchQuery, errorMessage, title, description, onRetry }: FilesEmptyStateProps) {
   if (kind === "loading") {
     return (
-      <div className="flex h-full min-h-0 items-center justify-center py-4">
-        <AgentGatewayLoadingVisual
-          title={title ?? "Loading workspace"}
-          detail={description ?? "Fetching workspace files."}
-          animationClassName="h-[clamp(6.5rem,22vh,9rem)] w-[clamp(6.5rem,22vh,9rem)]"
-        />
+      <div className="flex h-full min-h-0 items-center justify-center px-4 py-4">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-label={`${title ?? "Loading files"} ${description ?? "Fetching folders and files."}`}
+          className="flex w-full max-w-[240px] items-center gap-3 rounded-xl border border-border bg-popover/80 px-3 py-2.5 text-left shadow-[0_14px_36px_color-mix(in_srgb,var(--foreground)_10%,transparent)]"
+        >
+          <div className="flex h-8 w-8 flex-shrink-0 items-center justify-center rounded-lg border border-border bg-surface-low text-text-muted">
+            <Loader2 className="h-3.5 w-3.5 animate-spin" />
+          </div>
+          <div className="min-w-0">
+            <p className="truncate text-xs font-medium text-foreground">{title ?? "Loading files"}</p>
+            <p className="truncate text-[11px] text-text-muted">{description ?? "Fetching folders and files."}</p>
+          </div>
+        </div>
       </div>
     );
   }

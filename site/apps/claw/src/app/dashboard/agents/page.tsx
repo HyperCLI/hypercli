@@ -1636,8 +1636,8 @@ function AgentsPageContent() {
       return {
         label: activeConnectionStatus === "reconnecting" ? "Reconnecting" : "Connecting",
         detail: activeConnectionStatus === "reconnecting"
-          ? panelLabel === "workspace" ? "Reopening the gateway connection." : `Reopening ${panelLabel} stream.`
-          : panelLabel === "workspace" ? "Opening the gateway connection." : `Opening ${panelLabel} stream.`,
+          ? panelLabel === "logs" ? "Restoring the runtime log stream." : panelLabel === "workspace" ? "Reopening the gateway connection." : `Reopening ${panelLabel} stream.`
+          : panelLabel === "logs" ? "Opening the runtime log stream." : panelLabel === "workspace" ? "Opening the gateway connection." : `Opening ${panelLabel} stream.`,
         tone: "connecting",
         loading: true,
       };
@@ -1645,13 +1645,13 @@ function AgentsPageContent() {
     if (activeConnectionStatus === "disconnected") {
       return {
         label: "Disconnected",
-        detail: panelLabel === "workspace" ? "Gateway disconnected." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} will reconnect when the gateway is reachable.`,
+        detail: panelLabel === "logs" ? "Logs will reconnect when the runtime is reachable." : panelLabel === "workspace" ? "Gateway disconnected." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} will reconnect when the gateway is reachable.`,
         tone: "disconnected",
       };
     }
     return {
       label: "Ready",
-      detail: panelLabel === "workspace" ? "Chat is available." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
+      detail: panelLabel === "logs" ? "Runtime log stream connected." : panelLabel === "workspace" ? "Chat is available." : `${panelLabel[0].toUpperCase()}${panelLabel.slice(1)} stream connected.`,
       tone: "ready",
     };
   }, [activeConnectionStatus, isSelectedRunning, mainTab, selectedAgent]);
@@ -3230,12 +3230,10 @@ function AgentsPageContent() {
           ) : mainTab === "files" ? (
             <AgentFilesPanel
               key={selectedAgent?.id ?? "no-agent"}
+              agentId={selectedAgentId}
               agentName={selectedAgent?.name || selectedAgent?.pod_name || "Agent"}
-              agentState={selectedAgent?.state ?? null}
               rootPath={OPENCLAW_WORKSPACE_PREFIX}
               connected={Boolean(selectedAgentId)}
-              connecting={Boolean(isSelectedRunning && chat.connecting)}
-              hydrating={Boolean(isSelectedRunning && chat.hydrating)}
               initialPreviewPath={filesPreviewPath}
               isDesktopViewport={isDesktopViewport}
               error={null}
