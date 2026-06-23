@@ -18,6 +18,7 @@ HYPERCLI_DIR = Path.home() / ".hypercli"
 AGENT_KEY_PATH = HYPERCLI_DIR / "agent-key.json"
 DEFAULT_API_BASE = "https://api.hypercli.com"
 MODEL_PREFERENCE = ("kimi-k2.5", "kimi-k2-5")
+DEFAULT_LLM_TIMEOUT_SECONDS = 60.0
 
 
 def _resolve_api_key(key: str | None) -> str:
@@ -53,6 +54,17 @@ def _resolve_api_base(base_url: str | None) -> str:
     if configured:
         return configured.rstrip("/")
     return DEFAULT_API_BASE
+
+
+def _resolve_llm_timeout() -> float:
+    raw = os.environ.get("HYPER_LLM_TIMEOUT_SECONDS", "").strip()
+    if not raw:
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    try:
+        timeout = float(raw)
+    except ValueError:
+        return DEFAULT_LLM_TIMEOUT_SECONDS
+    return timeout if timeout > 0 else DEFAULT_LLM_TIMEOUT_SECONDS
 
 
 def _pick_default_model(models_payload: dict[str, Any]) -> str | None:
@@ -101,7 +113,11 @@ def _get_openai_client(api_key: str, api_base: str):
         console.print("[red]❌ The llm command requires the openai package.[/red]")
         console.print("Reinstall or upgrade with [bold]pip install 'hypercli-cli>=2026.4.13'[/bold].")
         raise typer.Exit(1)
-    return OpenAI(api_key=api_key, base_url=f"{api_base}/v1")
+    return OpenAI(
+        api_key=api_key,
+        base_url=f"{api_base}/v1",
+        timeout=_resolve_llm_timeout(),
+    )
 
 
 @app.command("chat")

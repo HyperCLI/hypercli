@@ -28,6 +28,7 @@ from .memory_documents import (
 
 app = typer.Typer(help="Prepare OpenClaw memory artifacts")
 console = Console()
+MEMORY_ENRICH_MAX_TOKENS = 512
 
 
 def _split_csv(value: str | None) -> list[str] | None:
@@ -88,6 +89,7 @@ def enrich_text_metadata(
         model=resolved_model,
         stream=False,
         temperature=0.2,
+        max_tokens=MEMORY_ENRICH_MAX_TOKENS,
         messages=[
             {
                 "role": "system",

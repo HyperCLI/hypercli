@@ -262,4 +262,5 @@ def test_enrich_caption_metadata_builds_hyper_v1_request(monkeypatch, tmp_path):
     assert enrichment["keywords"] == ["alpha", "beta"]
     assert captured["model"] == "kimi-test"
     assert captured["stream"] is False
+    assert captured["max_tokens"] == memory.MEMORY_ENRICH_MAX_TOKENS
     assert "Synthetic Video" in captured["messages"][1]["content"]

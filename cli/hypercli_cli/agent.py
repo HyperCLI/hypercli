@@ -941,9 +941,22 @@ def _config_openclaw(
         )
 
     api_base = api_base.rstrip("/")
-    supported_models = [m for m in models if _is_supported_openclaw_model(m)]
+    def _openclaw_model_order(model: dict) -> tuple[int, str]:
+        suffix = _model_suffix(model.get("id", ""))
+        if "kimi" in suffix:
+            return (0, suffix)
+        if suffix == "glm-5":
+            return (1, suffix)
+        if "embedding" in suffix:
+            return (3, suffix)
+        return (2, suffix)
+
+    supported_models = sorted(
+        [m for m in models if _is_supported_openclaw_model(m)],
+        key=_openclaw_model_order,
+    )
     embedding_models = [m for m in supported_models if m.get("mode") == "embedding"]
-    chat_models = _preferred_agent_models([m for m in supported_models if m.get("mode") != "embedding"])
+    chat_models = [m for m in supported_models if m.get("mode") != "embedding"]
     kimi_models = [m for m in chat_models if "kimi" in _model_suffix(m.get("id", ""))]
     glm_models = [m for m in chat_models if _model_suffix(m.get("id", "")) == "glm-5"]
     other_chat_models = [

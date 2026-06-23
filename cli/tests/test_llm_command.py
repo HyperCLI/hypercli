@@ -1,4 +1,6 @@
 from types import SimpleNamespace
+import sys
+import types
 
 from typer.testing import CliRunner
 
@@ -61,3 +63,22 @@ def test_pick_default_model_prefers_kimi():
     from hypercli_cli.llm import _pick_default_model
 
     assert _pick_default_model(payload) == "kimi-k2.5"
+
+
+def test_get_openai_client_sets_bounded_timeout(monkeypatch):
+    captured = {}
+
+    class FakeOpenAI:
+        def __init__(self, **kwargs):
+            captured.update(kwargs)
+
+    monkeypatch.setitem(sys.modules, "openai", types.SimpleNamespace(OpenAI=FakeOpenAI))
+    monkeypatch.setenv("HYPER_LLM_TIMEOUT_SECONDS", "12.5")
+
+    from hypercli_cli.llm import _get_openai_client
+
+    _get_openai_client("hyper_api_test", "https://api.hypercli.com")
+
+    assert captured["api_key"] == "hyper_api_test"
+    assert str(captured["base_url"]) == "https://api.hypercli.com/v1"
+    assert captured["timeout"] == 12.5
