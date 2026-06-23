@@ -275,12 +275,105 @@ jobs:
             python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
           fi
 
+  cli-integration:
+    needs: [ts-sdk-unit, python-sdk-unit]
+    runs-on: self-hosted
+    timeout-minutes: 20
+    defaults:
+      run:
+        shell: bash
+        working-directory: cli
+    env:
+      BACKEND_API_KEY: ${{ secrets.BACKEND_API_KEY }}
+      TEST_API_BASE: https://api.dev.hypercli.com
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          clean: false
+
+      - name: Normalize workspace ownership
+        run: sudo chown -R "$(id -u):$(id -g)" "$GITHUB_WORKSPACE"
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Bootstrap live integration credentials
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -z "${BACKEND_API_KEY:-}" ]; then
+            echo "BACKEND_API_KEY is empty"
+          else
+            echo "BACKEND_API_KEY len=${#BACKEND_API_KEY} prefix_ok=$([[ ${BACKEND_API_KEY} == orchestra_dev_* ]] && echo yes || echo no) suffix=${BACKEND_API_KEY: -6}"
+          fi
+          python -m venv .bootstrap-venv
+          source .bootstrap-venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install requests
+          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
+            if python .github/scripts/bootstrap_dev_test_keys.py bootstrap --format github-env >> "$GITHUB_ENV"; then
+              break
+            fi
+            if [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
+              exit 1
+            fi
+            echo "Transient bootstrap failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
+            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
+          done
+
+      - name: Install CLI
+        run: |
+          python -m venv .venv
+          source .venv/bin/activate
+          python -m pip install --upgrade pip
+          python -m pip install -e "../sdk[dev]" -e .
+
+      - name: Run CLI dry-run integration tests
+        run: |
+          source .venv/bin/activate
+          run_integration() {
+            local log_file
+            log_file="$(mktemp)"
+            if pytest -q tests/integration 2>&1 | tee "${log_file}"; then
+              return 0
+            fi
+            if grep -Eq "503 Service Unavailable|API Error 503|failed: 503 Service Unavailable|Service Unavailable" "${log_file}"; then
+              return 85
+            fi
+            return 1
+          }
+
+          for attempt in $(seq 1 "${SDK_INTEGRATION_RETRIES}"); do
+            if run_integration; then
+              exit 0
+            fi
+            status=$?
+            if [ "${status}" -ne 85 ] || [ "${attempt}" -ge "${SDK_INTEGRATION_RETRIES}" ]; then
+              exit "${status}"
+            fi
+            echo "Transient CLI integration 503 failure, retrying in ${SDK_INTEGRATION_RETRY_DELAY_SECONDS}s..."
+            sleep "${SDK_INTEGRATION_RETRY_DELAY_SECONDS}"
+          done
+
+      - name: Cleanup bootstrapped credentials
+        if: always()
+        working-directory: ${{ github.workspace }}
+        run: |
+          if [ -d .bootstrap-venv ]; then
+            source .bootstrap-venv/bin/activate
+          fi
+          if [ -n "${BOOTSTRAP_STATE_FILE:-}" ] && [ -f "${BOOTSTRAP_STATE_FILE}" ]; then
+            python .github/scripts/bootstrap_dev_test_keys.py cleanup --state-file "${BOOTSTRAP_STATE_FILE}" || true
+          fi
+
   notify-sdk-integration:
     needs:
       - ts-sdk-unit
       - python-sdk-unit
       - ts-sdk-integration
       - python-sdk-integration
+      - cli-integration
     if: always()
     runs-on: self-hosted
     steps:
@@ -297,12 +390,12 @@ jobs:
           NOTIFY_URL: ${{ vars.NOTIFY_URL }}
           NOTIFY_API_KEY: ${{ secrets.NOTIFY_API_KEY }}
         run: |
-          if [ "${{ needs.ts-sdk-unit.result }}" = "success" ] && [ "${{ needs.python-sdk-unit.result }}" = "success" ] && [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ]; then
+          if [ "${{ needs.ts-sdk-unit.result }}" = "success" ] && [ "${{ needs.python-sdk-unit.result }}" = "success" ] && [ "${{ needs.ts-sdk-integration.result }}" = "success" ] && [ "${{ needs.python-sdk-integration.result }}" = "success" ] && [ "${{ needs.cli-integration.result }}" = "success" ]; then
             STATUS="success"
-            MESSAGE="SDK unit and integration tests passed"
+            MESSAGE="SDK, CLI unit, and integration tests passed"
           else
             STATUS="failure"
-            MESSAGE="SDK unit or integration tests failed"
+            MESSAGE="SDK or CLI integration tests failed"
           fi
 
           python3 .github/scripts/ci_notify.py \
@@ -316,5 +409,5 @@ jobs:
             --run-url "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
 
       - name: Fail workflow when SDK jobs fail
-        if: needs.ts-sdk-unit.result != 'success' || needs.python-sdk-unit.result != 'success' || needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success'
+        if: needs.ts-sdk-unit.result != 'success' || needs.python-sdk-unit.result != 'success' || needs.ts-sdk-integration.result != 'success' || needs.python-sdk-integration.result != 'success' || needs.cli-integration.result != 'success'
         run: exit 1

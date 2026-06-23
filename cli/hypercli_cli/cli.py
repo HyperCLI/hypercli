@@ -98,6 +98,7 @@ app.add_typer(memory.app, name="memory")
 app.add_typer(user.app, name="user")
 app.add_typer(voice.app, name="voice")
 app.add_typer(wallet.app, name="wallet")
+app.command("launch", help="Launch a GPU instance")(instances.launch)
 
 
 @config_app.command("openclaw")
