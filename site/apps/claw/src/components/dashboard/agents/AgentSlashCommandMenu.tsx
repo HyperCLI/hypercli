@@ -901,11 +901,17 @@ function buildSlashCommands(): SlashCommand[] {
       mode: "ui",
       Icon: RefreshCw,
       run: async ({ chat, setStatus }) => {
-        chat.retry();
-        const [sessions] = await Promise.all([
-          chat.refreshSessions().catch(() => undefined),
-          chat.refreshCron().catch(() => undefined),
-        ] as const);
+        let sessions: Awaited<ReturnType<ChatSession["refreshSessions"]>> | undefined;
+        if (typeof chat.retryAndRefreshSessions === "function") {
+          sessions = await chat.retryAndRefreshSessions().catch(() => undefined);
+        } else {
+          chat.retry();
+          const [refreshedSessions] = await Promise.all([
+            chat.refreshSessions().catch(() => undefined),
+            chat.refreshCron().catch(() => undefined),
+          ] as const);
+          sessions = refreshedSessions;
+        }
         setStatus(`Refresh complete. ${formatSessionCount(refreshedSessionCount(sessions, chat.sessions))} loaded.`);
       },
     },

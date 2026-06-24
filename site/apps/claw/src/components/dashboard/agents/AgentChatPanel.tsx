@@ -340,6 +340,8 @@ export function AgentChatPanel({
   const fileMentionOptionRefs = React.useRef(new Map<string, HTMLButtonElement>());
   const [composerSelectionStart, setComposerSelectionStart] = React.useState<number | null>(null);
   const [fileMentionSelectedIndex, setFileMentionSelectedIndex] = React.useState(0);
+  const activeSessionSending = chat.activeSessionSending ?? chat.sending;
+  const activeSessionAborting = chat.activeSessionAborting ?? chat.aborting;
   const historyIndexRef = React.useRef<number | null>(null);
   const draftBeforeHistoryRef = React.useRef("");
   const pendingHistoryInputRef = React.useRef<string | null>(null);
@@ -699,7 +701,7 @@ export function AgentChatPanel({
                     animationVariant="v2"
                     themeVariant="v2"
                     streamingVariant="v2"
-                    isStreaming={chat.sending && i === chat.messages.length - 1 && msg.role === "assistant"}
+                    isStreaming={activeSessionSending && i === chat.messages.length - 1 && msg.role === "assistant"}
                     agentName={selectedAgent.name ?? "Agent"}
                     agentMeta={selectedAgent.meta}
                     onReadFileBytesFromChat={onReadFileBytesFromChat}
@@ -753,7 +755,7 @@ export function AgentChatPanel({
           )}
 
           {(() => {
-            if (chat.aborting) {
+            if (activeSessionAborting) {
               return (
                 <div className="flex justify-center py-1">
                   <div
@@ -767,7 +769,7 @@ export function AgentChatPanel({
                 </div>
               );
             }
-            if (!chat.sending) return null;
+            if (!activeSessionSending) return null;
             const last = chat.messages[chat.messages.length - 1];
             if (last && shouldHideIntegrationSetupMessage(last)) return null;
             const hasContent = last?.role === "assistant" && ((last.content && last.content.trim().length > 0) || (last.toolCalls && last.toolCalls.length > 0));
@@ -923,7 +925,7 @@ export function AgentChatPanel({
                         !e.ctrlKey &&
                         !e.metaKey &&
                         !e.shiftKey &&
-                        chat.sending
+                        activeSessionSending
                       ) {
                         e.preventDefault();
                         e.stopPropagation();
@@ -1056,7 +1058,7 @@ export function AgentChatPanel({
                     rows={1}
                     placeholder={composerPlaceholder}
                     disabled={composerDisabled}
-                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${chat.sending ? "pr-40" : "pr-24 sm:pr-28"}`}
+                    className={`w-full resize-none bg-surface-low border border-border rounded-3xl pl-5 py-3 text-sm text-foreground placeholder-text-muted focus:outline-none focus:border-border-strong disabled:opacity-50 overflow-hidden ${activeSessionSending ? "pr-40" : "pr-24 sm:pr-28"}`}
                   />
                   {slashMenuOpen ? (
                     <AgentSlashCommandMenu
@@ -1140,16 +1142,16 @@ export function AgentChatPanel({
                     <button onClick={startRecording} disabled={composerDisabled || chat.input.trim().length > 0} className="w-8 h-8 rounded-full bg-[rgb(var(--selection-accent-rgb)_/_0.15)] text-[var(--selection-accent)] hover:bg-[rgb(var(--selection-accent-rgb)_/_0.25)] hover:text-[var(--selection-accent)] flex items-center justify-center transition-colors disabled:opacity-40 disabled:hover:bg-[rgb(var(--selection-accent-rgb)_/_0.15)]" title={chat.activeSessionReadOnly ? readOnlyComposerReason : chat.input.trim().length > 0 ? "Clear text to record voice" : "Record voice message"}>
                       <Mic className="w-4 h-4" />
                     </button>
-                    {chat.sending ? (
+                    {activeSessionSending ? (
                       <button
                         onClick={() => { void chat.abortMessage(); }}
-                        disabled={!chat.connected || chat.aborting}
+                        disabled={!chat.connected || activeSessionAborting}
                         className="w-8 h-8 rounded-full border border-destructive/50 bg-destructive/10 text-destructive hover:bg-destructive/20 disabled:opacity-40 flex items-center justify-center transition-colors"
-                        title={chat.aborting ? "Stopping reply" : "Stop reply"}
-                        aria-label={chat.aborting ? "Stopping reply" : "Stop reply"}
+                        title={activeSessionAborting ? "Stopping reply" : "Stop reply"}
+                        aria-label={activeSessionAborting ? "Stopping reply" : "Stop reply"}
                         type="button"
                       >
-                        {chat.aborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
+                        {activeSessionAborting ? <Loader2 className="w-3.5 h-3.5 animate-spin" /> : <Square className="w-3.5 h-3.5" />}
                       </button>
                     ) : null}
                     <button onClick={handleSendChat} disabled={!canSendChatDraft} className="w-8 h-8 btn-primary rounded-full disabled:opacity-40 flex items-center justify-center" title="Send message">

@@ -14,7 +14,7 @@ vi.mock("@/components/dashboard/ChatMessage", () => ({
     chatMessageBubbleMock(props);
     return null;
   },
-  ChatThinkingIndicator: () => null,
+  ChatThinkingIndicator: () => <div role="status" aria-label="Thinking">Thinking</div>,
 }));
 
 vi.mock("@/components/dashboard/ConfirmDialog", () => ({
@@ -61,6 +61,7 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     sendMessage: vi.fn(async () => undefined),
     abortMessage: vi.fn(async () => undefined),
     aborting: false,
+    activeSessionAborting: false,
     input: "",
     setInput: vi.fn(),
     pendingInput: [],
@@ -69,6 +70,7 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     activeSessionReadOnly: false,
     activeSessionReadOnlyReason: null,
     sending: false,
+    activeSessionSending: false,
     files: [],
     config: null,
     configSchema: null,
@@ -106,6 +108,7 @@ function buildChat(overrides: Partial<ChatSession> = {}): ChatSession {
     integrationsStatus: vi.fn(async () => ({ integrations: { github: { configured: false, authenticated: false, usable: false } } })),
     integrationsDisconnect: vi.fn(async () => ({ ok: true })),
     retry: vi.fn(),
+    retryAndRefreshSessions: vi.fn(async () => undefined),
     ...overrides,
   } as ChatSession;
 }
@@ -715,7 +718,7 @@ describe("AgentChatPanel", () => {
       if (originalScrollHeight) {
         Object.defineProperty(HTMLTextAreaElement.prototype, "scrollHeight", originalScrollHeight);
       } else {
-        delete (HTMLTextAreaElement.prototype as Partial<HTMLTextAreaElement>).scrollHeight;
+        Reflect.deleteProperty(HTMLTextAreaElement.prototype, "scrollHeight");
       }
     }
   });
@@ -933,6 +936,10 @@ describe("AgentChatPanel", () => {
     const refreshSessions = vi.fn(async () => [
       { key: "session-alpha" },
       { key: "session-beta" },
+    ] as Awaited<ReturnType<ChatSession["refreshSessions"]>>);
+    const retryAndRefreshSessions = vi.fn(async () => [
+      { key: "session-alpha" },
+      { key: "session-beta" },
       { key: "session-gamma" },
     ] as Awaited<ReturnType<ChatSession["refreshSessions"]>>);
     const refreshCron = vi.fn(async () => undefined);
@@ -948,6 +955,7 @@ describe("AgentChatPanel", () => {
         refreshSessions,
         refreshCron,
         retry,
+        retryAndRefreshSessions,
       }),
       isSelectedRunning: true,
     });
@@ -956,9 +964,10 @@ describe("AgentChatPanel", () => {
       fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Enter" });
     });
 
-    expect(retry).toHaveBeenCalledTimes(1);
-    expect(refreshSessions).toHaveBeenCalledTimes(1);
-    expect(refreshCron).toHaveBeenCalledTimes(1);
+    expect(retryAndRefreshSessions).toHaveBeenCalledTimes(1);
+    expect(retry).not.toHaveBeenCalled();
+    expect(refreshSessions).not.toHaveBeenCalled();
+    expect(refreshCron).not.toHaveBeenCalled();
     expect(screen.getByText("Refresh complete. 3 sessions loaded.")).toBeInTheDocument();
   });
 
@@ -1650,6 +1659,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         sending: true,
+        activeSessionSending: true,
         input: "/summary",
         abortMessage,
       }),
@@ -1659,6 +1669,42 @@ describe("AgentChatPanel", () => {
     fireEvent.keyDown(screen.getByRole("textbox", { name: /message agent/i }), { key: "Escape" });
 
     expect(abortMessage).toHaveBeenCalledTimes(1);
+  });
+
+  it("does not show thinking or stop controls for another session's reply", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: false,
+        messages: [{ role: "user", content: "Question in this session" }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.queryByRole("status", { name: /thinking/i })).not.toBeInTheDocument();
+    expect(screen.queryByRole("button", { name: /stop reply/i })).not.toBeInTheDocument();
+  });
+
+  it("shows thinking and stop controls for the active session's reply", () => {
+    renderAgentChatPanel({
+      chat: buildChat({
+        status: "connected",
+        gatewayConnected: true,
+        ready: true,
+        connected: true,
+        sending: true,
+        activeSessionSending: true,
+        messages: [{ role: "user", content: "Question in this session" }],
+      }),
+      isSelectedRunning: true,
+    });
+
+    expect(screen.getByRole("status", { name: /thinking/i })).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /stop reply/i })).toBeInTheDocument();
   });
 
   it("shows a separate stop button while keeping send available for queued drafts", () => {
@@ -1671,6 +1717,7 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         sending: true,
+        activeSessionSending: true,
         input: "queue this next",
         abortMessage,
       }),
@@ -1695,7 +1742,9 @@ describe("AgentChatPanel", () => {
         ready: true,
         connected: true,
         sending: true,
+        activeSessionSending: true,
         aborting: true,
+        activeSessionAborting: true,
         input: "queue this next",
       }),
       isSelectedRunning: true,

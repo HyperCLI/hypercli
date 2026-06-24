@@ -324,15 +324,15 @@ function legacySessionKeyCandidates(
   preferredAgentId: string,
   sessions: OpenClawSessionRecord[],
 ): string[] {
-  const candidates: Array<string | null | undefined> = [];
-  if (preferredAgentId && preferredAgentId !== CANONICAL_GATEWAY_AGENT_ID) {
-    candidates.push(`agent:${preferredAgentId}:main`);
-  }
+  const normalizedPreferredAgentId = preferredAgentId.trim();
+  if (!normalizedPreferredAgentId || normalizedPreferredAgentId === CANONICAL_GATEWAY_AGENT_ID) return [];
 
+  const legacyAgentPrefix = `agent:${normalizedPreferredAgentId}:`;
+  const candidates: Array<string | null | undefined> = [];
   for (const session of sessions) {
-    const sessionKey = session.key;
-    if (!sessionKey || sessionKey === CANONICAL_GATEWAY_AGENT_ID) continue;
-    if (!preferredAgentId || sessionKey.includes(preferredAgentId) || sessionKey.startsWith("agent:")) {
+    for (const sessionKey of uniqueNonEmptyStrings([session.key, session.gatewaySessionKey])) {
+      if (sessionKey === CANONICAL_GATEWAY_AGENT_ID) continue;
+      if (!sessionKey.startsWith(legacyAgentPrefix)) continue;
       candidates.push(sessionKey);
     }
   }
@@ -355,14 +355,10 @@ async function loadLegacyHistory(
 }
 
 function legacyGatewayAgentCandidates(
-  preferredAgentId: string,
   agents: Array<Record<string, unknown>>,
   canonicalAgentId: string,
 ): string[] {
   const candidates: Array<string | null | undefined> = [];
-  if (preferredAgentId && preferredAgentId !== CANONICAL_GATEWAY_AGENT_ID) {
-    candidates.push(preferredAgentId);
-  }
   for (const agent of agents) {
     if (typeof agent.id === "string") candidates.push(agent.id);
   }
@@ -410,11 +406,10 @@ async function migrateLegacyGatewayFiles(
 
 async function recoverLegacyGatewayFiles(
   gateway: GatewayClient,
-  preferredAgentId: string,
   agents: Array<Record<string, unknown>>,
   canonicalAgentId: string,
 ): Promise<{ files: WorkspaceFile[]; agentId: string } | null> {
-  for (const legacyAgentId of legacyGatewayAgentCandidates(preferredAgentId, agents, canonicalAgentId)) {
+  for (const legacyAgentId of legacyGatewayAgentCandidates(agents, canonicalAgentId)) {
     let legacyFiles: WorkspaceFile[] = [];
     try {
       legacyFiles = await gateway.filesList(legacyAgentId) as WorkspaceFile[];
@@ -457,7 +452,7 @@ export async function hydrateOpenClawConnection(
       files = await gateway.filesList(resolvedGatewayAgentId);
     } catch {}
     if (files.length === 0) {
-      const recovered = await recoverLegacyGatewayFiles(gateway, normalizedPreferredAgentId, agents, resolvedGatewayAgentId);
+      const recovered = await recoverLegacyGatewayFiles(gateway, agents, resolvedGatewayAgentId);
       if (recovered) {
         files = recovered.files;
         activeGatewayAgentId = recovered.agentId;

@@ -179,7 +179,32 @@ describe("openclaw session keys", () => {
     const hydrated = await hydrateOpenClawSession(gateway as any, "550e8400-e29b-41d4-a716-446655440000");
 
     expect(gateway.chatHistory).toHaveBeenCalledWith("main", 200);
+    expect(gateway.chatHistory).toHaveBeenCalledTimes(1);
     expect(gateway.filesList).toHaveBeenCalledWith("main");
+    expect(hydrated.gwAgentId).toBe("main");
+  });
+
+  it("does not probe unadvertised deployment workspaces when canonical files are empty", async () => {
+    const deploymentId = "550e8400-e29b-41d4-a716-446655440000";
+    const gateway = {
+      configGet: vi.fn(async () => ({})),
+      configSchema: vi.fn(async () => null),
+      chatHistory: vi.fn(async () => []),
+      agentsList: vi.fn(async () => [{ id: "main" }]),
+      sessionsList: vi.fn(async () => []),
+      cronList: vi.fn(async () => []),
+      modelsList: vi.fn(async () => []),
+      filesList: vi.fn(async (agentId: string) => {
+        if (agentId === "main") return [];
+        throw new Error(`Unexpected legacy workspace probe: ${agentId}`);
+      }),
+    };
+
+    const hydrated = await hydrateOpenClawSession(gateway as any, deploymentId);
+
+    expect(gateway.filesList).toHaveBeenCalledTimes(1);
+    expect(gateway.filesList).toHaveBeenCalledWith("main");
+    expect(hydrated.files).toEqual([]);
     expect(hydrated.gwAgentId).toBe("main");
   });
 
@@ -389,7 +414,6 @@ describe("openclaw session keys", () => {
       setMessages,
       setSending: vi.fn(),
       appendActivity: vi.fn(),
-      activeSessionKey: "main",
     });
 
     expect(messages).toEqual([

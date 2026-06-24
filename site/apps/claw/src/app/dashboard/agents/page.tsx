@@ -32,7 +32,7 @@ import {
 } from "@/lib/agent-client";
 import { isVisibleCurrentAgentPlan } from "@/lib/agent-plan-catalog";
 import { formatCpu, formatMemory, formatTokens, type SlotInventoryEntry } from "@/lib/format";
-import { useOpenClawSession } from "@/hooks/useOpenClawSession";
+import { useOpenClawSession, type OpenClawHydrationMode } from "@/hooks/useOpenClawSession";
 import { useAgentLogs } from "@/hooks/useAgentLogs";
 import { useAgentShell } from "@/hooks/useAgentShell";
 import { useAgentShellActivation } from "@/hooks/useAgentShellActivation";
@@ -1374,11 +1374,21 @@ function AgentsPageContent() {
     ? selectedSessionKeysByAgent[selectedAgentId] ?? resolveOpenClawSessionKey(selectedAgentId)
     : resolveOpenClawSessionKey(null);
   const gatewayEnabled = isSelectedRunning;
+  const openClawHydrationMode: OpenClawHydrationMode = (
+    mainTab === "chat" ||
+    mainTab === "workspace" ||
+    mainTab === "integrations" ||
+    mainTab === "scheduled" ||
+    mainTab === "settings" ||
+    mainTab === "openclaw" ||
+    openclawSettingsOpen
+  ) ? "full" : "sessions";
 
   const chat = useOpenClawSession(
     selectedAgent && isSelectedRunning ? selectedOpenClawAgent : null,
     gatewayEnabled,
     selectedSessionKey,
+    { hydrationMode: openClawHydrationMode },
   );
   const gatewayChat = asAgentGatewaySession(chat);
   const activeConnectionStatus = useMemo(() => {
@@ -1418,16 +1428,18 @@ function AgentsPageContent() {
   }, [getAgentClient, selectedAgentId, selectedAgentState]);
 
   const refreshChatFileReferences = useCallback(async () => {
+    if (mainTab !== "chat") return;
     if (!selectedAgentId || !chat.connected) {
       setChatFileReferenceCandidates([]);
       return;
     }
     const entries = await listAgentFiles(OPENCLAW_WORKSPACE_PREFIX);
     setChatFileReferenceCandidates(entries.map(workspaceFileReferenceFromEntry).filter((file): file is ChatPendingFile => Boolean(file)));
-  }, [chat.connected, listAgentFiles, selectedAgentId]);
+  }, [chat.connected, listAgentFiles, mainTab, selectedAgentId]);
 
   useEffect(() => {
     let cancelled = false;
+    if (mainTab !== "chat") return;
     if (!selectedAgentId || !chat.connected) {
       queueMicrotask(() => {
         if (!cancelled) setChatFileReferenceCandidates([]);
@@ -1445,7 +1457,7 @@ function AgentsPageContent() {
     return () => {
       cancelled = true;
     };
-  }, [chat.connected, listAgentFiles, selectedAgentId]);
+  }, [chat.connected, listAgentFiles, mainTab, selectedAgentId]);
 
   const renameAgentFileToSafeName = useCallback(async (
     agentClient: Deployments,
@@ -1660,6 +1672,7 @@ function AgentsPageContent() {
 
   // Probe channel status when gateway connects, and refresh after config save
   useEffect(() => {
+    if (!SHOW_AGENT_INSPECTOR) return;
     if (!chat.connected) {
       setChannelsData(null);
       return;
