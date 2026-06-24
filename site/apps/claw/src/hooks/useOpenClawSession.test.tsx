@@ -603,6 +603,55 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("keeps chat ready while switching between fetched sessions without message counts", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.filesList.mockResolvedValue([]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha", lastMessageAt: 10 },
+      { key: "session-beta", title: "Beta", lastMessageAt: 20 },
+    ]);
+    const betaHistory = deferred<unknown[]>();
+    gateway.chatHistory.mockImplementation(async (sessionKey: string) => {
+      if (sessionKey === "session-beta") return betaHistory.promise;
+      return [];
+    });
+    const agent = {
+      id: "main",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.ready).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    expect(result.current.ready).toBe(true);
+    expect(result.current.connected).toBe(true);
+    expect(result.current.hydrating).toBe(false);
+    expect(result.current.messages).toEqual([]);
+    expect(gateway.chatHistory).toHaveBeenCalledWith("session-beta", 200);
+
+    await act(async () => {
+      betaHistory.resolve([]);
+      await betaHistory.promise;
+    });
+
+    expect(result.current.ready).toBe(true);
+    expect(result.current.connected).toBe(true);
+    expect(result.current.hydrating).toBe(false);
+    unmount();
+  });
+
   it("loads sessions without full gateway hydration in sessions-only mode", async () => {
     const gateway = buildGateway();
     gateway.sessionsList.mockResolvedValue([{ key: "main", title: "Main", lastMessageAt: 10 }]);

@@ -914,7 +914,7 @@ export function useOpenClawSession(
   const activeSessionSending = Boolean(sending && sendingTarget && sameChatHistoryTarget(sendingTarget, activeSessionTarget));
   const activeSessionAborting = Boolean(aborting && abortingTarget && sameChatHistoryTarget(abortingTarget, activeSessionTarget));
 
-  useEffect(() => {
+  useLayoutEffect(() => {
     const target = { agentId, sessionKey: activeSessionKey };
     if (cacheRestoreTargetRef.current && sameChatHistoryTarget(cacheRestoreTargetRef.current, target)) return;
     cacheRestoreTargetRef.current = target;
@@ -1040,30 +1040,38 @@ export function useOpenClawSession(
     }
     let cancelled = false;
     const target = { agentId, sessionKey: activeSessionKey };
-    setReady(false);
-    setHydrating(true);
-    void (async () => {
-      type SessionListResult =
-        | { status: "fulfilled"; sessions: OpenClawSessionRecord[] }
-        | { status: "rejected" };
+    type SessionListResult =
+      | { status: "fulfilled"; sessions: OpenClawSessionRecord[] }
+      | { status: "rejected" };
 
-      const reconnectRefreshRequest = reconnectSessionRefreshRef.current;
-      const shouldRefreshSessionsAfterReconnect = Boolean(reconnectRefreshRequest);
-      const readSessionHydration = () => {
-        const sessionSnapshot = sessionSnapshotRef.current;
-        return {
-          sessions: sessionSnapshot.agentId === agentId ? sessionSnapshot.sessions : [],
-          fetched: sessionSnapshot.fetchedAgentId === agentId,
-        };
+    const reconnectRefreshRequest = reconnectSessionRefreshRef.current;
+    const shouldRefreshSessionsAfterReconnect = Boolean(reconnectRefreshRequest);
+    const readSessionHydration = () => {
+      const sessionSnapshot = sessionSnapshotRef.current;
+      return {
+        sessions: sessionSnapshot.agentId === agentId ? sessionSnapshot.sessions : [],
+        fetched: sessionSnapshot.fetchedAgentId === agentId,
       };
-      const sessionHydrationHasActiveSession = (value: ReturnType<typeof readSessionHydration>) => value.fetched && (
-        unscopedOpenClawSessionKey(activeSessionKey) === OPENCLAW_DEFAULT_SESSION_KEY ||
-        Boolean(findOpenClawSelectableSession(value.sessions, activeSessionKey))
-      );
-      const sessionListNeededForHydration = (value: ReturnType<typeof readSessionHydration>) => (
-        !value.fetched || !sessionHydrationHasActiveSession(value)
-      );
-      let sessionHydration = readSessionHydration();
+    };
+    const sessionHydrationHasActiveSession = (value: ReturnType<typeof readSessionHydration>) => value.fetched && (
+      unscopedOpenClawSessionKey(activeSessionKey) === OPENCLAW_DEFAULT_SESSION_KEY ||
+      Boolean(findOpenClawSelectableSession(value.sessions, activeSessionKey))
+    );
+    const sessionListNeededForHydration = (value: ReturnType<typeof readSessionHydration>) => (
+      !value.fetched || !sessionHydrationHasActiveSession(value)
+    );
+    const initialSessionHydration = readSessionHydration();
+    const currentConnectionHydration = connectionHydrationRef.current;
+    const keepSessionSwitchReady = fullHydrationEnabled &&
+      currentConnectionHydration?.gateway === gateway &&
+      currentConnectionHydration.agentId === agentId &&
+      Boolean(currentConnectionHydration.value) &&
+      sessionHydrationHasActiveSession(initialSessionHydration) &&
+      !shouldRefreshSessionsAfterReconnect;
+    setReady(keepSessionSwitchReady);
+    setHydrating(!keepSessionSwitchReady);
+    void (async () => {
+      let sessionHydration = initialSessionHydration;
       let needsSessionListForHydration = sessionListNeededForHydration(sessionHydration);
       let shouldFetchSessionList = shouldRefreshSessionsAfterReconnect || needsSessionListForHydration;
       let sessionListResult: Promise<SessionListResult> | null = null;
