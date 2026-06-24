@@ -477,9 +477,9 @@ export function AgentChatPanel({
     await chat.sendMessage(GITHUB_AGENT_SETUP_PROMPT, { displayContent: "Set up GitHub in this workspace." });
   }, [chat]);
   const verifyAgentGitHubSetup = React.useCallback(async () => {
-    if (chat.sending || chat.activeSessionReadOnly) return;
+    if (activeSessionSending || chat.activeSessionReadOnly) return;
     await chat.sendMessage(GITHUB_AGENT_VERIFY_PROMPT, { displayContent: "Check GitHub connection in this workspace." });
-  }, [chat]);
+  }, [activeSessionSending, chat]);
 
   const handleConnectionSuggestionClick = React.useCallback((suggestion: ChatConnectionSuggestion) => {
     if (suggestion.connectorId) {
@@ -896,7 +896,7 @@ export function AgentChatPanel({
                   <button onClick={discardAudio} className="px-2 py-2 rounded-full border border-border text-text-muted hover:text-destructive hover:bg-surface-low flex items-center justify-center transition-colors" title="Discard" type="button">
                     <X className="w-4 h-4" />
                   </button>
-                  <button onClick={sendAudio} disabled={!chat.connected || chat.activeSessionReadOnly || chat.sending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
+                  <button onClick={sendAudio} disabled={!chat.connected || chat.activeSessionReadOnly || activeSessionSending || sendingAudio} className="btn-primary px-3 py-2 rounded-full disabled:opacity-50 flex items-center justify-center" type="button">
                     {sendingAudio ? <Loader2 className="w-4 h-4 animate-spin" /> : <Send className="w-4 h-4" />}
                   </button>
                 </>

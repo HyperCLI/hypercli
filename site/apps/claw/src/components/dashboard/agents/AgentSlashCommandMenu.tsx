@@ -241,7 +241,7 @@ function sendPrompt(prompt: string | ((args: string) => string)): SlashCommand["
   return async ({ args, chat, close, showFeedback }) => {
     const message = typeof prompt === "function" ? prompt(args) : promptWithContext(prompt, args);
     chat.setInput("");
-    if (chat.sending) {
+    if (chat.activeSessionSending) {
       chat.addPendingMessage(message);
       showFeedback("Prompt queued.");
     } else {

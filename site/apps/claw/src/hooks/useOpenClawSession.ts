@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 import type { OpenClawAgent } from "@hypercli.com/sdk/agents";
 import type {
   ChatEvent,
@@ -95,6 +95,18 @@ interface SendMessageOptions {
   files?: ChatPendingFile[];
 }
 
+interface ComposerDraftState {
+  input: string;
+  pendingAttachments: ChatAttachment[];
+  pendingAttachmentReads: number;
+  pendingFiles: ChatPendingFile[];
+}
+
+interface QueuedChatMessage {
+  message: string;
+  target: ChatHistoryTarget;
+}
+
 export type OpenClawHydrationMode = "full" | "sessions";
 
 interface UseOpenClawSessionOptions {
@@ -185,6 +197,19 @@ function localOpenClawSessionRecord(sessionKey: string, title = fallbackOpenClaw
     title,
     messageCount: 0,
     raw: { key: sessionKey, title },
+  };
+}
+
+function chatHistoryTargetKey(target: ChatHistoryTarget): string {
+  return JSON.stringify([target.agentId ?? null, target.sessionKey]);
+}
+
+function emptyComposerDraft(): ComposerDraftState {
+  return {
+    input: "",
+    pendingAttachments: [],
+    pendingAttachmentReads: 0,
+    pendingFiles: [],
   };
 }
 
@@ -453,10 +478,10 @@ export function useOpenClawSession(
   const [messages, setMessages] = useState<ChatMessage[]>([]);
   const [hydrating, setHydrating] = useState(false);
   const [ready, setReady] = useState(false);
-  const [input, setInput] = useState("");
-  const [pendingInput, setPendingInput] = useState<string[]>([]);
+  const [input, setActiveInput] = useState("");
+  const [pendingMessages, setPendingMessages] = useState<QueuedChatMessage[]>([]);
   const [sending, setSending] = useState(false);
-  const [sendingTarget, setSendingTarget] = useState<ChatHistoryTarget | null>(null);
+  const [sendingTargets, setSendingTargets] = useState<ChatHistoryTarget[]>([]);
   const [files, setFiles] = useState<WorkspaceFile[]>([]);
   const [config, setConfig] = useState<Record<string, unknown> | null>(null);
   const [configSchema, setConfigSchema] = useState<OpenClawConfigSchemaResponse | null>(null);
@@ -475,12 +500,15 @@ export function useOpenClawSession(
   const [aborting, setAborting] = useState(false);
   const [abortingTarget, setAbortingTarget] = useState<ChatHistoryTarget | null>(null);
   const [retrySignal, setRetrySignal] = useState(0);
-  const activeChatSendRef = useRef(false);
-  const activeChatStreamRef = useRef<AsyncGenerator<ChatEvent> | null>(null);
-  const abortRequestedRef = useRef(false);
+  const activeChatSendTargetsRef = useRef<Set<string>>(new Set());
+  const activeChatStreamsRef = useRef<Map<string, AsyncGenerator<ChatEvent>>>(new Map());
+  const abortRequestedTargetsRef = useRef<Set<string>>(new Set());
   const messagesRef = useRef<ChatMessage[]>([]);
+  const liveChatHistoryByTargetRef = useRef<Map<string, ChatMessage[]>>(new Map());
+  const composerDraftsByTargetRef = useRef<Map<string, ComposerDraftState>>(new Map());
+  const activeComposerTargetRef = useRef<ChatHistoryTarget>({ agentId, sessionKey: activeSessionKey });
   const sendingRef = useRef(false);
-  const sendingTargetRef = useRef<ChatHistoryTarget | null>(null);
+  const sendingTargetsRef = useRef<Map<string, ChatHistoryTarget>>(new Map());
   const abortingTargetRef = useRef<ChatHistoryTarget | null>(null);
   const activeSessionKeyRef = useRef(activeSessionKey);
   const chatHistoryTargetRef = useRef<ChatHistoryTarget>({ agentId, sessionKey: activeSessionKey });
@@ -506,27 +534,33 @@ export function useOpenClawSession(
 
   useEffect(() => {
     sendingRef.current = sending;
-    if (!sending) abortRequestedRef.current = false;
   }, [sending]);
 
-  const markSendingForTarget = useCallback((target: ChatHistoryTarget) => {
-    sendingRef.current = true;
-    sendingTargetRef.current = target;
-    setSendingTarget(target);
-    setSending(true);
+  const publishSendingTargets = useCallback(() => {
+    const nextTargets = Array.from(sendingTargetsRef.current.values());
+    setSendingTargets(nextTargets);
+    const anySending = nextTargets.length > 0;
+    sendingRef.current = anySending;
+    setSending(anySending);
   }, []);
+
+  const markSendingForTarget = useCallback((target: ChatHistoryTarget) => {
+    sendingTargetsRef.current.set(chatHistoryTargetKey(target), target);
+    publishSendingTargets();
+  }, [publishSendingTargets]);
 
   const clearSendingForTarget = useCallback((target?: ChatHistoryTarget | null) => {
-    const currentTarget = sendingTargetRef.current;
-    if (target && currentTarget && !sameChatHistoryTarget(currentTarget, target)) return;
-    sendingRef.current = false;
-    sendingTargetRef.current = null;
-    setSendingTarget(null);
-    setSending(false);
-  }, []);
+    if (target) {
+      sendingTargetsRef.current.delete(chatHistoryTargetKey(target));
+    } else {
+      sendingTargetsRef.current.clear();
+    }
+    publishSendingTargets();
+  }, [publishSendingTargets]);
 
   const setSendingForTarget = useCallback((target: ChatHistoryTarget, value: boolean | ((prev: boolean) => boolean)) => {
-    const nextValue = typeof value === "function" ? value(sendingRef.current) : value;
+    const targetIsSending = sendingTargetsRef.current.has(chatHistoryTargetKey(target));
+    const nextValue = typeof value === "function" ? value(targetIsSending) : value;
     if (nextValue) {
       markSendingForTarget(target);
     } else {
@@ -548,6 +582,42 @@ export function useOpenClawSession(
     setAborting(false);
   }, []);
 
+  const readComposerDraftForTarget = useCallback((target: ChatHistoryTarget): ComposerDraftState => {
+    return composerDraftsByTargetRef.current.get(chatHistoryTargetKey(target)) ?? emptyComposerDraft();
+  }, []);
+
+  const syncActiveComposerDraft = useCallback((target: ChatHistoryTarget) => {
+    const draft = readComposerDraftForTarget(target);
+    setActiveInput(draft.input);
+    setPendingAttachments(draft.pendingAttachments);
+    setPendingAttachmentReads(draft.pendingAttachmentReads);
+    setPendingFiles(draft.pendingFiles);
+  }, [readComposerDraftForTarget]);
+
+  const updateComposerDraftForTarget = useCallback((
+    target: ChatHistoryTarget,
+    update: (draft: ComposerDraftState) => ComposerDraftState,
+  ) => {
+    const targetKey = chatHistoryTargetKey(target);
+    const currentDraft = composerDraftsByTargetRef.current.get(targetKey) ?? emptyComposerDraft();
+    const nextDraft = update(currentDraft);
+    composerDraftsByTargetRef.current.set(targetKey, nextDraft);
+    if (sameChatHistoryTarget(activeComposerTargetRef.current, target)) {
+      setActiveInput(nextDraft.input);
+      setPendingAttachments(nextDraft.pendingAttachments);
+      setPendingAttachmentReads(nextDraft.pendingAttachmentReads);
+      setPendingFiles(nextDraft.pendingFiles);
+    }
+  }, []);
+
+  const setInput = useCallback((value: string | ((current: string) => string)) => {
+    const target = activeComposerTargetRef.current;
+    updateComposerDraftForTarget(target, (draft) => ({
+      ...draft,
+      input: typeof value === "function" ? value(draft.input) : value,
+    }));
+  }, [updateComposerDraftForTarget]);
+
   useLayoutEffect(() => {
     activeSessionKeyRef.current = activeSessionKey;
   }, [activeSessionKey]);
@@ -557,14 +627,28 @@ export function useOpenClawSession(
   }, [agentId, activeSessionKey]);
 
   useLayoutEffect(() => {
+    const target = { agentId, sessionKey: activeSessionKey };
+    activeComposerTargetRef.current = target;
+    syncActiveComposerDraft(target);
+  }, [agentId, activeSessionKey, syncActiveComposerDraft]);
+
+  useLayoutEffect(() => {
     sessionSnapshotRef.current = { agentId: sessionsAgentId, fetchedAgentId: sessionsFetchedAgentId, sessions };
   }, [sessionsAgentId, sessionsFetchedAgentId, sessions]);
 
   const dispatchChatHistory = useCallback((action: ChatHistoryAction, target?: ChatHistoryTarget) => {
-    if (target && !sameChatHistoryTarget(chatHistoryTargetRef.current, target)) return;
+    const dispatchTarget = target ?? chatHistoryTargetRef.current;
+    const targetKey = chatHistoryTargetKey(dispatchTarget);
+    if (!sameChatHistoryTarget(chatHistoryTargetRef.current, dispatchTarget)) {
+      const currentMessages = liveChatHistoryByTargetRef.current.get(targetKey) ?? [];
+      const nextMessages = reduceChatHistoryMessages(currentMessages, action);
+      liveChatHistoryByTargetRef.current.set(targetKey, nextMessages);
+      return;
+    }
     setMessages((currentMessages) => {
       const nextMessages = reduceChatHistoryMessages(currentMessages, action);
       messagesRef.current = nextMessages;
+      liveChatHistoryByTargetRef.current.set(targetKey, nextMessages);
       return nextMessages;
     });
   }, []);
@@ -650,14 +734,13 @@ export function useOpenClawSession(
     sessionListRefreshRef.current = null;
     chatHistoryRefreshRef.current = null;
     clearGatewayStatusCaches();
-    activeChatSendRef.current = false;
-    activeChatStreamRef.current = null;
-    abortRequestedRef.current = false;
+    activeChatSendTargetsRef.current.clear();
+    activeChatStreamsRef.current.clear();
+    abortRequestedTargetsRef.current.clear();
     abortingTargetRef.current = null;
-    sendingTargetRef.current = null;
-    sendingRef.current = false;
+    sendingTargetsRef.current.clear();
+    publishSendingTargets();
     setAbortingTarget(null);
-    setSendingTarget(null);
     setAborting(false);
     setHydrating(false);
     setReady(false);
@@ -667,9 +750,12 @@ export function useOpenClawSession(
     setConfigSchema(null);
     setSending(false);
     setGwAgentId("main");
+    composerDraftsByTargetRef.current.clear();
+    setActiveInput("");
     setPendingAttachments([]);
     setPendingAttachmentReads(0);
     setPendingFiles([]);
+    setPendingMessages([]);
     setSessions([]);
     setSessionsAgentId(null);
     setSessionsFetchedAgentId(null);
@@ -679,7 +765,7 @@ export function useOpenClawSession(
     setCronJobs([]);
     setModels([]);
     setActivityFeed([]);
-  }, [clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory]);
+  }, [clearGatewayStatusCaches, completeReconnectSessionRefresh, dispatchChatHistory, publishSendingTargets]);
 
   useEffect(() => {
     if (!enabled || !agentId || seededE2EConnection || status !== "connecting" || ready || error) return;
@@ -768,15 +854,16 @@ export function useOpenClawSession(
             chatHistoryRefreshRef.current = null;
             clearGatewayStatusCaches();
             abortingTargetRef.current = null;
-            sendingTargetRef.current = null;
-            sendingRef.current = false;
+            activeChatSendTargetsRef.current.clear();
+            activeChatStreamsRef.current.clear();
+            abortRequestedTargetsRef.current.clear();
+            sendingTargetsRef.current.clear();
+            publishSendingTargets();
             setGateway(null);
             setHydrating(false);
             setReady(false);
             setAbortingTarget(null);
-            setSendingTarget(null);
             setAborting(false);
-            setSending(false);
             return;
           }
           if (nextState === "connected") {
@@ -807,7 +894,7 @@ export function useOpenClawSession(
       unsubscribeConnectionState?.();
       localGateway?.close();
     };
-  }, [enabled, agentId, retrySignal, seededE2EConnection, clearGatewayStatusCaches, resetSessionStateForDisconnect]);
+  }, [enabled, agentId, retrySignal, seededE2EConnection, clearGatewayStatusCaches, publishSendingTargets, resetSessionStateForDisconnect]);
 
   const appendActivity = useCallback((entry: { type: ActivityKind; action: string; detail?: string; id?: string; timestamp?: number }) => {
     setActivityFeed((prev) => appendActivityEntry(prev, entry));
@@ -899,20 +986,37 @@ export function useOpenClawSession(
     }
   }, [gateway, applyFetchedSessions, fetchSessionList]);
 
-  const activeSessionRecords = sessionsAgentId === agentId ? sessions : [];
+  const activeSessionRecords = useMemo(
+    () => sessionsAgentId === agentId ? sessions : [],
+    [agentId, sessions, sessionsAgentId],
+  );
   const activeSessionRecord = findOpenClawSelectableSession(activeSessionRecords, activeSessionKey)
     ?? (shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, activeSessionKey)
       ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
       : null);
-  const activeVisibleSessionKey = shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, activeSessionKey)
-    ? OPENCLAW_DEFAULT_SESSION_KEY
-    : activeSessionKey;
   const activeGatewaySessionKey = openClawGatewaySessionKey(activeSessionRecord) ?? activeSessionKey;
   const activeSessionReadOnly = Boolean(activeSessionRecord?.readOnly);
   const activeSessionReadOnlyReason = activeSessionRecord?.readOnlyReason ?? null;
   const activeSessionTarget = { agentId, sessionKey: activeSessionKey };
-  const activeSessionSending = Boolean(sending && sendingTarget && sameChatHistoryTarget(sendingTarget, activeSessionTarget));
+  const activeSessionSending = sendingTargets.some((target) => sameChatHistoryTarget(target, activeSessionTarget));
   const activeSessionAborting = Boolean(aborting && abortingTarget && sameChatHistoryTarget(abortingTarget, activeSessionTarget));
+
+  const resolveChatTargetState = useCallback((target: ChatHistoryTarget) => {
+    const targetSessionRecord = target.agentId === agentId
+      ? findOpenClawSelectableSession(activeSessionRecords, target.sessionKey)
+        ?? (shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, target.sessionKey)
+          ? findOpenClawSelectableSession(activeSessionRecords, OPENCLAW_DEFAULT_SESSION_KEY)
+          : null)
+      : null;
+    const visibleSessionKey = shouldReconcileGeneratedSessionsAsMain(activeSessionRecords, target.sessionKey)
+      ? OPENCLAW_DEFAULT_SESSION_KEY
+      : target.sessionKey;
+    return {
+      gatewaySessionKey: openClawGatewaySessionKey(targetSessionRecord) ?? target.sessionKey,
+      readOnly: Boolean(targetSessionRecord?.readOnly),
+      visibleSessionKey,
+    };
+  }, [activeSessionRecords, agentId]);
 
   useLayoutEffect(() => {
     const target = { agentId, sessionKey: activeSessionKey };
@@ -922,8 +1026,9 @@ export function useOpenClawSession(
       dispatchChatHistory({ type: "clear" }, target);
       return;
     }
-    const cachedMessages = readCachedOpenClawChatHistory(agentId, activeSessionKey);
-    dispatchChatHistory({ type: "restore-cache", messages: cachedMessages }, target);
+    const liveMessages = liveChatHistoryByTargetRef.current.get(chatHistoryTargetKey(target));
+    const restoredMessages = liveMessages ?? readCachedOpenClawChatHistory(agentId, activeSessionKey);
+    dispatchChatHistory({ type: "restore-cache", messages: restoredMessages }, target);
   }, [agentId, activeSessionKey, activeSessionReadOnly, dispatchChatHistory]);
 
   useEffect(() => {
@@ -938,29 +1043,34 @@ export function useOpenClawSession(
     dispatchChatHistory({ type: "mark-interrupted" });
   }, [dispatchChatHistory]);
 
-  const refreshMessagesFromHistory = useCallback(async (targetGateway: GatewayClient | null = gateway) => {
+  const refreshMessagesFromHistory = useCallback(async (
+    targetGateway: GatewayClient | null = gateway,
+    targetOverride?: ChatHistoryTarget,
+  ) => {
     if (!targetGateway) return;
+    const refreshTarget = targetOverride ?? { agentId, sessionKey: activeSessionKey };
+    if (refreshTarget.agentId !== agentId) return;
+    const targetState = resolveChatTargetState(refreshTarget);
     const current = chatHistoryRefreshRef.current;
     if (
       current &&
       current.gateway === targetGateway &&
-      current.agentId === agentId &&
-      current.activeSessionKey === activeSessionKey &&
-      current.activeGatewaySessionKey === activeGatewaySessionKey
+      current.agentId === refreshTarget.agentId &&
+      current.activeSessionKey === refreshTarget.sessionKey &&
+      current.activeGatewaySessionKey === targetState.gatewaySessionKey
     ) {
       return current.promise;
     }
 
-    const target = { agentId, sessionKey: activeSessionKey };
-    const promise = refreshOpenClawChatMessages(targetGateway, agentId, activeSessionKey, activeGatewaySessionKey)
+    const promise = refreshOpenClawChatMessages(targetGateway, refreshTarget.agentId, refreshTarget.sessionKey, targetState.gatewaySessionKey)
       .then((historyMessages) => {
-        dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, target);
+        dispatchChatHistory({ type: "merge-history-refresh", messages: historyMessages }, refreshTarget);
       });
     const entry: ChatHistoryRefreshEntry = {
       gateway: targetGateway,
-      agentId,
-      activeSessionKey,
-      activeGatewaySessionKey,
+      agentId: refreshTarget.agentId,
+      activeSessionKey: refreshTarget.sessionKey,
+      activeGatewaySessionKey: targetState.gatewaySessionKey,
       promise,
     };
     chatHistoryRefreshRef.current = entry;
@@ -968,7 +1078,7 @@ export function useOpenClawSession(
       if (chatHistoryRefreshRef.current === entry) chatHistoryRefreshRef.current = null;
     });
     return promise;
-  }, [gateway, agentId, activeSessionKey, activeGatewaySessionKey, dispatchChatHistory]);
+  }, [gateway, agentId, activeSessionKey, dispatchChatHistory, resolveChatTargetState]);
 
   const finishCreatingSession = useCallback((sessionKey: string) => {
     creatingSessionKeysRef.current.delete(sessionKey);
@@ -978,6 +1088,7 @@ export function useOpenClawSession(
   useEffect(() => {
     if (!gateway) return;
     const target = { agentId, sessionKey: activeSessionKey };
+    const targetKey = chatHistoryTargetKey(target);
     let passiveCompletionRefreshTimer: number | null = null;
     let passiveCompletionRefreshHistory = false;
     let passiveCompletionRefreshSessions = false;
@@ -1009,7 +1120,7 @@ export function useOpenClawSession(
         refreshSessions: () => queuePassiveCompletionRefresh({ sessions: true }),
         appendActivity,
         activeSessionKey,
-        suppressChatStreamEvents: activeChatSendRef.current,
+        suppressChatStreamEvents: activeChatSendTargetsRef.current.has(targetKey),
       });
       const payload = gatewayEvent.payload ?? {};
       const payloadRecord = payload as Record<string, unknown>;
@@ -1017,7 +1128,7 @@ export function useOpenClawSession(
       const isAgentLifecycleEnd = gatewayEvent.event === "agent" &&
         String(payloadRecord.stream || "").toLowerCase() === "lifecycle" &&
         String(lifecycleData?.phase || "").toLowerCase() === "end";
-      const isPassiveCompletion = !activeChatSendRef.current && eventMatchesActiveSession && (
+      const isPassiveCompletion = !activeChatSendTargetsRef.current.has(targetKey) && eventMatchesActiveSession && (
         gatewayEvent.event === "chat.done" ||
         (gatewayEvent.event === "chat" && payloadRecord.state === "final") ||
         isAgentLifecycleEnd
@@ -1040,6 +1151,7 @@ export function useOpenClawSession(
     }
     let cancelled = false;
     const target = { agentId, sessionKey: activeSessionKey };
+    const targetKey = chatHistoryTargetKey(target);
     type SessionListResult =
       | { status: "fulfilled"; sessions: OpenClawSessionRecord[] }
       | { status: "rejected" };
@@ -1122,12 +1234,15 @@ export function useOpenClawSession(
         if (cancelled) return;
         setConfig(hydrated.config);
         setConfigSchema(hydrated.configSchema);
-        if (!activeChatSendRef.current) {
+        if (!activeChatSendTargetsRef.current.has(targetKey)) {
+          const liveMessages = liveChatHistoryByTargetRef.current.get(chatHistoryTargetKey(target));
           const hydratedMessages = hydrated.messages.length > 0
             ? hydrated.messages
-            : hydrated.useLocalCacheFallback
-              ? readCachedOpenClawChatHistory(agentId, activeSessionKey)
-              : [];
+            : liveMessages && liveMessages.length > 0
+              ? liveMessages
+              : hydrated.useLocalCacheFallback
+                ? readCachedOpenClawChatHistory(agentId, activeSessionKey)
+                : [];
           dispatchChatHistory({ type: "replace", messages: hydratedMessages }, target);
         }
         setFiles(hydrated.files);
@@ -1144,7 +1259,7 @@ export function useOpenClawSession(
             nextSessions = applyFetchedSessions(initialSessionListResult.sessions);
           }
           completeReconnectSessionRefresh(reconnectRefreshRequest, nextSessions ?? undefined);
-          if (!nextSessions || activeChatSendRef.current) return;
+          if (!nextSessions || activeChatSendTargetsRef.current.has(targetKey)) return;
           const refreshedGatewaySessionKey = resolveOpenClawGatewaySessionKey(nextSessions, activeSessionKey);
           if (refreshedGatewaySessionKey === hydrated.gatewaySessionKey) return;
           const refreshedMessages = await refreshOpenClawChatMessages(gateway, agentId, activeSessionKey, refreshedGatewaySessionKey);
@@ -1171,14 +1286,19 @@ export function useOpenClawSession(
   }, [status, enabled, agentId, resetSessionStateForDisconnect]);
 
   const addPendingMessage = useCallback((message: string) => {
-    setPendingInput((prev) => [...prev, message]);
+    const target = activeComposerTargetRef.current;
+    setPendingMessages((prev) => [...prev, { message, target }]);
   }, []);
 
   const addAttachments = useCallback((files: FileList) => {
     const imageFiles = Array.from(files).filter((file) => file.type.startsWith("image/"));
     if (imageFiles.length === 0) return;
+    const target = activeComposerTargetRef.current;
 
-    setPendingAttachmentReads((count) => count + imageFiles.length);
+    updateComposerDraftForTarget(target, (draft) => ({
+      ...draft,
+      pendingAttachmentReads: draft.pendingAttachmentReads + imageFiles.length,
+    }));
 
     imageFiles.forEach((file) => {
       const reader = new FileReader();
@@ -1186,13 +1306,19 @@ export function useOpenClawSession(
       const finishRead = () => {
         if (finished) return;
         finished = true;
-        setPendingAttachmentReads((count) => Math.max(0, count - 1));
+        updateComposerDraftForTarget(target, (draft) => ({
+          ...draft,
+          pendingAttachmentReads: Math.max(0, draft.pendingAttachmentReads - 1),
+        }));
       };
       reader.onload = () => {
         const result = typeof reader.result === "string" ? reader.result : "";
         const base64 = result.split(",")[1];
         if (!base64) return;
-        setPendingAttachments((prev) => [...prev, { type: "image", mimeType: file.type, content: base64, fileName: file.name }]);
+        updateComposerDraftForTarget(target, (draft) => ({
+          ...draft,
+          pendingAttachments: [...draft.pendingAttachments, { type: "image", mimeType: file.type, content: base64, fileName: file.name }],
+        }));
       };
       reader.onerror = finishRead;
       reader.onabort = finishRead;
@@ -1203,48 +1329,67 @@ export function useOpenClawSession(
         finishRead();
       }
     });
-  }, []);
+  }, [updateComposerDraftForTarget]);
 
   const addPendingFiles = useCallback((files: ChatPendingFile[]) => {
-    setPendingFiles((prev) => [...prev, ...files]);
-  }, []);
+    const target = activeComposerTargetRef.current;
+    updateComposerDraftForTarget(target, (draft) => ({
+      ...draft,
+      pendingFiles: [...draft.pendingFiles, ...files],
+    }));
+  }, [updateComposerDraftForTarget]);
 
   const removeAttachment = useCallback((index: number) => {
-    setPendingAttachments((prev) => {
-      const target = prev[index];
-      if (target?.fileName) {
-        setPendingFiles((currentFiles) => {
-          const fileIndex = currentFiles.findIndex((file) => file.type.startsWith("image/") && file.name === target.fileName);
-          if (fileIndex === -1) return currentFiles;
-          return currentFiles.filter((_, i) => i !== fileIndex);
-        });
+    const target = activeComposerTargetRef.current;
+    updateComposerDraftForTarget(target, (draft) => {
+      const attachment = draft.pendingAttachments[index];
+      let nextPendingFiles = draft.pendingFiles;
+      if (attachment?.fileName) {
+        const fileIndex = nextPendingFiles.findIndex((file) => file.type.startsWith("image/") && file.name === attachment.fileName);
+        if (fileIndex !== -1) nextPendingFiles = nextPendingFiles.filter((_, i) => i !== fileIndex);
       }
-      return prev.filter((_, i) => i !== index);
+      return {
+        ...draft,
+        pendingAttachments: draft.pendingAttachments.filter((_, i) => i !== index),
+        pendingFiles: nextPendingFiles,
+      };
     });
-  }, []);
+  }, [updateComposerDraftForTarget]);
 
   const removePendingFile = useCallback((index: number) => {
-    setPendingFiles((prev) => {
-      const target = prev[index];
-      if (target?.type.startsWith("image/")) {
-        setPendingAttachments((currentAttachments) => {
-          const attachmentIndex = currentAttachments.findIndex((attachment) => attachment.fileName === target.name);
-          if (attachmentIndex === -1) return currentAttachments;
-          return currentAttachments.filter((_, i) => i !== attachmentIndex);
-        });
+    const target = activeComposerTargetRef.current;
+    updateComposerDraftForTarget(target, (draft) => {
+      const file = draft.pendingFiles[index];
+      let nextPendingAttachments = draft.pendingAttachments;
+      if (file?.type.startsWith("image/")) {
+        const attachmentIndex = nextPendingAttachments.findIndex((attachment) => attachment.fileName === file.name);
+        if (attachmentIndex !== -1) nextPendingAttachments = nextPendingAttachments.filter((_, i) => i !== attachmentIndex);
       }
-      return prev.filter((_, i) => i !== index);
+      return {
+        ...draft,
+        pendingAttachments: nextPendingAttachments,
+        pendingFiles: draft.pendingFiles.filter((_, i) => i !== index),
+      };
     });
-  }, []);
+  }, [updateComposerDraftForTarget]);
 
-  const sendMessage = useCallback(async (overrideInput?: string, options: SendMessageOptions = {}) => {
+  const sendMessage = useCallback(async (
+    overrideInput?: string,
+    options: SendMessageOptions = {},
+    targetOverride?: ChatHistoryTarget,
+  ) => {
     if (!gateway || !ready) throw new Error("Chat is not ready");
-    if (activeSessionReadOnly) return;
-    const nextInput = typeof overrideInput === "string" ? overrideInput : input;
-    const nextAttachments = typeof overrideInput === "string" ? [] : pendingAttachments;
-    const nextFiles = options.files ?? (typeof overrideInput === "string" ? [] : pendingFiles);
-    const readingAttachments = typeof overrideInput !== "string" && pendingAttachmentReads > 0;
-    if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sending || readingAttachments) return;
+    const target = targetOverride ?? { agentId, sessionKey: activeSessionKey };
+    if (target.agentId !== agentId) return;
+    const targetKey = chatHistoryTargetKey(target);
+    const targetState = resolveChatTargetState(target);
+    if (targetState.readOnly) return;
+    const targetDraft = readComposerDraftForTarget(target);
+    const nextInput = typeof overrideInput === "string" ? overrideInput : targetDraft.input;
+    const nextAttachments = typeof overrideInput === "string" ? [] : targetDraft.pendingAttachments;
+    const nextFiles = options.files ?? (typeof overrideInput === "string" ? [] : targetDraft.pendingFiles);
+    const readingAttachments = typeof overrideInput !== "string" && targetDraft.pendingAttachmentReads > 0;
+    if ((!nextInput.trim() && nextAttachments.length === 0 && nextFiles.length === 0) || sendingTargetsRef.current.has(targetKey) || readingAttachments) return;
 
     const msg = (options.displayContent ?? nextInput).trim();
     const agentInput = nextInput.trim();
@@ -1252,12 +1397,15 @@ export function useOpenClawSession(
     const files = [...nextFiles];
     const hiddenFileHeader = files.map((file) => `file: ${file.path}`).join("\n");
     const agentMessage = hiddenFileHeader ? (agentInput ? `${hiddenFileHeader}\n\n${agentInput}` : `${hiddenFileHeader}\n\n`) : agentInput;
-    const target = { agentId, sessionKey: activeSessionKey };
-    setInput("");
-    setPendingAttachments([]);
-    setPendingFiles([]);
+    updateComposerDraftForTarget(target, (draft) => ({
+      ...draft,
+      input: "",
+      pendingAttachments: [],
+      pendingAttachmentReads: 0,
+      pendingFiles: [],
+    }));
     clearAbortingForTarget(null);
-    abortRequestedRef.current = false;
+    abortRequestedTargetsRef.current.delete(targetKey);
     markSendingForTarget(target);
 
     const messageTimestamp = Date.now();
@@ -1269,31 +1417,31 @@ export function useOpenClawSession(
     const preview = msg.slice(0, 80);
     appendActivity({ type: "message", action: "User message sent", detail: preview + (attachments.length > 0 ? ` · ${attachments.length} image${attachments.length === 1 ? "" : "s"}` : "") });
     setTitledSessions((prev) => {
-      const existing = prev.find((session) => sameOpenClawSelectableSessionKey(session.key, activeVisibleSessionKey));
+      const existing = prev.find((session) => sameOpenClawSelectableSessionKey(session.key, targetState.visibleSessionKey));
       const touchedSession = {
-        ...(existing ?? localOpenClawSessionRecord(activeVisibleSessionKey)),
+        ...(existing ?? localOpenClawSessionRecord(targetState.visibleSessionKey)),
         lastMessageAt: messageTimestamp,
         messageCount: existing ? existing.messageCount + 1 : 1,
       };
       return [
         touchedSession,
-        ...prev.filter((session) => !sameOpenClawSelectableSessionKey(session.key, activeVisibleSessionKey)),
+        ...prev.filter((session) => !sameOpenClawSelectableSessionKey(session.key, targetState.visibleSessionKey)),
       ];
     });
 
     let handledByChatSend = false;
     let chatSendCompleted = false;
     try {
-      const sessionKey = activeGatewaySessionKey;
+      const sessionKey = targetState.gatewaySessionKey;
       const messageToSend = agentMessage || "What's in this image?";
       const attachmentsToSend = attachments.length > 0 ? attachments : undefined;
       if (typeof gateway.chatSend === "function") {
         handledByChatSend = true;
-        activeChatSendRef.current = true;
+        activeChatSendTargetsRef.current.add(targetKey);
         const chatStream = streamOpenClawChat(gateway, messageToSend, sessionKey, attachmentsToSend);
-        activeChatStreamRef.current = chatStream;
+        activeChatStreamsRef.current.set(targetKey, chatStream);
         for await (const chatEvent of chatStream) {
-          if (abortRequestedRef.current) continue;
+          if (abortRequestedTargetsRef.current.has(targetKey)) continue;
           handleOpenClawChatStreamEvent({
             chatEvent,
             setMessages: (update) => dispatchChatHistory({ type: "apply-update", update }, target),
@@ -1307,53 +1455,57 @@ export function useOpenClawSession(
       }
     } catch (e: unknown) {
       const errMsg = formatOpenClawConnectionError(e);
-      if (!abortRequestedRef.current) {
+      if (!abortRequestedTargetsRef.current.has(targetKey)) {
         dispatchChatHistory({ type: "append-system-message", content: `Error: ${errMsg}` }, target);
         appendActivity({ type: "error", action: "Send failed", detail: errMsg });
       }
       clearSendingForTarget(target);
     } finally {
-      activeChatStreamRef.current = null;
-      activeChatSendRef.current = false;
-      abortRequestedRef.current = false;
+      activeChatStreamsRef.current.delete(targetKey);
+      activeChatSendTargetsRef.current.delete(targetKey);
+      abortRequestedTargetsRef.current.delete(targetKey);
       clearAbortingForTarget(target);
       if (handledByChatSend) {
         clearSendingForTarget(target);
       }
       if (handledByChatSend && chatSendCompleted) {
-        await refreshMessagesFromHistory();
+        await refreshMessagesFromHistory(gateway, target);
         await refreshSessionList(gateway);
       }
     }
-  }, [gateway, ready, activeSessionReadOnly, input, pendingAttachments, pendingAttachmentReads, pendingFiles, sending, appendActivity, activeGatewaySessionKey, activeVisibleSessionKey, activeSessionKey, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markSendingForTarget, refreshMessagesFromHistory, refreshSessionList, setSendingForTarget, setTitledSessions, agentId]);
+  }, [gateway, ready, agentId, activeSessionKey, appendActivity, clearAbortingForTarget, clearSendingForTarget, dispatchChatHistory, markSendingForTarget, readComposerDraftForTarget, refreshMessagesFromHistory, refreshSessionList, resolveChatTargetState, setSendingForTarget, setTitledSessions, updateComposerDraftForTarget]);
 
   const abortMessage = useCallback(async () => {
     const target = { agentId, sessionKey: activeSessionKey };
-    if (!gateway || !ready || !activeSessionSending || abortRequestedRef.current || typeof gateway.chatAbort !== "function") return;
-    abortRequestedRef.current = true;
+    const targetKey = chatHistoryTargetKey(target);
+    if (!gateway || !ready || !sendingTargetsRef.current.has(targetKey) || abortRequestedTargetsRef.current.has(targetKey) || typeof gateway.chatAbort !== "function") return;
+    abortRequestedTargetsRef.current.add(targetKey);
     markAbortingForTarget(target);
     try {
       await gateway.chatAbort(activeGatewaySessionKey);
-      void activeChatStreamRef.current?.return(undefined).catch(() => undefined);
+      void activeChatStreamsRef.current.get(targetKey)?.return(undefined).catch(() => undefined);
       markCurrentReplyInterrupted();
       clearSendingForTarget(target);
       clearAbortingForTarget(target);
       appendActivity({ type: "system", action: "Assistant reply stopped" });
     } catch (e: unknown) {
-      abortRequestedRef.current = false;
+      abortRequestedTargetsRef.current.delete(targetKey);
       clearAbortingForTarget(target);
       appendActivity({ type: "error", action: "Stop failed", detail: formatOpenClawConnectionError(e) });
     }
-  }, [gateway, ready, activeSessionSending, agentId, activeSessionKey, activeGatewaySessionKey, markAbortingForTarget, markCurrentReplyInterrupted, clearSendingForTarget, clearAbortingForTarget, appendActivity]);
+  }, [gateway, ready, agentId, activeSessionKey, activeGatewaySessionKey, markAbortingForTarget, markCurrentReplyInterrupted, clearSendingForTarget, clearAbortingForTarget, appendActivity]);
 
   useEffect(() => {
     if (!ready) return;
-    if (!sending && pendingInput.length > 0) {
-      const nextMessage = pendingInput[0];
-      setPendingInput((prev) => prev.slice(1));
-      void sendMessage(nextMessage);
+    const nextMessageIndex = pendingMessages.findIndex((message) => (
+      message.target.agentId === agentId && !sendingTargetsRef.current.has(chatHistoryTargetKey(message.target))
+    ));
+    if (nextMessageIndex !== -1) {
+      const nextMessage = pendingMessages[nextMessageIndex];
+      setPendingMessages((prev) => prev.filter((_, index) => index !== nextMessageIndex));
+      if (nextMessage) void sendMessage(nextMessage.message, {}, nextMessage.target);
     }
-  }, [ready, sending, pendingInput, sendMessage]);
+  }, [ready, pendingMessages, sendMessage, agentId, sendingTargets]);
 
   const openFile = useCallback(async (name: string): Promise<string> => {
     if (!gateway) throw new Error("Not connected");
@@ -1421,10 +1573,8 @@ export function useOpenClawSession(
     creatingSessionKeysRef.current.add(sessionKey);
     setCreatingSessionKeys((prev) => prev.includes(sessionKey) ? prev : [...prev, sessionKey]);
     dispatchChatHistory({ type: "clear" });
-    setInput("");
-    setPendingInput([]);
-    setPendingAttachments([]);
-    setPendingFiles([]);
+    updateComposerDraftForTarget(activeComposerTargetRef.current, () => emptyComposerDraft());
+    setPendingMessages([]);
     setDeletedSessionKeys((prev) => {
       if (!(sessionKey in prev)) return prev;
       const next = { ...prev };
@@ -1455,7 +1605,7 @@ export function useOpenClawSession(
       }
     })();
     return sessionKey;
-  }, [gateway, sending, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory]);
+  }, [gateway, sending, sessionsFetchedAgentId, agentId, sessions, applyFetchedSessions, setSessionTitleOverride, setTitledSessions, appendActivity, fetchSessionList, finishCreatingSession, dispatchChatHistory, updateComposerDraftForTarget]);
 
   const renameSession = useCallback(async (sessionKey: string, title: string) => {
     if (!agentId) throw new Error("Session rename is unavailable.");
@@ -1470,6 +1620,11 @@ export function useOpenClawSession(
     const session = findOpenClawSelectableSession(sessions, sessionKey);
     await deleteOpenClawSession(gateway, openClawGatewaySessionKey(session) ?? sessionKey);
     clearCachedOpenClawChatHistory(agentId, sessionKey);
+    const target = { agentId, sessionKey };
+    const targetKey = chatHistoryTargetKey(target);
+    liveChatHistoryByTargetRef.current.delete(targetKey);
+    composerDraftsByTargetRef.current.delete(targetKey);
+    setPendingMessages((prev) => prev.filter((item) => !sameChatHistoryTarget(item.target, target)));
     removeSessionTitleOverride(sessionKey);
     setDeletedSessionKeys((prev) => ({
       ...prev,
@@ -1478,8 +1633,9 @@ export function useOpenClawSession(
     setTitledSessions((prev) => prev.filter((session) => !sameOpenClawSelectableSessionKey(session.key, sessionKey)));
     if (sameOpenClawSelectableSessionKey(sessionKey, activeSessionKey)) {
       dispatchChatHistory({ type: "clear" });
+      syncActiveComposerDraft(target);
     }
-  }, [gateway, agentId, activeSessionKey, sessions, removeSessionTitleOverride, setTitledSessions, dispatchChatHistory]);
+  }, [gateway, agentId, activeSessionKey, sessions, removeSessionTitleOverride, setTitledSessions, dispatchChatHistory, syncActiveComposerDraft]);
 
   const refreshCron = useCallback(async () => {
     if (!gateway) throw new Error("Not connected");
@@ -1625,6 +1781,9 @@ export function useOpenClawSession(
   const visibleSessions = activeSessions.filter((session) => (
     !Object.keys(deletedSessionKeys).some((deletedKey) => sameOpenClawSelectableSessionKey(session.key, deletedKey))
   ));
+  const pendingInput = pendingMessages
+    .filter((item) => sameChatHistoryTarget(item.target, activeSessionTarget))
+    .map((item) => item.message);
 
   return {
     gateway,

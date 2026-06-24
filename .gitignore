@@ -27,6 +27,7 @@ coverage
 # Misc
 .DS_Store
 .agents/
+.opencode/
 *.pem
 
 # IDE

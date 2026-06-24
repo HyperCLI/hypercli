@@ -904,6 +904,287 @@ describe("useOpenClawSession", () => {
     unmount();
   });
 
+  it("restores an in-flight hidden session transcript before the final response", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ] as any);
+    gateway.chatHistory.mockImplementation((async (sessionKey: string) => {
+      if (sessionKey === "session-beta") return [{ role: "assistant", content: "Beta history" }];
+      return [];
+    }) as any);
+    const thinkingReady = deferred<void>();
+    const thinkingProcessed = deferred<void>();
+    const release = deferred<void>();
+    gateway.chatSend.mockImplementation((async function* () {
+      await thinkingReady.promise;
+      yield { type: "thinking" as const, text: "Reviewing session context" };
+      thinkingProcessed.resolve();
+      await release.promise;
+      yield { type: "done" as const, data: {} };
+    }) as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("hello alpha");
+    });
+
+    let sendPromise: Promise<void> | undefined;
+    act(() => {
+      sendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+    expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "hello alpha" }),
+    ]);
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(false);
+
+    await act(async () => {
+      thinkingReady.resolve();
+      await thinkingProcessed.promise;
+    });
+
+    rerender({ sessionKey: "session-alpha" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-alpha"));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "hello alpha" }),
+    ]));
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(true);
+
+    await act(async () => {
+      release.resolve();
+      await sendPromise;
+    });
+    unmount();
+  });
+
+  it("keeps composer drafts scoped to the selected session", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ] as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("alpha draft");
+    });
+    expect(result.current.input).toBe("alpha draft");
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    await waitFor(() => expect(result.current.input).toBe(""));
+
+    act(() => {
+      result.current.setInput("beta draft");
+    });
+    expect(result.current.input).toBe("beta draft");
+
+    rerender({ sessionKey: "session-alpha" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-alpha"));
+    await waitFor(() => expect(result.current.input).toBe("alpha draft"));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    await waitFor(() => expect(result.current.input).toBe("beta draft"));
+    unmount();
+  });
+
+  it("sends a draft immediately in another session while one session is streaming", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+      { key: "session-gamma", title: "Gamma" },
+    ] as any);
+    gateway.chatHistory.mockResolvedValue([]);
+    const alphaRelease = deferred<void>();
+    const betaRelease = deferred<void>();
+    const chatSends: Array<{ message: string; sessionKey: string }> = [];
+    gateway.chatSend.mockImplementation((async function* (message: string, sessionKey: string) {
+      chatSends.push({ message, sessionKey });
+      if (sessionKey === "session-alpha") await alphaRelease.promise;
+      if (sessionKey === "session-beta") await betaRelease.promise;
+      yield { type: "done" as const, data: {} };
+    }) as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("alpha start");
+    });
+
+    let alphaSendPromise: Promise<void> | undefined;
+    act(() => {
+      alphaSendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(chatSends).toEqual([
+      { message: "alpha start", sessionKey: "session-alpha" },
+    ]));
+    await waitFor(() => expect(result.current.sending).toBe(true));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    await waitFor(() => expect(result.current.input).toBe(""));
+
+    act(() => {
+      result.current.setInput("beta start");
+    });
+    let betaSendPromise: Promise<void> | undefined;
+    act(() => {
+      betaSendPromise = result.current.sendMessage();
+    });
+
+    await waitFor(() => expect(chatSends).toEqual([
+      { message: "alpha start", sessionKey: "session-alpha" },
+      { message: "beta start", sessionKey: "session-beta" },
+    ]));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "beta start" }),
+    ]));
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(true);
+    expect(result.current.pendingInput).toEqual([]);
+
+    rerender({ sessionKey: "session-gamma" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-gamma"));
+    await waitFor(() => expect(result.current.pendingInput).toEqual([]));
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(false);
+
+    await act(async () => {
+      betaRelease.resolve();
+      await betaSendPromise;
+      alphaRelease.resolve();
+      await alphaSendPromise;
+    });
+
+    await waitFor(() => expect(result.current.sending).toBe(false));
+    expect(result.current.activeSessionKey).toBe("session-gamma");
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "user", content: "beta start" }),
+    ]));
+    unmount();
+  });
+
+  it("renders live events in the active session while another session is streaming", async () => {
+    const gateway = buildGateway();
+    gateway.agentsList.mockResolvedValue([{ id: "main" }]);
+    gateway.sessionsList.mockResolvedValue([
+      { key: "session-alpha", title: "Alpha" },
+      { key: "session-beta", title: "Beta" },
+    ] as any);
+    gateway.chatHistory.mockResolvedValue([]);
+    const alphaRelease = deferred<void>();
+    gateway.chatSend.mockImplementation((async function* (_message: string, sessionKey: string) {
+      if (sessionKey === "session-alpha") await alphaRelease.promise;
+      yield { type: "done" as const, data: {} };
+    }) as any);
+    const agent = {
+      id: "deploy-123",
+      connect: vi.fn(),
+      waitForGatewayContext: vi.fn(async () => undefined),
+      gateway: vi.fn(() => gateway),
+    };
+
+    const { result, rerender, unmount } = renderHookWithClient(
+      ({ sessionKey }: { sessionKey: string }) => useOpenClawSession(agent as any, true, sessionKey),
+      { initialProps: { sessionKey: "session-alpha" } },
+    );
+
+    await waitFor(() => expect(result.current.connected).toBe(true));
+    await waitFor(() => expect(result.current.hydrating).toBe(false));
+
+    act(() => {
+      result.current.setInput("alpha start");
+    });
+    let alphaSendPromise: Promise<void> | undefined;
+    act(() => {
+      alphaSendPromise = result.current.sendMessage();
+    });
+    await waitFor(() => expect(result.current.activeSessionSending).toBe(true));
+
+    rerender({ sessionKey: "session-beta" });
+
+    await waitFor(() => expect(result.current.activeSessionKey).toBe("session-beta"));
+    expect(result.current.sending).toBe(true);
+    expect(result.current.activeSessionSending).toBe(false);
+
+    act(() => {
+      gateway.emit({ event: "chat.content", payload: { sessionKey: "session-beta", text: "Beta live reply" } });
+    });
+
+    await waitFor(() => expect(result.current.messages).toEqual([
+      expect.objectContaining({ role: "assistant", content: "Beta live reply" }),
+    ]));
+
+    await act(async () => {
+      alphaRelease.resolve();
+      await alphaSendPromise;
+    });
+    unmount();
+  });
+
   it("keeps main and Telegram sessions separate when selecting the Telegram session", async () => {
     const gateway = buildGateway();
     gateway.agentsList.mockResolvedValue([{ id: "main" }]);

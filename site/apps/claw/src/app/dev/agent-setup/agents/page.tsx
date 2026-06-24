@@ -1408,9 +1408,10 @@ export default function DevAgentSetupAgentsPage() {
   const formatDuration = (s: number) => `${Math.floor(s / 60)}:${(s % 60).toString().padStart(2, "0")}`;
 
   const handleSendChat = () => {
-    if (chat.sending) {
+    const draftInput = chat.input;
+    if (chat.activeSessionSending) {
       chat.setInput("");
-      chat.addPendingMessage(chat.input);
+      chat.addPendingMessage(draftInput);
       return;
     }
     chat.sendMessage();

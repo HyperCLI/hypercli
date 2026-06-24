@@ -2369,7 +2369,8 @@ function AgentsPageContent() {
 
   const handleSendChat = () => {
     if (chat.activeSessionReadOnly) return;
-    const hasChatWork = chat.input.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
+    const draftInput = chat.input;
+    const hasChatWork = draftInput.trim().length > 0 || chat.pendingFiles.length > 0 || chat.pendingAttachments.length > 0;
     const pendingJourneyCompletion = journeyChatCompletionRef.current;
     const completePendingJourney = () => {
       if (pendingJourneyCompletion?.dayId) {
@@ -2379,9 +2380,9 @@ function AgentsPageContent() {
       }
       journeyChatCompletionRef.current = null;
     };
-    if (chat.sending) {
+    if (chat.activeSessionSending) {
       chat.setInput("");
-      chat.addPendingMessage(chat.input);
+      chat.addPendingMessage(draftInput);
       if (hasChatWork) {
         completePendingJourney();
       }
